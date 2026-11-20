@@ -936,6 +936,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...(branch?.context || chatSessionState.contextData),
         aiSystemPrompt: chatSessionState.aiPrefs.aiSystemPrompt
       };
+      const subtitleCount = Array.isArray(context.subtitleBody) ? context.subtitleBody.length : 0;
+      if (subtitleCount > 0) {
+        activeTurn?.setSubtitleContextCount?.(subtitleCount);
+      }
       const contextKey = branch?.contextKey || String(chatSessionState.currentContextKey || "").trim();
       activeUserContextKey = contextKey;
       if (contextKey && lastAckedContextKey === contextKey) {

@@ -147,6 +147,82 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(stableEl.textContent).toBe("全新内容");
     expect(session.rawText).toBe("全新内容\n\n第二段");
   });
+
+  it("流式未闭合代码围栏（```）实时容错补全为代码块且带外壳，闭合后无缝衔接", () => {
+    const stableEl = document.createElement("div");
+    const tailEl = document.createElement("div");
+    const session = createMarkdownStreamSession(stableEl, tailEl);
+
+    session.flush("说明\n\n```ts\nconst a = 1;\n");
+    expect(stableEl.textContent).toBe("说明");
+    const streamingCode = tailEl.querySelector(".biliscript-md-code");
+    expect(streamingCode).toBeTruthy();
+    expect(streamingCode?.querySelector(".biliscript-md-code-lang")?.textContent).toBe("ts");
+    const pre = streamingCode?.querySelector("pre");
+    expect(pre?.getAttribute("data-lang")).toBe("ts");
+    expect(pre?.getAttribute("data-streaming-open")).toBe("true");
+    expect(pre?.textContent).toContain("const a = 1;");
+    // 绝不降级成包含裸 ``` 的段落
+    expect(tailEl.querySelector("p")).toBeNull();
+
+    // 闭合后进入 stable，不再带 streaming 标记
+    session.flush("```\n\n后续段落");
+    expect(stableEl.querySelector(".biliscript-md-code pre")?.getAttribute("data-streaming-open")).toBeNull();
+    expect(tailEl.textContent).toContain("后续段落");
+  });
+
+  it("流式未闭合 mermaid 围栏保持 streaming 源码态，不提前触发渲染", () => {
+    const stableEl = document.createElement("div");
+    const tailEl = document.createElement("div");
+    const session = createMarkdownStreamSession(stableEl, tailEl);
+
+    session.flush("```mermaid\ngraph TD\nA --> ");
+    const block = tailEl.querySelector<HTMLElement>(`[${MERMAID_BLOCK_ATTR}]`);
+    expect(block).toBeTruthy();
+    expect(block?.getAttribute(MERMAID_BLOCK_ATTR)).toBe("streaming");
+    expect(block?.getAttribute("data-streaming-open")).toBe("true");
+  });
+
+  it("流式未闭合多行公式（$$）含空行不被切裂，容错渲染为稳定占位直到闭合", () => {
+    const stableEl = document.createElement("div");
+    const tailEl = document.createElement("div");
+    const session = createMarkdownStreamSession(stableEl, tailEl);
+
+    session.flush("推导如下\n\n$$\na = 1\n\nb = 2");
+    expect(stableEl.textContent).toBe("推导如下");
+    const mathEl = tailEl.querySelector<HTMLElement>(`[${MATH_BLOCK_ATTR}="block"]`);
+    expect(mathEl).toBeTruthy();
+    expect(mathEl?.getAttribute("data-streaming-open")).toBe("true");
+    expect(mathEl?.textContent).toContain("a = 1");
+    expect(mathEl?.textContent).toContain("b = 2");
+
+    // 闭合后整块公式落定到 stable 且移除 streaming 标记
+    session.flush("\n$$\n\n结论");
+    const stableMath = stableEl.querySelector<HTMLElement>(`[${MATH_BLOCK_ATTR}="block"]`);
+    expect(stableMath).toBeTruthy();
+    expect(stableMath?.getAttribute("data-streaming-open")).toBeNull();
+    expect(tailEl.textContent).toContain("结论");
+  });
+
+  it("流式尾部未闭合行内加粗、代码与公式做防抖容错，不露出孤立标记", () => {
+    const stableEl = document.createElement("div");
+    const tailEl = document.createElement("div");
+    const session = createMarkdownStreamSession(stableEl, tailEl);
+
+    session.flush("这是 **重点内容");
+    expect(tailEl.querySelector("strong")?.textContent).toBe("重点内容");
+    expect(tailEl.textContent).not.toContain("**");
+
+    session.reset();
+    session.flush("变量 `fooBar");
+    expect(tailEl.querySelector("code")?.textContent).toBe("fooBar");
+    expect(tailEl.textContent).not.toContain("`");
+
+    session.reset();
+    session.flush("- 公式: $$E = mc");
+    const inlineBlockMath = tailEl.querySelector(`[${MATH_BLOCK_ATTR}="block"][data-streaming-open="true"]`);
+    expect(inlineBlockMath).toBeTruthy();
+  });
 });
 
 describe("hydrateMarkdownContent 统一水合", () => {

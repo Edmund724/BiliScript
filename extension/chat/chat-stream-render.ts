@@ -88,27 +88,29 @@ export interface ChatMessageArea {
 export interface ChatAssistantTurn {
   /** 助手消息节点元素 */
   node?: HTMLDivElement;
+  /** 登记本回合字幕条数（供思维链自动补齐「读取字幕」前置步骤，不单独创建 DOM）。 */
+  setSubtitleContextCount?: (count: number) => void;
   /** 灌入 token 增量（帧合批；未 flush 的增量同样进终态原文）。 */
   appendToken: (token: unknown) => void;
-  /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
+  /** 灌入思考增量；并入当前回合的思维链状态条。 */
   appendThinking: (text: unknown) => void;
   /** 获取本回合累积的思考文本。 */
   getThinking?: () => string;
-  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，内部自动取消挂起帧，光标归位。 */
+  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思维链状态条与累加器，内部自动取消挂起帧，光标归位。 */
   reset: () => void;
   /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
   discard: () => void;
-  /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
+  /** 收尾成终态形态（正文 + 操作行，自动折叠思维链为单行摘要；内部自动取消挂起帧）；返回本次渲染所用原文。 */
   finish: (opts?: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
-  /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案与可选原位重试操作）。 */
+  /** 挂错误占位（内部自动取消挂起帧；收口在途工具并展示错误文案与可选原位重试操作）。 */
   fail: (text: string, opts?: { onRetry?: () => void; searchStatus?: "failed" | "cancelled" }) => void;
-  /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
+  /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文保留已展开思维链或仅留徽标。 */
   stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
-  /** 工具 tool-status → 时间线卡（插在本节点之前）。 */
+  /** 工具 tool-status → 汇入本回合思维链状态条。 */
   applySearchStatus: (msg: ChatToolStatusEvent) => void;
-  /** 回放：把该回合的静态时间线卡插在本节点之前（回放只表达顺序）。 */
+  /** 回放：把该回合的静态检索步骤与来源合并/挂载进本节点思维链状态条。 */
   attachSearchTimelineCard: (turn: HistorySearchTurn) => void;
 }
 
@@ -131,8 +133,6 @@ interface TokenStreamState {
   stableEl: HTMLDivElement | null;
   tailEl: HTMLDivElement | null;
   cursor: HTMLSpanElement | null;
-  uncollapsedThinking: HTMLDivElement[];
-  allThinking: HTMLDivElement[];
   session: MarkdownStreamSession | null;
 }
 
@@ -295,17 +295,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return node;
   }
   // =========================================================================
-  // createThinkingNode / collapseThinking — 思考节点生命周期
+  // 思考文本流式缓冲与钉底滚动器（被 ThoughtChain 深度思考步骤消费）
   // =========================================================================
-  // 思考块标题图标（2026-09 用户决议）：线性四角星，与 ui/icons.ts 的
-  // sparkles 同族（24 视框 / stroke 1.8 / currentColor，14px 渲染描边约 1px），
-  // 不引外部资源。纯装饰，随 svg 自带 aria-hidden。星形在视框内几何居中
-  // （2026-11 与空态欢迎区图标一并修正：原路径视觉中心比视框中心高 1.6px）。
   const THINKING_ICON_SVG =
     '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
 
-  const thinkingTextNodes = new WeakMap<Element, HTMLElement>();
-  const thinkingLabelTexts = new WeakMap<Element, HTMLElement>();
+  const thinkingDisplayStates = new WeakMap<Element, ThinkingDisplayState>();
+  const THINKING_NEAR_BOTTOM_PX = 24;
 
   function flushThinkingText(textNode: Element, state: ThinkingDisplayState): void {
     if (state.renderedText !== state.text) {
@@ -314,142 +310,28 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  function buildThinkingElement(
-    thinkingContent: string,
-    opts: { collapsible?: boolean; collapsed?: boolean; labelText?: string } = {}
-  ): HTMLDivElement {
-    const node = document.createElement("div");
-    const classList = ["chat-thinking"];
-    if (opts.collapsible) {
-      classList.push("chat-thinking-collapsible");
+  function flushThinkingTextNode(textNode: Element | null): void {
+    if (!textNode) {
+      return;
     }
-    if (opts.collapsed) {
-      classList.push("chat-thinking-collapsed");
+    const state = thinkingDisplayStates.get(textNode);
+    if (state) {
+      flushThinkingText(textNode, state);
     }
-    node.className = classList.join(" ");
-
-    const label = document.createElement("button");
-    label.type = "button";
-    label.className = "chat-thinking-label";
-    if (opts.collapsible) {
-      label.disabled = false;
-      label.setAttribute("aria-expanded", opts.collapsed ? "false" : "true");
-    } else {
-      label.disabled = true;
-      label.removeAttribute("aria-expanded");
-    }
-    const icon = document.createElement("span");
-    icon.className = "chat-thinking-icon";
-    icon.innerHTML = THINKING_ICON_SVG;
-    const labelText = document.createElement("span");
-    labelText.className = "chat-thinking-label-text";
-    labelText.textContent = opts.labelText || "思考过程";
-    label.appendChild(icon);
-    label.appendChild(labelText);
-    label.appendChild(createChevronSpan("chat-thinking-chevron"));
-    const text = document.createElement("div");
-    text.className = "chat-thinking-text";
-    text.textContent = thinkingContent;
-    node.appendChild(label);
-    node.appendChild(text);
-
-    thinkingTextNodes.set(node, text);
-    thinkingLabelTexts.set(node, labelText);
-
-    label.addEventListener("click", () => {
-      if (!node.classList.contains("chat-thinking-collapsible")) {
-        return;
-      }
-      const collapsedNow = node.classList.toggle("chat-thinking-collapsed");
-      label.setAttribute("aria-expanded", collapsedNow ? "false" : "true");
-    });
-    return node;
   }
 
-  function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
-    if (!assistantNode) {
-      return null;
+  function cancelThinkingTextFrame(textNode: Element | null): void {
+    if (!textNode) {
+      return;
     }
-    const node = buildThinkingElement("", { collapsible: false, collapsed: false, labelText: "思考中…" });
-    thinkingStartTimes.set(node, Date.now());
-    assistantNode.prepend(node);
-
-    const state = getTokenStreamState(assistantNode);
-    state.uncollapsedThinking.push(node);
-    state.allThinking.unshift(node);
-
-    return node;
-  }
-
-  // 思考流结束（正文首帧渲染 / 终态重渲染）时把思考盒收成一行
-  //「已思考（用时 X 秒）▸」：正文成为视觉焦点；点击可展开回看（当轮有效——
-  // 思考不落盘，会话回放无思考内容）。
-  const thinkingStartTimes = new WeakMap<Element, number>();
-
-  function formatThinkingDuration(elapsedMs: number): string {
-    const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
-    return `已思考（用时 <span class="chat-thinking-duration-num">${elapsedSec}</span> 秒）`;
-  }
-
-  function collapseThinking(thinking: Element): void {
-    const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
-    if (textNode) {
-      const state = thinkingDisplayStates.get(textNode);
-      if (state) {
-        flushThinkingText(textNode, state);
-      }
-    }
-    thinking.classList.add("chat-thinking-collapsible", "chat-thinking-collapsed");
-    const labelBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label");
-    if (labelBtn) {
-      labelBtn.disabled = false;
-      labelBtn.setAttribute("aria-expanded", "false");
-    }
-    const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
-    if (labelText) {
-      const startTime = thinkingStartTimes.get(thinking);
-      if (typeof startTime === "number" && !Number.isNaN(startTime)) {
-        labelText.innerHTML = formatThinkingDuration(Math.max(0, Date.now() - startTime));
+    const state = thinkingDisplayStates.get(textNode);
+    if (state && state.scrollFrame) {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(state.scrollFrame);
       } else {
-        labelText.textContent = "思考过程";
+        window.clearTimeout(state.scrollFrame);
       }
-    }
-  }
-
-  // =========================================================================
-  // appendThinkingText
-  // =========================================================================
-  // 思考文本的流式累加器：WeakMap 按节点存放全量文本（不截断——思考过程
-  // 完整可见是体验契约），每条增量只复制进缓冲一次，总复制量 O(n)。思考
-  // 内容不落盘（chatHistory 只存正文），缓冲随 thinking 节点（每条消息
-  // 新建）走，跨消息天然隔离重置。
-  const thinkingDisplayStates = new WeakMap<Element, ThinkingDisplayState>();
-  // 思考盒钉底恢复阈值：用户回滚到距底 24px 内视为「回到底部」，恢复跟随
-  const THINKING_NEAR_BOTTOM_PX = 24;
-
-  // 思考文本按帧写入与滚动合帧（与 token flush 的 rAF 合帧同款机制）：DOM 文本
-  // 写入每帧最多一次，且发生在该帧布局读数之前；同帧多条增量统一合批写入并滚动。挂起帧
-  // 标志存放在按 textNode 的 WeakMap 状态里（scrollFrame）：不同消息的
-  // 思考节点互不阻挡——若用全局单标志，上一条消息滚动帧挂起的 ≤16ms
-  // 窗口内新消息首条 reasoning 会漏掉滚动调度。
-  // 折叠、完成、停止与错误收尾前同步冲刷待写文本，保持事件顺序且不丢内容。
-  // 钉底契约：pinned=false（用户在思考盒内上翻）时不写 scrollTop——绝不
-  // 把用户拉回底部。同一帧顺带让外层消息容器跟随（scrollToBottom 内部读
-  // shouldAutoScrollMessages，用户上翻外层时同样不打扰）。
-  // 思考节点流式结束后折叠保留在消息内（见 collapseThinking），不脱离
-  // DOM：挂起帧回调对它写 scrollTop 仍是无害空操作，无需取消。
-  function cancelThinkingFrame(thinking: Element): void {
-    const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
-    if (textNode) {
-      const state = thinkingDisplayStates.get(textNode);
-      if (state && state.scrollFrame) {
-        if (typeof window.cancelAnimationFrame === "function") {
-          window.cancelAnimationFrame(state.scrollFrame);
-        } else {
-          window.clearTimeout(state.scrollFrame);
-        }
-        state.scrollFrame = 0;
-      }
+      state.scrollFrame = 0;
     }
   }
 
@@ -463,8 +345,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       if (state.pinned) {
         const height = textNode.scrollHeight;
         textNode.scrollTop = height;
-        // 记录写入后的实际读数（scrollTop 写入会被 clamp 到 scrollHeight -
-        // clientHeight，回读才是事件判定用的真实基准）。
         state.syncedHeight = height;
         state.lastTop = textNode.scrollTop;
       }
@@ -477,11 +357,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  function appendThinkingText(node: HTMLDivElement | null, text: unknown): void {
-    if (!node) {
-      return;
-    }
-    const textNode = thinkingTextNodes.get(node) || node.querySelector(".chat-thinking-text");
+  function appendThinkingToTextNode(textNode: Element | null, text: unknown): void {
     if (!textNode) {
       return;
     }
@@ -489,17 +365,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     if (!state) {
       state = { text: "", renderedText: "", scrollFrame: 0, pinned: true, lastTop: 0, syncedHeight: 0 };
       thinkingDisplayStates.set(textNode, state);
-      // 用户上翻检测：位置上移即停钉底，回到底部附近恢复。不能只按几何
-      // 重算——程序性钉底写入（帧回调 scrollTop=scrollHeight）触发的 scroll
-      // 事件要到下一帧 scroll steps 才派发，期间同步落进思考盒的增量（联网
-      // 搜索的 reasoning 大块正是这种窗口）会让事件几何显示「不在底部」，
-      // 纯几何判定会误判为用户上翻，钉底就此永久失效（不再写入 → 不再有
-      // 事件 → 无法自愈）。判定规则：
-      //   - scrollTop 低于上次程序性写入的落点：位置上移，程序性写入只会
-      //     把 scrollTop 往下推，必是用户上翻 → 停钉底；
-      //   - 位置没动（= 上次写入落点）但 scrollHeight 已增长：几何错位是
-      //     内容增量造成的，不是用户 → 保持钉底，等下一帧写入追平；
-      //   - 其余（位置下移，或高度未变）按几何重算，与旧契约一致。
       textNode.addEventListener("scroll", () => {
         const st = thinkingDisplayStates.get(textNode);
         if (!st) {
@@ -561,8 +426,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       stableEl: null,
       tailEl: null,
       cursor: null,
-      uncollapsedThinking: [],
-      allThinking: [],
       session: null
     };
   }
@@ -672,15 +535,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 50ms 长任务预算：长 tail 或图表解析可能超出单帧预算，超出即让出主线程。
     let deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
     ensureStreamContainers(node, state);
-    // 正文首帧渲染 = 思考流结束：所有未折叠的思考盒（正常情况下一个；
-    // 收尾 reasoning 在 token 后到达时可能有第二个）收成「思考过程」行，
-    // 保留在消息内供点击回看——不再移除节点。
-    if (state.uncollapsedThinking.length > 0) {
-      for (const thinking of state.uncollapsedThinking) {
-        collapseThinking(thinking);
-      }
-      state.uncollapsedThinking = [];
-    }
+    // 正文首帧渲染 = 思考流结束：冻结在途思考耗时并自动折叠思维链为单行摘要。
+    collapseThoughtChainOnBodyStart(node);
     // 文本与游标状态原子提交：在让出前先喂入 session 并消耗队列
     if (deps.smoothStream) {
       state.charQueue = state.charQueue.slice(smoothStep);
@@ -725,54 +581,65 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     scheduleTokenFlush(node);
   }
   // =========================================================================
-  // 工具活动时间线卡（搜索含 spec §4 内联引用）
+  // 统一可折叠思维链状态条（ThoughtChain）
   // =========================================================================
-  // tool-status 事件驱动的独立卡片，插在用户消息与回答（assistant 节点）之间：
-  // 头部 = 左置 chevron + 工具类别 + 最近一条查询词或目标时间 + 右端状态；
-  // 每步一行 = 弹点 + 活动描述 + 结果。搜索完成后底部追加来源列表（整行点击
-  // 新标签打开 URL、悬停出预览卡）；历史截帧完成后在对应步骤内追加可查看的
-  // 实际帧。状态按 assistant 节点隔离（WeakMap，与 token 流累加器同契约：
-  // 随占位节点建立、跨消息天然隔离，stream-reset 整卡清除重放）。
-  //
-  // 搜索卡默认折叠，截帧卡为展示进行中与实际帧默认展开；点击头部切换折叠态。
-  // 记忆只在本次会话内、按卡隔离（展开后后续 tool-status 事件不折回）；不落盘，
-  // 新卡 / 历史回放 / stream-reset 重建一律回到各自默认折叠态。
-  //
-  // 来源编号跨搜索累计（到达顺序），与正文 [n] 内联引用、tool-loop 描述里的
-  // 编号契约对齐（spec §4/§5）。悬停预览卡与列表行/cite 点击的新标签打开走
-  // window.open（reader 对话 tab 在 content script 上下文，无 chrome.tabs）。
+  // 将「读取字幕 → 采样关键帧 → 联网检索 → 深度思考」统一收口在助手消息顶部
+  // 的单一可折叠状态条内：
+  //   - 流式期默认展开（限高内滚），头部按钮全程可点击手动收起/展开；
+  //   - 正文首帧 / 生成完成后自动折叠为紧凑单行摘要（如「已思考 4.2s · 参考 3 处字幕」）；
+  //   - 状态按 assistant 节点隔离（WeakMap），跨消息天然隔离，stream-reset 整条清除重放。
 
-  type SearchActivityStatus = "searching" | "done" | "failed" | "cancelled";
-  type ToolActivityKind = "web_search" | "capture_video_frame_at_time";
+  type ThoughtStatus = "searching" | "done" | "failed" | "cancelled";
+  type ThoughtStepKind = "read_subtitles" | "capture_video_frame_at_time" | "web_search" | "thinking";
 
-  interface SearchStepState {
+  interface ThoughtStepState {
     row: HTMLElement;
     callId?: string;
-    kind: ToolActivityKind;
-    status: SearchActivityStatus;
+    kind: ThoughtStepKind;
+    status: ThoughtStatus;
+    titleEl: HTMLElement;
+    detailEl: HTMLElement;
+    noteEl: HTMLElement;
+    bodyEl: HTMLElement;
     frameCount: number;
     expectedFrameCount: number;
+    resultCount?: number;
+    startTime?: number;
+    elapsedMs?: number;
+    implicit?: boolean;
   }
 
-  // 按节点隔离的时间线卡状态（键 = assistant 占位节点）。
-  interface SearchCardState {
-    card: HTMLElement;
-    queryEl: HTMLElement;
-    statusEl: HTMLElement;
+  interface ThoughtChainState {
+    root: HTMLDivElement;
+    headBtn: HTMLButtonElement;
+    summaryEl: HTMLElement;
     stepsEl: HTMLElement;
+    innerEl: HTMLElement;
     announcerEl: HTMLElement;
-    steps: SearchStepState[];
-    status: SearchActivityStatus;
-    // 来源列表容器（首个带 sources 的 done 到达时创建；限高内滚）。
+    steps: ThoughtStepState[];
     sourcesWrap: HTMLElement | null;
-    // 跨搜索累计的来源（编号顺序 = 到达顺序）。
     sources: ChatSearchSource[];
+    status: ThoughtStatus;
+    collapsed: boolean;
+    userToggled: boolean;
+    stoppedWithoutBody: boolean;
+    citedSubtitleCount: number;
+    activeThinkingStep: ThoughtStepState | null;
+    thinkingElapsedMs: number | null;
   }
 
-  const searchCardStates = new WeakMap<HTMLElement, SearchCardState>();
+  const thoughtChainStates = new WeakMap<HTMLElement, ThoughtChainState>();
+  const subtitleContextCounts = new WeakMap<HTMLElement, number>();
+  const settledSearchTurns = new WeakSet<HTMLElement>();
 
-  function isVideoFrameStatus(msg: ChatToolStatusEvent): boolean {
-    return msg.tool === "capture_video_frame_at_time";
+  function resolveToolKind(msg: ChatToolStatusEvent): Exclude<ThoughtStepKind, "thinking"> {
+    if (msg.tool === "read_subtitles") {
+      return "read_subtitles";
+    }
+    if (msg.tool === "capture_video_frame_at_time") {
+      return "capture_video_frame_at_time";
+    }
+    return "web_search";
   }
 
   function formatVideoFrameTime(seconds: unknown): string {
@@ -780,6 +647,18 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return formatted.includes(":") && formatted.split(":").length === 2
       ? formatted.padStart(5, "0")
       : formatted;
+  }
+
+  function formatThinkingSeconds(elapsedMs: number): string {
+    const clampedMs = Math.max(100, elapsedMs);
+    return (clampedMs / 1000).toFixed(1);
+  }
+
+  function stepTitleByKind(kind: ThoughtStepKind): string {
+    if (kind === "read_subtitles") return "读取字幕";
+    if (kind === "capture_video_frame_at_time") return "采样关键帧";
+    if (kind === "web_search") return "联网检索";
+    return "深度思考";
   }
 
   // 预览不随滚动重定位；滚动即收走，Esc 收起当前预览。
@@ -879,168 +758,418 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     anchor.addEventListener("blur", () => hideSourcePreview(deps.messages));
   }
 
-  // 卡骨架由搜索与历史截帧共用；独立 announcer 只承载工具终态。
-  function createSearchCardShell(
-    statusText: string,
-    statusValue: SearchActivityStatus = "searching",
-    labelText = "联网搜索"
-  ): { card: HTMLElement; queryEl: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement; announcerEl: HTMLElement } {
-    const card = document.createElement("div");
-    card.className = "chat-search-card chat-search-card-collapsed";
-    card.dataset.status = statusValue;
-    const head = document.createElement("button");
-    head.type = "button";
-    head.className = "chat-search-card-head";
-    head.setAttribute("aria-expanded", "false");
-    head.addEventListener("click", () => {
-      const collapsed = card.classList.toggle("chat-search-card-collapsed");
-      head.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    });
-    const label = document.createElement("span");
-    label.className = "chat-search-card-label";
-    label.textContent = labelText;
-    const query = document.createElement("span");
-    query.className = "chat-search-card-query";
-    const status = document.createElement("span");
-    status.className = "chat-search-card-status";
-    status.textContent = statusText;
-    head.append(createChevronSpan("chat-search-card-chevron"), label, query, status);
-    const steps = document.createElement("div");
-    steps.className = "chat-search-card-steps";
-    const announcer = document.createElement("div");
-    announcer.className = "chat-search-announcer";
-    announcer.setAttribute("role", "status");
-    announcer.setAttribute("aria-live", "polite");
-    announcer.setAttribute("aria-atomic", "true");
-    card.append(head, steps, announcer);
-    return { card, queryEl: query, statusEl: status, stepsEl: steps, announcerEl: announcer };
+  function setThoughtChainCollapsed(chain: ThoughtChainState, collapsed: boolean): void {
+    chain.collapsed = collapsed;
+    chain.root.classList.toggle("chat-thought-chain-collapsed", collapsed);
+    chain.root.classList.toggle("chat-thinking-collapsed", collapsed);
+    chain.headBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
 
-  // 步骤行共享构建器：running=true 为进行中形态（live 路径），
-  // false 为终态行（回放路径，noteText 记结果数）。
-  function createSearchStepRow(query: string, noteText: string, running: boolean): HTMLElement {
-    const row = document.createElement("div");
-    row.className = running ? "chat-search-step is-running" : "chat-search-step";
-    const bullet = document.createElement("span");
-    bullet.className = "chat-search-step-bullet";
-    const queryEl = document.createElement("span");
-    queryEl.className = "chat-search-step-query";
-    queryEl.textContent = query;
-    const note = document.createElement("span");
-    note.className = "chat-search-step-note";
-    note.textContent = noteText;
-    row.append(bullet, queryEl, note);
-    return row;
-  }
+  function buildThoughtChainShell(opts: { collapsed?: boolean } = {}): ThoughtChainState {
+    const collapsed = Boolean(opts.collapsed);
+    const root = document.createElement("div");
+    root.className = [
+      "chat-thought-chain",
+      "chat-thinking",
+      "chat-thinking-collapsible",
+      ...(collapsed ? ["chat-thought-chain-collapsed", "chat-thinking-collapsed"] : [])
+    ].join(" ");
+    root.dataset.status = "searching";
 
-  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement, msg: ChatToolStatusEvent): SearchCardState {
-    const videoFrame = isVideoFrameStatus(msg);
-    const { card, queryEl, statusEl, stepsEl, announcerEl } = createSearchCardShell(
-      videoFrame ? "截取中…" : "搜索中…",
-      "searching",
-      videoFrame ? "视频画面" : "联网搜索"
-    );
-    if (videoFrame) {
-      card.classList.remove("chat-search-card-collapsed");
-      card.querySelector(".chat-search-card-head")?.setAttribute("aria-expanded", "true");
-    }
-    messages.insertBefore(card, assistantNode);
-    return {
-      card,
-      queryEl,
-      statusEl,
+    const headBtn = document.createElement("button");
+    headBtn.type = "button";
+    headBtn.className = "chat-thought-chain-head chat-thinking-label";
+    headBtn.disabled = false;
+    headBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+
+    const icon = document.createElement("span");
+    icon.className = "chat-thought-chain-icon chat-thinking-icon";
+    icon.innerHTML = THINKING_ICON_SVG;
+
+    const summaryEl = document.createElement("span");
+    summaryEl.className = "chat-thought-chain-summary chat-thinking-label-text";
+    summaryEl.textContent = "思考过程";
+
+    headBtn.append(icon, summaryEl, createChevronSpan("chat-thought-chain-chevron chat-thinking-chevron"));
+
+    const body = document.createElement("div");
+    body.className = "chat-thought-chain-body";
+    const innerEl = document.createElement("div");
+    innerEl.className = "chat-thought-chain-inner";
+    const stepsEl = document.createElement("div");
+    stepsEl.className = "chat-thought-chain-steps";
+    innerEl.appendChild(stepsEl);
+    body.appendChild(innerEl);
+
+    const announcerEl = document.createElement("div");
+    announcerEl.className = "chat-search-announcer";
+    announcerEl.setAttribute("role", "status");
+    announcerEl.setAttribute("aria-live", "polite");
+    announcerEl.setAttribute("aria-atomic", "true");
+
+    root.append(headBtn, body, announcerEl);
+
+    const chain: ThoughtChainState = {
+      root,
+      headBtn,
+      summaryEl,
       stepsEl,
+      innerEl,
       announcerEl,
       steps: [],
-      status: "searching",
       sourcesWrap: null,
-      sources: []
+      sources: [],
+      status: "searching",
+      collapsed,
+      userToggled: false,
+      stoppedWithoutBody: false,
+      citedSubtitleCount: 0,
+      activeThinkingStep: null,
+      thinkingElapsedMs: null
+    };
+
+    headBtn.addEventListener("click", () => {
+      chain.userToggled = true;
+      setThoughtChainCollapsed(chain, !chain.collapsed);
+    });
+
+    return chain;
+  }
+
+  function createThoughtStep(
+    kind: ThoughtStepKind,
+    detail: string,
+    noteText: string,
+    status: ThoughtStatus,
+    opts: { callId?: string; implicit?: boolean; thinkingText?: string } = {}
+  ): ThoughtStepState {
+    const row = document.createElement("div");
+    row.className = [
+      "chat-thought-step",
+      status === "searching"
+        ? "is-running"
+        : status === "failed"
+          ? "is-failed"
+          : status === "cancelled"
+            ? "is-cancelled"
+            : "is-done"
+    ].join(" ");
+    row.dataset.stepKind = kind;
+
+    const dot = document.createElement("span");
+    dot.className = "chat-thought-step-dot";
+
+    const main = document.createElement("div");
+    main.className = "chat-thought-step-main";
+
+    const line = document.createElement("div");
+    line.className = "chat-thought-step-row";
+
+    const titleEl = document.createElement("span");
+    titleEl.className = "chat-thought-step-title";
+    titleEl.textContent = stepTitleByKind(kind);
+
+    const detailEl = document.createElement("span");
+    detailEl.className = "chat-thought-step-detail";
+    detailEl.textContent = detail;
+
+    const noteEl = document.createElement("span");
+    noteEl.className = "chat-thought-step-meta";
+    noteEl.textContent = noteText;
+
+    line.append(titleEl, detailEl, noteEl);
+    main.appendChild(line);
+
+    const bodyEl = document.createElement("div");
+    if (kind === "thinking") {
+      bodyEl.className = "chat-thinking-text";
+      if (opts.thinkingText) {
+        bodyEl.textContent = opts.thinkingText;
+      }
+      main.appendChild(bodyEl);
+    } else {
+      bodyEl.className = "chat-thought-step-body";
+      main.appendChild(bodyEl);
+    }
+
+    row.append(dot, main);
+
+    return {
+      row,
+      callId: opts.callId,
+      kind,
+      status,
+      titleEl,
+      detailEl,
+      noteEl,
+      bodyEl,
+      frameCount: 0,
+      expectedFrameCount: 3,
+      implicit: opts.implicit
     };
   }
 
-  function createSearchStep(state: SearchCardState, query: string, callId: string | undefined, kind: ToolActivityKind): SearchStepState {
-    const existing = callId ? state.steps.find((step) => step.callId === callId) : undefined;
-    if (existing) {
-      return existing;
+  function applyStepStatus(step: ThoughtStepState, status: ThoughtStatus, noteText: string): void {
+    step.status = status;
+    step.row.classList.remove("is-running", "is-done", "is-failed", "is-cancelled");
+    step.row.classList.add(
+      status === "searching"
+        ? "is-running"
+        : status === "failed"
+          ? "is-failed"
+          : status === "cancelled"
+            ? "is-cancelled"
+            : "is-done"
+    );
+    step.noteEl.textContent = noteText;
+  }
+
+  function ensureImplicitSubtitleStep(node: HTMLElement, chain: ThoughtChainState, incomingKind: ThoughtStepKind): void {
+    if (incomingKind === "read_subtitles") {
+      return;
     }
-    const row = createSearchStepRow(query, kind === "capture_video_frame_at_time" ? "截取中…" : "搜索中…", true);
-    state.stepsEl.appendChild(row);
-    const step = { row, callId, kind, status: "searching" as const, frameCount: 0, expectedFrameCount: 3 };
-    state.steps.push(step);
+    const subtitleCount = subtitleContextCounts.get(node) ?? 0;
+    if (subtitleCount <= 0) {
+      return;
+    }
+    if (chain.steps.some((step) => step.kind === "read_subtitles")) {
+      return;
+    }
+    const step = createThoughtStep("read_subtitles", `共 ${subtitleCount} 条字幕`, "已完成", "done", { implicit: true });
+    chain.steps.unshift(step);
+    chain.stepsEl.prepend(step.row);
+  }
+
+  function ensureThoughtChain(node: HTMLDivElement, opts: { collapsed?: boolean } = {}): ThoughtChainState {
+    let chain = thoughtChainStates.get(node);
+    if (!chain) {
+      chain = buildThoughtChainShell({ collapsed: opts.collapsed ?? false });
+      thoughtChainStates.set(node, chain);
+      node.prepend(chain.root);
+    } else if (!chain.root.parentNode) {
+      node.prepend(chain.root);
+    }
+    return chain;
+  }
+
+  function syncThoughtChainStatus(chain: ThoughtChainState): void {
+    const running = chain.steps.filter((step) => step.status === "searching");
+    if (running.length > 0) {
+      chain.status = "searching";
+    } else if (chain.steps.some((step) => step.status === "failed")) {
+      chain.status = "failed";
+    } else if (chain.steps.length > 0 && chain.steps.every((step) => step.status === "cancelled")) {
+      chain.status = "cancelled";
+    } else if (chain.steps.some((step) => step.status === "cancelled") && !chain.steps.some((step) => step.kind === "thinking" && step.status === "done")) {
+      const lastStep = chain.steps[chain.steps.length - 1];
+      chain.status = lastStep?.status ?? "done";
+    } else {
+      chain.status = "done";
+    }
+    chain.root.dataset.status = chain.status;
+  }
+
+  function updateThoughtChainHeader(chain: ThoughtChainState): void {
+    syncThoughtChainStatus(chain);
+    const running = chain.steps.filter((step) => step.status === "searching");
+    if (running.length > 0) {
+      const current = running[running.length - 1];
+      const detail = current.detailEl.textContent?.trim() || "";
+      if (current.kind === "read_subtitles") {
+        chain.summaryEl.textContent = detail ? `读取字幕 · ${detail}…` : "读取字幕中…";
+      } else if (current.kind === "capture_video_frame_at_time") {
+        chain.summaryEl.textContent = detail ? `采样关键帧 · ${detail}…` : "采样关键帧中…";
+      } else if (current.kind === "web_search") {
+        chain.summaryEl.textContent = detail ? `联网检索 · ${detail}…` : "联网检索中…";
+      } else {
+        chain.summaryEl.textContent = "深度思考中…";
+      }
+      return;
+    }
+
+    if (chain.stoppedWithoutBody) {
+      chain.summaryEl.textContent = "已停止";
+      return;
+    }
+
+    const parts: string[] = [];
+    const hasThinking = chain.steps.some((step) => step.kind === "thinking");
+    if (hasThinking) {
+      if (chain.thinkingElapsedMs !== null) {
+        const secs = formatThinkingSeconds(chain.thinkingElapsedMs);
+        parts.push(`已思考 <span class="chat-thinking-duration-num">${secs}</span>s`);
+      } else {
+        parts.push("思考过程");
+      }
+    }
+
+    const frameSteps = chain.steps.filter((step) => step.kind === "capture_video_frame_at_time");
+    if (frameSteps.length > 0) {
+      const totalFrames = frameSteps.reduce((sum, step) => sum + step.frameCount, 0);
+      if (totalFrames > 0) {
+        parts.push(`采样 ${totalFrames} 张画面`);
+      } else if (frameSteps.some((step) => step.status === "failed")) {
+        parts.push("未取到画面");
+      } else if (frameSteps.some((step) => step.status === "cancelled")) {
+        parts.push("已取消");
+      }
+    }
+
+    const searchSteps = chain.steps.filter((step) => step.kind === "web_search");
+    if (searchSteps.length > 0) {
+      if (chain.sources.length > 0) {
+        parts.push(`联网检索 ${chain.sources.length} 条`);
+      } else if (searchSteps.some((step) => step.status === "failed")) {
+        parts.push("搜索失败");
+      } else if (searchSteps.some((step) => step.status === "cancelled")) {
+        parts.push("已取消");
+      } else {
+        parts.push("联网检索 0 条");
+      }
+    }
+
+    const explicitSubtitleSteps = chain.steps.filter((step) => step.kind === "read_subtitles" && !step.implicit);
+    if (chain.citedSubtitleCount > 0) {
+      parts.push(`参考 ${chain.citedSubtitleCount} 处字幕`);
+    } else if (explicitSubtitleSteps.length > 0) {
+      const doneCount = explicitSubtitleSteps.reduce((sum, step) => sum + (step.resultCount ?? 0), 0);
+      if (doneCount > 0) {
+        parts.push(`参考 ${doneCount} 处字幕`);
+      } else if (explicitSubtitleSteps.some((step) => step.status === "failed")) {
+        parts.push("字幕读取失败");
+      } else if (explicitSubtitleSteps.some((step) => step.status === "cancelled")) {
+        parts.push("已取消");
+      } else if (parts.length === 0) {
+        parts.push("已读取字幕");
+      }
+    }
+
+    if (parts.length === 0) {
+      chain.summaryEl.textContent = "思考过程";
+    } else if (hasThinking && chain.thinkingElapsedMs !== null) {
+      chain.summaryEl.innerHTML = parts.join(" · ");
+    } else {
+      chain.summaryEl.textContent = parts.join(" · ");
+    }
+  }
+
+  function settleThoughtChainThinking(chain: ThoughtChainState, opts: { stopped?: boolean } = {}): void {
+    let settledAny = false;
+    for (const step of chain.steps) {
+      if (step.kind !== "thinking") {
+        continue;
+      }
+      flushThinkingTextNode(step.bodyEl);
+      if (step.status === "searching") {
+        settledAny = true;
+        if (opts.stopped) {
+          applyStepStatus(step, "cancelled", "已停止");
+        } else {
+          const elapsed =
+            typeof step.startTime === "number" ? Math.max(0, Date.now() - step.startTime) : 0;
+          step.elapsedMs = elapsed;
+          chain.thinkingElapsedMs = (chain.thinkingElapsedMs ?? 0) + elapsed;
+          applyStepStatus(step, "done", `${formatThinkingSeconds(elapsed)}s`);
+        }
+      }
+    }
+    chain.activeThinkingStep = null;
+    if (settledAny) {
+      updateThoughtChainHeader(chain);
+    }
+  }
+
+  function collapseThoughtChainOnBodyStart(node: HTMLDivElement): void {
+    const chain = thoughtChainStates.get(node);
+    if (!chain) {
+      return;
+    }
+    const hadRunningThinking = chain.steps.some((step) => step.kind === "thinking" && step.status === "searching");
+    if (!hadRunningThinking) {
+      return;
+    }
+    settleThoughtChainThinking(chain);
+    if (!chain.steps.some((step) => step.status === "searching")) {
+      setThoughtChainCollapsed(chain, true);
+    }
+  }
+
+  function appendThinkingStepToNode(node: HTMLDivElement | null, text: unknown, forceNewStep: boolean): ThoughtStepState | null {
+    if (!node) {
+      return null;
+    }
+    const chain = ensureThoughtChain(node, { collapsed: false });
+    ensureImplicitSubtitleStep(node, chain, "thinking");
+    let step = forceNewStep ? null : chain.activeThinkingStep;
+    if (!step) {
+      step = createThoughtStep("thinking", "", "思考中…", "searching");
+      step.startTime = Date.now();
+      chain.steps.push(step);
+      chain.stepsEl.appendChild(step.row);
+      chain.activeThinkingStep = step;
+      if (!chain.userToggled) {
+        setThoughtChainCollapsed(chain, false);
+      }
+      updateThoughtChainHeader(chain);
+    }
+    appendThinkingToTextNode(step.bodyEl, text);
     return step;
   }
 
-  function announceSearchTerminal(state: SearchCardState, step: SearchStepState, status: Exclude<SearchActivityStatus, "searching">): void {
-    const videoFrame = step.kind === "capture_video_frame_at_time";
+  function announceToolTerminal(
+    chain: ThoughtChainState,
+    step: ThoughtStepState,
+    status: Exclude<ThoughtStatus, "searching">
+  ): void {
+    const isFrame = step.kind === "capture_video_frame_at_time";
+    const isSubtitle = step.kind === "read_subtitles";
     const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
     const text = status === "done"
-      ? videoFrame
+      ? isFrame
         ? `已获取 ${step.frameCount} 张画面${missing ? `，缺失 ${missing} 张` : ""}`
-        : `搜索完成，共 ${state.sources.length} 条来源`
+        : isSubtitle
+          ? typeof step.resultCount === "number" ? `已读取 ${step.resultCount} 处字幕` : "字幕读取完成"
+          : `搜索完成，共 ${chain.sources.length} 条来源`
       : status === "failed"
-        ? videoFrame ? "未取到画面，已按文字继续" : "搜索失败"
-        : videoFrame ? "画面截取已取消" : "搜索已取消";
-    state.announcerEl.setAttribute("role", status === "failed" ? "alert" : "status");
-    state.announcerEl.setAttribute("aria-live", status === "failed" ? "assertive" : "polite");
-    state.announcerEl.textContent = text;
+        ? isFrame
+          ? "未取到画面，已按文字继续"
+          : isSubtitle
+            ? "字幕读取失败"
+            : "搜索失败"
+        : isFrame
+          ? "画面截取已取消"
+          : isSubtitle
+            ? "字幕读取已取消"
+            : "搜索已取消";
+    chain.announcerEl.setAttribute("role", status === "failed" ? "alert" : "status");
+    chain.announcerEl.setAttribute("aria-live", status === "failed" ? "assertive" : "polite");
+    chain.announcerEl.textContent = text;
   }
 
-  function settleSearchStep(step: SearchStepState, status: Exclude<SearchActivityStatus, "searching">, noteText: string): void {
-    step.status = status;
-    step.row.classList.remove("is-running", "is-failed", "is-cancelled");
-    if (status === "failed" || status === "cancelled") {
-      step.row.classList.add(status === "failed" ? "is-failed" : "is-cancelled");
-    }
-    const note = step.row.querySelector(".chat-search-step-note");
-    if (note) {
-      note.textContent = noteText;
-    }
-  }
-
-  function setSearchCardStatus(state: SearchCardState, step: SearchStepState, status: SearchActivityStatus): void {
-    state.status = status;
-    state.card.dataset.status = status;
-    const videoFrame = step.kind === "capture_video_frame_at_time";
-    state.statusEl.textContent = status === "searching"
-      ? videoFrame ? "截取中…" : "搜索中…"
-      : status === "failed"
-        ? videoFrame ? "未取到画面" : "搜索失败"
-        : status === "cancelled"
-          ? "已取消"
-          : videoFrame ? `${step.frameCount} 张画面` : `${state.sources.length} 条来源`;
-  }
-
-  // 来源列表（虚线分隔 + 限高内滚）：每行 = 序号 + 标题（两行截断，title 属性给
-  // 完整 URL），整行点击新标签打开、悬停或聚焦出预览卡。序号跨搜索累计（与正文 [n]
-  // 内联引用同一套编号）。容器只建一次，后续 done 追加。
-  // opts.paid = 本批来源来自付费平台（GLOSSARY「付费平台」）：行尾挂「付费」徽标，
-  // 标注随 state.sources 累计（回放路径无此字段，自然不带徽标）；opts.notice =
-  // 付费平台失败后回退成功的注记，固定在来源列表顶部一行小字（整个卡片至多一条，
-  // 链上首个失败付费平台的注记）。
   function appendSourceList(
-    state: SearchCardState,
+    chain: ThoughtChainState,
     sources: ChatSearchSource[],
     opts: { paid?: boolean; notice?: string } = {}
   ): void {
     if (!sources.length && !opts.notice) {
       return;
     }
-    if (!state.sourcesWrap) {
-      state.sourcesWrap = document.createElement("div");
-      state.sourcesWrap.className = "chat-search-sources";
-      state.sourcesWrap.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
-      state.card.appendChild(state.sourcesWrap);
+    if (!chain.sourcesWrap) {
+      chain.sourcesWrap = document.createElement("div");
+      chain.sourcesWrap.className = "chat-search-sources";
+      chain.sourcesWrap.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
+      chain.innerEl.appendChild(chain.sourcesWrap);
     }
-    if (opts.notice && !state.sourcesWrap.querySelector(".chat-search-sources-notice")) {
+    if (opts.notice && !chain.sourcesWrap.querySelector(".chat-search-sources-notice")) {
       const notice = document.createElement("div");
       notice.className = "chat-search-sources-notice";
       notice.textContent = opts.notice;
-      state.sourcesWrap.appendChild(notice);
+      chain.sourcesWrap.appendChild(notice);
     }
     for (const source of sources) {
-      const index = state.sources.length + 1;
+      const index = chain.sources.length + 1;
       const marked = opts.paid ? ({ ...source, paid: true } as ChatSearchSource) : source;
-      state.sources.push(marked);
+      chain.sources.push(marked);
       const row = document.createElement("button");
       row.type = "button";
       row.className = "chat-search-source-row";
@@ -1062,11 +1191,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         openSourceUrl(source.url);
       });
       bindSourcePreview(row, source);
-      state.sourcesWrap.appendChild(row);
+      chain.sourcesWrap.appendChild(row);
     }
   }
 
-  function appendVideoFrameList(step: SearchStepState, msg: ChatToolStatusEvent): void {
+  function appendVideoFrameList(step: ThoughtStepState, msg: ChatToolStatusEvent): void {
     const frames = Array.isArray(msg.frames) ? msg.frames.slice(0, 3) : [];
     step.frameCount = typeof msg.resultCount === "number" ? msg.resultCount : frames.length;
     step.expectedFrameCount = msg.expectedCount ?? 3;
@@ -1075,7 +1204,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     const list = document.createElement("div");
     list.className = "chat-video-frame-results";
-    step.row.appendChild(list);
+    step.bodyEl.appendChild(list);
     for (const frame of frames) {
       const time = formatVideoFrameTime(frame.currentTime);
       const item = document.createElement("div");
@@ -1091,142 +1220,200 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  const settledSearchTurns = new WeakSet<HTMLElement>();
-
-  /**
-   * applySearchStatus — tool-status 事件驱动时间线卡（live 流路径）。
-   * callId 存在时按调用收口；无 callId 的旧事件沿用最近一条同类别进行中步骤。
-   */
   function applySearchStatusToNode(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
     if (!node || !node.parentNode || settledSearchTurns.has(node)) {
       return;
     }
-    let state = searchCardStates.get(node);
-    if (!state) {
-      state = createSearchCard(deps.messages, node, msg);
-      searchCardStates.set(node, state);
-    }
-    const videoFrame = isVideoFrameStatus(msg);
-    const kind: ToolActivityKind = videoFrame ? "capture_video_frame_at_time" : "web_search";
-    const label = state.card.querySelector(".chat-search-card-label");
-    if (label) {
-      label.textContent = videoFrame ? "视频画面" : "联网搜索";
-    }
-    const target = videoFrame ? formatVideoFrameTime(msg.targetTime) : "";
-    state.queryEl.textContent = videoFrame ? `${target} 附近` : String(msg.query || "");
+    const kind = resolveToolKind(msg);
+    const chain = ensureThoughtChain(node, { collapsed: false });
+    ensureImplicitSubtitleStep(node, chain, kind);
+
+    const target = kind === "capture_video_frame_at_time" ? formatVideoFrameTime(msg.targetTime) : "";
+    const detailText =
+      kind === "capture_video_frame_at_time"
+        ? `${target} 附近`
+        : String(msg.query || "");
+
     if (msg.status === "searching") {
-      const stepText = videoFrame ? `正在回看 ${target} 附近画面…` : String(msg.query || "");
-      const step = createSearchStep(state, stepText, msg.callId, kind);
-      if (step.status !== "searching") {
+      // 若此前已有自动补齐的隐式字幕步骤，收到显式 read_subtitles 时就地升级
+      const implicitSub =
+        kind === "read_subtitles"
+          ? chain.steps.find((candidate) => candidate.kind === "read_subtitles" && candidate.implicit)
+          : undefined;
+      if (implicitSub) {
+        implicitSub.implicit = false;
+        implicitSub.callId = msg.callId;
+        implicitSub.detailEl.textContent = detailText;
+        applyStepStatus(implicitSub, "searching", "读取中…");
+        chain.announcerEl.textContent = "";
+        updateThoughtChainHeader(chain);
         return;
       }
-      setSearchCardStatus(state, step, "searching");
-      state.announcerEl.textContent = "";
+      const existing = msg.callId ? chain.steps.find((candidate) => candidate.callId === msg.callId) : undefined;
+      if (existing) {
+        return;
+      }
+      const runningMeta =
+        kind === "capture_video_frame_at_time"
+          ? "截取中…"
+          : kind === "read_subtitles"
+            ? "读取中…"
+            : "搜索中…";
+      const step = createThoughtStep(kind, detailText, runningMeta, "searching", { callId: msg.callId });
+      chain.steps.push(step);
+      chain.stepsEl.appendChild(step.row);
+      chain.announcerEl.textContent = "";
+      if (!chain.userToggled) {
+        setThoughtChainCollapsed(chain, false);
+      }
+      updateThoughtChainHeader(chain);
       return;
     }
-    const step = msg.callId
-      ? state.steps.find((candidate) => candidate.callId === msg.callId)
-      : [...state.steps].reverse().find((candidate) => candidate.kind === kind && candidate.status === "searching");
+
+    let step = msg.callId
+      ? chain.steps.find((candidate) => candidate.callId === msg.callId)
+      : [...chain.steps].reverse().find((candidate) => candidate.kind === kind && candidate.status === "searching");
+
+    if (!step && kind === "read_subtitles") {
+      const implicitSub = chain.steps.find((candidate) => candidate.kind === "read_subtitles" && candidate.implicit);
+      if (implicitSub) {
+        implicitSub.implicit = false;
+        implicitSub.callId = msg.callId;
+        implicitSub.detailEl.textContent = detailText;
+        step = implicitSub;
+      } else {
+        step = createThoughtStep(kind, detailText, "", "searching", { callId: msg.callId });
+        chain.steps.push(step);
+        chain.stepsEl.appendChild(step.row);
+      }
+    }
+
     if (!step || step.status !== "searching") {
       return;
     }
+
     if (msg.status === "failed" || msg.status === "cancelled") {
-      const failureText = videoFrame ? "未取到画面，已按文字继续" : "搜索失败";
-      settleSearchStep(step, msg.status, msg.status === "failed" ? failureText : "已取消");
-    } else if (videoFrame) {
+      const failureText =
+        kind === "capture_video_frame_at_time"
+          ? "未取到画面，已按文字继续"
+          : kind === "read_subtitles"
+            ? "字幕读取失败"
+            : "搜索失败";
+      applyStepStatus(step, msg.status, msg.status === "failed" ? failureText : "已取消");
+    } else if (kind === "capture_video_frame_at_time") {
       appendVideoFrameList(step, msg);
       const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
-      settleSearchStep(step, "done", `${step.frameCount} 张${missing ? `，缺失 ${missing} 张` : ""}`);
+      applyStepStatus(step, "done", `${step.frameCount} 张${missing ? `，缺失 ${missing} 张` : ""}`);
+    } else if (kind === "read_subtitles") {
+      step.resultCount = typeof msg.resultCount === "number" ? msg.resultCount : undefined;
+      applyStepStatus(step, "done", typeof msg.resultCount === "number" ? `${msg.resultCount} 处` : "已完成");
     } else {
       const platform = String(msg.platform || "").trim();
-      settleSearchStep(step, "done", typeof msg.resultCount === "number"
-        ? `${msg.resultCount} 条${platform ? ` · ${platform}` : ""}`
-        : "");
+      step.resultCount = typeof msg.resultCount === "number" ? msg.resultCount : undefined;
+      applyStepStatus(
+        step,
+        "done",
+        typeof msg.resultCount === "number" ? `${msg.resultCount} 条${platform ? ` · ${platform}` : ""}` : ""
+      );
       if (Array.isArray(msg.sources) && (msg.sources.length || msg.paidFallbackNotice)) {
-        appendSourceList(state, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
+        appendSourceList(chain, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
       }
     }
-    const running = state.steps.filter((candidate) => candidate.status === "searching");
-    setSearchCardStatus(state, running[running.length - 1] ?? step, running.length ? "searching" : msg.status);
-    if (!running.length) {
-      announceSearchTerminal(state, step, msg.status);
+
+    const runningTools = chain.steps.filter((candidate) => candidate.kind !== "thinking" && candidate.status === "searching");
+    updateThoughtChainHeader(chain);
+    if (!runningTools.length) {
+      announceToolTerminal(chain, step, msg.status);
     }
   }
 
-  function settleSearchCard(node: HTMLDivElement | null, status: "failed" | "cancelled"): void {
+  function settleThoughtChainTools(node: HTMLDivElement | null, status: "failed" | "cancelled"): void {
     if (!node) {
       return;
     }
     settledSearchTurns.add(node);
     hideSourcePreview(deps.messages);
-    const state = searchCardStates.get(node);
-    if (!state) {
+    const chain = thoughtChainStates.get(node);
+    if (!chain) {
       return;
     }
-    const running = state.steps.filter((step) => step.status === "searching");
-    if (!running.length) {
+    const runningTools = chain.steps.filter((step) => step.kind !== "thinking" && step.status === "searching");
+    if (!runningTools.length) {
       return;
     }
-    for (const step of running) {
-      const failureText = step.kind === "capture_video_frame_at_time" ? "未取到画面，已按文字继续" : "搜索失败";
-      settleSearchStep(step, status, status === "failed" ? failureText : "已取消");
+    for (const step of runningTools) {
+      const failureText =
+        step.kind === "capture_video_frame_at_time"
+          ? "未取到画面，已按文字继续"
+          : step.kind === "read_subtitles"
+            ? "字幕读取失败"
+            : "搜索失败";
+      applyStepStatus(step, status, status === "failed" ? failureText : "已取消");
     }
-    const latest = running[running.length - 1];
-    setSearchCardStatus(state, latest, status);
-    announceSearchTerminal(state, latest, status);
+    const latest = runningTools[runningTools.length - 1];
+    updateThoughtChainHeader(chain);
+    announceToolTerminal(chain, latest, status);
   }
 
-  // 终态收口取本回合累计来源（finalize / stopped 传给 renderAssistantMessage
-  // 做 [n] 内联引用）；take 语义：顺带收走可能挂着的来源预览卡。
   function takeTurnSearchSources(node: HTMLDivElement | null): ChatSearchSource[] {
     if (!node) {
       return [];
     }
     hideSourcePreview(deps.messages);
-    return searchCardStates.get(node)?.sources.slice() ?? [];
+    return thoughtChainStates.get(node)?.sources.slice() ?? [];
   }
 
-  // stream-reset（offscreen 整体重放，含重新搜索）：整卡清除，状态随新事件重建。
-  // 卡片恒插在 assistant 节点之前（createSearchCard），即其前兄弟元素。
-  function clearSearchCard(node: HTMLDivElement | null): void {
+  function clearThoughtChain(node: HTMLDivElement | null): void {
     if (!node) {
       return;
     }
-    searchCardStates.delete(node);
-    settledSearchTurns.delete(node);
-    const previous = node.previousElementSibling;
-    if (previous?.classList.contains("chat-search-card")) {
-      previous.remove();
+    const chain = thoughtChainStates.get(node);
+    if (chain) {
+      for (const step of chain.steps) {
+        if (step.kind === "thinking") {
+          cancelThinkingTextFrame(step.bodyEl);
+        }
+      }
+      chain.root.remove();
     }
+    thoughtChainStates.delete(node);
+    settledSearchTurns.delete(node);
     hideSourcePreview(deps.messages);
   }
 
-  /**
-   * buildSearchTimelineCard — 回放路径的静态卡构建（spec §4：来源列表与
-   * 时间线卡可从历史重建）。从历史聚合回合（collectHistorySearchTurns 的
-   * HistorySearchTurn）构建与 live 卡同构的 DOM：头部（最近一条查询词 + 来源
-   * 条数）+ 步骤行 + 来源列表（编号从 1 起累计）。平台/耗时未持久化，头部
-   * 状态记来源条数；列表行点击与悬停引用同 openSourceUrl / showSourcePreview。
-   */
-  function buildSearchTimelineCard(turn: HistorySearchTurn): HTMLElement {
-    const { card, queryEl, stepsEl, announcerEl } = createSearchCardShell(`${turn.sources.length} 条来源`, "done");
-    queryEl.textContent = turn.queries[turn.queries.length - 1] ?? "";
-    turn.queries.forEach((query, i) => {
-      stepsEl.appendChild(createSearchStepRow(query, `${turn.resultCounts[i] ?? 0} 条`, false));
-    });
-    const replayState: SearchCardState = {
-      card,
-      queryEl,
-      statusEl: card.querySelector(".chat-search-card-status")!,
-      stepsEl,
-      announcerEl,
-      steps: [],
-      status: "done",
-      sourcesWrap: null,
-      sources: []
-    };
-    appendSourceList(replayState, turn.sources);
-    return card;
+  function attachHistorySearchToThoughtChain(node: HTMLDivElement, turn: HistorySearchTurn): void {
+    const existing = thoughtChainStates.get(node);
+    const chain = existing ?? buildThoughtChainShell({ collapsed: true });
+    if (!existing) {
+      thoughtChainStates.set(node, chain);
+      const uniqueTs = new Set(
+        Array.from(node.querySelectorAll<HTMLElement>(".chat-timestamp-link"))
+          .map((el) => el.dataset.timestampSeconds)
+          .filter(Boolean)
+      );
+      chain.citedSubtitleCount = uniqueTs.size;
+      node.prepend(chain.root);
+    }
+
+    const searchRows: ThoughtStepState[] = turn.queries.map((query, i) =>
+      createThoughtStep("web_search", query, `${turn.resultCounts[i] ?? 0} 条`, "done")
+    );
+    const firstThinking = chain.steps.find((step) => step.kind === "thinking");
+    if (firstThinking) {
+      const insertIdx = chain.steps.indexOf(firstThinking);
+      chain.steps.splice(insertIdx, 0, ...searchRows);
+      for (const row of searchRows) {
+        chain.stepsEl.insertBefore(row.row, firstThinking.row);
+      }
+    } else {
+      chain.steps.push(...searchRows);
+      for (const row of searchRows) {
+        chain.stepsEl.appendChild(row.row);
+      }
+    }
+    appendSourceList(chain, turn.sources);
+    setThoughtChainCollapsed(chain, true);
+    updateThoughtChainHeader(chain);
   }
 
   // =========================================================================
@@ -1423,31 +1610,37 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     if (!node) {
       return;
     }
-    // 思考行在终态重渲染中保留：仍流式打开的思考盒（如 token 后到达的收尾
-    // reasoning 未经正文帧）一并折叠，重挂载到正文之前。
-    const state = getTokenStreamState(node);
-    if (state.uncollapsedThinking.length > 0) {
-      for (const thinking of state.uncollapsedThinking) {
-        collapseThinking(thinking);
-      }
-      state.uncollapsedThinking = [];
-    }
-    node.innerHTML = "";
-    state.allThinking.forEach((thinking) => node.appendChild(thinking));
-    if (state.allThinking.length === 0 && typeof thinking === "string" && thinking.trim()) {
-      const thinkingEl = buildThinkingElement(thinking, { collapsible: true, collapsed: true, labelText: "思考过程" });
-      node.appendChild(thinkingEl);
-    }
     const cleanedRaw = stripThinkBlocks(raw);
-
     const content = document.createElement("div");
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
-    linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
+    const citedSubtitleCount = linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     const hasSpeakableContent = Boolean(content.textContent?.trim() || content.querySelector("pre, img[alt]"));
     hydrateMarkdownContent(content);
     if (sources.length) {
       renderSearchCitations(content, sources);
+    }
+
+    let chain = thoughtChainStates.get(node);
+    if (chain) {
+      chain.stoppedWithoutBody = false;
+      settleThoughtChainThinking(chain);
+      chain.citedSubtitleCount = citedSubtitleCount;
+      setThoughtChainCollapsed(chain, true);
+      updateThoughtChainHeader(chain);
+    } else if (typeof thinking === "string" && thinking.trim()) {
+      chain = buildThoughtChainShell({ collapsed: true });
+      const step = createThoughtStep("thinking", "", "", "done", { thinkingText: thinking });
+      chain.steps.push(step);
+      chain.stepsEl.appendChild(step.row);
+      chain.citedSubtitleCount = citedSubtitleCount;
+      thoughtChainStates.set(node, chain);
+      updateThoughtChainHeader(chain);
+    }
+
+    node.innerHTML = "";
+    if (chain) {
+      node.appendChild(chain.root);
     }
     node.appendChild(content);
 
@@ -1471,8 +1664,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 终态徽标 / 回合节点句柄（ChatAssistantTurn）/ 消息区句柄（ChatMessageArea）
   // =========================================================================
-  // 终态徽标（截断 / 停止 / 错误）在节点上的唯一装配点：class 与文案由调用方给，
-  // 位置语义由本片决定（错误占位清空节点后挂；截断/停止挂在操作行之后）。
   function appendBadge(node: HTMLElement, className: string, text: string): void {
     const badge = document.createElement("div");
     badge.className = className;
@@ -1480,95 +1671,87 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     node.appendChild(badge);
   }
 
-  // 回合节点句柄：一个助手消息节点的操作面。两处一代际状态由句柄闭包持有
-  // （原 chat-runtime 闭包的 thinkingNode / thinkingEnded 换持有方式：从「每实例
-  // 一份、跨消息复位」改为「每回合一份」，语义逐字不变）：
-  //   - thinkingNode：本回合尚在累积的思考节点（null = 未创建或已收尾）；
-  //   - thinkingEnded：本回合思考已收尾（token 到达即收尾）——其后到达的收尾
-  //     reasoning 事件新建节点（附着本回合节点），不写进已折叠的旧节点。
   function createTurnHandle(node: HTMLDivElement, opts?: { initialThinking?: string }): ChatAssistantTurn {
-    let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
     let accumulatedThinking = opts?.initialThinking || "";
     let terminalHistoryIndex: number | undefined;
 
     function flushPendingThinking(): void {
-      const state = getTokenStreamState(node);
-      if (state.uncollapsedThinking.length > 0) {
-        for (const thinking of state.uncollapsedThinking) {
-          const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
-          if (textNode) {
-            const st = thinkingDisplayStates.get(textNode);
-            if (st) {
-              flushThinkingText(textNode, st);
-            }
-          }
+      const chain = thoughtChainStates.get(node);
+      if (!chain) {
+        return;
+      }
+      for (const step of chain.steps) {
+        if (step.kind === "thinking") {
+          flushThinkingTextNode(step.bodyEl);
         }
       }
     }
 
+    function cancelAllThinkingFrames(): void {
+      const chain = thoughtChainStates.get(node);
+      if (!chain) {
+        return;
+      }
+      for (const step of chain.steps) {
+        if (step.kind === "thinking") {
+          cancelThinkingTextFrame(step.bodyEl);
+        }
+      }
+    }
+
+    function setSubtitleContextCount(count: number): void {
+      if (Number.isFinite(count) && count > 0) {
+        subtitleContextCounts.set(node, Math.floor(count));
+      } else {
+        subtitleContextCounts.delete(node);
+      }
+    }
+
     function appendToken(token: unknown): void {
-      // token 到达即思考收尾（首帧渲染把旧节点折叠保留）。
-      thinkingNode = null;
       thinkingEnded = true;
       appendTokenToNode(node, token);
     }
 
     function appendThinking(text: unknown): void {
       accumulatedThinking += String(text ?? "");
-      if (!thinkingNode && thinkingEnded) {
+      const forceNewStep = thinkingEnded;
+      if (thinkingEnded) {
         thinkingEnded = false;
       }
-      if (!thinkingNode) {
-        thinkingNode = createThinkingNode(node);
-      }
-      appendThinkingText(thinkingNode, text);
+      appendThinkingStepToNode(node, text, forceNewStep);
     }
 
     function getThinking(): string {
       return accumulatedThinking;
     }
 
-    // 重置流式（读流中断重试：整体重放 / 拆除级重置）：清空本条消息的流式缓冲与已渲染内容，
-    // 从头接收重试流——取消挂起 flush、重置 token 累加器（base/pending 清零）、
-    // 移除 stable/tail 容器与思考节点（光标先摘下来放回节点末尾，flush 时机随
-    // 下一帧恢复）、清时间线卡（整体重放含重新搜索）；思考节点随下一个 reasoning
-    // 事件重建。不走收口六步：流并未终止（port 不断开、流式 UI 不退出）。
     function reset(): void {
       accumulatedThinking = "";
       cancelTokenFlush();
       const state = getTokenStreamState(node);
       const cursor = state.cursor;
-      for (const thinking of state.allThinking) {
-        cancelThinkingFrame(thinking);
-        thinking.remove();
-      }
+      clearThoughtChain(node);
       if (state.stableEl) {
         state.stableEl.remove();
       }
       if (state.tailEl) {
         state.tailEl.remove();
       }
-      clearSearchCard(node);
       resetTokenStreamState(node);
       const freshState = getTokenStreamState(node);
       freshState.cursor = cursor;
       if (cursor) {
         node.appendChild(cursor);
       }
-      thinkingNode = null;
       thinkingEnded = false;
     }
 
-    // 收尾成终态形态：自动取消挂起的流式渲染帧（原 endStream 步骤①，内收至此，
-    // 确保终态 DOM 物化前旧帧彻底作废）；raw 缺省 = 本回合累计原文（live 路径），
-    // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
-    // 回放显式传来源（含空数组），不触发这条消费副作用。
     function finish({ raw, thinking, stopped = false, userPrompt = "", sources, historyIndex }: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
       terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
-      settleSearchCard(node, "cancelled");
+      settleThoughtChainTools(node, "cancelled");
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
       const finalThinking = typeof thinking === "string" && thinking.trim() ? thinking : accumulatedThinking;
       if (stopped) {
@@ -1585,13 +1768,20 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           return text;
         }
         node.innerHTML = "";
-        if (finalThinking && finalThinking.trim()) {
-          const thinkingEl = buildThinkingElement(finalThinking, {
-            collapsible: true,
-            collapsed: false,
-            labelText: "已停止"
-          });
-          node.appendChild(thinkingEl);
+        let chain = thoughtChainStates.get(node);
+        if (!chain && finalThinking && finalThinking.trim()) {
+          chain = buildThoughtChainShell({ collapsed: false });
+          const step = createThoughtStep("thinking", "", "已停止", "cancelled", { thinkingText: finalThinking });
+          chain.steps.push(step);
+          chain.stepsEl.appendChild(step.row);
+          thoughtChainStates.set(node, chain);
+        }
+        if (chain) {
+          chain.stoppedWithoutBody = true;
+          settleThoughtChainThinking(chain, { stopped: true });
+          setThoughtChainCollapsed(chain, false);
+          updateThoughtChainHeader(chain);
+          node.appendChild(chain.root);
         }
         const actions = createActionBar(node, {
           stopped: true,
@@ -1605,16 +1795,22 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       return text;
     }
 
-    // 挂错误占位：自动取消挂起的流式渲染帧；清空节点内容，只留给定文案。
     function fail(text: string, opts?: { onRetry?: () => void; searchStatus?: "failed" | "cancelled" }): void {
       flushPendingThinking();
       cancelTokenFlush();
-      settleSearchCard(node, opts?.searchStatus ?? "failed");
-      const state = getTokenStreamState(node);
-      for (const thinking of state.allThinking) {
-        cancelThinkingFrame(thinking);
+      settleThoughtChainTools(node, opts?.searchStatus ?? "failed");
+      cancelAllThinkingFrames();
+      const chain = thoughtChainStates.get(node);
+      const keepChain = Boolean(chain && chain.steps.some((step) => step.kind !== "thinking"));
+      if (chain) {
+        settleThoughtChainThinking(chain, { stopped: true });
+        setThoughtChainCollapsed(chain, true);
+        updateThoughtChainHeader(chain);
       }
       node.innerHTML = "";
+      if (keepChain && chain) {
+        node.appendChild(chain.root);
+      }
       appendBadge(node, "chat-msg-error", text);
       if (opts?.onRetry) {
         const actions = document.createElement("div");
@@ -1631,13 +1827,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
     }
 
-    // 挂停止态：自动取消挂起的流式渲染帧；
-    // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
     function stop(reason: string, { userPrompt = "", historyIndex }: { userPrompt?: string; historyIndex?: number } = {}): { raw: string; body: boolean } {
       terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
-      settleSearchCard(node, "cancelled");
+      settleThoughtChainTools(node, "cancelled");
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
@@ -1652,30 +1846,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         return { raw: text, body: true };
       }
       const state = getTokenStreamState(node);
-      if (state.allThinking.length > 0) {
-        for (const thinking of state.allThinking) {
-          cancelThinkingFrame(thinking);
-          thinkingStartTimes.delete(thinking);
-          const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
-          if (textNode) {
-            const st = thinkingDisplayStates.get(textNode);
-            if (st) {
-              flushThinkingText(textNode, st);
-            }
-          }
-          thinking.classList.add("chat-thinking-collapsible");
-          thinking.classList.remove("chat-thinking-collapsed");
-          const labelBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label");
-          if (labelBtn) {
-            labelBtn.disabled = false;
-            labelBtn.setAttribute("aria-expanded", "true");
-          }
-          const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
-          if (labelText) {
-            labelText.textContent = "已停止";
-          }
-        }
-        state.uncollapsedThinking = [];
+      const chain = thoughtChainStates.get(node);
+      if (chain && chain.steps.length > 0) {
+        cancelAllThinkingFrames();
+        chain.stoppedWithoutBody = true;
+        settleThoughtChainThinking(chain, { stopped: true });
+        setThoughtChainCollapsed(chain, false);
+        updateThoughtChainHeader(chain);
         if (state.cursor?.parentNode === node) {
           state.cursor.remove();
         }
@@ -1693,9 +1870,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         appendBadge(node, "chat-msg-stopped", label);
         return { raw: text, body: false };
       }
-      for (const thinking of state.allThinking) {
-        cancelThinkingFrame(thinking);
-      }
+      cancelAllThinkingFrames();
       node.innerHTML = "";
       appendBadge(node, "chat-msg-stopped", label);
       return { raw: text, body: false };
@@ -1714,24 +1889,19 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     function attachSearchTimelineCard(turn: HistorySearchTurn): void {
-      // 卡片插在回答节点之前（装配时节点已在消息区内；先收尾再挂卡——回放只
-      // 表达这个顺序，插卡落点由本片决定）。
-      deps.messages.insertBefore(buildSearchTimelineCard(turn), node);
+      attachHistorySearchToThoughtChain(node, turn);
     }
 
-    // 丢弃在途回合（拆除清场）：取消挂起渲染帧并释放累加器，不破坏节点已有 DOM。
     function discard(): void {
       cancelTokenFlush();
-      settleSearchCard(node, "cancelled");
-      const state = getTokenStreamState(node);
-      for (const thinking of state.allThinking) {
-        cancelThinkingFrame(thinking);
-      }
+      settleThoughtChainTools(node, "cancelled");
+      cancelAllThinkingFrames();
       resetTokenStreamState(node);
     }
 
     return {
       node,
+      setSubtitleContextCount,
       appendToken,
       appendThinking,
       getThinking,
@@ -1775,22 +1945,20 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const savedScrollTop = deps.messages.scrollTop;
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalChildren = Array.from(node.childNodes);
-    const previous = node.previousElementSibling;
-    const originalSearchCard =
-      options.mode === "replace" && previous?.classList.contains("chat-search-card")
-        ? previous
-        : null;
-    originalSearchCard?.remove();
+    const originalThoughtChain = thoughtChainStates.get(node) ?? null;
     if (options.mode === "replace") {
-      searchCardStates.delete(node);
+      thoughtChainStates.delete(node);
     }
     settledSearchTurns.delete(node);
     const following = createFollowingVisibilityScope(node);
 
     cancelTokenFlush();
-    const oldState = getTokenStreamState(node);
-    for (const thinking of oldState.allThinking) {
-      cancelThinkingFrame(thinking);
+    if (originalThoughtChain) {
+      for (const step of originalThoughtChain.steps) {
+        if (step.kind === "thinking") {
+          cancelThinkingTextFrame(step.bodyEl);
+        }
+      }
     }
     resetTokenStreamState(node);
 
@@ -1805,9 +1973,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       node.appendChild(state.cursor);
     } else {
       node.querySelectorAll(".chat-msg-stopped, .chat-msg-truncated, .chat-msg-actions").forEach((el) => el.remove());
-      const existingThinking = Array.from(node.querySelectorAll<HTMLDivElement>(".chat-thinking"));
-      state.allThinking = [...existingThinking];
-      state.uncollapsedThinking = existingThinking.filter((el) => !el.classList.contains("chat-thinking-collapsed"));
 
       const existingBody = node.querySelector(".chat-msg-assistant-body");
       if (existingBody) {
@@ -1842,11 +2007,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       settled = true;
       baseTurn.discard();
-      clearSearchCard(node);
+      clearThoughtChain(node);
       node.innerHTML = "";
       originalChildren.forEach((child) => node.appendChild(child));
-      if (originalSearchCard) {
-        deps.messages.insertBefore(originalSearchCard, node);
+      if (originalThoughtChain) {
+        thoughtChainStates.set(node, originalThoughtChain);
       }
       following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);

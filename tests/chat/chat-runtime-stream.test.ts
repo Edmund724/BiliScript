@@ -499,7 +499,7 @@ describe("token 流式渲染（协议驱动）", () => {
 // reasoning / thinking 展示
 // ==========================================================================
 describe("reasoning / thinking 展示", () => {
-  it("reasoning 创建思考节点（思考中…标签）并流式累加；首个 token 渲染时折叠保留", async () => {
+  it("reasoning 创建思维链思考步骤（深度思考中…）并流式累加；首个 token 渲染时折叠为单行摘要", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -507,29 +507,29 @@ describe("reasoning / thinking 展示", () => {
     feed(runtime, { type: "reasoning", data: "先想" });
     const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(thinking).toBeTruthy();
-    expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
+    expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("深度思考中…");
     runRafFrames(raf);
     expect(thinking.querySelector(".chat-thinking-text")?.textContent).toBe("先想");
 
-    // 后续 reasoning 增量累加到同一节点
+    // 后续 reasoning 增量累加到同一思考步骤
     feed(runtime, { type: "reasoning", data: "再想" });
     runRafFrames(raf);
     expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
-    // 首个 token 的帧渲染把思考盒折叠成「已思考（用时 X 秒）」行保留在消息内（不移除）
+    // 首个 token 的帧渲染把思维链折叠成「已思考 X.Xs」单行摘要（不移除）
     feed(runtime, { type: "token", data: "正文" });
     runRafFrames(raf);
     const folded = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(folded).toBeTruthy();
     expect(folded.classList.contains("chat-thinking-collapsible")).toBe(true);
     expect(folded.classList.contains("chat-thinking-collapsed")).toBe(true);
-    expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 1 秒）");
-    expect(folded.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
+    expect(folded.querySelector(".chat-thinking-label")?.textContent).toMatch(/^已思考 \d+\.\ds$/);
+    expect(folded.querySelector(".chat-thinking-duration-num")?.textContent).toMatch(/^\d+\.\d$/);
     expect(folded.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
     expect(node.textContent).toContain("正文");
   });
 
-  it("思考折叠行点击可展开/收起回看（当轮有效）；流式期间点击不折叠", async () => {
+  it("流式期间默认展开且随时可手动折叠；正文首帧后自动折叠为单行摘要并支持展开回看", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -537,14 +537,18 @@ describe("reasoning / thinking 展示", () => {
     feed(runtime, { type: "reasoning", data: "想了很多" });
     const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
     const thinkingBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
-    // 流式期间未进入可折叠态：按钮禁用，点击无事发生
-    expect(thinkingBtn.disabled).toBe(true);
-    expect(thinkingBtn.hasAttribute("aria-expanded")).toBe(false);
+    // 流式期间默认展开且按钮可点击手动收起/展开
+    expect(thinkingBtn.disabled).toBe(false);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
+    thinkingBtn.click();
+    expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
     thinkingBtn.click();
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
-    expect(thinkingBtn.textContent).toBe("思考中…");
+    expect(thinkingBtn.textContent).toBe("深度思考中…");
 
-    // 正文首帧后折叠；点击标题按钮展开回看 → 再点击收起（点正文文本区不误折叠）
+    // 正文首帧后自动折叠；点击标题按钮展开回看 → 再点击收起（点正文文本区不误折叠）
     feed(runtime, { type: "token", data: "正文" });
     runRafFrames(raf);
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
@@ -567,7 +571,7 @@ describe("reasoning / thinking 展示", () => {
     expect(kept?.querySelector(".chat-thinking-text")?.textContent).toBe("想了很多");
   });
 
-  it("思考时长与数字锁契约：流式结束折叠时渲染计算秒数且包含 tabular-nums 数字节点", async () => {
+  it("思考时长与数字锁契约：流式结束折叠时渲染 0.1s 精度秒数且包含 tabular-nums 数字节点", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -583,10 +587,10 @@ describe("reasoning / thinking 展示", () => {
       runRafFrames(raf);
 
       const folded = node.querySelector<HTMLElement>(".chat-thinking")!;
-      expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 3 秒）");
+      expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("已思考 3.2s");
       const numEl = folded.querySelector<HTMLElement>(".chat-thinking-duration-num")!;
       expect(numEl).toBeTruthy();
-      expect(numEl.textContent).toBe("3");
+      expect(numEl.textContent).toBe("3.2");
     } finally {
       nowSpy.mockRestore();
     }
@@ -646,18 +650,15 @@ describe("reasoning / thinking 展示", () => {
     feed(runtime, { type: "reasoning", data: "" });
     feed(runtime, { type: "done" });
     const node1 = deps.messages.querySelectorAll(".chat-msg-assistant")[0];
-    // node1 留下两条折叠思考行：正文流前的「第一轮思考」+ 收尾 reasoning 新建的
-    const node1Thinkings = node1.querySelectorAll(".chat-thinking");
-    expect(node1Thinkings).toHaveLength(2);
-    node1Thinkings.forEach((thinking) => {
-      expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
-      expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 1 秒）");
-      expect(thinking.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
-    });
+    // node1 的思维链保留两条思考步骤：正文流前的「第一轮思考」+ 收尾 reasoning 追加的
+    const node1Chain = node1.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(node1Chain).toBeTruthy();
+    expect(node1Chain.classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(node1Chain.querySelectorAll(".chat-thought-step[data-step-kind='thinking']")).toHaveLength(2);
+    expect(node1Chain.querySelector(".chat-thinking-label")?.textContent).toMatch(/^已思考 \d+\.\ds$/);
+    expect(node1Chain.querySelector(".chat-thinking-duration-num")?.textContent).toMatch(/^\d+\.\d$/);
 
-    // 第二条消息：reasoning 必须新建节点，且附着在第二条的占位上——
-    // 旧实现把「未创建」与「已结束」都折叠为 thinkingNode === null，
-    // 会把新回合的思考写进旧消息的节点
+    // 第二条消息：reasoning 必须新建思维链并附着在第二条的占位上
     deps.input.value = "问题二";
     await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
@@ -666,9 +667,9 @@ describe("reasoning / thinking 展示", () => {
     const node2Thinking = node2.querySelector<HTMLElement>(".chat-thinking")!;
     expect(node2Thinking).toBeTruthy();
     expect(node2Thinking.querySelector(".chat-thinking-text")?.textContent).toBe("");
-    // 旧消息的思考行不再被触碰（也没有游离新节点）
-    expect(node1.querySelectorAll(".chat-thinking")).toHaveLength(2);
-    expect(deps.messages.querySelectorAll(".chat-thinking")).toHaveLength(3);
+    // 旧消息的思维链不再被触碰（也没有游离新节点）
+    expect(node1.querySelectorAll(".chat-thought-chain")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-thought-chain")).toHaveLength(2);
 
     // 后续 reasoning 增量正常流进新节点
     feed(runtime, { type: "reasoning", data: "第二轮思考" });
@@ -1416,7 +1417,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     expect(textNode3.textContent).toBe("停止前一段");
   });
 
-  it("08 正文后收尾 reasoning：新建第二思考节点，文本按帧写入并在 done 时折叠冲刷", async () => {
+  it("08 正文后收尾 reasoning：在同一思维链内追加第二思考步骤，文本按帧写入并在 done 时折叠冲刷", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -1427,15 +1428,15 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
 
     // 正文后的收尾 reasoning
     feed(runtime, { type: "reasoning", data: "收尾思考" });
-    const thinkings = node.querySelectorAll<HTMLElement>(".chat-thinking");
-    expect(thinkings).toHaveLength(2);
-    const textNode2 = thinkings[0].querySelector<HTMLElement>(".chat-thinking-text")!;
+    const chain = node.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const thinkingSteps = chain.querySelectorAll<HTMLElement>(".chat-thought-step[data-step-kind='thinking']");
+    expect(thinkingSteps).toHaveLength(2);
+    const textNode2 = thinkingSteps[1].querySelector<HTMLElement>(".chat-thinking-text")!;
     expect(textNode2.textContent).toBe("");
 
     feed(runtime, { type: "done" });
     expect(textNode2.textContent).toBe("收尾思考");
-    expect(thinkings[0].classList.contains("chat-thinking-collapsed")).toBe(true);
-    expect(thinkings[1].classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(chain.classList.contains("chat-thinking-collapsed")).toBe(true);
   });
 
   it("08 重置：reasoning 帧挂起时收到 stream-reset，挂起帧不作用于已清理节点，下一代全新接收", async () => {
@@ -1777,19 +1778,17 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     expect(chatSessionState.chatHistory.filter((m) => m.role === "tool")).toHaveLength(0);
   });
 
-  it("tool-status：驱动搜索时间线卡（spec §4，notice 行消费已由卡片取代）", async () => {
+  it("tool-status：驱动统一思维链状态条（notice 行消费已由思维链取代）", async () => {
     const raf = holdRaf();
     const { deps, runtime } = await makeRuntime("问");
     feed(runtime, { type: "tool-status", status: "searching", query: "x", platform: "Tavily" });
-    // 不再走 notice 行：时间线卡出现在消息区
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(expect.stringContaining("Tavily · 搜索中"), 4000);
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card).toBeTruthy();
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain).toBeTruthy();
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 · x…");
     feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("0 条来源");
-    // 步骤行 note 带实际引擎（§6.5），头部来源数半句不变
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 条 · Tavily");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 0 条");
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("3 条 · Tavily");
     runRafFrames(raf);
   });
 });
@@ -2113,7 +2112,7 @@ describe("消息操作：重新生成与导出", () => {
     await regenerateAt(deps, 0);
 
     feed(runtime, { type: "tool-status", status: "searching", query: "新搜索" });
-    expect(deps.messages.querySelector(".chat-search-card")?.getAttribute("data-status")).toBe("searching");
+    expect(deps.messages.querySelector(".chat-thought-chain")?.getAttribute("data-status")).toBe("searching");
     feed(runtime, { type: "token", data: "失败的新回答" });
     feed(runtime, { type: "error", error: "网络中断" });
 
@@ -2128,7 +2127,7 @@ describe("消息操作：重新生成与导出", () => {
     expect(assistants[0].textContent).not.toContain("失败的新回答");
     expect(assistants[1].textContent).toContain("第二答");
     expect(assistants[1].hidden).toBe(false);
-    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
     expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("重新生成失败：网络中断", 4000);
   });
 
@@ -2210,20 +2209,20 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     targetTime: 12
   } satisfies ChatPortMessage;
 
-  it.each(["stopped", "disconnect"] as const)("%s 将截帧收口为已取消，迟到状态不更新旧卡片", async (terminal) => {
-    const { deps, runtime, session } = await makeRuntime();
+  it.each(["stopped", "disconnect"] as const)("%s 将截帧收口为已取消，迟到状态不更新旧思维链", async (terminal) => {
+    const { deps, session } = await makeRuntime();
     session.listeners.message[0](searching);
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
 
     if (terminal === "stopped") {
       session.listeners.message[0]({ type: "stopped", reason: "已停止生成" });
     } else {
       session.listeners.disconnect[0]();
     }
-    expect(card.dataset.status).toBe("cancelled");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
-    expect(card.querySelector(".is-running")).toBeNull();
-    const settledText = card.textContent;
+    expect(chain.dataset.status).toBe("cancelled");
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("已取消");
+    expect(chain.querySelector(".is-running")).toBeNull();
+    const settledText = chain.textContent;
 
     session.listeners.message[0]({
       type: "tool-status",
@@ -2236,8 +2235,8 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
       expectedCount: 3,
       frames: [{ image: { mime: "image/jpeg", data: "/9j/" }, currentTime: 12 }]
     });
-    expect(card.textContent).toBe(settledText);
-    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+    expect(chain.textContent).toBe(settledText);
+    expect(chain.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
   });
 
   it("截帧活动覆盖 15 秒阈值与 45 秒等待时不误报模型响应较慢", async () => {
@@ -2247,7 +2246,7 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
 
     vi.advanceTimersByTime(45000);
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
-    expect(deps.messages.querySelector(".chat-search-step-query")!.textContent).toBe("正在回看 00:12 附近画面…");
+    expect(deps.messages.querySelector(".chat-thought-step-detail")!.textContent).toBe("00:12 附近");
   });
 
   it("最后一个工具终态后重新武装慢响应提示，首 token 正常撤下", async () => {

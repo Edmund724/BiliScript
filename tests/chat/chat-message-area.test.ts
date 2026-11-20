@@ -230,7 +230,7 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
   });
 
-  it("appendThinking：同一回合累加到同一节点；token 之后的收尾 reasoning 新建节点并一并折叠", () => {
+  it("appendThinking：同一回合收口到单一思维链状态条；token 之后的收尾 reasoning 追加新思考步骤并一并折叠", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -238,29 +238,29 @@ describe("回合节点句柄：流式操作面", () => {
     const turn = area.appendAssistantMessage({ source: "live" });
 
     turn.appendThinking("先想");
-    expect(deps.messages.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
+    expect(deps.messages.querySelector(".chat-thinking-label")?.textContent).toBe("深度思考中…");
     turn.appendThinking("再想");
-    expect(deps.messages.querySelectorAll(".chat-thinking")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-thought-chain")).toHaveLength(1);
     runRafFrames(raf);
     expect(deps.messages.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
-    // token 到达即思考收尾；其后到达的 reasoning（收尾事件）新建第二个节点
+    // token 到达即思考收尾；其后到达的 reasoning 在同一思维链内追加第二思考步骤
     turn.appendToken("正文");
     turn.appendThinking("收尾思路");
     runRafFrames(raf);
-    const thinkings = deps.messages.querySelectorAll(".chat-thinking");
-    expect(thinkings).toHaveLength(2);
-    thinkings.forEach((thinking) => {
-      expect(thinking.classList.contains("chat-thinking-collapsible")).toBe(true);
-      expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
-      expect(thinking.querySelector(".chat-thinking-label-text")?.textContent).toBe("已思考（用时 1 秒）");
-      expect(thinking.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
-    });
+    const chain = deps.messages.querySelector(".chat-thought-chain")!;
+    expect(chain.querySelectorAll(".chat-thought-step[data-step-kind='thinking']")).toHaveLength(2);
+    expect(chain.classList.contains("chat-thinking-collapsible")).toBe(true);
+    expect(chain.classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(chain.querySelector(".chat-thinking-label-text")?.textContent).toMatch(/^已思考 \d+\.\ds$/);
+    expect(chain.querySelector(".chat-thinking-duration-num")?.textContent).toMatch(/^\d+\.\d$/);
 
-    // 终态重渲染保留折叠行
-    turn.finish({ raw: "正文" });
-    expect(deps.messages.querySelectorAll(".chat-thinking")).toHaveLength(2);
-    expect(deps.messages.querySelector(".chat-msg-assistant-body")?.textContent).toBe("正文");
+    // 终态重渲染保留折叠行与正文
+    turn.finish({ raw: "正文 [01:20]" });
+    const settledChain = deps.messages.querySelector(".chat-thought-chain")!;
+    expect(settledChain.querySelectorAll(".chat-thought-step[data-step-kind='thinking']")).toHaveLength(2);
+    expect(settledChain.querySelector(".chat-thinking-label-text")?.textContent).toMatch(/^已思考 \d+\.\ds · 参考 1 处字幕$/);
+    expect(deps.messages.querySelector(".chat-msg-assistant-body")?.textContent).toContain("正文");
   });
 
   it("finish：收尾前自动取消挂起帧，不留悬挂帧槽且保留累计原文", () => {
@@ -281,7 +281,7 @@ describe("回合节点句柄：流式操作面", () => {
     expect(turn2.finish({})).toBe("第二段");
   });
 
-  it("reset：清 stable/tail/思考盒/时间线卡、光标归位、累加器清零（新流不带旧流残留）", () => {
+  it("reset：清 stable/tail/思维链状态条、光标归位、累加器清零（新流不带旧流残留）", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -293,13 +293,13 @@ describe("回合节点句柄：流式操作面", () => {
     turn.applySearchStatus({ type: "tool-status", status: "searching", query: "q" });
     runRafFrames(raf);
     expect(deps.messages.querySelector(".chat-stream-stable")).toBeTruthy();
-    expect(deps.messages.querySelector(".chat-search-card")).toBeTruthy();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeTruthy();
 
     turn.reset();
     expect(deps.messages.querySelector(".chat-stream-stable")).toBeNull();
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
     expect(deps.messages.querySelector(".chat-thinking")).toBeNull();
-    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
     // 光标保留在节点末尾（下一帧 flush 重新接上）
     expect(deps.messages.querySelector(".chat-msg-cursor")).toBeTruthy();
 
@@ -449,25 +449,26 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
   });
 });
 
-describe("回合节点句柄：联网搜索时间线卡", () => {
-  it("applySearchStatus：卡片插在本节点之前；reset 清卡重放", () => {
+describe("回合节点句柄：思维链状态条（工具活动与回放）", () => {
+  it("applySearchStatus：汇入本节点顶部的思维链状态条；reset 清条重放", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
     const turn = area.appendAssistantMessage({ source: "live" });
 
     turn.applySearchStatus({ type: "tool-status", status: "searching", query: "MoE" });
-    const card = deps.messages.querySelector(".chat-search-card")!;
     const node = deps.messages.querySelector(".chat-msg-assistant")!;
-    expect(card.nextElementSibling).toBe(node);
-    expect(card.querySelector(".chat-search-card-status")?.textContent).toBe("搜索中…");
+    const chain = node.querySelector(".chat-thought-chain")!;
+    expect(chain).toBeTruthy();
+    expect(node.firstElementChild).toBe(chain);
+    expect(chain.querySelector(".chat-thought-chain-summary")?.textContent).toBe("联网检索 · MoE…");
 
     turn.reset();
-    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
   });
 
-  it("attachSearchTimelineCard：静态时间线卡插在本节点之前（回放只表达顺序）", () => {
+  it("attachSearchTimelineCard：静态检索步骤收口在本节点顶部思维链内（回放折叠态）", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -481,12 +482,12 @@ describe("回合节点句柄：联网搜索时间线卡", () => {
       sources: [{ title: "A", url: "https://a.com", snippet: "sa" }]
     });
 
-    const card = deps.messages.querySelector(".chat-search-card")!;
     const node = deps.messages.querySelector(".chat-msg-assistant")!;
-    expect(card.nextElementSibling).toBe(node);
-    expect(card.querySelector(".chat-search-card-status")?.textContent).toBe("1 条来源");
-    expect(card.querySelector(".chat-search-step-query")?.textContent).toBe("第一问");
-    // 内联引用与卡片同源
+    const chain = node.querySelector(".chat-thought-chain")!;
+    expect(node.firstElementChild).toBe(chain);
+    expect(chain.querySelector(".chat-thought-chain-summary")?.textContent).toBe("联网检索 1 条");
+    expect(chain.querySelector(".chat-thought-step-detail")?.textContent).toBe("第一问");
+    // 内联引用与思维链同源
     expect(node.querySelector(".chat-cite[data-cite-url='https://a.com']")).toBeTruthy();
   });
 });

@@ -62,6 +62,7 @@ import { state } from "../core/state.js";
 import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
+import { findSubtitlePreviewAtTime } from "../ui/timestamp-nav.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   bindChatDisplaySliders,
@@ -1470,7 +1471,14 @@ function getTimestampNavDeps() {
       return !targetContextKey || !liveKey || targetContextKey === liveKey;
     },
     notice: showConversationContextNotice,
-    seek: (seconds: number) => seekReadingTarget(seconds)
+    seek: (seconds: number) => seekReadingTarget(seconds),
+    getSubtitlePreview: (seconds: number) => {
+      const body =
+        chatSessionState.contextData?.subtitleBody ??
+        chatSessionState.currentConversationMeta?.resolvedContext?.subtitleBody;
+      return findSubtitlePreviewAtTime(body, seconds);
+    },
+    tooltipContainer: els.messages
   };
 }
 

@@ -252,8 +252,8 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
 
       expect(frames.length).toBe(tokens.length);
       for (const { snapshot, cumulative } of frames) {
-        const expected = md.renderMarkdown(md.stripThinkBlocks(cumulative));
-        // 不变量 2：stable + tail 堆叠渲染 ≡ 全文渲染（逐字节）
+        const expected = md.renderMarkdown(md.stripThinkBlocks(cumulative), { streaming: true });
+        // 不变量 2：stable + tail 堆叠渲染 ≡ 流式容错全文渲染（逐字节）
         expect(snapshot.stableHTML + snapshot.tailHTML).toBe(expected);
         // 不变量 4：光标存在且接在 tail 末尾（innerHTML 重写后重新接回）
         expect(snapshot.cursorOk).toBe(true);

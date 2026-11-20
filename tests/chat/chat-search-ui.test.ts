@@ -1,8 +1,8 @@
-// 联网搜索对话 UI 测试（spec §4，变体 B + 内联引用）：
-// 经 chat-runtime 公开协议入口 handleChatPortMessage 喂 tool-status / done，
-// 断言面向可观察 DOM（时间线卡 / 步骤行 / 来源 chip / [n] 内联引用 / 悬停
-// 预览卡 / stream-reset 清卡 / 停止态引用）。测试基建与 chat-runtime-stream
-// 同款（假 port / 同模块纪元）。
+// 统一思维链状态条（ThoughtChain）与工具活动 UI 契约测试：
+// 经 chat-runtime 公开协议入口 handleChatPortMessage 喂 read_subtitles /
+// capture_video_frame_at_time / web_search / reasoning / done，
+// 断言面向可观察 DOM（统一思维链状态条 / 时间线步骤 / 来源列表 / [n] 内联引用 /
+// 悬停预览卡 / 流式默认展开与手动折叠 / 完成自动折叠为单行摘要 / stream-reset 清空）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -48,8 +48,6 @@ function makeDeps() {
   };
 }
 
-// 建运行时并完成一次发送（chat-runtime-stream.test 同款：sendMessage 建
-// activeAssistantNode 占位与假 port；协议消息经公开入口 feed 喂入）。
 async function makeRuntime(text = "这个视频里提到的 MoE 有什么新进展？") {
   const deps = makeDeps();
   deps.input.value = text;
@@ -62,9 +60,6 @@ function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
   runtime.handleChatPortMessage(msg);
 }
 
-// 新回合：与真实流同语义，置流式 UI 态由 sendMessage 内部负责；这里只造下一个
-// assistant 占位（上一条终态时序由 endStream 完成）。测试直接调 resetStreamState
-// 清流后重新走 sendMessage。
 async function startNextTurn(deps: ReturnType<typeof makeDeps>, runtime: ChatRuntime, text = "") {
   runtime.resetStreamState();
   deps.input.value = text || "下一问";
@@ -89,25 +84,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("搜索时间线卡", () => {
-  it("tool-status searching：卡片插在 assistant 节点之前，头部查询词 + 步骤行「搜索中…」", async () => {
+describe("统一思维链状态条（联网检索与步骤时间线）", () => {
+  it("tool-status searching：挂载在 assistant 节点顶部，流式默认展开，头部动态状态 + 步骤行「搜索中…」", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "MoE 新进展" });
 
-    const card = deps.messages.querySelector(".chat-search-card")!;
     const assistant = deps.messages.querySelector(".chat-msg-assistant")!;
-    expect(card).toBeTruthy();
-    expect(card.nextElementSibling).toBe(assistant);
-    expect(card.querySelector(".chat-search-card-head")).toBeTruthy();
-    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("MoE 新进展");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
-    const step = card.querySelector(".chat-search-step")!;
+    const chain = assistant.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain).toBeTruthy();
+    expect(assistant.firstElementChild).toBe(chain);
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(false);
+    expect(chain.querySelector(".chat-thought-chain-head")!.getAttribute("aria-expanded")).toBe("true");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 · MoE 新进展…");
+    const step = chain.querySelector(".chat-thought-step")!;
     expect(step.classList.contains("is-running")).toBe(true);
-    expect(step.querySelector(".chat-search-step-query")!.textContent).toBe("MoE 新进展");
-    expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("搜索中…");
+    expect(step.querySelector(".chat-thought-step-detail")!.textContent).toBe("MoE 新进展");
+    expect(step.querySelector(".chat-thought-step-meta")!.textContent).toBe("搜索中…");
   });
 
-  it("tool-status done：步骤行补结果数、头部来源数、来源列表（序号 + 标题 + 完整 URL 属性）", async () => {
+  it("tool-status done：步骤行补结果数与平台、头部单行摘要、来源列表（序号 + 标题 + 完整 URL 属性）", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, {
@@ -119,39 +114,34 @@ describe("搜索时间线卡", () => {
       sources: SOURCES
     });
 
-    const card = deps.messages.querySelector(".chat-search-card")!;
-    const step = card.querySelector(".chat-search-step")!;
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const step = chain.querySelector(".chat-thought-step")!;
     expect(step.classList.contains("is-running")).toBe(false);
-    // 步骤行 note 现在带实际引擎（§6.5：tool-status.platform 就地接线）
-    expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("2 条 · Tavily");
-    // 头部右端仍是「N 条来源」（卡内累计来源数），文案不含平台名与耗时
-    const status = card.querySelector(".chat-search-card-status")!.textContent!;
-    expect(status).toBe("2 条来源");
-    const rows = card.querySelectorAll(".chat-search-source-row");
+    expect(step.querySelector(".chat-thought-step-meta")!.textContent).toBe("2 条 · Tavily");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 2 条");
+    const rows = chain.querySelectorAll(".chat-search-source-row");
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector(".chat-search-source-idx")!.textContent).toBe("1");
     expect(rows[1].querySelector(".chat-search-source-idx")!.textContent).toBe("2");
     expect(rows[0].querySelector(".chat-search-source-title")!.textContent).toBe("DeepSeek-V3 技术报告");
-    // title 属性给完整 URL（标题只显示一行文本，地址不占版面）
     expect(rows[0].getAttribute("title")).toBe("https://arxiv.org/a");
     expect(rows[1].getAttribute("title")).toBe("https://juejin.cn/b");
   });
 
-  it("二次搜索：来源编号跨搜索累计（3 号起），头部查询词与来源数随最近一次刷", async () => {
+  it("二次搜索：来源编号跨搜索累计（3 号起），步骤数与头部累计数同步更新", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 2, platform: "Tavily", sources: SOURCES });
     feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
     feed(runtime, { type: "tool-status", status: "done", query: "q2", resultCount: 1, platform: "Tavily", sources: [{ title: "第三条", url: "https://c.example.com", snippet: "s3" }] });
 
-    const card = deps.messages.querySelector(".chat-search-card")!;
-    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(2);
-    const rows = card.querySelectorAll(".chat-search-source-row");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.querySelectorAll(".chat-thought-step")).toHaveLength(2);
+    const rows = chain.querySelectorAll(".chat-search-source-row");
     expect(rows).toHaveLength(3);
     expect(rows[2].querySelector(".chat-search-source-idx")!.textContent).toBe("3");
     expect(rows[2].querySelector(".chat-search-source-title")!.textContent).toBe("第三条");
-    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("q2");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("3 条来源");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 3 条");
   });
 
   it("tool-status failed：步骤行标记失败，不产生来源列表", async () => {
@@ -159,12 +149,12 @@ describe("搜索时间线卡", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "failed", query: "q1" });
 
-    const card = deps.messages.querySelector(".chat-search-card")!;
-    const step = card.querySelector(".chat-search-step")!;
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const step = chain.querySelector(".chat-thought-step")!;
     expect(step.classList.contains("is-failed")).toBe(true);
-    expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("搜索失败");
-    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(0);
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索失败");
+    expect(step.querySelector(".chat-thought-step-meta")!.textContent).toBe("搜索失败");
+    expect(chain.querySelectorAll(".chat-search-source-row")).toHaveLength(0);
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("搜索失败");
   });
 
   it("来源行点击：新标签打开来源 URL", async () => {
@@ -193,72 +183,54 @@ describe("搜索时间线卡", () => {
     expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
   });
 
-  it("默认折叠：头部是可点击按钮（aria-expanded=false），步骤与来源仍在 DOM 只由 CSS 隐藏", async () => {
+  it("流式期默认展开可随时点击收起，完成后自动折叠为单行摘要", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 2, platform: "Tavily", sources: SOURCES });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const head = card.querySelector<HTMLElement>(".chat-search-card-head")!;
-    // <button> 自带 Enter/Space 激活与按钮语义，无需自造键盘处理
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const head = chain.querySelector<HTMLElement>(".chat-thought-chain-head")!;
     expect(head.tagName).toBe("BUTTON");
     expect(head.getAttribute("type")).toBe("button");
-    expect(head.getAttribute("aria-expanded")).toBe("false");
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
-    // 内容不因折叠而丢弃：展开是纯类切换，不重建 DOM
-    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(1);
-    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(2);
-  });
-
-  it("点击头部展开／收起：折叠类与 aria-expanded 同步", async () => {
-    const { deps, runtime } = await makeRuntime();
-    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
-    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
-
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const head = card.querySelector<HTMLElement>(".chat-search-card-head")!;
-    head.click();
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
     expect(head.getAttribute("aria-expanded")).toBe("true");
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(false);
+
+    // 流式期间可随时手动收起，且后续事件不违背用户意愿强行展开
     head.click();
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
+
+    // 重新展开后，done 完成时自动折叠为单行摘要
+    head.click();
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(false);
+    feed(runtime, { type: "tool-status", status: "done", query: "q2", resultCount: 1, sources: [SOURCES[0]] });
+    feed(runtime, { type: "token", data: "总结回答" });
+    feed(runtime, { type: "done" });
+    expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
     expect(head.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("用户展开后本卡记忆展开态：后续 searching／done 事件不把它折回", async () => {
+  it("新回合不继承上一回合的手动折叠态：默认回到流式展开态", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
-    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    card.querySelector<HTMLElement>(".chat-search-card-head")!.click();
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
-
-    feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
-    feed(runtime, { type: "tool-status", status: "done", query: "q2", resultCount: 1, platform: "Tavily", sources: [{ title: "第三条", url: "https://c.example.com", snippet: "s3" }] });
-
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
-    expect(card.querySelector(".chat-search-card-head")!.getAttribute("aria-expanded")).toBe("true");
-    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(2);
-  });
-
-  it("新回合的新卡不继承上一张卡的展开态：默认仍折叠", async () => {
-    const { deps, runtime } = await makeRuntime();
-    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
-    deps.messages.querySelector<HTMLElement>(".chat-search-card-head")!.click();
+    deps.messages.querySelector<HTMLElement>(".chat-thought-chain-head")!.click();
     await startNextTurn(deps, runtime);
     feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
 
-    const cards = deps.messages.querySelectorAll<HTMLElement>(".chat-search-card");
-    expect(cards).toHaveLength(2);
-    expect(cards[1].classList.contains("chat-search-card-collapsed")).toBe(true);
+    const chains = deps.messages.querySelectorAll<HTMLElement>(".chat-thought-chain");
+    expect(chains).toHaveLength(2);
+    expect(chains[0].classList.contains("chat-thought-chain-collapsed")).toBe(true);
+    expect(chains[1].classList.contains("chat-thought-chain-collapsed")).toBe(false);
   });
 
-  it("stream-reset：时间线卡清除（整体重放含重新搜索）", async () => {
+  it("stream-reset：清空本回合思维链状态条（整体重放含重新搜索）", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
-    expect(deps.messages.querySelector(".chat-search-card")).toBeTruthy();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeTruthy();
     feed(runtime, { type: "stream-reset" });
-    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
   });
 
   it("跨消息隔离：新回合的首条 searching 不带上一回合的步骤与来源", async () => {
@@ -268,9 +240,59 @@ describe("搜索时间线卡", () => {
     await startNextTurn(deps, runtime);
     feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
 
-    const cards = deps.messages.querySelectorAll(".chat-search-card");
-    expect(cards).toHaveLength(2);
-    expect(cards[1].querySelectorAll(".chat-search-step")).toHaveLength(1);
+    const chains = deps.messages.querySelectorAll(".chat-thought-chain");
+    expect(chains).toHaveLength(2);
+    expect(chains[1].querySelectorAll(".chat-thought-step")).toHaveLength(1);
+  });
+});
+
+describe("完整思维链全流程（读取字幕 → 采样关键帧 → 联网检索 → 深度思考 → 单行摘要）", () => {
+  it("按时间线顺序收口四个阶段，完成后自动折叠为包含耗时与参考字幕数的单行摘要", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      nowSpy.mockReturnValue(2_000_000);
+      const { deps, runtime } = await makeRuntime("详细解释 04:12 的原理");
+
+      feed(runtime, { type: "tool-status", status: "searching", tool: "read_subtitles", query: "检索相关字幕", callId: "sub-1" });
+      const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+      expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("读取字幕 · 检索相关字幕…");
+
+      feed(runtime, { type: "tool-status", status: "done", tool: "read_subtitles", query: "检索相关字幕", callId: "sub-1", resultCount: 4 });
+      feed(runtime, { type: "tool-status", status: "searching", tool: "capture_video_frame_at_time", query: "04:12", callId: "frame-1", targetTime: 252 });
+      feed(runtime, {
+        type: "tool-status",
+        status: "done",
+        tool: "capture_video_frame_at_time",
+        query: "04:12",
+        callId: "frame-1",
+        targetTime: 252,
+        resultCount: 1,
+        expectedCount: 1,
+        frames: [{ image: { mime: "image/jpeg", data: "Rk9S" }, currentTime: 252 }]
+      });
+      feed(runtime, { type: "tool-status", status: "searching", tool: "web_search", query: "MoE 原理", callId: "search-1" });
+      feed(runtime, { type: "tool-status", status: "done", tool: "web_search", query: "MoE 原理", callId: "search-1", resultCount: 2, platform: "Tavily", sources: SOURCES });
+      feed(runtime, { type: "reasoning", data: "结合字幕、画面与资料推导…" });
+
+      nowSpy.mockReturnValue(2_004_200);
+      feed(runtime, { type: "token", data: "核心推导见 [04:12]、[05:30] 与 [08:15]，参考 [1]。" });
+      feed(runtime, { type: "done" });
+
+      const steps = [...chain.querySelectorAll<HTMLElement>(".chat-thought-step")];
+      expect(steps.map((s) => s.dataset.stepKind)).toEqual([
+        "read_subtitles",
+        "capture_video_frame_at_time",
+        "web_search",
+        "thinking"
+      ]);
+      expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
+      expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe(
+        "已思考 4.2s · 采样 1 张画面 · 联网检索 2 条 · 参考 3 处字幕"
+      );
+      expect(deps.messages.querySelectorAll(".chat-timestamp-link")).toHaveLength(3);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
 
@@ -292,7 +314,6 @@ describe("正文内联引用（[n] → 上标引用）", () => {
     expect(cites).toHaveLength(2);
     expect(cites[0].getAttribute("data-cite-url")).toBe("https://arxiv.org/a");
     expect(cites[1].getAttribute("data-cite-url")).toBe("https://juejin.cn/b");
-    // 编造的 [9] 越界：保持纯文本
     expect(body.textContent).toContain("[9]");
     expect(body.querySelectorAll("sup.chat-cite")).toHaveLength(2);
   });
@@ -335,18 +356,18 @@ describe("正文内联引用（[n] → 上标引用）", () => {
   });
 });
 
-describe("时间线卡与流式渲染共存", () => {
-  it("流式正文与思考盒照常渲染，卡片不干扰 assistant 节点内容", async () => {
+describe("统一思维链内工具与思考共存", () => {
+  it("工具与思考收口在同一思维链容器内，分步骤呈现", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "reasoning", data: "思考" });
     const assistant = deps.messages.querySelector(".chat-msg-assistant")!;
-    expect(assistant.querySelector(".chat-thinking")).toBeTruthy();
-    const card = deps.messages.querySelector(".chat-search-card")!;
-    expect(card.contains(assistant.querySelector(".chat-thinking"))).toBe(false);
+    const chains = assistant.querySelectorAll(".chat-thought-chain");
+    expect(chains).toHaveLength(1);
+    expect(chains[0].querySelector(".chat-thought-step[data-step-kind='web_search']")).toBeTruthy();
+    expect(chains[0].querySelector(".chat-thought-step[data-step-kind='thinking']")).toBeTruthy();
   });
 });
-
 
 describe("搜索终态、播报与键盘可用性", () => {
   it("done：头部累计数与步骤本次数各自计量，独立状态区只播报一次，重复事件不重复累计", async () => {
@@ -354,11 +375,11 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 2, sources: SOURCES });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const announcer = card.querySelector<HTMLElement>(".chat-search-announcer")!;
-    expect(card.dataset.status).toBe("done");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("2 条来源");
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("2 条");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const announcer = chain.querySelector<HTMLElement>(".chat-search-announcer")!;
+    expect(chain.dataset.status).toBe("done");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 2 条");
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("2 条");
     expect(announcer.getAttribute("role")).toBe("status");
     expect(announcer.getAttribute("aria-live")).toBe("polite");
     expect(announcer.textContent).toBe("搜索完成，共 2 条来源");
@@ -369,7 +390,7 @@ describe("搜索终态、播报与键盘可用性", () => {
     observer.observe(announcer, { childList: true, characterData: true, subtree: true });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 2, sources: SOURCES });
     expect(observer.takeRecords()).toHaveLength(0);
-    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(2);
+    expect(chain.querySelectorAll(".chat-search-source-row")).toHaveLength(2);
     observer.disconnect();
   });
 
@@ -378,13 +399,13 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
     feed(runtime, { type: "tool-status", status: "cancelled", query: "q1", callId: "call-1" });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.dataset.status).toBe("cancelled");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
-    expect(card.querySelector(".chat-search-step")!.classList.contains("is-cancelled")).toBe(true);
-    expect(card.querySelector(".is-running")).toBeNull();
-    expect(card.textContent).not.toContain("搜索中…");
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("搜索已取消");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.dataset.status).toBe("cancelled");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("已取消");
+    expect(chain.querySelector(".chat-thought-step")!.classList.contains("is-cancelled")).toBe(true);
+    expect(chain.querySelector(".is-running")).toBeNull();
+    expect(chain.textContent).not.toContain("搜索中…");
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("搜索已取消");
   });
 
   it("callId 乱序终态不误收口其他步骤；全部结束后头部才离开搜索中", async () => {
@@ -393,16 +414,16 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "q2", callId: "call-2" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 1, sources: [SOURCES[0]] });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const steps = card.querySelectorAll<HTMLElement>(".chat-search-step");
-    expect(steps[0].querySelector(".chat-search-step-note")!.textContent).toBe("1 条");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const steps = chain.querySelectorAll<HTMLElement>(".chat-thought-step");
+    expect(steps[0].querySelector(".chat-thought-step-meta")!.textContent).toBe("1 条");
     expect(steps[1].classList.contains("is-running")).toBe(true);
-    expect(card.dataset.status).toBe("searching");
+    expect(chain.dataset.status).toBe("searching");
 
     feed(runtime, { type: "tool-status", status: "cancelled", query: "q2", callId: "call-2" });
     expect(steps[1].classList.contains("is-cancelled")).toBe(true);
-    expect(card.dataset.status).toBe("cancelled");
-    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(1);
+    expect(chain.dataset.status).toBe("cancelled");
+    expect(chain.querySelectorAll(".chat-search-source-row")).toHaveLength(1);
   });
 
   it("failed：错误使用 alert，保留诊断通知并继续主任务", async () => {
@@ -410,9 +431,9 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
     feed(runtime, { type: "tool-status", status: "failed", query: "q1", callId: "call-1" });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const announcer = card.querySelector<HTMLElement>(".chat-search-announcer")!;
-    expect(card.dataset.status).toBe("failed");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const announcer = chain.querySelector<HTMLElement>(".chat-search-announcer")!;
+    expect(chain.dataset.status).toBe("failed");
     expect(announcer.getAttribute("role")).toBe("alert");
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
     expect(announcer.textContent).toBe("搜索失败");
@@ -423,15 +444,15 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "done" });
     expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("联网搜索失败：HTTP 503", 4000);
     expect(deps.messages.querySelector(".chat-msg-assistant-body")!.textContent).toContain("基于已有信息继续回答");
-    expect(card.dataset.status).toBe("failed");
+    expect(chain.dataset.status).toBe("failed");
   });
 
   it.each([
     ["finish", "cancelled", "已取消"],
-    ["stop", "cancelled", "已取消"],
+    ["stop", "cancelled", "已停止"],
     ["fail", "failed", "搜索失败"],
     ["discard", "cancelled", "已取消"]
-  ] as const)("%s 统一收口在途搜索，终态后迟到事件不重开", async (terminal, status, text) => {
+  ] as const)("%s 统一收口在途搜索，终态后迟到事件不重开", async (terminal, status, summaryText) => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const turn = runtime.messageArea.appendAssistantMessage({ source: "live" });
@@ -442,16 +463,16 @@ describe("搜索终态、播报与键盘可用性", () => {
     else if (terminal === "fail") turn.fail("错误：网络中断");
     else turn.discard();
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.dataset.status).toBe(status);
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(text);
-    expect(card.querySelector(".is-running")).toBeNull();
-    expect(card.textContent).not.toContain("搜索中…");
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe(status === "failed" ? "搜索失败" : "搜索已取消");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.dataset.status).toBe(status);
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe(summaryText);
+    expect(chain.querySelector(".is-running")).toBeNull();
+    expect(chain.textContent).not.toContain("搜索中…");
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe(status === "failed" ? "搜索失败" : "搜索已取消");
 
     turn.applySearchStatus({ type: "tool-status", status: "searching", query: "late", callId: "call-2" });
-    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(1);
-    expect(card.dataset.status).toBe(status);
+    expect(chain.querySelectorAll(".chat-thought-step")).toHaveLength(1);
+    expect(chain.dataset.status).toBe(status);
   });
 
   it("来源行聚焦出预览，Esc 与 blur 收起；按钮保留原生键盘激活", async () => {
@@ -522,7 +543,6 @@ describe("搜索终态、播报与键盘可用性", () => {
   });
 });
 
-
 describe("历史视频帧工具可见闭环", () => {
   const TOOL = "capture_video_frame_at_time" as const;
   const FRAMES = [10, 12, 14].map((currentTime, index) => ({
@@ -537,11 +557,10 @@ describe("历史视频帧工具可见闭环", () => {
   it("进行中显示目标时间；成功显示数量、实际帧时间并可打开画面", async () => {
     const { deps, runtime } = await makeRuntime("看看 12 秒附近");
     feed(runtime, searching());
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.querySelector(".chat-search-card-label")!.textContent).toBe("视频画面");
-    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("00:12 附近");
-    expect(card.querySelector(".chat-search-step-query")!.textContent).toBe("正在回看 00:12 附近画面…");
-    expect(card.querySelector(".is-running")).not.toBeNull();
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("采样关键帧 · 00:12 附近…");
+    expect(chain.querySelector(".chat-thought-step-detail")!.textContent).toBe("00:12 附近");
+    expect(chain.querySelector(".is-running")).not.toBeNull();
 
     feed(runtime, {
       type: "tool-status",
@@ -554,13 +573,13 @@ describe("历史视频帧工具可见闭环", () => {
       expectedCount: 3,
       frames: FRAMES
     });
-    expect(card.dataset.status).toBe("done");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("3 张画面");
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 张");
-    expect([...card.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:12", "00:14"]);
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 3 张画面");
+    expect(chain.dataset.status).toBe("done");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("采样 3 张画面");
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("3 张");
+    expect([...chain.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:12", "00:14"]);
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 3 张画面");
 
-    const firstFrame = card.querySelector<HTMLButtonElement>(".chat-video-frame-item .chat-image-open")!;
+    const firstFrame = chain.querySelector<HTMLButtonElement>(".chat-video-frame-item .chat-image-open")!;
     expect(firstFrame.getAttribute("aria-label")).toBe("查看 00:10 的实际画面");
     firstFrame.click();
     expect(document.querySelector<HTMLImageElement>(".chat-image-viewer-image")?.src).toBe("data:image/jpeg;base64,Rk9S");
@@ -581,24 +600,24 @@ describe("历史视频帧工具可见闭环", () => {
       frames: [FRAMES[0], FRAMES[2]]
     });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("2 张，缺失 1 张");
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
-    expect([...card.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:14"]);
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("2 张，缺失 1 张");
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
+    expect([...chain.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:14"]);
   });
 
-  it("全部失败显示文字降级，后续文字回答与终态卡片共存", async () => {
+  it("全部失败显示文字降级，后续文字回答与终态思维链共存", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, searching());
     feed(runtime, { type: "tool-status", status: "failed", tool: TOOL, query: "0:12", callId: "frame-1", targetTime: 12 });
     feed(runtime, { type: "token", data: "依据字幕继续回答" });
     feed(runtime, { type: "done" });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.dataset.status).toBe("failed");
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("未取到画面，已按文字继续");
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("未取到画面，已按文字继续");
-    expect(card.querySelector(".chat-search-announcer")!.getAttribute("role")).toBe("alert");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.dataset.status).toBe("failed");
+    expect(chain.querySelector(".chat-thought-step-meta")!.textContent).toBe("未取到画面，已按文字继续");
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("未取到画面，已按文字继续");
+    expect(chain.querySelector(".chat-search-announcer")!.getAttribute("role")).toBe("alert");
     expect(deps.messages.querySelector(".chat-msg-assistant-body")!.textContent).toContain("依据字幕继续回答");
   });
 
@@ -612,11 +631,12 @@ describe("历史视频帧工具可见闭环", () => {
     else if (terminal === "stop") turn.stop("用户停止");
     else if (terminal === "fail") turn.fail("错误：端口断开");
     else turn.discard();
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
     const expectedStatus = terminal === "fail" ? "failed" : "cancelled";
-    expect(card.dataset.status).toBe(expectedStatus);
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(terminal === "fail" ? "未取到画面" : "已取消");
-    expect(card.querySelector(".is-running")).toBeNull();
+    const expectedSummary = terminal === "fail" ? "未取到画面" : terminal === "stop" ? "已停止" : "已取消";
+    expect(chain.dataset.status).toBe(expectedStatus);
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe(expectedSummary);
+    expect(chain.querySelector(".is-running")).toBeNull();
 
     turn.applySearchStatus({
       type: "tool-status",
@@ -629,9 +649,9 @@ describe("历史视频帧工具可见闭环", () => {
       expectedCount: 3,
       frames: FRAMES
     });
-    expect(card.dataset.status).toBe(expectedStatus);
-    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(terminal === "fail" ? "未取到画面" : "已取消");
+    expect(chain.dataset.status).toBe(expectedStatus);
+    expect(chain.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe(expectedSummary);
   });
 
   it("关闭会话或换片的 reset 显示已取消，迟到事件不重开旧回合", async () => {
@@ -639,15 +659,15 @@ describe("历史视频帧工具可见闭环", () => {
     feed(runtime, searching());
     runtime.resetStreamState();
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    expect(card.dataset.status).toBe("cancelled");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.dataset.status).toBe("cancelled");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("已取消");
     feed(runtime, { type: "tool-status", status: "done", tool: TOOL, query: "0:12", callId: "frame-1", targetTime: 12, frames: FRAMES });
-    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
-    expect(card.dataset.status).toBe("cancelled");
+    expect(chain.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+    expect(chain.dataset.status).toBe("cancelled");
   });
 
-  it("同卡搜索与多次截帧按调用隔离计数和实际帧列表", async () => {
+  it("同思维链内搜索与多次截帧按调用隔离计数和实际帧列表", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", tool: "web_search", query: "背景资料", callId: "search-1" });
     feed(runtime, { type: "tool-status", status: "done", tool: "web_search", query: "背景资料", callId: "search-1", resultCount: 1, sources: [SOURCES[0]] });
@@ -656,16 +676,16 @@ describe("历史视频帧工具可见闭环", () => {
     feed(runtime, { type: "tool-status", status: "searching", tool: TOOL, query: "0:30", callId: "frame-2", targetTime: 30 });
     feed(runtime, { type: "tool-status", status: "done", tool: TOOL, query: "0:30", callId: "frame-2", targetTime: 30, resultCount: 2, expectedCount: 3, frames: [FRAMES[1], FRAMES[2]] });
 
-    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
-    const steps = card.querySelectorAll<HTMLElement>(".chat-search-step");
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    const steps = chain.querySelectorAll<HTMLElement>(".chat-thought-step");
     expect(steps).toHaveLength(3);
-    expect(steps[0].querySelector(".chat-search-step-note")!.textContent).toBe("1 条");
+    expect(steps[0].querySelector(".chat-thought-step-meta")!.textContent).toBe("1 条");
     expect(steps[0].querySelector(".chat-video-frame-results")).toBeNull();
-    expect(steps[1].querySelector(".chat-search-step-note")!.textContent).toBe("1 张，缺失 2 张");
+    expect(steps[1].querySelector(".chat-thought-step-meta")!.textContent).toBe("1 张，缺失 2 张");
     expect([...steps[1].querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10"]);
-    expect(steps[2].querySelector(".chat-search-step-note")!.textContent).toBe("2 张，缺失 1 张");
+    expect(steps[2].querySelector(".chat-thought-step-meta")!.textContent).toBe("2 张，缺失 1 张");
     expect([...steps[2].querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:12", "00:14"]);
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("2 张画面");
-    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("采样 3 张画面 · 联网检索 1 条");
+    expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
   });
 });

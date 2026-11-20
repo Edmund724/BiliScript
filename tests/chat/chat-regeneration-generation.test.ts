@@ -303,7 +303,7 @@ describe("工具循环代际隔离", () => {
       frames: [frame("b2xkLWZyYW1l", 1)]
     });
 
-    const cards = deps.messages.querySelectorAll(".chat-search-card");
+    const cards = deps.messages.querySelectorAll(".chat-thought-chain");
     expect(cards).toHaveLength(1);
     expect(cards[0].textContent).toContain("新搜索");
     expect(cards[0].textContent).not.toContain("旧搜索");
@@ -321,7 +321,7 @@ describe("重新生成的原上下文与恢复", () => {
     const { deps, runtime } = await makeOriginalAnswer({ images: [IMAGE], toolCard: true });
     const originalHistory = [...state.chatSessionState.chatHistory];
     const originalAssistant = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
-    const originalCard = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const originalCard = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
 
     clickRegenerate(deps);
     await waitForPort(deps, 2);
@@ -338,7 +338,7 @@ describe("重新生成的原上下文与恢复", () => {
 
     expect(state.chatSessionState.chatHistory).toEqual(originalHistory);
     expect(deps.messages.querySelector(".chat-msg-assistant")).toBe(originalAssistant);
-    expect(deps.messages.querySelector(".chat-search-card")).toBe(originalCard);
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBe(originalCard);
     expect(originalAssistant.textContent).toContain("原回答");
     expect(originalAssistant.textContent).not.toContain("半截新回答");
     expect(originalCard.textContent).toContain("原来源");
@@ -358,7 +358,7 @@ describe("重新生成的原上下文与恢复", () => {
     pinOriginalContext();
     switchToVideoB();
     const originalHistory = [...state.chatSessionState.chatHistory];
-    const originalCard = deps.messages.querySelector(".chat-search-card");
+    const originalCard = deps.messages.querySelector(".chat-thought-chain");
     const confirm = vi.fn(async () => false);
     deps.confirmRegenerationContext = confirm;
     const ensureCalls = deps.ensureCurrentContextForSend.mock.calls.length;
@@ -370,7 +370,8 @@ describe("重新生成的原上下文与恢复", () => {
     expect(deps.ports).toHaveLength(1);
     expect(deps.ensureCurrentContextForSend).toHaveBeenCalledTimes(ensureCalls);
     expect(state.chatSessionState.chatHistory).toEqual(originalHistory);
-    expect(deps.messages.querySelector(".chat-search-card")).toBe(originalCard);
+    expect(originalCard).toBeTruthy();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBe(originalCard);
     expect(deps.messages.querySelector(".chat-msg-assistant")?.textContent).toContain("原回答");
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
 
@@ -452,7 +453,7 @@ describe("重新生成的原上下文与恢复", () => {
     const { deps, runtime } = await makeOriginalAnswer({ toolCard: true });
     const originalHistory = [...state.chatSessionState.chatHistory];
     const originalAssistant = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
-    const originalCard = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const originalCard = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
 
     clickRegenerate(deps);
     await waitForPort(deps, 2);
@@ -460,7 +461,8 @@ describe("重新生成的原上下文与恢复", () => {
 
     expect(state.chatSessionState.chatHistory).toEqual(originalHistory);
     expect(deps.messages.querySelector(".chat-msg-assistant")).toBe(originalAssistant);
-    expect(deps.messages.querySelector(".chat-search-card")).toBe(originalCard);
+    expect(originalCard).toBeTruthy();
+    expect(deps.messages.querySelector(".chat-thought-chain")).toBe(originalCard);
     expect(originalAssistant.textContent).toContain("原回答");
     expect(originalAssistant.querySelector(".chat-msg-stopped")).toBeNull();
   });

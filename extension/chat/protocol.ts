@@ -81,7 +81,7 @@ export interface ChatToolStatusEvent {
   type: "tool-status";
   status: "searching" | "done" | "failed" | "cancelled";
   query: string;
-  tool?: "web_search" | "capture_video_frame_at_time";
+  tool?: "read_subtitles" | "web_search" | "capture_video_frame_at_time";
   callId?: string;
   // 同一 port 内的工具循环代际；stream-reset 之后只接收最新一代。
   generation?: number;

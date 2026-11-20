@@ -72,7 +72,7 @@ export interface MathRenderModule {
 export function hydrateMathPlaceholders(root: ParentNode, cache: MathRenderLruCache = defaultMathCache): void {
   const elements = root.querySelectorAll(MATH_BLOCK_SELECTOR);
   for (const el of elements) {
-    if (el.getAttribute("data-biliscript-math-status") === "done") {
+    if (el.getAttribute("data-biliscript-math-status") === "done" || el.hasAttribute("data-streaming-open")) {
       continue;
     }
     const mode = el.getAttribute(MATH_BLOCK_ATTR);

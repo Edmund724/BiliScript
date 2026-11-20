@@ -1045,20 +1045,18 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
     (await import("../../extension/reader/chat-tab.js")).renderInitialState();
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-search-card")));
-    const card = messages.querySelector(".chat-search-card") as HTMLElement;
-    expect((card.querySelector(".chat-search-step-query") as HTMLElement).textContent).toBe("MoE 新进展");
-    expect((card.querySelector(".chat-search-step-note") as HTMLElement).textContent).toBe("1 条");
+    await waitFor(() => Boolean(messages.querySelector(".chat-thought-chain")));
+    const card = messages.querySelector(".chat-thought-chain") as HTMLElement;
+    expect((card.querySelector(".chat-thought-step-detail") as HTMLElement).textContent).toBe("MoE 新进展");
+    expect((card.querySelector(".chat-thought-step-meta") as HTMLElement).textContent).toBe("1 条");
     expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(1);
-    // 头部 = 最近一条查询词 + 来源条数
-    expect((card.querySelector(".chat-search-card-query") as HTMLElement).textContent).toBe("MoE 新进展");
-    // 回放卡与 live 卡同构：默认折叠（重建一律回到折叠态，不落盘）
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
-    expect(card.querySelector(".chat-search-card-head")!.getAttribute("aria-expanded")).toBe("false");
-    expect((card.querySelector(".chat-search-card-status") as HTMLElement).textContent).toBe("1 条来源");
-    // 回放卡同样可点击展开
-    (card.querySelector(".chat-search-card-head") as HTMLElement).click();
-    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
+    // 回放思维链与 live 终态同构：默认折叠为单行摘要
+    expect(card.classList.contains("chat-thought-chain-collapsed")).toBe(true);
+    expect(card.querySelector(".chat-thought-chain-head")!.getAttribute("aria-expanded")).toBe("false");
+    expect((card.querySelector(".chat-thought-chain-summary") as HTMLElement).textContent).toBe("联网检索 1 条");
+    // 回放思维链同样可点击展开
+    (card.querySelector(".chat-thought-chain-head") as HTMLElement).click();
+    expect(card.classList.contains("chat-thought-chain-collapsed")).toBe(false);
     // tool 消息 JSON 不落正文；[n] 重建为内联引用
     expect(messages.textContent).not.toContain('{"title"');
     expect(messages.querySelectorAll("sup.chat-cite")).toHaveLength(1);

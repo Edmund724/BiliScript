@@ -38,6 +38,7 @@ const MERMAID_FENCE_LANG = "mermaid";
 interface CodeFence {
   lang: string;
   code: string;
+  unclosed?: boolean;
 }
 
 interface FenceDelimiter {
@@ -62,7 +63,21 @@ function updateFenceState(line: string, markerLength: number): number {
   return isMatchingFenceClosingLine(line, markerLength) ? 0 : markerLength;
 }
 
-function extractCodeFences(escaped: string): { text: string; codeBlocks: CodeFence[] } {
+function updateBlockMathState(line: string, inBlockMath: boolean): boolean {
+  const trimmed = line.trim();
+  if (!inBlockMath) {
+    if (trimmed.startsWith("$$") && !(trimmed.length >= 4 && trimmed.endsWith("$$"))) {
+      return true;
+    }
+    return false;
+  }
+  return trimmed.endsWith("$$") ? false : true;
+}
+
+function extractCodeFences(
+  escaped: string,
+  allowUnclosed = false
+): { text: string; codeBlocks: CodeFence[] } {
   const lines = escaped.split("\n");
   const output: string[] = [];
   const codeBlocks: CodeFence[] = [];
@@ -83,9 +98,19 @@ function extractCodeFences(escaped: string): { text: string; codeBlocks: CodeFen
       }
     }
     if (closing < 0) {
-      output.push(lines[index]);
-      index += 1;
-      continue;
+      if (!allowUnclosed) {
+        output.push(lines[index]);
+        index += 1;
+        continue;
+      }
+      const body = lines.slice(index + 1).join("\n");
+      codeBlocks.push({
+        lang: opening.info.trim().toLowerCase(),
+        code: body ? `${body}${body.endsWith("\n") ? "" : "\n"}` : "",
+        unclosed: true
+      });
+      output.push(`\u0001BILISCRIPT_CODE_${codeBlocks.length - 1}\u0001`);
+      break;
     }
 
     const body = lines.slice(index + 1, closing).join("\n");
@@ -160,6 +185,8 @@ export interface MarkdownRenderOptions {
   dropHeadingAdjacentHr?: boolean;
   hrAdjacentBefore?: string;
   hrAdjacentAfter?: string;
+  /** 流式尾块容错模式：自动补全未闭合代码块（```）与公式块（$$），消除流式跳动。 */
+  streaming?: boolean;
 }
 
 export function renderMarkdown(text: string, options: MarkdownRenderOptions = {}): string {
@@ -170,9 +197,11 @@ export function renderMarkdown(text: string, options: MarkdownRenderOptions = {}
 // 块（chat-runtime 的流式 flush 与终态渲染都先经 stripThinkBlocks，内部再剥一
 // 遍只是幂等冗余）。独立调用方（如 explain-card）用 renderMarkdown，勿直接用本函数。
 export function renderMarkdownStripped(text: string, options: MarkdownRenderOptions = {}): string {
+  const streaming = Boolean(options.streaming);
+  const inline = (value: string) => renderInline(value, streaming);
   const escaped = escapeHtml(text);
   // 仅行首（允许 ≤3 空格）围栏是块级标记；段中出现的 ``` 保留为普通文本。
-  const extracted = extractCodeFences(escaped);
+  const extracted = extractCodeFences(escaped, streaming);
   const renderedText = extracted.text;
   const codeBlocks = extracted.codeBlocks;
 
@@ -187,7 +216,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
 
   const flushPara = () => {
     if (paraBuf.length) {
-      out.push(`<p>${renderInline(paraBuf.join(" "))}</p>`);
+      out.push(`<p>${inline(paraBuf.join(" "))}</p>`);
       paraBuf = [];
     }
   };
@@ -242,7 +271,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
       .replace(/^\|/, "")
       .replace(/\|$/, "")
       .split("|")
-      .map((cell) => renderInline(cell.trim()));
+      .map((cell) => inline(cell.trim()));
 
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index];
@@ -257,23 +286,35 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
         // 图表占位：源码留在 <pre><code> 里（渲染前/渲染失败时就是一块普通代码
         // 块，不需要额外的加载态样式），真正的 SVG 由 ui/lazy-mermaid 在节点插入
         // DOM 后异步换入（见 MERMAID_BLOCK_ATTR 的状态机 pending/done/error）。
+        // 流式未闭合期间标记为 streaming，避免半截语法提前触发报错闪烁。
+        const mermaidState = fence.unclosed ? "streaming" : "pending";
+        const streamingAttr = fence.unclosed ? ' data-streaming-open="true"' : "";
         out.push(
-          `<div class="biliscript-md-mermaid" ${MERMAID_BLOCK_ATTR}="pending">` +
+          `<div class="biliscript-md-mermaid" ${MERMAID_BLOCK_ATTR}="${mermaidState}"${streamingAttr}>` +
             `<pre class="${MERMAID_SOURCE_CLASS}"><code>${fence.code}</code></pre></div>`
         );
         continue;
       }
       if (MATH_FENCE_LANGS.has(fence.lang)) {
-        const rawTex = decodeHtmlEntities(fence.code.trim());
+        const inner = fence.code.trim();
+        const rawTex = decodeHtmlEntities(inner);
+        if (fence.unclosed) {
+          out.push(
+            `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-streaming-open="true" data-tex="${escapeHtml(rawTex)}">` +
+              `<code class="biliscript-md-math-streaming">${inner || "…"}</code></div>`
+          );
+          continue;
+        }
         out.push(
           `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">` +
-            `$$${fence.code.trim()}$$</div>`
+            `$$${inner}$$</div>`
         );
         continue;
       }
       const fenceLang = fence.lang.trim().split(/\s+/)[0] || "";
       const langAttr = fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : "";
-      out.push(`<pre${langAttr}><code>${fence.code}</code></pre>`);
+      const streamingAttr = fence.unclosed ? ' data-streaming-open="true"' : "";
+      out.push(`<pre${langAttr}${streamingAttr}><code>${fence.code}</code></pre>`);
       continue;
     }
 
@@ -316,6 +357,22 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
         );
         continue;
       }
+      if (streaming) {
+        flushPara();
+        closeList();
+        const collected = [line.slice(2)];
+        for (let c = index + 1; c < lines.length; c += 1) {
+          collected.push(lines[c]);
+        }
+        index = lines.length - 1;
+        const inner = collected.join("\n").trim();
+        const rawTex = decodeHtmlEntities(inner);
+        out.push(
+          `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-streaming-open="true" data-tex="${escapeHtml(rawTex)}">` +
+            `<code class="biliscript-md-math-streaming">${inner || "…"}</code></div>`
+        );
+        continue;
+      }
     }
 
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
@@ -323,7 +380,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
       flushPara();
       closeList();
       const level = Math.min(heading[1].length + 1, 6);
-      out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
       continue;
     }
 
@@ -367,7 +424,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
       out.push(
         `<blockquote>${quoteParas
           .filter((para) => para.length)
-          .map((para) => `<p>${renderInline(para.join(" "))}</p>`)
+          .map((para) => `<p>${inline(para.join(" "))}</p>`)
           .join("")}</blockquote>`
       );
       continue;
@@ -384,7 +441,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
         `<input class="task-list-item-checkbox" type="checkbox" disabled` +
         `${task[1] === " " ? "" : " checked"}>`;
       out.push(
-        `<li class="task-list-item">${checkbox}${task[2] ? ` ${renderInline(task[2])}` : ""}</li>`
+        `<li class="task-list-item">${checkbox}${task[2] ? ` ${inline(task[2])}` : ""}</li>`
       );
       continue;
     }
@@ -420,7 +477,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
     if (ul) {
       flushPara();
       openList("ul");
-      out.push(`<li>${renderInline(ul[1])}</li>`);
+      out.push(`<li>${inline(ul[1])}</li>`);
       continue;
     }
 
@@ -435,7 +492,7 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
       if (listType !== "ol") {
         openList("ol", orderNumber);
       }
-      out.push(`<li>${renderInline(ol[2])}</li>`);
+      out.push(`<li>${inline(ol[2])}</li>`);
       continue;
     }
 
@@ -487,14 +544,24 @@ export function splitMarkdownTail(text: unknown): { stableText: string; tailText
     return { stableText: "", tailText: source };
   }
   let fenceMarkerLength = 0;
+  let inBlockMath = false;
   let cut = -1;
   for (let index = 0; index < lastNonBlank; index += 1) {
     const line = lines[index];
     const blank = line.trim() === "";
-    if (blank && fenceMarkerLength === 0 && (index === 0 || lines[index - 1].trim() !== "")) {
+    if (
+      blank &&
+      fenceMarkerLength === 0 &&
+      !inBlockMath &&
+      (index === 0 || lines[index - 1].trim() !== "")
+    ) {
       cut = index; // 循环上界 lastNonBlank 保证该空行段之后仍有非空行
     }
-    fenceMarkerLength = updateFenceState(line, fenceMarkerLength);
+    const nextFence = updateFenceState(line, fenceMarkerLength);
+    if (fenceMarkerLength === 0 && nextFence === 0) {
+      inBlockMath = updateBlockMathState(line, inBlockMath);
+    }
+    fenceMarkerLength = nextFence;
   }
   if (cut < 0) {
     return { stableText: "", tailText: source };
@@ -684,6 +751,7 @@ export interface MarkdownTailCursor {
 export function createMarkdownTailCursor(): MarkdownTailCursor {
   let cut = -1;
   let fenceMarkerLength = 0;
+  let inBlockMath = false;
   // 已计入围栏/切点扫描的行数：下标 [0, scanned) 的行内容永不再变。
   let scanned = 0;
   let lastNonBlank = -1;
@@ -697,15 +765,25 @@ export function createMarkdownTailCursor(): MarkdownTailCursor {
       if (nb < lastNonBlank) {
         cut = -1;
         fenceMarkerLength = 0;
+        inBlockMath = false;
         scanned = 0;
       }
       if (nb > scanned) {
         for (let i = scanned; i < nb; i += 1) {
           const blank = lines[i].trim() === "";
-          if (blank && fenceMarkerLength === 0 && (i === 0 || lines[i - 1].trim() !== "")) {
+          if (
+            blank &&
+            fenceMarkerLength === 0 &&
+            !inBlockMath &&
+            (i === 0 || lines[i - 1].trim() !== "")
+          ) {
             cut = i;
           }
-          fenceMarkerLength = updateFenceState(lines[i], fenceMarkerLength);
+          const nextFence = updateFenceState(lines[i], fenceMarkerLength);
+          if (fenceMarkerLength === 0 && nextFence === 0) {
+            inBlockMath = updateBlockMathState(lines[i], inBlockMath);
+          }
+          fenceMarkerLength = nextFence;
         }
         scanned = nb;
       }
@@ -735,7 +813,7 @@ function wrapFlowArrows(html: string): string {
     .join("");
 }
 
-function renderInline(text: string): string {
+function renderInline(text: string, streaming = false): string {
   const inlineCodes: string[] = [];
   let working = text.replace(/`([^`]+)`/g, (_, c: string) => {
     if (isTimestampOnlyInlineCode(c)) {
@@ -745,6 +823,19 @@ function renderInline(text: string): string {
     return `\u0002ILC_${inlineCodes.length - 1}\u0002`;
   });
 
+  if (streaming) {
+    const danglingTick = working.lastIndexOf("`");
+    if (danglingTick >= 0) {
+      const rest = working.slice(danglingTick + 1);
+      if (rest && !isTimestampOnlyInlineCode(rest)) {
+        inlineCodes.push(`<code>${rest}</code>`);
+        working = `${working.slice(0, danglingTick)}\u0002ILC_${inlineCodes.length - 1}\u0002`;
+      } else if (!rest) {
+        working = working.slice(0, danglingTick);
+      }
+    }
+  }
+
   working = working.replace(/\\(\$)/g, "\u0003ESCDOLLAR\u0003");
 
   working = working.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => {
@@ -752,6 +843,18 @@ function renderInline(text: string): string {
     const rawTex = decodeHtmlEntities(trimmed);
     return `<span class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">$$${trimmed}$$</span>`;
   });
+
+  if (streaming) {
+    const unclosedBlockMath = working.indexOf("$$");
+    if (unclosedBlockMath >= 0) {
+      const inner = working.slice(unclosedBlockMath + 2).trim();
+      const rawTex = decodeHtmlEntities(inner);
+      working =
+        working.slice(0, unclosedBlockMath) +
+        `<span class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-streaming-open="true" data-tex="${escapeHtml(rawTex)}">` +
+        `<code class="biliscript-md-math-streaming">${inner || "…"}</code></span>`;
+    }
+  }
 
   working = working.replace(/(^|[^\w\$\\])\$([^\s\$](?:[^$\n]*?[^\s\$])?)\$(?!\w)/g, (full, pre: string, inner: string) => {
     if (/^[\d,.]+(?:\s*[a-zA-Z]+)?$/.test(inner.trim())) {
@@ -770,6 +873,17 @@ function renderInline(text: string): string {
       const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
     });
+
+  if (streaming) {
+    const danglingBold = working.lastIndexOf("**");
+    if (danglingBold >= 0) {
+      const rest = working.slice(danglingBold + 2);
+      working = rest
+        ? `${working.slice(0, danglingBold)}<strong>${rest}</strong>`
+        : working.slice(0, danglingBold);
+    }
+  }
+
   working = working.replaceAll("\u0003ESCDOLLAR\u0003", "$");
   working = wrapFlowArrows(working);
   working = working.replace(/\u0002ILC_(\d+)\u0002/g, (_, idx: string) => inlineCodes[Number(idx)]);
@@ -1081,6 +1195,7 @@ export function createMarkdownStreamSession(
         hrAdjacentAfter: currentTailText
       });
       const { newNodes } = commitCursor.commit(deltaHtml, stableEl);
+      enhanceMarkdownCodeBlocks(stableEl);
       enhanceMarkdownTables(stableEl);
       for (const newNode of newNodes) {
         hydrateMermaid(newNode);
@@ -1098,6 +1213,7 @@ export function createMarkdownStreamSession(
           hrAdjacentAfter: currentTailText
         });
         const { newNodes } = commitCursor.commit(deltaHtml, stableEl);
+        enhanceMarkdownCodeBlocks(stableEl);
         enhanceMarkdownTables(stableEl);
         for (const newNode of newNodes) {
           hydrateMermaid(newNode);
@@ -1115,6 +1231,7 @@ export function createMarkdownStreamSession(
   function renderTail(currentTailText: string, cursor?: HTMLElement | null): void {
     const html = render(currentTailText, {
       ...options,
+      streaming: true,
       hrAdjacentBefore: stableText
     });
     if (cursor && cursor.parentNode === tailEl) {
@@ -1140,6 +1257,7 @@ export function createMarkdownStreamSession(
         tailEl.appendChild(cursor);
       }
     }
+    enhanceMarkdownCodeBlocks(tailEl);
     enhanceMarkdownTables(tailEl);
   }
 

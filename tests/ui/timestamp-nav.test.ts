@@ -8,8 +8,7 @@
 // seek 返回 null（未绑定到视频）时降级为失败 notice。
 
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { linkifyAssistantTimestamps } from "../../extension/ui/timestamp-nav.js";
-import { TIMESTAMP_PATTERN } from "../../extension/ui/markdown.js";
+import { findSubtitlePreviewAtTime, linkifyAssistantTimestamps } from "../../extension/ui/timestamp-nav.js";
 
 function makeDeps() {
   return {
@@ -110,5 +109,87 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
       expect(deps.notice).toHaveBeenCalledWith("当前播放页与该对话所属视频不一致，无法跳转进度。", 2600)
     );
     expect(deps.seek).not.toHaveBeenCalled();
+  });
+
+  it("时间戳胶囊吸收外围括号 [04:12] / 【04:12】 并返回去重引用计数", () => {
+    const deps = makeDeps();
+    const container = document.createElement("div");
+    container.textContent = "开场见 [04:12]，补充见 【04:12】 与 08:30。";
+    document.body.append(container);
+
+    const uniqueCount = linkifyAssistantTimestamps(container, deps);
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".chat-timestamp-link")];
+
+    expect(uniqueCount).toBe(2);
+    expect(buttons.map((btn) => btn.textContent)).toEqual(["[04:12]", "[04:12]", "[08:30]"]);
+    // 吸收外围括号后不产生 [[04:12]]
+    expect(container.textContent).toBe("开场见 [04:12]，补充见 [04:12] 与 [08:30]。");
+    container.remove();
+  });
+
+  it("悬停/聚焦时间戳胶囊弹出原字幕预览 Tooltip，支持悬停浮层保活与 Esc 关闭", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    host.className = "chat-messages";
+    const body = document.createElement("div");
+    body.textContent = "重点论述见 [04:12]";
+    host.appendChild(body);
+    document.body.appendChild(host);
+
+    const subtitles = [
+      { from: 250, to: 255, content: "这里讲的是流式渲染防抖的核心思路" },
+      { from: 256, to: 262, content: "避免高度剧烈跳动" }
+    ];
+    const deps = {
+      ...makeDeps(),
+      tooltipContainer: host,
+      getSubtitlePreview: (seconds: number) => findSubtitlePreviewAtTime(subtitles, seconds)
+    };
+    linkifyAssistantTimestamps(body, deps);
+    const btn = body.querySelector<HTMLButtonElement>(".chat-timestamp-link")!;
+    expect(btn.getAttribute("title")).toBeNull();
+
+    btn.dispatchEvent(new window.Event("mouseenter"));
+    const tooltip = host.querySelector<HTMLElement>("[data-chat-timestamp-tooltip]")!;
+    expect(tooltip).toBeTruthy();
+    expect(tooltip.getAttribute("role")).toBe("tooltip");
+    expect(btn.getAttribute("aria-describedby")).toBe(tooltip.id);
+    expect(tooltip.querySelector(".chat-timestamp-tooltip-time")?.textContent).toBe("4:10");
+    expect(tooltip.querySelector(".chat-timestamp-tooltip-text")?.textContent).toContain("流式渲染防抖");
+
+    // 鼠标移出胶囊但移入 Tooltip 自身：保持显示（WCAG 1.4.13 Hoverable）
+    btn.dispatchEvent(new window.Event("mouseleave"));
+    tooltip.dispatchEvent(new window.Event("mouseenter"));
+    vi.advanceTimersByTime(300);
+    expect(host.querySelector("[data-chat-timestamp-tooltip]")).toBe(tooltip);
+
+    // Esc 立即收起且清除 aria-describedby
+    host.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(host.querySelector("[data-chat-timestamp-tooltip]")).toBeNull();
+    expect(btn.getAttribute("aria-describedby")).toBeNull();
+
+    // 点击直接跳转播放
+    btn.click();
+    expect(deps.seek).toHaveBeenCalledWith(252);
+
+    vi.useRealTimers();
+    host.remove();
+  });
+
+  it("findSubtitlePreviewAtTime 支持精确区间命中、邻近匹配与短句拼接", () => {
+    const subtitles = [
+      { from: 10, to: 12, content: "短句一" },
+      { from: 13, to: 18, content: "紧随其后的补充说明" },
+      { from: 100, to: 105, content: "远处的另一段字幕" }
+    ];
+    expect(findSubtitlePreviewAtTime(subtitles, 11)).toEqual({
+      time: "0:10",
+      text: "短句一 紧随其后的补充说明"
+    });
+    expect(findSubtitlePreviewAtTime(subtitles, 96)).toEqual({
+      time: "1:40",
+      text: "远处的另一段字幕"
+    });
+    expect(findSubtitlePreviewAtTime(subtitles, 50)).toBeNull();
   });
 });
