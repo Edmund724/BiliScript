@@ -15,6 +15,7 @@ vi.mock("../../extension/ui/lazy-ui.js", () => ({
 }));
 vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
   hydrateReaderStateFromSettings: vi.fn(() => Promise.resolve()),
+  applyPrePaintReaderTheme: vi.fn(() => Promise.resolve()),
   applyReadingViewPresentation: vi.fn(() => Promise.resolve()),
   announceReadingStatus: vi.fn()
 }));

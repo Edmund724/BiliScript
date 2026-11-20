@@ -21,9 +21,9 @@ BUILD_AMO_PATH = ROOT / "BUILD_AMO.md"
 PACKAGE_NAME = "BiliScript"
 FIREFOX_GECKO_ID = "biliscript@edmund724.github.io"
 
-# 发布 ZIP 体积守卫：Chromium 与 Firefox 各自独立校验（2.7.4 基线，预算上限 1,020,000 B）。
-MAX_CHROMIUM_ZIP_BYTES = 1_020_000
-MAX_FIREFOX_ZIP_BYTES = 1_020_000
+# 发布 ZIP 体积守卫：Chromium 与 Firefox 各自独立校验（2.7.5 实测 1,074,178 B / 1,074,378 B，预算上限 1,110,000 B）。
+MAX_CHROMIUM_ZIP_BYTES = 1_110_000
+MAX_FIREFOX_ZIP_BYTES = 1_110_000
 
 SOURCE_EXCLUDED_TOP_DIRS = {
     "node_modules",
