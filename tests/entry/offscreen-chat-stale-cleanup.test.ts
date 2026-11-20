@@ -25,7 +25,7 @@ let resolveAiProviderHandler: () => unknown;
 function defaultProviderReply() {
   return {
     ok: true,
-    provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
+    provider: { id: "p1", name: "测试平台", baseUrl: "https://api.example.com/v1", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
     apiKey: "test-key"
   };
 }

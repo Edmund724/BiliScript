@@ -41,7 +41,11 @@ import { streamWavChunks } from "../asr/stream-chunker.js";
 import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
 import { isFragmentedMp4, createAdtsExtractor, parseAudioSpecificConfig } from "../asr/adts.js";
-import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
+import {
+  checkHostPermissionFromOffscreen,
+  HOST_INVALID_ORIGIN_HINT,
+  HOST_PERMISSION_HINT
+} from "../core/host-permissions.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, isRetryableNetworkError, withTimeout } from "../shared/error-helpers.js";
@@ -174,6 +178,23 @@ function buildSilentProbeWavBlob(): Blob {
   return encodeWav(new Float32Array(16000), 16000);
 }
 
+function resolveAsrPermissionFailure(
+  permission: { granted: boolean; status: "granted" | "denied" | "invalid-origin" },
+  provider: AsrProvider
+): { message: string; kind: ReturnType<typeof classifyAsrFailure> } {
+  if (permission.status === "invalid-origin") {
+    return { message: HOST_INVALID_ORIGIN_HINT, kind: "no-asr-config" };
+  }
+  return {
+    message: HOST_PERMISSION_HINT,
+    kind: classifyAsrFailure({
+      source: "platform",
+      body: HOST_PERMISSION_HINT,
+      provider: provider as AsrFailureProviderLike
+    })
+  };
+}
+
 // 探针任务执行器：不下载、不解码、不切片，只按任务里的**草稿** provider 以静音 WAV
 // 调**真适配器**——与实际转写同一条链：
 //   - 同一道 host 权限预检（hasHostPermissionFromOffscreen）：域名未授权即以
@@ -221,18 +242,12 @@ export function createAsrProbeHandler({ onTaskTerminal }: CreateAsrDecodeHandler
         apiKey: String(task.apiKey || "").trim(),
         language: String(task.language || "auto")
       };
-      // 与解码链同一道预检：未授权即失败，不发注定被拦的跨域请求。类别同解码链
-      // 归 no-asr-config（域名未授权是配置类问题，不是平台拒绝）。
-      if (!(await hasHostPermissionFromOffscreen(provider.baseUrl))) {
-        reply({
-          ok: false,
-          error: HOST_PERMISSION_HINT,
-          kind: classifyAsrFailure({
-            source: "platform",
-            body: HOST_PERMISSION_HINT,
-            provider: provider as AsrFailureProviderLike
-          })
-        });
+      // 与解码链同一道预检：URL 非法或未授权即失败，不发注定被拦的跨域请求。类别同解码链
+      // 归 no-asr-config（域名未授权或地址配置错误均属配置类问题，不是平台拒绝）。
+      const probePermission = await checkHostPermissionFromOffscreen(provider.baseUrl);
+      if (!probePermission.granted) {
+        const failure = resolveAsrPermissionFailure(probePermission, provider);
+        reply({ ok: false, error: failure.message, kind: failure.kind });
         return;
       }
       await adapterEntry.adapter({ wavBlob: buildSilentProbeWavBlob(), provider, signal: undefined });
@@ -309,14 +324,13 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       }
 
       // host 权限预检（ADR-0010 收口）：转写请求在本文档内直发，而 offscreen 查不了
-      // chrome.permissions——经 hasHostPermissionFromOffscreen 走 SW 代查一跳，未授权
-      // 即以可操作文案失败，连音频都不下载（否则白下载解码一场，最后只报一个看不出
-      // 原因的「网络错误：Failed to fetch」）。
-      if (!(await hasHostPermissionFromOffscreen(provider.baseUrl))) {
-        // 域名未授权归 no-asr-config（票 04 Q1：平台/模型不可用，补救动作是去设置）
-        throw Object.assign(new Error(HOST_PERMISSION_HINT), {
-          kind: classifyAsrFailure({ source: "platform", body: HOST_PERMISSION_HINT, provider })
-        });
+      // chrome.permissions——经 checkHostPermissionFromOffscreen 走 SW 代查一跳，URL 非法
+      // 或未授权即以可操作文案失败，连音频都不下载。
+      const decodePermission = await checkHostPermissionFromOffscreen(provider.baseUrl);
+      if (!decodePermission.granted) {
+        // 域名未授权与地址配置错误归 no-asr-config（票 04 Q1：平台/模型不可用，补救动作是去设置）
+        const failure = resolveAsrPermissionFailure(decodePermission, provider);
+        throw Object.assign(new Error(failure.message), { kind: failure.kind });
       }
 
       // 适配器与切片计划由 provider.type 决定（原 pipeline 的 ADAPTERS 表与

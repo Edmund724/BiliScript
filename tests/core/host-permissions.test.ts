@@ -19,6 +19,9 @@ import {
   parsePermissionGrantParams,
   formatPermissionRequestError,
   requestProviderOrigins,
+  checkHostPermission,
+  checkHostPermissionViaBackground,
+  checkHostPermissionFromOffscreen,
   hasHostPermission,
   hasHostPermissionViaBackground,
   hasHostPermissionFromOffscreen,
@@ -171,23 +174,45 @@ describe("requestProviderOrigins（保存手势链上的批量申请）", () => 
   });
 });
 
-describe("hasHostPermission（探针/模型列表的权限预检）", () => {
-  it("已授权 → true，contains 收到无端口 pattern", async () => {
+describe("checkHostPermission / hasHostPermission（探针/模型列表的权限预检）", () => {
+  it("已授权 → true / granted，contains 收到无端口 pattern", async () => {
     const contains = vi.fn(async () => true);
+    expect(await checkHostPermission("https://api.openai.com/v1", contains)).toEqual({
+      granted: true,
+      status: "granted"
+    });
     expect(await hasHostPermission("https://api.openai.com/v1", contains)).toBe(true);
     expect(contains).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
     expect(await hasHostPermission("http://localhost:11434/v1", contains)).toBe(true);
     expect(contains).toHaveBeenLastCalledWith({ origins: ["http://localhost/*"] });
   });
 
-  it("未授权 → false", async () => {
+  it("未授权 → false / denied", async () => {
     const contains = vi.fn(async () => false);
+    expect(await checkHostPermission("https://api.openai.com/v1", contains)).toEqual({
+      granted: false,
+      status: "denied"
+    });
     expect(await hasHostPermission("https://api.openai.com/v1", contains)).toBe(false);
   });
 
-  it("取不到 chrome.permissions 实现 / URL 非法 / contains 抛错 → 按已授权处理", async () => {
+  it("URL 非法或缺失 → 显式返回 invalid-origin / false，不再静默 fail-open", async () => {
+    const contains = vi.fn(async () => true);
+    expect(await checkHostPermission("oops", contains)).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await checkHostPermission("", undefined)).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await hasHostPermission("oops", contains)).toBe(false);
+    expect(await hasHostPermission(undefined, undefined)).toBe(false);
+    expect(contains).not.toHaveBeenCalled();
+  });
+
+  it("origin 合法但取不到 chrome.permissions 实现或 contains 抛错 → 按已授权处理", async () => {
     expect(await hasHostPermission("https://api.openai.com/v1", undefined)).toBe(true);
-    expect(await hasHostPermission("oops", vi.fn(async () => false))).toBe(true);
     const throwing = vi.fn(async () => {
       throw new Error("no permissions API");
     });
@@ -195,7 +220,7 @@ describe("hasHostPermission（探针/模型列表的权限预检）", () => {
   });
 });
 
-describe("hasHostPermissionViaBackground（content 语境的权限代查）", () => {
+describe("checkHostPermissionViaBackground / hasHostPermissionViaBackground（content 语境的权限代查）", () => {
   // 概览/快捷提示词的 offscreen 代发在 content 侧发起，而 content 没有
   // chrome.permissions——与 requestProviderOriginsViaBackground 同一条代查通道。
   it("扩展页面语境（有 chrome.permissions）→ 直查，不发消息", async () => {
@@ -210,11 +235,15 @@ describe("hasHostPermissionViaBackground（content 语境的权限代查）", ()
 
   it("content 语境（无 chrome.permissions）→ 发 check-provider-origin 代查", async () => {
     const sendMessage = vi.fn((message: unknown, callback?: (resp: unknown) => void) => {
-      callback?.({ granted: false });
+      callback?.({ granted: false, status: "denied" });
       return undefined;
     });
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
 
+    expect(await checkHostPermissionViaBackground("https://api.openai.com/v1")).toEqual({
+      granted: false,
+      status: "denied"
+    });
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(false);
     expect(sendMessage).toHaveBeenCalledWith(
       { type: "check-provider-origin", origin: "https://api.openai.com/*" },
@@ -222,9 +251,24 @@ describe("hasHostPermissionViaBackground（content 语境的权限代查）", ()
     );
   });
 
-  it("已授权 → true；无回包 / 非扩展环境 / URL 非法 → 按已授权处理（不阻塞既有路径）", async () => {
+  it("URL 非法或缺失 → 显式返回 invalid-origin / false，不发消息", async () => {
+    const sendMessage = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    expect(await checkHostPermissionViaBackground("oops")).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await hasHostPermissionViaBackground("")).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    vi.stubGlobal("chrome", {});
+    expect(await hasHostPermissionViaBackground("oops")).toBe(false);
+  });
+
+  it("已授权 → true；origin 合法但无回包 / 非扩展环境 → 按已授权处理（不阻塞既有路径）", async () => {
     const granted = vi.fn((_message: unknown, callback?: (resp: unknown) => void) => {
-      callback?.({ granted: true });
+      callback?.({ granted: true, status: "granted" });
       return undefined;
     });
     vi.stubGlobal("chrome", { runtime: { sendMessage: granted } });
@@ -242,19 +286,22 @@ describe("hasHostPermissionViaBackground（content 语境的权限代查）", ()
     // 非扩展环境（单测）：连消息都发不出
     vi.stubGlobal("chrome", {});
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
-    expect(await hasHostPermissionViaBackground("oops")).toBe(true);
   });
 });
 
-describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", () => {
+describe("checkHostPermissionFromOffscreen / hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", () => {
   // 对话链（entry/offscreen.ts）与 ASR 转写链（entry/offscreen-asr.ts）的平台请求
   // 都在 offscreen 内直发，而该语境只有 chrome.runtime——代查走同一条
   // check-provider-origin 消息，只是发送方式按本语境的 promise 风格直发
   //（无回调签名约定，见 entry/offscreen.ts 的 resolveProviderWithKey）。
-  it("SW 明确回 { granted: false } → false（唯一的拦下来源），消息带 match pattern", async () => {
-    const sendMessage = vi.fn(async () => ({ granted: false }));
+  it("SW 明确回 { granted: false } → false / denied，消息带 match pattern", async () => {
+    const sendMessage = vi.fn(async () => ({ granted: false, status: "denied" }));
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
 
+    expect(await checkHostPermissionFromOffscreen("https://api.siliconflow.cn/v1")).toEqual({
+      granted: false,
+      status: "denied"
+    });
     expect(await hasHostPermissionFromOffscreen("https://api.siliconflow.cn/v1")).toBe(false);
     expect(sendMessage).toHaveBeenCalledWith({
       type: "check-provider-origin",
@@ -262,8 +309,19 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
     });
   });
 
-  it("已授权 → true；无回包 / 消息抛错 / 非扩展环境 / URL 非法 → 按已授权处理（fail-open）", async () => {
-    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => ({ granted: true })) } });
+  it("URL 非法 → 显式返回 invalid-origin / false 且不发消息", async () => {
+    const sendMessage = vi.fn(async () => ({ granted: true, status: "granted" }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+    expect(await checkHostPermissionFromOffscreen("oops")).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await hasHostPermissionFromOffscreen("")).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("已授权 → true；origin 合法但无回包 / 消息抛错 / 非扩展环境 → 按已授权处理（fail-open）", async () => {
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => ({ granted: true, status: "granted" })) } });
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
 
     // 无回包（旧 SW 不认识这条消息）：fail-open，让请求照旧发出去
@@ -283,12 +341,6 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
     // 非扩展环境（单测）：连 runtime 都没有
     vi.stubGlobal("chrome", {});
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
-
-    // URL 非法：连消息都不发
-    const sendMessage = vi.fn(async () => ({ granted: false }));
-    vi.stubGlobal("chrome", { runtime: { sendMessage } });
-    expect(await hasHostPermissionFromOffscreen("oops")).toBe(true);
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -342,7 +394,7 @@ describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用
     for (const file of listExtensionSources()) {
       const source = stripComments(readFileSync(file, "utf8"));
       for (const match of source.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']([^"']*host-permissions\.js)["']/g)) {
-        if (/\bhasHostPermission\b/.test(match[1])) {
+        if (/\b(?:hasHostPermission|checkHostPermission)\b/.test(match[1])) {
           found.push(relative(EXTENSION_ROOT, file).split(sep).join("/"));
           break;
         }

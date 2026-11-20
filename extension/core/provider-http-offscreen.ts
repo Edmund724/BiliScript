@@ -44,7 +44,7 @@
 // 上浮——概览落错误条带「重试」，不再无限挂着。
 
 import { consumeRuntimeLastError, safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
-import { extractOriginFromBaseUrl, hasHostPermissionViaBackground, HOST_PERMISSION_HINT } from "./host-permissions.js";
+import { checkHostPermissionViaBackground, extractOriginFromBaseUrl, HOST_PERMISSION_HINT } from "./host-permissions.js";
 import {
   buildProviderFetchInit,
   buildProviderRequestPayload,
@@ -140,11 +140,11 @@ async function providerFetchViaOffscreenImpl(
   if (isRequestAborted(init?.signal)) {
     throw makeAbortError();
   }
-  // host 权限预检（content 语境经 SW 代查）：未授权时连 offscreen 文档都不必建，
-  // 更不发注定失败的跨域请求。文案与 SW 代发通道一致（completion 包装后成
-  // 「网络错误：<HOST_PERMISSION_HINT>」落进概览错误条）。
-  if (!(await hasHostPermissionViaBackground(payload.url))) {
-    throw new Error(HOST_PERMISSION_HINT);
+  // host 权限预检（content 语境经 SW 代查）：非法 URL 或未授权时连 offscreen 文档都不必建，
+  // 更不发注定失败的跨域请求。文案与 SW 代发通道一致。
+  const permission = await checkHostPermissionViaBackground(payload.url);
+  if (!permission.granted) {
+    throw new Error(permission.status === "invalid-origin" ? "请求地址不合法" : HOST_PERMISSION_HINT);
   }
 
   // 文档不存在时 connect 连上即断（chat/offscreen-ensure.ts 的既有事实），故先经

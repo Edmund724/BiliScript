@@ -143,9 +143,12 @@ export type CheckProviderOriginMessage = {
   /** 已提取的 match pattern（core/host-permissions 的 extractOriginFromBaseUrl 产物） */
   origin?: unknown;
 };
-// 响应锚点：entry/background.ts handleCheckProviderOrigin——granted 即该 origin 是否已获
-// host 权限；origin 缺失/非法时按已授权回 true（fail-open，不新造拦截面）。
-export type CheckProviderOriginResponse = { granted: boolean };
+// 响应锚点：entry/background.ts handleCheckProviderOrigin——显式判别联合类型区分
+// 已授权（granted）、未授权（denied）与 origin 缺失/非法（invalid-origin）。
+export type CheckProviderOriginStatus = "granted" | "denied" | "invalid-origin";
+export type CheckProviderOriginResponse =
+  | { granted: true; status: "granted" }
+  | { granted: false; status: "denied" | "invalid-origin" };
 // 删除孤儿平台后的 host 权限回收：content script 无 chrome.permissions，
 // 经此消息委托 background 执行；manifest.host_permissions 静态常驻域直接跳过。
 export type RevokeProviderOriginMessage = {

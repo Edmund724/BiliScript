@@ -310,6 +310,18 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     ]);
   });
 
+  it("非法或缺失 URL → 直接拒绝，不发 check-provider-origin / ensure-offscreen-chat / 不连端口", async () => {
+    const { providerFetchViaOffscreen } = await loadModule();
+
+    await expect(
+      providerFetchViaOffscreen("chrome-extension://x/y", { method: "POST" })
+    ).rejects.toThrow("请求地址不合法");
+
+    expect(ensureCalls).toBe(0);
+    expect(connected).toHaveLength(0);
+    expect(sentRuntimeMessages).toEqual([]);
+  });
+
   it("host 权限已授权 → 照旧 ensure + connect（预检不改变成功路径）", async () => {
     const { providerFetchViaOffscreen } = await loadModule();
 

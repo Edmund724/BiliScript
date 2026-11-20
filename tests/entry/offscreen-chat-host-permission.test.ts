@@ -18,7 +18,7 @@
 //（spec §12.7 第 6 条翻案：全冷却 ≠ 未配置）。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
+import { HOST_INVALID_ORIGIN_HINT, HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 import {
   SEARCH_COOLDOWN_NOTICE,
   SEARCH_NOT_CONFIGURED_NOTICE
@@ -208,6 +208,46 @@ describe("offscreen 对话链 host 权限预检", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(postedTypes(session)).toContain("done");
     expect(postedErrors(session)).toHaveLength(0);
+  });
+
+  it("provider.baseUrl 缺失或非法 → 显式失败，不发 check-provider-origin 也不发 fetch", async () => {
+    vi.resetModules();
+    events = [];
+    checkReply = { granted: true, status: "granted" };
+    searchReply = { ok: true };
+    host = installMinimalChromeHost({
+      onConnect: true,
+      replies: {
+        "resolve-ai-provider": () => ({
+          ok: true,
+          provider: {
+            id: "p1",
+            presetId: "custom",
+            name: "坏配置平台",
+            baseUrl: "not-a-url",
+            model: "deepseek-ai/DeepSeek-V3",
+            enabled: true,
+            requiresKey: true,
+            hasSavedKey: true
+          },
+          apiKey: "sk-test"
+        }),
+        "check-provider-origin": () => {
+          events.push("msg:check-provider-origin");
+          return checkReply;
+        },
+        "resolve-search-provider": () => searchReply
+      }
+    });
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await import("../../extension/entry/offscreen.js");
+
+    const session = await runChatTurn();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(events).not.toContain("msg:check-provider-origin");
+    expect(postedErrors(session)).toEqual([expect.objectContaining({ error: HOST_INVALID_ORIGIN_HINT })]);
   });
 });
 

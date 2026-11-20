@@ -25,6 +25,7 @@ interface StubHostEnvOptions {
   closeError?: unknown;
   initialRules?: FakeSessionRule[];
   deadTabIds?: number[];
+  runtimeId?: string;
 }
 
 function makeRuleStore(initialRules: FakeSessionRule[] = []) {
@@ -48,7 +49,8 @@ function stubHostEnv({
   createError,
   closeError,
   initialRules = [],
-  deadTabIds = []
+  deadTabIds = [],
+  runtimeId = "test-extension-id"
 }: StubHostEnvOptions = {}) {
   const ruleStore = makeRuleStore(initialRules);
   const deadTabs = new Set(deadTabIds);
@@ -71,6 +73,7 @@ function stubHostEnv({
     ...globalThis.chrome,
     runtime: {
       ...globalThis.chrome.runtime,
+      id: runtimeId || undefined,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       ...(omitGetContexts ? { getContexts: undefined } : { getContexts })
     },
@@ -219,13 +222,23 @@ describe("B 站媒体防盗链 DNR 会话规则生命周期", () => {
     expect(host.getBiliMediaSessionRuleOwner(audioId)).toBe("t7");
     expect(host.getBiliMediaSessionRuleOwner(mediaId)).toBe("o");
     expect(ruleStore.rules.get(audioId)).toMatchObject({
-      condition: { requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS], resourceTypes: ["xmlhttprequest"] }
+      condition: {
+        requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS],
+        initiatorDomains: ["test-extension-id"],
+        tabIds: [host.NON_TAB_DNR_TAB_ID],
+        resourceTypes: ["xmlhttprequest"]
+      }
     });
     expect(ruleStore.rules.get(mediaId)).toMatchObject({
       action: {
         responseHeaders: [{ header: "Access-Control-Allow-Origin", operation: "set", value: "*" }]
       },
-      condition: { requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS], resourceTypes: ["media"] }
+      condition: {
+        requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS],
+        initiatorDomains: ["test-extension-id"],
+        tabIds: [host.NON_TAB_DNR_TAB_ID],
+        resourceTypes: ["media"]
+      }
     });
 
     await expect(host.releaseBiliMediaSessionRule(audioId, "t8")).rejects.toThrow("防盗链规则不属于当前来源");
@@ -292,5 +305,27 @@ describe("B 站媒体防盗链 DNR 会话规则生命周期", () => {
     expect(reusedRuleId).toBe(deadRuleId);
     expect(ruleStore.rules.size).toBe(1);
     expect(host.getBiliMediaSessionRuleOwner(reusedRuleId)).toBe("t9");
+  });
+
+  it("Chromium 缺失 runtime.id 时回退从 runtime.getURL 提取扩展域名，且 updateSessionRules 失败时不绕过 initiatorDomains", async () => {
+    const { ruleStore } = stubHostEnv({
+      contexts: [{ contextType: "OFFSCREEN_DOCUMENT" }],
+      runtimeId: ""
+    });
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    const ruleId = await host.acquireBiliMediaSessionRule("video-media");
+    expect(ruleStore.rules.get(ruleId)).toMatchObject({
+      condition: {
+        initiatorDomains: ["test"],
+        tabIds: [-1],
+        resourceTypes: ["media"]
+      }
+    });
+    await host.releaseBiliMediaSessionRule(ruleId);
+
+    ruleStore.updateSessionRules.mockRejectedValueOnce(new Error("Invalid initiatorDomains"));
+    await expect(host.acquireBiliMediaSessionRule("video-media")).rejects.toThrow("Invalid initiatorDomains");
+    expect(ruleStore.updateSessionRules).toHaveBeenCalledTimes(3);
   });
 });

@@ -6,9 +6,9 @@
 
 import {
   buildPermissionGrantQuery,
+  checkHostPermission,
   collectPermissionMatchPatterns,
   formatPermissionRequestError,
-  hasHostPermission,
   PERMISSION_GRANT_PAGE_PATH,
   permissionDeniedErrorMessage,
   revokeOriginPermission,
@@ -317,7 +317,7 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
       typeof permissions?.contains === "function"
         ? (query: { origins?: string[]; permissions?: string[] }) => permissions.contains!(query)
         : undefined;
-    void hasHostPermission(message.origin, contains).then((granted) => sendResponse({ granted }));
+    void checkHostPermission(message.origin, contains).then(sendResponse);
   }
 
   function handleRevokeProviderOrigin(

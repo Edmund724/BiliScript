@@ -11,15 +11,34 @@ const FIREFOX_BASE = "moz-extension://firefox-uuid/";
 const FIREFOX_OFFSCREEN_URL = `${FIREFOX_BASE}${OFFSCREEN_URL}`;
 const OFFSCREEN_IFRAME_ID = "biliscript-offscreen-iframe";
 
-function stubFirefoxHostEnv() {
+function stubFirefoxHostEnv(options?: {
+  updateSessionRules?: (opts: { removeRuleIds?: number[]; addRules?: unknown[] }) => Promise<void>;
+}) {
+  const rules = new Map<number, unknown>();
+  const updateSessionRules = vi.fn(
+    options?.updateSessionRules ??
+      (async ({ removeRuleIds = [], addRules = [] }: { removeRuleIds?: number[]; addRules?: Array<{ id: number }> }) => {
+        removeRuleIds.forEach((id) => rules.delete(id));
+        addRules.forEach((rule) => rules.set(rule.id, rule));
+      })
+  );
+  const getSessionRules = vi.fn(async () => [...rules.values()]);
+
   vi.stubGlobal("chrome", {
     ...globalThis.chrome,
     offscreen: undefined,
     runtime: {
       ...globalThis.chrome.runtime,
+      id: "biliscript@edmund724.github.io",
       getURL: vi.fn((path: string) => `${FIREFOX_BASE}${path}`)
+    },
+    declarativeNetRequest: {
+      updateSessionRules,
+      getSessionRules
     }
   });
+
+  return { rules, updateSessionRules, getSessionRules };
 }
 
 beforeEach(() => {
@@ -189,5 +208,67 @@ describe("Firefox Event Page 隐藏 iframe Offscreen 宿主", () => {
     expect(host.isOffscreenDocumentSender(grantPageSender)).toBe(false);
     expect(host.isOffscreenDocumentSender(foreignExtSender)).toBe(false);
     expect(host.isOffscreenDocumentSender({})).toBe(false);
+  });
+
+  it("Firefox DNR 规则使用 moz-extension UUID 作为 initiatorDomains 并限定 tabIds: [-1]，不传入 gecko.id", async () => {
+    const { rules } = stubFirefoxHostEnv();
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    const loadAndSettle = async () => {
+      const promise = host.acquireBiliMediaSessionRule("video-media");
+      await vi.waitFor(() => expect(document.getElementById(OFFSCREEN_IFRAME_ID)).toBeInstanceOf(HTMLIFrameElement));
+      const iframe = document.getElementById(OFFSCREEN_IFRAME_ID) as HTMLIFrameElement;
+      iframe.dispatchEvent(new Event("load"));
+      return promise;
+    };
+
+    const ruleId = await loadAndSettle();
+    expect(rules.get(ruleId)).toMatchObject({
+      condition: {
+        requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS],
+        initiatorDomains: ["firefox-uuid"],
+        tabIds: [-1],
+        resourceTypes: ["media"]
+      }
+    });
+  });
+
+  it("Firefox 运行时若拒绝 initiatorDomains，则保留 tabIds: [-1] 隔离并降级重试成功", async () => {
+    let attempts = 0;
+    const { rules, updateSessionRules } = stubFirefoxHostEnv({
+      updateSessionRules: async ({ removeRuleIds = [], addRules = [] }) => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("Invalid domain in initiatorDomains");
+        }
+        removeRuleIds.forEach((id) => rules.delete(id));
+        (addRules as Array<{ id: number }>).forEach((rule) => rules.set(rule.id, rule));
+      }
+    });
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    const promise = host.acquireBiliMediaSessionRule("video-media");
+    await vi.waitFor(() => expect(document.getElementById(OFFSCREEN_IFRAME_ID)).toBeInstanceOf(HTMLIFrameElement));
+    (document.getElementById(OFFSCREEN_IFRAME_ID) as HTMLIFrameElement).dispatchEvent(new Event("load"));
+    const ruleId = await promise;
+
+    expect(updateSessionRules).toHaveBeenCalledTimes(2);
+    expect(rules.get(ruleId)).toEqual({
+      id: ruleId,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [
+          { header: "Referer", operation: "set", value: host.BILI_MEDIA_ORIGIN_PAGE },
+          { header: "Origin", operation: "set", value: host.BILI_MEDIA_ORIGIN_PAGE }
+        ],
+        responseHeaders: [{ header: "Access-Control-Allow-Origin", operation: "set", value: "*" }]
+      },
+      condition: {
+        requestDomains: [...host.BILI_MEDIA_CDN_DOMAINS],
+        tabIds: [-1],
+        resourceTypes: ["media"]
+      }
+    });
   });
 });

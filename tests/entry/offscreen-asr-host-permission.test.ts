@@ -12,7 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
+import { HOST_INVALID_ORIGIN_HINT, HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const ASR_BASE_URL = "https://api.siliconflow.cn/v1";
@@ -148,5 +148,30 @@ describe("ASR 转写链 host 权限预检", () => {
     expect(payload).toEqual({ type: "error", error: "音频下载失败", kind: "asr-media" });
     expect(payload.code).toBeUndefined();
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("ASR provider.baseUrl 非法 → 显式报 no-asr-config，不发 check-provider-origin 也不下载音频", async () => {
+    host = installMinimalChromeHost({
+      preserveExisting: true,
+      onConnect: true,
+      replyStyle: "both",
+      replies: {
+        "get-asr-runtime-config": () => ({
+          ...RUNTIME_CONFIG,
+          providers: [{ ...RUNTIME_CONFIG.providers[0], baseUrl: "oops" }]
+        }),
+        "check-provider-origin": () => {
+          events.push("msg:check-provider-origin");
+          return { granted: true, status: "granted" };
+        }
+      }
+    });
+    await loadOffscreen();
+
+    const { payload } = await runDecodeTask();
+
+    expect(payload).toEqual({ type: "error", error: HOST_INVALID_ORIGIN_HINT, kind: "no-asr-config" });
+    expect(events).not.toContain("msg:check-provider-origin");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

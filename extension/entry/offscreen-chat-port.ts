@@ -8,7 +8,11 @@ import { bgFetchJson } from "../bilibili/gateway-core.js";
 import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, shouldDebugLog } from "../shared/logging.js";
 import { consumeRuntimeLastError, safePostMessage } from "../shared/messaging.js";
-import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
+import {
+  checkHostPermissionFromOffscreen,
+  HOST_INVALID_ORIGIN_HINT,
+  HOST_PERMISSION_HINT
+} from "../core/host-permissions.js";
 import {
   resolveWebSearchRuntime,
   SEARCH_NOT_CONFIGURED_NOTICE,
@@ -265,8 +269,9 @@ export function attachOffscreenChatPort(
       }
       const { provider, apiKey } = resolved;
 
-      if (!(await hasHostPermissionFromOffscreen(provider?.baseUrl))) {
-        throw new Error(HOST_PERMISSION_HINT);
+      const permission = await checkHostPermissionFromOffscreen(provider?.baseUrl);
+      if (!permission.granted) {
+        throw new Error(permission.status === "invalid-origin" ? HOST_INVALID_ORIGIN_HINT : HOST_PERMISSION_HINT);
       }
 
       if (generation !== activeGeneration || requestController.signal.aborted) {

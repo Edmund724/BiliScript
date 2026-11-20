@@ -75,6 +75,7 @@ declare namespace chrome {
       addListener(listener: () => void): void;
     }
 
+    const id: string;
     const onConnect: OnConnect;
     const onMessage: OnMessage;
     const onInstalled: OnInstalled;
@@ -269,6 +270,8 @@ declare namespace chrome {
       // 误命中 "bilivideo.com.evil.com" 这类拼接域——防盗链规则的目标 host
       // 收窄用（asr/offscreen-bridge.bg.ts addDownloadRules）。
       requestDomains?: string[];
+      initiatorDomains?: string[];
+      tabIds?: number[];
       resourceTypes: string[];
     }
 

@@ -5,6 +5,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { OFFSCREEN_CREATE_REASONS, OFFSCREEN_URL } from "../shared/offscreen-constants.js";
 import type { MessageSender } from "../shared/messaging-protocol.js";
+import { isFirefoxRuntime } from "../shared/runtime-capabilities.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "../asr/protocol.js";
 import { createAsrSessionRuleManager } from "../asr/session-rule-manager.js";
 
@@ -18,6 +19,8 @@ export const INDEX_TRANSLATE_USER_AGENT_VALUE = "Index-Translate-Client/1.0" as 
 
 export const OFFSCREEN_IFRAME_ID = "biliscript-offscreen-iframe";
 export const OFFSCREEN_SENDER_REJECTION_MESSAGE = ASR_OFFSCREEN_REJECTION_MESSAGE;
+// chrome.tabs.TAB_ID_NONE: matches requests not originating from any browser tab (background / offscreen).
+export const NON_TAB_DNR_TAB_ID = -1;
 
 export type BiliMediaSessionRuleKind = "audio-xhr" | "video-media";
 
@@ -213,39 +216,101 @@ export function isOffscreenDocumentSender(sender: MessageSender): boolean {
   return !sender?.tab && sender?.url === chrome.runtime.getURL(OFFSCREEN_URL);
 }
 
+function resolveExtensionInitiatorDomain(): string | null {
+  if (typeof chrome === "undefined") {
+    return null;
+  }
+  const getHostnameFromRuntimeUrl = (): string | null => {
+    try {
+      const baseUrl = chrome.runtime?.getURL?.("");
+      if (typeof baseUrl === "string" && baseUrl) {
+        const hostname = new URL(baseUrl).hostname.trim();
+        if (hostname) {
+          return hostname;
+        }
+      }
+    } catch {
+      // Ignore malformed runtime URLs.
+    }
+    return null;
+  };
+  // Firefox 下 chrome.runtime.id 是清单 gecko.id（如 biliscript@edmund724.github.io），
+  // 含 "@" 不符合规范域名且与实际 initiator（moz-extension://<uuid>）不一致，必须取 runtime.getURL("") 的内部 UUID。
+  if (isFirefoxRuntime()) {
+    return getHostnameFromRuntimeUrl();
+  }
+  const runtimeId = typeof chrome.runtime?.id === "string" ? chrome.runtime.id.trim() : "";
+  if (runtimeId && !runtimeId.includes("@")) {
+    return runtimeId;
+  }
+  return getHostnameFromRuntimeUrl();
+}
+
 async function addBiliMediaSessionRule(ruleId: number, kind: BiliMediaSessionRuleKind): Promise<void> {
   const id = Number(ruleId) || 0;
   if (id <= 0) {
     throw new Error("缺少防盗链规则 id");
   }
   const isVideoMedia = kind === "video-media";
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [id],
-    addRules: [
-      {
-        id,
-        priority: 1,
-        action: {
-          type: "modifyHeaders",
-          requestHeaders: [
-            { header: "Referer", operation: "set", value: BILI_MEDIA_ORIGIN_PAGE },
-            { header: "Origin", operation: "set", value: BILI_MEDIA_ORIGIN_PAGE }
-          ],
-          ...(isVideoMedia
-            ? {
-                responseHeaders: [
-                  { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
-                ]
-              }
-            : {})
-        },
-        condition: {
-          requestDomains: [...BILI_MEDIA_CDN_DOMAINS],
-          resourceTypes: [isVideoMedia ? "media" : "xmlhttprequest"]
+  const initiatorDomain = resolveExtensionInitiatorDomain();
+  const action: chrome.declarativeNetRequest.RuleAction = {
+    type: "modifyHeaders",
+    requestHeaders: [
+      { header: "Referer", operation: "set", value: BILI_MEDIA_ORIGIN_PAGE },
+      { header: "Origin", operation: "set", value: BILI_MEDIA_ORIGIN_PAGE }
+    ],
+    ...(isVideoMedia
+      ? {
+          responseHeaders: [
+            { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
+          ]
         }
+      : {})
+  };
+  const baseCondition: chrome.declarativeNetRequest.RuleCondition = {
+    requestDomains: [...BILI_MEDIA_CDN_DOMAINS],
+    tabIds: [NON_TAB_DNR_TAB_ID],
+    resourceTypes: [isVideoMedia ? "media" : "xmlhttprequest"]
+  };
+  const scopedCondition: chrome.declarativeNetRequest.RuleCondition = initiatorDomain
+    ? {
+        ...baseCondition,
+        initiatorDomains: [initiatorDomain]
       }
-    ]
-  });
+    : baseCondition;
+
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [id],
+      addRules: [
+        {
+          id,
+          priority: 1,
+          action,
+          condition: scopedCondition
+        }
+      ]
+    });
+  } catch (error) {
+    // Firefox 部分运行时可能拒绝 moz-extension UUID 作为 initiatorDomains；保留 tabIds: [-1] 隔离并降级重试。
+    if (!isFirefoxRuntime() || !initiatorDomain) {
+      throw error;
+    }
+    logWarn("[BILISCRIPT] Firefox DNR initiatorDomains rejected, falling back to tabIds-only isolation", {
+      error: getErrorMessage(error)
+    });
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [id],
+      addRules: [
+        {
+          id,
+          priority: 1,
+          action,
+          condition: baseCondition
+        }
+      ]
+    });
+  }
 }
 
 /** Ensures the offscreen document and installs an isolated Bilibili media DNR session rule. */

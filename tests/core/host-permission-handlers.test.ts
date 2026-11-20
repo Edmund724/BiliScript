@@ -324,21 +324,44 @@ describe("request-provider-origins：同步手势链与 Firefox 授权回退", (
 });
 
 describe("check-provider-origin 与 revoke-provider-origin", () => {
-  it("check-provider-origin：已授权/未授权/带端口归一/缺失非法 fail-open", async () => {
+  it("check-provider-origin：已授权/未授权/带端口归一/缺失非法显式返回 invalid-origin", async () => {
     const granted = createHarness({ containsImpl: async () => true });
-    expect(await granted.checkOrigin("https://api.openai.com/*")).toEqual({ granted: true });
+    expect(await granted.checkOrigin("https://api.openai.com/*")).toEqual({
+      granted: true,
+      status: "granted"
+    });
     expect(granted.containsMock).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
 
-    expect(await granted.checkOrigin("http://localhost:11434/*")).toEqual({ granted: true });
+    expect(await granted.checkOrigin("http://localhost:11434/*")).toEqual({
+      granted: true,
+      status: "granted"
+    });
     expect(granted.containsMock).toHaveBeenLastCalledWith({ origins: ["http://localhost/*"] });
 
     const denied = createHarness({ containsImpl: async () => false });
-    expect(await denied.checkOrigin("https://api.openai.com/*")).toEqual({ granted: false });
+    expect(await denied.checkOrigin("https://api.openai.com/*")).toEqual({
+      granted: false,
+      status: "denied"
+    });
 
-    const failOpen = createHarness({ containsImpl: async () => false });
-    expect(await failOpen.checkOrigin(undefined)).toEqual({ granted: true });
-    expect(await failOpen.checkOrigin("oops")).toEqual({ granted: true });
-    expect(failOpen.containsMock).not.toHaveBeenCalled();
+    const invalid = createHarness({ containsImpl: async () => true });
+    expect(await invalid.checkOrigin(undefined)).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await invalid.checkOrigin("")).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await invalid.checkOrigin("oops")).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(await invalid.checkOrigin("ftp://api.example.com/v1")).toEqual({
+      granted: false,
+      status: "invalid-origin"
+    });
+    expect(invalid.containsMock).not.toHaveBeenCalled();
   });
 
   it("revoke-provider-origin：跳过静态常驻域，非静态可选域经无端口 pattern 回收", async () => {

@@ -92,7 +92,7 @@ describe("entry/background host 权限消息族接线", () => {
         type: "check-provider-origin",
         origin: "http://localhost:11434/*"
       })
-    ).toEqual({ granted: true });
+    ).toEqual({ granted: true, status: "granted" });
     expect(stub.containsMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
 
     expect(
