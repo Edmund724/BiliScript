@@ -50,21 +50,19 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     vi.doMock("../../extension/live/live-companion-session.js", () => mockLiveSession);
 
-    vi.doMock("../../extension/live/player-interpret.js", async () => {
-      const actual = await vi.importActual<typeof import("../../extension/live/player-interpret.js")>(
-        "../../extension/live/player-interpret.js"
-      );
-      return {
-        ...actual,
-        syncPlayerInterpretQuickAction: mockSyncInterpretQuickAction,
-        togglePlayerInterpretMenu: (anchor: HTMLElement) =>
-          actual.toggleInterpretSubtitleMenu(anchor, {
-            getSessionState: () => "idle",
-            getPreferences: async () => ({ targetLang: "zh", displayMode: "auto" }),
-            applyChoice: (choice) => mockApplyInterpretChoice(choice)
-          })
-      };
-    });
+    const actualInterpret = await vi.importActual<typeof import("../../extension/live/player-interpret.js")>(
+      "../../extension/live/player-interpret.js"
+    );
+    vi.doMock("../../extension/live/player-interpret.js", () => ({
+      ...actualInterpret,
+      syncPlayerInterpretQuickAction: mockSyncInterpretQuickAction,
+      togglePlayerInterpretMenu: (anchor: HTMLElement) =>
+        actualInterpret.toggleInterpretSubtitleMenu(anchor, {
+          getSessionState: () => "idle",
+          getPreferences: async () => ({ targetLang: "zh", displayMode: "auto" }),
+          applyChoice: (choice) => mockApplyInterpretChoice(choice)
+        })
+    }));
 
     vi.doMock("../../extension/core/runtime.js", () => ({
       getSettings: async () => ({
@@ -135,8 +133,11 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(interpretButton?.textContent).toBe("字幕");
     expect(interpretButton?.title).toBe("字幕");
     expect(interpretButton?.getAttribute("aria-label")).toBe("字幕");
+    // 初始轻量挂载不触发 player-interpret 懒加载同步
+    expect(mockSyncInterpretQuickAction).not.toHaveBeenCalled();
 
     stopPlayerAiQuickAction();
+    expect(mockSyncInterpretQuickAction).not.toHaveBeenCalled();
     expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();
     expect(document.getElementById("biliscript-player-interpret-quick-action-wrap")).toBeNull();
     expect(document.getElementById("biliscript-player-live-quick-action")).toBeNull();

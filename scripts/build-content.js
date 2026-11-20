@@ -78,6 +78,7 @@ const legacyOutfile = path.join(outDir, "content-classic.js");
 // （chunks/<name>.mjs），轮 A 的 external 路径必须与之逐字一致。
 const lazyTargets = [
   { name: "player-ai", source: "ai/player-ai.ts" },
+  { name: "player-interpret", source: "live/player-interpret.ts" },
   { name: "script-button", source: "ui/script-button.ts" },
   { name: "live-room", source: "live/live-room-entry.ts" },
   { name: "ui-renderer", source: "ui/ui-renderer.ts" },
@@ -753,8 +754,56 @@ function assertAnalysisNotInReaderGraph(meta) {
   }
 }
 
+const SCRIPT_BUTTON_FORBIDDEN_INPUTS = [
+  "reader/shell.ts",
+  "reader/quote-share-export.ts",
+  "reader/quote-share-modal.ts"
+];
+
+function assertScriptButtonSlim(meta) {
+  const violations = findForbiddenInputs(meta, {
+    seed: "ui/script-button.ts",
+    forbidden: SCRIPT_BUTTON_FORBIDDEN_INPUTS,
+    outputExtensions: [".mjs"]
+  });
+  for (const { output, hits } of violations) {
+    console.error(
+      `build-content.js: script-button 装载图 ${output} 静态包含禁区模块 ${hits.join(", ")}——` +
+        `完好性判定必须走 reader/shell-intact.ts 叶子模块`
+    );
+  }
+  if (violations.length > 0) {
+    process.exit(1);
+  }
+}
+
+const PLAYER_AI_FORBIDDEN_INPUTS = [
+  "live/player-interpret.ts",
+  "subtitle/cache.ts",
+  "ai/l0-bm25.ts"
+];
+
+function assertPlayerAiSlim(meta) {
+  const violations = findForbiddenInputs(meta, {
+    seed: "ai/player-ai.ts",
+    forbidden: PLAYER_AI_FORBIDDEN_INPUTS,
+    outputExtensions: [".mjs"]
+  });
+  for (const { output, hits } of violations) {
+    console.error(
+      `build-content.js: player-ai 装载图 ${output} 静态包含禁区模块 ${hits.join(", ")}——` +
+        `同传菜单与控制器必须经动态 import("../live/player-interpret.js") 按需装载`
+    );
+  }
+  if (violations.length > 0) {
+    process.exit(1);
+  }
+}
+
 function report(lazyMeta) {
   assertAnalysisNotInReaderGraph(lazyMeta);
+  assertScriptButtonSlim(lazyMeta);
+  assertPlayerAiSlim(lazyMeta);
   const bootstrapSize = sizeInBytes(bootstrapOutfile);
   const mainSize = sizeInBytes(mainOutfile);
   const chunkFiles = fs.existsSync(chunksDir)

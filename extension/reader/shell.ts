@@ -45,10 +45,12 @@ import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
 import { state, getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
-import { READER_READY_ATTR } from "./presentation-fields.js";
+import { isReaderShellIntact } from "./shell-intact.js";
 import { requestUiCommand } from "./reader-bus.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { captureTriggerRect, resolveTriggerElement } from "../ui/trigger-motion.js";
+
+export { isReaderShellIntact };
 
 export type ReaderShellIntent = "open" | "restore" | "chat";
 
@@ -71,25 +73,6 @@ function resolveReaderEntryUrl(readerUrl: string): string {
     return readerUrl;
   }
   return buildReaderModeUrl(location.href);
-}
-
-// 壳完好性自查（唯一判定，restore 自愈与 script 按钮守卫共用的同一 predicate）：
-// 状态说视图开着，但 DOM 侧任一必要呈现条件缺失——壳被页面重渲染整树摘走、
-// .open 掉了、ready 门控卡 0、html/body 门控属性被页面侧清掉。任一命中面板都
-// 不可见，而 readingViewOpen 仍为 true，script 按钮被守卫永久压住——表现为
-// 「侧边栏和按钮一起消失，只能刷新」。restore 档据此在进入链前收敛失同步。
-// 注意：本判定是纯 DOM 谓词，不含 readingViewOpen 状态位；「视图开着且失整」
-// 的组合判断由调用方表达（restore 档的 beforeEntry / script-button 的守卫）。
-export function isReaderShellIntact(): boolean {
-  const shell = document.getElementById(ids.readingView);
-  return Boolean(
-    shell?.isConnected &&
-      !shell.hidden &&
-      shell.classList.contains("open") &&
-      shell.getAttribute(READER_READY_ATTR) !== "0" &&
-      document.body.getAttribute("data-biliscript-reader-mode") === "1" &&
-      document.documentElement.getAttribute("data-biliscript-reader-mode") === "1"
-  );
 }
 
 // ===== 唯一进入链（八步时序的后六步；前两步按入口前奏补齐） =====

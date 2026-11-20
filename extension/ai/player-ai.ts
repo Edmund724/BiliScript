@@ -1,9 +1,5 @@
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
-import {
-  closePlayerInterpretMenu,
-  syncPlayerInterpretQuickAction,
-  togglePlayerInterpretMenu
-} from "../live/player-interpret.js";
+import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "../ui/panel-preload.js";
 import {
   createThrottledLiveToggleHandler,
   isControlBarLiveToggleMounted,
@@ -64,6 +60,62 @@ const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 const liveCompanionSessionLoader = createLazyLoader(() => import("../live/live-companion-session.js"));
+const playerInterpretLoader = createLazyLoader(() => import("../live/player-interpret.js"));
+type PlayerInterpretModule = Awaited<ReturnType<typeof playerInterpretLoader.load>>;
+let loadedPlayerInterpret: PlayerInterpretModule | null = null;
+
+async function loadPlayerInterpret(): Promise<PlayerInterpretModule> {
+  const mod = await playerInterpretLoader.load();
+  loadedPlayerInterpret = mod;
+  return mod;
+}
+
+function shouldSyncPlayerInterpretOnMount(button: HTMLButtonElement): boolean {
+  if (playerInterpretLoader.isLoaded()) {
+    return true;
+  }
+  if (
+    button.classList.contains("is-active") ||
+    button.classList.contains("is-connecting") ||
+    document.getElementById("biliscript-interpret-menu") !== null
+  ) {
+    return true;
+  }
+  const hasSettledSubtitles =
+    state.clip.subtitleFetchState === "ready" || state.clip.subtitleFetchState === "empty";
+  const hasConfiguredInterpretMode = Boolean(
+    state.settings?.bilingualSubtitles ||
+      (state.settings?.liveInterpretDisplayMode && state.settings.liveInterpretDisplayMode !== "auto")
+  );
+  return hasSettledSubtitles && hasConfiguredInterpretMode;
+}
+
+function syncPlayerInterpretQuickActionLazy(): void {
+  if (loadedPlayerInterpret) {
+    loadedPlayerInterpret.syncPlayerInterpretQuickAction();
+    return;
+  }
+  void loadPlayerInterpret()
+    .then((mod) => {
+      mod.syncPlayerInterpretQuickAction();
+    })
+    .catch(() => {});
+}
+
+function closePlayerInterpretMenuLazy(): void {
+  if (!playerInterpretLoader.isLoaded()) {
+    return;
+  }
+  if (loadedPlayerInterpret) {
+    loadedPlayerInterpret.closePlayerInterpretMenu();
+    return;
+  }
+  void loadPlayerInterpret()
+    .then((mod) => {
+      mod.closePlayerInterpretMenu();
+    })
+    .catch(() => {});
+}
 
 let liveQuickActionTargetButton: HTMLButtonElement | null = null;
 const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () => {
@@ -467,7 +519,9 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
   if (placement) {
     applyControlBarPlacement(wrap, placement);
   }
-  syncPlayerInterpretQuickAction();
+  if (shouldSyncPlayerInterpretOnMount(button)) {
+    syncPlayerInterpretQuickActionLazy();
+  }
 }
 
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
@@ -498,6 +552,8 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   if (wrap.parentElement !== playerHost) {
     playerHost.appendChild(wrap);
   }
+  bindPanelPreloadOnButton(button);
+  schedulePanelPreloadOnIdle();
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
 
@@ -586,7 +642,7 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
-  closePlayerInterpretMenu();
+  closePlayerInterpretMenuLazy();
   document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-interpret-quick-action")?.remove();
   document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
@@ -788,7 +844,8 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
   if (!button || button.disabled) return;
   const wrap = button.parentElement;
   if (!(wrap instanceof HTMLElement)) return;
-  await togglePlayerInterpretMenu(wrap);
+  const interpret = await loadPlayerInterpret();
+  await interpret.togglePlayerInterpretMenu(wrap);
 }
 
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {

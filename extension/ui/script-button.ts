@@ -44,9 +44,10 @@ import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
 import type { ReaderEnterResponse } from "../shared/messaging-protocol.js";
 import { isReaderViewOpen } from "../reader/state.js";
-// 阅读壳（工单 arch-slim/02）：失同步判定收口为壳的唯一完好性自查
-//（restore 档自愈与本守卫共用同一 predicate，不再本地手抄）。
-import { isReaderShellIntact } from "../reader/shell.js";
+// 阅读壳完好性自查（纯叶子模块）：restore 档自愈与本守卫共用同一 predicate，
+// 不静态拖入整个 reader/shell.ts。
+import { isReaderShellIntact } from "../reader/shell-intact.js";
+import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "./panel-preload.js";
 import { TOOLBAR_HOST_SELECTOR } from "../bilibili/host-selectors.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
 // 自愈调度共享常量：自查节拍。
@@ -273,6 +274,8 @@ export function injectScriptButton(): void {
     styleScriptButton(button, { position: "before-complaint" });
     complaint.parentElement.insertBefore(button, complaint);
     anchorSeat = complaint;
+    bindPanelPreloadOnButton(button);
+    schedulePanelPreloadOnIdle();
     logMountTiming("锚点①「稿件举报」左侧");
     return;
   }
@@ -314,6 +317,8 @@ export function injectScriptButton(): void {
     const button = existing?.isConnected ? existing : createScriptButton();
     styleScriptButton(button, { position: "toolbar-end" });
     toolbarLeft.parentElement.insertBefore(button, toolbarLeft.nextSibling);
+    bindPanelPreloadOnButton(button);
+    schedulePanelPreloadOnIdle();
     logMountTiming("工具栏右侧槽位（无「稿件举报」时）");
     return;
   }

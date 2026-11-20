@@ -94,13 +94,44 @@ function sourcesFromMap(mapJson, mapDir, extensionRoot) {
 // seed / forbidden 都是「子串命中 inputs 键」口径（既有两份守卫的判据逐字保留，不做
 // 路径解析）；outputExtensions 过滤被检产物扩展名（ladder chunk 看 .js、reader 轮 B
 // 看 .mjs）。返回 [{ output, hits }]，hits 保持 forbidden 的书写顺序。
+// 沿 esbuild metafile 的静态 import-statement 边收集输出产物的完整静态输入闭包
+// （跳过 dynamic-import 与外部引用）。splitting:true 时被检入口的共享依赖会提升至
+// 独立 chunk，只看单文件 out.inputs 会漏检经静态 chunk 传递进入的禁区模块。
+function collectStaticClosureInputs(outputs, startFile) {
+  const visitedFiles = new Set();
+  const inputs = new Set();
+  const queue = [startFile];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (visitedFiles.has(file)) continue;
+    visitedFiles.add(file);
+    const out = outputs[file];
+    if (!out) continue;
+    for (const input of Object.keys(out.inputs || {})) {
+      inputs.add(input);
+    }
+    for (const imp of out.imports || []) {
+      if (imp.external || imp.kind !== "import-statement" || !imp.path) continue;
+      if (outputs[imp.path]) {
+        queue.push(imp.path);
+      } else {
+        const resolved = path.posix.join(path.posix.dirname(file), imp.path);
+        if (outputs[resolved]) queue.push(resolved);
+      }
+    }
+  }
+  return [...inputs];
+}
+
 function findForbiddenInputs(meta, { seed, forbidden, outputExtensions }) {
+  const outputs = (meta && meta.outputs) || {};
   const violations = [];
-  for (const [file, out] of Object.entries((meta && meta.outputs) || {})) {
+  for (const [file, out] of Object.entries(outputs)) {
     if (outputExtensions && !outputExtensions.some((ext) => file.endsWith(ext))) continue;
-    const inputs = Object.keys((out && out.inputs) || {});
-    if (!inputs.some((input) => input.includes(seed))) continue;
-    const hits = forbidden.filter((name) => inputs.some((input) => input.includes(name)));
+    const directInputs = Object.keys((out && out.inputs) || {});
+    if (!directInputs.some((input) => input.includes(seed))) continue;
+    const closureInputs = collectStaticClosureInputs(outputs, file);
+    const hits = forbidden.filter((name) => closureInputs.some((input) => input.includes(name)));
     if (hits.length > 0) violations.push({ output: file, hits });
   }
   return violations;

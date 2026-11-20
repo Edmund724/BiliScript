@@ -51,17 +51,30 @@ function collectStaticClosure(entryRel: string): Set<string> {
 }
 
 describe("live / player-ai 静态耦合与内容侧密钥隔离守卫", () => {
-  it("ai/player-ai.ts 不静态拖入实时伴看运行时、AI 协议栈或 ASR 管线", () => {
+  it("ai/player-ai.ts 不静态拖入实时伴看运行时、同传菜单、字幕缓存、BM25、AI 协议栈或 ASR 管线", () => {
     const closure = collectStaticClosure("ai/player-ai.ts");
     const forbidden = [
       "live/live-companion-session.ts",
       "live/live-overlay-binding.ts",
       "live/live-chat-controller.ts",
       "live/fullscreen-live-overlay.ts",
+      "live/player-interpret.ts",
+      "subtitle/cache.ts",
+      "ai/l0-bm25.ts",
       "ai/subtitle-translate.ts",
       "ai/completion.ts",
       "asr/pipeline.ts",
       "asr/asr-provider-store.ts"
+    ];
+    expect(forbidden.filter((item) => closure.has(item))).toEqual([]);
+  });
+
+  it("ui/script-button.ts 不静态拖入阅读壳与金句分享重模块", () => {
+    const closure = collectStaticClosure("ui/script-button.ts");
+    const forbidden = [
+      "reader/shell.ts",
+      "reader/quote-share-export.ts",
+      "reader/quote-share-modal.ts"
     ];
     expect(forbidden.filter((item) => closure.has(item))).toEqual([]);
   });

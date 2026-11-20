@@ -14,7 +14,15 @@ import { findForbiddenInputs } from "../../scripts/build-guards.js";
 // 与 build.js 的 LADDER_CHUNK_FORBIDDEN_INPUTS 同形（本用例只驱动判据本身，不复制清单）。
 const FORBIDDEN = ["notes/render.ts", "subtitle/selection.ts", "core/cache-lru.ts"];
 
-type Meta = { outputs: Record<string, { inputs: Record<string, unknown> }> };
+type Meta = {
+  outputs: Record<
+    string,
+    {
+      inputs: Record<string, unknown>;
+      imports?: Array<{ path: string; kind: string; external?: boolean }>;
+    }
+  >;
+};
 
 const metaWith = (outputs: Meta["outputs"]): Meta => ({ outputs });
 
@@ -67,5 +75,32 @@ describe("构建图禁区判据（findForbiddenInputs）", () => {
         outputExtensions: [".mjs"]
       })
     ).toEqual([{ output: "entry/chunks/reader.mjs", hits: ["ai/analysis.ts"] }]);
+  });
+
+  it("splitting:true 共享 chunk：沿静态 import-statement 传递命中禁区，忽略 dynamic-import", () => {
+    const outputs: Meta["outputs"] = {
+      "entry/chunks/player-ai.mjs": {
+        inputs: { "extension/ai/player-ai.ts": {} },
+        imports: [
+          { path: "entry/chunks/chunk-shared.mjs", kind: "import-statement" },
+          { path: "entry/chunks/player-interpret.mjs", kind: "dynamic-import" }
+        ]
+      },
+      "entry/chunks/chunk-shared.mjs": {
+        inputs: { "extension/subtitle/cache.ts": {} },
+        imports: []
+      },
+      "entry/chunks/player-interpret.mjs": {
+        inputs: { "extension/live/player-interpret.ts": {}, "extension/ai/l0-bm25.ts": {} },
+        imports: []
+      }
+    };
+    expect(
+      findForbiddenInputs(metaWith(outputs), {
+        seed: "ai/player-ai.ts",
+        forbidden: ["live/player-interpret.ts", "subtitle/cache.ts", "ai/l0-bm25.ts"],
+        outputExtensions: [".mjs"]
+      })
+    ).toEqual([{ output: "entry/chunks/player-ai.mjs", hits: ["subtitle/cache.ts"] }]);
   });
 });
