@@ -1,0 +1,194 @@
+// ui/settings/elements.ts — 设置抽屉 DOM 元素收集、分区渲染隔离与反馈/防抖原语。
+
+import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./dom-ids.js";
+
+// ===== 分区渲染隔离 =====
+// .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
+// 校验错误显示/保存重渲等分区内部变更的 style/layout 失效圈在分区内，不上溯
+// 阅读壳与宿主 B 站页面。
+// 不取 paint containment：paint 会把后代裁剪到分区 padding box，而本面板弹层
+// （custom-select-dropdown，absolute top:100%+6px）刻意溢出分区边界盖过相邻卡片；
+// layout containment 建立的堆叠上下文由 reader-settings-rows.css 的
+// .biliscript-set-group:has(...) 规则在展开下拉时整区抬升配对。
+export function applySectionContainment(host: HTMLElement): void {
+  host.querySelectorAll<HTMLElement>(".biliscript-set-group").forEach((group) => {
+    group.style.contain = "layout style";
+  });
+}
+
+// ===== 元素收集（模板渲染后按 id 取自宿主容器） =====
+// 查询 id 全部取自 dom-ids.ts 的 SETTINGS_PANEL_DOM_IDS（id 词汇表单一声明，
+// 模板属性同源）；byIdIn 入参类型即该表值域，写不出表外 id。
+export function collectElements(host: HTMLElement) {
+  const dom = SETTINGS_PANEL_DOM_IDS;
+  const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>
+    host.querySelector(`#${id}`) as T;
+  return {
+    backBtn: byIdIn<HTMLButtonElement>(dom.readingSettingsBackBtn),
+    settingsTitle: byIdIn<HTMLElement>(dom.settingsTitle),
+    settingsRootView: byIdIn<HTMLElement>(dom.settingsRootView),
+    subpageAiProviders: byIdIn<HTMLElement>(dom.subpageAiProviders),
+    subpageLive: byIdIn<HTMLElement>(dom.subpageLive),
+    subpageAsr: byIdIn<HTMLElement>(dom.subpageAsr),
+    subpageSearch: byIdIn<HTMLElement>(dom.subpageSearch),
+    subpageAiPrompt: byIdIn<HTMLElement>(dom.subpageAiPrompt),
+    subpageSubtitle: byIdIn<HTMLElement>(dom.subpageSubtitle),
+    subpageAppearance: byIdIn<HTMLElement>(dom.subpageAppearance),
+    subpageAgent: byIdIn<HTMLElement>(dom.subpageAgent),
+    subpageAdvanced: byIdIn<HTMLElement>(dom.subpageAdvanced),
+    openAiProvidersBtn: byIdIn<HTMLButtonElement>(dom.openAiProvidersBtn),
+    aiProvidersSummary: byIdIn<HTMLElement>(dom.aiProvidersSummary),
+    openLiveSettingsBtn: byIdIn<HTMLButtonElement>(dom.openLiveSettingsBtn),
+    liveSettingsSummary: byIdIn<HTMLElement>(dom.liveSettingsSummary),
+    openAsrSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAsrSettingsBtn),
+    asrSettingsSummary: byIdIn<HTMLElement>(dom.asrSettingsSummary),
+    openSearchSettingsBtn: byIdIn<HTMLButtonElement>(dom.openSearchSettingsBtn),
+    searchSettingsSummary: byIdIn<HTMLElement>(dom.searchSettingsSummary),
+    openAiPromptBtn: byIdIn<HTMLButtonElement>(dom.openAiPromptBtn),
+    aiPromptSummary: byIdIn<HTMLElement>(dom.aiPromptSummary),
+    openSubtitleSettingsBtn: byIdIn<HTMLButtonElement>(dom.openSubtitleSettingsBtn),
+    subtitleSettingsSummary: byIdIn<HTMLElement>(dom.subtitleSettingsSummary),
+    openAppearanceBtn: byIdIn<HTMLButtonElement>(dom.openAppearanceBtn),
+    appearanceSettingsSummary: byIdIn<HTMLElement>(dom.appearanceSettingsSummary),
+    openAgentSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAgentSettingsBtn),
+    agentSettingsSummary: byIdIn<HTMLElement>(dom.agentSettingsSummary),
+    openAdvancedSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAdvancedSettingsBtn),
+    advancedSettingsSummary: byIdIn<HTMLElement>(dom.advancedSettingsSummary),
+    openOnboardingBtn: byIdIn<HTMLButtonElement>(dom.openOnboardingBtn),
+    downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
+    noteExportTemplate: byIdIn<HTMLTextAreaElement>(dom.noteExportTemplate),
+    noteExportResetTemplateBtn: byIdIn<HTMLButtonElement>(dom.noteExportResetTemplateBtn),
+    obsidianVaultName: byIdIn<HTMLInputElement>(dom.obsidianVaultName),
+    obsidianFolder: byIdIn<HTMLInputElement>(dom.obsidianFolder),
+    noteExportCopyBtn: byIdIn<HTMLButtonElement>(dom.noteExportCopyBtn),
+    noteExportObsidianBtn: byIdIn<HTMLButtonElement>(dom.noteExportObsidianBtn),
+    readerTheme: byIdIn<HTMLSelectElement>(dom.readerTheme),
+    readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
+    chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
+    reduceTransparency: byIdIn<HTMLInputElement>(dom.reduceTransparency),
+    readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
+    readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
+    readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
+    readerFontSizeScaleResetBtn: byIdIn<HTMLButtonElement>(dom.readerFontSizeScaleResetBtn),
+    chatPreferencesHeading: byIdIn<HTMLElement>(dom.chatPreferencesHeading),
+    chatLineHeight: byIdIn<HTMLInputElement>(dom.chatLineHeight),
+    chatLineHeightValue: byIdIn<HTMLElement>(dom.chatLineHeightValue),
+    chatLineHeightResetBtn: byIdIn<HTMLButtonElement>(dom.chatLineHeightResetBtn),
+    chatParagraphSpacing: byIdIn<HTMLInputElement>(dom.chatParagraphSpacing),
+    chatParagraphSpacingValue: byIdIn<HTMLElement>(dom.chatParagraphSpacingValue),
+    chatParagraphSpacingResetBtn: byIdIn<HTMLButtonElement>(dom.chatParagraphSpacingResetBtn),
+    speechVoiceVolume: byIdIn<HTMLInputElement>(dom.speechVoiceVolume),
+    speechVoiceVolumeValue: byIdIn<HTMLElement>(dom.speechVoiceVolumeValue),
+    speechVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.speechVoiceVolumeResetBtn),
+    liveVoiceVolume: byIdIn<HTMLInputElement>(dom.liveVoiceVolume),
+    liveVoiceVolumeValue: byIdIn<HTMLElement>(dom.liveVoiceVolumeValue),
+    liveVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceVolumeResetBtn),
+    liveVoiceSpeed: byIdIn<HTMLInputElement>(dom.liveVoiceSpeed),
+    liveVoiceSpeedValue: byIdIn<HTMLElement>(dom.liveVoiceSpeedValue),
+    liveVoiceSpeedResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceSpeedResetBtn),
+    liveShareVideoAudio: byIdIn<HTMLInputElement>(dom.liveShareVideoAudio),
+    liveVoicePriority: byIdIn<HTMLInputElement>(dom.liveVoicePriority),
+    customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
+    customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
+    customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
+    customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
+    autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
+    enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
+    includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
+    enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
+    playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
+    includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
+    enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    enableAgentBridge: byIdIn<HTMLInputElement>(dom.enableAgentBridge),
+    agentBridgeConnectBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeConnectBtn),
+    agentBridgeAddressBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBtn),
+    agentBridgeAddressSummary: byIdIn<HTMLElement>(dom.agentBridgeAddressSummary),
+    agentBridgeAddressView: byIdIn<HTMLElement>(dom.agentBridgeAddressView),
+    agentBridgeUrl: byIdIn<HTMLInputElement>(dom.agentBridgeUrl),
+    agentBridgeResetUrlBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeResetUrlBtn),
+    agentBridgeTestBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeTestBtn),
+    agentBridgeSaveBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeSaveBtn),
+    agentBridgeAddressStatus: byIdIn<HTMLElement>(dom.agentBridgeAddressStatus),
+    cleanConversationsOlderThan30Days: byIdIn<HTMLInputElement>(dom.cleanConversationsOlderThan30Days),
+    aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
+    aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
+    addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
+    liveSettingsHeader: byIdIn<HTMLElement>(dom.liveSettingsHeader),
+    liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
+    liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
+    liveVoiceFallbackHint: byIdIn<HTMLElement>(dom.liveVoiceFallbackHint),
+    addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
+    liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
+    subtitleTranslateSource: byIdIn<HTMLSelectElement>(dom.subtitleTranslateSource),
+    subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
+    subtitleTranslateGlossary: byIdIn<HTMLTextAreaElement>(dom.subtitleTranslateGlossary),
+    bilingualDisplayOrder: byIdIn<HTMLSelectElement>(dom.bilingualDisplayOrder),
+    subtitleSegmentationStrategy: byIdIn<HTMLSelectElement>(dom.subtitleSegmentationStrategy),
+    asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
+    asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
+    addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
+    asrAutoFallback: byIdIn<HTMLInputElement>(dom.asrAutoFallback),
+    searchProvidersList: byIdIn<HTMLElement>(dom.searchProvidersList),
+    searchProvidersEmpty: byIdIn<HTMLElement>(dom.searchProvidersEmpty),
+    searchProvidersDanglingHint: byIdIn<HTMLElement>(dom.searchProvidersDanglingHint),
+    addSearchProviderBtn: byIdIn<HTMLButtonElement>(dom.addSearchProviderBtn),
+    resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>(dom.resetSearchProviderOrderBtn),
+    allowPaidSearchProviders: byIdIn<HTMLInputElement>(dom.allowPaidSearchProviders),
+    webSearchMaxToolCallsContainer: byIdIn<HTMLElement>(dom.webSearchMaxToolCallsContainer),
+    webSearchMaxToolCalls: byIdIn<HTMLInputElement>(dom.webSearchMaxToolCalls),
+    webSearchMaxToolCallsValue: byIdIn<HTMLElement>(dom.webSearchMaxToolCallsValue),
+    webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
+    aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
+    aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
+    aiDefaultModel: byIdIn<HTMLSelectElement>(dom.aiDefaultModel),
+    resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
+    status: byIdIn<HTMLElement>(dom.status)
+  };
+}
+
+export type SettingsElements = ReturnType<typeof collectElements>;
+
+export function setStatus(elements: SettingsElements, text: unknown, isError = false): void {
+  elements.status.textContent = String(text || "");
+  elements.status.dataset.error = isError ? "true" : "false";
+}
+
+export function setBusy(elements: SettingsElements, isBusy: boolean): void {
+  elements.resetBtn.disabled = isBusy;
+  elements.resetBtn.textContent = isBusy ? "处理中..." : "恢复默认偏好";
+}
+
+export function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  delayMs: number
+): T & { cancel: () => void; flush: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: unknown[] | null = null;
+  const debounced = ((...args: unknown[]) => {
+    lastArgs = args;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      lastArgs = null;
+      fn(...args);
+    }, delayMs);
+  }) as T & { cancel: () => void; flush: () => void };
+
+  debounced.cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+      lastArgs = null;
+    }
+  };
+  debounced.flush = () => {
+    if (timer && lastArgs) {
+      clearTimeout(timer);
+      timer = null;
+      const args = lastArgs;
+      lastArgs = null;
+      fn(...args);
+    }
+  };
+  return debounced;
+}

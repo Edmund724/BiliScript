@@ -62,7 +62,6 @@ import { state } from "../core/state.js";
 import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
-import { findSubtitlePreviewAtTime } from "../ui/timestamp-nav.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   bindChatDisplaySliders,
@@ -81,13 +80,8 @@ import {
   hasExternalizedChatImages,
   parseModelOptionValue,
   readConversationHistory,
-  rebuildCurrentContextKeyFromContext,
-  syncSavedConversationsFromStorage,
-  type ViewResetIntent
+  syncSavedConversationsFromStorage
 } from "../chat/tab-domain.js";
-// pinned 判定单一谓词（context-policy.ts）：全仓统一严格 === true，两处真值读
-// 已并入。
-import { isPinnedContextStrict } from "../chat/context-policy.js";
 // 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
 // 缓存落定时若建议区正开着，就地换成生成结果。
 import { subscribeQuickPromptsChange } from "../chat/quick-prompt-cache.js";
@@ -101,18 +95,15 @@ import { createExplainIntentController } from "./explain-intent.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
-import { beginReaderAiSetupFlow, invalidateReaderSetupFlows } from "./setup-resume.js";
-// 保存成功后的返回事务要退出设置抽屉（关闭路径同时作废未消费的首配流程）。
-import { closeReaderSettingsMode } from "./settings-mode.js";
-// 配置类错误的两个类目（无平台 / 缺 Key）：分类器在 chat-runtime 用同一叶子判定，
-// 本文件只消费类目参数。
-import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 // 会话级触发源对象（「属会话 vs 常驻」的声明与摘挂闭合处）与建议区属主
 //（建议区节点的唯一归属，其余模块只调它的方法）。
 import { createReaderChatSessionTriggers } from "./chat-session-triggers.js";
 import { createChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
+import { createChatSetupFlow } from "./chat-setup-flow.js";
+import { createChatLiveBridge } from "./chat-live-bridge.js";
+import { createChatContextOrchestrator } from "./chat-context-orchestrator.js";
 // 图片附件区内核（image-input 02 号票）：粘贴 → 压缩 → 缩略图 + 单个删除。
 import { createChatInputImages } from "../chat/chat-input-images.js";
 // 对话 Composer 深 module（arch-review-batch4/01 号票）：输入区监听、autosize 与发送态
@@ -128,7 +119,7 @@ import { createImageSupportGate } from "../chat/image-support.js";
 // 具名命令，由 ui-renderer 注册的 handler 执行——本文件不再静态 import
 // ui/ui-renderer。切对话 tab 的回头调不走壳命令，改经标签激活属主
 // ./script-tab-activation（见 runQuickActionPrompt）。
-import { requestSubtitleRefresh, requestUiCommand, subscribeReaderPresenter, setChatTabOutsideClickHandler } from "./reader-bus.js";
+import { requestSubtitleRefresh, subscribeReaderPresenter, setChatTabOutsideClickHandler } from "./reader-bus.js";
 // 标签激活属主（工单：标签激活收口 reader 域）：快捷动作的「定位对话 tab + 激活」
 // 经它执行，不再各写一半（收口前 = set-tab:chat 壳命令 + 显式 ensureChatTabActivated 双写）。
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -137,7 +128,6 @@ import { activateScriptTab } from "./script-tab-activation.js";
 // 本叶子不拖常驻图。
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
-import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 // 对话分区表模块顶兜底挂载（arch-slim-4/07，settings-panel.ts 顶挂载同款先例）：
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
@@ -145,18 +135,11 @@ import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import {
   ensureFullscreenOverlay,
-  ensureLiveController,
   getFullscreenLiveOverlay,
   getLiveController,
-  isLiveCompanionActive,
-  openLiveCompanionSettings,
-  restoreLiveCompanionOverlay,
-  retryLiveCompanion,
-  setLiveSessionHooks,
   startLiveCompanion,
   stopLiveCompanion
 } from "../live/live-companion-session.js";
-import { createChatLiveStatus } from "./chat-live-status.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
@@ -173,8 +156,6 @@ export {
 };
 
 ensureReaderChatStyles();
-
-const NON_VIDEO_CONTEXT_MESSAGE = "当前不是视频播放页，<br>无法获取视频信息，<br>仅支持常规对话。";
 
 const els = {
   root: document.getElementById(ids.readingChatRoot) as HTMLElement,
@@ -249,83 +230,6 @@ function requireShell(): void {
 // visibility/focus/tabs handler 无调用方，onReaderOpened/Closed 的恢复折叠进激活
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
-let urlChangeSyncTimer = 0;
-
-function openChatSettings(target?: "asr" | "appearance"): void {
-  chatRuntime.stopSpeech();
-  popovers.hideHistoryPopover({ focus: "none" });
-  popovers.hideMoreMenu();
-  requestUiCommand("open-settings", target ? { target } : undefined);
-}
-
-const liveStatus = createChatLiveStatus({
-  root: els.liveStatus,
-  getState: () => getLiveController()?.getState() ?? "idle",
-  isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
-  getLastError: () => getLiveController()?.getLastError(),
-  getLastFailureKind: () => getLiveController()?.getLastFailureKind(),
-  getTimestampNavDeps,
-  getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
-  subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
-  onRetryTextToolRecord: (callId) => {
-    getLiveController()?.retryTextToolRecord?.(callId);
-  },
-  onContinueTextToolRecord: (callId) => {
-    getLiveController()?.dismissTextToolRecord?.(callId);
-  },
-  onRetry: () => {
-    void retryLiveCompanion();
-  },
-  onStop: stopLiveCompanion,
-  onRestore: restoreLiveCompanionOverlay,
-  onOpenSettings: (target) => {
-    popovers.hideHistoryPopover({ focus: "none" });
-    void openLiveCompanionSettings(target);
-  }
-});
-
-function bindLiveConsumerHooks(): void {
-  setLiveSessionHooks({
-    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-    onBeforeStart: () => {
-      chatRuntime.stopSpeech();
-      if (chatRuntime.isTurnActive()) {
-        chatRuntime.stopActiveStream();
-      }
-    },
-    onStateChange: (liveState, error, failureKind) => {
-      liveStatus.sync(liveState, error, failureKind);
-      composer.updateSendBtnState();
-    },
-    onReconnecting: () => {
-      liveStatus.sync();
-      composer.updateSendBtnState();
-    }
-  });
-  liveStatus.setOpen(true);
-  composer.updateSendBtnState();
-}
-
-
-// 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
-// false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
-// 触发源组装处 clipSettle 的取舍说明）。
-function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }: { forceRefresh?: boolean; preserveInput?: boolean } = {}): void {
-  if (sessionClosed) {
-    return;
-  }
-  if (urlChangeSyncTimer) {
-    window.clearTimeout(urlChangeSyncTimer);
-  }
-  urlChangeSyncTimer = window.setTimeout(() => {
-    urlChangeSyncTimer = 0;
-    if (sessionClosed) {
-      return;
-    }
-    void syncLiveContextState(forceRefresh, preserveInput);
-  }, 120);
-}
-
 // 跨模块共享状态（contextData / currentContextKey / providers / chatHistory /
 // savedConversations / currentConversationId / currentConversationMeta /
 // liveContextData / liveContextKey / liveTabUrl / aiPrefs / asrTranscribingActive /
@@ -364,7 +268,7 @@ const feedback = createReaderChatFeedback({
   scrollToBottom: () => chatRuntime.scrollToBottom(),
   suggestions: suggestionsSlot,
   // 所有对话侧设置入口先退出历史，再经既有壳命令打开目标分区。
-  onOpenSettings: (settingsTarget) => openChatSettings(settingsTarget)
+  onOpenSettings: (settingsTarget) => liveBridge.openChatSettings(settingsTarget)
 });
 const {
   showConversationContextNotice,
@@ -376,6 +280,19 @@ const {
   isMessagesNearBottom,
   getMessagesBottomOffset
 } = feedback;
+
+// 实时伴看与设置直达桥接切片（先于 composer 实例化，供 getComposerLiveProps 同步读取）。
+const liveBridge = createChatLiveBridge({
+  liveStatusRoot: els.liveStatus,
+  getTimestampNavDeps: () => contextOrchestrator.getTimestampNavDeps(),
+  showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs),
+  stopSpeech: () => chatRuntime.stopSpeech(),
+  isTurnActive: () => chatRuntime.isTurnActive(),
+  stopActiveStream: () => chatRuntime.stopActiveStream(),
+  updateSendBtnState: () => composer.updateSendBtnState(),
+  hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "none" }),
+  hideMoreMenu: () => popovers.hideMoreMenu()
+});
 
 // 流式生成中不收新图；字幕等待属于受理窗口，仍可粘贴，新增图片由原回合快照排除。
 const inputImages = createChatInputImages({
@@ -396,7 +313,7 @@ const composer = createReaderChatComposer({
   chatRuntime: {
     sendTurn: (text, options) => {
       // 用户自己按下了发送：首配返回的视图守卫到此为止（视图重建恢复常规）。
-      chatSetupViewHold = false;
+      setupFlow.clearViewHold();
       return chatRuntime.sendTurn(text, options);
     },
     isTurnActive: () => chatRuntime.isTurnActive(),
@@ -412,12 +329,7 @@ const composer = createReaderChatComposer({
   prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
   getManualPromptAnchor: () => explainIntentController.getPendingFollowUpAnchor(),
   onManualPromptAccepted: () => explainIntentController.completePendingFollowUp(),
-  getLiveState: supportsLiveCompanion() ? () => getLiveController()?.getState() ?? "idle" : undefined,
-  onStartLive: supportsLiveCompanion()
-    ? () => {
-        void startLiveCompanion();
-      }
-    : undefined
+  ...liveBridge.getComposerLiveProps()
 });
 
 const explainIntentController = createExplainIntentController({
@@ -442,28 +354,56 @@ const imageSupportGate = createImageSupportGate({
   notify: (message) => showConversationContextNotice(message, 4000)
 });
 
+// AI 对话首配直达与返回视图守卫切片。
+const setupFlow = createChatSetupFlow({
+  isSessionClosed: () => sessionClosed,
+  isInitialized: () => initialized,
+  hasSelectableModels: () => modelPanel.hasSelectableModels(),
+  resolveSetupTarget: () => modelPanel.resolveSetupTarget(),
+  reloadModelPanel: () => modelPanel.reload(),
+  renderInitialState: () => contextOrchestrator.renderInitialState(),
+  autosizeInput: () => composer.autosizeInput(),
+  focusInput: () => els.input?.focus?.({ preventScroll: true }),
+  showNotice: showConversationContextNotice
+});
+
+// 上下文同步防抖、视图重建与对话重启编排切片（先于 createChatTabDomain 构造，消除 TDZ）。
+const contextOrchestrator = createChatContextOrchestrator({
+  messagesEl: els.messages,
+  inputEl: els.input,
+  openSettingsId: ids.readingChatOpenSettings,
+  isSessionClosed: () => sessionClosed,
+  loadContextState: (opts) => contextLoad.loadContextState(opts),
+  detachForRestart: () => conversationStore.detachForRestart(),
+  isTurnActive: () => chatRuntime.isTurnActive(),
+  setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
+  scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
+  renderReplay: () => conversationReplay.render(),
+  invalidateReplay: () => conversationReplay.invalidate(),
+  updateLayout: updateChatLayoutState,
+  autosizeInput: () => composer.autosizeInput(),
+  setStreamingUiState: (isStreaming) => composer.setStreamingUiState(isStreaming),
+  getInputImageCount: () => inputImages.count(),
+  clearInputImages: () => inputImages.clear(),
+  resetSuggestionsShell: () => suggestionsSlot.render([]),
+  renderSuggestions: () => lists.renderSuggestions(),
+  resetScrollFollow: () => scrollFollow.reset(),
+  hasSelectableModels: () => modelPanel.hasSelectableModels(),
+  getSetupStateHtml: () => setupFlow.setupStateHtml(),
+  invalidateSetupFlow: () => setupFlow.invalidate(),
+  showNotice: showConversationContextNotice,
+  hideOverlaysForNewChat: () => {
+    popovers.hideHistoryPopover({ focus: "none" });
+    popovers.hideModelPanel();
+  },
+  seekReadingTarget: (seconds) => seekReadingTarget(seconds)
+});
+
 // 对话域内核链单一深入口（arch-review-2026-09/08）：pinned 补水解析器 +
 // conversation-store + context-load（含内联 createInProcessContextFetch）+
 // chat-runtime 在 ../chat/tab-domain.ts 组装——实例级硬边顺序 pinnedResolver →
 // store → contextLoad → runtime 在组装模块内保持，其余 30+ 处跨实例互引保持
-// 惰性箭头（回调执行时实例已存在）。本侧只注入 deps：壳 DOM 三件 + ui 门面
-//（ChatRuntimeUi 8 件回调）+ store 能力事件订阅 + contextLoad 渲染编排回调 +
-// storage + 状态 getter + runtime 传输/AI 回调（闭包连着本文件的页面级编排、
-// 触发源状态与 DOM）。
-// 会话状态（会话列表/当前会话/上下文）已收拢至 chatSessionState，store 直接
-// import 读写。能力事件三件（工单 05 渲染编排反转：store 自己编排渲染时机，
-// 本组合根只订阅结果）：
-//   - onConversationChanged：历史列表恒随事件重渲，change 标志（historyCleared /
-//     resetView）声明其余需要刷新的呈现面；
-//   - onStreamInterrupted：流式中删除当前会话 / 清空全部 / restoreLatest 无匹配
-//     时由 store 同步发出——断 port、清在途一问一答、清消息区并退出流式 UI 态
-//    （对应 restartChat 的清理动作，但不清会话状态——那由 store 自己做）。
-//     store 不直接 import chatRuntime，依赖方向由 tab-domain 组装；回调幂等
-//    （非流式时为无害空操作）。
-//   - onContextNotice：上下文补水提示生命周期（pending 展示 / clear 撤除 /
-//     error 展示）。
-let restartForContextFollow = false;
-
+// 惰性箭头（回调执行时实例已存在）。
 const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
@@ -483,7 +423,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions,
-    requestViewReset,
+    requestViewReset: contextOrchestrator.requestViewReset,
     autosizeInput: composer.autosizeInput,
     onTurnFailedRestoreDraft: ({ text, images }) => {
       if (els.input.value.trim() === "" && text) {
@@ -496,7 +436,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     },
     // 缺 Key 回合错误（票 03）：已受理的错误回合只给「前往设置」直达对应平台记录，
     // 不重发本回合。
-    onSetupRequired: showChatSetupAction
+    onSetupRequired: setupFlow.showSetupAction
   },
   onConversationChanged: (change) => {
     if (change.historyCleared) {
@@ -508,14 +448,14 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
       els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus({ preventScroll: true });
     }
     if (change.resetView) {
-      renderInitialState();
+      contextOrchestrator.renderInitialState();
     }
   },
   onStreamInterrupted: () => {
-    if (!restartForContextFollow) {
+    if (!contextOrchestrator.isRestartForContextFollow()) {
       chatRuntime.resetStreamState();
     }
-    resetConversationView();
+    contextOrchestrator.resetConversationView();
     composer.setStreamingUiState(false);
   },
   onContextNotice: (notice) => {
@@ -528,9 +468,9 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   renderHistoryList: () => lists.renderHistoryList(),
-  renderInitialState,
-  restartChat,
-  requestViewReset,
+  renderInitialState: contextOrchestrator.renderInitialState,
+  restartChat: contextOrchestrator.restartChat,
+  requestViewReset: contextOrchestrator.requestViewReset,
   storage: chrome.storage.local,
   clip: () => state.clip,
   settings: () => state.settings,
@@ -576,7 +516,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
       currentTime: frame.currentTime
     }));
   },
-  getTimestampNavDeps,
+  getTimestampNavDeps: contextOrchestrator.getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
   getSpeechVolume: () => CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(state.settings?.speechVoiceVolume) / 100,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
@@ -591,7 +531,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
   },
-  isLiveActive: () => isLiveSessionActive()
+  isLiveActive: () => liveBridge.isActive()
 });
 
 const { loadContextState } = contextLoad;
@@ -615,12 +555,12 @@ const lists = createReaderChatLists({
   applyById: openConversationById,
   settleTurn: () => (chatRuntime.isTurnActive() ? chatRuntime.settleTurn() : undefined),
   deleteById: (id) => {
-    restartForContextFollow = false;
+    contextOrchestrator.clearRestartForContextFollow();
     return conversationStore.deleteById(id);
   },
   isTurnActive: () => chatRuntime.isTurnActive(),
   confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
-  startNewConversation,
+  startNewConversation: contextOrchestrator.startNewConversation,
   suggestions: suggestionsSlot,
   hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
@@ -661,7 +601,7 @@ const modelPanel = createReaderChatModelPanel({
   hidePanel: () => popovers.hideModelPanel(),
   openSettings: () => {
     const { errorClass, providerId } = modelPanel.resolveSetupTarget();
-    beginChatSetup(errorClass, { providerId });
+    setupFlow.beginSetup(errorClass, { providerId });
   }
 });
 
@@ -710,15 +650,14 @@ const sessionTriggers = createReaderChatSessionTriggers({
       clipSignature = nextSignature;
       quickActionGeneration += 1;
       // 换视频/分P：首配返回意图与视图守卫作废，返回时不把用户拽回旧内容。
-      invalidateReaderSetupFlows("chat");
-      chatSetupViewHold = false;
+      setupFlow.invalidate();
       sendGate.cancel();
       deactivateChatTabOverlays();
       dismissConfirmDialog();
-      restartForContextFollow = false;
+      contextOrchestrator.clearRestartForContextFollow();
       lists.settlePendingDeletion();
       conversationStore.detachForRestart();
-      scheduleLiveContextSync();
+      contextOrchestrator.scheduleLiveContextSync();
     };
     return contentEventBus.on("host:url-change", handler);
   },
@@ -737,7 +676,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // 而转写等待期间用户很可能已经在输入框里打好了草稿，不该被后台对账清掉。
   clipSettle: () => subscribeReaderPresenter((event) => {
     if (event.kind === "subtitle-ready") {
-      scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
+      contextOrchestrator.scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
     }
   }),
   // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
@@ -747,9 +686,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
   storageWatcher: () => {
     const unwatchProviders = watchStorageKeys(() => {
       void refreshProvidersAndPrefsAfterExternalChange();
-      if (supportsLiveCompanion()) {
-        void getLiveController()?.refreshTarget();
-      }
+      void liveBridge.refreshTarget();
     }, {
       sync: [
         "aiProviders",
@@ -836,7 +773,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     modelPanel.reload(),
     conversationStore.loadAll(),
     loadContextState(),
-    supportsLiveCompanion() ? (getLiveController()?.refreshTarget() ?? Promise.resolve()) : Promise.resolve()
+    liveBridge.refreshTarget()
   ]);
   if (isStale()) {
     sessionTriggers.deactivate();
@@ -848,7 +785,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     sessionTriggers.deactivate();
     return;
   }
-  renderInitialState();
+  contextOrchestrator.renderInitialState();
   composer.autosizeInput();
   initialized = true;
   // PR3 契约消费：有待解释意图 → 渲染引用卡 + 自动发送（发送成功即 consume）。
@@ -864,16 +801,12 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 async function restoreChatSession(): Promise<void> {
   const generation = ++sessionGeneration;
   const isStale = () => sessionClosed || generation !== sessionGeneration;
-  if (supportsLiveCompanion()) {
-    bindLiveConsumerHooks();
-  }
+  liveBridge.bindHooksIfSupported();
   await modelPanel.reload().catch(() => null);
   if (isStale()) {
     return;
   }
-  if (supportsLiveCompanion()) {
-    void getLiveController()?.refreshTarget();
-  }
+  void liveBridge.refreshTarget();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok || isStale()) {
     return;
@@ -887,7 +820,7 @@ async function restoreChatSession(): Promise<void> {
     // 未命中新视频历史会话时 restoreLatest 只拆旧会话而不回填，需把 live 快照落回主上下文。
     applyLiveContextToMain();
   }
-  renderInitialState();
+  contextOrchestrator.renderInitialState();
   composer.autosizeInput();
 }
 
@@ -932,16 +865,11 @@ export function closeChatSession(): void {
   sessionGeneration += 1;
   sessionClosed = true;
   initInFlight = null;
-  restartForContextFollow = false;
+  contextOrchestrator.clearRestartForContextFollow();
   quickActionGeneration += 1;
-  invalidateReaderSetupFlows("chat");
-  chatSetupViewHold = false;
-  if (urlChangeSyncTimer) {
-    window.clearTimeout(urlChangeSyncTimer);
-    urlChangeSyncTimer = 0;
-  }
-  liveStatus.setOpen(false);
-  setLiveSessionHooks(null);
+  setupFlow.invalidate();
+  contextOrchestrator.cancelPendingSync();
+  liveBridge.closeSession();
   if (!initialized) {
     sessionTriggers.deactivate();
     return;
@@ -1017,9 +945,7 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
 
 function bindEvents(): void {
   if (eventsBound) {
-    if (supportsLiveCompanion()) {
-      bindLiveConsumerHooks();
-    }
+    liveBridge.bindHooksIfSupported();
     return;
   }
   eventsBound = true;
@@ -1055,14 +981,14 @@ function bindEvents(): void {
   });
   els.newChatBtn?.addEventListener("click", () => {
     popovers.hideMoreMenu();
-    void startNewConversation();
+    void contextOrchestrator.startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
     chatRuntime.stopSpeech();
     popovers.toggleHistoryPopover(event);
   });
   els.displaySettingsBtn?.addEventListener("click", () => {
-    openChatSettings("appearance");
+    liveBridge.openChatSettings("appearance");
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
@@ -1073,10 +999,7 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  if (supportsLiveCompanion()) {
-    ensureLiveController();
-    bindLiveConsumerHooks();
-  }
+  liveBridge.initEvents();
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换）：
   //   1. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；
@@ -1096,7 +1019,7 @@ function bindEvents(): void {
       event.preventDefault();
       event.stopPropagation();
       const { errorClass, providerId } = modelPanel.resolveSetupTarget();
-      beginChatSetup(errorClass, { providerId, mode: "blocked" });
+      setupFlow.beginSetup(errorClass, { providerId, mode: "blocked" });
     }
   });
   const inputCard = els.input.closest<HTMLElement>(".chat-input-card");
@@ -1130,10 +1053,6 @@ function bindEvents(): void {
 // 输入框高度上限常量（实现与逻辑收归 chat-tab-composer.ts，本处保留供测试与类型锁定）
 export const INPUT_MAX_HEIGHT = 320;
 
-function isLiveSessionActive(): boolean {
-  return isLiveCompanionActive();
-}
-
 function isConversationViewActive(): boolean {
   return chatRuntime.isTurnActive();
 }
@@ -1147,232 +1066,16 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
   // 防止上下文对账把已上屏的实时问答重建掉。
   lists.renderHistoryList();
-  if (isConversationViewActive() || chatSetupViewHold) {
+  if (isConversationViewActive() || setupFlow.isViewHeld()) {
     return;
   }
-  renderInitialState();
+  contextOrchestrator.renderInitialState();
 }
 
-// ============================================================
-// 上下文状态加载：编排壳在 ../chat/context-load.ts（装配策略在
-// ../core/context-assembly.ts，动作判定在 ../chat/context-policy.ts）；下方为
-// 整段迁自 sidepanel.ts 的页面级编排函数。
-// ============================================================
-
-// 【整段迁移自 sidepanel.ts】post-sync 分支编排：流式守卫 + 三个渲染回调。
-// preserveInput 透传进上下文装载（gate 链与字幕落定对账为「上下文跟随」，见
-// 各自调用点）。
-async function syncLiveContextState(forceRefresh = false, preserveInput = false): Promise<void> {
-  if (sessionClosed) {
-    return;
-  }
-  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
-    return;
-  }
-  if (
-    !ok
-    || !chatSessionState.contextData
-    || !chatSessionState.providers.length
-    || !modelPanel.hasSelectableModels()
-    || !chatSessionState.chatHistory.length
-  ) {
-    renderInitialState();
-    return;
-  }
-  lists.renderSuggestions();
-}
-
-// 【整段迁移自 sidepanel.ts】初始态渲染：无上下文 / 无平台或无模型 / 会话回放 / 非视频
-// 四态分支逐字保持；配置引导分支的「前往设置」换 readingChatOpenSettings id——
-// 点击经本文件 bindEvents 的 #readingChatRoot 容器委托打开侧边栏设置抽屉
-//（arch-slim-2/06 死绑定修复；open-options 消息已删除）。
 // 唯一为测试而留的导出面（测试锚点：tests/reader/chat-tab.test.ts 直连渲染入口），
 // 运行时消费方只需 closeChatSession / ensureChatTabActivated / runQuickActionPrompt。
 export function renderInitialState(): void {
-  restartForContextFollow = false;
-  updateChatLayoutState();
-  if (!chatSessionState.contextData) {
-    resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
-    return;
-  }
-  if (!chatSessionState.providers.length || !modelPanel.hasSelectableModels()) {
-    resetConversationView(setupStateHtml());
-    return;
-  }
-  if (chatSessionState.chatHistory.length) {
-    // 回放改为按预算分片让出（P2-1）：fire-and-forget——本函数保持同步返回，
-    // 首片同步上屏，其余在让出点续跑，末尾由 conversationReplay 统一收尾。
-    conversationReplay.render();
-    return;
-  }
-  if (chatSessionState.contextData.isVideoContext === false) {
-    resetConversationView(NON_VIDEO_CONTEXT_MESSAGE);
-    return;
-  }
-  resetConversationView("");
-}
-
-// 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区重开。
-function resetConversationView(stateHtml = ""): void {
-  // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
-  conversationReplay.invalidate();
-  updateChatLayoutState();
-  els.messages.innerHTML = "";
-  if (stateHtml) {
-    const stateNode = document.createElement("div");
-    stateNode.className = "chat-center-error";
-    stateNode.innerHTML = stateHtml;
-    els.messages.appendChild(stateNode);
-  }
-  // 清场即重开本代建议区：消息区刚被清空，属主手里的节点已脱开文档，这一步是
-  // 建议区的建立点（空表 = 在场的空建议区）；随后列表按当前状态填内容——列表的
-  // 对账重渲只写在场建议区，不负责重建（历史回放清场后不得复活空壳）。
-  suggestionsSlot.render([]);
-  lists.renderSuggestions();
-  chatRuntime.setAutoScroll(true);
-  chatRuntime.scrollToBottom(true);
-  // 清场后没有「回底」需求，且必须放闸（内容短的清场不产生 scroll 事件，闸若
-  // 留着，用户此后的上翻会被误当成「回底途中」，按钮再也不亮）：统一交由 scrollFollow.reset()。
-  scrollFollow.reset();
-}
-
-// 视图意图通道（chat/view-intent.ts 词表，arch-review-2026-10 候选 11 第一刀）：
-// 「清场/状态屏」的唯一决策执行入口。chat 域 module（send-gate / context-load /
-// chat-runtime）不再各自持清场回调，只发意图；本入口委托 resetConversationView，
-// 其第一行恒作废在飞回放（世代号 +1）——「清场即作废回放」由本入口一处承重，
-// 消费方不感知 replay，历史上的 replay→resetView→invalidate 回环已随 replay
-// 空历史死分支一并摘除。
-function requestViewReset(intent: ViewResetIntent): void {
-  // 配置类拦截屏（票 03）：无平台/缺模型状态屏与空态同源——同一句文案、同一个「前往设置」
-  // 动作；发送被拦下的草稿与附件区在此不受影响。
-  if (intent.kind === "setup") {
-    resetConversationView(setupStateHtml());
-    document.getElementById(ids.readingChatOpenSettings)?.focus({ preventScroll: true });
-    showConversationContextNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
-    return;
-  }
-  resetConversationView(intent.html);
-}
-
-// ============================================================
-// AI 对话首配直达与返回
-// ============================================================
-
-// 无平台 / 缺模型状态屏（空态与「发送前拦截」共用一份）：配置动作直达对应平台编辑记录。
-function setupStateHtml(): string {
-  if (chatSessionState.providers.length > 0 && !modelPanel.hasSelectableModels()) {
-    return `当前 AI 平台还没有配置可用模型，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
-  }
-  return `还没有配置 AI 平台，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
-}
-
-// 返回对话后的提示（票 03）：只提示，不代发——是否发送始终由用户再点一次。
-const CHAT_SETUP_READY_NOTICE = "平台已就绪，请确认发送。";
-// 缺 Key / 缺模型 / 平台失效回合错误的行内提示与动作（「前往设置」与空态同一措辞）。
-const CHAT_SETUP_MISSING_KEY_NOTICE = "该平台 API Key 未配置，配置后请重新发送。";
-const CHAT_SETUP_NO_MODEL_NOTICE = "当前 AI 平台未配置可用模型，配置后请重新发送。";
-const CHAT_SETUP_NO_PROVIDER_NOTICE = "当前 AI 平台配置已失效或未配置，请前往设置。";
-const CHAT_SETUP_ACTION_LABEL = "前往设置";
-
-// 首配返回视图守卫（只在内存）：平台保存会触发 storage 变更 → 平台/偏好重取，
-// 而错误回合（用户气泡 + 错误占位）尚未写进 chatHistory——那一刻重建消息区会把
-// 刚发生的一问一答一起清掉。守卫期间平台与历史列表照刷，消息区归返回事务
-//（blocked 模式由 resume 重渲初始态；error 模式保持原样），直到用户下次发送、
-// 新会话、换视频或关闭会话恢复常规重建。
-type ChatSetupMode = "blocked" | "error";
-
-let chatSetupViewHold = false;
-
-interface BeginChatSetupOptions {
-  // 缺 Key / 缺模型时已选平台的记录 id（直达该记录）；无记录时为空。
-  providerId?: string;
-  // 来源：受理前拦截（blocked）或已受理错误回合（error）；缺省按当前历史推断。
-  mode?: ChatSetupMode;
-}
-
-/**
- * 首配直达：进入平台编辑并在保存成功且仍有效时回到对话，取消或上下文切换时收敛守卫。
- */
-function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", mode }: BeginChatSetupOptions = {}): void {
-  if (sessionClosed) {
-    return;
-  }
-  const targetProviderId = String(providerId || "").trim();
-  const setupMode: ChatSetupMode = mode ?? (chatSessionState.chatHistory.length ? "error" : "blocked");
-  const snapshotContextKey = String(chatSessionState.currentContextKey || "");
-  const snapshotConversationId = String(chatSessionState.currentConversationId || "");
-  chatSetupViewHold = true;
-
-  void beginReaderAiSetupFlow({
-    scope: "chat",
-    errorClass,
-    providerId: targetProviderId,
-    isStillValid: () =>
-      !sessionClosed
-      && initialized
-      && snapshotContextKey === String(chatSessionState.currentContextKey || "")
-      && snapshotConversationId === String(chatSessionState.currentConversationId || ""),
-    onResume: () => {
-      resumeChatAfterSetup(setupMode);
-    },
-    onCancel: () => {
-      chatSetupViewHold = false;
-    }
-  });
-}
-
-/**
- * 保存成功后的返回：退出设置抽屉、重取平台与偏好、聚焦输入区并提示「平台已就绪，请确认发送」。
- */
-function resumeChatAfterSetup(mode: ChatSetupMode): void {
-  closeReaderSettingsMode({ restoreFocus: false });
-  composer.autosizeInput();
-  els.input?.focus?.({ preventScroll: true });
-  void (async () => {
-    await modelPanel.reload().catch(() => null);
-    if (sessionClosed) {
-      return;
-    }
-    if (mode === "blocked") {
-      renderInitialState();
-      chatSetupViewHold = false;
-    }
-    composer.autosizeInput();
-    els.input?.focus?.({ preventScroll: true });
-    showConversationContextNotice(CHAT_SETUP_READY_NOTICE, 0, {
-      tone: "success",
-      dismissible: true
-    });
-  })();
-}
-
-// 缺 Key / 缺模型 / 平台失效回合错误（已受理）的行内动作：只给「前往设置」，不重发本回合。
-function showChatSetupAction(errorClass: OverviewSetupErrorClass, providerId: string): void {
-  let resolvedClass = errorClass;
-  let resolvedProviderId = String(providerId || "").trim();
-  if (
-    resolvedClass === "no-provider"
-    && !resolvedProviderId
-    && chatSessionState.providers.length > 0
-    && !modelPanel.hasSelectableModels()
-  ) {
-    const target = modelPanel.resolveSetupTarget();
-    resolvedClass = target.errorClass;
-    resolvedProviderId = target.providerId;
-  }
-  const message =
-    resolvedClass === "missing-key"
-      ? CHAT_SETUP_MISSING_KEY_NOTICE
-      : resolvedClass === "no-model"
-        ? CHAT_SETUP_NO_MODEL_NOTICE
-        : CHAT_SETUP_NO_PROVIDER_NOTICE;
-  showConversationContextNotice(message, 0, {
-    action: {
-      label: CHAT_SETUP_ACTION_LABEL,
-      onClick: () => beginChatSetup(resolvedClass, { providerId: resolvedProviderId, mode: "error" })
-    }
-  });
+  contextOrchestrator.renderInitialState();
 }
 
 // 【整段迁移自 sidepanel.ts】布局状态：输入框高度只随内容走（autosizeInput），
@@ -1381,44 +1084,6 @@ function updateChatLayoutState(): void {
   if (els.input) {
     composer.autosizeInput();
   }
-}
-
-// 新建会话只在确认后拆除旧视图；草稿、附件与在途回合的风险合并在一次确认中。
-async function startNewConversation(): Promise<boolean> {
-  const turnActive = chatRuntime.isTurnActive();
-  const hasDraft = Boolean(els.input.value);
-  const imageCount = inputImages.count();
-  if (turnActive || hasDraft || imageCount > 0) {
-    const risks: string[] = [];
-    if (turnActive) risks.push("中断正在生成的回复");
-    if (hasDraft) risks.push("清空未发送的草稿");
-    if (imageCount > 0) risks.push(`移除 ${imageCount} 张已添加的图片`);
-    const confirmed = await confirmDialog({
-      title: "新建会话",
-      message: `新建会话会${risks.join("，")}。`,
-      confirmText: "新建会话"
-    });
-    if (!confirmed) return false;
-  }
-  invalidateReaderSetupFlows("chat");
-  chatSetupViewHold = false;
-  popovers.hideHistoryPopover({ focus: "none" });
-  popovers.hideModelPanel();
-  await loadContextState({ forceRefresh: true, silent: true });
-  // 组合根绕过点（有意，不经 plan.action 分支）：live 快照非空即落到主上下文。
-  // startNewConversation 是拆除事务——下一句 restartChat 才断流并清会话身份
-  //（conversation-store.detachForRestart），所以流式中点「新对话」（策略给
-  // blocked-streaming）与 pinned 会话（apply-pinned）都在此被绕过：新会话要在
-  // 当前页上下文上起跑，两个守卫在此让位，与策略守卫正交；live 为空时空操作
-  //（no-tab / error 的非 pinned 路径已由 loadContextState 自行清空主上下文），
-  // skip-unchanged 同步的则是上一轮保留的 live 读。
-  if (chatSessionState.liveContextData) {
-    applyLiveContextToMain();
-  }
-  restartChat({ keepContext: true });
-  renderInitialState();
-  els.input?.focus({ preventScroll: true });
-  return true;
 }
 
 // ============================================================
@@ -1450,71 +1115,4 @@ async function startSubtitleFetch(): Promise<boolean> {
     // 浮空 refresh 的失败原链上即 .catch(() => {}) 全吞，保持同口径。
     onRefreshFailed: () => {}
   });
-}
-
-
-// 时间戳跳转依赖包（注入 timestamp-nav）。reader 适配：seek 直接包进程内单入口
-// seekReadingTarget（content script 无 chrome.tabs 消息链，无跨标签导航可言），
-// 返回 null = 未绑定到视频，由 nav 侧降级为失败播报。
-function getTimestampNavDeps() {
-  const targetContextKey = String(
-    chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
-  ).trim();
-  return {
-    contextUrl: String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim(),
-    isContextValid: () => {
-      const liveKey = String(chatSessionState.liveContextKey || "").trim();
-      const hasLiveVideo = chatSessionState.liveContextData ? chatSessionState.liveContextData.isVideoContext !== false : true;
-      if (!hasLiveVideo) {
-        return false;
-      }
-      return !targetContextKey || !liveKey || targetContextKey === liveKey;
-    },
-    notice: showConversationContextNotice,
-    seek: (seconds: number) => seekReadingTarget(seconds),
-    getSubtitlePreview: (seconds: number) => {
-      const body =
-        chatSessionState.contextData?.subtitleBody ??
-        chatSessionState.currentConversationMeta?.resolvedContext?.subtitleBody;
-      return findSubtitlePreviewAtTime(body, seconds);
-    },
-    tooltipContainer: els.messages
-  };
-}
-
-// 【整段迁移自 sidepanel.ts】重启对话：清流状态 + 清会话状态 + 重置消息区
-//（编排入口，被新对话/上下文切换复用）。
-// preserveInput（发送闸调用链专用）：闸内 apply-live 的重启是「上下文跟随」，
-// 不是用户语义上的「新会话」——不清输入框与附件区。附件在闸之后才被
-// takeInputImages 消费，闸内清场会把随本条消息附的图片静默吞掉（正文照发）；
-// 被闸拦下时用户已打好的文本也会一起没。用户主动点「新会话」（startNewConversation）
-// 与上下文切换的其它路径不带该标志，仍照旧清场。
-function restartChat({ keepContext = false, preserveInput = false }: { keepContext?: boolean; preserveInput?: boolean } = {}): void {
-  // 「拆除会话」出口四（GLOSSARY.md 词条；工单 arch-slim-2/07 D 半场）：断流
-  // 双轨统一——经 conversationStore.detachForRestart 发出 onStreamInterrupted，
-  // 本函数不再直调 chatRuntime.resetStreamState。断流仍先于会话身份清空（订阅
-  // 回调同步先执行，时序与直调时代一致）；订阅处是 resetStreamState 的唯一接线
-  // 点，runtime 直调仅剩该订阅处与会话关闭 closeChatSession（非拆除事务，不属
-  // 本收口）——store 事件管断流通知，防再造第三轨。
-  // preserveInput=true 来自发送闸 apply-live 预检（与随后 context-load 内的
-  // restoreLatest() 一同跨越）：在此期间不触发 resetStreamState()，避免递增
-  // acceptanceEpoch 误伤正在进行的本轮发送；renderInitialState/cancel/urlChange 会归零。
-  restartForContextFollow = Boolean(preserveInput);
-  try {
-    conversationStore.detachForRestart();
-  } catch (error) {
-    restartForContextFollow = false;
-    throw error;
-  }
-  if (!keepContext) {
-    rebuildCurrentContextKeyFromContext();
-  }
-  resetConversationView("");
-  composer.setStreamingUiState(false);
-  if (!preserveInput) {
-    els.input.value = "";
-    // 附件随输入框一起清场（新会话/上下文切换后不带着上一轮的图片）。
-    inputImages.clear();
-  }
-  composer.autosizeInput();
 }

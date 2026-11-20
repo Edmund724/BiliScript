@@ -1,0 +1,283 @@
+// ui/settings/navigation.ts — 设置抽屉三级视图导航状态切片、返回/关闭拦截与目标直达。
+
+import type { LiveSettingsTarget } from "../../live/fullscreen-live-overlay.js";
+import {
+  registerReaderSettingsBackInterceptor,
+  registerReaderSettingsCloseListener
+} from "../../reader/settings-mode.js";
+import { ids } from "../../reader/state.js";
+import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
+import type { AiCredentialLinkTarget } from "../ai-credential-link.js";
+import { SETTINGS_PANEL_DOM_IDS } from "./dom-ids.js";
+import { collectElements, type SettingsElements } from "./elements.js";
+
+export type SettingsSubpageId =
+  | "ai-providers"
+  | "live"
+  | "asr"
+  | "search"
+  | "ai-prompt"
+  | "subtitle"
+  | "appearance"
+  | "agent"
+  | "advanced";
+
+export type SettingsViewId = "root" | SettingsSubpageId | "agent-address";
+
+export type SettingsOpenTarget = LiveSettingsTarget | "appearance" | "note-export";
+
+export const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
+  root: "设置",
+  "ai-providers": "AI 模型平台",
+  live: "实时伴看",
+  asr: "语音转写",
+  search: "联网搜索",
+  "ai-prompt": "AI 对话与快捷动作",
+  subtitle: "字幕翻译与导出",
+  appearance: "阅读器与播放器",
+  agent: "本地 Agent 连接",
+  "agent-address": "连接地址",
+  advanced: "高级设置"
+};
+
+export interface SettingsNavigatorDeps {
+  getHost: () => HTMLElement | null;
+  ensureRendered: () => Promise<void>;
+  onAgentAddressClosed?: (options: { focusButton: boolean }) => void;
+  openLinkedCredentialEditor?: (target: AiCredentialLinkTarget) => Promise<void> | void;
+}
+
+export interface SettingsNavigator {
+  navigateSettingsView(
+    host: HTMLElement,
+    view: SettingsViewId,
+    options?: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean }
+  ): void;
+  bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): void;
+  openSettingsTarget(target: SettingsOpenTarget): Promise<void>;
+  focusSettingsView(view: SettingsSubpageId): void;
+  flushPendingTarget(): void;
+  dispose(): void;
+}
+
+export function getScrollContainer(host: HTMLElement): HTMLElement {
+  return host.closest<HTMLElement>(`#${ids.readingSettingsPanel}`) ?? host;
+}
+
+export function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLElement {
+  switch (view) {
+    case "root": return elements.settingsRootView;
+    case "ai-providers": return elements.subpageAiProviders;
+    case "live": return elements.subpageLive;
+    case "asr": return elements.subpageAsr;
+    case "search": return elements.subpageSearch;
+    case "ai-prompt": return elements.subpageAiPrompt;
+    case "subtitle": return elements.subpageSubtitle;
+    case "appearance": return elements.subpageAppearance;
+    case "agent": return elements.subpageAgent;
+    case "agent-address": return elements.agentBridgeAddressView;
+    case "advanced": return elements.subpageAdvanced;
+  }
+}
+
+export function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubpageId): HTMLButtonElement {
+  switch (view) {
+    case "ai-providers": return elements.openAiProvidersBtn;
+    case "live": return elements.openLiveSettingsBtn;
+    case "asr": return elements.openAsrSettingsBtn;
+    case "search": return elements.openSearchSettingsBtn;
+    case "ai-prompt": return elements.openAiPromptBtn;
+    case "subtitle": return elements.openSubtitleSettingsBtn;
+    case "appearance": return elements.openAppearanceBtn;
+    case "agent": return elements.openAgentSettingsBtn;
+    case "advanced": return elements.openAdvancedSettingsBtn;
+  }
+}
+
+export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNavigator {
+  let pendingSettingsTarget: SettingsOpenTarget | null = null;
+  let activeSettingsView: SettingsViewId = "root";
+  let savedRootScrollTop = 0;
+  let subpageReturnButton: HTMLButtonElement | null = null;
+  let unregisterBackInterceptor: (() => void) | null = null;
+  let unregisterCloseListener: (() => void) | null = null;
+
+  function navigateSettingsView(
+    host: HTMLElement,
+    view: SettingsViewId,
+    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean } = {}
+  ): void {
+    const targetView: SettingsViewId = view === "live" && !supportsLiveCompanion() ? "root" : view;
+    const elements = collectElements(host);
+    const previousView = activeSettingsView;
+    const scrollContainer = getScrollContainer(host);
+
+    if (previousView === "root" && targetView !== "root") {
+      savedRootScrollTop = scrollContainer.scrollTop;
+      if (targetView !== "agent-address") {
+        subpageReturnButton = options.returnButton ?? getEntryButtonForSubpage(elements, targetView);
+      }
+    }
+
+    const allViews: SettingsViewId[] = [
+      "root",
+      "ai-providers",
+      "live",
+      "asr",
+      "search",
+      "ai-prompt",
+      "subtitle",
+      "appearance",
+      "agent",
+      "agent-address",
+      "advanced"
+    ];
+    for (const key of allViews) {
+      getViewElement(elements, key).hidden = key !== targetView;
+    }
+
+    activeSettingsView = targetView;
+    elements.settingsTitle.textContent = SETTINGS_VIEW_TITLES[targetView];
+    elements.resetBtn.hidden = targetView !== "root";
+    elements.backBtn.setAttribute(
+      "aria-label",
+      targetView === "root" ? "返回" : targetView === "agent-address" ? "返回本地 Agent 连接" : "返回设置总览"
+    );
+
+    const shouldFocus = options.focusOnEnter !== false;
+    if (previousView === "agent-address" && targetView !== "agent-address") {
+      deps.onAgentAddressClosed?.({ focusButton: targetView === "agent" && shouldFocus });
+      if (targetView === "agent") {
+        scrollContainer.scrollTop = 0;
+        return;
+      }
+    }
+
+    if (targetView === "root") {
+      scrollContainer.scrollTop = savedRootScrollTop;
+      const returnTarget = subpageReturnButton?.isConnected ? subpageReturnButton : null;
+      subpageReturnButton = null;
+      if (shouldFocus) {
+        (returnTarget ?? elements.backBtn)?.focus({ preventScroll: true });
+      }
+      return;
+    }
+
+    scrollContainer.scrollTop = 0;
+    if (shouldFocus && targetView !== "agent-address") {
+      const viewEl = getViewElement(elements, targetView);
+      const firstFocusable = viewEl.querySelector<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
+      );
+      (firstFocusable ?? elements.backBtn)?.focus({ preventScroll: true });
+    }
+  }
+
+  function bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): void {
+    activeSettingsView = "root";
+    savedRootScrollTop = 0;
+    subpageReturnButton = null;
+    navigateSettingsView(host, "root", { focusOnEnter: false });
+
+    const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
+      [elements.openAiProvidersBtn, "ai-providers"],
+      [elements.openLiveSettingsBtn, "live"],
+      [elements.openAsrSettingsBtn, "asr"],
+      [elements.openSearchSettingsBtn, "search"],
+      [elements.openAiPromptBtn, "ai-prompt"],
+      [elements.openSubtitleSettingsBtn, "subtitle"],
+      [elements.openAppearanceBtn, "appearance"],
+      [elements.openAgentSettingsBtn, "agent"],
+      [elements.openAdvancedSettingsBtn, "advanced"]
+    ];
+
+    for (const [button, view] of entries) {
+      button.addEventListener("click", () => {
+        navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true });
+      });
+    }
+
+    unregisterBackInterceptor?.();
+    unregisterBackInterceptor = registerReaderSettingsBackInterceptor(() => {
+      if (activeSettingsView === "root") return false;
+      if (activeSettingsView === "agent-address") {
+        navigateSettingsView(host, "agent", { focusOnEnter: true });
+        return true;
+      }
+      navigateSettingsView(host, "root", { focusOnEnter: true });
+      return true;
+    });
+
+    unregisterCloseListener?.();
+    unregisterCloseListener = registerReaderSettingsCloseListener(() => {
+      savedRootScrollTop = 0;
+      subpageReturnButton = null;
+      if (activeSettingsView !== "root") {
+        navigateSettingsView(host, "root", { focusOnEnter: false });
+      }
+    });
+  }
+
+  async function openSettingsTarget(target: SettingsOpenTarget): Promise<void> {
+    if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
+      return;
+    }
+    const host = deps.getHost() ?? document.getElementById(ids.readingSettingsHost);
+    if (!host) return;
+    pendingSettingsTarget = target;
+    if (!host.dataset.biliscriptSettingsRendered) {
+      await deps.ensureRendered();
+      return;
+    }
+    pendingSettingsTarget = null;
+    const view: SettingsSubpageId =
+      target === "appearance" ? "ai-prompt" : target === "note-export" ? "subtitle" : "live";
+    navigateSettingsView(host, view, { focusOnEnter: false });
+    const sectionHeading = target === "appearance"
+      ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
+      : target === "note-export"
+        ? host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="note-export"] .biliscript-set-h`)
+        : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
+    if (target === "appearance" || target === "note-export") {
+      const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup], [data-settings-section]") ?? sectionHeading;
+      scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+    if (target === "gemini-key") {
+      await deps.openLinkedCredentialEditor?.("gemini-live");
+      return;
+    }
+    sectionHeading?.setAttribute("tabindex", "-1");
+    sectionHeading?.focus({ preventScroll: true });
+  }
+
+  // 设置子页定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
+  function focusSettingsView(view: SettingsSubpageId): void {
+    const host = deps.getHost();
+    if (!host || !host.dataset.biliscriptSettingsRendered) return;
+    navigateSettingsView(host, view, { focusOnEnter: false });
+  }
+
+  function flushPendingTarget(): void {
+    const pendingTarget = pendingSettingsTarget;
+    pendingSettingsTarget = null;
+    if (pendingTarget) {
+      void openSettingsTarget(pendingTarget);
+    }
+  }
+
+  function dispose(): void {
+    unregisterBackInterceptor?.();
+    unregisterBackInterceptor = null;
+    unregisterCloseListener?.();
+    unregisterCloseListener = null;
+  }
+
+  return {
+    navigateSettingsView,
+    bindSettingsNavigation,
+    openSettingsTarget,
+    focusSettingsView,
+    flushPendingTarget,
+    dispose
+  };
+}
