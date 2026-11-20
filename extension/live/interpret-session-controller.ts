@@ -1,6 +1,7 @@
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
-import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { contentEventBus } from "../shared/content-event-bus.js";
+import { createDisposableContext } from "../shared/typed-event-bus.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { state, clipState, registerSubtitleSessionBoundaryHooks } from "../core/state.js";
 import type { SubtitleBodyItem } from "../core/state.js";
@@ -1100,12 +1101,13 @@ export function createInterpretSessionController(
     }
   });
 
+  const lifecycleScope = createDisposableContext();
+  contentEventBus.on("host:url-change", handleUrlChange, { signal: lifecycleScope.signal });
   if (typeof window !== "undefined") {
-    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
-    window.addEventListener("pagehide", handlePageHide);
+    lifecycleScope.addListener(window, "pagehide", handlePageHide);
   }
   if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    lifecycleScope.addListener(document, "visibilitychange", handleVisibilityChange);
   }
 
   async function toggle(): Promise<void> {
@@ -1118,13 +1120,7 @@ export function createInterpretSessionController(
 
   function dispose(): void {
     unregisterBoundaryHooks();
-    if (typeof window !== "undefined") {
-      window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
-      window.removeEventListener("pagehide", handlePageHide);
-    }
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    }
+    lifecycleScope.dispose();
     void stop();
   }
 

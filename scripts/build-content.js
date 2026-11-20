@@ -634,9 +634,9 @@ const DUAL_INSTANCE_STATEFUL_MARKER = "BILISCRIPT_DUAL_INSTANCE_STATEFUL";
 const DUAL_INSTANCE_ALLOWLIST = [
   // —— 含模块级可变状态（mutable: true，头注均有标记 + 安全依据）——
   { source: "core/state.ts", mutable: true }, // 状态本体挂 __BILISCRIPT_STATE__ 槽
-  { source: "core/url-watcher.ts", mutable: true }, // 懒侧仅引用事件名常量，不调用状态函数
   { source: "reader/reader-bus.ts", mutable: true }, // 槽表挂 __BILISCRIPT_READER_BUS__
   { source: "reader/state.ts", mutable: true }, // 可变位读写双方全在懒侧 reader 域
+  { source: "shared/content-event-bus.ts", mutable: true }, // 进程内强类型事件总线挂 __BILISCRIPT_EVENT_BUS__ 槽
   { source: "shared/lazy-import.ts", mutable: true }, // 缓存闭包双份，ESM 按 URL 去重
   { source: "shared/logging.ts", mutable: true }, // 调试门挂 __BILISCRIPT_LOG_GATE__ 槽
   { source: "shared/messaging.ts", mutable: true }, // 分发槽挂 globalThis
@@ -648,12 +648,14 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "subtitle/lazy.ts", mutable: true }, // 同上
   { source: "ui/lazy-ui.ts", mutable: true }, // 同上
   // —— 纯模块（无模块级可变状态，mutable: false，无头注标记）——
+  { source: "bilibili/host-selectors.ts", mutable: false },
   { source: "bilibili/video-id-shared.ts", mutable: false },
   { source: "core/defaults.ts", mutable: false },
   { source: "core/runtime.ts", mutable: false },
   { source: "reader/presentation-fields.ts", mutable: false },
   { source: "shared/dom-ids.ts", mutable: false },
   { source: "shared/error-helpers.ts", mutable: false },
+  { source: "shared/typed-event-bus.ts", mutable: false },
   { source: "shared/utils.ts", mutable: false },
   // 播放器探针：常驻侧（预抓取的元数据等待）与懒侧（reader/gateway/player-ai）
   // 各一份；模块级可变状态只有 WeakRef 缓存，两侧各自缓存同一 DOM，无跨实例

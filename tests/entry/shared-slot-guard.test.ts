@@ -26,7 +26,8 @@ const SLOT_MODULES = [
   "extension/shared/logging.ts", // 调试日志门
   "extension/reader/reader-bus.ts", // reader-bus 槽表
   "extension/core/state.ts", // 状态单例
-  "extension/shared/style-injector.ts" // 样式挂载记录
+  "extension/shared/style-injector.ts", // 样式挂载记录
+  "extension/shared/content-event-bus.ts" // 进程内强类型事件总线与片级作用域
 ];
 
 describe("跨实例共享槽守卫（构建期接线）", () => {

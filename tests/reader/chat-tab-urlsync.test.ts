@@ -93,9 +93,12 @@ async function waitFor(predicate: () => boolean, { timeoutMs = 1000 } = {}): Pro
   }
 }
 
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
+
 function dispatchClipChange(page: number): void {
-  setLocationUrl(`https://www.bilibili.com/video/BV1test000000/?p=${page}&biliscript_reader=1`);
-  window.dispatchEvent(new Event("biliscript:urlchange"));
+  const url = `https://www.bilibili.com/video/BV1test000000/?p=${page}&biliscript_reader=1`;
+  setLocationUrl(url);
+  contentEventBus.emit("host:url-change", { url });
 }
 
 function seedReadyContext(): void {
@@ -207,7 +210,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
     const baseline = gatewayMock.fetchHotComments.mock.calls.length;
 
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline);

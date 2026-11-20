@@ -47,8 +47,10 @@ import { isReaderViewOpen } from "../reader/state.js";
 // 阅读壳（工单 arch-slim/02）：失同步判定收口为壳的唯一完好性自查
 //（restore 档自愈与本守卫共用同一 predicate，不再本地手抄）。
 import { isReaderShellIntact } from "../reader/shell.js";
-// 自愈调度共享常量（arch-slim-2/09 单源）：自查节拍 + 视图关闭恢复事件名。
-import { READER_CLOSED_EVENT, SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.js";
+import { TOOLBAR_HOST_SELECTOR } from "../bilibili/host-selectors.js";
+import { contentEventBus } from "../shared/content-event-bus.js";
+// 自愈调度共享常量：自查节拍。
+import { SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.js";
 // 锚点/耗时日志走 shared/logging 的 Always 直出口（工单 button-injection-
 // stability 决议：默认开启、不做持久化——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
@@ -92,10 +94,9 @@ document.addEventListener("visibilitychange", () => {
     syncScriptButton();
   }
 });
-// 阅读壳退出（exitReaderShell 完成退出事务后派发，事件名单源
-// shared/self-heal.js）：恢复常速自查 + 立即自查一轮补按钮——这是「视图
-// 关闭后补回按钮」的主恢复触发点（暂停期兜底 tick 只是丢事件时的兜底）。
-window.addEventListener(READER_CLOSED_EVENT, () => {
+// 阅读壳退出（exitReaderShell 完成退出事务后经强类型事件总线发布）：
+// 恢复常速自查 + 立即自查一轮补按钮。
+contentEventBus.on("reader:closed", () => {
   setTickInterval(REINJECT_INTERVAL_MS);
   syncScriptButton();
 });
@@ -357,7 +358,6 @@ export function removeScriptButton(): void {
 // 重绑时机：观察器目标失活（宿主被整棵换掉，窄档旧挂点断连——宽档 body
 // 恒活）或档位与宿主有无不符时，下一拍全量路径（≤200ms 的自查兜底）重挂；
 // 健康态零扫描早退不触碰。
-const TOOLBAR_HOST_SELECTOR = "#arc_toolbar_report, .video-toolbar-container";
 let toolbarObserver: MutationObserver | null = null;
 // 当前挂点集合（失活检测用）：窄档为工具栏宿主列表，宽档为 body。
 let toolbarObserverTargets: Element[] = [];
@@ -453,7 +453,7 @@ function findComplaintNode(): HTMLElement | null {
       bestScore = score;
     }
   };
-  for (const host of document.querySelectorAll("#arc_toolbar_report, .video-toolbar-container")) {
+  for (const host of document.querySelectorAll(TOOLBAR_HOST_SELECTOR)) {
     host.querySelectorAll("*").forEach((node) => consider(node));
   }
   if (bestScore < 2) {

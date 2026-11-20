@@ -1,9 +1,17 @@
 // extension/bilibili/player-control-mount.ts
 // B 站播放器控制栏锚点解析、幂等挂载与两段式局部容器 MutationObserver 原语。
 
-export const DEFAULT_PLAYER_CONTAINER_SELECTOR = ".bpx-player-container, #bilibili-player";
+import {
+  BILI_HOST_SELECTORS,
+  PLAYER_PRIMARY_SELECTOR,
+  biliHostAdapter,
+  querySelectorFallback,
+  type HostObserverHandle
+} from "./host-adapter.js";
 
-const LIVE_ROOM_EXT_NODES_SELECTOR = ".live-web-player-controller .right-area .ext-nodes";
+export const DEFAULT_PLAYER_CONTAINER_SELECTOR = PLAYER_PRIMARY_SELECTOR;
+
+const LIVE_ROOM_EXT_NODES_SELECTOR = BILI_HOST_SELECTORS.liveRoomExtNodes;
 const QUALITY_LABEL_PATTERN = /清晰度|4K|1080P|720P|480P|360P|超清|高清|高码率/i;
 
 export type ControlBarPlacement =
@@ -23,37 +31,34 @@ export interface ResolveControlBarPlacementOptions {
 
 export interface ObservePlayerContainerOptions {
   /** 优先观察的局部播放器容器选择器（默认 `.bpx-player-container, #bilibili-player`） */
-  containerSelector?: string;
+  containerSelector?: string | readonly string[];
   /** 局部容器的 MutationObserver 配置（默认 `{ childList: true, subtree: true }`） */
   containerObserveOptions?: MutationObserverInit;
   /** 容器内发生变更（或由 body 回退观察首次发现容器）时的回调 */
   onMutations: (records: MutationRecord[]) => void;
   /** 当前活跃的 MutationObserver 实例切换（含启动、由 body 切局部容器、disconnect）时同步给外部状态槽位 */
   onObserverChange?: (observer: MutationObserver | null) => void;
+  /** 可选 AbortSignal，中止时自动退订 */
+  signal?: AbortSignal;
 }
 
-export interface PlayerContainerObserverHandle {
-  disconnect(): void;
-}
+export type PlayerContainerObserverHandle = HostObserverHandle;
 
 export function findControlBottomRightNode(
   host?: ParentNode | null,
   allowDocumentFallback = true
 ): HTMLElement | null {
-  const fromHost =
-    host?.querySelector<HTMLElement>(".bpx-player-control-bottom-right") ||
-    host?.querySelector<HTMLElement>(".bpx-player-control-wrap") ||
-    null;
+  const fromHost = querySelectorFallback<HTMLElement>(
+    BILI_HOST_SELECTORS.playerControlContainers,
+    host ?? null
+  );
   if (fromHost) {
     return fromHost;
   }
   if (!allowDocumentFallback) {
     return null;
   }
-  return (
-    document.querySelector<HTMLElement>(".bpx-player-control-bottom-right") ||
-    document.querySelector<HTMLElement>(".bpx-player-control-wrap")
-  );
+  return querySelectorFallback<HTMLElement>(BILI_HOST_SELECTORS.playerControlContainers, document);
 }
 
 export function findQualityControlNode(
@@ -61,18 +66,18 @@ export function findQualityControlNode(
   allowDocumentFallback = true
 ): Element | null {
   const controlRoots = [
-    host?.querySelector(".bpx-player-control-bottom-right") ?? null,
-    host?.querySelector(".bpx-player-control-wrap") ?? null,
+    host?.querySelector(BILI_HOST_SELECTORS.playerControlBottomRight) ?? null,
+    host?.querySelector(BILI_HOST_SELECTORS.playerControlWrap) ?? null,
     ...(allowDocumentFallback
       ? [
-          document.querySelector(".bpx-player-control-bottom-right"),
-          document.querySelector(".bpx-player-control-wrap")
+          document.querySelector(BILI_HOST_SELECTORS.playerControlBottomRight),
+          document.querySelector(BILI_HOST_SELECTORS.playerControlWrap)
         ]
       : [])
   ].filter((node): node is Element => Boolean(node));
 
   for (const root of controlRoots) {
-    const direct = root.querySelector(".bpx-player-ctrl-quality");
+    const direct = root.querySelector(BILI_HOST_SELECTORS.playerQualityControl);
     if (direct) {
       return direct;
     }
@@ -171,90 +176,19 @@ export function applyControlBarPlacement(node: Node, placement: ControlBarPlacem
 }
 
 /**
- * 两段式播放器容器观察原语：
- * 1. 若目标播放器容器已在 DOM 中，直接观察该局部容器子树；
- * 2. 若容器尚未水合，先观察 `document.body` 的 childList+subtree，一旦发现容器立即断开 body 观察并切到局部容器；
+ * 两段式播放器容器观察原语（委托 BiliHostAdapter 共享 MutationObserver 调度器）：
+ * 1. 若目标播放器容器已在 DOM 中，直接观察该局部容器子树（同容器多方共享单 observer）；
+ * 2. 若容器尚未水合，先共用单一 `document.body` 回退观察，发现容器立即收敛到局部容器；
  * 3. 若局部容器在 SPA 换房/换片时被整棵替换脱离文档，自动回退观察并在新容器出现时重绑。
  */
 export function observePlayerContainer(
   options: ObservePlayerContainerOptions
 ): PlayerContainerObserverHandle {
-  const {
-    containerSelector = DEFAULT_PLAYER_CONTAINER_SELECTOR,
-    containerObserveOptions = { childList: true, subtree: true },
-    onMutations,
-    onObserverChange
-  } = options;
-
-  if (!document.body) {
-    return { disconnect() {} };
-  }
-
-  let disposed = false;
-  let activeObserver: MutationObserver | null = null;
-  let observedContainer: Element | null = null;
-
-  const setActiveObserver = (next: MutationObserver | null) => {
-    activeObserver = next;
-    onObserverChange?.(next);
-  };
-
-  const containerObserver = new MutationObserver((records) => {
-    if (disposed) {
-      return;
-    }
-    if (observedContainer && !observedContainer.isConnected) {
-      observedContainer = null;
-      containerObserver.disconnect();
-      startOrFallback();
-      return;
-    }
-    onMutations(records);
+  return biliHostAdapter.observeContainer({
+    containerSelector: options.containerSelector ?? DEFAULT_PLAYER_CONTAINER_SELECTOR,
+    containerObserveOptions: options.containerObserveOptions,
+    onMutations: options.onMutations,
+    onObserverChange: options.onObserverChange,
+    signal: options.signal
   });
-
-  const bodyObserver = new MutationObserver(() => {
-    if (disposed) {
-      return;
-    }
-    const nextContainer = document.querySelector(containerSelector);
-    if (!nextContainer) {
-      return;
-    }
-    bodyObserver.disconnect();
-    observedContainer = nextContainer;
-    containerObserver.observe(nextContainer, containerObserveOptions);
-    setActiveObserver(containerObserver);
-    onMutations([]);
-  });
-
-  function startOrFallback(): void {
-    const initialContainer = document.querySelector(containerSelector);
-    if (initialContainer) {
-      observedContainer = initialContainer;
-      containerObserver.observe(initialContainer, containerObserveOptions);
-      setActiveObserver(containerObserver);
-      return;
-    }
-    if (!document.body) {
-      return;
-    }
-    bodyObserver.observe(document.body, { childList: true, subtree: true });
-    setActiveObserver(bodyObserver);
-  }
-
-  startOrFallback();
-
-  return {
-    disconnect() {
-      if (disposed) {
-        return;
-      }
-      disposed = true;
-      activeObserver?.disconnect();
-      containerObserver.disconnect();
-      bodyObserver.disconnect();
-      observedContainer = null;
-      setActiveObserver(null);
-    }
-  };
 }

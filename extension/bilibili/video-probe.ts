@@ -5,18 +5,10 @@
 // 元数据等待）与懒侧（reader/gateway/player-ai）各持一份实例，两份快取指向同一
 // DOM 的同一批候选元素，纯优化、无跨实例一致性要求（快取失效即重查）。
 import { state } from "../core/state.js";
+import { findPlayerHostFromVideo, isPlayerHostElement } from "./host-selectors.js";
 
 export function findReaderPlayerHost(video: Element | null | undefined): Element | null {
-  if (!video) {
-    return null;
-  }
-
-  return (
-    video.closest(".bpx-player-container") ||
-    video.closest(".bpx-player-video-area") ||
-    video.closest("#bilibili-player") ||
-    video.parentElement
-  );
+  return findPlayerHostFromVideo(video);
 }
 
 function isIgnoredReaderVideoCandidate(video: Element | null | undefined): boolean {
@@ -81,11 +73,7 @@ export function getRuntimeVideoElement(): HTMLVideoElement | null {
     .map((item) => {
       const rect = item.getBoundingClientRect();
       const host = findReaderPlayerHost(item);
-      const inPlayer = Boolean(
-        host &&
-          (host.matches?.("#bilibili-player, .bpx-player-container, .bpx-player-video-area") ||
-            host.querySelector?.(".bpx-player-video-area"))
-      );
+      const inPlayer = isPlayerHostElement(host);
       const area = Math.max(0, rect.width) * Math.max(0, rect.height);
       const score =
         area +
@@ -109,19 +97,45 @@ export function getRuntimeVideoElement(): HTMLVideoElement | null {
 // 等待视频元数据（时长可用）就绪。叶子事实出装配根（ADR-0017 修订，原居
 // reader/lifecycle.ts）：本函数只轮询 getRuntimeVideoElement，与 reader 动态域
 // 零实质耦合；页面预抓取与 reader 域内兜底抓取共用同一次序语义（150ms 轮询 /
-// 5 秒上限），两侧现在静态 import 本函数。
-export function waitForVideoMetadata(timeoutMs = 5000): Promise<void> {
+// 5 秒上限），两侧现在静态 import 本函数。支持 AbortSignal 在切集时立即取消轮询。
+export function waitForVideoMetadata(timeoutMs = 5000, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
   return new Promise<void>((resolve) => {
     const start = Date.now();
+    let timer = 0;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = 0;
+      }
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", finish, { once: true });
+    }
+
     const check = () => {
+      if (settled) {
+        return;
+      }
       const video = getRuntimeVideoElement();
       const duration = Number(video?.duration);
       const ready = video && Number.isFinite(duration) && duration > 0;
       if (ready || Date.now() - start >= timeoutMs) {
-        resolve();
+        finish();
         return;
       }
-      window.setTimeout(check, 150);
+      timer = window.setTimeout(check, 150);
     };
     check();
   });

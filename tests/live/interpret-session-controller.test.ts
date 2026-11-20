@@ -6,7 +6,7 @@ import {
   PAUSE_TIMEOUT_MS
 } from "../../extension/live/interpret-session-controller.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
-import { BILISCRIPT_URL_CHANGE_EVENT } from "../../extension/core/url-watcher.js";
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
 
 beforeEach(() => {
   resetModuleState();
@@ -440,7 +440,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
       // 切换视频
       clipState.setBvid("BV1newVideo999");
-      window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
+      contentEventBus.emit("host:url-change", { url: location.href });
 
       expect(controller.getState()).toBe("idle");
     });

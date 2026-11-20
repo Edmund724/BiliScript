@@ -51,6 +51,7 @@ import { readerPorts } from "./reader-bus.js";
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
 import { isReaderExplainCardOpen } from "./explain-card.js";
 import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
@@ -58,25 +59,23 @@ import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./su
 // syncTimer (readingSyncTimer) moved here with the sync domain.
 // manualScrollPauseUntil / programmaticScrollUntil live in ./state.js,
 // the shared leaf both this module and the LAYOUT layer read/write directly.
-let syncTimer = 0; // readingSyncTimer
+let syncScope: DisposableContext | null = null;
 let hadSelectionOnPointerDown = false;
 
 // ===== subtitle-sync.js (playback sync) =====
 
 export function startReadingViewSync() {
-  if (syncTimer) {
-    window.clearInterval(syncTimer);
-  }
-  syncTimer = window.setInterval(() => {
+  syncScope?.dispose();
+  const scope = createDisposableContext();
+  syncScope = scope;
+  scope.setInterval(() => {
     syncReadingViewPlayback();
   }, 250);
 }
 
 export function stopReadingViewSync() {
-  if (syncTimer) {
-    window.clearInterval(syncTimer);
-    syncTimer = 0;
-  }
+  syncScope?.dispose();
+  syncScope = null;
   unbindReadingViewVideoSync();
 }
 

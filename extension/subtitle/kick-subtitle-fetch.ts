@@ -34,6 +34,8 @@ export interface KickSubtitleFetchPolicy {
   onInHandOrInFlight?: () => void;
   /** 起跑前等视频元数据（时长可用字幕轨才能按时长对齐；bilibili/video-probe 叶子，永不拒绝）。 */
   awaitVideoMetadata?: boolean;
+  /** 可选 AbortSignal（如切集作用域），中止时立即取消元数据轮询并退出。 */
+  signal?: AbortSignal;
   /** 总结链装载失败的出口（chunk 装载错误原样传入，stale 过滤不在此作用）。缺省记日志。 */
   onChainLoadFailed?: (error: unknown) => void;
   /** 链装载失败后是否仍发起 refresh。reader 后台路径为 true：seam 无 handler 时空转，行为等价于旧链的「logWarn 后照旧刷新」。缺省 false（返回 false，不发起）。 */
@@ -67,11 +69,17 @@ export async function kickSubtitleFetch(
   refresh: (chain: never) => Promise<unknown>,
   policy: KickSubtitleFetchPolicy = {}
 ): Promise<boolean> {
+  if (policy.signal?.aborted) {
+    return true;
+  }
   if (policy.skipIfInHandOrInFlight && isSubtitleInHandOrInFlight()) {
     return true;
   }
   if (policy.awaitVideoMetadata) {
-    await waitForVideoMetadata();
+    await waitForVideoMetadata(5000, policy.signal);
+    if (policy.signal?.aborted) {
+      return true;
+    }
   }
   if (policy.recheckAfterVideoMetadata && isSubtitleInHandOrInFlight()) {
     policy.onInHandOrInFlight?.();

@@ -1,6 +1,13 @@
 // extension/bilibili/fullscreen.ts
 // B 站播放器全屏状态判定（浏览器全屏与网页全屏）
 
+import {
+  BILI_HOST_SELECTORS,
+  PLAYER_WEB_FULLSCREEN_SELECTOR,
+  PLAYER_WEB_FULLSCREEN_TOGGLE_SELECTOR,
+  findVideoPlayerContainer
+} from "./host-selectors.js";
+
 function getFullscreenElement(): Element | null {
   if (typeof document === "undefined") {
     return null;
@@ -29,8 +36,10 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   }
 
   // 2. B 站网页全屏判定（bpx-player / 容器 data-screen 或 class 属性）
-  const bpx = targetHost?.querySelector(".bpx-player-container") || document.querySelector(".bpx-player-container");
-  const host = targetHost || bpx || document.querySelector("#bilibili-player, .player-wrap, #playerWrap");
+  const bpx =
+    targetHost?.querySelector(BILI_HOST_SELECTORS.playerBpxContainer) ||
+    document.querySelector(BILI_HOST_SELECTORS.playerBpxContainer);
+  const host = targetHost || bpx || findVideoPlayerContainer();
 
   const checkElem = (el: Element | null): boolean => {
     if (!el) return false;
@@ -73,9 +82,7 @@ export async function exitPlayerFullscreenIfNeeded(): Promise<void> {
   }
 
   const isWebFullscreen = Boolean(
-    document.querySelector(
-      '.bpx-player-container[data-screen="web"], .bpx-player-container.bpx-state-web-fullscreen'
-    ) ||
+    document.querySelector(PLAYER_WEB_FULLSCREEN_SELECTOR) ||
       document.body?.classList.contains("player-mode-webfullscreen") ||
       document.body?.classList.contains("player-full-win")
   );
@@ -83,9 +90,7 @@ export async function exitPlayerFullscreenIfNeeded(): Promise<void> {
     return;
   }
 
-  const webBtn = document.querySelector<HTMLElement>(
-    ".bpx-player-ctrl-web, .squirtle-video-pagefullscreen"
-  );
+  const webBtn = document.querySelector<HTMLElement>(PLAYER_WEB_FULLSCREEN_TOGGLE_SELECTOR);
   if (!webBtn) {
     return;
   }

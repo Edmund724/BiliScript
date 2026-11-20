@@ -13,6 +13,7 @@
 // 依赖方向（无环）：core/state、bilibili 探针/URL 工具、reader/state.js 的 ids 表；
 // 本模块不被 reader 域内任何实现模块 import。
 import { state } from "../core/state.js";
+import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { cleanVideoUrl } from "../bilibili/video-id-shared.js";
 import { findReaderPlayerHost, getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { ids } from "./state.js";
@@ -110,13 +111,7 @@ export function createReaderDebugSnapshot(label = "manual") {
         }
       : null,
     nodes: [
-      "#app",
-      "#playerWrap",
-      ".player-wrap",
-      "#bilibili-player",
-      ".bpx-player-container",
-      ".bpx-player-video-area",
-      ".bpx-player-primary-area",
+      ...BILI_HOST_SELECTORS.debugSnapshotNodes,
       "#biliscript-reading-script-panel",
       "#biliscript-reading-view"
     ]

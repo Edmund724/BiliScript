@@ -72,11 +72,14 @@ export function setupEnvironment() {
 // 上一条用例的注册/状态会随 globalThis 活到下一用例。
 export function clearSharedSlots() {
   const slots = globalThis as unknown as Record<PropertyKey, unknown>;
+  const eventBusSlot = slots.__BILISCRIPT_EVENT_BUS__ as { clipScope?: { dispose?: () => void } } | undefined;
+  eventBusSlot?.clipScope?.dispose?.();
   delete slots.__BILISCRIPT_CONTENT_SCRIPT_DISPATCHER__;
   delete slots.__BILISCRIPT_LOG_GATE__;
   delete slots.__BILISCRIPT_READER_BUS__;
   delete slots.__BILISCRIPT_STATE__;
   delete slots.__BILISCRIPT_STYLE_INJECTOR__;
+  delete slots.__BILISCRIPT_EVENT_BUS__;
   (slots[Symbol.for("biliscript.subtitleStoreReset")] as (() => void) | undefined)?.();
 }
 

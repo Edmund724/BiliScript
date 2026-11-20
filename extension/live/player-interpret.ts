@@ -5,6 +5,15 @@
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { getFullscreenHost } from "../bilibili/fullscreen.js";
+import {
+  BILI_HOST_SELECTORS,
+  PLAYER_CONTROL_BAR_SELECTOR,
+  biliHostAdapter,
+  findVideoPlayerContainer,
+  resolveBpxPlayerContainer,
+  type HostObserverHandle
+} from "../bilibili/host-adapter.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { ensureInterpretSubtitleStyles } from "../shared/style-injector.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -245,7 +254,7 @@ export function syncNativePlayerSubtitleTakeover(
   const hosts = [
     explicitHost ?? null,
     getFullscreenHost(),
-    document.querySelector<HTMLElement>(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap")
+    findVideoPlayerContainer()
   ].filter((node): node is HTMLElement => node instanceof HTMLElement);
   for (const host of hosts) {
     if (host.getAttribute(NATIVE_SUBTITLE_TAKEOVER_ATTR) !== "true") {
@@ -294,11 +303,11 @@ export function createInterpretSubtitleOverlay(
   let frozenBottomPx: number | null = null;
   let currentBottomPx = DEFAULT_INTERPRET_SUBTITLE_BOTTOM_PX;
 
-  let controlObserver: MutationObserver | null = null;
+  let controlObserverHandles: HostObserverHandle[] = [];
   let observedContainer: HTMLElement | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let observedWrap: HTMLElement | null = null;
-  let windowResizeBound = false;
+  let observerScope: DisposableContext | null = null;
 
   let activePointerId: number | null = null;
   let dragStartX = 0;
@@ -310,24 +319,16 @@ export function createInterpretSubtitleOverlay(
 
   function resolvePlayerContainer(): HTMLElement | null {
     const base = getFullscreenHost() || deps.getPlayerHost();
-    if (!base) return null;
-    if (base.matches?.(".bpx-player-container")) {
-      return base;
-    }
-    return (
-      base.querySelector<HTMLElement>(".bpx-player-container") ||
-      base.closest<HTMLElement>(".bpx-player-container") ||
-      base
-    );
+    return resolveBpxPlayerContainer(base, { checkClosest: true });
   }
 
   function getMountHost(): HTMLElement | null {
     const base = getFullscreenHost() || deps.getPlayerHost();
     if (!base) return null;
-    if (base.matches?.(".bpx-player-video-wrap")) {
+    if (base.matches?.(BILI_HOST_SELECTORS.playerVideoWrap)) {
       return base;
     }
-    return base.querySelector<HTMLElement>(".bpx-player-video-wrap") || base;
+    return base.querySelector<HTMLElement>(BILI_HOST_SELECTORS.playerVideoWrap) || base;
   }
 
   function measureHostHeight(): number {
@@ -503,27 +504,45 @@ export function createInterpretSubtitleOverlay(
   }
 
   function bindObservers(host: HTMLElement): void {
+    const isNewScope = !observerScope || observerScope.isDisposed();
+    const scope = isNewScope ? (observerScope = createDisposableContext()) : observerScope!;
+    if (isNewScope && typeof window !== "undefined") {
+      scope.addListener(window, "resize", onWindowResize);
+    }
     const playerContainer = resolvePlayerContainer();
     if (observedContainer !== playerContainer) {
-      controlObserver?.disconnect();
-      controlObserver = null;
+      for (const handle of controlObserverHandles) {
+        handle.disconnect();
+      }
+      controlObserverHandles = [];
       observedContainer = playerContainer;
       if (playerContainer && typeof MutationObserver !== "undefined") {
-        controlObserver = new MutationObserver(() => {
-          syncPosition();
-        });
-        controlObserver.observe(playerContainer, {
-          attributes: true,
-          attributeFilter: ["class", "data-ctrl-hidden", "data-screen", "hidden", "aria-hidden"]
-        });
-        const controlEl = playerContainer.querySelector<HTMLElement>(
-          ".bpx-player-control-wrap, .bpx-player-control-entity, .bpx-player-control-bottom"
+        controlObserverHandles.push(
+          biliHostAdapter.observeElement(playerContainer, {
+            observeOptions: {
+              attributes: true,
+              attributeFilter: ["class", "data-ctrl-hidden", "data-screen", "hidden", "aria-hidden"]
+            },
+            signal: scope.signal,
+            onMutations: () => {
+              syncPosition();
+            }
+          })
         );
+        const controlEl = playerContainer.querySelector<HTMLElement>(PLAYER_CONTROL_BAR_SELECTOR);
         if (controlEl) {
-          controlObserver.observe(controlEl, {
-            attributes: true,
-            attributeFilter: ["class", "hidden", "aria-hidden", "data-state"]
-          });
+          controlObserverHandles.push(
+            biliHostAdapter.observeElement(controlEl, {
+              observeOptions: {
+                attributes: true,
+                attributeFilter: ["class", "hidden", "aria-hidden", "data-state"]
+              },
+              signal: scope.signal,
+              onMutations: () => {
+                syncPosition();
+              }
+            })
+          );
         }
       }
     }
@@ -539,24 +558,19 @@ export function createInterpretSubtitleOverlay(
         resizeObserver.observe(host);
       }
     }
-
-    if (!windowResizeBound && typeof window !== "undefined") {
-      window.addEventListener("resize", onWindowResize);
-      windowResizeBound = true;
-    }
   }
 
   function disconnectObservers(): void {
-    controlObserver?.disconnect();
-    controlObserver = null;
+    for (const handle of controlObserverHandles) {
+      handle.disconnect();
+    }
+    controlObserverHandles = [];
     observedContainer = null;
     resizeObserver?.disconnect();
     resizeObserver = null;
     observedWrap = null;
-    if (windowResizeBound && typeof window !== "undefined") {
-      window.removeEventListener("resize", onWindowResize);
-      windowResizeBound = false;
-    }
+    observerScope?.dispose();
+    observerScope = null;
   }
 
   function ensurePositionRatioLoaded(): void {

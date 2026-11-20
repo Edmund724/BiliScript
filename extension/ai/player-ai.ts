@@ -34,6 +34,13 @@ import {
   observePlayerContainer,
   resolveControlBarPlacement
 } from "../bilibili/player-control-mount.js";
+import {
+  BILI_HOST_SELECTORS,
+  PLAYER_SUBTITLE_CONTROL_ROOTS_SELECTOR,
+  findPlayerHostFromVideo,
+  findPlayerHostWithVideoArea
+} from "../bilibili/host-adapter.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 
 // ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
 //
@@ -96,15 +103,14 @@ const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () =
 const MODULE_BOOT_AT = Date.now();
 let mountTimingLogged = false;
 
-// layout 监听与游标监听的引用缓存：removeEventListener 必须用绑定时的同一
-// 引用才能摘除，stop 生命周期与游标监听的防泄漏清理都依赖这里保存的引用。
-let playerAiQuickActionLayoutHandler: (() => void) | null = null;
-// 结构：{ host, wrap, showForCursorActivity, hideImmediately }
+// 生命周期作用域：observer、layout 监听与游标监听各自经 DisposableContext 统一
+// 托管，stop 或重绑时一次 dispose() 回收（绝不直接 disconnect 共享 MutationObserver）。
+let playerAiObserverScope: DisposableContext | null = null;
+let playerAiLayoutScope: DisposableContext | null = null;
 interface CursorSync {
   host: HTMLElement;
   wrap: HTMLElement;
-  showForCursorActivity: () => void;
-  hideImmediately: () => void;
+  scope: DisposableContext;
 }
 let playerAiQuickActionCursorSync: CursorSync | null = null;
 
@@ -149,7 +155,7 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
 }
 
 function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
-  const volumeNode = playerHost.querySelector(".bpx-player-ctrl-volume");
+  const volumeNode = playerHost.querySelector(BILI_HOST_SELECTORS.playerVolumeControl);
   if (volumeNode?.parentElement instanceof HTMLElement) {
     return {
       kind: "before" as const,
@@ -242,11 +248,12 @@ export function stopPlayerAiQuickAction(): void {
   // S3：先摘样式再移除按钮——按钮在样式摘除的瞬间仍按旧规则渲染，摘除后
   // 节点立即被移除，无可见中间态；下次 start 重挂（mounted Map 幂等）。
   removePlayerAiStyles();
-  if (playerAiState.playerAiQuickActionObserver) {
-    // 容器 observer 与 body 回退 observer 共用同一 state 槽位，统一断开
-    playerAiState.playerAiQuickActionObserver.disconnect();
-    playerAiState.setObserver(null);
+  if (playerAiObserverScope) {
+    // 退订共享容器调度器（不直调共享 observer.disconnect()，避免影响同容器其它订阅方）
+    playerAiObserverScope.dispose();
+    playerAiObserverScope = null;
   }
+  playerAiState.setObserver(null);
   unbindPlayerAiQuickActionLayoutEvents();
   unbindPlayerAiQuickActionCursorSync();
   // retry 复用 sync 定时器（schedulePlayerAiQuickActionRetry → scheduleSync），
@@ -264,7 +271,7 @@ export function stopPlayerAiQuickAction(): void {
 }
 
 export function startPlayerAiQuickActionObserver(): void {
-  if (playerAiState.playerAiQuickActionObserver || !document.body) {
+  if (playerAiObserverScope || playerAiState.playerAiQuickActionObserver || !document.body) {
     return;
   }
 
@@ -280,6 +287,8 @@ export function startPlayerAiQuickActionObserver(): void {
     schedulePlayerAiQuickActionSync(0);
   };
 
+  const scope = createDisposableContext();
+  playerAiObserverScope = scope;
   observePlayerContainer({
     containerSelector: DEFAULT_PLAYER_CONTAINER_SELECTOR,
     containerObserveOptions: {
@@ -288,6 +297,7 @@ export function startPlayerAiQuickActionObserver(): void {
       attributes: true,
       attributeFilter: ["style", "class"]
     },
+    signal: scope.signal,
     onMutations: sync,
     onObserverChange: (observer) => {
       playerAiState.setObserver(observer);
@@ -299,32 +309,24 @@ export function bindPlayerAiQuickActionLayoutEvents(): void {
   if (playerAiState.playerAiQuickActionLayoutBound) {
     return;
   }
-  // handler 提升为模块级引用：stop 时必须用同一引用才能成对摘除监听
-  playerAiQuickActionLayoutHandler = () => schedulePlayerAiQuickActionSync(80);
-  const schedule = playerAiQuickActionLayoutHandler;
-  window.addEventListener("resize", schedule, { passive: true });
-  window.addEventListener("scroll", schedule, { passive: true });
-  window.addEventListener("pageshow", schedule, { passive: true });
-  document.addEventListener("fullscreenchange", schedule);
-  document.addEventListener("webkitfullscreenchange", schedule);
-  window.visualViewport?.addEventListener?.("resize", schedule, { passive: true });
+  const scope = createDisposableContext();
+  playerAiLayoutScope = scope;
+  const schedule = () => schedulePlayerAiQuickActionSync(80);
+  scope.addListener(window, "resize", schedule, { passive: true });
+  scope.addListener(window, "scroll", schedule, { passive: true });
+  scope.addListener(window, "pageshow", schedule, { passive: true });
+  scope.addListener(document, "fullscreenchange", schedule);
+  scope.addListener(document, "webkitfullscreenchange", schedule);
+  scope.addListener(window.visualViewport, "resize", schedule, { passive: true });
   playerAiState.setLayoutBound(true);
 }
 
 function unbindPlayerAiQuickActionLayoutEvents(): void {
-  if (!playerAiQuickActionLayoutHandler) {
+  if (!playerAiLayoutScope && !playerAiState.playerAiQuickActionLayoutBound) {
     return;
   }
-  // addEventListener 的 { passive: true } 不参与 removeEventListener 匹配，
-  // 只需 type + handler（+capture）一致即可摘除
-  const schedule = playerAiQuickActionLayoutHandler;
-  window.removeEventListener("resize", schedule);
-  window.removeEventListener("scroll", schedule);
-  window.removeEventListener("pageshow", schedule);
-  document.removeEventListener("fullscreenchange", schedule);
-  document.removeEventListener("webkitfullscreenchange", schedule);
-  window.visualViewport?.removeEventListener?.("resize", schedule);
-  playerAiQuickActionLayoutHandler = null;
+  playerAiLayoutScope?.dispose();
+  playerAiLayoutScope = null;
   playerAiState.setLayoutBound(false);
 }
 
@@ -633,10 +635,11 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
     }
     wrap.classList.remove("is-active");
   };
-  host.addEventListener("mousemove", showForCursorActivity, { passive: true });
-  host.addEventListener("mouseenter", showForCursorActivity, { passive: true });
-  host.addEventListener("mouseleave", hideImmediately, { passive: true });
-  playerAiQuickActionCursorSync = { host, wrap, showForCursorActivity, hideImmediately };
+  const scope = createDisposableContext();
+  scope.addListener(host, "mousemove", showForCursorActivity, { passive: true });
+  scope.addListener(host, "mouseenter", showForCursorActivity, { passive: true });
+  scope.addListener(host, "mouseleave", hideImmediately, { passive: true });
+  playerAiQuickActionCursorSync = { host, wrap, scope };
   (wrap as HTMLElement & { __biliscriptPlayerAiCursorHost?: HTMLElement }).__biliscriptPlayerAiCursorHost = host;
 }
 
@@ -644,10 +647,11 @@ function unbindPlayerAiQuickActionCursorSync(): void {
   if (!playerAiQuickActionCursorSync) {
     return;
   }
-  const { host, showForCursorActivity, hideImmediately } = playerAiQuickActionCursorSync;
-  host.removeEventListener("mousemove", showForCursorActivity);
-  host.removeEventListener("mouseenter", showForCursorActivity);
-  host.removeEventListener("mouseleave", hideImmediately);
+  playerAiQuickActionCursorSync.scope.dispose();
+  if (playerAiState.playerAiQuickActionCursorHideTimer) {
+    window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
+    playerAiState.setCursorHideTimer(0);
+  }
   playerAiQuickActionCursorSync = null;
 }
 
@@ -655,9 +659,7 @@ function unbindPlayerAiQuickActionCursorSync(): void {
 // 复校），不再是挂载硬门——宿主门（findPlayerAiQuickActionHost）过即挂。
 function findPlayerSubtitleControlNode(): Element | null {
   const controlRoots = Array.from(
-    document.querySelectorAll(
-      "#bilibili-player .bpx-player-control-wrap, #playerWrap .bpx-player-control-wrap, .bpx-player-container .bpx-player-control-wrap, #bilibili-player, #playerWrap, .bpx-player-container, .player-wrap"
-    )
+    document.querySelectorAll(PLAYER_SUBTITLE_CONTROL_ROOTS_SELECTOR)
   );
 
   for (const root of controlRoots) {
@@ -698,14 +700,7 @@ function isPlayerSubtitleControlNode(node: unknown): boolean {
 }
 
 function findPlayerAiQuickActionHost(): HTMLElement | null {
-  const candidates = [
-    document.querySelector(".bpx-player-container"),
-    document.querySelector(".bpx-player-video-area"),
-    document.getElementById("bilibili-player"),
-    document.getElementById("playerWrap"),
-    document.querySelector(".player-wrap")
-  ];
-  const direct = candidates.find((node): node is HTMLElement => node instanceof HTMLElement && isVisibleReaderControl(node)) || null;
+  const direct = findPlayerHostWithVideoArea(document, (node) => isVisibleReaderControl(node));
   if (direct) {
     return direct;
   }
@@ -715,13 +710,7 @@ function findPlayerAiQuickActionHost(): HTMLElement | null {
     return null;
   }
 
-  const host =
-    video.closest(".bpx-player-container") ||
-    video.closest(".bpx-player-video-area") ||
-    video.closest("#bilibili-player") ||
-    video.closest("#playerWrap") ||
-    video.closest(".player-wrap") ||
-    video.parentElement;
+  const host = findPlayerHostFromVideo(video, { includeWrapFallbacks: true });
   if (host instanceof HTMLElement && isVisibleReaderControl(host)) {
     return host;
   }

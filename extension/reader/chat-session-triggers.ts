@@ -17,6 +17,8 @@
 // 返回它的摘除器」注入，事件目标、handler 身份与守卫条件都留在组合根（那里连着
 // sendGate / popovers / 页面级编排）。
 
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
+
 /** 一次挂载的摘除器（挂载的闭合逆操作）。 */
 export type SessionTriggerTeardown = () => void;
 
@@ -25,7 +27,7 @@ export type SessionTriggerTeardown = () => void;
 export interface ReaderChatSessionTriggersDeps {
   /** 字幕相位总线（sendGate 的绑/摘一对）。 */
   statusBus: () => SessionTriggerTeardown;
-  /** URL 变化（`biliscript:urlchange`）：强刷上下文对账。 */
+  /** URL 变化（`host:url-change`）：强刷上下文对账。 */
   urlChange: () => SessionTriggerTeardown;
   /** presenter 的 `subtitle-ready`（clip 身份与字幕体原子落定）：弱档对账。 */
   clipSettle: () => SessionTriggerTeardown;
@@ -60,31 +62,30 @@ const TRIGGER_ORDER: ReadonlyArray<keyof ReaderChatSessionTriggersDeps> = [
 ];
 
 export function createReaderChatSessionTriggers(deps: ReaderChatSessionTriggersDeps): ReaderChatSessionTriggers {
-  // 已挂载触发源的摘除器，按挂载次序存放（末位 = 最近挂载的一个）。
-  const teardowns: SessionTriggerTeardown[] = [];
+  let scope: DisposableContext | null = null;
 
   function activate(): void {
-    if (teardowns.length) {
+    if (scope && !scope.isDisposed()) {
       return;
     }
+    const nextScope = createDisposableContext();
+    scope = nextScope;
     TRIGGER_ORDER.forEach((source) => {
-      // 逐项登记（不先攒完再赋值）：挂到第 n 项失败时，前 n-1 项的摘除器仍在手里，
-      // deactivate 照常摘得干净。
-      teardowns.push(deps[source]());
+      // 逐项登记（不先攒完再赋值）：挂到第 n 项失败时，前 n-1 项已登记在 scope 内，
+      // deactivate 照常逆序回收干净。
+      nextScope.track(deps[source]());
     });
   }
 
   function deactivate(): void {
-    // pop 先摘出再调用：某一项的摘除抛错时，剩下的项仍在列表里，下一次 deactivate
-    // 继续收尾（不留下摘不掉的尾巴）。
-    while (teardowns.length) {
-      teardowns.pop()!();
-    }
+    const current = scope;
+    scope = null;
+    current?.dispose();
   }
 
   return {
     activate,
     deactivate,
-    isActive: () => teardowns.length > 0
+    isActive: () => Boolean(scope && !scope.isDisposed())
   };
 }

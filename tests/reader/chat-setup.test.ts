@@ -17,7 +17,7 @@ import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import { createMemoryStorageArea, type ChromeHostStorageArea } from "../helpers/memory-storage-area.js";
 import { MISSING_PROVIDER_KEY_MESSAGE } from "../../extension/core/overview-setup-error.js";
-import { BILISCRIPT_URL_CHANGE_EVENT } from "../../extension/core/url-watcher.js";
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
 import type { TestState } from "./reader-test-env.js";
 
 const setupMock = vi.hoisted(() => ({
@@ -456,7 +456,7 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     const [, session] = capturedSetupSession();
 
     setLocationUrl("https://www.bilibili.com/video/BV1other0000/?biliscript_reader=1");
-    window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
+    contentEventBus.emit("host:url-change", { url: location.href });
 
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
     session.onAfterSave();

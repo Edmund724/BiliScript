@@ -6,21 +6,20 @@
 import { getRuntimeVideoElement } from "./video-probe.js";
 import {
   applyControlBarPlacement,
-  observePlayerContainer,
-  type PlayerContainerObserverHandle
+  observePlayerContainer
 } from "./player-control-mount.js";
+import { PLAYBACK_RATE_CONTAINER_SELECTOR } from "./host-adapter.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 
 const BTN_FLAG = "data-bilibili-3x";
 const RATE_RESULT_CLASS = "bpx-player-ctrl-playbackrate-result";
-const PLAYBACK_RATE_CONTAINER_SELECTOR =
-  ".bpx-player-container, #bilibili-player, .bpx-player-control-wrap, .bpx-player-control-bottom-right";
 
 let isRunning = false;
 let lastVideoSrc = "";
 let currentBoundVideo: HTMLVideoElement | null = null;
-let videoSrcObserver: MutationObserver | null = null;
-let containerObserverHandle: PlayerContainerObserverHandle | null = null;
-let fullscreenTimer: ReturnType<typeof setTimeout> | null = null;
+let videoScope: DisposableContext | null = null;
+let runtimeScope: DisposableContext | null = null;
+let fullscreenTimer = 0;
 let rAFScheduled = false;
 
 function getVideo(): HTMLVideoElement | null {
@@ -181,14 +180,9 @@ function handleLoadedMetadata(): void {
 }
 
 function unbindCurrentVideo(): void {
-  videoSrcObserver?.disconnect();
-  videoSrcObserver = null;
-  if (currentBoundVideo) {
-    currentBoundVideo.removeEventListener("ratechange", handleRateChange);
-    currentBoundVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
-    currentBoundVideo.removeEventListener("emptied", handleLoadedMetadata);
-    currentBoundVideo = null;
-  }
+  videoScope?.dispose();
+  videoScope = null;
+  currentBoundVideo = null;
 }
 
 function bindVideoEvents(): void {
@@ -197,19 +191,23 @@ function bindVideoEvents(): void {
 
   unbindCurrentVideo();
   currentBoundVideo = v;
-  if (!v) return;
+  if (!v || !runtimeScope || runtimeScope.isDisposed()) return;
 
-  v.addEventListener("ratechange", handleRateChange);
-  v.addEventListener("loadedmetadata", handleLoadedMetadata);
-  v.addEventListener("emptied", handleLoadedMetadata);
+  const scope = runtimeScope.createChild();
+  videoScope = scope;
 
-  videoSrcObserver = new MutationObserver(() => {
+  scope.addListener(v, "ratechange", handleRateChange);
+  scope.addListener(v, "loadedmetadata", handleLoadedMetadata);
+  scope.addListener(v, "emptied", handleLoadedMetadata);
+
+  const srcObserver = new MutationObserver(() => {
     checkVideoChange();
   });
-  videoSrcObserver.observe(v, {
+  srcObserver.observe(v, {
     attributes: true,
     attributeFilter: ["src"]
   });
+  scope.track(srcObserver);
 }
 
 function syncPlaybackRateControls(forceStyleSync = false): void {
@@ -224,20 +222,22 @@ function syncPlaybackRateControls(forceStyleSync = false): void {
 }
 
 function scheduleSync(): void {
-  if (rAFScheduled || !isRunning) return;
+  if (rAFScheduled || !isRunning || !runtimeScope || runtimeScope.isDisposed()) return;
   rAFScheduled = true;
-  requestAnimationFrame(() => {
+  runtimeScope.requestAnimationFrame(() => {
     rAFScheduled = false;
     syncPlaybackRateControls(false);
   });
 }
 
 function handleFullscreenChange(): void {
+  if (!runtimeScope || runtimeScope.isDisposed()) return;
   if (fullscreenTimer) {
-    clearTimeout(fullscreenTimer);
+    runtimeScope.clearTimeout(fullscreenTimer);
+    fullscreenTimer = 0;
   }
-  fullscreenTimer = setTimeout(() => {
-    fullscreenTimer = null;
+  fullscreenTimer = runtimeScope.setTimeout(() => {
+    fullscreenTimer = 0;
     if (isRunning) {
       syncPlaybackRateControls(true);
     }
@@ -247,14 +247,17 @@ function handleFullscreenChange(): void {
 export function startPlaybackRateButtons(): void {
   if (isRunning) return;
   isRunning = true;
+  const scope = createDisposableContext();
+  runtimeScope = scope;
 
   syncPlaybackRateControls(true);
 
-  document.addEventListener("fullscreenchange", handleFullscreenChange);
-  document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+  scope.addListener(document, "fullscreenchange", handleFullscreenChange);
+  scope.addListener(document, "webkitfullscreenchange", handleFullscreenChange);
 
-  containerObserverHandle = observePlayerContainer({
+  observePlayerContainer({
     containerSelector: PLAYBACK_RATE_CONTAINER_SELECTOR,
+    signal: scope.signal,
     onMutations: () => {
       scheduleSync();
     }
@@ -264,19 +267,13 @@ export function startPlaybackRateButtons(): void {
 export function stopPlaybackRateButtons(): void {
   if (!isRunning) return;
   isRunning = false;
+  rAFScheduled = false;
+  fullscreenTimer = 0;
 
-  if (fullscreenTimer) {
-    clearTimeout(fullscreenTimer);
-    fullscreenTimer = null;
-  }
-
-  document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
-
-  containerObserverHandle?.disconnect();
-  containerObserverHandle = null;
-
-  unbindCurrentVideo();
+  runtimeScope?.dispose();
+  runtimeScope = null;
+  videoScope = null;
+  currentBoundVideo = null;
   lastVideoSrc = "";
 
   document.querySelectorAll(`[${BTN_FLAG}]`).forEach((el) => {

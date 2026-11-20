@@ -1,6 +1,10 @@
 // extension/live/live-overlay-binding.ts
 // 视频页与直播间共用的实时伴看控制器装配、全屏浮窗绑定、音频偏好同步及控制栏按钮共享原语。
 
+import {
+  ANY_PLAYER_HOST_SELECTOR,
+  findAnyPlayerHost
+} from "../bilibili/host-selectors.js";
 import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -43,12 +47,10 @@ export {
   type SyncPlayerLiveToggleButtonOptions
 };
 
-export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR =
-  ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap, #live-player, .live-player-mounter, #live-player-ctnr";
+export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR = ANY_PLAYER_HOST_SELECTOR;
 
 export function findDefaultLiveOverlayHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  return document.querySelector<HTMLElement>(DEFAULT_LIVE_OVERLAY_HOST_SELECTOR);
+  return findAnyPlayerHost();
 }
 
 export interface LiveOverlayConsumerHooks {

@@ -4,10 +4,13 @@
 // 共用，切断伴看会话对实时字幕翻译模块的静态依赖。
 
 import { getFullscreenHost } from "../bilibili/fullscreen.js";
+import {
+  VIDEO_PLAYER_CONTAINER_SELECTOR,
+  findVideoPlayerContainer
+} from "../bilibili/host-selectors.js";
 import { ensureInterpretSubtitleStyles } from "../shared/style-injector.js";
 
-export const VIDEO_PLAYER_HOST_SELECTOR =
-  ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap";
+export const VIDEO_PLAYER_HOST_SELECTOR = VIDEO_PLAYER_CONTAINER_SELECTOR;
 
 export type PlayerNoticeConsumer = (message: string, autoHideMs?: number) => void;
 
@@ -17,8 +20,7 @@ export interface PlayerNoticeHost {
 }
 
 export function findVideoPlayerHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  return document.querySelector<HTMLElement>(VIDEO_PLAYER_HOST_SELECTOR);
+  return findVideoPlayerContainer();
 }
 
 export function createPlayerNoticeHost(

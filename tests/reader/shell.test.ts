@@ -64,7 +64,7 @@ import {
   isReaderShellIntact
 } from "../../extension/reader/shell.js";
 import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js";
-import { READER_CLOSED_EVENT } from "../../extension/shared/self-heal.js";
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
 import { state } from "../../extension/core/state.js";
 import { playerAiState } from "../../extension/ai/player-ai-state.js";
 import { ensureReaderStyles, removeReaderStyles } from "../../extension/shared/style-injector.js";
@@ -467,7 +467,7 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
     const onClosed = vi.fn();
-    window.addEventListener(READER_CLOSED_EVENT, onClosed, { once: true });
+    contentEventBus.once("reader:closed", onClosed);
 
     await exitReaderShell();
 

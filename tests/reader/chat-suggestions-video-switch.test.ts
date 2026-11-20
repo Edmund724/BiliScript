@@ -143,6 +143,8 @@ beforeEach(async () => {
   stubChromeByType();
 });
 
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
+
 describe("换片建议区（转写中不遗留上一个视频的问题）", () => {
   it("clip 还停在上一个视频：URL 变化同步后建议区回落固定三条默认问题", async () => {
     seedPrevVideoReady();
@@ -155,7 +157,7 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
 
     // 换片：地址已变，clip 重置链还没跑（本窗口的真实形态）→ 报障画面
     setLocationUrl(NEXT_URL);
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(suggestionsChips()).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
@@ -170,7 +172,7 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     await waitFor(() => suggestionsChips().length > 0);
 
     setLocationUrl(NEXT_URL);
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     // 字幕落定（acceptSubtitle 事务：身份 + 字幕体一起写入）
@@ -195,7 +197,7 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
 
     // 换片：URL 变化同步先到（读到旧 clip）→ 装配按未就绪空快照收口，键落 url: 档
     setLocationUrl(NEXT_URL);
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(chatSessionState.currentContextKey).toBe(`url:${NEXT_BASE_URL}`);
 

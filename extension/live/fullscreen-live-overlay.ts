@@ -22,6 +22,13 @@ import {
 import { bindAudioPopover, type AudioPopoverHandle } from "./audio-popover.js";
 import { getFullscreenHost } from "./fullscreen-host.js";
 import {
+  BILI_HOST_SELECTORS,
+  biliHostAdapter,
+  resolveBpxPlayerContainer,
+  type HostObserverHandle
+} from "../bilibili/host-adapter.js";
+import { createDisposableContext } from "../shared/typed-event-bus.js";
+import {
   animateTriggerEnter,
   animateTriggerExit,
   cancelTriggerExit,
@@ -160,7 +167,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let observedHost: HTMLElement | null = null;
   let rootResizeObserver: ResizeObserver | null = null;
   let observedRoot: HTMLElement | null = null;
-  let mountMutationObserver: MutationObserver | null = null;
+  const overlayScope = createDisposableContext();
+  let mountObserverHandle: HostObserverHandle | null = null;
   let mountSyncQueued = false;
   let disposed = false;
 
@@ -173,12 +181,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (fullscreenHost) return fullscreenHost;
     const playerHost = deps.getPlayerHost();
     if (playerHost) {
-      const bpxContainer = playerHost.matches(".bpx-player-container")
-        ? playerHost
-        : playerHost.querySelector<HTMLElement>(".bpx-player-container");
-      return bpxContainer || playerHost;
+      return resolveBpxPlayerContainer(playerHost) || playerHost;
     }
-    return document.querySelector<HTMLElement>(".bpx-player-container") || document.body;
+    return document.querySelector<HTMLElement>(BILI_HOST_SELECTORS.playerBpxContainer) || document.body;
   }
 
   function applyOffset(el: HTMLElement, offset: ViewportDragOffset, host = getMountHost()): ViewportDragOffset {
@@ -215,8 +220,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (disposed || !rootEl || typeof document === "undefined") return;
     const host = getMountHost();
     if (!rootEl.isConnected && !host.isConnected) {
-      mountMutationObserver?.disconnect();
-      mountMutationObserver = null;
+      mountObserverHandle?.disconnect();
+      mountObserverHandle = null;
       hostResizeObserver?.disconnect();
       hostResizeObserver = null;
       observedHost = null;
@@ -249,9 +254,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   }
 
   function observeMountHost(): void {
-    if (mountMutationObserver || typeof MutationObserver === "undefined") return;
-    mountMutationObserver = new MutationObserver(scheduleMountSync);
-    mountMutationObserver.observe(document.body, { childList: true, subtree: true });
+    if (mountObserverHandle || disposed || typeof document === "undefined" || !document.body) return;
+    mountObserverHandle = biliHostAdapter.observeElement(document.body, {
+      observeOptions: { childList: true, subtree: true },
+      signal: overlayScope.signal,
+      onMutations: scheduleMountSync
+    });
   }
 
   function isVisible(): boolean {
@@ -1143,22 +1151,20 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
-  document.addEventListener("fullscreenchange", scheduleMountSync);
-  document.addEventListener("webkitfullscreenchange", scheduleMountSync);
-  window.addEventListener("resize", scheduleMountSync);
+  overlayScope.addListener(document, "fullscreenchange", scheduleMountSync);
+  overlayScope.addListener(document, "webkitfullscreenchange", scheduleMountSync);
+  overlayScope.addListener(window, "resize", scheduleMountSync);
 
   function dispose(): void {
     disposed = true;
+    overlayScope.dispose();
     audioPopoverHandle?.dispose();
     audioPopoverHandle = null;
     if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
     interpretNoticeTimer = null;
     interpretNoticeEl = null;
-    document.removeEventListener("fullscreenchange", scheduleMountSync);
-    document.removeEventListener("webkitfullscreenchange", scheduleMountSync);
-    window.removeEventListener("resize", scheduleMountSync);
-    mountMutationObserver?.disconnect();
-    mountMutationObserver = null;
+    mountObserverHandle?.disconnect();
+    mountObserverHandle = null;
     hostResizeObserver?.disconnect();
     hostResizeObserver = null;
     observedHost = null;

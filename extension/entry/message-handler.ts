@@ -2,7 +2,8 @@
 // entry/：消息分发与页内编排是 entry 层知识，core/ 回归纯共享底座）。
 import { state, uiState, clipState, triggerSubtitleSessionBoundary } from "../core/state.js";
 
-import { startUrlWatcher, BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { startUrlWatcher } from "../core/url-watcher.js";
+import { contentEventBus, getCurrentClipScope } from "../shared/content-event-bus.js";
 // 换片事务：URL 变化编排（签名判定 → runId 递增 → 各域步骤次序 → 完成边）的唯一
 // 落点；本文件只把各域调用装配成它的依赖。
 import { createClipSwitchTransaction } from "./clip-switch-transaction.js";
@@ -237,6 +238,7 @@ async function ensureSubtitlePrefetch(): Promise<void> {
   await kickSubtitleFetch(() => requestSubtitleRefresh(), {
     skipIfInHandOrInFlight: true,
     awaitVideoMetadata: true,
+    signal: getCurrentClipScope().signal,
     // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏；照旧发起刷新
     //（seam 无 handler 时空转）。
     onChainLoadFailed: (error) =>
@@ -320,6 +322,7 @@ export function bindUrlChangeHandler() {
       // 换片事务不等抓取落定。
       void kickSubtitleFetch((chain) => chain.refreshClip(), {
         awaitVideoMetadata: true,
+        signal: getCurrentClipScope().signal,
         onChainLoadFailed: reportAutoRefreshFailure,
         onRefreshFailed: reportAutoRefreshFailure
       });
@@ -340,6 +343,6 @@ export function bindUrlChangeHandler() {
   const handleUrlChange = () => transaction.handleUrlChange();
   window.addEventListener("popstate", handleUrlChange);
   window.addEventListener("hashchange", handleUrlChange);
-  window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+  contentEventBus.on("host:url-change", handleUrlChange);
   startUrlWatcher();
 }

@@ -1101,7 +1101,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       // Escape：清输入恢复原文本（焦点留在输入框便于再次输入）
       readingSearchInput.value = "";
       reader.refreshReadingSubtitleSearch({ scroll: false });
-      readingSearchInput.focus();
+      readingSearchInput.focus({ preventScroll: true });
     });
   });
   byId(ids.readingSearchPrevBtn).addEventListener("click", () => {
@@ -1119,7 +1119,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     withReader("subtitle search clear", (reader) => {
       reader.refreshReadingSubtitleSearch({ scroll: false });
     });
-    readingSearchInput.focus();
+    readingSearchInput.focus({ preventScroll: true });
   });
 
   const docWithSearchShortcut = document as Document & {
@@ -1146,7 +1146,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       return;
     }
     event.preventDefault();
-    input.focus();
+    input.focus({ preventScroll: true });
     input.select();
   };
   docWithSearchShortcut.__biliscriptSubtitleSearchShortcut = onDocumentSearchShortcut;

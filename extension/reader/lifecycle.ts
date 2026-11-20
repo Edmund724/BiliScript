@@ -12,6 +12,8 @@
 // B 形态（右栏 文摘面板）：进入链只开壳、渲染并 openScriptHost（播放器
 // 不动），close 拆 script-host 并清理会话态；reader-bus reset 通知只停同步。
 import { state, transitionReaderShell } from "../core/state.js";
+import { getCurrentClipScope } from "../shared/content-event-bus.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -308,6 +310,7 @@ async function maybeRefreshReaderSubtitleInBackground() {
     skipIfInHandOrInFlight: true,
     awaitVideoMetadata: true,
     recheckAfterVideoMetadata: true,
+    signal: getCurrentClipScope().signal,
     onChainLoadFailed: (error) =>
       logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error }),
     continueAfterChainLoadFailed: true,
@@ -470,6 +473,12 @@ const READER_TAB_BUTTON_IDS = {
 let readerReturnFocus: HTMLElement | null = null;
 let restoreReaderFocusOnClose = false;
 let readerFocusRestorePending = false;
+// 阅读面板级生命周期作用域：进入时创建、关闭时一次 abort() 回收全部面板期挂接资源。
+let readerPanelScope: DisposableContext | null = null;
+
+export function getReaderPanelSignal(): AbortSignal | undefined {
+  return readerPanelScope?.signal;
+}
 
 export function focusReadingView(): void {
   const tabId = READER_TAB_BUTTON_IDS[getReaderActiveScriptTab()];
@@ -535,6 +544,8 @@ export async function enterReaderMode(
     captureTriggerRect(document.activeElement instanceof Element ? document.activeElement : null);
   captureReaderReturnFocus(readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
+  readerPanelScope?.dispose();
+  readerPanelScope = createDisposableContext();
   transitionReaderShell("open");
   document.body.setAttribute("data-biliscript-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
@@ -711,6 +722,8 @@ export function closeReadingView() {
   resetReaderOverviewState();
   stopReadingViewSync();
   closeScriptHost();
+  readerPanelScope?.dispose();
+  readerPanelScope = null;
 }
 
 // 对话 tab 会话关闭的静默收尾（closeReadingView 的 fire-and-forget 半边）：

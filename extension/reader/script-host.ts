@@ -26,22 +26,16 @@
 // 覆盖（节拍与拆单源的理由见 REANCHOR_INTERVAL_MS 处注释，与 script-button
 // 的按钮自愈相互独立，不复用 shared/self-heal.js 的 200ms 常量）。
 
+import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 // #biliscript-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
 // 为此存在，本模块四处手抄字面量收口到 ids.readingView。
 import { ids } from "./state.js";
 
-// 右栏锚点候选（按优先级）。判定规则与覆盖页面见 closeScriptHost 上方注释；
-// 全部只读 getBoundingClientRect，绝不往锚点里插节点。
-const ANCHOR_SELECTORS = [
-  ".right-container-inner",      // 新版 av/BV 播放页
-  ".right-container",            // 新版播放页外层兜底
-  ".playlist-container--right",  // 合集/列表态
-  "#reco_list",                  // 旧版播放页
-  "#viewbox_report",             // 旧版无推荐列表态
-  ".up-info-container"           // 旧版无推荐列表态兜底
-];
+// 右栏锚点候选（单源 bilibili/host-selectors）：只读 getBoundingClientRect，绝不往锚点里插节点。
+const ANCHOR_SELECTORS = BILI_HOST_SELECTORS.rightColumnAnchors;
 
 // 锚点有效硬下限：宽度过小视为隐藏副本/折叠态，跳过落到次优先候选。
 const ANCHOR_MIN_WIDTH = 280;
@@ -96,9 +90,9 @@ const SCROLLING_ATTR = "data-biliscript-script-scrolling";
 // 每拍重置，滚动停止 150ms 内无 scrollend 也会恢复，不依赖引擎事件支持。
 const SCROLL_IDLE_TIMEOUT_MS = 150;
 
-// ===== 模块级生命周期状态（open/close 属主，幂等由 openScriptHost 守卫） =====
+// ===== 模块级生命周期状态（open/close 属主，统一托管于 DisposableContext） =====
 
-let reanchorTimer = 0;
+let hostScope: DisposableContext | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let observedAnchor: Element | null = null;
 let layoutRafId = 0;
@@ -151,12 +145,14 @@ export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
 // 开始定位：立即算一次并写变量/浮层属性，然后挂上全部重算机制。重复调用
 // 不叠加监听（幂等）。
 export function openScriptHost(): void {
-  if (reanchorTimer || resizeObserver) {
+  if (hostScope && !hostScope.isDisposed()) {
     return;
   }
+  const scope = createDisposableContext();
+  hostScope = scope;
   applyScriptRect();
-  bindScriptHostListeners();
-  reanchorTimer = window.setInterval(checkReanchor, REANCHOR_INTERVAL_MS);
+  bindScriptHostListeners(scope);
+  scope.setInterval(checkReanchor, REANCHOR_INTERVAL_MS);
 }
 
 // 拆除全部监听/定时器/observer，清除四个 CSS 变量与浮层属性。未 open 时
@@ -171,22 +167,12 @@ export function closeScriptHost(): void {
     window.clearInterval(anchorWaitTimer);
     anchorWaitTimer = 0;
   }
-  if (reanchorTimer) {
-    window.clearInterval(reanchorTimer);
-    reanchorTimer = 0;
-  }
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-    resizeObserver = null;
-  }
+  hostScope?.dispose();
+  hostScope = null;
+  resizeObserver = null;
   observedAnchor = null;
-  if (layoutRafId) {
-    window.cancelAnimationFrame(layoutRafId);
-    layoutRafId = 0;
-  }
-  window.removeEventListener("resize", requestScriptLayout);
-  window.removeEventListener("scroll", onScriptScroll);
-  document.removeEventListener("scrollend", endScriptScroll);
+  layoutRafId = 0;
+  scrollIdleTimer = 0;
   endScriptScroll();
   lastSnapshot = null;
   const readingView = document.getElementById(ids.readingView);
@@ -202,7 +188,7 @@ export function closeScriptHost(): void {
 
 // ===== 重算机制 =====
 
-function bindScriptHostListeners(): void {
+function bindScriptHostListeners(scope: DisposableContext): void {
   // ResizeObserver 回调只排 rAF，由下一帧统一读 rect、写变量；当前锚点是
   // open 的首拍在 bind 之前选出的，实例化后补上对它的观察。不支持 observer
   // 时保留 2s 自查兜底。
@@ -214,19 +200,14 @@ function bindScriptHostListeners(): void {
       scheduleScriptLayout();
     });
     resizeObserver = observer;
+    scope.track(observer);
     if (observedAnchor) {
       resizeObserver.observe(observedAnchor);
     }
   }
-  // 事件监听走零参入口 requestScriptLayout：Event 实参由它丢弃，且具名函数
-  // 保证 add/remove 拿到同一引用（箭头每次新建，remove 永不命中、监听泄漏）。
-  window.addEventListener("resize", requestScriptLayout);
-  window.addEventListener("scroll", onScriptScroll, { passive: true });
-  // scrollend 的派发目标：视口滚动打在 Document（按 CSSOM View 冒泡，Document
-  // 监听直接命中），元素内部滚动打在元素上且不冒泡——本模块只关心面板随页面
-  // 滚动位移的材质降级，元素内部滚动不移动面板，无需处理。旧引擎无此事件时
-  // 由滚动事件每拍重置的 150ms 定时器兜底收尾。
-  document.addEventListener("scrollend", endScriptScroll);
+  scope.addListener(window, "resize", requestScriptLayout);
+  scope.addListener(window, "scroll", onScriptScroll, { passive: true });
+  scope.addListener(document, "scrollend", endScriptScroll);
 }
 
 // 事件路径入口：丢弃 Event 实参，转调合帧入口（不带 finding 的纯重算）。
@@ -253,15 +234,25 @@ function markScriptScrolling(): void {
     readingView.setAttribute(SCROLLING_ATTR, "1");
   }
   if (scrollIdleTimer) {
-    window.clearTimeout(scrollIdleTimer);
+    if (hostScope) {
+      hostScope.clearTimeout(scrollIdleTimer);
+    } else {
+      window.clearTimeout(scrollIdleTimer);
+    }
   }
-  scrollIdleTimer = window.setTimeout(endScriptScroll, SCROLL_IDLE_TIMEOUT_MS);
+  scrollIdleTimer = hostScope
+    ? hostScope.setTimeout(endScriptScroll, SCROLL_IDLE_TIMEOUT_MS)
+    : window.setTimeout(endScriptScroll, SCROLL_IDLE_TIMEOUT_MS);
 }
 
 // 收尾：摘标记、停定时器。scrollend 与定时器、close 都走这里，幂等。
 function endScriptScroll(): void {
   if (scrollIdleTimer) {
-    window.clearTimeout(scrollIdleTimer);
+    if (hostScope) {
+      hostScope.clearTimeout(scrollIdleTimer);
+    } else {
+      window.clearTimeout(scrollIdleTimer);
+    }
     scrollIdleTimer = 0;
   }
   document.getElementById(ids.readingView)?.removeAttribute(SCROLLING_ATTR);
@@ -275,7 +266,9 @@ function scheduleScriptLayout(finding?: AnchorFinding): void {
   if (layoutRafId) {
     return;
   }
-  layoutRafId = window.requestAnimationFrame(() => runScriptLayout(finding));
+  layoutRafId = hostScope
+    ? hostScope.requestAnimationFrame(() => runScriptLayout(finding))
+    : window.requestAnimationFrame(() => runScriptLayout(finding));
 }
 
 function runScriptLayout(finding?: AnchorFinding): void {
@@ -293,7 +286,7 @@ function runScriptLayout(finding?: AnchorFinding): void {
 //（一拍一搜：自查路径全拍 findScriptAnchor 恰一次、rect 恰一次），换观察
 // 对象的判断收在 applyScriptRect——自查自身不换锚，只触发合帧。
 function checkReanchor(): void {
-  if (!reanchorTimer) {
+  if (!hostScope || hostScope.isDisposed()) {
     return;
   }
   scheduleScriptLayout(findScriptAnchor() ?? undefined);

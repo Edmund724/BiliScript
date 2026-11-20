@@ -7,9 +7,12 @@ import { getSettings } from "../core/runtime.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import {
-  observePlayerContainer,
-  type PlayerContainerObserverHandle
-} from "../bilibili/player-control-mount.js";
+  LIVE_ROOM_PLAYER_HOST_SELECTOR,
+  LIVE_ROOM_VIDEO_SELECTOR,
+  findLiveRoomPlayerHost
+} from "../bilibili/host-adapter.js";
+import { observePlayerContainer } from "../bilibili/player-control-mount.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
 import {
   createThrottledLiveToggleHandler,
@@ -31,8 +34,6 @@ export interface LiveRoomBridge {
   executeTool(call: MossLiveToolCall): Promise<Record<string, unknown>>;
 }
 
-const PLAYER_HOST_SELECTOR = "#live-player, .live-player-mounter, #live-player-ctnr";
-const VIDEO_SELECTOR = "#live-player video, .live-player-mounter video, video";
 const TOGGLE_BUTTON_CLASS = "biliscript-live-room-toggle";
 const NOTICE_CLASS = "biliscript-live-room-notice";
 const NOTICE_DEFAULT_MS = 4000;
@@ -83,13 +84,13 @@ export function createLiveRoomBridge(deps: LiveRoomBridgeDeps = {}): LiveRoomBri
 
 let started = false;
 let toggleButton: HTMLButtonElement | null = null;
-let containerObserverHandle: PlayerContainerObserverHandle | null = null;
+let roomScope: DisposableContext | null = null;
 let currentRoomId = "";
 let settingsRequestId = 0;
 let settingsModule: typeof import("./live-room-settings.js") | null = null;
 
 function findPlayerHost(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
+  return findLiveRoomPlayerHost();
 }
 
 function closeLiveRoomSettings(): void {
@@ -113,7 +114,7 @@ const overlayBinding = createLiveOverlayBinding({
   createControllerDeps: () => {
     const bridge = createLiveRoomBridge();
     return {
-      getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
+      getVideoElement: () => document.querySelector<HTMLVideoElement>(LIVE_ROOM_VIDEO_SELECTOR),
       getVideoContext: bridge.getVideoContext,
       executeTool: bridge.executeTool,
       showNotice
@@ -210,26 +211,28 @@ export async function startLiveRoomCompanion(): Promise<void> {
   await overlayBinding.ensureTargetReady();
   if (!started) return;
 
+  roomScope?.dispose();
+  const scope = createDisposableContext();
+  roomScope = scope;
+
   mountToggleButton();
-  containerObserverHandle = observePlayerContainer({
-    containerSelector: PLAYER_HOST_SELECTOR,
+  observePlayerContainer({
+    containerSelector: LIVE_ROOM_PLAYER_HOST_SELECTOR,
+    signal: scope.signal,
     onMutations: () => {
       mountToggleButton();
     }
   });
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
-  nav?.addEventListener("navigatesuccess", handleRoomChange);
-  window.addEventListener("popstate", handleRoomChange);
+  scope.addListener(nav, "navigatesuccess", handleRoomChange);
+  scope.addListener(window, "popstate", handleRoomChange);
 }
 
 export function stopLiveRoomCompanion(): void {
   if (!started) return;
   started = false;
-  containerObserverHandle?.disconnect();
-  containerObserverHandle = null;
-  const nav = (window as unknown as { navigation?: EventTarget }).navigation;
-  nav?.removeEventListener("navigatesuccess", handleRoomChange);
-  window.removeEventListener("popstate", handleRoomChange);
+  roomScope?.dispose();
+  roomScope = null;
   closeLiveRoomSettings();
   overlayBinding.dispose();
   toggleButton?.remove();

@@ -88,8 +88,8 @@ import { isPinnedContextStrict } from "../chat/context-policy.js";
 // 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
 // 缓存落定时若建议区正开着，就地换成生成结果。
 import { subscribeQuickPromptsChange } from "../chat/quick-prompt-cache.js";
-// reader 触发源与进程内相位（content script 收不到自己的 runtime 广播）。
-import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+// reader 触发源与进程内相位（经 shared/content-event-bus 跨常驻/懒加载两区共享）。
+import { contentEventBus } from "../shared/content-event-bus.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 // 转写中判定（与字幕 tab 横幅同源：相位 transcribing 且字幕体为空）。
 import { isReaderTranscribing } from "./transcribe-banner.js";
@@ -717,8 +717,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
       conversationStore.detachForRestart();
       scheduleLiveContextSync();
     };
-    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
-    return () => window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
+    return contentEventBus.on("host:url-change", handler);
   },
   // ② clip 落定 → 主动补一次上下文对账。
   //

@@ -1075,7 +1075,8 @@ describe("LiveChatController video context and page tools", () => {
     fakePort.simulateMessage({ type: "connected" });
     fakePort.postedMessages.length = 0;
 
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    const { contentEventBus } = await import("../../extension/shared/content-event-bus.js");
+    contentEventBus.emit("host:url-change", { url: location.href });
     expect(fakePort.postedMessages).toEqual([
       { action: "context_update", videoContext: null }
     ]);

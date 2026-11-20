@@ -41,7 +41,7 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
 import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
 import { logWarn, logWarnAlways } from "../shared/logging.js";
-import { READER_CLOSED_EVENT } from "../shared/self-heal.js";
+import { contentEventBus } from "../shared/content-event-bus.js";
 import { getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
 import { READER_READY_ATTR } from "./presentation-fields.js";
@@ -353,14 +353,8 @@ export function exitReaderShell(): Promise<void> {
     await closeReaderViewAfterTransition(reader);
     // 收回完成后再摘表；过渡期间样式与几何坐标保持在位。
     removeReaderStyles();
-    // 退出完成通知（arch-slim-2/09 自愈收口）：script-button 的自查 interval 在
-    // 阅读壳打开且完好期间降频暂停，靠本事件恢复常速并立即补回按钮。事件名
-    // 单源 shared/self-heal.js（READER_CLOSED_EVENT）；有意走 window
-    // CustomEvent 而非静态 import 边——script-button 不 import 本模块的派发点，
-    // 两侧只共享事件名字符串。只在本事务收敛后派发：退出失败（URL 改写抛错 /
-    // closeReadingView 抛错）不走这里，失同步场景仍由 script-button 的自查
-    // reader-restore 链兜底。
-    window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
+    // 退出完成通知：经进程内强类型事件总线通知 script-button 恢复常速自查并立即补回按钮。
+    contentEventBus.emit("reader:closed");
     reader.restoreReadingViewFocus();
   }).catch((error) => {
     // 退出事务失败回退：exiting 回 open（视图仍在开着），不能卡在 exiting。

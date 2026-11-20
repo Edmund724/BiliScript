@@ -17,8 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // 原 core/runtime.js 的三个符号已按职责拆分：startUrlWatcher / BILISCRIPT_URL_CHANGE_EVENT
 // 在 core/url-watcher.js，replaceReaderModeUrl 在 bilibili/reader-url.js。
 vi.mock("../../extension/core/url-watcher.js", () => ({
-  startUrlWatcher: vi.fn(),
-  BILISCRIPT_URL_CHANGE_EVENT: "biliscript:urlchange"
+  startUrlWatcher: vi.fn()
 }));
 vi.mock("../../extension/bilibili/reader-url.js", () => ({
   replaceReaderModeUrl: vi.fn()

@@ -11,6 +11,10 @@
 // (defaulting to the live globals so the runtime behavior is unchanged).
 // Callers are responsible for writing the returned values into state.
 
+import {
+  BILI_HOST_SELECTORS,
+  querySelectorFallback
+} from "../bilibili/host-selectors.js";
 import { getRuntimeVideoElement as defaultGetVideo } from "../bilibili/video-probe.js";
 import { extractPageIndex } from "../bilibili/video-id-shared.js";
 import { resolveVideoPageFromMeta } from "../bilibili/video-api.js";
@@ -189,11 +193,10 @@ function readPageFromPlayerDom(pages: PageItem[], options: PageContextOptions = 
 
   // 3b. 从播放器 iframe src 提取 page / cid
   try {
-    const iframe =
-      (doc.querySelector(
-        "#bilibili-player iframe, .bpx-player-container iframe, iframe[src*='player.bilibili.com']"
-      ) as HTMLIFrameElement | null) ||
-      (doc.querySelector("iframe[src*='bilibili.com/player']") as HTMLIFrameElement | null);
+    const iframe = querySelectorFallback<HTMLIFrameElement>(
+      BILI_HOST_SELECTORS.playerIframes,
+      doc
+    );
     if (iframe?.src) {
       const pageMatch = iframe.src.match(/[?&]page=(\d+)/i);
       if (pageMatch) {
@@ -216,10 +219,14 @@ function readPageFromPlayerDom(pages: PageItem[], options: PageContextOptions = 
 
   // 3c. 从播放器控制栏/DOM 文本中推断当前分P
   try {
-    const playerRoot =
-      doc.querySelector(".bpx-player-control-wrap") ||
-      doc.querySelector("#bilibili-player .bpx-player-control-wrap") ||
-      doc.querySelector(".player-wrap");
+    const playerRoot = querySelectorFallback<Element>(
+      [
+        BILI_HOST_SELECTORS.playerControlWrap,
+        `#bilibili-player ${BILI_HOST_SELECTORS.playerControlWrap}`,
+        ".player-wrap"
+      ],
+      doc
+    );
     if (playerRoot) {
       const text = playerRoot.textContent || "";
       // 匹配类似 "P2"、"第2集"、"第02话" 等文本

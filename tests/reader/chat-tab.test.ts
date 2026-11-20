@@ -894,8 +894,9 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     state.clip.bvid = bvid;
     state.clip.cid = cid;
     state.clip.title = "新内容";
+    const { contentEventBus } = await import("../../extension/shared/content-event-bus.js");
     setLocationUrl(url);
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    contentEventBus.emit("host:url-change", { url });
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "新内容字幕" }];
     statusBus.publishSubtitleStatusPhase("asr-done");

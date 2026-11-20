@@ -57,7 +57,7 @@ import {
 import { resolveMossVideoConfig, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
-import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { contentEventBus } from "../shared/content-event-bus.js";
 import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
 
@@ -797,10 +797,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (generation !== currentGeneration) return;
       postVideoContext(null);
     };
-    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+    const unsubscribeUrlChange = contentEventBus.on("host:url-change", handleUrlChange);
     const unsubscribe = subscribeVideoContextChanges?.(guardedSync) || (() => {});
     stopVideoContextWatch = () => {
-      window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+      unsubscribeUrlChange();
       unsubscribe();
       stopVideoContextWatch = null;
     };
