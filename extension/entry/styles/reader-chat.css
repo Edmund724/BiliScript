@@ -702,8 +702,6 @@
 
 .biliscript-reading-chat .chat-thought-chain-inner {
   padding-top: 8px;
-  margin-top: 7px;
-  border-top: 1px dashed var(--biliscript-reader-border);
 }
 
 .biliscript-reading-chat .chat-thought-chain-steps {
