@@ -26,6 +26,8 @@ import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
 import type {
   AiArtifactFamily,
   AiArtifactRecord,
+  ChatImageRecord,
+  PutChatImageInput,
   SubtitlePageRecord,
   SubtitleTrackStorageKind
 } from "../subtitle/idb-store.js";
@@ -358,7 +360,14 @@ export type SubtitleCacheOp =
   | "put-ai-artifact"
   | "delete-ai-artifact"
   | "list-ai-artifacts"
-  | "clear-video";
+  | "clear-video"
+  | "get-chat-image"
+  | "get-chat-images"
+  | "put-chat-image"
+  | "delete-chat-images"
+  | "delete-chat-images-by-conversations"
+  | "prune-chat-images"
+  | "clear-chat-images";
 
 export type SubtitleCacheMessage = {
   type: "subtitle-cache";
@@ -377,6 +386,12 @@ export type SubtitleCacheMessage = {
   tier?: SubtitleCacheTier;
   key?: string;
   keys?: string[];
+  id?: string;
+  ids?: string[];
+  conversationIds?: string[];
+  validConversationIds?: string[];
+  keepImageIds?: string[];
+  chatImage?: PutChatImageInput;
   family?: AiArtifactFamily;
   keyPrefix?: string;
   payload?: unknown;
@@ -394,8 +409,11 @@ export type SubtitleCacheResponse = {
   items?: SubtitleBodyItem[] | null;
   artifact?: AiArtifactRecord | null;
   artifacts?: Array<AiArtifactRecord | null>;
+  chatImage?: ChatImageRecord | null;
+  chatImages?: Array<ChatImageRecord | null>;
   deleted?: boolean;
   removedKeys?: string[];
+  removedIds?: string[];
   evictedIds?: string[];
   evictedKeys?: string[];
   removedPageIds?: string[];

@@ -9,6 +9,7 @@ import {
   defaultSubtitleIdbStore,
   type AiArtifactRecord,
   type AiArtifactWriteResult,
+  type ChatImageWriteResult,
   type SubtitleIdbStore,
   type SubtitleStoreWriteInterceptor,
   type SubtitleStoreWriteResult
@@ -66,18 +67,51 @@ export function shouldRouteViaBackground(): boolean {
   return protocol === "http:" || protocol === "https:";
 }
 
-async function sendSubtitleStoreRpc(
+type SubtitleRpcOutcome =
+  | { status: "handled"; response: SubtitleCacheResponse }
+  | { status: "unhandled" }
+  | { status: "error"; error: Error };
+
+async function sendSubtitleStoreRpcDetailed(
   message: SubtitleCacheMessage
-): Promise<SubtitleCacheResponse | null> {
+): Promise<SubtitleRpcOutcome> {
   try {
     const response = await sendRuntimeMessage(message);
     if (response && response.handled === true) {
-      return response;
+      return { status: "handled", response };
     }
-  } catch {
-    // 无 SW 监听时平滑回退（单测缺省环境由内存后端承接，绝不触发网页源 indexedDB）
+    return { status: "unhandled" };
+  } catch (err) {
+    return {
+      status: "error",
+      error: err instanceof Error ? err : new Error(String(err))
+    };
   }
-  return null;
+}
+
+async function sendSubtitleStoreRpc(
+  message: SubtitleCacheMessage
+): Promise<SubtitleCacheResponse | null> {
+  const outcome = await sendSubtitleStoreRpcDetailed(message);
+  return outcome.status === "handled" ? outcome.response : null;
+}
+
+function toRpcChatImageWriteResult(
+  response: SubtitleCacheResponse,
+  fallbackErrorMessage: string
+): ChatImageWriteResult {
+  if (response.ok) {
+    return {
+      ok: true,
+      evictedIds: response.evictedIds ?? [],
+      estimatedBytes: response.estimatedBytes
+    };
+  }
+  return {
+    ok: false,
+    evictedIds: [],
+    error: new Error(response.error || fallbackErrorMessage)
+  };
 }
 
 function toRpcWriteResult(
@@ -325,6 +359,121 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         };
       }
       return fallbackStore.clearVideo(bvid, cid);
+    },
+
+    async getChatImage(id) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "get-chat-image",
+        id
+      });
+      if (outcome.status === "handled") {
+        if (!outcome.response.ok) {
+          throw new Error(outcome.response.error || "读取对话图片缓存失败");
+        }
+        return outcome.response.chatImage ?? null;
+      }
+      if (outcome.status === "error") {
+        throw outcome.error;
+      }
+      return fallbackStore.getChatImage(id);
+    },
+    async getChatImagesMany(ids) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "get-chat-images",
+        ids
+      });
+      if (outcome.status === "handled") {
+        if (!outcome.response.ok) {
+          throw new Error(outcome.response.error || "批量读取对话图片缓存失败");
+        }
+        return outcome.response.chatImages ?? ids.map(() => null);
+      }
+      if (outcome.status === "error") {
+        throw outcome.error;
+      }
+      return fallbackStore.getChatImagesMany(ids);
+    },
+    async putChatImage(input) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "put-chat-image",
+        chatImage: input
+      });
+      if (outcome.status === "handled") {
+        return toRpcChatImageWriteResult(outcome.response, "写入对话图片缓存失败");
+      }
+      if (outcome.status === "error") {
+        return {
+          ok: false,
+          evictedIds: [],
+          error: outcome.error
+        };
+      }
+      return fallbackStore.putChatImage(input);
+    },
+    async deleteChatImages(ids) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "delete-chat-images",
+        ids
+      });
+      if (outcome.status === "handled") {
+        return outcome.response.removedIds ?? [];
+      }
+      if (outcome.status === "error") {
+        return [];
+      }
+      return fallbackStore.deleteChatImages(ids);
+    },
+    async deleteChatImagesByConversationIds(conversationIds) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "delete-chat-images-by-conversations",
+        conversationIds
+      });
+      if (outcome.status === "handled") {
+        return outcome.response.removedIds ?? [];
+      }
+      if (outcome.status === "error") {
+        return [];
+      }
+      return fallbackStore.deleteChatImagesByConversationIds(conversationIds);
+    },
+    async pruneChatImages(input) {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "prune-chat-images",
+        validConversationIds: [...input.validConversationIds],
+        ...(input.keepImageIds ? { keepImageIds: [...input.keepImageIds] } : {})
+      });
+      if (outcome.status === "handled") {
+        return outcome.response.removedIds ?? [];
+      }
+      if (outcome.status === "error") {
+        return [];
+      }
+      return fallbackStore.pruneChatImages(input);
+    },
+    async clearAllChatImages() {
+      const outcome = await sendSubtitleStoreRpcDetailed({
+        type: "subtitle-cache",
+        op: "clear-chat-images"
+      });
+      if (outcome.status === "handled") {
+        return outcome.response.removedIds ?? [];
+      }
+      if (outcome.status === "error") {
+        return [];
+      }
+      return fallbackStore.clearAllChatImages();
+    },
+    listChatImagesByConversationId(conversationId) {
+      return fallbackStore.listChatImagesByConversationId(conversationId);
+    },
+    listAllChatImages() {
+      return fallbackStore.listAllChatImages();
     },
 
     clearAll() {

@@ -8,7 +8,8 @@
 //    - 统一存放 `biliscript_lvs_l1_index_`、`biliscript_lvs_analysis_final_`、`biliscript_lvs_analysis_`、`biliscript_lvs_summary_`；
 //    - 沿用各族既有保留上限（100 / 100 / 20 / 20 视频）按 `lastUsedAt` 做分族视频级 LRU 淘汰。
 // 3) `chat_images`（主键 `id`，索引 `by_conversationId`、`by_bvid`、`by_lastUsedAt`）：
-//    - 预留给对话图片存储迁移，避免后续再次升版。
+//    - 存放对话消息外置图片（`{ id, conversationId, bvid, mime, data, estimatedBytes, ... }`）；
+//    - 读命中刷新 `lastUsedAt`，写时执行总字节上限（默认 80 MB）LRU 淘汰，并支持按 `by_conversationId` 索引清理与孤儿裁剪。
 
 import type { SubtitleBodyItem } from "../ai/types.js";
 import { isAsrVariantSourceKey } from "./source-key.js";
@@ -33,6 +34,7 @@ export const CHAT_IMAGES_INDEX_LAST_USED = "by_lastUsedAt";
 
 export const DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES = 100;
 export const DEFAULT_SUBTITLE_CACHE_MAX_BYTES = 150 * 1024 * 1024;
+export const DEFAULT_CHAT_IMAGES_MAX_BYTES = 80 * 1024 * 1024;
 
 export const AI_ARTIFACT_FAMILIES = [
   "biliscript_lvs_l1_index_",
@@ -140,6 +142,41 @@ export interface AiArtifactRecord<TPayload = unknown> {
   lastUsedAt: number;
 }
 
+export interface ChatImageRecord {
+  id: string;
+  conversationId: string;
+  bvid: string;
+  mime: string;
+  data: string;
+  estimatedBytes: number;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number;
+}
+
+export interface PutChatImageInput {
+  id: string;
+  conversationId: string;
+  bvid?: string;
+  mime: string;
+  data: string;
+  createdAt?: number;
+  updatedAt?: number;
+  lastUsedAt?: number;
+}
+
+export interface ChatImageWriteResult {
+  ok: boolean;
+  evictedIds: string[];
+  estimatedBytes?: number;
+  error?: Error;
+}
+
+export interface PruneChatImagesInput {
+  validConversationIds: readonly string[];
+  keepImageIds?: readonly string[];
+}
+
 export interface PutRawTrackInput {
   bvid: string;
   cid: string;
@@ -207,13 +244,14 @@ export interface ClearVideoResult {
 }
 
 export interface SubtitleStoreWriteContext {
-  op: "put-raw" | "put-segmented" | "upsert-translated" | "put-ai-artifact";
+  op: "put-raw" | "put-segmented" | "upsert-translated" | "put-ai-artifact" | "put-chat-image";
   pageId: string;
   bvid: string;
   cid: string;
   trackKey: string;
   family?: AiArtifactFamily;
   key?: string;
+  conversationId?: string;
 }
 
 export type SubtitleStoreWriteInterceptor = (
@@ -225,6 +263,7 @@ export interface SubtitleIdbStoreOptions {
   dbName?: string;
   maxEntries?: number;
   maxBytes?: number;
+  maxChatImageBytes?: number;
   aiArtifactKeepVideos?: Partial<Record<AiArtifactFamily, number>>;
   now?: () => number;
   /** 仅用于 defaultSubtitleIdbStore 在单测内跨 vi.resetModules 保持同一内存盘。 */
@@ -273,6 +312,16 @@ export interface SubtitleIdbStore {
   listAiArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]>;
   listAllAiArtifacts(): Promise<AiArtifactRecord[]>;
   clearVideo(bvid: string, cid?: string): Promise<ClearVideoResult>;
+
+  getChatImage(id: string): Promise<ChatImageRecord | null>;
+  getChatImagesMany(ids: string[]): Promise<Array<ChatImageRecord | null>>;
+  putChatImage(input: PutChatImageInput): Promise<ChatImageWriteResult>;
+  deleteChatImages(ids: string[]): Promise<string[]>;
+  deleteChatImagesByConversationIds(conversationIds: string[]): Promise<string[]>;
+  pruneChatImages(input: PruneChatImagesInput): Promise<string[]>;
+  clearAllChatImages(): Promise<string[]>;
+  listChatImagesByConversationId(conversationId: string): Promise<ChatImageRecord[]>;
+  listAllChatImages(): Promise<ChatImageRecord[]>;
 
   clearAll(): Promise<void>;
   setWriteInterceptorForTests(interceptor: SubtitleStoreWriteInterceptor | null): void;
@@ -412,6 +461,13 @@ export function estimateAiArtifactRecordBytes(record: AiArtifactRecord): number 
   });
 }
 
+export function estimateChatImageRecordBytes(record: ChatImageRecord): number {
+  return estimateJsonBytes({
+    ...record,
+    estimatedBytes: 0
+  });
+}
+
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
     return structuredClone(value);
@@ -525,6 +581,63 @@ function normalizeAiArtifactRecord(raw: unknown): AiArtifactRecord | null {
   return record;
 }
 
+function normalizeChatImageRecord(raw: unknown): ChatImageRecord | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as Partial<ChatImageRecord>;
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  const conversationId = typeof candidate.conversationId === "string" ? candidate.conversationId.trim() : "";
+  const mime = typeof candidate.mime === "string" ? candidate.mime.trim() : "";
+  const data = typeof candidate.data === "string" ? candidate.data : "";
+  if (!id || !conversationId || !mime || !data) {
+    return null;
+  }
+  const bvid = typeof candidate.bvid === "string" ? candidate.bvid.trim() : "";
+  const createdAt = Number.isFinite(Number(candidate.createdAt)) ? Number(candidate.createdAt) : 0;
+  const updatedAt = Number.isFinite(Number(candidate.updatedAt)) ? Number(candidate.updatedAt) : createdAt;
+  const lastUsedAt = Number.isFinite(Number(candidate.lastUsedAt)) ? Number(candidate.lastUsedAt) : updatedAt;
+  const record: ChatImageRecord = {
+    id,
+    conversationId,
+    bvid,
+    mime,
+    data,
+    estimatedBytes: Number(candidate.estimatedBytes) || 0,
+    createdAt,
+    updatedAt,
+    lastUsedAt
+  };
+  if (record.estimatedBytes <= 0) {
+    record.estimatedBytes = estimateChatImageRecordBytes(record);
+  }
+  return record;
+}
+
+interface RawChatImageRef {
+  id: string;
+  conversationId: string;
+  estimatedBytes: number;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+function extractRawChatImageRef(raw: unknown): RawChatImageRef | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as Partial<ChatImageRecord>;
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  if (!id) {
+    return null;
+  }
+  const conversationId = typeof candidate.conversationId === "string" ? candidate.conversationId.trim() : "";
+  const estimatedBytes = Number(candidate.estimatedBytes) || 0;
+  const createdAt = Number.isFinite(Number(candidate.createdAt)) ? Number(candidate.createdAt) : 0;
+  const lastUsedAt = Number.isFinite(Number(candidate.lastUsedAt)) ? Number(candidate.lastUsedAt) : createdAt;
+  return { id, conversationId, estimatedBytes, createdAt, lastUsedAt };
+}
+
 interface StorageBackend {
   getAllPages(): Promise<SubtitlePageRecord[]>;
   getPage(id: string): Promise<SubtitlePageRecord | null>;
@@ -542,12 +655,24 @@ interface StorageBackend {
   getArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]>;
   getAllArtifacts(): Promise<AiArtifactRecord[]>;
 
+  getChatImage(id: string): Promise<ChatImageRecord | null>;
+  getChatImagesMany(ids: string[]): Promise<Array<ChatImageRecord | null>>;
+  putChatImage(record: ChatImageRecord): Promise<void>;
+  putChatImagesMany(records: ChatImageRecord[]): Promise<void>;
+  deleteChatImages(ids: string[]): Promise<void>;
+  getChatImagesByConversationId(conversationId: string): Promise<ChatImageRecord[]>;
+  getRawChatImageIdsByConversationId(conversationId: string): Promise<string[]>;
+  getAllChatImages(): Promise<ChatImageRecord[]>;
+  getAllRawChatImageRefs(): Promise<RawChatImageRef[]>;
+  clearChatImages(): Promise<void>;
+
   clearAll(): Promise<void>;
 }
 
 interface SharedMemoryBacking {
   pages: Map<string, SubtitlePageRecord>;
   artifacts: Map<string, AiArtifactRecord>;
+  chatImages: Map<string, ChatImageRecord>;
 }
 
 function getSharedMemoryBacking(): SharedMemoryBacking {
@@ -556,9 +681,12 @@ function getSharedMemoryBacking(): SharedMemoryBacking {
   if (!backing) {
     backing = {
       pages: new Map<string, SubtitlePageRecord>(),
-      artifacts: new Map<string, AiArtifactRecord>()
+      artifacts: new Map<string, AiArtifactRecord>(),
+      chatImages: new Map<string, ChatImageRecord>()
     };
     globals[DEFAULT_MEMORY_BACKING_SYMBOL] = backing;
+  } else if (!backing.chatImages) {
+    backing.chatImages = new Map<string, ChatImageRecord>();
   }
   return backing;
 }
@@ -568,7 +696,8 @@ function createMemoryBackend(shared = false): StorageBackend {
     ? getSharedMemoryBacking()
     : {
         pages: new Map<string, SubtitlePageRecord>(),
-        artifacts: new Map<string, AiArtifactRecord>()
+        artifacts: new Map<string, AiArtifactRecord>(),
+        chatImages: new Map<string, ChatImageRecord>()
       };
 
   return {
@@ -651,9 +780,78 @@ function createMemoryBackend(shared = false): StorageBackend {
       return Array.from(backing.artifacts.values()).map(cloneValue);
     },
 
+    async getChatImage(id) {
+      const hit = backing.chatImages.get(id);
+      return hit ? normalizeChatImageRecord(cloneValue(hit)) : null;
+    },
+    async getChatImagesMany(ids) {
+      return ids.map((id) => {
+        const hit = backing.chatImages.get(id);
+        return hit ? normalizeChatImageRecord(cloneValue(hit)) : null;
+      });
+    },
+    async putChatImage(record) {
+      backing.chatImages.set(record.id, cloneValue(record));
+    },
+    async putChatImagesMany(records) {
+      for (const record of records) {
+        backing.chatImages.set(record.id, cloneValue(record));
+      }
+    },
+    async deleteChatImages(ids) {
+      for (const id of ids) {
+        backing.chatImages.delete(id);
+      }
+    },
+    async getChatImagesByConversationId(conversationId) {
+      const out: ChatImageRecord[] = [];
+      for (const rec of backing.chatImages.values()) {
+        if (rec.conversationId === conversationId) {
+          const normalized = normalizeChatImageRecord(cloneValue(rec));
+          if (normalized) {
+            out.push(normalized);
+          }
+        }
+      }
+      return out;
+    },
+    async getRawChatImageIdsByConversationId(conversationId) {
+      const ids: string[] = [];
+      for (const rec of backing.chatImages.values()) {
+        if (rec.conversationId === conversationId && rec.id) {
+          ids.push(rec.id);
+        }
+      }
+      return ids;
+    },
+    async getAllChatImages() {
+      const out: ChatImageRecord[] = [];
+      for (const rec of backing.chatImages.values()) {
+        const normalized = normalizeChatImageRecord(cloneValue(rec));
+        if (normalized) {
+          out.push(normalized);
+        }
+      }
+      return out;
+    },
+    async getAllRawChatImageRefs() {
+      const out: RawChatImageRef[] = [];
+      for (const rec of backing.chatImages.values()) {
+        const ref = extractRawChatImageRef(rec);
+        if (ref) {
+          out.push(ref);
+        }
+      }
+      return out;
+    },
+    async clearChatImages() {
+      backing.chatImages.clear();
+    },
+
     async clearAll() {
       backing.pages.clear();
       backing.artifacts.clear();
+      backing.chatImages.clear();
     }
   };
 }
@@ -688,6 +886,17 @@ function normalizeArtifactList(rawAll: unknown): AiArtifactRecord[] {
   const list: AiArtifactRecord[] = [];
   for (const raw of Array.isArray(rawAll) ? rawAll : []) {
     const normalized = normalizeAiArtifactRecord(raw);
+    if (normalized) {
+      list.push(normalized);
+    }
+  }
+  return list;
+}
+
+function normalizeChatImageList(rawAll: unknown): ChatImageRecord[] {
+  const list: ChatImageRecord[] = [];
+  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+    const normalized = normalizeChatImageRecord(raw);
     if (normalized) {
       list.push(normalized);
     }
@@ -926,6 +1135,122 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
       return normalizeArtifactList(rawAll);
     },
 
+    async getChatImage(id) {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const raw = await idbRequestToPromise(store.get(id));
+      await idbTransactionToPromise(tx);
+      return normalizeChatImageRecord(raw);
+    },
+    async getChatImagesMany(ids) {
+      if (ids.length === 0) {
+        return [];
+      }
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const rawResults = await Promise.all(ids.map((id) => idbRequestToPromise(store.get(id))));
+      await idbTransactionToPromise(tx);
+      return rawResults.map((raw) => normalizeChatImageRecord(raw));
+    },
+    async putChatImage(record) {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      store.put(cloneValue(record));
+      await idbTransactionToPromise(tx);
+    },
+    async putChatImagesMany(records) {
+      if (records.length === 0) {
+        return;
+      }
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      for (const record of records) {
+        store.put(cloneValue(record));
+      }
+      await idbTransactionToPromise(tx);
+    },
+    async deleteChatImages(ids) {
+      if (ids.length === 0) {
+        return;
+      }
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      for (const id of ids) {
+        store.delete(id);
+      }
+      await idbTransactionToPromise(tx);
+    },
+    async getChatImagesByConversationId(conversationId) {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" && store.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)
+          ? await idbRequestToPromise(store.index(CHAT_IMAGES_INDEX_CONVERSATION_ID).getAll(conversationId))
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
+            );
+      await idbTransactionToPromise(tx);
+      return normalizeChatImageList(rawAll);
+    },
+    async getRawChatImageIdsByConversationId(conversationId) {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" && store.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)
+          ? await idbRequestToPromise(store.index(CHAT_IMAGES_INDEX_CONVERSATION_ID).getAll(conversationId))
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
+            );
+      await idbTransactionToPromise(tx);
+      const ids: string[] = [];
+      for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+        const ref = extractRawChatImageRef(raw);
+        if (ref?.id) {
+          ids.push(ref.id);
+        }
+      }
+      return ids;
+    },
+    async getAllChatImages() {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const rawAll = await idbRequestToPromise(store.getAll());
+      await idbTransactionToPromise(tx);
+      return normalizeChatImageList(rawAll);
+    },
+    async getAllRawChatImageRefs() {
+      const db = await openDb();
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
+      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+      const rawAll = await idbRequestToPromise(store.getAll());
+      await idbTransactionToPromise(tx);
+      const refs: RawChatImageRef[] = [];
+      for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+        const ref = extractRawChatImageRef(raw);
+        if (ref) {
+          refs.push(ref);
+        }
+      }
+      return refs;
+    },
+    async clearChatImages() {
+      const db = await openDb();
+      if (!db.objectStoreNames.contains(CHAT_IMAGES_IDB_STORE)) {
+        return;
+      }
+      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
+      tx.objectStore(CHAT_IMAGES_IDB_STORE).clear();
+      await idbTransactionToPromise(tx);
+    },
+
     async clearAll() {
       const db = await openDb();
       const storesToClear = [SUBTITLE_IDB_STORE, AI_ARTIFACTS_IDB_STORE, CHAT_IMAGES_IDB_STORE].filter((name) =>
@@ -975,6 +1300,10 @@ function selectBackend(options: SubtitleIdbStoreOptions): StorageBackend {
 export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): SubtitleIdbStore {
   const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES));
   const maxBytes = Math.max(1, Math.floor(options.maxBytes ?? DEFAULT_SUBTITLE_CACHE_MAX_BYTES));
+  const maxChatImageBytes = Math.max(
+    1,
+    Math.floor(options.maxChatImageBytes ?? DEFAULT_CHAT_IMAGES_MAX_BYTES)
+  );
   const now = options.now ?? (() => Date.now());
   const backend = selectBackend(options);
   const keepVideosMap: Record<AiArtifactFamily, number> = {
@@ -1095,6 +1424,49 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       await backend.deleteArtifacts(evictedKeys);
     }
     return evictedKeys;
+  }
+
+  async function evictChatImagesIfNeeded(protectedId: string): Promise<string[]> {
+    const allRefs = await backend.getAllRawChatImageRefs();
+    let totalBytes = allRefs.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+    if (totalBytes <= maxChatImageBytes) {
+      return [];
+    }
+
+    const candidates = allRefs
+      .filter((item) => item.id !== protectedId)
+      .sort((a, b) => {
+        if (a.lastUsedAt !== b.lastUsedAt) return a.lastUsedAt - b.lastUsedAt;
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id.localeCompare(b.id);
+      });
+
+    const evictedIds: string[] = [];
+    for (const candidate of candidates) {
+      if (totalBytes <= maxChatImageBytes) {
+        break;
+      }
+      evictedIds.push(candidate.id);
+      totalBytes -= Number(candidate.estimatedBytes) || 0;
+    }
+
+    if (evictedIds.length > 0) {
+      await backend.deleteChatImages(evictedIds);
+    }
+    return evictedIds;
+  }
+
+  async function touchChatImagesLastUsed(records: ChatImageRecord[]): Promise<void> {
+    if (records.length === 0) {
+      return;
+    }
+    try {
+      const ts = now();
+      const updated = records.map((record) => ({ ...record, lastUsedAt: ts }));
+      await backend.putChatImagesMany(updated);
+    } catch {
+      // 刷新 lastUsedAt 失败不影响已成功读出的图片
+    }
   }
 
   async function writePageMutation(
@@ -1675,6 +2047,211 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
 
         return { removedPageIds, removedArtifactKeys };
       });
+    },
+
+    async getChatImage(id: string): Promise<ChatImageRecord | null> {
+      return enqueue(async () => {
+        const cleanId = String(id || "").trim();
+        if (!cleanId) {
+          return null;
+        }
+        const record = await backend.getChatImage(cleanId);
+        if (!record) {
+          return null;
+        }
+        await touchChatImagesLastUsed([record]);
+        return cloneValue(record);
+      });
+    },
+
+    async getChatImagesMany(ids: string[]): Promise<Array<ChatImageRecord | null>> {
+      return enqueue(async () => {
+        const cleanIds = (Array.isArray(ids) ? ids : []).map((id) => String(id || "").trim());
+        if (cleanIds.length === 0) {
+          return [];
+        }
+        const hits = await backend.getChatImagesMany(cleanIds);
+        const nonNull = hits.filter((rec): rec is ChatImageRecord => rec !== null);
+        if (nonNull.length > 0) {
+          await touchChatImagesLastUsed(nonNull);
+        }
+        return hits.map((rec) => (rec ? cloneValue(rec) : null));
+      });
+    },
+
+    async putChatImage(input: PutChatImageInput): Promise<ChatImageWriteResult> {
+      return enqueue(async () => {
+        const cleanId = String(input?.id || "").trim();
+        const cleanConvId = String(input?.conversationId || "").trim();
+        const cleanBvid = String(input?.bvid ?? "").trim();
+        const cleanMime = typeof input?.mime === "string" ? input.mime.trim() : "";
+        const cleanData = typeof input?.data === "string" ? input.data : "";
+        if (!cleanId || !cleanConvId || !cleanMime || !cleanData) {
+          return {
+            ok: false,
+            evictedIds: [],
+            error: new Error("Invalid chat_image id, conversationId, mime or data")
+          };
+        }
+        try {
+          if (writeInterceptor) {
+            await writeInterceptor({
+              op: "put-chat-image",
+              pageId: "",
+              bvid: cleanBvid,
+              cid: "",
+              trackKey: cleanId,
+              key: cleanId,
+              conversationId: cleanConvId
+            });
+          }
+          const ts = now();
+          const existing = await backend.getChatImage(cleanId);
+          const createdAt =
+            Number.isFinite(Number(input.createdAt)) && Number(input.createdAt) > 0
+              ? Number(input.createdAt)
+              : existing?.createdAt && existing.createdAt > 0
+                ? existing.createdAt
+                : ts;
+          const updatedAt =
+            Number.isFinite(Number(input.updatedAt)) && Number(input.updatedAt) > 0
+              ? Number(input.updatedAt)
+              : ts;
+          const lastUsedAt =
+            Number.isFinite(Number(input.lastUsedAt)) && Number(input.lastUsedAt) > 0
+              ? Number(input.lastUsedAt)
+              : ts;
+          const record: ChatImageRecord = {
+            id: cleanId,
+            conversationId: cleanConvId,
+            bvid: cleanBvid,
+            mime: cleanMime,
+            data: cleanData,
+            estimatedBytes: 0,
+            createdAt,
+            updatedAt,
+            lastUsedAt
+          };
+          record.estimatedBytes = estimateChatImageRecordBytes(record);
+          if (record.estimatedBytes > maxChatImageBytes) {
+            return {
+              ok: false,
+              evictedIds: [],
+              error: new Error(
+                `Chat image ${cleanId} (${record.estimatedBytes} B) exceeds maxChatImageBytes (${maxChatImageBytes} B)`
+              )
+            };
+          }
+          await backend.putChatImage(record);
+          const evictedIds = await evictChatImagesIfNeeded(cleanId);
+          return {
+            ok: true,
+            evictedIds,
+            estimatedBytes: record.estimatedBytes
+          };
+        } catch (err) {
+          return {
+            ok: false,
+            evictedIds: [],
+            error: err instanceof Error ? err : new Error(String(err))
+          };
+        }
+      });
+    },
+
+    async deleteChatImages(ids: string[]): Promise<string[]> {
+      return enqueue(async () => {
+        const uniqueIds = Array.from(
+          new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || "").trim()).filter(Boolean))
+        );
+        if (uniqueIds.length === 0) {
+          return [];
+        }
+        await backend.deleteChatImages(uniqueIds);
+        return uniqueIds;
+      });
+    },
+
+    async deleteChatImagesByConversationIds(conversationIds: string[]): Promise<string[]> {
+      return enqueue(async () => {
+        const uniqueConvIds = Array.from(
+          new Set(
+            (Array.isArray(conversationIds) ? conversationIds : [])
+              .map((id) => String(id || "").trim())
+              .filter(Boolean)
+          )
+        );
+        if (uniqueConvIds.length === 0) {
+          return [];
+        }
+        const idsToDelete = new Set<string>();
+        for (const convId of uniqueConvIds) {
+          const matchedIds = await backend.getRawChatImageIdsByConversationId(convId);
+          for (const id of matchedIds) {
+            idsToDelete.add(id);
+          }
+        }
+        const removedIds = Array.from(idsToDelete);
+        if (removedIds.length > 0) {
+          await backend.deleteChatImages(removedIds);
+        }
+        return removedIds;
+      });
+    },
+
+    async pruneChatImages(input: PruneChatImagesInput): Promise<string[]> {
+      return enqueue(async () => {
+        const validConvIds = new Set(
+          (Array.isArray(input?.validConversationIds) ? input.validConversationIds : [])
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
+        );
+        const hasKeepIds = Array.isArray(input?.keepImageIds);
+        const keepIds = hasKeepIds
+          ? new Set(
+              (input.keepImageIds ?? [])
+                .map((id) => String(id || "").trim())
+                .filter(Boolean)
+            )
+          : null;
+
+        const allRefs = await backend.getAllRawChatImageRefs();
+        const orphanIds: string[] = [];
+        for (const ref of allRefs) {
+          const convInvalid = !ref.conversationId || !validConvIds.has(ref.conversationId);
+          const refInvalid = keepIds !== null && !keepIds.has(ref.id);
+          if (convInvalid || refInvalid) {
+            orphanIds.push(ref.id);
+          }
+        }
+        if (orphanIds.length > 0) {
+          await backend.deleteChatImages(orphanIds);
+        }
+        return orphanIds;
+      });
+    },
+
+    async clearAllChatImages(): Promise<string[]> {
+      return enqueue(async () => {
+        const allRefs = await backend.getAllRawChatImageRefs();
+        const removedIds = allRefs.map((ref) => ref.id);
+        await backend.clearChatImages();
+        return removedIds;
+      });
+    },
+
+    async listChatImagesByConversationId(conversationId: string): Promise<ChatImageRecord[]> {
+      return enqueue(async () => {
+        const cleanConvId = String(conversationId || "").trim();
+        if (!cleanConvId) {
+          return [];
+        }
+        return backend.getChatImagesByConversationId(cleanConvId);
+      });
+    },
+
+    async listAllChatImages(): Promise<ChatImageRecord[]> {
+      return enqueue(() => backend.getAllChatImages());
     },
 
     async clearAll() {

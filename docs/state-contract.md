@@ -137,16 +137,36 @@ database `biliscript-subtitle-store` (schema v2, `extension/subtitle/idb-store.t
 | --- | --- | --- | --- |
 | `subtitle_pages` | `${bvid}:${cid}` | `by_lastUsed`, `by_bvid` | Three-tier subtitle tracks (`rawTracks`, `segmentedTracks`, `translatedTracks`); dual-threshold LRU capped at **100 pages / 150 MB** (`lastUsed` refreshed on hit). When a page is evicted due to cap, `by_bvid` is checked and only when no pages remain for that `bvid` are same-`bvid` entries in `ai_artifacts` cascade-deleted. |
 | `ai_artifacts` | `key` | `by_family_bvid`, `by_family_lastUsedAt`, `by_bvid`, `by_lastUsedAt` | Four AI artifact families with per-family video-count (`bvid`) LRU caps (`lastUsedAt` refreshed on hit): `biliscript_lvs_l1_index_` (**100** videos, plus 16-entry bounded in-memory LRU in `ai/l1-chapter-index.ts`), `biliscript_lvs_analysis_final_` (**100** videos), `biliscript_lvs_analysis_` (**20** videos), `biliscript_lvs_summary_` (**20** videos). |
-| `chat_images` | `id` | `by_conversationId`, `by_bvid`, `by_lastUsedAt` | Reserved empty table for subsequent conversation image storage migration (no schema bump required later). |
+| `chat_images` | `id` | `by_conversationId`, `by_bvid`, `by_lastUsedAt` | Externalized conversation message images (`{ id, conversationId, bvid, mime, data, estimatedBytes, createdAt, updatedAt, lastUsedAt }`). `biliscript_ai_conversations_v1` in `chrome.storage.local` stores lightweight `{ mime, idbRef }` references while in-memory conversation state stays hydrated as `{ mime, data }`. Protected by an **80 MB** total-byte LRU cap (`lastUsedAt` refreshed on read) plus synchronous orphan reclamation via `by_conversationId` and active-reference pruning. |
 
 ### Origin isolation, migration & video-level cleanup
 
 - **Origin isolation (SW RPC)**: Content-script callers (`subtitle/cache.ts`, `ai/l1-chapter-index.ts`,
-  `ai/analysis-orchestrate.ts`) never touch `globalThis.indexedDB` on `http:`/`https:` origins;
-  `extension/subtitle/store-client.ts` routes all reads, writes, and clears through the existing
-  `subtitle-cache` message family (`extension/subtitle/subtitle-cache-handler.ts`) in the Service
-  Worker. Offscreen chat workers (`ai/ladder.ts`) continue to reach SW segment/L1 caches exclusively
-  through `segment-cache` messages (`ai/segment-cache-proxy.ts`) without bundling cache modules.
+  `ai/analysis-orchestrate.ts`, `chat/conversation-storage.ts`) never touch `globalThis.indexedDB` on
+  `http:`/`https:` origins; `extension/subtitle/store-client.ts` routes all reads, writes, and clears
+  through the existing `subtitle-cache` message family (`extension/subtitle/subtitle-cache-handler.ts`)
+  in the Service Worker. Offscreen chat workers (`ai/ladder.ts`) continue to reach SW segment/L1 caches
+  exclusively through `segment-cache` messages (`ai/segment-cache-proxy.ts`) without bundling cache
+  modules.
+- **Conversation image externalization & hydration (`extension/chat/conversation-storage.ts`)**:
+  - *Write ordering (no dangling references)*: On save, every new image is written to `chat_images`
+    first; only after the IDB write confirms `ok: true` is `{ mime, idbRef }` written into
+    `biliscript_ai_conversations_v1`. If a single image fails to write to IDB (or SW RPC errors), that
+    image falls back to inline `{ mime, data }` with a warning so no dangling `idbRef` is ever persisted.
+    If `storage.local.set` fails after writing new images, those newly written IDB records are rolled back.
+  - *Read hydration & single-image fault tolerance*: Loading history batch-fetches all referenced `idbRef`
+    records via `get-chat-images` and hydrates them back to `{ mime, data }`. If an individual record is
+    missing, corrupted, or the RPC fails, only the affected image is degraded (safely skipped with a
+    warning) while conversation text and all other valid images still load normally.
+  - *Legacy inline base64 lazy migration*: When reading legacy conversations containing inline
+    `{ mime, data }` images, `readConversationHistory` returns the hydrated conversations normally and
+    lazily writes those inline images to `chat_images` first, replacing only successfully persisted
+    entries in `biliscript_ai_conversations_v1` with `{ mime, idbRef }` (idempotent write-then-replace).
+  - *Orphan reclamation & capacity cap*: Deleting a conversation, clearing all conversations, overwriting
+    a conversation with an image removed/replaced, or evicting the oldest conversation beyond the 60-entry
+    cap synchronously removes obsolete `chat_images` records via the `by_conversationId` index and prunes
+    unreferenced orphan records (also available via `pruneOrphanChatImages`). `chat_images` further
+    enforces an **80 MB** total-byte LRU cap (`evictChatImagesIfNeeded`) to prevent unbounded growth.
 - **Write-then-delete migration**:
   - *Read-path lazy migration*: On an `ai_artifacts` miss, `extension/subtitle/ai-artifact-cache.ts`
     checks legacy `chrome.storage.local` by exact key or `getKeys()` prefix, writes the record to

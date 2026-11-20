@@ -1,6 +1,6 @@
-// 字幕与 AI 产物分层 IndexedDB 仓库的 SW 端消息 handler：
+// 字幕、AI 产物与对话图片分层 IndexedDB 仓库的 SW 端消息 handler：
 // 页面内容脚本无扩展源 IndexedDB 访问权限（按页面 origin 隔离会无法与 SW/agent-bridge 共享），
-// 故经本消息族在扩展源（Service Worker）读写 `biliscript-subtitle-store`（subtitle_pages + ai_artifacts）。
+// 故经本消息族在扩展源（Service Worker）读写 `biliscript-subtitle-store`（subtitle_pages + ai_artifacts + chat_images）。
 
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import {
@@ -175,7 +175,63 @@ export function createSubtitleCacheHandler(
           removedPageIds: res.removedPageIds,
           removedArtifactKeys: res.removedArtifactKeys
         };
-      }
+      },
+      "get-chat-image": async (message) => ({
+        ok: true,
+        handled: true,
+        chatImage: await store.getChatImage(String(message.id || ""))
+      }),
+      "get-chat-images": async (message) => ({
+        ok: true,
+        handled: true,
+        chatImages: await store.getChatImagesMany(Array.isArray(message.ids) ? message.ids : [])
+      }),
+      "put-chat-image": async (message) => {
+        const input = message.chatImage;
+        if (!input || typeof input !== "object") {
+          return { ok: false, handled: true, error: "缺少对话图片写入参数" };
+        }
+        const res = await store.putChatImage({
+          id: String(input.id || ""),
+          conversationId: String(input.conversationId || ""),
+          ...(input.bvid !== undefined ? { bvid: String(input.bvid) } : {}),
+          mime: typeof input.mime === "string" ? input.mime : "",
+          data: typeof input.data === "string" ? input.data : "",
+          ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
+          ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {}),
+          ...(input.lastUsedAt !== undefined ? { lastUsedAt: input.lastUsedAt } : {})
+        });
+        return res.ok
+          ? { ok: true, handled: true, evictedIds: res.evictedIds, estimatedBytes: res.estimatedBytes }
+          : { ok: false, handled: true, error: res.error?.message || "写入对话图片缓存失败" };
+      },
+      "delete-chat-images": async (message) => ({
+        ok: true,
+        handled: true,
+        removedIds: await store.deleteChatImages(Array.isArray(message.ids) ? message.ids : [])
+      }),
+      "delete-chat-images-by-conversations": async (message) => ({
+        ok: true,
+        handled: true,
+        removedIds: await store.deleteChatImagesByConversationIds(
+          Array.isArray(message.conversationIds) ? message.conversationIds : []
+        )
+      }),
+      "prune-chat-images": async (message) => ({
+        ok: true,
+        handled: true,
+        removedIds: await store.pruneChatImages({
+          validConversationIds: Array.isArray(message.validConversationIds)
+            ? message.validConversationIds
+            : [],
+          ...(Array.isArray(message.keepImageIds) ? { keepImageIds: message.keepImageIds } : {})
+        })
+      }),
+      "clear-chat-images": async () => ({
+        ok: true,
+        handled: true,
+        removedIds: await store.clearAllChatImages()
+      })
     }
   });
 }

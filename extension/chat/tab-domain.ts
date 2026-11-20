@@ -77,6 +77,10 @@ export {
   CONVERSATIONS_STORAGE_KEY,
   syncSavedConversationsFromStorage
 } from "./conversation-store.js";
+export {
+  hasExternalizedChatImages,
+  readConversationHistory
+} from "./conversation-storage.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
 export type { ViewResetIntent } from "./view-intent.js";
 

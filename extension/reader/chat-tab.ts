@@ -77,7 +77,9 @@ import {
   applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
+  hasExternalizedChatImages,
   parseModelOptionValue,
+  readConversationHistory,
   rebuildCurrentContextKeyFromContext,
   syncSavedConversationsFromStorage,
   type ViewResetIntent
@@ -765,11 +767,19 @@ const sessionTriggers = createReaderChatSessionTriggers({
       syncMoreMenuSlidersPatch(patch);
     });
     const unwatchConversations = watchStorageKeys((changes) => {
-      if (
-        CONVERSATIONS_STORAGE_KEY in changes &&
-        syncSavedConversationsFromStorage(changes[CONVERSATIONS_STORAGE_KEY]?.newValue)
-      ) {
+      if (!(CONVERSATIONS_STORAGE_KEY in changes)) {
+        return;
+      }
+      const rawNext = changes[CONVERSATIONS_STORAGE_KEY]?.newValue;
+      if (syncSavedConversationsFromStorage(rawNext)) {
         lists.renderHistoryList();
+        if (hasExternalizedChatImages(rawNext) && typeof chrome !== "undefined" && chrome.storage?.local) {
+          void readConversationHistory(chrome.storage.local)
+            .then(() => {
+              lists.renderHistoryList();
+            })
+            .catch(() => {});
+        }
       }
     }, {
       local: [CONVERSATIONS_STORAGE_KEY]
