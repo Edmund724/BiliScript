@@ -50,7 +50,7 @@ import { getReaderActiveScriptTab, ids } from "./state.js";
 // B 形态右栏 文摘面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
 // 只剩 video-bind + script-host。
 import { openScriptHost, closeScriptHost, waitForScriptAnchor } from "./script-host.js";
-import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
+
 // tab 位置持久化叶子（2026-10 用户决议）：进入阅读模式时恢复上次所在标签，
 // 不再一律重置回「字幕」——取值在 reader/script-tab-persistence（chrome.storage
 // .local）。落值与二级激活单点在标签激活属主 reader/script-tab-activation
@@ -301,6 +301,7 @@ import {
   stopReadingViewSync,
   syncReadingViewPlayback,
   noteManualReaderInteraction,
+  resetReaderScrollFollow,
   updateReaderFollowState
 } from "./sync.js";
 
@@ -436,6 +437,7 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
   reset() {
     clearSubtitleNotice();
     stopReadingViewSync();
+    resetReaderScrollFollow();
     closeReaderExplainCard();
     closeQuoteShareModal({ restoreFocus: false });
     closeCommandPalette();
@@ -691,8 +693,8 @@ export function closeReadingView() {
   state.reader.setNextScrollBehavior("smooth");
   // Scroll deadlines moved to sync.js with the sync domain; reset them there
   // so a later manual interaction is never swallowed by stale deadlines.
-  resetManualScrollPause();
-  setProgrammaticScrollUntil(0);
+  resetReaderScrollFollow();
+
   readingView.classList.remove("open", "closing", "reader-page");
   readingView.hidden = true;
   setReadingViewInert(readingView, false);

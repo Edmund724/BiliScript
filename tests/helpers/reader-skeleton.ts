@@ -228,11 +228,25 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   readingSubtitleList.id = ids.readingSubtitleList;
   readingMain.appendChild(readingSubtitleList);
 
-  // PR3 Follow playback 悬浮按钮 + 句上「解释」浮层（含按钮，真实模板同构）
+  // PR3 Follow playback 悬浮胶囊 + 句上「解释」浮层（含按钮，真实模板同构）
   const followBtn = doc.createElement("button");
   followBtn.type = "button";
   followBtn.id = ids.readingFollowBtn;
   followBtn.className = "biliscript-reading-follow-btn";
+  const followLabel = doc.createElement("span");
+  followLabel.className = "biliscript-reading-follow-label";
+  followLabel.textContent = "回到当前播放";
+  const followMeta = doc.createElement("span");
+  followMeta.className = "biliscript-reading-follow-meta";
+  followMeta.hidden = true;
+  const followSep = doc.createElement("span");
+  followSep.className = "biliscript-reading-follow-sep";
+  followSep.setAttribute("aria-hidden", "true");
+  followSep.textContent = " · ";
+  const followTime = doc.createElement("span");
+  followTime.className = "biliscript-reading-follow-time";
+  followMeta.append(followSep, followTime);
+  followBtn.append(followLabel, followMeta);
   tabBodySubtitle.appendChild(followBtn);
 
   const explainPop = doc.createElement("div");

@@ -75,7 +75,14 @@ import {
   resolveTrackTarget
 } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-import { isProgrammaticScrolling, isReadingSubtitleBodyVisible, ids } from "./state.js";
+import { isReadingSubtitleBodyVisible, ids } from "./state.js";
+import {
+  FOLLOW_BUTTON_LABEL,
+  isElementScrollable,
+  isPointerOnVerticalScrollbar,
+  projectReaderFollowUi,
+  subtitleScrollFollow
+} from "./subtitle-scroll-follow.js";
 // 阅读域设置键面（主表派生）：双语两键的收敛订阅从它取，不手抄键数组。
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import { state } from "../core/state.js";
@@ -199,10 +206,10 @@ export function buildSubtitleTabBodyHtml(): string {
               <div id="${ids.readingSubtitleList}" class="biliscript-reading-subtitle"></div>
             </section>
 
-            <!-- Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow
-                 （manual/auto）的 CSS 驱动，点击恢复跟随并跳回当前句；形态与
-                 .biliscript-reading-explain-btn 同族（见 reader.css 段注） -->
-            <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn">跟随播放</button>
+            <!-- Follow playback 悬浮胶囊：显隐由 data-biliscript-reader-follow
+                 （manual/auto）的 CSS 驱动，实时展示当前视频进度；点击平滑滚回当前高亮句
+                 并恢复自动跟随。 -->
+            <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn"><span class="biliscript-reading-follow-label">${FOLLOW_BUTTON_LABEL}</span><span class="biliscript-reading-follow-meta" hidden><span class="biliscript-reading-follow-sep" aria-hidden="true"> · </span><span class="biliscript-reading-follow-time"></span></span></button>
   `;
 }
 
@@ -1215,35 +1222,104 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     withReader("resume reader follow", (reader) => reader.resumeReaderFollowPlayback());
   });
 
-  // ===== 字幕列表交互（手动滚动暂停 + 点句跳转；实现在 reader/sync.ts） =====
+  // ===== 字幕列表交互（手动滚动即时暂停跟随 + 点句跳播恢复；状态机在 subtitle-scroll-follow.ts） =====
   const subtitleList = byId(ids.readingSubtitleList);
-  // scroll/wheel 是高频路径，每事件一次 withReader 都要分配 promise：250ms
-  // 节流（与 sync tick 同档）首发立即透传、窗口内丢弃。滚动期间记录手动交互，
-  // 保持手动浏览态。
-  const MANUAL_SCROLL_THROTTLE_MS = 250;
-  let lastManualScrollAt = 0;
-  const handleReaderManualScroll = () => {
-    if (isProgrammaticScrolling()) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastManualScrollAt < MANUAL_SCROLL_THROTTLE_MS) {
-      return;
-    }
-    lastManualScrollAt = now;
-    // 高频路径：首次交互装载 reader 域，其后命中缓存 promise；装载失败静默
-    //（下次交互自然重试，避免滚动期间刷日志）。
-    withReader(null, (reader) => reader.noteManualReaderInteraction());
+  const syncManualFollowUi = () => {
+    projectReaderFollowUi(subtitleScrollFollow.getMode());
   };
-  subtitleList.addEventListener("scroll", handleReaderManualScroll);
-  subtitleList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
-  subtitleList.addEventListener("pointerdown", () => {
+  subtitleList.addEventListener(
+    "wheel",
+    (event) => {
+      if (
+        subtitleScrollFollow.handleWheel({
+          deltaY: event.deltaY,
+          deltaX: event.deltaX,
+          canScroll: isElementScrollable(subtitleList)
+        })
+      ) {
+        syncManualFollowUi();
+      }
+    },
+    { passive: true }
+  );
+  subtitleList.addEventListener(
+    "touchmove",
+    () => {
+      if (
+        subtitleScrollFollow.handleTouchMove({
+          canScroll: isElementScrollable(subtitleList)
+        })
+      ) {
+        syncManualFollowUi();
+      }
+    },
+    { passive: true }
+  );
+  subtitleList.addEventListener(
+    "scroll",
+    () => {
+      if (subtitleScrollFollow.handleScroll({ scrollTop: subtitleList.scrollTop })) {
+        syncManualFollowUi();
+      }
+    },
+    { passive: true }
+  );
+  subtitleList.addEventListener(
+    "scrollend",
+    () => {
+      subtitleScrollFollow.handleScrollEnd();
+    },
+    { passive: true }
+  );
+  subtitleList.addEventListener("keydown", (event) => {
+    const target = event.target;
+    const editable =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (
+      subtitleScrollFollow.handleKeyDown({
+        key: event.key,
+        canScroll: isElementScrollable(subtitleList),
+        editable
+      })
+    ) {
+      syncManualFollowUi();
+    }
+  });
+  subtitleList.addEventListener("pointerdown", (event) => {
     const hasSelection = Boolean(window.getSelection()?.toString().trim());
     withReader(null, (reader) => {
       reader.markSubtitlePointerDownSelection(hasSelection);
-      reader.noteManualReaderInteraction();
     });
+    const isDirectContainer = event.target === subtitleList;
+    const isScrollbar =
+      isDirectContainer && isPointerOnVerticalScrollbar(subtitleList, event.clientX);
+    if (
+      subtitleScrollFollow.handlePointerDown({
+        isDirectContainer,
+        isScrollbar,
+        canScroll: isElementScrollable(subtitleList)
+      })
+    ) {
+      syncManualFollowUi();
+    }
   });
+  const docWithPointerUp = document as Document & {
+    __biliscriptSubtitleScrollPointerUp?: () => void;
+  };
+  if (docWithPointerUp.__biliscriptSubtitleScrollPointerUp) {
+    window.removeEventListener("pointerup", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
+    window.removeEventListener("pointercancel", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
+    window.removeEventListener("blur", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
+  }
+  const onScrollPointerRelease = () => {
+    subtitleScrollFollow.handlePointerUp();
+  };
+  docWithPointerUp.__biliscriptSubtitleScrollPointerUp = onScrollPointerRelease;
+  window.addEventListener("pointerup", onScrollPointerRelease, { passive: true });
+  window.addEventListener("pointercancel", onScrollPointerRelease, { passive: true });
+  window.addEventListener("blur", onScrollPointerRelease, { passive: true });
   let retryFetchInFlight = false;
   subtitleList.addEventListener("click", (event) => {
     // 配置类无字幕空态「前往设置」：直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。

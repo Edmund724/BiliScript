@@ -81,10 +81,12 @@ describe("Follow playback 悬浮按钮", () => {
     shell.syncReadingViewPlayback(true);
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
 
-    // 用户滚离 → 手动暂停（manual）
+    // 用户滚离 → 手动暂停（manual）并显示当前播放进度
     shell.noteManualReaderInteraction(60_000);
     expect(followValue()).toBe("manual");
     expect(readerState.isManualScrollPaused()).toBe(true);
+    const followBtn = document.getElementById(ids.readingFollowBtn) as HTMLElement;
+    expect(followBtn.textContent).toBe("回到当前播放 · 0:12");
 
     shell.resumeReaderFollowPlayback();
     expect(readerState.isManualScrollPaused()).toBe(false);

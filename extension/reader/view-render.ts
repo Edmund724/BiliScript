@@ -33,6 +33,7 @@ import {
 } from "./subtitle-item-dom.js";
 import { applyReadingViewPresentation } from "./presentation.js";
 import { ids } from "./state.js";
+import { subtitleScrollFollow } from "./subtitle-scroll-follow.js";
 import { projectReaderSettingsMode } from "./settings-mode.js";
 import {
   applySubtitleHighlightsToList,
@@ -87,6 +88,9 @@ function projectReadingSubtitleList(): void {
   const withHours = shouldShowHoursInNote(state, body);
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
+  // 重建列表可能引发浏览器钳制 scrollTop 并异步派发 scroll；auto 态下加程序化守卫，
+  // 避免切集/首载重建误判为手动滚动（manual 态不改动）。
+  subtitleScrollFollow.guardLayoutReset();
   clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {
     const isEmpty = state.clip.subtitleFetchState === "empty";

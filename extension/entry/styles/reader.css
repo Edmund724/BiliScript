@@ -1174,16 +1174,27 @@
   transform: translateX(-50%);
   z-index: 6;
   border: 1px solid var(--biliscript-reader-border);
-  padding: 5px 14px;
+  padding: 6px 14px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
-  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-size: var(--btn-font-size, var(--biliscript-font-size-xs));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(var(--biliscript-primitive-color-black-rgb), 0.14);
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background-color 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out;
+}
+
+.biliscript-reading-follow-sep {
+  opacity: 0.55;
+}
+
+.biliscript-reading-follow-time {
+  font-variant-numeric: tabular-nums;
 }
 
 .biliscript-reading-follow-btn:hover {
@@ -1206,6 +1217,25 @@
 #biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  animation: biliscript-follow-pill-in var(--biliscript-reader-duration-fast, 160ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+@keyframes biliscript-follow-pill-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn {
+    animation: none;
+  }
 }
 
 .biliscript-reading-tab-body.is-transcribing .biliscript-reading-follow-btn {

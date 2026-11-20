@@ -57,7 +57,7 @@ export { markSubtitlePointerDownSelection } from "./sync.js";
 export { noteManualReaderInteraction } from "./sync.js";
 export { updateReaderFollowState } from "./sync.js";
 // PR3：Follow playback 悬浮按钮的恢复跟随回调
-export { resumeReaderFollowPlayback } from "./sync.js";
+export { resumeReaderFollowPlayback, resetReaderScrollFollow } from "./sync.js";
 
 // ===== 字幕 tab：句内搜索 / 转写中间态横幅 =====
 

@@ -2,7 +2,7 @@
 // formerly the subtitle-sync.js segment, issue 06+).
 //
 // Deep module owning the sync timer and the manual/programmatic scroll-pause
-// deadlines, plus the reader 域唯一定位入口 seekReadingTarget（阅读视图内点击
+// coordination, plus the reader 域唯一定位入口 seekReadingTarget（阅读视图内点击
 // 与侧栏时间戳 seek 的共享规范序）。
 //
 // Layer graph (acyclic; reader-bus 端口组是逆依赖的唯一通道):
@@ -12,7 +12,8 @@
 //                               module-level closure: scroll-pause variables,
 //                               timer variables
 //   SYNC      sync.js（本文件）                     → LAYOUT + ports
-//                               syncTimer lives here; scroll deadlines live here;
+//                               syncTimer lives here; scroll state machine lives
+//                               in ./subtitle-scroll-follow.ts;
 //                               video 事件绑定经静态边 import ./video-bind.js
 //   LIFECYCLE lifecycle.js                          → SYNC + LAYOUT
 //
@@ -20,25 +21,19 @@
 // sync-domain behavior call it through the explicit reader ports group
 // (reader-bus.ts, registered once by lifecycle.js), keeping the dependency graph
 // acyclic: SYNC → LAYOUT. 不允许任何 `?.[` 式静默端口调用回潮。
-//
-// B 形态收尾：player-host/hover-chrome 随整页接管退役。原 stop 路径
-// 的 clearLayoutTimersForSyncStop/closeReaderCleanup/stopReaderPlayerObserver/
-// unbindReaderPlayerControlsHover、tick 的 native 布局调度与 playerChanged →
-// queueEnsureReaderPlayerMounted 均已删除——video 重绑由 bindReadingViewVideo
-// 兜底（readingVideoEl 变化即重绑）。
 import { state } from "../core/state.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { findActiveSubtitleIndex, findActiveChapterIndex } from "../subtitle/core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
   ids,
-  isManualScrollPaused,
   isReadingOverviewBodyVisible,
-  isReadingSubtitleBodyVisible,
-  resetManualScrollPause,
-  setManualScrollPaused,
-  setProgrammaticScrollUntil
+  isReadingSubtitleBodyVisible
 } from "./state.js";
+import {
+  projectReaderFollowUi,
+  subtitleScrollFollow
+} from "./subtitle-scroll-follow.js";
 import { bindReadingViewVideo, unbindReadingViewVideoSync } from "./video-bind.js";
 // 候选02 分层惰性：状态栏文案属常驻微模块，直接 import（不再经 player-host 转发）。
 import { showSubtitleNotice } from "./subtitle-notice.js";
@@ -55,10 +50,6 @@ import { createDisposableContext, type DisposableContext } from "../shared/typed
 
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
-//
-// syncTimer (readingSyncTimer) moved here with the sync domain.
-// manualScrollPauseUntil / programmaticScrollUntil live in ./state.js,
-// the shared leaf both this module and the LAYOUT layer read/write directly.
 let syncScope: DisposableContext | null = null;
 let hadSelectionOnPointerDown = false;
 
@@ -90,56 +81,36 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
   }
 
   const currentTime = overrideTime !== undefined ? overrideTime : (Number(bound.currentTime || 0) || 0);
-  // P3-1：字幕 tab 可见性判定（tick 的滚动/高亮段开关）——判定输入全部来自状态
-  // 位（候选06：视图开关 / 当前标签 / 设置抽屉展开，谓词单点在 reader/state.js 的
-  // isReadingSubtitleBodyVisible），与 CSS 三条隐藏通道（reader.css 的
-  // :not(.is-active) 与 [hidden]、reader-settings-shell.css 的设置抽屉兄弟选择器）
-  // 同口径；此前反解 DOM class（CONTEXT「文摘面板」词条的 Avoid 项）。
-  // efficient-background-processing：渲染不可见（切到概览/AI 对话，或设置抽屉
-  // 展开时三 tab body 被 CSS 压成 display:none）时，高亮/滚动段对用户无呈现效果
-  // ——整段跳过，省掉 findActiveSubtitleIndex/findActiveChapterIndex 与高亮/滚动
-  // DOM 写。索引状态刻意不更新：切回字幕 tab 后的首拍索引必与旧值不同，
-  // shouldScroll 自然为真，补上高亮与滚动（最多延迟一拍）。跟随态属性
-  //（#biliscript-reading-view，header「手动浏览中」标注常显）与转写横幅进度行
-  // 与 tab 无关，照常收敛。
+  // 字幕 tab 可见性判定（tick 的滚动/高亮段开关）——判定输入全部来自状态位
+  // （isReadingSubtitleBodyVisible），渲染不可见时跳过高亮/滚动 DOM 写。
   if (isReadingSubtitleBodyVisible()) {
     const subtitleIndex = findActiveSubtitleIndex(currentTime);
     const chapterIndex = findActiveChapterIndex(currentTime);
-    // 自动滚动开启：目标句变化即触发滚动（手动浏览中暂停跟随，点击「跟随播放」或点句跳转恢复）。
+    // 自动滚动开启：目标句变化即触发居中滚动（手动浏览中暂停跟随，点击回位胶囊或点句跳播恢复）。
     // forceScroll 由 seek/恢复跟随路径显式传入。
     const shouldScroll =
       forceScroll ||
       subtitleIndex !== state.reader.readingActiveSubtitleIndex ||
       chapterIndex !== state.reader.readingActiveChapterIndex;
 
-    setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll);
+    setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll, currentTime);
+    if (!shouldScroll && state.reader.readingNextScrollBehavior === "auto") {
+      state.reader.setNextScrollBehavior("smooth");
+    }
   }
   if (isReadingOverviewBodyVisible()) {
     syncReadingOverviewActiveChapter(currentTime);
   }
-  updateReaderFollowState();
-  // 播放进度不写面板（2026-09 用户决议）：位置反馈由字幕列表的自动高亮承担。
-  // PR3：转写横幅随 tick 收敛（转写期间 onProgress 持续改写状态文本
-  // state.ui.statusText，进度行需要跟着该文本刷新；显隐脏检查在
-  // updateReadingTranscribeBanner 内部）。
+  updateReaderFollowState(currentTime);
   updateReadingTranscribeBanner();
 }
 
-// 候选10 批1：上次激活高亮的缓存（字幕）。index 未变且上次写入的节点仍连接
-// 在文档时，整段跳过 querySelector 与 classList 写。列表整段重建
-//（renderReadingView）会使旧节点脱离文档、缓存自动失效回退到现查；分批渲染
-// 未追到目标时节点为 null，同样回退现查（条目上屏后的下一拍自然补上高亮）。
-// 概览章节高亮同样纳入缓存（命中节点仍连接且时间仍在章界窗口内时 O(1) 短路）。
+// 上次激活高亮的缓存（字幕与概览章节）：命中且仍在文档树内时跳过 DOM 查询与 classList 写。
 const lastActiveItems: { subtitle: ActiveItemCache; overviewChapter: OverviewChapterCache } = {
   subtitle: { index: -1, node: null },
   overviewChapter: { node: null, minTime: 0, maxTime: -1 }
 };
 
-// 解析本次应激活的节点：命中缓存时返回 unchanged=true（DOM 已是目标状态，
-// 不需要任何 querySelector / classList 写）；未命中时按旧逻辑现查 next 与
-// current——current 优先复用缓存里的旧激活节点（它就是上次被本函数加上
-// is-active 的节点，语义等价且省一次 querySelector），旧节点已脱离文档时
-// 退回 ".is-active" 现查，行为与原实现一致。
 interface OverviewChapterCache {
   node: HTMLElement | null;
   minTime: number;
@@ -215,7 +186,12 @@ function resolveActiveItem(cached: ActiveItemCache, index: number, list: HTMLEle
   return { next, current, unchanged: false };
 }
 
-function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shouldScroll = false) {
+function setActiveReadingItems(
+  subtitleIndex: number,
+  chapterIndex: number,
+  shouldScroll = false,
+  currentTime?: number
+) {
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   // 官方章节索引只用于字幕跟随；概览高亮由 syncReadingOverviewActiveChapter 按概览章界独立计算并缓存。
   const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
@@ -232,29 +208,23 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
   }
 
   // 滚动落位失败且补渲染仍在途（被单帧上限截断）时不给 active 索引记账：
-  // 下一拍（非 force）shouldScroll 因索引差继续为真，条目随 rAF 上屏后自动
-  // 补滚动。若照常记账，后续 tick shouldScroll 恒假，暂停中的视频永不补滚。
+  // 下一拍（非 force）shouldScroll 因索引差继续为真，条目随 rAF 上屏后自动补滚动。
   let scrollDeferred = false;
 
   if (shouldScroll) {
-    if (isManualScrollPaused()) {
-      updateReaderFollowState();
+    if (subtitleScrollFollow.isManualPaused()) {
+      updateReaderFollowState(currentTime);
       state.reader.setActiveSubtitleIndex(subtitleIndex);
       state.reader.setActiveChapterIndex(chapterIndex);
       return;
     }
     let scrollSubtitleNode = subtitleHit.next;
-    // 候选10 批2：字幕列表分批渲染后，跳转/跟随的目标条目可能还没追加上屏。
+    // 字幕列表分批渲染后，跳转/跟随的目标条目可能还没追加上屏。
     // 先同步补渲染到目标 index 再取节点滚动，保证「跳不过去」不发生。
     if (!scrollSubtitleNode && subtitleIndex >= 0) {
-      // 候选06：补渲染实现属 LIFECYCLE（分批渲染状态机在 lifecycle.js），经
-      // 显式端口回调（lifecycle 启动时注册，缺失即抛错）。false = 目标被
-      // 单帧上限截断尚未上屏（后续 rAF 帧补齐），滚动推迟到后续拍重试。
       scrollDeferred = readerPorts.flushReadingSubtitleToIndex(subtitleIndex) === false;
       scrollSubtitleNode = findSubtitleItem(subtitleList, subtitleIndex);
       if (scrollSubtitleNode) {
-        // 补渲染后才拿到节点：同步补上 is-active 并刷新缓存，与「节点本就在屏」
-        // 的路径保持等价（否则高亮要拖到下一拍才出现）。
         if (subtitleHit.current && subtitleHit.current !== scrollSubtitleNode) {
           subtitleHit.current.classList.remove("is-active");
         }
@@ -277,17 +247,16 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
   state.reader.setActiveChapterIndex(chapterIndex);
 }
 
-// 列表容器或条目不可见（其他标签页激活/条目尚未上屏等）时的兜底滚动：
-// 对隐藏节点 scrollIntoView 无操作，不产生程序化滚动窗口之外的效果。
-//（名字溯源：原 scrollReadingRailItemIntoView，rail 章节列表随整页接管退役后
-// 仅剩本兜底一处调用，arch-slim-2/03 去掉漂移的 rail 名。）
+// 列表容器或条目不可见时的兜底滚动：对隐藏节点 scrollIntoView 无操作，
+// 不产生程序化滚动窗口之外的效果。
 function scrollReadingItemIntoViewFallback(node: HTMLElement) {
-  setProgrammaticScrollUntil(Date.now() + 600);
-  node.scrollIntoView({
+  const token = subtitleScrollFollow.beginProgrammaticScroll({ behavior: "smooth" });
+  const scrollResult = node.scrollIntoView({
     behavior: "smooth",
-    block: "nearest",
+    block: "center",
     inline: "nearest"
   });
+  subtitleScrollFollow.attachProgrammaticScrollPromise(token, scrollResult);
 }
 
 function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
@@ -307,38 +276,36 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
   }
 
   const behavior = state.reader.readingNextScrollBehavior === "auto" ? "auto" : "smooth";
-  setProgrammaticScrollUntil(Date.now() + (behavior === "auto" ? 120 : 800));
   state.reader.setNextScrollBehavior("smooth");
   if (subtitleList.scrollHeight <= subtitleList.clientHeight + 8) {
     return;
   }
 
-  const targetScrollTop =
-    subtitleList.scrollTop + (itemRect.top - listRect.top) - Math.max(48, Math.min(listRect.height * 0.24, 180));
-  subtitleList.scrollTo?.({
-    top: Math.max(0, Math.round(targetScrollTop)),
+  const maxScrollTop = Math.max(0, subtitleList.scrollHeight - subtitleList.clientHeight);
+  const centeredTop =
+    subtitleList.scrollTop + (itemRect.top - listRect.top) - Math.max(0, (listRect.height - itemRect.height) / 2);
+  const targetScrollTop = Math.min(maxScrollTop, Math.max(0, Math.round(centeredTop)));
+  const token = subtitleScrollFollow.beginProgrammaticScroll({
+    behavior,
+    startTop: subtitleList.scrollTop,
+    targetTop: targetScrollTop
+  });
+  const scrollResult = subtitleList.scrollTo?.({
+    top: targetScrollTop,
     behavior
   });
+  subtitleScrollFollow.attachProgrammaticScrollPromise(token, scrollResult);
 }
 
-// ===== seek 深入口（候选06 端口半边） =====
+// ===== seek 深入口 =====
 //
-// reader 域的唯一定位入口：阅读视图内点击章节/字幕时间戳与侧栏时间戳 seek
-// 一律收敛到这里（此前侧栏路径在 message-handler 手抄了一份乱序版本——先
-// currentTime 后清暂停，currentTime 引发的事件直连同步（P3 单路化前是
-// timeupdate，现由 seeked 承担）会在手动暂停标志未清时跑同步，吞掉一次跟随
-// 滚动，属真 bug 风险）。
-//
+// reader 域的唯一定位入口：阅读视图内点击章节/字幕时间戳与侧栏时间戳 seek 一律收敛到这里。
 // 规范序锁死（不得重排）：
-//   1) resetManualScrollPause                    清手动滚动暂停
-//   2) setNextScrollBehavior("auto") + 跟随状态   设程序化跟随
-//   3) video.currentTime = nextTime              赋值定位（触发的事件落在干净状态上）
-//   4) resumePlayback 且暂停中才 play            播放策略参数化
-//   5) syncReadingViewPlayback(true)             立即同步高亮/滚动
-//
-// 播放策略：阅读视图内点击传 resumePlayback:true（旧行为：暂停即播放）；侧栏
-// seek 传 resumePlayback:false（暂停中不自动播放，与旧侧栏行为等价——旧侧栏
-// 只在「seek 前正在播放」时补一次 play，本就在播的视频无需干预）。
+//   1) subtitleScrollFollow.resumeAuto()          清手动滚动暂停
+//   2) setNextScrollBehavior + 跟随状态            设程序化跟随并隐藏回位胶囊
+//   3) video.currentTime = nextTime               赋值定位（触发的事件落在干净状态上）
+//   4) resumePlayback 且暂停中才 play             播放策略参数化
+//   5) syncReadingViewPlayback(true, nextTime)    立即同步高亮/居中滚动
 export function seekReadingTarget(
   seconds: number | string,
   { resumePlayback = false, scrollBehavior = "auto" as "auto" | "smooth" } = {}
@@ -349,13 +316,11 @@ export function seekReadingTarget(
     return null;
   }
 
-  // 统一两侧旧实现的截断语义：非有限值（NaN/Infinity）一律回 0，
-  // 负值截为 0。返回截断后的时间供消息处理器回包使用。
   const raw = Number(seconds);
   const nextTime = Math.max(0, Number.isFinite(raw) ? raw : 0);
-  resetManualScrollPause();
+  subtitleScrollFollow.resumeAuto();
   state.reader.setNextScrollBehavior(scrollBehavior);
-  updateReaderFollowState();
+  updateReaderFollowState(nextTime);
   video.currentTime = nextTime;
   if (resumePlayback && video.paused) {
     video.play().catch(() => {});
@@ -364,7 +329,7 @@ export function seekReadingTarget(
   return nextTime;
 }
 
-// 阅读视图内点击跳转：自动播放策略（resumePlayback:true）委托给 seek 深入口，采用平滑过渡滚动。
+// 阅读视图内点击跳转：自动播放策略（resumePlayback:true）委托给 seek 深入口，采用平滑居中滚动。
 export function jumpReadingTarget(seconds: number | string) {
   seekReadingTarget(seconds, { resumePlayback: true, scrollBehavior: "smooth" });
 }
@@ -388,33 +353,30 @@ export function onReadingSubtitleClick(event: MouseEvent) {
 }
 
 export function noteManualReaderInteraction(durationMs?: number) {
-  setManualScrollPaused(durationMs !== undefined ? Date.now() + durationMs : Number.POSITIVE_INFINITY);
+  subtitleScrollFollow.pauseManual(durationMs);
   updateReaderFollowState();
 }
 
-// PR3 Follow playback 悬浮按钮的回调：把跟随从「手动暂停（manual）」拉回自动。
-// 按钮显隐由 data-biliscript-reader-follow 两态（manual/auto）的 CSS 驱动（reader.css），
-// 本函数只负责行为：
-//   - manual 态 = 手动滚动暂停中 → 清暂停；
-//   - 随后 forceScroll 同步一次高亮与滚动，跳回「当前正在播的句子」——不改
-//     播放进度（按钮语义是「回去继续跟随」，不是 seek；与 youtube-digest
-//     sidepanel.js 的 Follow playback 按钮行为一致）。
+// 回位胶囊点击回调：清除手动暂停态，强制采用平滑滚动居中回到当前高亮字幕（不改播放进度）。
 export function resumeReaderFollowPlayback() {
-  resetManualScrollPause();
+  subtitleScrollFollow.resumeAuto();
+  state.reader.setNextScrollBehavior("smooth");
   updateReaderFollowState();
   syncReadingViewPlayback(true);
 }
 
-export function updateReaderFollowState() {
+// 切集 / 换视频 / 视图关闭时的跟随状态复位：清空手动暂停、指针拖拽与在途程序化滚动代次。
+export function resetReaderScrollFollow() {
+  subtitleScrollFollow.resetForVideoSwitch();
   const readingView = document.getElementById(ids.readingView);
-  if (!readingView) {
-    return;
+  if (
+    state.reader.readingViewOpen ||
+    readingView?.getAttribute("data-biliscript-reader-follow") === "manual"
+  ) {
+    updateReaderFollowState();
   }
-  const mode = isManualScrollPaused() ? "manual" : "auto";
-  // 候选10 批1：值未变时跳过 setAttribute。先读现值而非缓存上次写入值：
-  // closeReadingView 会 removeAttribute，读现值能自动从外部移除中自愈。
-  if (readingView.getAttribute("data-biliscript-reader-follow") === mode) {
-    return;
-  }
-  readingView.setAttribute("data-biliscript-reader-follow", mode);
+}
+
+export function updateReaderFollowState(currentTime?: number) {
+  projectReaderFollowUi(subtitleScrollFollow.getMode(), currentTime);
 }

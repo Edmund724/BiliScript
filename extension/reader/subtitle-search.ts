@@ -38,7 +38,8 @@ import { clipState, state } from "../core/state.js";
 import { getReadingSubtitleItems } from "../subtitle/core.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
-import { ids, setProgrammaticScrollUntil } from "./state.js";
+import { ids } from "./state.js";
+import { subtitleScrollFollow } from "./subtitle-scroll-follow.js";
 import {
   findSubtitleItem,
   getSubtextNode,
@@ -276,7 +277,6 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
       // 搜索定位即「用户在看这里」：暂停自动跟随（与手动滚动同语义，保持手动
       // 浏览态，Follow 悬浮按钮同步出现），再在列表容器内居中滚动命中条目。
       deps.noteManualReaderInteraction();
-      setProgrammaticScrollUntil(Date.now() + 800);
       const listRect = list.getBoundingClientRect();
       const nodeRect = node.getBoundingClientRect();
       const targetTop =
@@ -291,7 +291,13 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
               0,
               Math.round(node.offsetTop - list.offsetTop - Math.max(0, (list.clientHeight - node.clientHeight) / 2))
             );
-      list.scrollTo?.({ top: targetTop, behavior: "smooth" });
+      const token = subtitleScrollFollow.beginProgrammaticScroll({
+        behavior: "smooth",
+        startTop: list.scrollTop,
+        targetTop
+      });
+      const scrollResult = list.scrollTo?.({ top: targetTop, behavior: "smooth" });
+      subtitleScrollFollow.attachProgrammaticScrollPromise(token, scrollResult);
     }
   }
 
