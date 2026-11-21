@@ -167,15 +167,14 @@ describe("MossAudioPlayer volume, cold-start pendingChunks & scheduling cursor",
     });
     const isCurrent = () => true;
 
-    const c1 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2)); // 0.1s
-    const c2 = encodeFloat32ToPcmS16LE(new Float32Array(9600).fill(-0.2)); // 0.2s
+    const c1 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+    const c2 = encodeFloat32ToPcmS16LE(new Float32Array(9600).fill(-0.2));
 
     player.enqueueAudioContext("c1", "r1", "t1", isCurrent);
     player.enqueueAudioFrame(c1.buffer, isCurrent);
     player.enqueueAudioContext("c2", "r1", "t1", isCurrent);
     player.enqueueAudioFrame(c2.buffer, isCurrent);
 
-    // Suspended: neither source has been scheduled at t=0; single-flight resume triggered once
     expect(sources).toHaveLength(0);
     expect(audioContext.resumeCalls).toHaveLength(1);
     expect(player.isPlaying()).toBe(true);
@@ -210,7 +209,6 @@ describe("MossAudioPlayer volume, cold-start pendingChunks & scheduling cursor",
     await audioContext.finishResume();
     expect(sources).toHaveLength(0);
 
-    // Also test stopAll & reset during suspended state
     audioContext.state = "suspended";
     player.enqueueAudioContext("c2", "r2", "t2", isCurrent);
     player.enqueueAudioFrame(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer, isCurrent);
@@ -261,19 +259,16 @@ describe("MossAudioPlayer volume, cold-start pendingChunks & scheduling cursor",
     const isCurrent = () => true;
     const chunk100ms = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
 
-    // Chunk 1 at t=1.0 -> startAt = 1.04, nextPlayTime = 1.14
     audioContext.currentTime = 1.0;
     player.enqueueAudioContext("c1", "r1", "t1", isCurrent);
     player.enqueueAudioFrame(chunk100ms.buffer, isCurrent);
     expect(sources[0].startedAt).toBeCloseTo(1.04, 5);
 
-    // Chunk 2 arrives after 20ms jitter (t=1.02 < 1.14) -> chained seamlessly at 1.14 (NO gap!)
     audioContext.currentTime = 1.02;
     player.enqueueAudioContext("c2", "r1", "t1", isCurrent);
     player.enqueueAudioFrame(chunk100ms.buffer, isCurrent);
-    expect(sources[1].startedAt).toBeCloseTo(1.14, 5); // nextPlayTime = 1.24
+    expect(sources[1].startedAt).toBeCloseTo(1.14, 5);
 
-    // True underrun: clock jumps to 1.50 > 1.24 -> fresh 40ms lead time -> 1.54
     audioContext.currentTime = 1.50;
     player.enqueueAudioContext("c3", "r1", "t1", isCurrent);
     player.enqueueAudioFrame(chunk100ms.buffer, isCurrent);

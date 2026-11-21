@@ -1,6 +1,3 @@
-// tests/live/live-provider-store.test.ts
-// MOSS-LIVE Provider 归一化与存储单元测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -127,7 +124,7 @@ describe("liveProviderStore CRUD and storage isolation", () => {
     const savedSyncList = sync[LIVE_PROVIDERS_STORAGE] as any[];
     expect(savedSyncList).toHaveLength(1);
     expect(savedSyncList[0].id).toBe("moss-live-1");
-    expect(savedSyncList[0].apiKey).toBeUndefined(); // Key must NOT be in sync storage
+    expect(savedSyncList[0].apiKey).toBeUndefined();
 
     expect(local[LIVE_PROVIDER_KEYS_STORAGE]).toBeDefined();
     const savedKeys = local[LIVE_PROVIDER_KEYS_STORAGE] as Record<string, string>;

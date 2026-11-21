@@ -245,7 +245,6 @@ describe("control_bilibili_player", () => {
     })).resolves.toMatchObject({ ok: true, command: "volume", volume: 0, muted: true });
     expect(video.muted).toBe(true);
 
-    // Increasing volume while muted unmutes automatically when muted is not explicitly passed
     await expect(bridge.executeTool({
       callId: "vol-delta-up",
       name: "control_bilibili_player",
@@ -461,7 +460,6 @@ describe("control_bilibili_player", () => {
       now: () => clock
     });
 
-    // 同一 500ms 短窗口内重复 seekBy(+15) 只执行一次
     const r1 = await bridge.executeTool({
       callId: "c1",
       name: "control_bilibili_player",
@@ -478,7 +476,6 @@ describe("control_bilibili_player", () => {
     expect(timeSetter).toHaveBeenCalledTimes(1);
     expect(showNotice).toHaveBeenCalledTimes(1);
 
-    // 超过 500ms 窗口后再次 seekBy(+15) 正常生效
     clock = 1600;
     const r3 = await bridge.executeTool({
       callId: "c3",
@@ -488,7 +485,6 @@ describe("control_bilibili_player", () => {
     expect(r3).toMatchObject({ ok: true, currentTime: 90 });
     expect(timeSetter).toHaveBeenCalledTimes(2);
 
-    // 同回合（相同 turnId）即使超过 500ms 仍去重
     clock = 5000;
     await bridge.executeTool({
       callId: "t1-a",
@@ -506,7 +502,6 @@ describe("control_bilibili_player", () => {
     expect(dupTurnRes).toMatchObject({ ok: true, currentTime: 150 });
     expect(timeSetter).toHaveBeenCalledTimes(3);
 
-    // 并发同参数 play 只调用一次 video.play()
     const [p1, p2] = await Promise.all([
       bridge.executeTool({ callId: "p1", turnId: "turn-10", name: "control_bilibili_player", arguments: { command: "play" } }),
       bridge.executeTool({ callId: "p2", turnId: "turn-10", name: "control_bilibili_player", arguments: { command: "play" } })
@@ -813,7 +808,7 @@ describe("control_bilibili_player", () => {
       expect(res2.ok).toBe(true);
       expect(res1.summary).toBe("全片简介");
       expect(res2.summary).toBe("全片简介");
-      expect(ensureOverview).toHaveBeenCalledTimes(2); // bridge passes to ensureOverview, coordinator deduplicates
+      expect(ensureOverview).toHaveBeenCalledTimes(2);
     });
 
     it("passes forceRefresh: true when retrying from previous error or cancelled phase", async () => {
@@ -902,7 +897,6 @@ describe("control_bilibili_player", () => {
       let currentUrl = URL;
       let clip = makeClip();
       const ensureOverview = vi.fn(async () => {
-        // 模拟生成期间发生换片
         currentUrl = "https://www.bilibili.com/video/BV1other000000/?p=1";
         clip = makeClip({ bvid: "BV1other000000", cid: "999", pageIndex: 1 });
         return { phase: "ready", analysis: READY_ANALYSIS, errorText: "" };
@@ -976,10 +970,8 @@ describe("control_bilibili_player", () => {
         coverage: "complete",
         summary: "全片简介"
       });
-      // 不创建文摘面板或对话 DOM
       expect(document.getElementById("biliscript-reading-view")).toBeNull();
       expect(document.getElementById("biliscript-chat-messages")).toBeNull();
-      // 概览快照已同步进上下文
       expect(bridge.getVideoContext()?.overview?.summary).toBe("全片简介");
     });
 

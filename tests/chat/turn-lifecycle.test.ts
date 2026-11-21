@@ -1,24 +1,3 @@
-// tests/chat/turn-lifecycle.test.ts — 回合生命周期深 module（chat/turn-lifecycle.ts，
-// GLOSSARY.md 词条「发送闸」「历史回放」的时序面）的聚焦单测：受理入口的双发闸、
-// 唯一的在途判据、终态订阅（settle）的兑现协议与三条兜底。
-//
-// 先列的失败方式清单（每条对应下方一个或多个用例，先写测试再实现）：
-//   1. 受理窗口漏判：判据只拼 activePort / activeUserPrompt，看不到「发送流程已在途、
-//      端口未建」这段窗口 → 在途期间被当成空闲（→ 用例「受理窗口算在途」）。
-//   2. ignored 被折算成受理：在途/空文本时仍进入受理体（消费附件、上屏半条消息）
-//      → 必须直接 ignored 且受理体一次都不跑（→ 用例「在途/空文本 → ignored」）。
-//   3. settle 永不结算（悬挂）：settle 是历史项点击的前置 await，悬挂即死锁
-//      → 端口未建时登记补发、blocked 未起流、看门狗兜底三条出口各自兑现。
-//   4. settle 双结算：同一回合多个落定出口（终态 + 断连 + 看门狗）重复兑现
-//      → resolve 幂等（二次调用不重复回调）。
-//   5. 断流先于落盘被破坏：settle 链上插入 await 会把「断流通知先于落盘」的时序
-//      拉长 → discard 同步复位窗口并同步兑现（无定时器、无 await 缝隙）。
-//   6. 停流顺序被破坏：端口未建时的停流请求若被提前补发（早于 chat 消息），
-//      offscreen 当无活动请求空转、终态永不回来 → 登记期不发、补发点才发。
-//   7. 图片被闸拦下却清场：受理体在闸放行前跑（takeInputImages 被消费）
-//      → 只有 turn 放行才进入受理体（用例 2 的同一断言面）。
-//   8. 受理窗口未复位：发送出结果后窗口仍开 → 此后每次发送都被判 ignored
-//      （静默发不出去）→ accepted / blocked 两条出口都必须关窗。
 import { describe, expect, it, vi } from "vitest";
 import {
   createTurnLifecycle,
@@ -30,13 +9,9 @@ import {
 interface Harness {
   deps: CreateTurnLifecycleDeps;
   turn: ReturnType<typeof createTurnLifecycle>;
-  /** 记录调用次序（断言时序类不变式，如「补发必须晚于受理体」）。 */
   calls: string[];
-  /** 受理窗口槽位（= chat-runtime 的 sendInFlight 字段本体，此处以局部变量扮演）。 */
   window: { accepting: boolean };
-  /** 流段存在性（= chat-runtime 的 activePort !== null）。 */
   stream: { active: boolean };
-  /** 手动驱动的看门狗定时器（避免真实 4 秒等待；clearTimer 真正撤销挂起项）。 */
   timers: { pending: number; fire: () => void };
   settle: (promise: Promise<void>) => { readonly settled: boolean };
   flushMicrotasks: () => Promise<void>;
@@ -138,7 +113,6 @@ describe("回合生命周期 createTurnLifecycle", () => {
       const turn = createTurnLifecycle(h.deps);
 
       const sending = turn.send("问题");
-      // 窗口内：端口未建（isStreaming 假）、没有 activeUserPrompt，但在途
       expect(turn.isActive()).toBe(true);
 
       releaseAcceptance("accepted");
@@ -232,18 +206,15 @@ describe("回合生命周期 createTurnLifecycle", () => {
       const settled = h.settle(turn.settled());
       await h.flushMicrotasks();
 
-      // 端口未建：无从发 stop，只登记（若此刻发了，offscreen 当无活动请求空转）
       expect(h.calls).not.toContain("stopStream");
       expect(settled.settled).toBe(false);
 
-      // 受理体结束（postMessage 之后）才补发
       h.stream.active = true;
       releaseAcceptance("accepted");
       await sending;
       expect(turn.flushDeferredStop()).toBe(true);
       expect(h.calls.indexOf("stopStream")).toBeGreaterThan(h.calls.findIndex((c) => c.startsWith("accept:")));
 
-      // 补发是一次性的：再调不重复发
       expect(turn.flushDeferredStop()).toBe(false);
       expect(h.calls.filter((c) => c === "stopStream")).toHaveLength(1);
 
@@ -363,12 +334,10 @@ describe("回合生命周期 createTurnLifecycle", () => {
       expect(settled.settled).toBe(false);
 
       h.turn.discard();
-      // 同步复位：调用返回时窗口已关（无 await 缝隙）
       expect(h.window.accepting).toBe(false);
       expect(h.turn.isActive()).toBe(false);
       await h.flushMicrotasks();
       expect(settled.settled).toBe(true);
-      // 拆除后新回合可再次受理
       await expect(h.turn.send("清场后的新问题")).resolves.toBe("accepted");
     });
 

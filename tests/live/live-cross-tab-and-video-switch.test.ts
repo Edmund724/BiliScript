@@ -1,6 +1,3 @@
-// tests/live/live-cross-tab-and-video-switch.test.ts
-// 04: 跨标签页伴看自动接管与同页换片会话隔离测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { LiveSessionTracker } from "../../extension/live/live-session-tracker.js";
@@ -116,18 +113,14 @@ describe("04: 跨标签页伴看自动接管", () => {
       notifyTabTakeover
     };
 
-    // 1. 标签页 101 开启伴看
     const res1 = await tracker.prepare("session-tab-101", fakeDeps, 101);
     expect(res1.ok).toBe(true);
     expect(tracker.getOwnerTabId()).toBe(101);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-101");
 
-    // 2. 标签页 202 开启伴看，自动接管旧标签页而不报错
     const res2 = await tracker.prepare("session-tab-202", fakeDeps, 202);
     expect(res2.ok).toBe(true);
-    // 旧标签页收到接管通知
     expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
-    // 所有权转移至标签页 202
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
     expect(setAuthRule).toHaveBeenCalledTimes(2);
@@ -190,13 +183,11 @@ describe("04: 跨标签页伴看自动接管", () => {
       }
     });
 
-    // 标签页 101 伴看连接成功
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
     expect(liveState).toBe("connected");
 
-    // 收到跨标签页接管消息 -> 调用 stop
     await controller.stop();
 
     expect(controller.getState()).toBe("idle");
@@ -223,7 +214,6 @@ describe("04: 跨标签页伴看自动接管", () => {
     ws1.simulateMessage(JSON.stringify({ action: "session_attached", data: { session_id: "s1" } }));
     expect(client1!.getState()).toBe("connected");
 
-    // 新端口（标签页 2）发送 start 接管
     const port2 = new FakePort();
     let client2: OffscreenMossLiveClient | null = null;
     attachMossLivePort(port2 as any, {
@@ -237,11 +227,9 @@ describe("04: 跨标签页伴看自动接管", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // port1 应收到 closed 事件通知，旧客户端被清理
     expect(port1.postedMessages).toContainEqual({ type: "closed", reason: "takeover" });
     expect(client1!.disposed || ws1.readyState === FakeWebSocket.CLOSED).toBe(true);
 
-    // 新客户端正常建立连接
     const ws2 = FakeWebSocket.instances[1];
     ws2.simulateOpen();
     ws2.simulateMessage(JSON.stringify({ action: "session_attached", data: { session_id: "s2" } }));
@@ -283,14 +271,11 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
 
-    // 模拟换片到新视频 BV2
     latestContext = { bvid: "BV2", cid: "202", title: "第二片" };
     (window as any).__notifyContextChange?.();
 
-    // 连接保持 connected
     expect(controller.getState()).toBe("connected");
 
-    // 发出 context_update 动作，携带有新视频的上下文
     const lastMsg = fakePort.postedMessages.at(-1);
     expect(lastMsg).toEqual({
       action: "context_update",
@@ -350,11 +335,9 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
       isLiveActive: () => true
     });
 
-    // 1. 初始化处于视频一
     await contextLoad.loadContextState();
     expect(chatSessionState.currentContextKey).toBe("video:BV1|101");
 
-    // 模拟在视频一生成了一条历史对话
     const conv1 = {
       id: "conv-video-1",
       title: "视频一的伴看对话",
@@ -371,7 +354,6 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     await store.restoreLatest();
     expect(chatSessionState.currentConversationId).toBe("conv-video-1");
 
-    // 2. 换片到视频二（伴看进行中）
     fetchPayload = {
       signature: "sig-v2",
       bvid: "BV2",
@@ -381,15 +363,11 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     };
     await contextLoad.loadContextState();
 
-    // 上下文切换到视频二
     expect(chatSessionState.currentContextKey).toBe("video:BV2|202");
-    // restartChat 被调用并保留上下文，renderInitialState 被触发
     expect(restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
     expect(renderInitialState).toHaveBeenCalled();
-    // 视频二暂无对话，会话 id 脱钩
     expect(chatSessionState.currentConversationId).toBe("");
 
-    // 模拟在视频二也产生了对话
     const conv2 = {
       id: "conv-video-2",
       title: "视频二的对话",
@@ -404,7 +382,6 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     storageData.biliscript_ai_conversations_v1.unshift(conv2);
     await store.loadAll();
 
-    // 3. 再次切回视频一（伴看仍进行中）
     fetchPayload = {
       signature: "sig-v1",
       bvid: "BV1",
@@ -414,9 +391,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     };
     await contextLoad.loadContextState();
 
-    // 上下文切回视频一
     expect(chatSessionState.currentContextKey).toBe("video:BV1|101");
-    // 对话视图成功恢复并隔离为视频一的对话历史！
     expect(chatSessionState.currentConversationId).toBe("conv-video-1");
     expect(chatSessionState.chatHistory).toEqual(conv1.messages);
   });

@@ -1,11 +1,3 @@
-// sidepanel-context-policy 纯函数测试：loadContextState 的「输入 → 动作」映射。
-// 策略模块只做判定不做 I/O，这里直接对 resolveLoadContextAction /
-// resolveNoTabPlan / isPinnedContextStrict 谓词断言，锁定与 sidepanel.js 旧内联分支
-// 一一对应的判定优先级：skip-unchanged > error > apply-pinned >
-// blocked-streaming > apply-live；no-tab 在消息往返之前由 resolveNoTabPlan
-// 单独给出。forceRefresh 只随消息透传给 content（手动刷新时 content 忽略签名
-// 回全量），不在策略签名里、不参与动作判定。
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,12 +9,10 @@ import {
   resolveNoTabPlan
 } from "../../extension/chat/context-policy.js";
 
-// 常用响应夹具（冻结防误改）
 const OK_FULL = Object.freeze({ ok: true, payload: { signature: "sig-1", title: "视频" } });
 const OK_UNCHANGED = Object.freeze({ ok: true, payload: { unchanged: true } });
 const RESP_ERROR = Object.freeze({ ok: false, error: "boom" });
 
-// 默认输入：非 pinned / 非静默 / 非流式，全量响应（逐字段展开，测试内按需覆盖）
 function liveInput(overrides = {}) {
   return {
     response: OK_FULL,
@@ -70,9 +60,6 @@ describe("resolveLoadContextAction — skip-unchanged 短路", () => {
   });
 
   it("forceRefresh 不参与判定：动作只由响应与运行时标志决定", () => {
-    // 策略签名没有 forceRefresh 入参；手动刷新语义由编排壳随消息透传
-    //（content 忽略签名回全量，正常不会出现 unchanged），因此同一响应输入
-    // 永远映射到同一动作，与刷新方式无关。
     expect(resolveLoadContextAction(liveInput({ response: OK_UNCHANGED })).action).toBe(
       LOAD_CONTEXT_ACTION.SKIP_UNCHANGED
     );
@@ -109,7 +96,6 @@ describe("resolveLoadContextAction — error 分类", () => {
       liveInput({ response: RESP_ERROR, hasPinnedConversation: true })
     );
     expect(plan.action).toBe(LOAD_CONTEXT_ACTION.ERROR);
-    // pinned 对话保留主上下文，也不因失败重置视图
     expect(plan.clearContext).toBe(false);
     expect(plan.resetView).toBe(false);
   });

@@ -1,13 +1,3 @@
-// 消息操作反馈归属（06 号票：全局状态条只承载壳层与跨域反馈，对话域任务反馈
-// 留在对话 tab 上下文）：
-//   - 复制回复成功：就地反馈 = 按钮 flash（图标换对勾、aria-label 变「已复制」），
-//     不再写全局状态条（与字幕复制的全局短暂反馈是两条纹理，06 号票只保留后者）；
-//   - 导出 Markdown 失败：经渲染片 onNotice dep 落到对话 tab 自己的通知通道
-//     （装配方接到 showConversationContextNotice），不借全局状态条。
-//
-// 手法：与 tests/chat/chat-runtime-stream-invariants.test.ts 同款协议级 harness
-//（假 port 驱动 sendTurn → token → done），终态消息节点的操作行是真实装配。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -100,10 +90,8 @@ describe("消息操作反馈归属（06 号票）", () => {
     copyBtn.click();
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("回答正文"));
 
-    // 就地反馈：图标置换 + aria-label/title 变「已复制」
     expect(copyBtn.getAttribute("aria-label")).toBe("已复制");
     expect(copyBtn.classList.contains("is-copied")).toBe(true);
-    // 不借通知通道（也不写全局状态条——渲染片已无 ui-status 依赖）
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
   });
 
@@ -146,7 +134,6 @@ describe("消息操作反馈归属（06 号票）", () => {
   it("导出 Markdown 失败：onNotice 落到对话 tab 通知通道，文案带病因", async () => {
     const deps = makeDeps();
     const { node } = await makeFinishedAssistant(deps);
-    // 强制 createObjectURL 抛错，让装配方 exportAssistant 同步失败
     vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
       throw new Error("blob 分配失败");
     });

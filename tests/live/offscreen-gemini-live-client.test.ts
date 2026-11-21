@@ -649,7 +649,6 @@ describe("OffscreenGeminiLiveClient context update and discrete user prompts", (
     expect(ws1.readyState).toBe(FakeWebSocket.CLOSED);
     expect(ws1.jsonFrames().filter((frame) => frame.clientContent)).toHaveLength(0);
 
-    // 连续两次换片合并为一次新连接握手（未 open 的中间套接字会被替换）
     const wsLatest = FakeWebSocket.instances.at(-1)!;
     wsLatest.simulateOpen();
     expect(wsLatest.jsonFrames()[0].setup.sessionResumption).toEqual({});
@@ -669,7 +668,6 @@ describe("OffscreenGeminiLiveClient context update and discrete user prompts", (
     const { client, audioContext, transcripts } = createClient({ model });
     const ws = connect(client);
 
-    // 先触发一次本地打断，验证离散文本提问会复位 discardOutputUntilInput 并打断在途播报
     ws.simulateMessage(serverContent({
       outputTranscription: { text: "旧播报" },
       modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(2400) } }] }

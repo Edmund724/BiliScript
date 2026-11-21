@@ -1,28 +1,3 @@
-// 流式渲染 11 条不变量的协议级回归测试（chat-runtime 经协议入口驱动）。
-// 与 tests/chat/chat-runtime-stream.test.ts 互补：那边测生命周期与结构，
-// 这里逐帧钉死「堆叠渲染 ≡ 全文渲染」的逐字节等价与光标/单调性契约。
-//
-// 覆盖映射（未被本文件覆盖的条目在现有测试中已覆盖，见文末清单）：
-//   不变量 1：每帧至多一次 tail 渲染（renderMarkdown 调用计数锁定）
-//   不变量 2：stable+tail 堆叠渲染逐字节等价全文渲染（多种输入逐帧断言）；
-//             stable 只增不减（部分标签跨帧补全的角落除外，见
-//             tests/ui/markdown-stream-invariants.test.ts 的说明）
-//   不变量 4：光标每帧重建后重新接回 tail 尾部
-//   不变量 5：终态整渲染与流式渲染逐字节一致（done 后整渲染重放）
-//
-// 已由现有测试覆盖、不重复：
-//   不变量 3（剥除先于切分）的结构性部分：tests/ui/markdown-split-tail.test.ts
-//     「空行切点落在未闭合围栏内」等 + 本文件逐帧等价断言（若剥除晚于切分，
-//     等价断言必失败——未闭合 ``` 或 <think> 横跨切点时堆叠与全文渲染分叉）
-//   不变量 6：一切 DOM 重建从文本重算（结构由 chat-runtime 闭包保证，
-//     resetAssistantStream / stream-reset 测试锁定重建行为）
-//   不变量 7：滚动 pinned ——「思考盒钉底契约」「自动滚动开关」测试
-//   不变量 8：content-visibility 豁免 ——「chat-msg-streaming 类」测试
-//   不变量 9：WeakMap 按节点隔离 ——「跨消息思考重建」「跨消息 reasoning 收尾」
-//   不变量 10：分片代际校验 ——「让出期间流收口」「让出窗口内新 token 到达」
-//   不变量 11：mermaid 水合时机 —— tests/ui/mermaid-render.test.ts +
-//     本文件 mermaid 语料的逐帧等价（stable 重建丢水合由缓存兜底属结构行为）
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -32,7 +7,6 @@ let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").cre
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
-// 假 port（chat-runtime 经 connectPort 取用；方法保留 mock 引用以便断言载荷）
 interface FakePort {
   name: string;
   postMessage: ReturnType<typeof vi.fn>;
@@ -52,8 +26,6 @@ interface PortSession {
 type ChatRuntime = ReturnType<typeof import("../../extension/chat/chat-runtime.js").createChatRuntime>;
 type RuntimeDeps = ReturnType<typeof makeDeps>;
 
-// window.scheduler 是非标准可选 API（chat-stream-render 以可选属性读取，
-// 缺失时回落 setTimeout）；这里用同款可选视图替换/清理。
 type SchedulerWindow = { scheduler?: { yield: () => Promise<void> } };
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
@@ -146,7 +118,6 @@ function withoutTableLayout(element: Element): HTMLElement {
   return clone;
 }
 
-// Markdown 结构等价不包含表格的展示层包装；包装契约由 markdown-table 测试锁定。
 function frameSnapshot(node: Element) {
   const stableEl = node.querySelector(".chat-stream-stable")!;
   const tailEl = node.querySelector(".chat-stream-tail")!;
@@ -178,9 +149,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// 逐帧驱动 token 序列，每帧收集快照
-// 注意：vi.spyOn 重复打点返回同一 mock（calls 跨运行时累积），每次驱动
-// 「本次 token 新注册」的帧（list 尾部），不能用局部索引。
 function runStream(runtime: ChatRuntime, deps: RuntimeDeps, tokens: string[]) {
   const raf = holdRaf();
   const node = assistantNode(deps);
@@ -244,8 +212,6 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
 
   for (const [name, tokens] of Object.entries(CORPORA)) {
     it(`逐帧等价：${name}`, async () => {
-      // 与 chat-runtime 同一模块纪元导入 markdown 模块（renderMarkdown 内部
-      // 再剥 think 是幂等冗余，断言式用它对全文渲染求期望）
       const md = await import("../../extension/ui/markdown.js");
       const { deps, runtime } = await makeRuntime();
       const { frames, node } = runStream(runtime, deps, tokens);
@@ -253,13 +219,10 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
       expect(frames.length).toBe(tokens.length);
       for (const { snapshot, cumulative } of frames) {
         const expected = md.renderMarkdown(md.stripThinkBlocks(cumulative), { streaming: true });
-        // 不变量 2：stable + tail 堆叠渲染 ≡ 流式容错全文渲染（逐字节）
         expect(snapshot.stableHTML + snapshot.tailHTML).toBe(expected);
-        // 不变量 4：光标存在且接在 tail 末尾（innerHTML 重写后重新接回）
         expect(snapshot.cursorOk).toBe(true);
       }
 
-      // 不变量 5：终态整渲染从全量文本重放，与流式渲染逐字节一致
       feed(runtime, { type: "done" });
       const full = tokens.join("");
       const finalHTML = withoutTableLayout(node.querySelector(".chat-msg-assistant-body")!).innerHTML;
@@ -293,7 +256,6 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
-    // 时钟每读一次推进 100ms（超过 50ms 预算），让出点全部命中
     let clock = 0;
     vi.spyOn(performance, "now").mockImplementation(() => (clock += 100));
     let release!: () => void;
@@ -304,11 +266,9 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
 
     const tokens = ["第一段\n\n第二段", "，继续", "\n\n第三段"];
     let cumulative = "";
-    // 帧 1：游标已消费、挂起在 stable 渲染前的让出点（作废路径）
     cumulative += tokens[0];
     feed(runtime, { type: "token", data: tokens[0] });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
-    // 帧 2 到达并执行（同样挂起在让出点）
     cumulative += tokens[1];
     feed(runtime, { type: "token", data: tokens[1] });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
@@ -316,12 +276,10 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
     await vi.waitFor(() => {
       expect(node.querySelector(".chat-stream-tail")?.textContent).toContain("第二段，继续");
     });
-    // 作废帧的文本仍被合并渲染一次（不丢、不重复）
     const snapshot = frameSnapshot(node);
     expect(snapshot.stableHTML + snapshot.tailHTML).toBe(md.renderMarkdown(md.stripThinkBlocks(cumulative)));
     expect(snapshot.stableHTML + snapshot.tailHTML).not.toContain("第二段第一段");
 
-    // 帧 3 正常推进并收尾（帧 3 在已 resolve 的让出点上仍有微任务让出，等落地）
     feed(runtime, { type: "token", data: tokens[2] });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     cumulative += tokens[2];
@@ -341,25 +299,21 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
 describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 调用计数）", () => {
   it("stable 未增长帧恰好 1 次（tail），stable 增长帧 2 次（stable + tail）", async () => {
     const md = await import("../../extension/ui/markdown.js");
-    // flush 对剥除后的 stable/tail 调 renderMarkdownStripped（内部不再重复剥除）
     const renderSpy = vi.spyOn(md, "renderMarkdownStripped");
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
     const node = assistantNode(deps);
 
-    // 帧 1：建立 stable（一次 stable 渲染 + 一次 tail 渲染）
     feed(runtime, { type: "token", data: "第一段\n\n第二段开头" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(renderSpy).toHaveBeenCalledTimes(2);
 
-    // 帧 2：tail 增长、stable 不变 → 仅 tail 一次
     renderSpy.mockClear();
     feed(runtime, { type: "token", data: "，继续增长" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(renderSpy).toHaveBeenCalledTimes(1);
     expect(node.querySelector(".chat-stream-tail")!.textContent).toContain("第二段开头，继续增长");
 
-    // 帧 3：新空行边界 → stable 增长一次 + tail 一次
     renderSpy.mockClear();
     feed(runtime, { type: "token", data: "\n\n第三段" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
@@ -369,7 +323,6 @@ describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 
 });
 
 describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂入", () => {
-  // 与 runStream 同构的批量驱动：每批数据应恰好注册 1 帧（rAF 合帧不变量对批次同样成立）
   function runBatchedStream(runtime: ChatRuntime, deps: RuntimeDeps, batches: string[][]) {
     const raf = holdRaf();
     const node = assistantNode(deps);
@@ -408,11 +361,9 @@ describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂
     const batched = await makeRuntime("合帧");
     const batchedRun = runBatchedStream(batched.runtime, batched.deps, batches);
 
-    // 每个批边界的帧快照与逐 token 驱动的同累计文本帧逐字节一致
     for (const frame of batchedRun.frames) {
       expect(frame.snapshot).toEqual(baseFramesByCumulative.get(frame.cumulative));
     }
-    // 终态一致
     feed(base.runtime, { type: "done" });
     feed(batched.runtime, { type: "done" });
     expect(batchedRun.node.textContent).toBe(baseRun.node.textContent);
@@ -444,7 +395,6 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     const raf = holdRaf();
     const node = assistantNode(deps);
 
-    // 帧 1：段落 1 提交进 stableEl
     feed(runtime, { type: "token", data: "段落一\n\n段落二开头" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     const stableEl = node.querySelector(".chat-stream-stable")!;
@@ -452,12 +402,10 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     expect(p1).not.toBeNull();
     expect(p1!.textContent).toBe("段落一");
 
-    // 帧 2：段落 2 继续增长，stable 不变
     feed(runtime, { type: "token", data: "继续增长" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(stableEl.querySelector("p")).toBe(p1);
 
-    // 帧 3：段落 2 闭合提交进 stableEl，p1 仍保持同一引用身份
     feed(runtime, { type: "token", data: "\n\n段落三" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     const paras = stableEl.querySelectorAll("p");
@@ -471,7 +419,6 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     const raf = holdRaf();
     const node = assistantNode(deps);
 
-    // 提交表格到 stableEl
     feed(runtime, { type: "token", data: "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n后文" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     const stableEl = node.querySelector(".chat-stream-stable")!;
@@ -480,7 +427,6 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     const initialRows = tableEl!.querySelectorAll("tbody tr");
     expect(initialRows.length).toBe(1);
 
-    // 后续列表提交进 stableEl，已提交 tableEl 节点保持身份不变
     feed(runtime, { type: "token", data: "\n\n- 列表一\n- 列表二\n\n结尾" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(stableEl.querySelector("table")).toBe(tableEl);
@@ -494,7 +440,6 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     const raf = holdRaf();
     const node = assistantNode(deps);
 
-    // 帧 1：包含公式与图表的块进入 stable
     feed(runtime, {
       type: "token",
       data: "$$\nE=mc^2\n$$\n\n```mermaid\ngraph TD;\nA-->B;\n```\n\n新段落开头"
@@ -506,15 +451,12 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     expect(mathEl).not.toBeNull();
     expect(mermaidEl).not.toBeNull();
 
-    // 在已水合节点上打上标记模拟已有真实 SVG / 渲染子树
     mermaidEl!.setAttribute("data-test-rendered", "true");
     mathEl!.setAttribute("data-test-rendered", "true");
 
-    // 帧 2：新稳定段落到达，提交到 stableEl
     feed(runtime, { type: "token", data: "\n\n后续段落落定\n\n更后文本" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
 
-    // 旧节点身份保持不变，已渲染属性未被销毁
     expect(stableEl.querySelector("[data-biliscript-mermaid]")).toBe(mermaidEl);
     expect(mermaidEl!.getAttribute("data-test-rendered")).toBe("true");
     expect(stableEl.querySelector("[data-biliscript-math]")).toBe(mathEl);
@@ -527,27 +469,20 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
 
-    // 帧 1：段落 1 提交
     feed(runtime, { type: "token", data: "段落一内容较为简短\n\n段落二开头" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
 
-    // 记录帧 1 提交时传入 stable 渲染的字符串长度
-    // renderSpy 的第一个调用是 stable 渲染
     const firstCallText = renderSpy.mock.calls[0][0];
     expect(firstCallText).toContain("段落一内容较为简短");
 
-    // 清空 mock 调用
     renderSpy.mockClear();
 
-    // 帧 2：段落 2 提交
     feed(runtime, { type: "token", data: "，继续补齐第二段\n\n段落三" });
     raf.mock.calls[raf.mock.calls.length - 1][0](0);
 
-    // 关键断言：稳定区增量渲染时，传入的文本仅包含第二段增量，不重复包含第一段
     const stableCallText = renderSpy.mock.calls[0][0];
     expect(stableCallText).toContain("第二段");
     expect(stableCallText).not.toContain("段落一内容较为简短");
   });
 });
-
 

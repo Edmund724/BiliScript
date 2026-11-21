@@ -1,8 +1,3 @@
-// tests/chat/quick-prompts.test.ts
-// 初始快捷问题生成链的纯函数契约（extension/chat/quick-prompts.ts）：
-// 字幕节选、生成提示词组装、模型输出解析、自定义/生成/兜底三档取用。
-// 生成编排（取平台、发请求、写缓存）在 tests/reader/quick-prompts.test.ts。
-
 import { describe, expect, it } from "vitest";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import {
@@ -49,7 +44,6 @@ describe("buildQuickPromptExcerpt（字幕节选）", () => {
   it("长字幕取头/中/尾三段（每段不超预算三分之一）", () => {
     const items = Array.from({ length: 60 }, (_item, index) => `第${index}句${"内容".repeat(20)}`);
     const excerpt = buildQuickPromptExcerpt(body(items), 300);
-    // 三段 + 两个省略号分隔
     expect(excerpt.split("……")).toHaveLength(3);
     expect(excerpt.length).toBeLessThanOrEqual(300 + 2 * "……".length);
     expect(excerpt).toContain("第0句");

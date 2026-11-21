@@ -174,13 +174,11 @@ describe("播放器双语字幕叠层升级验收", () => {
     const originalEl = root.querySelector<HTMLElement>(".biliscript-interpret-subtitle-original")!;
     const translationEl = root.querySelector<HTMLElement>(".biliscript-interpret-subtitle-translation")!;
 
-    // t = 0.1s：仅英轨命中，中文尚未开始（单独隐藏中文行）
     expect(originalEl.textContent).toBe("First English sentence.");
     expect(originalEl.hidden).toBe(false);
     expect(translationEl.hidden).toBe(true);
     expect(root.hidden).toBe(false);
 
-    // t = 1.0s：双轨同时命中
     video.currentTime = 1.0;
     video.dispatchEvent(new Event("timeupdate"));
     expect(originalEl.textContent).toBe("First English sentence.");
@@ -188,7 +186,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(translationEl.textContent).toBe("第一句对应跨段中文。");
     expect(translationEl.hidden).toBe(false);
 
-    // 观察 DOM 局部更新：t = 2.2s（英轨进入 2.0-2.5 间隙，中轨仍命中），中文节点不得被重写
     const translationTextNode = translationEl.firstChild;
     video.currentTime = 2.2;
     video.dispatchEvent(new Event("timeupdate"));
@@ -197,7 +194,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(translationEl.textContent).toBe("第一句对应跨段中文。");
     expect(translationEl.firstChild).toBe(translationTextNode);
 
-    // t = 2.8s：英轨切至第二句，中轨仍是第一句（局部仅更新上行）
     video.currentTime = 2.8;
     video.dispatchEvent(new Event("timeupdate"));
     expect(originalEl.hidden).toBe(false);
@@ -206,25 +202,21 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(translationEl.textContent).toBe("第一句对应跨段中文。");
     expect(translationEl.firstChild).toBe(translationTextNode);
 
-    // t = 3.3s：中轨 3.2-3.5 间隙，英轨仍亮、中文行单独隐藏
     video.currentTime = 3.3;
     video.dispatchEvent(new Event("timeupdate"));
     expect(originalEl.hidden).toBe(false);
     expect(originalEl.textContent).toBe("Second English sentence.");
     expect(translationEl.hidden).toBe(true);
 
-    // t = 7.1s（seeking）：英轨已于 7.0s 结束，中轨持续到 7.3s 仍单独显示
     video.currentTime = 7.1;
     video.dispatchEvent(new Event("seeking"));
     expect(originalEl.hidden).toBe(true);
     expect(translationEl.hidden).toBe(false);
     expect(translationEl.textContent).toBe("第二句错位中文结尾。");
 
-    // 过期代次更新被静默拦截，不污染当前台词
     overlay.setSubtitle("过期原文", "过期译文", activeGen - 1);
     expect(translationEl.textContent).toBe("第二句错位中文结尾。");
 
-    // t = 7.5s：双轨皆空，整个字幕窗隐藏
     video.currentTime = 7.5;
     video.dispatchEvent(new Event("timeupdate"));
     expect(root.hidden).toBe(true);
@@ -293,18 +285,15 @@ describe("播放器双语字幕叠层升级验收", () => {
 
     interpret.syncPlayerInterpretQuickAction();
 
-    // 纯中文单轨未开双语：严守原生体验，不挂载叠层也不接管原生字幕
     expect(videoWrap.querySelector(".biliscript-interpret-subtitle-container")).toBeNull();
     expect(container.querySelector(".biliscript-interpret-subtitle-overlay")).toBeNull();
     expect(container.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
 
-    // 侧边栏开启 bilingualSubtitles 不得擅自激活播放器画面叠层
     state.patchSettings({ bilingualSubtitles: true });
     interpret.syncPlayerInterpretQuickAction();
     expect(videoWrap.querySelector(".biliscript-interpret-subtitle-container")).toBeNull();
     expect(container.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
 
-    // 通过播放器菜单主动开启 zh -> en 双语对照
     await interpret.applyInterpretMenuChoice({ kind: "bilingual", targetLang: "en" });
     await vi.waitFor(() => {
       const overlayRoot = videoWrap.querySelector<HTMLElement>("#biliscript-interpret-subtitle-overlay");
@@ -327,7 +316,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(translationEl.getAttribute("data-subtitle-role")).toBe("secondary");
     expect(overlayRoot.getAttribute("data-blur-secondary")).toBe("false");
 
-    // 打开菜单并点击「模糊副字幕（悬停显字）」开关与缩放步进按钮
     await interpret.togglePlayerInterpretMenu(actionWrap);
     const menu = document.getElementById("biliscript-interpret-menu")!;
     const blurSwitch = menu.querySelector<HTMLButtonElement>('[data-action="toggle-blur-secondary"]')!;
@@ -340,7 +328,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(overlayRoot.getAttribute("data-blur-secondary")).toBe("true");
     expect(translationEl.getAttribute("data-subtitle-role")).toBe("secondary");
 
-    // 连续点击缩放步进 + 两次（100% -> 110% -> 120%），验证 300ms 防抖只发一次 save-settings
     const incBtn = () => menu.querySelector<HTMLButtonElement>('[data-action="scale-up"]')!;
     const decBtn = () => menu.querySelector<HTMLButtonElement>('[data-action="scale-down"]')!;
     const resetBtn = () => menu.querySelector<HTMLButtonElement>('[data-action="scale-reset"]')!;
@@ -354,7 +341,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(resetBtn().textContent).toBe("120%");
     expect(overlayContainer.style.getPropertyValue("--biliscript-interpret-font-scale")).toBe("1.2");
 
-    // 防抖窗口内尚未写 sync
     const saveCallsBeforeTimer = sendMessageSpy.mock.calls
       .map(([msg]) => msg as Record<string, unknown>)
       .filter((m) => m.type === "save-settings");
@@ -370,7 +356,6 @@ describe("播放器双语字幕叠层升级验收", () => {
       liveInterpretFontScale: 120
     });
 
-    // 验证边界禁用（150% 禁用 +，75% 禁用 −）与中段点击重置 100%
     await interpret.applyInterpretMenuChoice({ kind: "set-font-scale", fontScale: 150 });
     await interpret.syncInterpretSubtitleMenu();
     expect(incBtn().disabled).toBe(true);
@@ -387,7 +372,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(overlayContainer.style.getPropertyValue("--biliscript-interpret-font-scale")).toBe("1");
     vi.useRealTimers();
 
-    // 关闭会话：叠层卸载且原生字幕接管恢复
     await interpret.applyInterpretMenuChoice({ kind: "off" });
     expect(videoWrap.querySelector(".biliscript-interpret-subtitle-container")).toBeNull();
     expect(container.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
@@ -403,7 +387,6 @@ describe("播放器双语字幕叠层升级验收", () => {
       "../../extension/live/interpret-position-persistence.js"
     );
 
-    // 1. 纯数学：比例钳制与控制栏避让计算
     expect(clampInterpretPositionRatio(-0.5)).toBe(0.04);
     expect(clampInterpretPositionRatio(0.99)).toBe(0.85);
     expect(clampInterpretPositionRatio("bad")).toBeNull();
@@ -428,7 +411,6 @@ describe("播放器双语字幕叠层升级验收", () => {
       })
     ).toBe(72);
 
-    // 已处于较高位置时不被控制栏推高；悬停时冻结在 frozenBottomPx
     expect(
       computeInterpretSubtitleBottomPx({
         playerClientHeight: 500,
@@ -449,7 +431,6 @@ describe("播放器双语字幕叠层升级验收", () => {
       })
     ).toBe(72);
 
-    // 2. DOM 联动：控制栏显隐 + isHovered 冻结 + 拖拽持久化
     const { container } = buildBiliPlayerDom({
       wrapHeight: 500,
       controlHeight: 56,
@@ -471,11 +452,9 @@ describe("播放器双语字幕叠层升级验收", () => {
     overlay.syncPosition();
     expect(root.style.bottom).toBe("40px");
 
-    // 控制栏出现：平滑上抬到 72px
     container.classList.remove("bpx-state-no-cursor");
     await vi.waitFor(() => expect(root.style.bottom).toBe("72px"));
 
-    // 鼠标悬停字幕框：锁定垂直位置，控制栏再隐藏时保持冻结不跳动
     root.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
     expect(overlay.isHovered()).toBe(true);
     container.classList.add("bpx-state-no-cursor");
@@ -483,12 +462,10 @@ describe("播放器双语字幕叠层升级验收", () => {
     await Promise.resolve();
     expect(root.style.bottom).toBe("72px");
 
-    // 鼠标移出：解除冻结并立即回到 40px
     root.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
     expect(overlay.isHovered()).toBe(false);
     expect(root.style.bottom).toBe("40px");
 
-    // 小于 4px 视为点击：不进入拖拽、不写 positionRatio
     root.dispatchEvent(
       new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 100, clientY: 400, bubbles: true })
     );
@@ -501,7 +478,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(saveRatioSpy).not.toHaveBeenCalled();
     expect(root.style.bottom).toBe("40px");
 
-    // 大于 4px 拖拽定位：从 40px 向上拖 160px -> 200px，保存 positionRatio = 0.4
     root.dispatchEvent(
       new PointerEvent("pointerdown", { button: 0, pointerId: 2, clientX: 100, clientY: 400, bubbles: true })
     );
@@ -518,7 +494,6 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(saveRatioSpy).toHaveBeenLastCalledWith(0.4);
     expect(overlay.getPositionRatio()).toBe(0.4);
 
-    // 极端越界拖拽向上超出顶部：按 [0.04, 0.85] 钳制
     root.dispatchEvent(
       new PointerEvent("pointerdown", { button: 0, pointerId: 3, clientX: 100, clientY: 300, bubbles: true })
     );

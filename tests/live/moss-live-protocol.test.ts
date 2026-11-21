@@ -1,6 +1,3 @@
-// tests/live/moss-live-protocol.test.ts
-// MOSS-LIVE 协议封包、音频重采样/分帧与服务端事件解析单元测试
-
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GEMINI_LIVE_WS_URL,
@@ -108,7 +105,6 @@ describe("PCM S16LE codec & resampling", () => {
     expect(decodePcmS16LEToFloat32(new ArrayBuffer(0)).length).toBe(0);
     expect(decodePcmS16LEToFloat32(new ArrayBuffer(1)).length).toBe(0);
 
-    // 5 bytes -> 2 complete Int16LE samples (last trailing byte ignored)
     const raw = new Uint8Array([0x00, 0x40, 0x00, 0xc0, 0xff]);
     const float32 = decodePcmS16LEToFloat32(raw.buffer);
     expect(float32.length).toBe(2);
@@ -143,20 +139,16 @@ describe("createPcm16kFrameChunker (20ms / 640-byte framing)", () => {
 
     const block128 = new Float32Array(128).fill(0.5);
 
-    // 128 samples -> 0 frames (128 buffered)
     chunker.push(block128, 16000);
     expect(frames).toHaveLength(0);
 
-    // +128 = 256 samples -> 0 frames (256 buffered)
     chunker.push(block128, 16000);
     expect(frames).toHaveLength(0);
 
-    // +128 = 384 samples -> 1 frame (320 emitted, 64 buffered)
     chunker.push(block128, 16000);
     expect(frames).toHaveLength(1);
     expect(frames[0].byteLength).toBe(MOSS_UPSTREAM_FRAME_BYTES);
 
-    // Pack with tagged-v1 0x00 -> 641 bytes as required by MOSS-LIVE spec
     const tagged = packTaggedBinary(MossBinaryTag.AudioPcm, frames[0].buffer);
     expect(tagged.byteLength).toBe(641);
     expect(tagged[0]).toBe(MossBinaryTag.AudioPcm);
@@ -168,7 +160,6 @@ describe("createPcm16kFrameChunker (20ms / 640-byte framing)", () => {
       frames.push(frame);
     });
 
-    // 1920 samples @ 48kHz = 40ms = 640 samples @ 16kHz = exactly 2 frames
     const block48k = new Float32Array(1920).fill(-0.25);
     chunker.push(block48k, 48000);
 
@@ -188,7 +179,6 @@ describe("createPcm16kFrameChunker (20ms / 640-byte framing)", () => {
 
     chunker.reset();
 
-    // After reset, pushing 100 samples is only 100 (not 300+100=400)
     chunker.push(new Float32Array(100).fill(0.8), 16000);
     expect(frames).toHaveLength(0);
   });

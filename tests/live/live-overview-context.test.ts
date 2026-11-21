@@ -1,6 +1,3 @@
-// 伴看上下文的概览投影：相位 → 可用产物 / 覆盖完整性 / 状态文案。
-// 只测纯函数，不触碰 reader 协调器与协议层（那两处各自的用例覆盖订阅与指令渲染）。
-
 import { describe, expect, it } from "vitest";
 import { projectLiveOverview } from "../../extension/live/live-overview-context.js";
 

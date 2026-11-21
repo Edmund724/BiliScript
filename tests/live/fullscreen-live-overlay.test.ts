@@ -18,7 +18,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     document.body.innerHTML = "";
     playerHost = document.createElement("div");
     playerHost.className = "bpx-player-container";
-    // Mock getBoundingClientRect
     playerHost.getBoundingClientRect = () => ({
       left: 0,
       top: 0,
@@ -95,7 +94,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(el?.hidden).toBe(true);
     expect(capsule?.hidden).toBe(false);
 
-    // 未拖动时，没有内联 left，依 CSS 默认贴右上角
     expect(el?.style.left).toBe("");
     expect(capsule?.style.left).toBe("");
   });
@@ -117,7 +115,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.syncState("failure");
     expect(statusText?.textContent).toBe("连接异常");
 
-    overlay.syncState("connected", true); // reconnecting
+    overlay.syncState("connected", true);
     expect(statusText?.textContent).toBe("重连中...");
 
     const capsule = overlay.getElement()?.querySelector(".live-overlay-status-capsule") as HTMLElement;
@@ -316,20 +314,17 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     Object.defineProperty(popover, "showPopover", { configurable: true, value: showPopover });
     Object.defineProperty(popover, "hidePopover", { configurable: true, value: hidePopover });
 
-    // 键盘打开（detail === 0）应聚焦弹层内首个可交互控件
     audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
     expect(showPopover).toHaveBeenCalledTimes(1);
     expect(popover.hidden).toBe(false);
     expect(document.activeElement).toBe(volumeSlider);
 
-    // 再次点击喇叭按钮直接收起，不会重开
     audioBtn.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(hidePopover).toHaveBeenCalledTimes(1);
     expect(popover.hidden).toBe(true);
     expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
 
-    // 鼠标打开后外部点击：关闭弹层且保留外部焦点
     audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(popover.hidden).toBe(false);
     const outsideBtn = document.createElement("button");
@@ -339,13 +334,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(popover.hidden).toBe(true);
     expect(document.activeElement).toBe(outsideBtn);
 
-    // 重新打开后按 Esc：关闭弹层并把焦点还给喇叭按钮
     audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(popover.hidden).toBe(true);
     expect(document.activeElement).toBe(audioBtn);
 
-    // 进入 failure 态自动关闭音频弹层
     audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(popover.hidden).toBe(false);
     overlay.syncState("failure", false, "网络异常", "network");
@@ -495,13 +488,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const el = overlay.getElement();
     const capsule = overlay.getMiniCapsuleElement();
 
-    // 默认胶囊出现
     expect(overlay.isMinimized()).toBe(true);
     expect(overlay.isVisible()).toBe(true);
     expect(capsule?.hidden).toBe(false);
     expect(el?.hidden).toBe(true);
 
-    // 点击胶囊展开
     capsule?.dispatchEvent(new PointerEvent("pointerdown", { clientX: 10, clientY: 10 }));
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 10 }));
 
@@ -510,7 +501,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(capsule?.hidden).toBe(true);
     expect(el?.hidden).toBe(false);
 
-    // 点击最小化按钮收回胶囊
     const minBtn = el?.querySelector(".live-overlay-min-btn") as HTMLButtonElement;
     minBtn.click();
 
@@ -614,13 +604,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const micText = capsule.querySelector<HTMLElement>(".live-overlay-mini-mic-text")!;
     const micIcon = capsule.querySelector<SVGElement>(".live-overlay-mini-mic-icon")!;
 
-    // connecting 态
     expect(micBtn.disabled).toBe(true);
     expect(micText.hidden).toBe(true);
     expect(micIcon.hasAttribute("hidden")).toBe(true);
     expect(capsule.getAttribute("aria-label")).not.toContain("麦克风已开启");
 
-    // reconnecting 态
     liveState = "connected";
     overlay.syncState("connected", true);
     expect(micBtn.disabled).toBe(true);
@@ -628,14 +616,12 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(micIcon.hasAttribute("hidden")).toBe(true);
     expect(capsule.getAttribute("aria-label")).not.toContain("麦克风已开启");
 
-    // failure 态
     liveState = "failure";
     overlay.syncState("failure", false, "连接失败", "network");
     expect(micBtn.disabled).toBe(true);
     expect(micText.hidden).toBe(true);
     expect(micIcon.hasAttribute("hidden")).toBe(true);
 
-    // connected 恢复后才启用
     liveState = "connected";
     overlay.syncState("connected", false);
     expect(micBtn.disabled).toBe(false);
@@ -758,15 +744,13 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     expect(scrollBtn.hidden).toBe(true);
 
-    // 模拟向上滚动
     Object.defineProperty(messages, "scrollHeight", { value: 500, configurable: true });
     Object.defineProperty(messages, "clientHeight", { value: 200, configurable: true });
-    Object.defineProperty(messages, "scrollTop", { value: 100, writable: true, configurable: true }); // dist = 200 > 60
+    Object.defineProperty(messages, "scrollTop", { value: 100, writable: true, configurable: true });
 
     messages.dispatchEvent(new Event("scroll"));
     expect(scrollBtn.hidden).toBe(false);
 
-    // 点击回底
     scrollBtn.click();
     expect(scrollBtn.hidden).toBe(true);
   });
@@ -797,11 +781,9 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(scrollBtn.hidden).toBe(true);
     expect(document.activeElement).toBe(minBtn);
 
-    // 平滑滚动途中仍远离底部，中间帧 scroll 事件不应把按钮翻回显示
     messages.dispatchEvent(new Event("scroll"));
     expect(scrollBtn.hidden).toBe(true);
 
-    // 用户触发 wheel 后解除守卫，再触发 scroll 会重新显示回底钮
     messages.dispatchEvent(new Event("wheel"));
     messages.dispatchEvent(new Event("scroll"));
     expect(scrollBtn.hidden).toBe(false);
@@ -816,7 +798,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show();
 
-    // 1. 用户语音转写中与落定
     overlay.updateTranscript({
       kind: "input.updated",
       text: "你能看到画面吗？"
@@ -836,7 +817,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(userBubble?.textContent).toBe("你能看到画面里的猫吗？");
     expect(userBubble?.classList.contains("is-pending")).toBe(false);
 
-    // 2. Agent 流式回复转写
     overlay.updateTranscript({
       kind: "output.updated",
       runId: "run-1",
@@ -863,7 +843,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     expect(assistantBubble?.textContent).toBe("我看到了，是一只可爱的橘猫！");
 
-    // 3. 不提供清空按钮，但提供 clearMessages 方法用于房间切换等程序清空
     expect(overlay.getElement()?.querySelector(".live-overlay-clear-btn")).toBeNull();
     overlay.clearMessages();
     expect(messages.children.length).toBe(0);
@@ -882,12 +861,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
 
-    // 1. 麦克风静默期间的背景主播人声转写被拦截，不生成绿色用户气泡
     overlay.updateTranscript({ kind: "input.updated", text: "主播正在说话" });
     overlay.updateTranscript({ kind: "input.done", text: "主播正在说话" });
     expect(messages.querySelector(".live-overlay-bubble-user")).toBeNull();
 
-    // 2. 麦克风激活后正常上屏
     voiceActive = true;
     overlay.updateTranscript({ kind: "input.updated", text: "我在说话" });
     await flushAnimationFrame();
@@ -923,7 +900,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
 
-    // 1. 空文本 output.updated 不应提前创建空 DOM 气泡
     overlay.updateTranscript({
       kind: "output.updated",
       runId: "r-empty",
@@ -932,7 +908,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     expect(messages.querySelectorAll(".live-overlay-bubble-assistant")).toHaveLength(0);
 
-    // 2. 无前置 output.updated 直接到达非空 output.done 时自动补建定稿气泡
     overlay.updateTranscript({
       kind: "output.done",
       runId: "r-direct",
@@ -944,7 +919,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(bubblesAfterDirect[0].textContent).toBe("直达定稿回复");
     expect(bubblesAfterDirect[0].classList.contains("is-streaming")).toBe(false);
 
-    // 3. 打断后迟到的同轮次 output.updated / output.done 不得再冒出幽灵气泡
     overlay.updateTranscript({
       kind: "output.updated",
       runId: "r-int",
@@ -1056,10 +1030,8 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show({ forceExpand: true });
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
-    // 初始没有面板历史消息
     expect(messages.children.length).toBe(0);
 
-    // 伴看转写上屏
     overlay.updateTranscript({
       kind: "input.done",
       text: "伴看专属转写"
@@ -1075,7 +1047,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(messages.querySelector(".live-overlay-bubble-user")?.textContent).toBe("伴看专属转写");
     expect(messages.querySelector(".live-overlay-bubble-assistant")?.textContent).toBe("伴看专属回复");
 
-    // 清空浮窗消息
     overlay.clearMessages();
     expect(messages.children.length).toBe(0);
   });
@@ -1326,14 +1297,12 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(root.style.top).toBe("410px");
 
-      // 浮窗内容变高到 400px，ResizeObserver 夹紧到 600 - 400 - 16 = 184px
       rootHeight = 400;
       const rootCb = observed.get(root);
       expect(rootCb).toBeDefined();
       rootCb!([], {} as ResizeObserver);
       expect(root.style.top).toBe("184px");
 
-      // 最小化回胶囊时仍恢复拖拽时的原始 top (410px)
       root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
       expect(capsule.style.top).toBe("410px");
       overlay.dispose();
@@ -1366,7 +1335,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       cancelFrame
     });
 
-    // 同帧高频到达 4 次增量转写
     merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第" });
     merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第一" });
     merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第一句" });
@@ -1379,7 +1347,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(bubble.textContent).toBe("");
     expect(scrollToBottom).not.toHaveBeenCalled();
 
-    // 触发本帧 rAF：复用同一节点且仅写末态文本、仅滚底一次
     const [frameId, frameCb] = [...scheduled.entries()][0];
     scheduled.delete(frameId);
     frameCb(16);
@@ -1387,7 +1354,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(bubble.textContent).toBe("第一句完整增量");
     expect(scrollToBottom).toHaveBeenCalledTimes(1);
 
-    // 下一帧内先到 updated 后直达 output.done：终态同步冲刷并取消挂起 rAF
     merger.handleEvent({
       kind: "output.updated",
       runId: "r-batch",
@@ -1407,7 +1373,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(bubble.classList.contains("is-streaming")).toBe(false);
     expect(scrollToBottom).toHaveBeenCalledTimes(2);
 
-    // 清场/销毁时取消尚未执行的 rAF，不让迟到帧回写
     merger.handleEvent({
       kind: "output.updated",
       runId: "r-batch",

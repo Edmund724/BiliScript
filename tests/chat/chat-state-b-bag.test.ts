@@ -1,7 +1,3 @@
-// tests/chat/chat-state-b-bag.test.ts — B 档只读面收口（ADR-0005）落地件：
-// ① 新意图原语的行为锁（平台偏好整组落地 / live 快照与标签页三原语）；
-// ② 只读面与既有链的咬合（live 快照落地 → applyLiveContextToMain）；
-// ③ 源码守卫：可写把手不得流出 chat-state.ts。
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";

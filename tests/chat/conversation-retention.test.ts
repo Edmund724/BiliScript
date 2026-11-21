@@ -160,7 +160,6 @@ describe("cleanExpiredConversations 存储扫描与内存状态同步", () => {
       [CONVERSATIONS_STORAGE_KEY]: [expiredConv, freshConv]
     });
 
-    // 内存预置两会话，且当前活跃会话恰为超期会话
     setSavedConversations([expiredConv as any, freshConv as any]);
     applyConversationIdentity({
       id: expiredConv.id,
@@ -175,16 +174,13 @@ describe("cleanExpiredConversations 存储扫描与内存状态同步", () => {
     expect(result.prunedCount).toBe(1);
     expect(result.kept.map((c) => c.id)).toEqual(["fresh-1"]);
 
-    // 验证存储落盘仅保留未超期项
     const savedInStorage = storage.data.get(CONVERSATIONS_STORAGE_KEY) as any[];
     expect(savedInStorage).toHaveLength(1);
     expect(savedInStorage[0].id).toBe("fresh-1");
 
-    // 验证内存状态：已同步为剩余会话
     expect(chatSessionState.savedConversations).toHaveLength(1);
     expect(chatSessionState.savedConversations[0].id).toBe("fresh-1");
 
-    // 验证活跃会话已被安全拆除
     expect(chatSessionState.currentConversationId).toBe("");
     expect(chatSessionState.currentConversationMeta).toBeNull();
   });
@@ -271,7 +267,6 @@ describe("设置面板开关触发即时清理", () => {
       updatedAt: Date.now() - 2 * DAY_MS
     });
 
-    // 初始化 chrome.storage.local
     await chrome.storage.local.set({
       [CONVERSATIONS_STORAGE_KEY]: [expiredConv, freshConv]
     });
@@ -283,7 +278,6 @@ describe("设置面板开关触发即时清理", () => {
     });
 
     const panel = await import("../../extension/ui/settings-panel.js");
-    // Ensure memory savedConversations is also set in this module epoch
     setSavedConversations([expiredConv as any, freshConv as any]);
     expect(chatSessionState.savedConversations).toHaveLength(2);
 
@@ -298,11 +292,9 @@ describe("设置面板开关触发即时清理", () => {
     expect(toggle).not.toBeNull();
     expect(toggle.checked).toBe(false);
 
-    // 用户切换开关为 true
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change"));
 
-    // 验证立即完成清理
     await vi.waitFor(async () => {
       const data = await chrome.storage.local.get([CONVERSATIONS_STORAGE_KEY]);
       const list = data[CONVERSATIONS_STORAGE_KEY] as any[];

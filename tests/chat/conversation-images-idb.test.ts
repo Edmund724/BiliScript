@@ -1,11 +1,3 @@
-// 对话图片外置与水合防坑测试：
-// a) 正常写盘外置（{ mime, idbRef }）与读盘批量水合还原（{ mime, data }），含 SW subtitle-cache RPC 路径；
-// b) 单张 idbRef 缺失、IDB 记录损坏或 RPC 失败时，仅降级受影响单图，整条对话文本与其他正常图片完整加载；
-// c) IDB 写入失败时回退保留原内联 base64，绝不产生悬空 idbRef；storage.set 失败时回滚本次新写入的 IDB 图片；
-// d) 旧版内联 base64 读路径懒迁移回填 chat_images（幂等、先写后删、失败保内联）；
-// e) 删除单条会话（含 undo）、清空全部、覆盖保存替换/移除图片、超 60 条上限淘汰最旧会话后 chat_images 零孤儿残留，
-//    以及兜底孤儿清理（pruneOrphanChatImages）与总字节上限 LRU 淘汰保护。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { MAX_SAVED_CONVERSATIONS, normalizeConversations } from "../../extension/ai/conversation.js";
@@ -381,10 +373,8 @@ describe("阶段 2B：对话图片外置与水合", () => {
     });
 
     const saved = await updateConversationHistory(storage, () => [conv]);
-    // 内存返回值保持完整水合形态 { mime, data }
     expect((saved[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A, IMG_B]);
 
-    // storage.local 中只存轻引用 { mime, idbRef }，不含大段 base64 data
     const rawPersisted = storage.data.get(HISTORY_STORAGE_KEY) as Array<{
       id: string;
       messages: Array<{ images?: Array<Record<string, unknown>> }>;
@@ -402,14 +392,12 @@ describe("阶段 2B：对话图片外置与水合", () => {
     });
     expect("data" in persistedImages[1]).toBe(false);
 
-    // 远端 IDB chat_images 落盘完整元数据与 base64
     const storedImages = await remoteStore.listAllChatImages();
     expect(storedImages).toHaveLength(2);
     expect(storedImages.map((r) => r.conversationId)).toEqual(["conv-1", "conv-1"]);
     expect(storedImages.every((r) => r.bvid === "BV1rpc001")).toBe(true);
     expect(rpcCalls.some((m) => m.op === "put-chat-image")).toBe(true);
 
-    // 读盘水合还原为 { mime, data }
     const hydrated = await readConversationHistory(storage);
     expect(rpcCalls.some((m) => m.op === "get-chat-images")).toBe(true);
     expect((hydrated[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A, IMG_B]);
@@ -436,7 +424,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
       mime: IMG_A.mime,
       data: IMG_A.data
     });
-    // 在底层 IDB 注入一条损坏记录（data 为空字符串）
     fakeIdb.stores.get(CHAT_IMAGES_IDB_STORE)!.records.set(refCorrupted, {
       id: refCorrupted,
       conversationId: "conv-degrade",
@@ -517,7 +504,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     });
     await updateConversationHistory(storage, () => [conv1]);
 
-    // 模拟读盘 RPC 临时失败
     failGetChatImages = true;
     const degraded = await readConversationHistory(storage);
     expect(degraded).toHaveLength(1);
@@ -526,11 +512,9 @@ describe("阶段 2B：对话图片外置与水合", () => {
       content: "带图旧对话"
     });
 
-    // 瞬态读 RPC 失败期间保存一条新的纯文本会话，不应擦除 conv-1 的 idbRef 与 IDB 记录
     const conv2 = makeConversation("conv-2", { updatedAt: 20_000 });
     await updateConversationHistory(storage, (current) => [conv2, ...current]);
 
-    // RPC 恢复后再次读取，conv-1 图片完整还原
     failGetChatImages = false;
     const recovered = await readConversationHistory(storage);
     const recoveredConv1 = recovered.find((c) => c.id === "conv-1") as {
@@ -571,10 +555,8 @@ describe("阶段 2B：对话图片外置与水合", () => {
 
     await updateConversationHistory(storage, () => [conv]);
 
-    // 严格先写 IDB，再写 storage.local
     expect(order).toEqual([`idb:${idA}`, `idb:${idB}`, "storage.set"]);
 
-    // 成功的图 A 落为 idbRef，失败的图 B 回退保留原内联 base64，绝无悬空 idbRef
     const persisted = storage.data.get(HISTORY_STORAGE_KEY) as Array<{
       messages: Array<{ images?: Array<Record<string, unknown>> }>;
     }>;
@@ -585,7 +567,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(await store.getChatImage(idA)).not.toBeNull();
     expect(await store.getChatImage(idB)).toBeNull();
 
-    // 解除写拦截后读盘：两张图均完整还原，且内联回退的图 B 同步被懒迁移外置
     store.setWriteInterceptorForTests(null);
     const reloaded = await readConversationHistory(storage);
     expect((reloaded[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A, IMG_B]);
@@ -624,7 +605,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     await storage.set({ [HISTORY_STORAGE_KEY]: [legacyConv] });
     storage.set.mockClear();
 
-    // 1) 若迁移写入 IDB 失败：仍正常返回原内联图片，且不改写 storage.local（不产生悬空引用）
     store.setWriteInterceptorForTests(() => {
       throw new Error("temporary idb write error");
     });
@@ -636,7 +616,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
         .messages[0].images
     ).toEqual([IMG_A]);
 
-    // 2) IDB 恢复后再次读取：正常返回，同时先写 chat_images 再替换 storage.local 为 { mime, idbRef }
     store.setWriteInterceptorForTests(null);
     const secondRead = await readConversationHistory(storage);
     expect((secondRead[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A]);
@@ -655,7 +634,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
       data: IMG_A.data
     });
 
-    // 3) 第三次读取：幂等命中 idbRef，不再触发 storage.set
     storage.set.mockClear();
     const thirdRead = await readConversationHistory(storage);
     expect((thirdRead[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A]);
@@ -668,7 +646,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     configureSubtitleCacheStoreForTests(store);
     const storage = makeMemoryStorage();
 
-    // 1) 写入两条带图会话，删除其中一条 → 按 by_conversationId 索引精准删除，另一条完好
     const conv1 = makeConversation("conv-1", {
       updatedAt: 1000,
       messages: [{ role: "user", content: "图1", images: [IMG_A] }]
@@ -695,7 +672,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     fakeIdb.indexGetAllCalls.length = 0;
     const deletion = await convStore.deleteById("conv-1");
     expect(deletion).not.toBeNull();
-    // 确认真正走了 by_conversationId 索引删除
     expect(
       fakeIdb.indexGetAllCalls.some(
         (call) =>
@@ -707,11 +683,9 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(await store.listChatImagesByConversationId("conv-1")).toEqual([]);
     expect(await store.listChatImagesByConversationId("conv-2")).toHaveLength(1);
 
-    // undo 撤销删除后，conv-1 的图片自动重新外置到 chat_images
     await deletion!.undo();
     expect(await store.listChatImagesByConversationId("conv-1")).toHaveLength(1);
 
-    // 2) 覆盖保存（conv-2 原图 B 被替换为新图 C）：旧图 B 彻底回收，只剩新图 C
     const conv2Updated = makeConversation("conv-2", {
       updatedAt: 3000,
       messages: [{ role: "user", content: "换成图3", images: [IMG_C] }]
@@ -725,7 +699,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(conv2Images[0].data).toBe(IMG_C.data);
     expect(await store.getChatImage(computeChatImageId("conv-2", IMG_B.mime, IMG_B.data))).toBeNull();
 
-    // 3) 覆盖保存（conv-2 移除全部图片变为纯文本）：conv-2 图片归零
     const conv2TextOnly = makeConversation("conv-2", {
       updatedAt: 4000,
       messages: [{ role: "user", content: "只留文字" }]
@@ -736,7 +709,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     ]);
     expect(await store.listChatImagesByConversationId("conv-2")).toEqual([]);
 
-    // 4) 超 60 条上限淘汰最旧会话：被挤出的最旧会话图片按 by_conversationId 同步清除，零孤儿
     await updateConversationHistory(storage, () => []);
     expect(await store.listAllChatImages()).toEqual([]);
 
@@ -771,7 +743,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(remainingAll).toHaveLength(1);
     expect(remainingAll[0].conversationId).toBe("conv-newest");
 
-    // 5) 清空全部会话：chat_images 彻底归零
     await updateConversationHistory(storage, () => []);
     expect(await store.listAllChatImages()).toEqual([]);
   });
@@ -789,14 +760,12 @@ describe("阶段 2B：对话图片外置与水合", () => {
     configureSubtitleCacheStoreForTests(store);
     const storage = makeMemoryStorage();
 
-    // 正常保存一条存活会话
     const alive = makeConversation("conv-alive", {
       updatedAt: 5000,
       messages: [{ role: "user", content: "存活图", images: [{ mime: "image/webp", data: "A".repeat(120) }] }]
     });
     await updateConversationHistory(storage, () => [alive]);
 
-    // 模拟异常中断残留的两条无主图片：一条属于不存在会话，一条属于存活会话但未被引用
     await store.putChatImage({
       id: "img_ghost_conv",
       conversationId: "conv-ghost",
@@ -815,7 +784,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(pruned.sort()).toEqual(["img_ghost_conv", "img_unreferenced_in_alive"].sort());
     expect(await store.listAllChatImages()).toHaveLength(1);
 
-    // 验证总字节上限 LRU 淘汰：写入多张图片超过 maxChatImageBytes，优先淘汰最久未使用项
     await store.clearAllChatImages();
     const res1 = await store.putChatImage({
       id: "lru-1",
@@ -833,7 +801,6 @@ describe("阶段 2B：对话图片外置与水合", () => {
     });
     expect(res2.ok).toBe(true);
 
-    // 读命中 lru-1 刷新其 lastUsedAt，使 lru-2 成为最久未使用项
     expect(await store.getChatImage("lru-1")).not.toBeNull();
 
     const res3 = await store.putChatImage({

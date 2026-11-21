@@ -1,6 +1,3 @@
-// tests/live/live-chat-controller.test.ts
-// LiveChatController 状态机、麦克风采集与权限拒绝、静音控制、字幕归并及挂断迟到事件防御测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -302,10 +299,8 @@ describe("LiveChatController", () => {
 
     const { controller } = setupTest({ requestOrigins });
 
-    // Call start synchronously
     const startPromise = controller.start();
 
-    // Must be invoked synchronously in the same call frame (preserves user gesture)
     expect(permCalled).toBe(true);
     expect(requestOrigins).toHaveBeenCalledWith([
       "https://api.mosi.cn",
@@ -457,20 +452,17 @@ describe("LiveChatController", () => {
     expect(controller.getState()).toBe("connected");
     expect(controller.isSpeaking()).toBe(false);
 
-    // AI starts speaking
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
     expect(onSpeakingChange).toHaveBeenCalledWith(true);
     expect(controller.isSpeaking()).toBe(true);
 
-    // Click interrupt
     fakePort.postedMessages.length = 0;
     controller.interrupt();
     expect(fakePort.postedMessages).toContainEqual({ action: "interrupt" });
     expect(controller.isSpeaking()).toBe(false);
     expect(onSpeakingChange).toHaveBeenCalledWith(false);
-    expect(controller.getState()).toBe("connected"); // Still connected!
+    expect(controller.getState()).toBe("connected");
 
-    // When speaking resumes and then completes naturally
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
     expect(controller.isSpeaking()).toBe(true);
     fakePort.simulateMessage({ type: "speaking_state", speaking: false });
@@ -527,7 +519,6 @@ describe("LiveChatController", () => {
     const ok = await startPromise;
     expect(ok).toBe(true);
 
-    // Posted start message to port
     expect(fakePort.postedMessages).toEqual([
       {
         action: "start",
@@ -538,14 +529,12 @@ describe("LiveChatController", () => {
       }
     ]);
 
-    // Simulate connected event
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
     expect(liveButton.classList.contains("is-connected")).toBe(true);
     expect(liveButton.getAttribute("aria-pressed")).toBe("true");
     expect(muteButton.hidden).toBe(false);
 
-    // Emit 20ms PCM frame from microphone capture -> forwarded over port as base64
     const capture = getAudioCapture()!;
     expect(capture).not.toBeNull();
     capture.emitFrame(new Uint8Array([10, 20, 30, 40]));
@@ -625,13 +614,11 @@ describe("LiveChatController", () => {
     const videoCapture = getVideoCapture()!;
     expect(videoCapture.pauseWhenStatic).toBe(true);
 
-    // 视频暂停停推期间，麦克风音频帧照常上行
     videoCapture.suspended = true;
     fakePort.postedMessages.length = 0;
     getAudioCapture()!.emitFrame(new Uint8Array([1, 2, 3, 4]));
     expect(fakePort.postedMessages).toEqual([{ action: "audio", pcmBase64: expect.any(String) }]);
 
-    // 暂停停推态离散提问：自动补单帧快照 + 含当前播放时刻的纯文本
     fakePort.postedMessages.length = 0;
     expect(await controller.sendUserPrompt("这个图表说明了什么？")).toBe(true);
     expect(fakePort.postedMessages).toEqual([
@@ -642,7 +629,6 @@ describe("LiveChatController", () => {
       }
     ]);
 
-    // 播放态离散提问：不重复补图，仅发带时刻上下文的纯文本
     videoCapture.suspended = false;
     fakePort.postedMessages.length = 0;
     expect(await controller.sendUserPrompt("继续解释下一步")).toBe(true);
@@ -716,7 +702,6 @@ describe("LiveChatController", () => {
     expect(controller.isMuted()).toBe(false);
     expect(muteButton.getAttribute("aria-pressed")).toBe("false");
 
-    // Mute
     controller.toggleMute();
     expect(controller.isMuted()).toBe(true);
     expect(getAudioCapture()?.isMuted()).toBe(true);
@@ -724,11 +709,9 @@ describe("LiveChatController", () => {
     expect(muteButton.getAttribute("aria-pressed")).toBe("true");
     expect(fakePort.postedMessages).toEqual([{ action: "mic_state", enabled: false }]);
 
-    // Emitting frame while muted produces no port messages
     getAudioCapture()!.emitFrame(new Uint8Array([1, 2, 3, 4]));
     expect(fakePort.postedMessages).toHaveLength(1);
 
-    // Unmute
     controller.toggleMute();
     expect(controller.isMuted()).toBe(false);
     expect(getAudioCapture()?.isMuted()).toBe(false);
@@ -786,12 +769,10 @@ describe("LiveChatController", () => {
 
     expect(receivedTranscripts).toHaveLength(2);
 
-    // Hangup (stop)
     await controller.stop();
     expect(getAudioCapture()?.stopped).toBe(true);
     expect(isMergerDisposed()).toBe(true);
 
-    // Late transcript arrives from port after hangup -> strictly ignored
     fakePort.simulateMessage({
       type: "transcript",
       event: { kind: "output.done", text: "挂断后的迟到回复", runId: "r2", turnId: "t2" }
@@ -947,14 +928,11 @@ describe("LiveChatController", () => {
     const { controller, liveButton, fakePort } = setupTest();
 
     await controller.start();
-    // Stop session while still in connecting
     await controller.stop();
     expect(controller.getState()).toBe("idle");
 
-    // Late connected event arrives from old port
     fakePort.simulateMessage({ type: "connected" });
 
-    // Should still be idle, NOT flipped to connected
     expect(controller.getState()).toBe("idle");
     expect(liveButton.classList.contains("is-connected")).toBe(false);
   });
@@ -977,11 +955,9 @@ describe("LiveChatController", () => {
     const startPromise = controller.start();
     expect(controller.getState()).toBe("connecting");
 
-    // User calls stop while prepare is in-flight
     await controller.stop();
     expect(controller.getState()).toBe("idle");
 
-    // Now background prepare resolves
     resolvePrepare({
       ok: true,
       provider: { id: "moss-1", baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" }
@@ -990,7 +966,6 @@ describe("LiveChatController", () => {
     const ok = await startPromise;
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("idle");
-    // Verify cleanup was invoked for the stale prepare completion so rule does not leak
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
   });
 });
@@ -1469,15 +1444,12 @@ describe("LiveChatController video context and page tools", () => {
     controller.setShareVideoAudio(true);
     expect(controller.getVideoAudioStatus()).toBe("已获取音轨");
 
-    // Simulate VAD change from capture
     capturedOptions?.onVadStateChange?.(true);
     expect(vadStates).toEqual([true]);
 
-    // Simulate video audio status change from capture
     capturedOptions?.onVideoAudioStatusChange?.("视频已静音");
     expect(videoStatuses).toEqual(["视频已静音"]);
 
-    // Test video audio toggle
     controller.setShareVideoAudio(false);
     expect(fakeCapture.videoAudioShared).toBe(false);
 
@@ -1502,11 +1474,9 @@ describe("LiveChatController video context and page tools", () => {
       await controller.start();
       expect(controller.getSavedSessionId?.()).toBeNull();
 
-      // Receive session_attached from server
       fakePort.simulateMessage({ type: "session_attached", sessionId: "sess-moss-persist-99" });
       expect(controller.getSavedSessionId?.()).toBe("sess-moss-persist-99");
 
-      // Stop session (user actively ends companion)
       await controller.stop();
       expect(controller.getSavedSessionId?.()).toBeNull();
     });
@@ -1534,7 +1504,6 @@ describe("LiveChatController video context and page tools", () => {
       expect(controller.getState()).toBe("connected");
       expect(controller.isReconnecting?.()).toBe(false);
 
-      // Port emits reconnecting event
       fakePort.simulateMessage({
         type: "reconnecting",
         attempt: 1,
@@ -1557,7 +1526,6 @@ describe("LiveChatController video context and page tools", () => {
         6000
       );
 
-      // Reset upon connected
       fakePort.simulateMessage({ type: "connected" });
       expect(controller.getState()).toBe("connected");
       expect(controller.isReconnecting?.()).toBe(false);

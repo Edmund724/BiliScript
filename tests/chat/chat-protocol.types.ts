@@ -1,12 +1,3 @@
-// chat 出向流式事件协议联合的类型级守卫（ticket 08，照
-// tests/core/state-fetch-state-types.test.ts 的 @ts-expect-error 负向用例模式）：
-// ChatPortMessage 单源在 extension/chat/protocol.ts，事件名 typo / 形状漂移
-// 在 tsc --noEmit（typecheck 覆盖 tests/**/*.ts）下编译被拒——本文件的负向
-// 断言行就是验收：联合一旦放宽（成员回退成宽 payload 或放行未知名），typecheck
-// 会因「未使用的期望错误指令」变红。运行时分派行为的回归由
-// tests/chat/chat-runtime-stream.test.ts 锁定（既有用例零改动绿 = 分派不变），
-// 本文件只做类型赋值面的正/负断言。
-
 import { describe, expect, it } from "vitest";
 import type { ChatPortMessage } from "../../extension/chat/protocol.js";
 

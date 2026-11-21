@@ -1,6 +1,3 @@
-// tests/chat/chat-continue-generation.test.ts
-// Ticket 04: 原地无缝“继续生成”流式编排测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -105,15 +102,12 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     deps.input.value = "讲个笑话";
     const runtime = createChatRuntime(deps);
 
-    // 发起第一轮
     await runtime.sendTurn(deps.input.value);
     expect(deps.ports).toHaveLength(1);
 
-    // 仅输出思考文本后被用户中断
     feed(runtime, { type: "reasoning", data: "正在思考一个关于程序员的笑话..." });
     feed(runtime, { type: "stopped", reason: "用户停止" });
 
-    // 校验中断态：正文为空，思考保留，卡片呈现停止徽标与重试/继续生成按钮
     const assistantEl = deps.messages.querySelector(".chat-msg-assistant") as HTMLDivElement;
     expect(assistantEl).toBeTruthy();
     const stoppedBadge = assistantEl.querySelector(".chat-msg-stopped");
@@ -131,29 +125,23 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
 
     deps.store.persistCurrent.mockClear();
 
-    // 点击“继续生成”
     continueBtn!.click();
     await vi.waitFor(() => expect(deps.ports).toHaveLength(2));
 
-    // 验证 UI 清理停止徽标与操作栏，卡片恢复流式接收态
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-actions")).toBeNull();
     expect(assistantEl.classList.contains("chat-msg-streaming")).toBe(true);
 
-    // 验证发给模型的请求协议：原问题重跑，上下文为该用户问题之前的历史（空）
     const secondReq = deps.ports[1].port.postMessage.mock.calls[0][0];
     expect(secondReq.prompt).toBe("讲个笑话");
     expect(secondReq.history).toEqual([]);
 
-    // 验证没有多加一条 user 消息
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
 
-    // 模型流式吐出正文
     feed(runtime, { type: "token", data: "为什么程序员总分不清万圣节和圣诞节？" });
     feed(runtime, { type: "token", data: "因为 Oct 31 == Dec 25。" });
     feed(runtime, { type: "done" });
 
-    // 验证完成态：更新为一条完整助手回答并落盘，stopped 标记清除
     expect(chatSessionState.chatHistory).toHaveLength(2);
     expect(chatSessionState.chatHistory[0]).toEqual({
       role: "user",
@@ -166,13 +154,11 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     });
     expect(deps.store.persistCurrent).toHaveBeenCalled();
 
-    // 验证 DOM：终态渲染，恢复4个正常操作按钮，停止徽标与继续按钮消失
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-continue-btn")).toBeNull();
     const actionBtns = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
     expect(actionBtns).toHaveLength(4);
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("为什么程序员总分不清万圣节和圣诞节？因为 Oct 31 == Dec 25。");
-    // 思考过程已折叠保留
     expect(assistantEl.querySelector(".chat-thinking")?.classList.contains("chat-thinking-collapsed")).toBe(true);
   });
 
@@ -181,7 +167,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     deps.input.value = "列出三个常用排序算法";
     const runtime = createChatRuntime(deps);
 
-    // 发起第一轮
     await runtime.sendTurn(deps.input.value);
     feed(runtime, { type: "token", data: "1. 冒泡排序\n2. 插入排序" });
     feed(runtime, { type: "stopped", reason: "网络中断" });
@@ -198,16 +183,13 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
 
     deps.store.persistCurrent.mockClear();
 
-    // 点击“继续生成”
     continueBtn!.click();
     await vi.waitFor(() => expect(deps.ports).toHaveLength(2));
 
-    // 验证 UI 清理与流式接收态
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-actions")).toBeNull();
     expect(assistantEl.classList.contains("chat-msg-streaming")).toBe(true);
 
-    // 验证请求协议：prompt 为 "继续"，history 包含当前用户问题及已有未完成回答
     const continueReq = deps.ports[1].port.postMessage.mock.calls[0][0];
     expect(continueReq.prompt).toBe("继续");
     expect(continueReq.history).toEqual([
@@ -215,11 +197,9 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
       { role: "assistant", content: "1. 冒泡排序\n2. 插入排序" }
     ]);
 
-    // 模型继续吐出剩余内容
     feed(runtime, { type: "token", data: "\n3. 快速排序" });
     feed(runtime, { type: "done" });
 
-    // 验证合并落盘：chatHistory 依然只有 2 条消息（不产生额外的“继续”轮次），正文合并为完整回答
     expect(chatSessionState.chatHistory).toHaveLength(2);
     expect(chatSessionState.chatHistory[0]).toEqual({
       role: "user",
@@ -232,7 +212,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(chatSessionState.chatHistory[1].stopped).toBeUndefined();
     expect(deps.store.persistCurrent).toHaveBeenCalled();
 
-    // 验证 DOM：终态渲染完整合并内容
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-continue-btn")).toBeNull();
     expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(4);
@@ -243,12 +222,10 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
 
-    // 第一轮正常完成
     await runtime.sendTurn("你好");
     feed(runtime, { type: "token", data: "你好！很高兴为你服务。" });
     feed(runtime, { type: "done" });
 
-    // 第二轮中断
     await runtime.sendTurn("介绍一下 Python");
     feed(runtime, { type: "token", data: "Python 是一种简洁的" });
     feed(runtime, { type: "stopped", reason: "用户停止" });
@@ -262,7 +239,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     continueBtn!.click();
     await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
 
-    // 验证发送的 history 包含第1轮一问一答 + 第2轮问 + 第2轮已有的 partial 回答
     const req = deps.ports[2].port.postMessage.mock.calls[0][0];
     expect(req.prompt).toBe("继续");
     expect(req.history).toEqual([
@@ -296,14 +272,11 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     assistantEl.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
     await vi.waitFor(() => expect(deps.ports).toHaveLength(2));
 
-    // 续写流吐出一部分 token
     feed(runtime, { type: "token", data: " -> 第二步" });
 
-    // 用户再次手动停止
     runtime.stopActiveStream();
     feed(runtime, { type: "stopped", reason: "再次中断" });
 
-    // 验证历史中保存了合并后的文本且保持 stopped: true
     expect(chatSessionState.chatHistory).toHaveLength(2);
     expect(chatSessionState.chatHistory[1]).toEqual({
       role: "assistant",
@@ -311,7 +284,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
       stopped: true
     });
 
-    // 验证 DOM 维持中断态并保留合并正文
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("再次中断");
     const actions = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
     expect([...actions].map((button) => button.getAttribute("aria-label"))).toEqual([
@@ -324,12 +296,10 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
 
-    // 第一轮正常完成，卡片上有“重新生成”按钮
     await runtime.sendTurn("第一问");
     feed(runtime, { type: "token", data: "第一答" });
     feed(runtime, { type: "done" });
 
-    // 第二轮中断
     await runtime.sendTurn("第二问");
     feed(runtime, { type: "token", data: "第二答部分内容" });
     feed(runtime, { type: "stopped", reason: "用户停止" });
@@ -343,20 +313,16 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(firstRegenBtn.disabled).toBe(false);
     expect(secondContinueBtn.disabled).toBe(false);
 
-    // 触发继续生成
     secondContinueBtn.click();
     await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
 
-    // 运行期间：当前在途流式中，其他卡片的重试/继续按钮全部禁用
     expect(runtime.isTurnActive()).toBe(true);
     expect(firstRegenBtn.disabled).toBe(true);
 
-    // 尝试重入点击被忽略（端口数不会增长）
     firstRegenBtn.click();
     secondContinueBtn.click();
     expect(deps.ports).toHaveLength(3);
 
-    // 结束流
     feed(runtime, { type: "done" });
     expect(runtime.isTurnActive()).toBe(false);
     expect(firstRegenBtn.disabled).toBe(false);
@@ -374,7 +340,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     const assistantEl = deps.messages.querySelector(".chat-msg-assistant") as HTMLDivElement;
     const continueBtn = assistantEl.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!;
 
-    // 模拟下次建连失败
     deps.connectPort.mockRejectedValueOnce(new Error("offscreen 端口建立失败"));
 
     continueBtn.click();
@@ -383,14 +348,12 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
       expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("继续生成失败：offscreen 端口建立失败", 4000);
     });
 
-    // 历史保持原状
     expect(chatSessionState.chatHistory[1]).toEqual({
       role: "assistant",
       content: "原部分正文",
       stopped: true
     });
 
-    // DOM 恢复中断态
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("初始停止");
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("原部分正文");
     expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(5);
@@ -571,7 +534,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     feed(runtime, { type: "token", data: "半句" });
     feed(runtime, { type: "stopped", reason: "已停止" });
 
-    // 切到新视频页面
     stateMod.chatSessionStateForTests.liveContextKey = "video:BV1new|1";
     deps.messages.scrollTop = 180;
     const assistantEl = deps.messages.querySelector<HTMLDivElement>(".chat-msg-assistant")!;

@@ -1,4 +1,3 @@
-// tests/live/offscreen-live-session-runtime.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -175,11 +174,9 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     expect(runtime.getState()).toBe("connected");
     expect(runtime.getSessionId()).toBe("fake-sess-1");
 
-    // 1. User begins speaking -> ducks video
     adapter.callbacks!.emitTranscript({ kind: "input.updated", text: "请问" });
     expect(duckStates).toEqual([true]);
 
-    // 2. Model starts responding -> remains ducked & enters speaking state
     adapter.callbacks!.emitTranscript({
       kind: "output.updated",
       text: "正在解答",
@@ -188,7 +185,6 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     });
     expect(runtime.isSpeaking()).toBe(true);
 
-    // 3. Same-video overview refresh arrives while speaking -> deferred until turn completes
     const nextContext: MossLiveSessionContext = {
       ...sampleContext,
       title: "架构加深测试（概览已更新）"
@@ -196,7 +192,6 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     runtime.updateVideoContext(nextContext);
     expect(adapter.contextUpdates).toHaveLength(0);
 
-    // 4. Turn ends -> releases duck, exits speaking, and flushes pending context
     adapter.callbacks!.emitTranscript({
       kind: "response.ended",
       status: "completed",
@@ -280,7 +275,6 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
     expect(client.getSessionId()).toBe("gemini-resume-token-42");
     expect(attachedHandles).toEqual(["gemini-resume-token-42"]);
 
-    // Unexpected connection drop triggers reconnect with saved handle
     ws1.close(1006, "Network lost");
     expect(reconnecting).toEqual([{ attempt: 1, maxAttempts: 3, code: 1006 }]);
     expect(client.getReconnectAttempts()).toBe(1);

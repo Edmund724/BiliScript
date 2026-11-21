@@ -1,6 +1,3 @@
-// tests/live/live-room.test.ts
-// 直播间实时伴看：房间号判定、会话上下文投影、工具拒绝与提示词/工具声明裁剪
-
 import { describe, expect, it, vi } from "vitest";
 import { isLiveRoomPage, parseLiveRoomId } from "../../extension/bilibili/video-id-shared.js";
 import {
@@ -130,7 +127,6 @@ describe("直播间提示词与工具声明", () => {
   });
 });
 
-
 describe("直播间伴看开关按钮", () => {
   it("挂载到现行直播控制栏扩展位，复用伴看图标与无障碍标签", async () => {
     const host = document.createElement("div");
@@ -161,7 +157,6 @@ describe("直播间伴看开关按钮", () => {
     btn?.dispatchEvent(new MouseEvent("mouseleave"));
     expect(btn?.title).toBe("实时伴看");
 
-    // 模拟 B 站播放器控制栏重建：摘除按钮后由局部 MutationObserver 自愈补回（无 setInterval 轮询）
     btn?.remove();
     expect(host.querySelector(".biliscript-live-room-toggle")).toBeNull();
     const sibling = document.createElement("span");
@@ -209,14 +204,12 @@ describe("直播间伴看开关按钮", () => {
       expect(btn.getAttribute("aria-label")).toBe("实时伴看");
       expect(btn.getAttribute("data-tooltip")).toBe("实时伴看");
 
-      // 快速连点两次：第二次 250ms 内被节流，仍只触发一次启动（状态进入 connecting）
       btn.click();
       btn.click();
       await Promise.resolve();
       expect(btn.getAttribute("aria-label")).toBe("正在连接伴看，点击取消");
       expect(btn.getAttribute("data-tooltip")).toBe("正在连接伴看，点击取消");
 
-      // 超过 250ms 后再次点击：可一键取消回到 idle
       vi.advanceTimersByTime(260);
       btn.click();
       await Promise.resolve();

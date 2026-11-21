@@ -1,29 +1,3 @@
-// tests/chat/context-inprocess.test.ts
-// createInProcessContextFetch 装配链的进程内契约（三事各一条 + 缺省热评实现的对账）：
-//
-//   ① 字幕签名未变 → 不重发字幕体到 offscreen：createInProcessContextFetch 的
-//      签名短路命中 → loadContextState 走 SKIP_UNCHANGED（不落新
-//      payload、contextKey 不变）→ chat-runtime 依 lastAckedContextKey 省略
-//      字幕体。签名短路与 offscreen 省传的接力在进程内路径完整成立。
-//
-//   ② 首次上下文组装时拉热评：仅全量路径拉取（unchanged 已提前返回），
-//      热评合并进快照，并随快照附带 signature / isVideoContext 补写。
-//      forceRefresh 语义：忽略签名强制全量。
-//
-//   ③ ASR 转写中发送 → 走 subtitle-wait 等待而非发空上下文（事故史见
-//      chat/subtitle-wait.ts 头注）：转写中（subtitleFetchState "loading" 且
-//      字幕体为空 + asrTranscribingActive 兜底信号）时，组合根同款发送前编排
-//      （loadContextState → subtitleWaiter.wait → 重取快照 → no-subtitle 拦截）
-//      挂起发送、不发起 offscreen port；转写完成后（字幕体落账、签名变化）
-//      kick 补轮放行，发出去的是转写完成后的完整字幕上下文。
-//
-//   ④ 缺省热评实现：消费 gateway 的热评编排单源 fetchHotCommentsWithLedger
-//      （arch-review-2026-09/07 收口），把 comments 合并进快照；aid 判空/落账/
-//      失败降级的分支语义直测在 tests/bilibili/gateway.test.ts。
-//
-// 写法参照 tests/sidepanel 现有手法：resetModules 后同纪元导入被测模块与
-// chat-state 单例并手动重置字段；deps 全注入（clip 受控快照/热评/定时器/port）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -38,9 +12,6 @@ const { gatewayMock } = vi.hoisted(() => ({
   }
 }));
 
-// 仅供缺省热评实现（④）命中的 mock；①②③ 注入自己的 fetchHotComments，
-// 不触达该模块。core/context-assembly 对 gateway 是静态 import（07 收口后），
-// 编排分支语义由 gateway 直测承担，这里只留接缝形状。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   fetchHotCommentsWithLedger: gatewayMock.fetchHotCommentsWithLedger
 }));
@@ -54,7 +25,6 @@ let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js")
 let subtitleReadiness: typeof import("../../extension/chat/subtitle-readiness.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-// 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
@@ -62,14 +32,11 @@ const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
 const CONTEXT_KEY = "video:BV1test000000|101";
 const HOT_COMMENTS = [{ uname: "热评君", message: "前方高能" }];
 
-// content 侧 state.clip 的受控替身句柄（clip 读取器读 current）。
 type ClipRef = { current: Partial<ClipState> };
 
 async function importModules() {
   const contextLoadModule = await import("../../extension/chat/context-load.js");
   createContextLoad = contextLoadModule.createContextLoad;
-  // 工单 07 装配收口：装配策略自 chat/context-load 迁 core/context-assembly
-  //（context-payload 锚定的唯一装配链），导入路径随迁，断言语义零变化。
   const assemblyModule = await import("../../extension/core/context-assembly.js");
   createInProcessContextFetch = assemblyModule.createInProcessContextFetch;
   createInProcessPinnedContextResolver = assemblyModule.createInProcessPinnedContextResolver;
@@ -87,8 +54,6 @@ async function importModules() {
   resetChatSessionStateForTests = stateModule.resetChatSessionStateForTests;
 }
 
-// content 侧 state.clip 的受控替身（字段与 core/state.ts 的 ClipBusinessState
-// 同形；payload 组装只读 createSidepanelContextPayload 的投影字段）。
 function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
   return {
     currentUrl: VIDEO_URL,
@@ -116,7 +81,6 @@ function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
   };
 }
 
-// 进程内策略 + loadContextState 编排壳的组装（测试注入受控 clip 快照与热评）。
 function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { hotComments?: unknown[] } = {}) {
   const fetchHotComments = vi.fn(async () => hotComments);
   const fetchContext = createInProcessContextFetch({
@@ -140,8 +104,6 @@ function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { 
   return { fetchHotComments, contextLoad, deps };
 }
 
-// 宿主 → offscreen 的 chat port 消息（sendMessage 的发火载荷；port.postMessage
-// 边界为 unknown，本文件只读 action/contextKey/prompt/context 四个字段）。
 interface ChatSendMessage {
   action: string;
   contextKey?: string;
@@ -149,7 +111,6 @@ interface ChatSendMessage {
   context: { subtitleBody?: unknown; subtitleFetchState?: unknown };
 }
 
-// chat-runtime 假 port / deps（沿 chat-runtime-stream.test.js 的手法）
 function makePort() {
   const listeners: {
     message: Array<(message: unknown) => void>;
@@ -157,7 +118,6 @@ function makePort() {
   } = { message: [], disconnect: [] };
   return {
     port: {
-      // 生产端口名常量（chat/protocol.js 的 OFFSCREEN_CHAT_PORT_NAME）
       name: OFFSCREEN_CHAT_PORT_NAME,
       onMessage: { addListener: (fn: (message: unknown) => void) => listeners.message.push(fn) },
       onDisconnect: { addListener: (fn: () => void) => listeners.disconnect.push(fn) },
@@ -168,7 +128,6 @@ function makePort() {
   };
 }
 
-// 假 deps：CreateChatRuntimeDeps 全字段 + 测试自持的 ports 记录面。
 type ChatRuntimeDeps = CreateChatRuntimeDeps & {
   ports: Array<ReturnType<typeof makePort>>;
 };
@@ -229,16 +188,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ===========================================================================
-// 短路三事（工单 08 验收）
-// ===========================================================================
 describe("工单 08 短路三事（进程内直读路径）", () => {
   it("① 字幕签名未变 → 不重发字幕体到 offscreen：unchanged 短路 + lastAcked 省传接力", async () => {
-    // 固定一份 clip 快照（状态未变 = 对象不换、内容不改）
     const clipRef = { current: makeClip() };
     const { fetchHotComments, contextLoad } = makeContextHarness(clipRef);
 
-    // 首次全量组装：热评拉取 + 快照附 signature
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
     expect(chatSessionState.contextData!.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
@@ -246,7 +200,6 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     expect(signature).not.toBe("");
     expect(chatSessionState.currentContextKey).toBe(CONTEXT_KEY);
 
-    // 首条消息：字幕体全量携带；offscreen 回执 cachedContextKey 确认单槽缓存
     const { deps } = makeChatDeps();
     const runtime = createChatRuntime(deps);
     await send(runtime, deps, "总结一下这个视频");
@@ -258,15 +211,12 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     deps.ports[0].listeners.message[0]({ type: "done", cachedContextKey: CONTEXT_KEY });
     expect(deps.ports[0].port.disconnect).toHaveBeenCalled();
 
-    // 签名未变的一轮同步：进程内短路命中——不拉热评、不落新 payload
-    //（对应 message-handler 现有签名短路语义的进程内重演）
     const contextDataBefore = chatSessionState.contextData;
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
     expect(chatSessionState.contextData).toBe(contextDataBefore);
     expect(chatSessionState.currentContextKey).toBe(CONTEXT_KEY);
 
-    // 接力断言：追问消息因 contextKey 未变（lastAckedContextKey 命中）省略字幕体
     await send(runtime, deps, "第二章讲了什么？");
     expect(deps.ports).toHaveLength(2);
     const secondMsg = deps.ports[1].port.postMessage.mock.calls[0][0];
@@ -281,26 +231,21 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
       hotComments: HOT_COMMENTS
     });
 
-    // 首次组装（全量路径）：热评拉取一次，合并进 contextData（背景层覆盖语义
-    // 的进程内重演），并随快照补写 signature / isVideoContext
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
     expect(chatSessionState.contextData!.hotComments).toEqual(HOT_COMMENTS);
     expect(chatSessionState.contextData!.isVideoContext).toBe(true);
     expect(chatSessionState.contextData!.signature).not.toBe("");
 
-    // 签名未变：短路路径提前返回，不拉热评
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
 
-    // forceRefresh：忽略签名强制全量 → 再次拉取（与消息链手动刷新语义一致）
     await contextLoad.loadContextState({ forceRefresh: true, silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(2);
     expect(chatSessionState.contextData!.hotComments).toEqual(HOT_COMMENTS);
   });
 
   it("③ ASR 转写中发送 → subtitle-wait 等待而非发空上下文；转写完成后放行完整字幕", async () => {
-    // 转写进行中：字幕体为空 + fetchState "loading"；广播兜底信号活跃
     const clipRef = {
       current: makeClip({ subtitleBody: [], subtitleFetchState: "loading" })
     };
@@ -308,19 +253,14 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     await contextLoad.loadContextState({ silent: true });
     chatSessionStateForTests.asrTranscribingActive = true;
 
-    // 组合根同款等待状态机组装（sidepanel.ts 的 pollContext 装配，数据源换成
-    // 进程内 loadContextState 的 live 快照）
     const waitingNotice = vi.fn();
     const removeNotice = vi.fn();
-    // 注入定时器记录面：id 为可选字段（setTimer 的返回代币），历史断言里
-    // 兼容按 id 或按序位查找。
     const timers: Array<{ fn: () => void; ms: number; id?: number }> = [];
     let timerSeq = 0;
     const subtitleWaiter = createSubtitleWaiter({
       pollIntervalMs: 4000,
       pollContext: async () => {
         const ok = await contextLoad.loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
-        // 等待期间读 liveContextData 保证数据不断供（组合根同款口径）
         const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
         return {
           ok: Boolean(snapshot),
@@ -345,9 +285,6 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
       }
     });
 
-    // 组合根同款发送前编排（ensureCurrentContextForSend 的非 pinned 分支）：
-    // 静默加载 → subtitle-wait → 放行前重取 → 无字幕拦截判定；结论按 GateOutcome
-    // 形状显式返回（无字幕拦截 = kind:"no-subtitle"，不再是字符串哨兵）
     const { deps } = makeChatDeps();
     deps.ensureCurrentContextForSend = vi.fn(async () => {
       const ok = await contextLoad.loadContextState({ forceRefresh: false, silent: true });
@@ -358,7 +295,6 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
       if (!ready) {
         return { pass: false, kind: "read-failed" } as const;
       }
-      // 等待期间快照可能停在旧状态：放行前重取一次（组合根同款）
       await contextLoad.loadContextState({ forceRefresh: false, silent: true });
       if (!chatSessionState.contextData) {
         return { pass: false, kind: "read-failed" } as const;
@@ -370,8 +306,6 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     });
     const runtime = createChatRuntime(deps);
 
-    // 转写中发送：ensure 挂起在 wait()——不追加用户消息、不进流式 UI、
-    // 不发起 port（空字幕上下文没有发出去）
     const sendPromise = send(runtime, deps, "总结一下这个视频");
     await flush();
     await flush();
@@ -381,17 +315,13 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     expect(deps.ports).toHaveLength(0);
     expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
     expect(deps.ui.setStreamingUiState).not.toHaveBeenCalledWith(true, expect.anything());
-    // 等待轮询按 4s 间隔挂起（kick 前不推进）
     expect(timers).toHaveLength(1);
 
-    // 转写完成：字幕体落账 + fetchState ready + 广播兜底信号熄灭（签名随之
-    // 变化：subtitleBody 长度与 fetchState 参与签名投影）→ kick 立即补轮
     clipRef.current = makeClip();
     chatSessionStateForTests.asrTranscribingActive = false;
     subtitleWaiter.kick();
     await sendPromise;
 
-    // 放行后发出的是转写完成后的完整字幕上下文（非空上下文）
     expect(deps.ports).toHaveLength(1);
     const chatMsg = deps.ports[0].port.postMessage.mock.calls[0][0];
     expect(chatMsg.action).toBe("chat");
@@ -399,21 +329,11 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     expect(Array.isArray(chatMsg.context.subtitleBody)).toBe(true);
     expect((chatMsg.context.subtitleBody as unknown[]).length).toBeGreaterThan(0);
     expect(chatMsg.context.subtitleFetchState).toBe("ready");
-    // 等待结束 notice 清理；等待期间热评只在放行后的全量路径拉取
     expect(removeNotice).toHaveBeenCalled();
     expect(fetchHotComments.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
 
-// ===========================================================================
-// 视频身份校验（换片竞态：URL 变化同步早于 clip 重置）
-//
-// 用户报障：切到新视频（无字幕、正在音频转写），对话里三个预设问题还是上一个
-// 视频的。根因在上下文装配——换片时 URL 变化通知先到、clip 重置链（动态装载
-// 之后）后到，装配读到的是上一个视频的 clip，上下文键因此停在旧视频（且此后
-// 不再对账）。装配链按「clip 必须属于当前页地址」收口：不匹配即按未就绪装配
-// 空 clip（键落 url: 档），不把上个视频的 bvid/标题/字幕体当当前上下文。
-// ===========================================================================
 describe("视频身份校验（clip 与当前页地址不符）", () => {
   it("clip 还停在上一个视频：按未就绪装配空快照，不带上个视频的身份与字幕", async () => {
     const clipRef = {
@@ -426,8 +346,6 @@ describe("视频身份校验（clip 与当前页地址不符）", () => {
     expect(chatSessionState.contextData!.bvid).toBe("");
     expect(chatSessionState.contextData!.title).toBe("");
     expect(chatSessionState.contextData!.subtitleBody).toEqual([]);
-    // 键落 url: 档：与「上个视频」的 video: 键不同 → 对话侧去重判定为上下文变化，
-    // 不会继续用旧视频的上下文/建议区缓存。
     expect(chatSessionState.currentContextKey).toBe(`url:${VIDEO_URL}`);
   });
 
@@ -443,11 +361,6 @@ describe("视频身份校验（clip 与当前页地址不符）", () => {
   });
 });
 
-// ===========================================================================
-// 缺省热评实现：gateway fetchHotCommentsWithLedger 单源的接缝消费
-// （编排分支语义直测在 tests/bilibili/gateway.test.ts，这里只锁接缝形状：
-//  缺省实现调用单源、comments 合并进快照、降级空列表口径不变）
-// ===========================================================================
 describe("缺省热评实现（gateway 单源接缝）", () => {
   function makeBareFetch(clipRef: ClipRef) {
     return createInProcessContextFetch({
@@ -482,19 +395,7 @@ describe("缺省热评实现（gateway 单源接缝）", () => {
   });
 });
 
-// ===========================================================================
-// pinned 补水身份短路（工单 04）
-//
-// 重开一条置顶对话时，若其 contextRef（bvid/cid/字幕轨身份三元组）与当前
-// state.clip 一致，补水走 createInProcessPinnedContextResolver 的进程内快照
-// 装配（createInProcessContextFetch 同 shape 同签名），不再经网络解析
-// （ai/context-resolver 的 bgFetchJson 三四趟 + 重新下载可达 MB 级字幕正文）。
-// 任何身份字段缺失/不一致（换视频/换分P/换轨/老数据缺轨身份）或无页面
-// （clip 为空）/转写中（字幕体为空）一律落回注入的网络解析器——宁可多一次
-// 网络，不可装配出错的上下文。
-// ===========================================================================
 describe("pinned 补水身份短路（工单 04）", () => {
-  // 用例逐字段造「身份不一致」场景；未列出的字段取 makePinnedRef 的基准值。
   interface PinnedRefOverrides {
     bvid?: string;
     cid?: string;
@@ -503,7 +404,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
     selectedSubtitleUrl?: string;
   }
 
-  // 持久化会话的 contextRef（buildAiContextRef 归一后的形状）。
   function makePinnedRef(overrides: PinnedRefOverrides = {}) {
     return {
       bvid: "BV1test000000",
@@ -520,8 +420,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
     };
   }
 
-  // 短路解析器 + 网络路径 mock（resolveNetwork 即 conversation-store 的
-  // resolveAiConversationContext dep 的网络适配器替身）。
   function makeResolver(
     clipRef: ClipRef,
     {
@@ -555,9 +453,7 @@ describe("pinned 补水身份短路（工单 04）", () => {
 
     const payload = await resolve(makePinnedRef());
 
-    // 网络解析（视频元信息/字幕列表/字幕正文的三四趟）零调用
     expect(network).not.toHaveBeenCalled();
-    // 快照装配：字幕正文取自 state.clip（未重新下载），热评走全量路径同款时机
     expect(payload.bvid).toBe("BV1test000000");
     expect(payload.cid).toBe("101");
     expect(payload.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
@@ -567,8 +463,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
   });
 
-  // 页身份校验不适用于本路径（verifyPageIdentity: false）：置顶会话的装配目标
-  // 是「会话自己的视频」，浏览别的视频时补水它，本来就不该按当前地址洗成空。
   it("当前页是别的视频（浏览中补水置顶对话）：仍从 clip 装配会话视频的上下文", async () => {
     const clipRef = { current: makeClip() };
     const { resolve, network } = makeResolver(clipRef, {
@@ -613,7 +507,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
 
     const payload = await resolve(ref);
 
-    // 网络适配器收到原始 ref（归一化留给网络路径自己），装配结果原样返回
     expect(network).toHaveBeenCalledTimes(1);
     expect(network).toHaveBeenCalledWith(ref);
     expect(payload.title).toBe("网络装配");
@@ -637,15 +530,11 @@ describe("pinned 补水身份短路（工单 04）", () => {
     expect(network).toHaveBeenCalledTimes(1);
   });
 
-  // 组合根接线对账：conversation-store 的 resolveAiConversationContext dep 接
-  // 复合解析器后，hydratePinned 对「当前视频的置顶对话」零网络补水，且落进
-  // contextData / resolvedContext 的形态与网络路径消费口径一致。
   it("hydratePinned 经身份短路补水当前视频的置顶对话（dep 接线对账）", async () => {
     const clipRef = { current: makeClip() };
     const { resolve, network } = makeResolver(clipRef);
     const store = createConversationStore({
       loadContextState: vi.fn(async () => true),
-      // purpose="context" 走被测的身份短路复合适配器；"page" 无关本用例
       resolveAiConversationRef: vi.fn((ref: AiContext, purpose: "context" | "page") =>
         purpose === "context" ? resolve(ref) : Promise.resolve({})
       ),
@@ -654,7 +543,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
       onContextNotice: vi.fn(),
       storage: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }
     });
-    // 重开后 live 键缺失（分支 2 的键比较不命中）→ 补水落到 context 解析 dep
     applyConversationIdentity({
       meta: {
         id: "conv-1",
@@ -675,7 +563,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
     const ok = await store.hydratePinned({ silent: true });
 
     expect(ok).toBe(true);
-    // 零网络往返：补水上下文来自进程内快照
     expect(network).not.toHaveBeenCalled();
     expect(chatSessionState.contextData!.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
     expect(chatSessionState.contextData!.signature).not.toBe("");

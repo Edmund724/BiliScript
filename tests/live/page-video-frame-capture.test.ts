@@ -155,8 +155,6 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames).toHaveLength(1);
     expect(Array.from(frames[0])).toEqual([0xff, 0xd8, 0x11, 0xff, 0xd9]);
 
-    // Video remains paused at 42.5s across multiple 1-second ticks:
-    // cached frame must continue to be sent without re-running drawImage/toBlob.
     await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
     await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
     expect(drawImage).toHaveBeenCalledTimes(1);
@@ -165,7 +163,6 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames[1]).toBe(frames[0]);
     expect(frames[2]).toBe(frames[0]);
 
-    // Video advances to a new timestamp -> re-encodes a new frame
     (fakeVideo as { currentTime: number }).currentTime = 43.5;
     await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
     expect(drawImage).toHaveBeenCalledTimes(2);
@@ -215,11 +212,9 @@ describe("createPageVideoFrameCapture", () => {
     expect(lastQuality).toBe(0.5);
     expect(frames).toHaveLength(1);
 
-    // 低带宽档 2 秒一帧：1 秒内不产生新帧
     await vi.advanceTimersByTimeAsync(1999);
     expect(frames).toHaveLength(1);
 
-    // 回执改回 standard 档：长边/质量立即生效，间隔变更重新排期
     session.configure({ maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 });
     await vi.advanceTimersByTimeAsync(1000);
     expect(fakeCanvas.width).toBe(512);
@@ -250,14 +245,12 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames).toHaveLength(1);
     expect(session.isSuspended?.()).toBe(false);
 
-    // 钳制到 1000ms（<= 1 FPS），500ms 内不得再出第二帧
     await vi.advanceTimersByTimeAsync(500);
     expect(frames).toHaveLength(1);
     fakeVideo.currentTime = 6;
     await vi.advanceTimersByTimeAsync(MIN_LIVE_VIDEO_CAPTURE_INTERVAL_MS - 500);
     expect(frames).toHaveLength(2);
 
-    // configure 试图降到 300ms 仍被钳制在 1000ms，2000ms 正常放宽
     session.configure({ intervalMs: 300 });
     fakeVideo.currentTime = 7;
     await vi.advanceTimersByTimeAsync(999);
@@ -265,7 +258,6 @@ describe("createPageVideoFrameCapture", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(frames).toHaveLength(3);
 
-    // 暂停后彻底停推重复帧（不编码也不触发 onJpegFrame）
     fakeVideo.paused = true;
     fakeVideo.dispatch("pause");
     const countAfterPause = frames.length;
@@ -273,7 +265,6 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames).toHaveLength(countAfterPause);
     expect(session.isSuspended?.()).toBe(true);
 
-    // 暂停态主动抓单帧快照（不走周期 onJpegFrame 通道）
     fakeVideo.currentTime = 7.5;
     const snapshot = await session.captureSnapshot?.();
     expect(snapshot).not.toBeNull();
@@ -281,14 +272,12 @@ describe("createPageVideoFrameCapture", () => {
     expect(drawImage).toHaveBeenCalledTimes(countAfterPause + 1);
     expect(toBlob).toHaveBeenCalledTimes(countAfterPause + 1);
 
-    // 恢复播放后恢复 1 FPS 采样
     fakeVideo.paused = false;
     fakeVideo.currentTime = 8;
     fakeVideo.dispatch("play");
     await vi.advanceTimersByTimeAsync(0);
     expect(frames).toHaveLength(countAfterPause + 1);
 
-    // 页面隐藏（document.hidden）同样停推，恢复可见时恢复采样
     hidden = true;
     document.dispatchEvent(new Event("visibilitychange"));
     expect(session.isSuspended?.()).toBe(true);
@@ -301,7 +290,6 @@ describe("createPageVideoFrameCapture", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(frames).toHaveLength(countAfterPause + 2);
 
-    // 视频结束（ended）立即停推
     fakeVideo.ended = true;
     fakeVideo.dispatch("ended");
     await vi.advanceTimersByTimeAsync(3000);
@@ -327,7 +315,6 @@ describe("createPageVideoFrameCapture", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(frames).toHaveLength(0);
 
-    // 连续拖动触发多次 seeked：防抖窗口内不发帧
     fakeVideo.currentTime = 45;
     fakeVideo.dispatch("seeked");
     await vi.advanceTimersByTimeAsync(100);
@@ -336,12 +323,10 @@ describe("createPageVideoFrameCapture", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(frames).toHaveLength(0);
 
-    // 落定满 200ms 后立即补推 1 帧新位置画面
     await vi.advanceTimersByTimeAsync(100);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(frames).toHaveLength(1);
 
-    // 保持暂停期间后续不再周期推帧
     await vi.advanceTimersByTimeAsync(3000);
     expect(frames).toHaveLength(1);
 

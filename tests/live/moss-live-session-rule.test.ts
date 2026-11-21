@@ -1,6 +1,3 @@
-// tests/live/moss-live-session-rule.test.ts
-// MOSS-LIVE 会话级 DNR 鉴权规则生命周期与回滚测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -118,7 +115,6 @@ describe("MOSS-LIVE DNR session rules", () => {
   it("clearMossLiveWsAuthRule removes only rule 9002 and leaves other rules untouched", async () => {
     const { rules, updateSessionRules } = installDnrStub();
 
-    // Pre-populate with another rule (e.g. ASR rule)
     rules.set(32001, { id: 32001 });
     rules.set(MOSS_LIVE_WS_RULE_ID, { id: MOSS_LIVE_WS_RULE_ID });
 
@@ -215,7 +211,6 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
 
-    // Session 1 starts, slow permission check
     const prep1Promise = tracker.prepare("session-1", createFakeDeps({
       hasPermission: () => permPromise1,
       setAuthRule,
@@ -224,11 +219,9 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
 
     expect(tracker.getLatestOwner()).toBe("session-1");
 
-    // Immediate stop and restart with Session 2
     await tracker.cleanup("session-1", clearAuthRule);
     expect(clearAuthRule).toHaveBeenCalledTimes(1);
 
-    // Session 2 prepare runs fast
     const prep2Promise = tracker.prepare("session-2", createFakeDeps({
       hasPermission: async () => true,
       setAuthRule,
@@ -242,18 +235,15 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
     expect(setAuthRule).toHaveBeenCalledTimes(1);
 
-    // Now Session 1's slow permission finally resolves
     resolvePerm1(true);
     const res1 = await prep1Promise;
 
-    // Session 1 must not succeed, must not finish as active owner, must not call setAuthRule again
     expect(res1.ok).toBe(false);
     expect(res1.error).toContain("已过期");
     expect(tracker.getLatestOwner()).toBe("session-2");
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
     expect(setAuthRule).toHaveBeenCalledTimes(1);
 
-    // Stale cleanup for Session 1 must not clear Session 2's active rule (must not add a second clear call)
     await tracker.cleanup("session-1", clearAuthRule);
     expect(clearAuthRule).toHaveBeenCalledTimes(1);
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
@@ -269,19 +259,16 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
 
-    // Session 1 starts, installs rule, but ensureOffscreen hangs
     const prep1Promise = tracker.prepare("session-1", createFakeDeps({
       ensureOffscreen: () => offscreenPromise1,
       setAuthRule,
       clearAuthRule
     }));
 
-    // Wait for session 1 to install rule
     await vi.waitFor(() => {
       expect(tracker.getActiveRuleOwner()).toBe("session-1");
     });
 
-    // Session 2 arrives and takes over
     const prep2Promise = tracker.prepare("session-2", createFakeDeps({
       setAuthRule,
       clearAuthRule
@@ -292,12 +279,10 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
     expect(tracker.getLatestOwner()).toBe("session-2");
 
-    // Session 1 ensureOffscreen now fails
     rejectOffscreen1(new Error("Offscreen crash"));
     const res1 = await prep1Promise;
     expect(res1.ok).toBe(false);
 
-    // Must NOT have called clearAuthRule (which would delete session-2's rule)
     expect(clearAuthRule).not.toHaveBeenCalled();
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
   });
@@ -348,7 +333,6 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
 
   it("reaps dead ownerTabId via chrome.tabs.get and allows a new tab to take over", async () => {
     const { rules } = installDnrStub();
-    // Simulate chrome.tabs.get rejecting for dead tab 101
     (globalThis.chrome as any).tabs = {
       get: vi.fn(async (id: number) => {
         if (id === 101) {
@@ -375,7 +359,6 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(tracker.getOwnerTabId()).toBe(101);
     expect(rules.has(MOSS_LIVE_WS_RULE_ID)).toBe(true);
 
-    // Tab 101 died without cleanup; Tab 202 now prepares
     const res2 = await tracker.prepare(
       "session-new-tab",
       createFakeDeps({ setAuthRule: setSpy, clearAuthRule: clearSpy }),

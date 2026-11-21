@@ -1,8 +1,3 @@
-// 统一思维链状态条（ThoughtChain）与工具活动 UI 契约测试：
-// 经 chat-runtime 公开协议入口 handleChatPortMessage 喂 read_subtitles /
-// capture_video_frame_at_time / web_search / reasoning / done，
-// 断言面向可观察 DOM（统一思维链状态条 / 时间线步骤 / 来源列表 / [n] 内联引用 /
-// 悬停预览卡 / 流式默认展开与手动折叠 / 完成自动折叠为单行摘要 / stream-reset 清空）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -195,14 +190,12 @@ describe("统一思维链状态条（联网检索与步骤时间线）", () => {
     expect(head.getAttribute("aria-expanded")).toBe("true");
     expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(false);
 
-    // 流式期间可随时手动收起，且后续事件不违背用户意愿强行展开
     head.click();
     expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
     expect(head.getAttribute("aria-expanded")).toBe("false");
     feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
     expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(true);
 
-    // 重新展开后，done 完成时自动折叠为单行摘要
     head.click();
     expect(chain.classList.contains("chat-thought-chain-collapsed")).toBe(false);
     feed(runtime, { type: "tool-status", status: "done", query: "q2", resultCount: 1, sources: [SOURCES[0]] });

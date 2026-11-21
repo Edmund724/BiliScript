@@ -1,10 +1,3 @@
-// 直播间伴看设置宿主（extension/ui/provider-settings-host.ts）的凭据同层往返：
-// 伴看 Gemini 编辑器内联凭据动作 → 同层 AI 族编辑器 → 保存成功（提示仍需显式
-// 保存伴看记录 + onMutated 回调）或取消都恢复伴看草稿；dispose 在飞往返编辑器不恢复、不泄漏。
-//
-// 手法：真实 createProviderSettingsHost({ mountedFamilies: ["live"] }) + provider-editor，
-// 消息走 installSettingsPanelBus 总线（同 tests/ui/gemini-credential-link.test.ts）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -112,7 +105,6 @@ describe("live-provider-settings 凭据同层往返", () => {
       "get-ai-provider-key": () => ({ ok: true, apiKey: "AIza-live-host" })
     });
     const editor = await openLiveGeminiEditor(mounted.view);
-    // 伴看草稿留未保存改动
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
@@ -124,14 +116,12 @@ describe("live-provider-settings 凭据同层往返", () => {
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-live-host");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    // 保存成功后：伴看编辑器按原草稿恢复 + 提示 + onSaved("ai")
     await vi.waitFor(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
     expect(dialog()!.querySelector(".provider-editor-status")!.textContent).toContain("请继续保存伴看平台记录");
     expect(mounted.savedLog.some((entry) => entry.kind === "ai")).toBe(true);
-    // 伴看行状态随新引用刷新
     await vi.waitFor(() => {
       expect(mounted.view.querySelector("#liveProvidersList .provider-row-model")!.textContent)
         .toContain("已复用 AI 平台 Key");
@@ -176,7 +166,6 @@ describe("live-provider-settings 凭据同层往返", () => {
     mounted.panel.dispose();
 
     expect(dialog()).toBeNull();
-    // 恢复路径带 dispose 守卫：刷新微任务后仍不重建编辑器
     await Promise.resolve();
     await Promise.resolve();
     expect(dialog()).toBeNull();

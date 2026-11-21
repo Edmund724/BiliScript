@@ -1,6 +1,3 @@
-// tests/chat/send-gate.test.ts — 发送闸（chat/send-gate.ts，GLOSSARY.md 词条
-// 「发送闸」）的聚焦单测：G1-G7 各闸口、字幕等待轮询、取消、转写相位写、
-// 主动起跑字幕抓取的判定门；组合根真实接线由 tests/reader/chat-tab.test.ts 覆盖。
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import {
   createSendGate,
@@ -15,9 +12,6 @@ import { createReaderContextPayload } from "../../extension/core/context-payload
 import { buildAsrNoSubtitleMessage } from "../../extension/core/asr-failure-notice.js";
 import type { ClipState } from "../../extension/core/state.js";
 
-// 上下文夹具只有 clip 一份：快照一律经生产同款的 payload 投影 + 装配链信封
-// 补写（core/context-assembly 全量路径同款）现算，测试不再手写第二份快照字面量
-// ——快照字段口径由投影保证，用例只声明「clip 权威状态是什么」。
 function clip(overrides: Record<string, unknown> = {}): ClipState {
   return {
     bvid: "BV1",
@@ -27,15 +21,10 @@ function clip(overrides: Record<string, unknown> = {}): ClipState {
   } as unknown as ClipState;
 }
 
-// 字幕体非空 + ready：默认的「已就绪当前上下文」（G2 之后的闸口都建立在读取
-// 成功之上）。
 function readyClip(): ClipState {
   return clip({ subtitleBody: [{ from: 0, to: 1, content: "line" }], subtitleFetchState: "ready" });
 }
 
-// clip → 快照：与生产装配链同一条投影（url/settings 是投影入参，signature 是
-// 装配链补写的信封字段，本闸不读）。需要「快照与 deps.clip 不一致」的用例（如
-// G4 的即时提示：快照随轮询变成就绪、clip 仍是 loading）各自注入 deps.clip。
 function snapshotFromClip(state: ClipState): ChatSessionContextSnapshot {
   const payload = createReaderContextPayload({
     clip: state,
@@ -101,7 +90,6 @@ function makeHarness(overrides: Partial<CreateSendGateDeps> = {}): Harness {
 describe("发送闸 createSendGate", () => {
   beforeEach(() => {
     resetChatSessionStateForTests();
-    // 默认有一份就绪的当前上下文（G2 之后的闸口都建立在读取成功之上）。
     chatSessionStateForTests.contextData = snapshotFromClip(readyClip());
   });
 
@@ -116,8 +104,6 @@ describe("发送闸 createSendGate", () => {
       });
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
-      // preserveInput: true = 本闸调用链的上下文装载（见 deps 注记）：闸内 apply-live
-      // 的重启不清输入框与附件区。
       expect(h.mocks.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: true });
       expect(h.mocks.hydratePinned).toHaveBeenCalledTimes(1);
       expect(h.mocks.hydratePinned).toHaveBeenCalledWith({ preserveInput: true });
@@ -196,7 +182,6 @@ describe("发送闸 createSendGate", () => {
       );
     });
 
-    // 票 provider-onboarding-consistency/04：配置类 empty 与未登录 B 站允许重新进入抓取。
     it.each(["no-asr-config", "asr-disabled", "asr-auth", "bili-login-required"] as const)(
       "可恢复无字幕收尾（%s）→ 重新起跑一轮抓取；仍无字幕时照旧拦截，不虚构用户消息",
       async (reason) => {
@@ -220,8 +205,6 @@ describe("发送闸 createSendGate", () => {
     );
 
     it("等待闸在配置类 empty 重抓的字幕就绪后继续放行（已有等待意图不被截断）", async () => {
-      // G3 重抓的同步前缀落 loading（生产由 refreshClip 写入），等待闸据此挂住；
-      // 轮询期间转写落账 → 放行，用户消息由调用方照常追加（本闸不造消息）。
       chatSessionStateForTests.contextData = snapshotFromClip(
         clip({ subtitleFetchState: "empty", noSubtitleReason: "no-asr-config" })
       );
@@ -232,7 +215,6 @@ describe("发送闸 createSendGate", () => {
         loadContextState: vi.fn(async () => {
           polls += 1;
           if (polls === 2) {
-            // 首轮轮询见到重抓已起跑：仍无字幕体，等待闸挂住。
             chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
           }
           if (polls >= 3) {
@@ -395,7 +377,6 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      // 文案逐字来自 core 的单一真源（sidepanel 面），不再由 chat 侧自写分支表
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-auth"),
         0,
@@ -494,9 +475,6 @@ describe("发送闸 createSendGate", () => {
     });
   });
 
-  // G4（等待闸）/ G5（放行前重取）/ G6（空上下文拦截）三闸口的**相对顺序**：
-  // 分别由三处独立代码承担，任一处的相对位置变化都会让「等的是旧快照」或
-  // 「拦的是旧快照」重新出现。用事件序钉住：等待闸落定 → 才重取 → 才判拦截。
   describe("G4/G5/G6 相对顺序（事件序）", () => {
     it("无字幕拦截路径：G4 落定后 G5 重取，重取之后才 G6 拦截", async () => {
       chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "empty" }));
@@ -522,7 +500,6 @@ describe("发送闸 createSendGate", () => {
         }
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      // 非 pending 不进入等待 UI；G4 一轮后就绪，再重取并拦截。
       expect(events).toEqual(["load", "fetch", "load", "load", "notice"]);
     });
 
@@ -534,7 +511,6 @@ describe("发送闸 createSendGate", () => {
         loadContextState: vi.fn(async () => {
           events.push("load");
           polls += 1;
-          // 第 1 次是 ensure 的 G2 读；G4 首轮（第 2 次）须见 pending，第 3 次才就绪。
           if (polls >= 3) {
             chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           }
@@ -636,10 +612,6 @@ describe("发送闸 createSendGate", () => {
       expect(replaySettled).toBe(true);
     });
 
-    // G1（pinned）路径同样必须等待：该分支的提前返回绕开了直通路径的等待点，
-    // 而在途回放确实可能与本路径并存——applyById（历史项点击）经
-    // emitChange({resetView:true}) → renderInitialState → replay.render() 起跑回放，
-    // hydratePinned 自身三支都不触发回放（见 send-gate.ts 头注查证）。
     it("pinned 放行（G1 提前返回）路径也 await replayInFlight", async () => {
       Object.assign(chatSessionStateForTests, {
         currentConversationMeta: { id: "c1", pinnedContext: true } as never
@@ -704,7 +676,6 @@ describe("发送闸 createSendGate", () => {
       chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       const h = makeHarness({
-        // 轮询间隔大于用例时长：只有 kick 才会产生第 3 次 poll
         pollIntervalMs: 60000,
         loadContextState: vi.fn(async () => {
           polls += 1;
@@ -716,7 +687,6 @@ describe("发送闸 createSendGate", () => {
       });
       h.gate.bindStatusBus();
       const promise = h.gate.ensureContextForSend();
-      // 等待闸首轮（poll 2）落定 → pending，此后要等 60 秒定时器
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(polls).toBe(2);
 

@@ -1,6 +1,3 @@
-// tests/live/page-media-capture.test.ts
-// 页面侧 AudioWorklet 采集与 DSP 纯内核（混音、VAD、重采样、1280B 批量分帧）单元测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -216,7 +213,6 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
       onPcmBatch: (buffer, hadSpeech) => batches.push({ buffer, hadSpeech })
     });
 
-    // 15 quanta * 128 samples = 1920 samples @ 48kHz = exact 40ms (640 samples @ 16kHz = 1280B)
     feedQuanta(core, 14, 48000, 0.25);
     expect(batches).toHaveLength(0);
 
@@ -248,26 +244,20 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
       onSpeechHeartbeat: () => heartbeats.push(1)
     });
 
-    // 1. Silent mic, stereo video (0.2 and 0.6 -> average 0.4 at 100% gain)
-    // 5 quanta * 128 = 640 samples = 40ms batch
     feedQuanta(core, 5, 16000, 0, 0.2, 0.6);
     expect(vadStates).toEqual([]);
     expect(batches).toHaveLength(1);
     expect(decodePcmS16LEToFloat32(batches[0])[0]).toBeCloseTo(0.4, 2);
 
-    // 2. Mic speaking (0.2 >= 0.015) + stereo video (avg 0.4) -> ducked to 0.2 + 0.4 * 0.15 = 0.26
-    // 1st quantum activates VAD (heartbeat counter starts at 0); 25 additional quanta * 128 = 3200 samples (200ms) trigger heartbeat
     feedQuanta(core, 26, 16000, 0.2, 0.2, 0.6);
     expect(vadStates).toEqual([true]);
     expect(heartbeats).toEqual([1]);
     const duckedSamples = decodePcmS16LEToFloat32(batches[1]);
     expect(duckedSamples[0]).toBeCloseTo(0.26, 2);
 
-    // 3. Silence below vadReleaseMs (300ms @ 16kHz = 4800 samples): 37 * 128 = 4736 < 4800
     feedQuanta(core, 37, 16000, 0.001);
     expect(core.isVadActive()).toBe(true);
 
-    // 38th quantum (4864 >= 4800) releases VAD without setTimeout
     core.processQuantum(new Float32Array(128).fill(0.001), undefined, 16000);
     expect(core.isVadActive()).toBe(false);
     expect(vadStates).toEqual([true, false]);
@@ -280,7 +270,6 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
       onPcmBatch: (buffer) => batches.push(buffer)
     });
 
-    // Partial buffer (384 < 640)
     feedQuanta(core, 3, 16000, 0.5);
     expect(batches).toHaveLength(0);
 
@@ -288,7 +277,6 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
     core.processQuantum(new Float32Array(640).fill(0.5), undefined, 16000);
     expect(batches).toHaveLength(0);
 
-    // Unmute: stale 384 samples were dropped, so 256 new samples do not flush yet
     core.setConfig({ muted: false });
     core.processQuantum(new Float32Array(256).fill(0.5), undefined, 16000);
     expect(batches).toHaveLength(0);
@@ -304,22 +292,18 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
       onPcmBatch: (buffer) => batches.push(buffer)
     });
 
-    // 1. 说话激活 VAD（1 帧）
     core.processQuantum(new Float32Array(640).fill(0.25), undefined, 16000);
     expect(core.isVadActive()).toBe(true);
     expect(batches).toHaveLength(1);
 
-    // 2. 低能量静音触发 VAD 释放（4800 采样 = 300ms -> 5120 采样跨过释放门槛，共输出 8 帧）
     core.processQuantum(new Float32Array(640).fill(0), undefined, 16000);
     core.processQuantum(new Float32Array(4480).fill(0), undefined, 16000);
     expect(core.isVadActive()).toBe(false);
     expect(batches).toHaveLength(9);
 
-    // 3. VAD 释放后的纯静音输入依然继续产帧
     core.processQuantum(new Float32Array(640).fill(0), undefined, 16000);
     expect(batches).toHaveLength(10);
 
-    // 4. WebAudio 传入空通道（micChannel=undefined）但 quantumFrames=128 时，5 个量子产出 1 帧全零 1280B PCM
     core.processQuantum(undefined, undefined, 16000, 128);
     core.processQuantum(undefined, undefined, 16000, 128);
     core.processQuantum(undefined, undefined, 16000, 128);
@@ -362,7 +346,6 @@ describe("createPageAudioCapture", () => {
     expect(fakeAudioCtx.gainValue).toBe(0);
     expect(capture.isMuted()).toBe(false);
 
-    // 1920 samples @ 48kHz -> 640 samples @ 16kHz -> 1280-byte batch
     fakeAudioCtx.emitSamples(new Float32Array(1920).fill(0.4));
     expect(frames).toHaveLength(1);
     expect(frames[0].byteLength).toBe(PCM_WORKLET_BATCH_BYTES);
@@ -541,23 +524,19 @@ describe("createPageAudioCapture", () => {
     expect(capture.isMicVadActive()).toBe(false);
     expect(capture.isVoiceRecentlyActive()).toBe(false);
 
-    // Emit silent mic samples
     fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.002));
     expect(capture.isMicVadActive()).toBe(false);
     expect(capture.isVoiceRecentlyActive()).toBe(false);
     expect(vadStates).toHaveLength(0);
 
-    // Emit speech mic samples (RMS >= 0.015)
     fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.05));
     expect(capture.isMicVadActive()).toBe(true);
     expect(capture.isVoiceRecentlyActive()).toBe(true);
     expect(vadStates).toEqual([true]);
 
-    // Speech pauses: isVoiceRecentlyActive remains true within hangover window
     fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.001));
     expect(capture.isVoiceRecentlyActive()).toBe(true);
 
-    // Muting mic resets VAD immediately
     capture.setMuted(true);
     expect(capture.isMicVadActive()).toBe(false);
     expect(capture.isVoiceRecentlyActive()).toBe(false);
@@ -593,7 +572,6 @@ describe("createPageAudioCapture", () => {
 
     expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
 
-    // 1. Mic silent (0), video active (0.4): video passes at 100% gain (0.4)
     fakeAudioCtx.emitSamples(
       new Float32Array(640).fill(0),
       new Float32Array(640).fill(0.4)
@@ -603,7 +581,6 @@ describe("createPageAudioCapture", () => {
     const unduckedSamples = decodePcmS16LEToFloat32(frames[0].buffer);
     expect(unduckedSamples[0]).toBeCloseTo(0.4, 2);
 
-    // 2. Mic speaking (0.2 >= 0.015) and video (0.4): video is ducked to 15% (0.2 + 0.4 * 0.15 = 0.26)
     fakeAudioCtx.emitSamples(
       new Float32Array(640).fill(0.2),
       new Float32Array(640).fill(0.4)
@@ -613,7 +590,6 @@ describe("createPageAudioCapture", () => {
     const duckedSamples = decodePcmS16LEToFloat32(frames[1].buffer);
     expect(duckedSamples[0]).toBeCloseTo(0.26, 2);
 
-    // Video is muted -> reports "视频已静音"
     fakeVideo.muted = true;
     const volChangeHandler = (fakeVideo.addEventListener as any).mock.calls.find(
       (call: any[]) => call[0] === "volumechange"
@@ -621,7 +597,6 @@ describe("createPageAudioCapture", () => {
     volChangeHandler?.();
     expect(capture.getVideoAudioStatus()).toBe("视频已静音");
 
-    // Video sharing disabled -> reports "未开启"
     capture.setShareVideoAudio(false);
     expect(capture.getVideoAudioStatus()).toBe("未开启");
     expect(capture.isSharingVideoAudio()).toBe(false);
@@ -655,11 +630,9 @@ describe("createPageAudioCapture", () => {
 
     expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
 
-    // 开麦期间正常产出
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.2), new Float32Array(640).fill(0.4));
     expect(frames).toHaveLength(1);
 
-    // 闭麦后立即停推，且对 Worklet 端口迟到的在途 pcm 消息及新量子采样全面拦截
     capture.setMuted(true);
     fakeAudioCtx.simulateWorkletMessage({
       type: "pcm",
@@ -669,7 +642,6 @@ describe("createPageAudioCapture", () => {
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.3), new Float32Array(640).fill(0.4));
     expect(frames).toHaveLength(1);
 
-    // 取消静音后恢复正常推帧
     capture.setMuted(false);
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0), new Float32Array(640).fill(0.4));
     expect(frames).toHaveLength(2);

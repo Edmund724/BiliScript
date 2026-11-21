@@ -1,10 +1,3 @@
-// createSubtitleWaiter 工厂测试：一键总结「等待抓取/音频转写完成」的轮询状态机。
-// 依赖全注入（pollContext / 通知 / 定时器），无 DOM、无 chrome，纯 Node 时序验证。
-// 锁定的时序约定见 subtitle-wait.ts 头部注释：
-// 就绪放行、pending 轮询+提示、读取失败放行 false、kick 提前补轮、tick 去重、
-// 新等待使旧等待失效、finish 后定时器作废。
-// 「是否仍在抓取/转写」的判定不在本模块，覆盖在 tests/chat/subtitle-readiness.test.ts。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreateSubtitleWaiterDeps } from "../../extension/chat/subtitle-wait.js";
@@ -17,10 +10,8 @@ interface PollOutcome {
   pending: boolean;
 }
 
-// 轮询结果元素：字面量，或动态返回它的函数（可为 async）
 type PollStep = PollOutcome | (() => PollOutcome | Promise<PollOutcome>);
 
-// fake 定时器句柄（源码只把它原样回传给 clearTimer，句柄形状不参与逻辑）
 interface TimerHandle {
   id: number;
   fn: () => void;
@@ -28,8 +19,6 @@ interface TimerHandle {
   cleared: boolean;
 }
 
-// 受控 fake：手动 timer 队列 + notice 记录 + 可编程轮询结果序列。
-// pollResults 为数组，超出长度时重复最后一项；元素可为函数（动态返回）。
 function makeHarness(
   pollResults: PollStep[],
   { pollIntervalMs = POLL_MS }: { pollIntervalMs?: number } = {}
@@ -59,10 +48,8 @@ function makeHarness(
       }
     })
   };
-  // 对象句柄与 deps 声明的 number 句柄不一致，但源码只做不透明透传，运行时等价
   const waiter = createSubtitleWaiter(deps as unknown as CreateSubtitleWaiterDeps);
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-  // 触发最早挂起的定时器（模拟轮询间隔到达）
   const fireNextTimer = async () => {
     const timer = timers.shift();
     if (!timer) {
@@ -106,7 +93,7 @@ describe("createSubtitleWaiter", () => {
 
     await harness.fireNextTimer();
     expect(harness.deps.pollContext).toHaveBeenCalledTimes(2);
-    expect(harness.deps.showWaitingNotice).toHaveBeenCalledTimes(2); // 每轮 pending 重复提示（幂等显示）
+    expect(harness.deps.showWaitingNotice).toHaveBeenCalledTimes(2);
 
     await harness.fireNextTimer();
     expect(await promise).toBe(true);
@@ -151,13 +138,10 @@ describe("createSubtitleWaiter", () => {
     harness.waiter.kick();
     harness.waiter.kick();
     await harness.flush();
-    // 第一轮 poll 挂起期间，kick 全部被 ticking 去重
     expect(harness.deps.pollContext).toHaveBeenCalledTimes(1);
 
     releasePoll(PENDING);
     await harness.flush();
-    // 第一轮结束后 pending 挂了下一轮 timer；kick 在 ticking 中已被去重，
-    // 这里手动推进定时器走第二轮（READY）收尾
     await harness.fireNextTimer();
     expect(await promise).toBe(true);
   });
@@ -194,7 +178,7 @@ describe("createSubtitleWaiter", () => {
 
     const second = harness.waiter.wait();
     expect(await first).toBe(false);
-    expect(harness.timers).toHaveLength(0); // 旧等待的轮询定时器已作废
+    expect(harness.timers).toHaveLength(0);
 
     expect(await second).toBe(true);
   });
@@ -204,9 +188,8 @@ describe("createSubtitleWaiter", () => {
     await harness.waiter.wait();
     expect(harness.timers).toHaveLength(0);
 
-    // 即便外部伪造定时器触发，也不应再产生轮询
     const pollsBefore = harness.deps.pollContext.mock.calls.length;
-    harness.waiter.kick(); // 无等待在跑时 kick 是 no-op
+    harness.waiter.kick();
     expect(harness.deps.pollContext.mock.calls.length).toBe(pollsBefore);
   });
 });

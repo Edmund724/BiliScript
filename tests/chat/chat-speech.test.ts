@@ -1,11 +1,3 @@
-// 朗读控制器的孤立失败方式：
-// 1. Markdown 的 URL、代码与标记进入朗读正文，或段落粘连；
-// 2. 自然/在线音色未优先于机械本地音色，或在线音色失败时未回退本地音色与浏览器语言；
-// 3. 长回答超过单次 speak 上限，或分块结束后不续读；
-// 4. 停止/切换后，迟到的 getVoices 与旧 utterance 事件污染新状态；
-// 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见；
-// 6. 音量未对齐外部播放器音量或越界未归一；
-// 7. 跨标签页抢占朗读时，被抢占标签页未收到 interrupted 终态导致按钮卡在 is-speaking。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachChatSpeechPort, TTS_UNSUPPORTED_ERROR } from "../../extension/chat/chat-speech-bg.js";
 import { CHAT_SPEECH_PORT_NAME, type ChatSpeechPortMessage } from "../../extension/chat/protocol.js";
@@ -290,14 +282,12 @@ describe("停止、切换与失败", () => {
     expect(button.classList.contains("is-loading")).toBe(true);
     expect(button.classList.contains("is-speaking")).toBe(false);
 
-    // loading 期间再次点击立即取消
     await controller.toggle(button, "准备朗读");
     expect(button.classList.contains("is-loading")).toBe(false);
     resolveVoices([localVoice("local-zh", "zh-CN")]);
     await pending;
     expect(engine.speak).not.toHaveBeenCalled();
 
-    // 正常起跑：loading -> start -> speaking
     engine.getVoices = vi.fn(async () => [localVoice("local-zh", "zh-CN")]);
     await controller.toggle(button, "正式朗读");
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
@@ -308,7 +298,6 @@ describe("停止、切换与失败", () => {
     expect(button.classList.contains("is-speaking")).toBe(true);
     controller.stop();
 
-    // 无语音包区分报错
     engine.getVoices = vi.fn(async () => []);
     await controller.toggle(button, "空语音测试");
     expect(onError).toHaveBeenCalledWith("当前设备未找到可用朗读语音");
@@ -417,7 +406,6 @@ describe("SW 朗读端口跨标签页抢占", () => {
         speak: vi.fn((_text: string, options: { onEvent: (event: { type: string }) => void }) => {
           const prev = ttsCallbacks.at(-1);
           ttsCallbacks.push(options.onEvent);
-          // 模拟 chrome.tts.speak 中断上一条在飞朗读
           prev?.({ type: "interrupted" });
         }),
         stop: vi.fn(),
@@ -448,13 +436,11 @@ describe("SW 朗读端口跨标签页抢占", () => {
     tabA.emitMessage({ type: "speak", requestId: 1, text: "标签页A朗读" });
     expect(tabA.sent).toEqual([]);
 
-    // 标签页 B 抢占朗读：标签页 A 必须收到 requestId=1 的 interrupted 终态
     tabB.emitMessage({ type: "speak", requestId: 1, text: "标签页B朗读" });
     expect(tabA.sent).toEqual([
       { type: "event", requestId: 1, event: { type: "interrupted" } }
     ]);
 
-    // 标签页 B 正常结束
     ttsCallbacks[1]?.({ type: "end" });
     expect(tabB.sent).toEqual([
       { type: "event", requestId: 1, event: { type: "end" } }
@@ -617,7 +603,6 @@ describe("Web Speech 引擎与自适应回退", () => {
     const first = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
     engine.stop();
     expect(fake.synth.cancel).toHaveBeenCalledTimes(2);
-    // stop() 后旧 utterance 的迟到事件必须被忽略
     first.onend?.({} as SpeechSynthesisEvent);
     expect(events).toEqual([]);
 
@@ -642,7 +627,6 @@ describe("Web Speech 引擎与自适应回退", () => {
     window.dispatchEvent(new Event("pagehide"));
     expect(fake.synth.cancel).toHaveBeenCalledTimes(6);
 
-    // dispose() 立即停止并解绑 pagehide 监听，后续 pagehide 不再触发 cancel
     engine.dispose?.();
     expect(fake.synth.cancel).toHaveBeenCalledTimes(7);
     window.dispatchEvent(new Event("pagehide"));
@@ -690,14 +674,12 @@ describe("Web Speech 引擎与自适应回退", () => {
     await controller.toggle(button, "Firefox 朗读测试");
     await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(1));
     expect(connectSpy).toHaveBeenCalledTimes(1);
-    // 切换至 Web Speech 回退时必须立即断开后台端口，避免阻止 Firefox Event Page 休眠
     expect(disconnectSpies[0]).toHaveBeenCalledTimes(1);
 
     const utterance = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
     expect(utterance.voice).toMatchObject({ name: "Firefox Voice" });
     utterance.onend?.({} as SpeechSynthesisEvent);
 
-    // 再次朗读直接走已缓存的 Web Speech 引擎，不再连接后台端口
     await controller.toggle(button, "第二次朗读");
     await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(2));
     expect(connectSpy).toHaveBeenCalledTimes(1);
@@ -707,7 +689,6 @@ describe("Web Speech 引擎与自适应回退", () => {
     window.dispatchEvent(new Event("pagehide"));
     expect(fake.synth.cancel).toHaveBeenCalledTimes(cancelCountAfterDispose);
 
-    // 确认后台直接收到 TTS_UNSUPPORTED 错误码后，若当前环境同样缺少 speechSynthesis 则走原有失败提示
     vi.stubGlobal("speechSynthesis", undefined);
     const fallbackError = vi.fn();
     const noSpeechEngine = createDefaultSpeechEngine();

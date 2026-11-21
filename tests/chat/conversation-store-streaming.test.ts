@@ -1,22 +1,3 @@
-// 流式中删除/清空当前会话导致会话"复活"bug 的回归测试。
-//
-// bug：流式进行中 deleteById（当前会话）/ clearAll / restoreLatest 无匹配分支
-// 只清 chatHistory/currentConversationId/currentConversationMeta，不碰
-// chatRuntime——流结束后 finalizeAssistant 把在途一问一答 push 进刚清空的
-// chatHistory 并 persistCurrent，凭空复活出一个会话。
-//
-// 两层防线各自覆盖：
-//   1. store 三个 reset 路径 × 流式中/非流式中：注入 onStreamInterrupted 事件
-//      dep（工单 05 反转后的断流能力事件，由组合根组装为 chatRuntime.reset-
-//      StreamState + 清消息区；测试里用假回调模拟"同步断流、清在途一问一答"），
-//      验证停流调用与状态清空；
-//   2. chat-runtime finalize/stopped 的会话身份校验（竞态兜底）：发送时捕获
-//      currentConversationId，流结束时 id 已变/已删 → 只渲染 DOM，不 push 不
-//      persist。用真 createChatRuntime + mock deps 验证。
-//
-// 模块纪元注意：chat-state 是模块级单例，beforeEach 里 resetModules 后与
-// 被测模块同纪元导入，并手动重置全部字段。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -28,7 +9,6 @@ import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
 
 type MockFn = Mock<(...args: any[]) => any>;
 
-// 被测 deps：真 CreateChatRuntimeDeps + 假 port 的监听器收集面
 interface TestRuntimeDeps extends CreateChatRuntimeDeps {
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
@@ -49,15 +29,12 @@ let createConversationStore: typeof import("../../extension/chat/conversation-st
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
-// 存档会话夹具：Conversation 形状 + 开放索引（chatSessionState.savedConversations
-// 的 ChatSessionSavedConversation 带字符串索引签名，接口类型不隐式具备）。
 type SavedConversation = Conversation & Record<string, unknown>;
 
 function makeConversation(
@@ -109,9 +86,6 @@ function makeStoreStubs() {
   };
 }
 
-// 组装 store + 假"在途流"闭包。onStreamInterrupted 模拟 chatRuntime.resetStreamState
-// 的关键语义：同步断流、清在途一问一答。simulateStreamEnd 模拟真实
-// finalizeAssistant 的持久化段（身份一致且在途 → push + persistCurrent）。
 function makeStreamHarness(storeDepsOverrides: Partial<CreateConversationStoreDeps> = {}) {
   const stream = { active: false, userPrompt: "", raw: "", capturedId: "" };
   const stopCalls: boolean[] = [];
@@ -154,7 +128,6 @@ function makeStreamHarness(storeDepsOverrides: Partial<CreateConversationStoreDe
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  // 同一模块纪元内新鲜导入（先 resetModules 再 import，被测模块与 state 同图解析）
   ({ createConversationStore } = await import("../../extension/chat/conversation-store.js"));
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
   ({
@@ -172,9 +145,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ===========================================================================
-// 防线一：store 三个 reset 路径 × 流式中/非流式中
-// ===========================================================================
 describe("conversation-store reset 路径在流式中的停流", () => {
   it("deleteById 当前会话（流式中）：先同步停流，状态清空，流结束不复活", async () => {
     const h = makeStreamHarness();
@@ -193,7 +163,6 @@ describe("conversation-store reset 路径在流式中的停流", () => {
     expect(chatSessionState.chatHistory).toEqual([]);
     expect(chatSessionState.savedConversations).toEqual([]);
 
-    // 流结束回调（在途问答已被停流清掉）→ 不 push 不 persist
     await h.simulateStreamEnd();
     expect(h.persistCalls.length).toBe(0);
     expect(chatSessionState.chatHistory).toEqual([]);
@@ -224,7 +193,6 @@ describe("conversation-store reset 路径在流式中的停流", () => {
     expect(chatSessionState.currentConversationId).toBe("c1");
     await h.simulateStreamEnd();
     expect(h.persistCalls.length).toBe(1);
-    // 2 条回放 + 2 条在途写回
     expect(chatSessionState.chatHistory.length).toBe(4);
   });
 
@@ -271,7 +239,6 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("restoreLatest 无匹配（非流式中）：停流回调幂等，当前会话状态清空", async () => {
     const h = makeStreamHarness();
-    // 当前会话绑定另一个视频，上下文状态为空 → 与当前上下文无匹配
     setSavedConversations([makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })]);
     applyConversationIdentity({ id: "c1" });
     applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "" } });
@@ -318,9 +285,6 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 });
 
-// ===========================================================================
-// 会话身份守卫的单一判定点：store.isCurrent(id)
-// ===========================================================================
 describe("store.isCurrent 会话身份守卫", () => {
   it("当前会话命中：id 与 currentConversationId 相等 → true", async () => {
     const { store } = makeStreamHarness();
@@ -335,7 +299,6 @@ describe("store.isCurrent 会话身份守卫", () => {
 
     expect(store.isCurrent("c2")).toBe(false);
 
-    // 流式中当前会话被删：currentConversationId 已清空，旧快照不再命中
     applyConversationIdentity({ id: "" });
     expect(store.isCurrent("c1")).toBe(false);
   });
@@ -343,22 +306,15 @@ describe("store.isCurrent 会话身份守卫", () => {
   it("空 id：仅当当前 id 同为空串（新会话首发）→ true，否则 false", async () => {
     const { store } = makeStreamHarness();
 
-    // 新会话首发：快照与当前 id 均为空串 → 照常写回并 persist（与旧内联比对等价）
     applyConversationIdentity({ id: "" });
     expect(store.isCurrent("")).toBe(true);
 
-    // 当前已有会话 → 空快照不命中（流式中恢复/新建了会话）
     applyConversationIdentity({ id: "c1" });
     expect(store.isCurrent("")).toBe(false);
   });
 });
 
-// ===========================================================================
-// 防线二：chat-runtime finalize/stopped 的会话身份校验（竞态兜底）
-// ===========================================================================
 describe("chat-runtime 流结束的会话身份校验", () => {
-  // 真 createChatRuntime + mock deps；"删除当前会话"直接改 chatSessionState
-  // （不经 store 停流回调），模拟"停流回调生效前流已结束"的竞态窗口。
   function makeSendHarness() {
     const messages = document.createElement("div");
     const input = document.createElement("textarea");
@@ -375,8 +331,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
       input,
       store: {
         persistCurrent: vi.fn(async () => {}),
-        // 会话身份守卫的单一判定点在 store；mock 与真实现同语义（严格相等，
-        // 含空 id == 空当前 id → true 的新会话首发场景）
         isCurrent: vi.fn((id: string) => id === chatSessionState.currentConversationId)
       },
       ui: {
@@ -409,7 +363,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     await runtime.sendTurn(deps.input.value);
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
 
-    // 流式中当前会话被删（状态被清、流回调尚未生效的竞态窗口）
     applyConversationIdentity({ id: "" });
     applyConversationIdentity({ meta: null });
 
@@ -418,7 +371,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
 
     expect(deps.store.persistCurrent).not.toHaveBeenCalled();
     expect(chatSessionState.chatHistory).toEqual([]);
-    // DOM 仍更新为最终回答（只渲染、不落库）
     const node = deps.messages.querySelector(".chat-msg-assistant");
     expect(node?.querySelector(".chat-msg-assistant-body")).toBeTruthy();
   });
@@ -461,7 +413,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
 
     await runtime.sendTurn(deps.input.value);
 
-    // 用户在流式中从历史列表打开了另一会话
     applyConversationIdentity({ id: "c2" });
     applyConversationIdentity({ history: makeConversation("c2").messages });
 
@@ -469,7 +420,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     emit({ type: "done" });
 
     expect(deps.store.persistCurrent).not.toHaveBeenCalled();
-    // chatHistory 保持 c2 的回放内容，未被串入在途问答
     expect(chatSessionState.chatHistory).toEqual(makeConversation("c2").messages);
   });
 });

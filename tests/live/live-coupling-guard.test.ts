@@ -1,7 +1,3 @@
-// 静态依赖图守卫：锁定播放器快捷按钮 / 实时伴看 / 实时字幕翻译之间的惰性接缝，
-// 防止重模块（live-chat-controller / ai/completion / asr/pipeline）回流进静态闭包，
-// 以及页面侧重新直读 chrome.storage 密钥存储。
-
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";

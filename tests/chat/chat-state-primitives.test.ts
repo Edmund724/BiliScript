@@ -1,5 +1,3 @@
-// tests/chat/chat-state-primitives.test.ts — B 档散字段写方归并（ADR-0005 重开
-// 条件的落地件之一）：发送闸/新会话事务迁出的 4 个意图原语的单测。
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   chatSessionState,
@@ -76,7 +74,6 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
         url: "https://www.bilibili.com/read/cv123/?foo=1#frag"
       } as unknown as AiContext;
       rebuildCurrentContextKeyFromContext();
-      // buildContextKey 的 url 归一化只取 origin+pathname，query/hash 都丢。
       expect(chatSessionState.currentContextKey).toBe("url:https://www.bilibili.com/read/cv123/");
     });
 
@@ -124,7 +121,6 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
       const changed = applyContextSnapshot(liveContext());
       expect(changed).toBe(false);
       expect(chatSessionState.currentContextKey).toBe("video:BV1live|");
-      // 旧 key 为空串：首载不算变化（与迁移前 contextChanged 判定逐字一致）。
       chatSessionStateForTests.currentContextKey = "";
       expect(applyContextSnapshot(liveContext())).toBe(false);
     });

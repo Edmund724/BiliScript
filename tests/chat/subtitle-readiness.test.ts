@@ -1,17 +1,3 @@
-// tests/chat/subtitle-readiness.test.ts — chat/subtitle-readiness.ts 的聚焦单测：
-// 把「clip 权威状态」与「上下文快照」两个形状投影成同一份就绪视图
-// （SubtitleReadiness），四个谓词（isPending / isNoSubtitleEmpty /
-// isSubtitleFetchFailed / wantsWaitNotice）只读视图；空视图一律 false（读取
-// 失败由调用方的 ok=false 走各自失败路径）。
-//
-// 回归背景（isPending 的兜底信号）：content 侧转写进行中可能因辅助抓取失败把
-// 快照状态清成 idle（resetClipState），仅凭快照会提前放行空字幕 → 模型编造
-// 「无公开字幕」总结；转写广播活跃标志是兜底信号。clip 入口没有这个信号
-// （asrActive 恒 false）。
-//
-// wantsWaitNotice 是「即时等待提示」的判定，口径刻意比 isPending 窄：只看
-// clip 的 loading，不看转写广播（ADR-0017 决定 6 的冻结口径）。
-
 import { describe, expect, it } from "vitest";
 import type { SubtitleBodyItem } from "../../extension/ai/types.js";
 import {

@@ -1,26 +1,3 @@
-// tests/chat/chat-message-area.test.ts
-// 渲染片 seam 句柄化：两个句柄（消息区 / 回合节点）的行为锚点。
-//
-// 为什么单列一文件：节点装配形状与回合操作面此前由 chat-runtime 与 replay 两侧
-// 手抄（选择器 + createElement + className），契约没有单一锚点。本文件把「渲染片
-// 对外只给两个句柄」的契约钉在句柄行为上——协议级 DOM 产物断言仍留在
-// chat-runtime-stream*.test.ts / chat-search-ui.test.ts（用户可见 DOM 逐字不变）。
-//
-// 失败方式清单（每条对应下方用例；先列清单写测试，后实现）：
-//   1. 句柄漏操作：某个操作没接到渲染片实现（token / 思考 / 重置 / 收尾 / 徽标 /
-//      时间线卡）——每个操作在消息区可观察产物上单独锚定。
-//   2. DOM 形状漂移：助手节点不再是 .chat-msg.chat-msg-assistant（live 另带
-//      chat-msg-streaming + 光标 span；replay 不带）——两种来源逐字锚定，光标
-//      内层形态（三点脉冲的三个点）也锚定：点做成兄弟节点会被 tail 每帧的
-//      innerHTML 重写当场清掉，流式期间指示直接消失。
-//   3. 回放与流式装配不同形：同一原文经 replay 句柄与 live 句柄收尾后节点内部
-//      不一致（回放自拼节点就会分叉）——innerHTML 逐字比对。
-//   4. 三终态徽标错挂：error / stopped / truncated 的文案或位置漂移。
-//   5. 代际重置失灵：reset 不清 stable/tail/思考盒/时间线卡，清掉光标，
-//      或不清 token 累加器（新流拼接上旧流）。
-//   6. 意图收尾内收取消挂起帧：终态/重置前未取消挂起帧导致旧帧污染或释放帧槽失灵。
-//   7. 来源语义漂移：replay 追加接管自动滚动；live 追加不滚底。
-//   8. 消息区清场漏清（clear 不生效）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -67,13 +44,10 @@ function makeDeps(): CreateChatRuntimeDeps & { messages: HTMLElement; input: HTM
   };
 }
 
-// 消息区句柄（渲染片对外两件之一）：测试直接经 runtime 的公开 seam 取用——与
-// replay 的注入面同一条路。
 function areaOf(runtime: ChatRuntime) {
   return runtime.messageArea;
 }
 
-// 拦截 rAF：注册回调但不自动执行，由用例逐帧驱动（token flush / 思考滚动合帧）。
 function holdRaf(): RafSpy {
   return vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1) as unknown as RafSpy;
 }
@@ -99,7 +73,6 @@ describe("消息区句柄：装配形状与来源语义", () => {
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
 
-    // replay：不滚底、不动自动滚动开关
     area.appendUserMessage("回放消息", { source: "replay" });
     const replayedUser = deps.messages.querySelector(".chat-msg-user")!;
     expect(replayedUser.textContent).toBe("回放消息");
@@ -109,7 +82,6 @@ describe("消息区句柄：装配形状与来源语义", () => {
     ]);
     expect(deps.messages.scrollTop).toBe(0);
 
-    // live：强制 instant 滚底（CSS smooth 压不住）+ 接管自动滚动
     runtime.setAutoScroll(false);
     deps.messages.scrollTop = 42;
     const scrollToSpy = vi.fn();
@@ -153,17 +125,13 @@ describe("消息区句柄：装配形状与来源语义", () => {
     const first = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
     expect(first.className).toBe("chat-msg chat-msg-assistant chat-msg-streaming");
     expect(first.querySelector(".chat-msg-cursor")).toBeTruthy();
-    // 光标内层 = 三点脉冲的三个点，且必须是光标的子节点（tail 每帧重写 innerHTML，
-    // 兄弟节点活不过一帧）。CSS 只认这三个点，形态变了 CSS 就画不出药丸。
     expect(first.querySelectorAll(".chat-msg-cursor > i")).toHaveLength(3);
 
-    // 上一条 live 的流式豁免在新消息上屏同一时刻摘除
     area.appendAssistantMessage({ source: "live" });
     const second = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1];
     expect(first.classList.contains("chat-msg-streaming")).toBe(false);
     expect(second.classList.contains("chat-msg-streaming")).toBe(true);
 
-    // replay：终态直出形态——无流式类、无光标
     area.appendAssistantMessage({ source: "replay" });
     const replayed = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[2];
     expect(replayed.className).toBe("chat-msg chat-msg-assistant");
@@ -183,10 +151,8 @@ describe("消息区句柄：装配形状与来源语义", () => {
     area.appendAssistantMessage({ source: "replay" }).finish({ raw, sources: [] });
     const replayed = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1];
 
-    // 外形：只差流式豁免类（内容由同一条终态渲染路径产出）
     expect(replayed.className).toBe("chat-msg chat-msg-assistant");
     expect(live.className).toBe("chat-msg chat-msg-assistant chat-msg-streaming");
-    // 内部逐字同形（正文容器 + 操作行，含 class 与顺序）
     expect(replayed.innerHTML).toBe(live.innerHTML);
     expect(replayed.querySelector(".chat-msg-assistant-body")?.innerHTML).toBe(renderMarkdown(raw));
   });
@@ -218,14 +184,12 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-stream-stable")?.innerHTML).toBe(renderMarkdown("第一段"));
     expect(deps.messages.querySelector(".chat-stream-tail")?.textContent).toContain("第二段");
 
-    // 只入缓冲、未调度/未执行的新增量仍进终态
     turn.appendToken("，结尾");
     const raw = turn.finish({ userPrompt: "问" });
     expect(raw).toBe("第一段\n\n第二段，结尾");
     expect(deps.messages.querySelector(".chat-msg-assistant-body")?.innerHTML).toBe(
       renderMarkdown("第一段\n\n第二段，结尾")
     );
-    // 终态重渲染整体替换流式双容器
     expect(deps.messages.querySelector(".chat-stream-stable")).toBeNull();
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
   });
@@ -244,7 +208,6 @@ describe("回合节点句柄：流式操作面", () => {
     runRafFrames(raf);
     expect(deps.messages.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
-    // token 到达即思考收尾；其后到达的 reasoning 在同一思维链内追加第二思考步骤
     turn.appendToken("正文");
     turn.appendThinking("收尾思路");
     runRafFrames(raf);
@@ -255,7 +218,6 @@ describe("回合节点句柄：流式操作面", () => {
     expect(chain.querySelector(".chat-thinking-label-text")?.textContent).toMatch(/^已思考 \d+\.\ds$/);
     expect(chain.querySelector(".chat-thinking-duration-num")?.textContent).toMatch(/^\d+\.\d$/);
 
-    // 终态重渲染保留折叠行与正文
     turn.finish({ raw: "正文 [01:20]" });
     const settledChain = deps.messages.querySelector(".chat-thought-chain")!;
     expect(settledChain.querySelectorAll(".chat-thought-step[data-step-kind='thinking']")).toHaveLength(2);
@@ -274,7 +236,6 @@ describe("回合节点句柄：流式操作面", () => {
     expect(raf).toHaveBeenCalledTimes(1);
     expect(turn.finish({})).toBe("第一段\n\n");
 
-    // 帧槽已释放：新回合的 token 重新调度帧
     const turn2 = area.appendAssistantMessage({ source: "live" });
     turn2.appendToken("第二段");
     expect(raf).toHaveBeenCalledTimes(2);
@@ -300,10 +261,8 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
     expect(deps.messages.querySelector(".chat-thinking")).toBeNull();
     expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
-    // 光标保留在节点末尾（下一帧 flush 重新接上）
     expect(deps.messages.querySelector(".chat-msg-cursor")).toBeTruthy();
 
-    // 第二代流从头累积：终态原文不含第一代
     turn.appendToken("## 第二代\n\n全新正文");
     runRafFrames(raf);
     const raw = turn.finish({});
@@ -341,7 +300,6 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
       "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
     ]);
-    // 位置：操作行之后（与既有 done 收尾时序一致）
     expect(deps.messages.querySelector(".chat-msg-truncated")?.previousElementSibling?.className).toBe("chat-msg-actions");
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);
   });
@@ -487,7 +445,6 @@ describe("回合节点句柄：思维链状态条（工具活动与回放）", (
     expect(node.firstElementChild).toBe(chain);
     expect(chain.querySelector(".chat-thought-chain-summary")?.textContent).toBe("联网检索 1 条");
     expect(chain.querySelector(".chat-thought-step-detail")?.textContent).toBe("第一问");
-    // 内联引用与思维链同源
     expect(node.querySelector(".chat-cite[data-cite-url='https://a.com']")).toBeTruthy();
   });
 });

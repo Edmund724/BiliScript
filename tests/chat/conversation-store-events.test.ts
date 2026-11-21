@@ -1,42 +1,3 @@
-// tests/chat/conversation-store-events.test.ts
-// 工单 05:conversation-store 渲染回调反转为能力事件后的编排时序锁定。
-//
-// 原 14 键 deps 里 9 个 caller 必学的渲染/行为回调(renderHistoryList /
-// renderInitialState / show·removeConversationContextNotice /
-// showConversationContextError / hideHistoryPopover / loadContextState /
-// stopActiveChat)收窄为 3 个能力事件——store 自己编排渲染时机,caller 只订阅结果:
-//   - onConversationChanged(change)  会话相关状态已落账;历史列表恒随事件重渲,
-//     change 标志驱动 popover 收起(historyCleared)/ 会话视图重建(resetView)。
-//     原「chip 刷新标志」refreshContextChip 随 2026-10 删除头部标题 chip 一并下线:
-//     上下文快照照常写进 chatSessionState,由需要它的 caller 自行读取;
-//   - onStreamInterrupted()          当前会话被拆除(删当前会话/清空全部/恢复无
-//     匹配),流式必须同步打断(原 stopActiveChat dep);
-//   - onContextNotice(notice)        上下文补水提示生命周期(pending/clear/error)。
-//
-// 本文件逐操作锁定事件序列与 detail 形状,与反转前 caller 编排逐一对齐:
-//   - loadAll:            change({})                     —— 不写上下文（无上下文写入面），
-//                         也不再发起分页补水（opt-backlog-2026-09/05 起收敛到
-//                         restoreLatest 命中项）
-//   - 命中项补水变更:      change({}) → change({})
-//                         （补水落盘 + apply 各一次）
-//   - persistCurrent:     change({})                     —— 元信息重写不改绑定呈现面
-//   - restoreLatest 匹配: change({})                     —— 无断流
-//   - restoreLatest 无匹: onStreamInterrupted 恰一次;change/notice 零次
-//     (原编排即不重渲列表/视图,保持现状)
-//   - applyById:          change({resetView}) → notice pending
-//   - deleteById 当前会话:onStreamInterrupted 同步先于一切 change(断流先于落盘,
-//     会话复活回归防线);尾次 change = {resetView}
-//   - deleteById 非当前:  change({})                     —— 无断流
-//   - clearAll:           onStreamInterrupted → change({historyCleared, resetView})
-//   - hydratePinned 成功: change({}) → notice clear
-//   - hydratePinned 失败: notice clear → notice error(非 silent;silent 不展示)
-//
-// 同时锁定解析单接缝的 purpose 分途:restoreLatest 命中项分页补水用 "page",
-// hydratePinned 用 "context"(组合根在该用途接工单 04 的进程内短路复合适配器)。
-//
-// 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
-// 模块同纪元导入,并经 resetChatSessionStateForTests 重置字段。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -45,7 +6,6 @@ import type { CreateConversationStoreDeps } from "../../extension/chat/conversat
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -91,9 +51,6 @@ function makeStorage() {
   };
 }
 
-// 注入依赖的方法面（与 CreateConversationStoreDeps 一致；storage 是对象不是
-// 函数，单独取 makeStorage 的返回形状）。每个 dep 都是 vi.fn 但保留原签名——
-// mockImplementation 的参数与 mock.calls 的取值都按签名推断，不依赖隐式 any。
 interface StoreDeps {
   loadContextState: Mock<CreateConversationStoreDeps["loadContextState"]>;
   resolveAiConversationRef: Mock<CreateConversationStoreDeps["resolveAiConversationRef"]>;
@@ -119,7 +76,6 @@ function makeHarness(storeDepsOverrides: Partial<StoreDeps> = {}) {
   return { store, deps, storage };
 }
 
-// 事件时序记录器:change / interrupt / notice 按发生顺序入 log,供顺序断言。
 function makeOrderLog(deps: StoreDeps) {
   const log: unknown[][] = [];
   deps.onConversationChanged.mockImplementation((change) => log.push(["change", change]));
@@ -169,9 +125,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ===========================================================================
-// loadAll / 命中项分页补水 / persistCurrent:历史列表面的 change 时序
-// ===========================================================================
 describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   it("loadAll:change 恰一次且 detail 为空(无上下文写入)", async () => {
     const { store, deps } = makeHarness();
@@ -183,7 +136,6 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({});
     expect(log).toEqual([["change", {}]]);
-    // 无分页补水:loadAll 不再发起视频元数据请求(opt-backlog-2026-09/05)
     expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
   });
 
@@ -195,7 +147,6 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
       })
     });
     const log = makeOrderLog(deps);
-    // 两条候选:补水只落命中项,非命中项零请求
     setSavedConversations([
       makeConversation("c1"),
       makeConversation("c2", { url: "https://www.bilibili.com/video/BVother" })
@@ -206,9 +157,7 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     const result = await store.restoreLatest();
 
     expect(result).toBe(true);
-    // 首开网络请求数从「至多 12 次串行」收敛到「仅命中项 1 次」
     expect(deps.resolveAiConversationRef).toHaveBeenCalledTimes(1);
-    // 补水落盘(列表重渲)在前,apply 的发火在后
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(1, {});
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, {});
     expect(log.map(([kind]) => kind)).toEqual(["change", "change"]);
@@ -264,8 +213,6 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
 
     await store.persistCurrent();
 
-    // 更早那张整条摘掉（不写占位文本——占位是请求组装期的事，写进 content 会
-    // 在界面上显示出来），最近一张原样留下。
     const persisted = [
       { role: "user", content: "第一张图" },
       { role: "assistant", content: "是截图" },
@@ -274,8 +221,6 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     ];
     expect(chatSessionState.savedConversations[0].messages).toEqual(persisted);
 
-    // 重开 tab：新 store 实例 + 同一份 storage → loadAll 读回 → restoreLatest 恢复
-    // 到 chatHistory，那一张图仍在（追问时随历史重发，见 ai/context 的重发策略）。
     const { store: reopened } = makeHarness({ storage });
     chatSessionStateForTests.currentContextKey = "";
     chatSessionStateForTests.contextData = null;
@@ -290,16 +235,11 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   });
 });
 
-// ===========================================================================
-// restoreLatest / applyById:恢复与应用面
-// ===========================================================================
 describe("restoreLatest / applyById 的 change 时序", () => {
   it("restoreLatest 有匹配:change 恰一次 {},无断流(命中项无需分页补水时)", async () => {
     const { store, deps } = makeHarness();
     makeOrderLog(deps);
     const conversation = makeConversation("c1");
-    // 标题已带 -P 分 P 后缀:needsConversationPageHydration 早退,补水零请求,
-    // 保持「单次空 change」的最小恢复面。
     conversation.title = "视频A-P1";
     setSavedConversations([conversation]);
     chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
@@ -346,9 +286,7 @@ describe("restoreLatest / applyById 的 change 时序", () => {
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({ resetView: true });
     expect(deps.onContextNotice).toHaveBeenCalledWith({ kind: "pending", message: "正在加载原视频上下文..." });
-    // 事件次序:change(视图重建)先于 pending 提示
     expect(log.map(([kind]) => kind)).toEqual(["change", "notice"]);
-    // 静默补水异步落定后:change({}) → notice clear
     await vi.waitFor(() => expect(deps.onContextNotice.mock.calls.length).toBe(2));
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, {});
     expect(deps.onContextNotice).toHaveBeenLastCalledWith({ kind: "clear" });
@@ -369,9 +307,6 @@ describe("restoreLatest / applyById 的 change 时序", () => {
   });
 });
 
-// ===========================================================================
-// deleteById / clearAll:会话拆除面(断流时序是会话复活回归的承重墙)
-// ===========================================================================
 describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("deleteById 当前会话:onStreamInterrupted 同步先于一切 change;尾次 change = {resetView}", async () => {
     const { store, deps } = makeHarness();
@@ -386,7 +321,6 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     await store.deleteById("c1");
 
     expect(deps.onStreamInterrupted).toHaveBeenCalledTimes(1);
-    // 断流在先(同步),落盘后的 change 在后
     expect(log[0]).toEqual(["interrupt"]);
     expect(log[log.length - 1]).toEqual(["change", { resetView: true }]);
     expect(chatSessionState.currentConversationId).toBe("");
@@ -411,8 +345,6 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("clearAll:onStreamInterrupted 在先,尾次 change = {historyCleared, resetView}", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    // 缺省确认通道用例：不注入 confirmClearAll——确认走面板内弹层
-    //（ui/confirm-dialog.js），须挂 #biliscript-reading-view 供其挂载
     document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
     setSavedConversations([makeConversation("c1")]);
     chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
@@ -454,9 +386,6 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
   });
 });
 
-// ===========================================================================
-// hydratePinned:补水提示生命周期 + change 时序
-// ===========================================================================
 describe("hydratePinned 的 change / notice 时序", () => {
   it("resolvedContext 缓存命中:change = {} → notice clear,不走解析", async () => {
     const { store, deps } = makeHarness();
@@ -486,7 +415,6 @@ describe("hydratePinned 的 change / notice 时序", () => {
     const ok = await store.hydratePinned();
 
     expect(ok).toBe(true);
-    // preserveInput 缺省 false（非闸内调用：历史项点击/恢复路径照旧清场）
     expect(deps.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: false });
     expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
     expect(log).toEqual([
@@ -504,8 +432,6 @@ describe("hydratePinned 的 change / notice 时序", () => {
     const ok = await store.hydratePinned({ preserveInput: true });
 
     expect(ok).toBe(true);
-    // pinned 补水的内部装载同样在发送闸调用链上：闸内 apply-live 的重启不清
-    // 输入框与附件区（附件在闸之后才被 takeInputImages 消费）。
     expect(deps.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: true });
   });
 
@@ -576,7 +502,6 @@ describe("hydratePinned 的 change / notice 时序", () => {
     ]);
   });
 });
-
 
 describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
   it("非当前会话撤销：存储与原顺序恢复，当前身份不变，撤销仅生效一次", async () => {

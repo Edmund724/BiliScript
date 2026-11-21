@@ -1,12 +1,3 @@
-// tests/chat/chat-input-images.test.ts
-// 02 号票（输入区粘贴图片）的附件区内核单测：
-//   - 纯文本 / 非图片剪贴板内容不拦截（不 preventDefault，不产出附件项）；
-//   - 粘贴 image/png → 压缩后生成一个附件项（缩略图 data URL + 删除键）；
-//   - 删除后计数归零（附件区回到 hidden）；
-//   - 上限拒绝并提示（张数 >4 / 单条合计 >4MB / 压缩器判定的单张超限 / 解码失败）；
-//   - 流式中（发送流程进行中）粘贴图片被拒并提示；
-//   - takeImages（发送受理）读清一体，且清空后在途压缩的迟到结果不回填。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import {
@@ -42,7 +33,6 @@ function makePasteEvent(items: PasteClipboardItem[] | null): TestPasteEvent {
   return { clipboardData: items ? { items } : null, preventDefault: vi.fn(() => {}) };
 }
 
-// 压缩替身：产出固定体积的 WebP ImagePart（真实压缩管线由 image-compress 单测覆盖）
 function fakeCompress(bytes = 1024, data = "QUJD"): Mock<CompressFn> {
   return vi.fn<CompressFn>(async () => ({
     part: { mime: "image/webp", data },
@@ -73,7 +63,6 @@ function makeRuntime(overrides: {
   return { images, strip, onReject, compress };
 }
 
-// 压缩是异步的：handler 返回后等微任务队列落定
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
@@ -261,7 +250,7 @@ describe("上限拒绝与提示", () => {
       await flush();
     }
 
-    expect(images.count()).toBe(2); // 2MB + 2MB ≤ 4MB；第三张 6MB > 4MB
+    expect(images.count()).toBe(2);
     expect(onReject).toHaveBeenCalledWith("第 3 张图片：图片合计超过 4MB，无法发送");
   });
 
@@ -379,7 +368,7 @@ describe("takeImages（发送受理的读清一体）", () => {
     const { images, strip } = makeRuntime({ compress });
 
     images.handlePaste(makePasteEvent([fileItem(makeFile())]));
-    expect(images.takeImages()).toEqual([]); // 压缩未落位：本条消息不带图
+    expect(images.takeImages()).toEqual([]);
 
     release({ part: { mime: "image/webp", data: "QUJD" }, bytes: 4 });
     await flush();
@@ -406,7 +395,6 @@ describe("takeImages（发送受理的读清一体）", () => {
     expect(images.count()).toBe(0);
   });
 });
-
 
 describe("发送快照消费", () => {
   it("takeImages(snapshot) 只消费快照，后来粘贴的图片保留", async () => {
@@ -447,7 +435,6 @@ describe("发送快照消费", () => {
     expect(images.getImages()).toEqual([{ mime: "image/webp", data: "NEW" }]);
   });
 });
-
 
 describe("压缩占位、时序与顺序", () => {
   it("粘贴即占位，后完成的图片不会抢先到前面", async () => {

@@ -1,24 +1,3 @@
-// tests/chat/conversation-store-detach.test.ts
-// 工单 arch-slim-2/07:「拆除会话」唯一事务(detachCurrent / repopulateLive)的
-// 时序锁定与接口收窄断言。
-//
-// GLOSSARY.md「拆除会话」词条:把「当前会话」从对话视图与存储中摘除的唯一事务
-// = 断流通知先于任何 await 与落盘 → 清会话 id/meta/历史 → 需要时做 live 上下文
-// 回填。四个出口(restoreLatest 无匹配 / deleteById 当前会话 / clearAll /
-// detachForRestart 新会话重启)收口为同一组原语组合,本文件沿 conversation-store-
-// events.test.js 的事件时序先例,参数化锁定承重不变式:
-//   - 断流先于身份清空(流式身份守卫在 id 清空前依赖同步断流,防会话复活)
-//   - 断流先于落盘(先于一切 storage.set / await)
-//   - 各出口的 live 回填与 change 面逐字保持(行为零变化,与 events 测试互补)
-//
-// 接口收窄 11→8:apply / resolveContext / hydratePages 三键摘除;另含工单 D 授权的
-// 公开窄方法 detachForRestart,终面 = 收窄 8 键 + 1。opt-backlog-2026-09/05:
-// hydratePages 进一步收敛为 hydrateConversationPage(单条,只服务 restoreLatest
-// 命中项),loadAll 不再批量发起分页补水——本文件的补水用例已按新入口改写。
-//
-// 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
-// 模块同纪元导入并经 resetChatSessionStateForTests 重置字段(与 events 测试同款)。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -30,7 +9,6 @@ import type {
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -75,9 +53,6 @@ function makeStorage() {
   };
 }
 
-// 注入依赖的方法面（与 CreateConversationStoreDeps 一致；storage 是对象不是
-// 函数，单独取 makeStorage 的返回形状）。每个 dep 都是 vi.fn 但保留原签名——
-// mockImplementation 的参数与 mock.calls 的取值都按签名推断，不依赖隐式 any。
 interface StoreDeps {
   loadContextState: Mock<CreateConversationStoreDeps["loadContextState"]>;
   resolveAiConversationRef: Mock<CreateConversationStoreDeps["resolveAiConversationRef"]>;
@@ -103,7 +78,6 @@ function makeHarness(storeDepsOverrides: Partial<StoreDeps> = {}) {
   return { store, deps, storage };
 }
 
-// 断流通知发起「瞬间」捕获的会话身份与存档面（onStreamInterrupted 回调内取样）。
 interface InterruptedSnapshot {
   id: string;
   meta: unknown;
@@ -111,9 +85,6 @@ interface InterruptedSnapshot {
   savedCount: number;
 }
 
-// 统一事件时序记录器:change / interrupt / notice / persist 按发生顺序入 log;
-// interruptedWith 在断流通知发起「瞬间」捕获会话身份与存档面——用于证明
-// 「断流先于身份清空」与各出口 detach 前的内存次序(commitSaved 位置)。
 function makeOrderLog(deps: StoreDeps, storage: ReturnType<typeof makeStorage>) {
   const log: unknown[][] = [];
   const interruptedWith: InterruptedSnapshot[] = [];
@@ -175,12 +146,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// 「拆除会话」四出口参数表:setup 布景,run 发起拆除,persisted 声明该出口是否落盘。
 const DETACH_EXITS = [
   {
     label: "restoreLatest 无匹配",
     setup() {
-      // 绑定另一视频 → 与当前上下文无匹配
       seedCurrentConversation("c1", { url: "https://www.bilibili.com/video/BVother" });
     },
     run(store: ConversationStore) {
@@ -221,9 +190,6 @@ const DETACH_EXITS = [
   }
 ];
 
-// ===========================================================================
-// 承重不变式(参数化):断流先于身份清空、先于落盘;拆除恰为身份三键清空
-// ===========================================================================
 describe("拆除会话四出口的承重不变式", () => {
   it.each(DETACH_EXITS)("$label:断流恰一次且先于身份清空(发起瞬间 id 仍在);收尾 id/meta/历史清空", async ({ setup, run, storeDeps }) => {
     const { store, deps, storage } = makeHarness(storeDeps);
@@ -233,11 +199,9 @@ describe("拆除会话四出口的承重不变式", () => {
     await run(store);
 
     expect(deps.onStreamInterrupted).toHaveBeenCalledTimes(1);
-    // 断流发起瞬间会话身份尚未清空(流式身份守卫在 id 清空前依赖同步断流)
     expect(interruptedWith[0].id).toBe("c1");
     expect(interruptedWith[0].meta).not.toBeNull();
     expect(interruptedWith[0].history.length).toBe(2);
-    // 拆除收尾:身份三键清空
     expect(chatSessionState.currentConversationId).toBe("");
     expect(chatSessionState.currentConversationMeta).toBeNull();
     expect(chatSessionState.chatHistory).toEqual([]);
@@ -251,21 +215,16 @@ describe("拆除会话四出口的承重不变式", () => {
     await run(store);
 
     if (persisted) {
-      // 落盘出口:storage.set 必须晚于断流通知(「断流先于落盘」不变式)
       const interruptIndex = log.findIndex(([kind]) => kind === "interrupt");
       const persistIndex = log.findIndex(([kind]) => kind === "persist");
       expect(persistIndex).toBeGreaterThan(-1);
       expect(interruptIndex).toBeLessThan(persistIndex);
     } else {
-      // 无落盘出口:restoreLatest 无匹配 / detachForRestart 均不写 storage
       expect(log.some(([kind]) => kind === "persist")).toBe(false);
     }
   });
 });
 
-// ===========================================================================
-// 出口一 restoreLatest 无匹配:detach 不回填、不落盘、不重渲
-// ===========================================================================
 describe("出口一 restoreLatest 无匹配", () => {
   it("断流+清身份后返回 false;live 快照不回填,change/notice/persist 零次", async () => {
     const { store, deps, storage } = makeHarness();
@@ -277,16 +236,12 @@ describe("出口一 restoreLatest 无匹配", () => {
     const result = await store.restoreLatest();
 
     expect(result).toBe(false);
-    // 无 live 回填:主上下文保持拆除前原值(视图重建非本出口职责)
     expect(chatSessionState.contextData).toBeNull();
     expect(chatSessionState.currentContextKey).toBe("");
     expect(log).toEqual([["interrupt"]]);
   });
 });
 
-// ===========================================================================
-// 出口二 deleteById 当前会话:detach + 回填 + 尾次 change 标志逐字
-// ===========================================================================
 describe("出口二 deleteById 当前会话", () => {
   it("事件次序 = [interrupt, persist, change {}, change {resetView}];live 回填发生", async () => {
     const { store, deps, storage } = makeHarness();
@@ -304,7 +259,6 @@ describe("出口二 deleteById 当前会话", () => {
       ["change", {}],
       ["change", { resetView: true }]
     ]);
-    // live 回填:主上下文持有最新页面快照(浅拷贝,非同引用)
     expect(chatSessionState.contextData).toEqual(liveData);
     expect(chatSessionState.contextData).not.toBe(liveData);
     expect(chatSessionState.currentContextKey).toBe("k-live");
@@ -323,9 +277,6 @@ describe("出口二 deleteById 当前会话", () => {
   });
 });
 
-// ===========================================================================
-// 出口三 clearAll:commitSaved([]) 先于 detach、回填在 save 后
-// ===========================================================================
 describe("出口三 clearAll", () => {
   it("事件次序 = [interrupt, persist, change {}, change {historyCleared, resetView}];detach 瞬间存档已清(commitSaved([]) 在 detach 前)", async () => {
     const { store, deps, storage } = makeHarness({ confirmClearAll: () => true });
@@ -343,17 +294,12 @@ describe("出口三 clearAll", () => {
       ["change", {}],
       ["change", { historyCleared: true, resetView: true }]
     ]);
-    // clearAll 组合次序:commitSaved([])(内存) → detach → save → 回填
     expect(interruptedWith[0].savedCount).toBe(0);
-    // live 回填发生
     expect(chatSessionState.contextData).toEqual(liveData);
     expect(chatSessionState.currentContextKey).toBe("k-live");
   });
 });
 
-// ===========================================================================
-// 出口四 detachForRestart:公开窄 detach,不回填、不落盘、不发 change
-// ===========================================================================
 describe("出口四 detachForRestart(新会话重启)", () => {
   it("断流一次+身份清空;live 不回填;零 change/notice/persist(视图重建由 restartChat 自排)", () => {
     const { store, deps, storage } = makeHarness();
@@ -372,9 +318,6 @@ describe("出口四 detachForRestart(新会话重启)", () => {
   });
 });
 
-// ===========================================================================
-// 接口收窄 11→8 + 工单 D 窄方法:返回面键集断言 + 三摘除键的内部调用点零变化
-// ===========================================================================
 describe("公开接口面", () => {
   it("返回面 = 收窄 8 键 + detachForRestart;apply/resolveContext/hydratePages 三键不再外露", () => {
     const { store } = makeHarness();
@@ -390,8 +333,6 @@ describe("公开接口面", () => {
       "persistCurrent",
       "restoreLatest"
     ]);
-    // 三摘除键的「不在返回面」断言：窄接口类型上本就不存在这些键，运行时面
-    // 经 Record 视图取读（键缺失 = undefined）。
     const exposed = store as unknown as Record<string, unknown>;
     expect(exposed.apply).toBeUndefined();
     expect(exposed.resolveContext).toBeUndefined();
@@ -448,11 +389,9 @@ describe("公开接口面", () => {
     chatSessionStateForTests.liveContextKey = "k-1";
 
     await store.loadAll();
-    // opt-backlog-2026-09/05:loadAll 不再批量发起分页补水
     expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
     await store.restoreLatest();
 
-    // 次序:loadAll 的 {} → 补水落盘的 {} → apply 的 {}
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, {});
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, {});
     expect(deps.resolveAiConversationRef).toHaveBeenCalledTimes(1);

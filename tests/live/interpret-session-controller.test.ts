@@ -248,16 +248,13 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(started).toBe(true);
       expect(controller.getState()).toBe("connected");
 
-      // 零网络调用
       expect(runAsr).not.toHaveBeenCalled();
       expect(translateItems).not.toHaveBeenCalled();
 
-      // 状态已安装
       expect(state.clip.subtitleBody).toEqual(primaryMock);
       expect(state.clip.secondarySubtitle.body).toEqual(secondaryMock);
       expect(state.clip.selectedSubtitleId).toBe("asr");
 
-      // 播放器时间轴当前行渲染
       expect(setSubtitle).toHaveBeenCalledWith("Hello chunk 0", "你好 分片 0");
     });
 
@@ -275,8 +272,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
       const started = await controller.start();
       expect(started).toBe(true);
-      expect(runAsr).not.toHaveBeenCalled(); // 跳过 ASR
-      // 首屏块完成后立即解锁第 2 块，90s 窗口内共两个分片
+      expect(runAsr).not.toHaveBeenCalled();
       await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
       expect(translateItems).toHaveBeenCalledWith(
         expect.objectContaining({ fallbackToOriginal: false })
@@ -307,7 +303,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await controller.start();
       expect(setSubtitle).toHaveBeenCalledWith("P0", "S0");
 
-      // 用户 Seek 到 135 秒（分片 2）
       video.currentTime = 135;
       video.dispatchEvent(new Event("seeking"));
 
@@ -316,7 +311,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     });
 
     it("Seek 到未就绪分片时给出轻量提示并推进调度", async () => {
-      // 分片 0 在 0s，分片 4 在 250s（初始窗口 [0, 1, 2] 之外）
       clipState.setSubtitleBody([
         { from: 0, to: 10, content: "P0" },
         { from: 250, to: 260, content: "P4" }
@@ -330,7 +324,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await controller.start();
       translateItems.mockClear();
 
-      // Seek 到未就绪的分片 4（255 秒）
       video.currentTime = 255;
       video.dispatchEvent(new Event("seeking"));
 
@@ -363,7 +356,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(runAsr).toHaveBeenCalled();
       expect(chunkCb).toBeDefined();
 
-      // 分片 0 到达：保存主轨 -> 失效旧译文 -> 保存新译文
       await chunkCb(
         { index: 0, startSec: 0, durationSec: 60, result: { text: "Chunk 0 ASR" } },
         [{ from: 0, to: 10, content: "Chunk 0 ASR" }]
@@ -380,7 +372,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(clearTranslatedCache).toHaveBeenCalledWith({ bvid: "BV1test000000", cid: "123456" });
       expect(callOrder).toEqual(["saveCache", "clearTranslatedCache", "saveCache"]);
 
-      // 分片 1 到达：不再重复清理同轮已产生的译文缓存
       await chunkCb(
         { index: 1, startSec: 60, durationSec: 60, result: { text: "Chunk 1 ASR" } },
         [{ from: 60, to: 70, content: "Chunk 1 ASR" }]
@@ -438,7 +429,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await controller.start();
       expect(controller.getState()).toBe("connected");
 
-      // 切换视频
       clipState.setBvid("BV1newVideo999");
       contentEventBus.emit("host:url-change", { url: location.href });
 
@@ -468,7 +458,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       );
       expect(translateItems).toHaveBeenCalledTimes(1);
 
-      // 冷却期内多次 timeupdate 不触发重试
       vi.advanceTimersByTime(5_000);
       video.currentTime = 1;
       video.dispatchEvent(new Event("timeupdate"));
@@ -477,7 +466,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await Promise.resolve();
       expect(translateItems).toHaveBeenCalledTimes(1);
 
-      // 超过 15s 后 timeupdate 允许重试并成功
       vi.advanceTimersByTime(11_000);
       video.currentTime = 3;
       video.dispatchEvent(new Event("timeupdate"));
@@ -533,11 +521,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
       await controller.start();
       await vi.waitFor(() => expect(cueEmitters.has(0)).toBe(true));
-      // 初始未翻译时浮层只显示原文
       expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "");
       setSubtitle.mockClear();
 
-      // 块 0 非当前句（12s–20s）流式到达：未命中当前播放点 5s，不刷新浮层
       cueEmitters.get(0)!({
         startIndex: 1,
         endIndex: 1,
@@ -548,7 +534,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       });
       expect(setSubtitle).not.toHaveBeenCalled();
 
-      // 块 0 当前播放激活句（0s–10s）流式到达：命中当前激活项，立即局部上屏
       cueEmitters.get(0)!({
         startIndex: 0,
         endIndex: 0,
@@ -561,7 +546,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "流式译文0-首句");
       setSubtitle.mockClear();
 
-      // 完成块 0 后，90s 窗口解锁并启动后台预载块 1（65s–75s）
       chunkResolvers.get(0)!([
         { from: 0, to: 10, content: "流式译文0-首句" },
         { from: 12, to: 20, content: "流式译文0-后句" }
@@ -569,7 +553,6 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await vi.waitFor(() => expect(cueEmitters.has(1)).toBe(true));
       setSubtitle.mockClear();
 
-      // 块 1 流式到达及整块完成均不命中 5s 激活项，浮层 DOM 零闪烁
       cueEmitters.get(1)!({
         startIndex: 0,
         endIndex: 0,

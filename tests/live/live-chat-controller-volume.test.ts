@@ -286,22 +286,18 @@ describe("LiveChatController voice priority and ducking", () => {
   it("keeps video ducked while overlapping user VAD and Agent speech occur, restoring only when both finish", async () => {
     const { controller, port, video, emitVad } = await setupWithVideo({ videoVolume: 0.5 });
 
-    // User starts talking
     emitVad(true);
     expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
-    // Agent also starts talking
     port.emit({ type: "speaking_state", speaking: true });
     expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
-    // User stops talking, but Agent still speaking
     emitVad(false);
     expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
-    // Agent finishes speaking -> now fully restored
     port.emit({ type: "speaking_state", speaking: false });
     expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.5, 5);
@@ -310,18 +306,15 @@ describe("LiveChatController voice priority and ducking", () => {
   it("does not duck video volume when voice priority is disabled, and restores if toggled off while ducked", async () => {
     const { controller, port, video, emitVad } = await setupWithVideo({ videoVolume: 0.6 });
 
-    // Duck first
     emitVad(true);
     expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.12, 5);
 
-    // User turns off voice priority -> restores immediately
     controller.setVoicePriority(false);
     expect(controller.isVoicePriority()).toBe(false);
     expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.6, 5);
 
-    // Subsequent Agent speech does not duck
     port.emit({ type: "speaking_state", speaking: true });
     expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.6, 5);

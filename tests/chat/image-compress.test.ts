@@ -1,14 +1,3 @@
-// tests/chat/image-compress.test.ts
-// 03 号票（图片压缩规格）的单测锁定：
-//   - 等比降采样算式：长边 ≤1568px，超出按比例缩放，不超原样（不放大）；
-//   - 压缩管线：解码 → 编码（质量 0.9 / 降采样后的目标尺寸）→ base64 原文；
-//   - 体积上限归类：压缩后 >1MB → single-too-large（消费方据此拒绝并提示）；
-//   - 解码/编码失败归类：decode-failed / encode-failed（可见反馈的依据，不静默丢）。
-//
-// jsdom 没有 createImageBitmap 与 canvas 2d，故解码/编码两个 DOM 原语经
-// ImageCompressEnv 注入替身——管线其余部分（缩放算式、体积判定、base64 编码、
-// 错误归类）跑的是真实实现。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   IMAGE_MAX_BYTES,
@@ -26,8 +15,6 @@ function makeBlob(bytes: number[], type = IMAGE_OUTPUT_MIME): Blob {
   return new Blob([new Uint8Array(bytes)], { type });
 }
 
-// CanvasImageSource 替身：解码结果里的 source（真实实现是 ImageBitmap）只被
-// 编码替身收到，不会真的绘制，故用任意 DOM 元素占位即可。
 function makeSource(): CanvasImageSource {
   return document.createElement("img");
 }
@@ -84,7 +71,6 @@ describe("createImageCompressor（解码 → 降采样 → WebP q0.9 → base64�
       quality: IMAGE_WEBP_QUALITY
     });
     expect(compressed.part.mime).toBe("image/webp");
-    // base64 原文（不带 data: 前缀，01 号票的 ImagePart.data 口径）
     expect(compressed.part.data).not.toContain("data:");
     expect(atob(compressed.part.data)).toBe("\x01\x02\x03\x04");
     expect(compressed.bytes).toBe(4);
@@ -134,7 +120,6 @@ describe("createImageCompressor（解码 → 降采样 → WebP q0.9 → base64�
   });
 
   it("默认环境：无 createImageBitmap（jsdom/旧环境）时归类为 decode-failed，不抛原始异常", async () => {
-    // 默认 env 惰性读全局 createImageBitmap：此处确保它缺席，走可归类的失败路径。
     const original = (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
     delete (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
     try {

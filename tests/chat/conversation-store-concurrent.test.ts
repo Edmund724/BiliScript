@@ -1,10 +1,3 @@
-// tests/chat/conversation-store-concurrent.test.ts
-// 跨标签页并发会话持久化与外部同步回归测试：
-// 1. 标签页 A 内存存档滞后时，persistCurrent() 增量合入最新存储快照，不抹除标签页 B 先写入的新会话；
-// 2. 分页补水（restoreLatest → saveHydratedConversation）同样保留期间其他标签页写入的新会话；
-// 3. syncSavedConversationsFromStorage 仅在外部快照真正变化时更新内存并返回 true，等价快照幂等返回 false；
-// 4. 目标存储为真实 chrome.storage.local 且环境具备 navigator.locks 时，经同源 Web Lock 串行化。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { CreateConversationStoreDeps, StorageArea } from "../../extension/chat/conversation-store.js";
@@ -103,11 +96,9 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     await storeA.loadAll();
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-0"]);
 
-    // 模拟标签页 B 在独立页内完成一次对话并率先落盘 conv-b
     const convB = makeStoredConversation("conv-b", "BVB", "202", 2000);
     await updateConversationHistory(storage, (current) => [convB, ...current]);
 
-    // 标签页 A 内存中仍只有 [conv-0]（尚未感知 conv-b），此时完成总结并 persistCurrent
     resetChatSessionStateForTests();
     chatSessionStateForTests.savedConversations = [oldConv as any];
     applyContextToMain(
@@ -156,10 +147,8 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     });
     await storeA.loadAll();
 
-    // 外部标签页在 restoreLatest 之前写入 conv-b
     const convB = makeStoredConversation("conv-b", "BVB", "202", 2000);
     await updateConversationHistory(storage, (current) => [convB, ...current]);
-    // 还原标签页 A 的陈旧内存视图（模拟 A 尚未收到外部事件时就执行了 restoreLatest）
     chatSessionStateForTests.savedConversations = [convA as any];
     chatSessionStateForTests.liveContextData = { bvid: "BVA", cid: "101", url: "https://www.bilibili.com/video/BVA/", isVideoContext: true };
     chatSessionStateForTests.liveContextKey = "video:BVA|101";
@@ -178,10 +167,8 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     expect(syncSavedConversationsFromStorage([conv0])).toBe(true);
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-0"]);
 
-    // 等价快照（本页自写回声场景）：返回 false
     expect(syncSavedConversationsFromStorage([conv0])).toBe(false);
 
-    // 外部写入新增 convB：返回 true 且内存同步更新
     expect(syncSavedConversationsFromStorage([convB, conv0])).toBe(true);
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-b", "conv-0"]);
   });

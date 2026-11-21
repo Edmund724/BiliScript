@@ -1,19 +1,3 @@
-// tests/chat/chat-runtime-turn-settle.test.ts
-// 回合生命周期在组合根的接线（replace 不 layer：结算协议本体——受理窗口判据的组合、
-// 停流登记与补发、看门狗、兑现幂等——已由 tests/chat/turn-lifecycle.test.ts 在深
-// module 层锁住，本文件不再重复那些用例，只留「真 runtime + 假 port +
-// chatSessionState」才能覆盖的接线面）：
-//   - isTurnActive 覆盖「发送受理 → 终态落定」全程（含闸 await 窗口）；
-//   - settleTurn 经 settleActiveTurn 的旧语义：先停流、终态落定（partial 写回 + 落盘）
-//     后才兑现；不在途零延迟零行为差；
-//   - 四条落定出口的组合根侧表现：终态、端口断连、闸未放行未起流、看门狗兜底；
-//   - blocked 提前返回后双发闸复位（「静默发不出去」的第二条根因）；
-//   - W3 characterization（切换必须挡在落定之后，而非改身份守卫）。
-//
-// 注意：chat-runtime 直接读写 chatSessionState。测试在 beforeEach 里
-// resetModules 后把两个模块放进同一模块纪元导入（跨纪元会拿到两个不同的 state
-// 单例），并在每个用例前重置会用到的字段。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock, MockInstance } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -21,7 +5,6 @@ import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js
 import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
-// 看门狗兜底窗口（真源在回合生命周期模块；不再在测试里硬编码 4000）。
 import { TURN_SETTLE_FALLBACK_MS } from "../../extension/chat/turn-lifecycle.js";
 
 type MockFn = Mock<(...args: any[]) => any>;
@@ -115,12 +98,10 @@ function assistantNode(deps: TestDeps): HTMLElement {
   return deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
 }
 
-// rAF 拦截：注册回调但不自动执行（token 渲染帧由用例手动驱动）
 function holdRaf(): RafSpy {
   return vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1) as unknown as RafSpy;
 }
 
-// 记录 settle 是否已兑现（promise 本身 await 会挂住用例——超时兜底由断言给出）
 function trackSettle(promise: Promise<void>): { readonly settled: boolean } {
   const state = { settled: false };
   void promise.then(() => {
@@ -168,13 +149,11 @@ describe("isTurnActive（在途回合判据）", () => {
     expect(runtime.isStreaming()).toBe(false);
 
     const sending = runtime.sendTurn("问题");
-    // 闸窗口：端口未建、isStreaming() 仍 false，但发送流程已在进行
     expect(runtime.isStreaming()).toBe(false);
     expect(runtime.isTurnActive()).toBe(true);
 
     releaseEnsure({ pass: true });
     await sending;
-    // 流式中：activePort 已置位
     expect(runtime.isStreaming()).toBe(true);
     expect(runtime.isTurnActive()).toBe(true);
 
@@ -221,7 +200,6 @@ describe("settleTurn（在途回合结算）", () => {
     const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
 
-    // stop 已发出，但回合未落定：settle 不兑现
     expect(postedActions(session)).toEqual(["chat", "stop"]);
     expect(settled.settled).toBe(false);
 
@@ -231,7 +209,6 @@ describe("settleTurn（在途回合结算）", () => {
     await flushMicrotasks();
 
     expect(settled.settled).toBe(true);
-    // 落定点在终态收口之内：partial 正文与用户问题都已写回当前会话
     expect(chatSessionState.chatHistory.map((m) => [m.role, m.content])).toEqual([
       ["user", "原会话的问题"],
       ["assistant", "部分正文"]
@@ -273,7 +250,6 @@ describe("settleTurn（在途回合结算）", () => {
     await sending;
     await flushMicrotasks();
 
-    // 端口未建时无处发 stop：端口就绪后补发，且必然在 chat 之后
     const session = deps.ports[0];
     expect(postedActions(session)).toEqual(["chat", "stop"]);
     expect(settled.settled).toBe(false);
@@ -303,9 +279,6 @@ describe("settleTurn（在途回合结算）", () => {
     expect(runtime.isTurnActive()).toBe(false);
   });
 
-  // 「静默发不出去」的第二条根因（与本轮 W3 同型，且是新判据 isTurnActive 的
-  // 前提）：blocked 的两条提前返回历史上直接 return，没有任何出口复位 sendInFlight
-  // → 此后每次发送都被入口双发闸判 "ignored"，用户输入端毫无反馈。
   it("blocked（闸未放行 / 无平台）后复位双发闸：下一次发送不再被判 ignored", async () => {
     const blockedDeps = makeDeps();
     blockedDeps.input.value = "被拦下的问题";
@@ -338,7 +311,6 @@ describe("settleTurn（在途回合结算）", () => {
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
 
-    // offscreen 文档被回收：不回 stopped，直接断连
     session.listeners.disconnect.forEach((fn) => fn());
     await flushMicrotasks();
 
@@ -499,15 +471,11 @@ describe("联网搜索授权与视图销毁", () => {
 });
 
 describe("W3 现状 characterization（动机证据，非新行为）", () => {
-  // 钉住现状的内部事实：会话身份已被 applyById 换掉后，在途流继续把 token 写进
-  // 脱离 DOM 的旧节点，终态写回又被 store 身份守卫拦下——一次历史点击 =
-  // 答案静默丢弃。C′ 因此必须把切换挡在「回合落定」之后，而不是去改这条守卫。
   it("身份已换 + 消息区已重建：token 写脱离节点、done 不写回 chatHistory", async () => {
     const raf = holdRaf();
     const { deps, runtime } = await makeRuntime("原会话的问题");
     const node = assistantNode(deps);
 
-    // 模拟 applyById 的两半：身份换到另一会话 + 回放清场重建消息区
     applyConversationIdentity({ id: "other-conversation", history: [] });
     deps.messages.innerHTML = "";
 

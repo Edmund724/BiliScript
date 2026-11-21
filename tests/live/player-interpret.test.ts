@@ -413,7 +413,6 @@ describe("player-interpret: 仿原生字幕菜单与控制栏联动", () => {
     state.clip.setSubtitles([{ id: "cc-1", lan: "zh-CN", subtitleUrl: "https://example.com/cc.json" }]);
     state.clip.setSubtitleFetchState("ready");
     notifyReaderPresenter({ kind: "subtitle-ready" });
-    // 有原生 CC 时保持挂载但文案区分为「双语」且默认 idle 不接管原生字幕层
     expect(button.hidden).toBe(false);
     expect(wrap.hidden).toBe(false);
     expect(button.textContent).toBe("双语");

@@ -1,6 +1,3 @@
-// tests/live/offscreen-moss-port.test.ts
-// Offscreen MOSS-LIVE 端口懒加载薄壳、代际竞态保护与客户端动作/事件端到端转发测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {

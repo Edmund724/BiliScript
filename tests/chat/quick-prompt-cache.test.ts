@@ -1,7 +1,3 @@
-// tests/chat/quick-prompt-cache.test.ts
-// 初始快捷问题的内存缓存契约（extension/chat/quick-prompt-cache.ts）：
-// 按上下文键读写、只读副本隔离、相同内容不重复通知、超上限 FIFO 淘汰、订阅解绑。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

@@ -1,6 +1,3 @@
-// chat/search-sources.ts 纯函数测试（spec §2.5/§4：来源从历史 tool 消息重建）。
-// 覆盖：完整 JSON 解析 / 2,000 字符截断后的残缺 JSON 容错析取 / 非法输入 /
-// 回放回合聚合（assistant tool_calls 查询词 + tool 结果 → 时间线卡重建输入）。
 import { describe, expect, it } from "vitest";
 import {
   parseToolSourceArray,
@@ -25,7 +22,6 @@ describe("parseToolSourceArray", () => {
       { title: "条目二", url: "https://b.com/2", snippet: "s2" },
       { title: "条目三", url: "https://c.com/3", snippet: "s3" }
     ];
-    // 模拟 TOOL_MESSAGE_MAX_CHARS 截断：第三个对象被腰斩。
     const truncated = JSON.stringify(complete).slice(0, JSON.stringify(complete).indexOf("条目三") + 12);
     expect(truncated.endsWith("}")).toBe(false);
     expect(parseToolSourceArray(truncated)).toEqual([complete[0], complete[1]]);

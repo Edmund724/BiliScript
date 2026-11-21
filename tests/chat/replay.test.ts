@@ -1,15 +1,3 @@
-// 历史回放事务（GLOSSARY.md 词条「历史回放」）：整段重建消息区的分片渲染。
-// 覆盖四件契约：空历史清场、user/assistant 顺序与 userPrompt、搜索回合对位、
-// 世代作废丢过期分片 + inFlight 生命周期。预算让出的续跑正确性由分片用例
-// 与 tests/reader/chat-tab.test.ts 的整页夹具共同背书。
-//
-// 句柄化（replace 不 layer）：回放不再自拼 `.chat-msg-assistant` 节点，也不再
-// 直读消息容器——「助手消息节点长什么样」由渲染片的两个句柄唯一决定，本事务
-// 只表达顺序（消息区句柄 append / 清场 + 回合句柄 finish / 挂时间线卡）。因此
-// 假 renderer 也不再复现 DOM 形状（旧断言 firstNode.className 随假 DOM 一起退役），
-// 改为断言经句柄表达的顺序与载荷；DOM 形状契约由
-// tests/chat/chat-message-area.test.ts（同形）与 tests/reader/chat-tab.test.ts
-// （真实渲染片整页回放）背书。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { appendChatHistory, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
@@ -24,7 +12,6 @@ function seedHistory(...messages: ChatSessionMessage[]): void {
   appendChatHistory(...messages);
 }
 
-// 假回合句柄：记录本回合的操作次序（finish 收尾 → 挂卡），不产生任何 DOM。
 function makeFakeTurn(log: string[], slug: string) {
   const ops: string[] = [];
   const record = (op: string) => {
@@ -100,7 +87,6 @@ function makeDeps(): {
 }
 
 async function flushTurn(): Promise<void> {
-  // 让出点走 window.setTimeout 0（jsdom 无 scheduler.yield），末次滚底再等一帧。
   await new Promise((resolve) => window.setTimeout(resolve, 0));
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 }
@@ -129,7 +115,6 @@ describe("createConversationReplay（历史回放事务）", () => {
     expect(scrollToBottom).not.toHaveBeenCalled();
     await flushTurn();
 
-    // 顺序（消息区句柄表达）：清场 → 用户 → 助手（收尾）→ 用户 → 助手（收尾）
     expect(log).toEqual([
       "clear",
       "user:replay:问一",
@@ -198,7 +183,6 @@ describe("createConversationReplay（历史回放事务）", () => {
     replay.render();
     await flushTurn();
 
-    // 仅回答消息走回合句柄，且带本回合来源（tool 轮 assistant 无正文被跳过）。
     expect(turns).toHaveLength(1);
     expect(turns[0].finish).toHaveBeenCalledWith({ raw: "答 [1]。", userPrompt: "搜一下", sources, historyIndex: 3 });
     expect(turns[0].attachSearchTimelineCard).toHaveBeenCalledTimes(1);
@@ -208,7 +192,6 @@ describe("createConversationReplay（历史回放事务）", () => {
       resultCounts: [1],
       sources
     });
-    // 卡必须在正文收尾之后挂（顺序是回放唯一表达的东西）
     expect(turns[0].ops).toEqual(["finish", "card"]);
   });
 
@@ -221,7 +204,6 @@ describe("createConversationReplay（历史回放事务）", () => {
       { role: "assistant", content: "答二" }
     );
     const replay = createConversationReplay(deps);
-    // 预算判定恒超时：首条消息后即让出，剩余分片留在宏任务侧。
     let nowCalls = 0;
     vi.spyOn(performance, "now").mockImplementation(() => {
       nowCalls += 1;
@@ -229,15 +211,12 @@ describe("createConversationReplay（历史回放事务）", () => {
     });
 
     replay.render();
-    // 首片已同步上屏（问一），在途分片（答一/问二/答二）等待让出。
     expect(messageArea.appendUserMessage).toHaveBeenCalledTimes(1);
     expect(replay.inFlight).not.toBeNull();
 
     replay.invalidate();
     await flushTurn();
 
-    // 过期分片全部丢弃：没有第二条用户消息、没有助手回合、没有收尾滚底；
-    // 回放不自拼节点 → 消息区只有清场后的空容器。
     expect(messageArea.appendUserMessage).toHaveBeenCalledTimes(1);
     expect(messageArea.appendAssistantMessage).not.toHaveBeenCalled();
     expect(setAutoScroll).not.toHaveBeenCalled();

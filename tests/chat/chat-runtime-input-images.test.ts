@@ -1,11 +1,3 @@
-// tests/chat/chat-runtime-input-images.test.ts
-// 图片附件的发送侧接线（image-input 02 号票）：
-//   - 受理时读取图片快照，闸通过后 deps.takeInputImages 按快照消费一次，
-//     返回的 ImagePart[] 随 chat 消息的 images 字段下发；
-//   - 无附件 / 未注入 takeInputImages：消息不带 images 字段（无图线格式不变）；
-//   - 被前置闸拦下（无平台 / 上下文读取失败）的发送不消费附件区——用户粘的图
-//     不会因为一次被拒的发送被清掉。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
@@ -199,10 +191,6 @@ describe("被拒绝的发送不消费附件区", () => {
   });
 });
 
-// ===========================================================================
-// 本轮图片写回 chatHistory（image-input 04 号票）：图片进历史是「追问重发」与
-// 「落盘后刷新仍能看到图」的前提——此前 takeInputImages 读后即清，历史里没有图。
-// ===========================================================================
 describe("本轮图片写回 chatHistory", () => {
   it("带图发送 → done：图片挂在那条 user 消息上并落盘", async () => {
     const { deps, input } = makeDeps({ takeInputImages: () => [IMAGE] });
@@ -260,11 +248,6 @@ describe("本轮图片写回 chatHistory", () => {
   });
 });
 
-// ===========================================================================
-// 400 兜底（image-input 05 号票）：平台回 400 且本轮带图时，用户可见的错误文案要
-// 带一条可操作线索（「可能是模型不支持图片」）——判定与文案在 chat/image-support.js，
-// 这里钉住渲染侧真的把 hint 拼进了那条 .chat-msg-error。
-// ===========================================================================
 describe("平台 400 的用户可见文案（带图时补可操作线索）", () => {
   async function sendWithImagesAndFail(error: string, images: { mime: string; data: string }[]) {
     const { deps, input } = makeDeps({ takeInputImages: () => images });

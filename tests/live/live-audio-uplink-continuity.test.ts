@@ -1,11 +1,3 @@
-// tests/live/live-audio-uplink-continuity.test.ts
-// 实时伴看上行音频连续性与闭麦状态机端到端单测：
-// 串联真实 createPageAudioCapture、createLiveChatController、attachMossLivePort、
-// OffscreenGeminiLiveClient 与 OffscreenMossLiveClient，验证：
-// 1. 静音输入、本地 VAD 低能量与 liveLowBandwidth: true 时，16kHz PCM 音频帧持续发出且低带宽仅作用于视频参数
-// 2. 闭麦（Muted）在 Gemini Live 下严格发出一次 audioStreamEnd: true 并彻底拦截残留采样；Unmute 后不重建 WS 平滑续发
-// 3. 闭麦与恢复在 MOSS Live 下严格对应单次 mic_state 控制帧及 0x00 二进制音频帧停发/恢复
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createLiveChatController } from "../../extension/live/live-chat-controller.js";
@@ -406,28 +398,23 @@ describe("实时伴看上行音频连续性与闭麦状态机全链路验证", (
       liveLowBandwidth: true
     });
 
-    // 低带宽仅作用于视频抽帧配置，不拦截音频上行
     expect(getVideoCapture().config).toEqual(MOSS_LOW_BANDWIDTH_VIDEO_CONFIG);
     ws.sentData.length = 0;
 
-    // 1. 纯静音输入（全零 40ms），本地 VAD 处于低能量静默态，仍须发往 WebSocket
     audioCtx.emitSamples(new Float32Array(640).fill(0));
     expect(controller.isMicVadActive()).toBe(false);
 
-    // 2. 说话触发本地 VAD 后转入低能量静音（释放 VAD 回 false），每一段静音仍连续发送
     audioCtx.emitSamples(new Float32Array(640).fill(0.25));
     expect(controller.isMicVadActive()).toBe(true);
     audioCtx.emitSamples(new Float32Array(5120).fill(0.001));
     expect(controller.isMicVadActive()).toBe(false);
 
-    // 3. 空通道输入量子（micChannel = undefined, quantumFrames = 128 * 5）同样持续产出 16kHz 静音帧
     audioCtx.emitSamples(undefined, undefined, 128);
     audioCtx.emitSamples(undefined, undefined, 128);
     audioCtx.emitSamples(undefined, undefined, 128);
     audioCtx.emitSamples(undefined, undefined, 128);
     audioCtx.emitSamples(undefined, undefined, 128);
 
-    // 共 1 + 1 + 8 + 1 = 11 个 40ms PCM 批量帧全部直达 WebSocket
     const audioFrames = ws.jsonFrames();
     expect(audioFrames).toHaveLength(11);
     expect(audioFrames[0]).toEqual({
@@ -456,12 +443,10 @@ describe("实时伴看上行音频连续性与闭麦状态机全链路验证", (
     });
     ws.sentData.length = 0;
 
-    // 开麦发出一帧语音（携带视频混音）
     audioCtx.emitSamples(new Float32Array(640).fill(0.3), new Float32Array(640).fill(0.4));
     expect(ws.jsonFrames()).toHaveLength(1);
     expect(ws.jsonFrames()[0].realtimeInput.audio).toBeDefined();
 
-    // 闭麦（并重复调用一次验证幂等）：严格发送一次 audioStreamEnd: true
     controller.setMuted(true);
     controller.setMuted(true);
     expect(controller.isMuted()).toBe(true);
@@ -470,12 +455,10 @@ describe("实时伴看上行音频连续性与闭麦状态机全链路验证", (
     const afterMuteFrames = ws.jsonFrames().slice(1);
     expect(afterMuteFrames).toEqual([{ realtimeInput: { audioStreamEnd: true } }]);
 
-    // 闭麦期间喂入麦克风采样与模拟在途 Worklet PCM 消息，均不得有任何音频帧泄漏
     audioCtx.emitSamples(new Float32Array(640).fill(0.5), new Float32Array(640).fill(0.4));
     audioCtx.simulateLateWorkletPcm(new Uint8Array(PCM_WORKLET_BATCH_BYTES).fill(0x2a).buffer, true);
     expect(ws.jsonFrames()).toHaveLength(2);
 
-    // 取消静音（Unmute）：不重建 WebSocket，立即平滑恢复发送 PCM（含静音帧）
     controller.setMuted(false);
     expect(controller.isMuted()).toBe(false);
     expect(micStream.tracks[0].enabled).toBe(true);

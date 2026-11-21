@@ -1,24 +1,3 @@
-// tests/chat/context-load.test.ts
-// createContextLoad（上下文状态加载）行为契约（候选5 拆分直测；PR5 自
-// tests/sidepanel 随迁并适配 ContextFetch 策略注入——组装面更新，行为断言与
-// 迁移前一致）。头部标题 chip 已于 2026-10 删除，updateContextChip 随之下线，
-// 本文件不再覆盖 chip 文案/mismatch 标记。跳转编排 openCurrentContextUrl 与它的
-// getActiveTab transport 已于 2026-10 随 sidepanel 退役一并下线（生产无调用方，
-// 时间戳跳转走 reader 壳自己的 contextUrl 路径），本文件不再覆盖跳转用例。
-//
-// 覆盖 loadContextState 的策略动作分支（表驱动，注入替身 ContextFetch）：
-//   skip-unchanged（短路返回 true，不动任何状态）
-//   error（清 live，非 pinned 连主上下文一起清；静默不重置视图）
-//   apply-pinned（只落地 live 快照，不进主上下文）
-//   blocked-streaming（同 pinned 执行体）
-//   apply-live（正常落地 + 上下文变化时 restoreLatest + renderInitialState）
-// 以及 ContextLoad 的接口面（只暴露 loadContextState）。
-// （原消息链包装器用例——no-tab/error 信封/参数透传——随消息链策略退役，见
-// ticket arch-slim-4/01；no-tab/error 的落地动作契约由 context-policy 与
-// context-inprocess.test.js 覆盖。）
-//
-// 依赖全注入：fetchContext 为替身 vi.fn；渲染回调均为 vi.fn。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ChatSessionContextSnapshot } from "../../extension/chat/chat-state.js";
@@ -27,7 +6,6 @@ import type { ContextFetchOutcome } from "../../extension/core/context-assembly.
 let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-// 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
@@ -41,7 +19,6 @@ async function importModule() {
   resetChatSessionStateForTests = state.resetChatSessionStateForTests;
 }
 
-// 跳转（openCurrentContextUrl）曾用 id 发起 chrome.tabs.update；跳转下线后仅剩 URL。
 const ACTIVE_TAB = { url: "https://www.bilibili.com/video/BV1" };
 
 function makePayload(overrides: Partial<ChatSessionContextSnapshot> = {}) {
@@ -161,7 +138,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(true);
     expect(chatSessionState.liveContextData).toEqual(payload);
     expect(chatSessionState.liveContextKey).not.toBe("");
-    expect(chatSessionState.contextData).toBeNull(); // 主上下文未被改写
+    expect(chatSessionState.contextData).toBeNull();
     expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
@@ -194,9 +171,6 @@ describe("loadContextState 动作分支", () => {
 
     expect(ok).toBe(true);
     expect(chatSessionState.contextData).toEqual(payload);
-    // 与迁移前一致：变化 + 非流式 → restartChat({keepContext:true}) 冻结上下文，
-    // 再 restoreLatest + renderInitialState。preserveInput 缺省 false：非闸内
-    // 调用（tab 切换/URL 变化）照旧清输入框与附件区。
     expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
     expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
@@ -214,8 +188,6 @@ describe("loadContextState 动作分支", () => {
     const ok = await contextLoad.loadContextState({ silent: true, preserveInput: true });
 
     expect(ok).toBe(true);
-    // 闸内重启是上下文跟随：编排壳必须把标志原样交给 restartChat，否则闸后才
-    // 被 takeInputImages 消费的附件已在本轮清场里被吞掉（image-input 缺陷）。
     expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: true });
   });
 
@@ -243,13 +215,11 @@ describe("loadContextState 动作分支", () => {
     });
     deps.isLiveActive.mockReturnValue(true);
 
-    // 1. 伴看中 + 文本流式中：BLOCKED_STREAMING 优先，主上下文冻结
     deps.isStreaming.mockReturnValue(true);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(makePayload());
     expect(deps.restartChat).not.toHaveBeenCalled();
 
-    // 2. 伴看中 + 同视频（上下文未变）：APPLY_LIVE_SESSION 同步主上下文，但不调 restartChat / restoreLatest / renderInitialState
     deps.isStreaming.mockReturnValue(false);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(sameVideoPayload);
@@ -257,7 +227,6 @@ describe("loadContextState 动作分支", () => {
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
 
-    // 3. 伴看中 + 换片/分P（上下文改变）：APPLY_LIVE_SESSION 切换对话视图到新视频对应的本地对话历史
     const switchVideoPayload = makePayload({
       signature: "sig-live-new",
       title: "新视频",
@@ -285,10 +254,6 @@ describe("loadContextState 动作分支", () => {
 
     const ok = await contextLoad.loadContextState({ silent: true });
 
-    // 流式守卫优先于 apply-live（policy 判定），主上下文冻结、不进恢复流程。
-    // 守卫的唯一判定点在策略层（context-policy.ts 的 isStreaming /
-    // hasPendingUserPrompt）；编排壳的 applyContextPayload 不再重判——能走到
-    // 那里只有 APPLY_LIVE，故本用例的 restartChat 未调用断言即守卫承重证据。
     expect(ok).toBe(true);
     expect(chatSessionState.liveContextData).not.toBeNull();
     expect(chatSessionState.contextData).toEqual(makePayload());
