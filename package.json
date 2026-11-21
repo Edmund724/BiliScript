@@ -23,6 +23,7 @@
     "catalog:sync:thinking": "node scripts/sync-models-dev-thinking.mjs",
     "catalog:sync:golden": "node scripts/sync-thinking-golden.mjs",
     "catalog:check": "node scripts/check-models-dev-catalog.mjs",
+    "lint:comments": "node scripts/check-no-comments.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

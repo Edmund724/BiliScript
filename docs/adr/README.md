@@ -34,6 +34,14 @@
 | [0026](0026-live-companion-overlay-only.md) | 视频页实时伴看由浮窗主承载，面板仅保留状态条、伴看记录与设置同源 | 有效 | 独立伴看会话属主；全屏/非全屏共用浮窗（首次展开、支持左右边缘吸附）；面板保留空态开启键、状态条、只读伴看文本记录与设置分区 |
 | [0027](0027-long-video-state-relay-and-hybrid-retrieval.md) | 长视频采用滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回 | 有效 | 零向量库/Embedding/第三方分词依赖；L0 词法层 + L1 章节目录层；单跳路由与降级链；对齐 PRIVACY.md 与体积守卫 |
 | [0028](0028-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 有效 | 取代 ADR-0002；双目标构建分离（dist + dist-firefox）；Event Page 隐藏 iframe 承载 offscreen；28 个预设常驻域 + 自定义域弹窗授权；首期门控隐藏 tts 与 live |
+| [0029](0029-message-registry-and-inpage-dispatch.md) | 单源消息注册表（BACKGROUND_MESSAGE_REGISTRY）、SW 路由与同帧内页分发槽 | 有效 | 编译期 satisfies 穷尽对齐、Map 防原型链键碰撞、OFFSCREEN_ONLY 发件校验与同帧 ui->shared<-entry 内页分发 |
+| [0030](0030-split-key-storage-and-sw-snapshot-invalidation.md) | 密钥与配置分离存储、SW 只读快照双失效及分片原子缓存索引 | 有效 | sync 存配置 / local 存密钥与高亮；官方 HTTPS 凭据引用；无 write-through + 内联/onChanged 双失效；冒号分键原子 LRU |
+| [0031](0031-extension-origin-idb-v2-and-offscreen-binary-containment.md) | 扩展源 IndexedDB v2 统一存储与 Offscreen 二进制隔离边界 | 有效 | 补充 ADR-0023（OFFSCREEN_CREATE_REASONS=["BLOBS"]）；扩展源 IDB v2 + 写前删懒迁移；ASR 音频/密钥隔离与 10-moof ADTS 流式解码 |
+| [0032](0032-reader-acyclic-layering-and-shell-lifecycle.md) | 文摘阅读域四层无环架构、双阶惰性分包与无闪烁壳生命周期 | 有效 | reader-bus 四层 DAG 与反转意图通道；未加载即 no-op 卸载短路；stylesheet 门控、inert/aria-hidden 退场序与滚动禁用重采样 |
+| [0033](0033-subtitle-pipeline-and-asr-lifecycle-isolation.md) | 字幕流水线单源签名、ASR 任务跨导航隔离与游标优先翻译调度 | 有效 | 补充 ADR-0025；id_str 精度与去噪签名；activeAsrTranscribes 跨 fetchRunId 隔离；无时间戳 boundary-v3；90s 游标优先调度 |
+| [0034](0034-chat-turn-lifecycle-and-replay-dag.md) | 对话回合生命周期、发送闸单向等待 DAG 与流式上下文隔离 | 有效 | sendGate->replay->settled 单向 DAG；延迟 pre-port stop + 4s 看门狗；contextData/liveContextData 双轨；offscreen 单槽与 30–50ms 批传 |
+| [0035](0035-web-search-fallback-chain-and-privacy-gate.md) | 联网搜索隐私授权闸、无状态冷却机与多协议适配边界 | 有效 | 退订仅认 true->false；storage 持久化冷却机；PlatformKey/PLATFORM_QUIRKS 双键空间；7 操作 ProtocolAdapter 与 FNV-1a UUIDv4 |
+| [0036](0036-cross-browser-ui-rendering-and-interaction-invariants.md) | 跨引擎 UI 渲染、零 Webfont MathML/Mermaid 与无障碍交互不变量 | 有效 | 补充 ADR-0019/0020/0021；MathML-only + flex 等式对齐；XrayWrapper/inert/分数缩放守卫；同步 Promise<Blob> 保剪贴板手势 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 
