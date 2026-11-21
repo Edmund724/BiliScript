@@ -1,12 +1,3 @@
-// extension/live/fullscreen-live-overlay.ts
-// 播放器全屏（浏览器全屏与网页全屏）右上角半透明实时伴看浮窗：
-// 1. 头部状态胶囊（状态文本、麦克风 VAD 动效）
-// 2. 音频快捷设置入口（静音、分享视频声音、语音优先）
-// 3. 最小化到状态胶囊（-）与结束伴看（×）
-// 4. 纯语音实时流式对话气泡（通过 live-transcript-merger 共享轮次状态机驱动）
-// 5. 播放器容器内拖拽移动（通过 viewport-drag 原语驱动）
-// 6. 液体玻璃 12px 窄边缘 SVG 位移与三通道色散镜头（通过 liquid-glass-lens 驱动）
-
 import { createLiquidGlassLens } from "./liquid-glass-lens.js";
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";

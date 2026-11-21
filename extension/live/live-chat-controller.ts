@@ -1,7 +1,3 @@
-// extension/live/live-chat-controller.ts
-// AI 对话面板中实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、采集音视频、执行前台工具与后台视频委派，并管理静音、挂断、断连及换片清理。
-
 import {
   MOSS_LIVE_PORT_NAME,
   formatLiveCloseDiagnostics,
@@ -336,7 +332,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let reconnecting = false;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
-  // 本次会话的画面采集参数：先按开关取请求档位，收到 media.configured 后以回执为准。
   let videoCaptureConfig: MossVideoCaptureConfig = resolveMossVideoConfig(false);
   let videoConfigErrorNotified = false;
   let activeTargetOrigin = "https://api.mosi.cn";
@@ -386,8 +381,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (providerChanged) {
         showNotice("伴看平台已切换，当前连接保持不变；重新连接后生效", 6000);
       }
-      // 同平台通话中改音色：设置改动经 liveProviders 存储监听回到这里，向 offscreen
-      // 下发 change_voice（下一轮回答生效）；平台切换保留旧连接，仅更新下次连接目标。
       const nextVoiceId = String(active?.voiceId || "").trim();
       const voiceChanged = nextVoiceId !== activeTargetVoiceId;
       activeTargetVoiceId = nextVoiceId;
@@ -404,7 +397,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         } catch {}
       }
     } catch {
-      // 忽略加载错误
     }
   }
 
@@ -472,7 +464,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     onStateChange?.(nextState, errorMessage, failureKind);
   }
 
-  // 初始化 UI 呈现
   updateUi("idle");
 
   function stopActiveMedia(): void {
@@ -508,7 +499,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
               jpegBase64: encodeBase64Bytes(jpegBytes)
             });
           } catch {
-            // 忽略断连瞬间的发送异常
           }
         }
       });
@@ -518,18 +508,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   async function cleanupSessionRule(targetSessionId?: string): Promise<void> {
-    // 无会话 id 的清理无法区分新旧会话：接管后新标签页已装规则时，旧页面
-    // 迟到的空 id 清理会踩掉新会话的所有权与鉴权规则。
     if (!targetSessionId) return;
     try {
       await sendRuntimeMessage({ type: "live-session-cleanup", sessionId: targetSessionId });
     } catch {
-      // 忽略清理阶段的发送失败
     }
   }
 
-  // change_voice 失败（如音色已被删）：页面内先告知，再清掉该 provider 的
-  // voiceId（下次会话回到平台默认）并留下一次性提示给设置面板。
   function handleVoiceFallback(voiceId: string): void {
     showNotice(LIVE_VOICE_FALLBACK_NOTICE_TEXT, 6000);
     activeTargetVoiceId = "";
@@ -546,7 +531,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       const next = providers.map((provider, i) => (i === index ? rest : provider));
       await sendRuntimeMessage({ type: "live-providers-save", providers: next });
     } catch {
-      // 回退提示已落盘；清选择失败时下次会话仍会走同一条回退路径
     }
   }
 
@@ -726,7 +710,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
 
     if (!retry) {
-      // textToolCoordinator.startAttempt returns null when an attempt was already recorded without retry
     }
     const attempt = textToolCoordinator.startAttempt({
       callId,
@@ -821,7 +804,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     stopActiveMedia();
     updateUi("connecting");
 
-    // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
     const targetProviderType: LiveProviderType =
       (getTargetProviderType?.() || activeTargetProviderType) === "gemini-live"
         ? "gemini-live"
@@ -862,7 +844,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       return false;
     }
 
-    // 2. 委托 Background 验证密钥、配置 DNR 会话规则并确保 Offscreen 文档
     let prepResp: any;
     try {
       prepResp = await sendRuntimeMessage({ type: "live-session-prepare", sessionId });
@@ -877,7 +858,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
 
     if (generation !== currentGeneration) {
-      // 若 prepare 在途期间已触发 stop()，必须立即清理刚刚安装的 DNR 规则与会话
       void cleanupSessionRule(sessionId);
       return false;
     }
@@ -894,7 +874,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         : prepResp.provider?.type === "moss-live"
           ? "moss-live"
           : targetProviderType;
-    // 低带宽开关在会话建立时生效：请求档位先用于抽帧，服务端回执到达后再覆盖。
     videoCaptureConfig = resolveMossVideoConfig(prepResp.liveLowBandwidth === true);
     videoConfigErrorNotified = false;
     activeTargetProviderType = resolvedProviderType;
@@ -908,7 +887,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activeTargetModel = prepResp.provider.model;
     }
 
-    // 3. 请求麦克风授权并启动 16kHz 单声道 20ms PCM 采集
     let captureSession: PageAudioCaptureSession;
     let microphoneFailed = false;
     try {
@@ -967,7 +945,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
               pcmBase64: encodeBase64Bytes(pcmBytes)
             });
           } catch {
-            // 忽略断连瞬间的发送异常
           }
         }
       });
@@ -990,8 +967,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     activeAudioCapture = captureSession;
 
-    // 4. 连接 Offscreen 端口
-
     let port: chrome.runtime.Port;
     try {
       port = connectPort();
@@ -1005,7 +980,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
 
     port.onMessage.addListener((rawMsg: unknown) => {
-      // 代际检查：严格拦截挂断或旧会话的迟到事件
       if (generation !== currentGeneration) return;
 
       const msg = rawMsg as MossLiveServerEvent;
@@ -1216,7 +1190,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     setMuted(!muted);
   }
 
-
   function setVoicePriority(enabled: boolean): void {
     voicePriority = Boolean(enabled);
     syncVideoDucking();
@@ -1282,7 +1255,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           }
         }
       } catch {
-        // 单帧截取失败时降级为纯文本追问，不阻塞提问发送。
       }
     }
 
@@ -1305,7 +1277,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     currentGeneration += 1;
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
-    savedMossSessionId = null; // 用户主动点击结束伴看时清除 session_id
+    savedMossSessionId = null;
     textToolCoordinator.clear();
     stopActiveMedia();
     if (activePort) {
@@ -1343,7 +1315,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     getLastError: () => lastError,
     getLastFailureKind: () => lastFailureKind,
     getSavedSessionId: () => savedMossSessionId,
-
 
     isMuted: () => muted,
     isSpeaking: () => speaking,

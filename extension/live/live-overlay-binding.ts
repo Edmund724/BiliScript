@@ -1,6 +1,3 @@
-// extension/live/live-overlay-binding.ts
-// 视频页与直播间共用的实时伴看控制器装配、全屏浮窗绑定、音频偏好同步及控制栏按钮共享原语。
-
 import {
   ANY_PLAYER_HOST_SELECTOR,
   findAnyPlayerHost

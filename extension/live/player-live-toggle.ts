@@ -1,8 +1,3 @@
-// extension/live/player-live-toggle.ts
-// 播放器控制栏实时伴看按钮的零重依赖共享原语：标签投影、按钮状态同步、节流点击、
-// 控制栏定位挂载与在位探测。供 ai/player-ai、live/live-overlay-binding 与
-// live/live-room-entry 共用，不拖入 live-chat-controller / fullscreen-live-overlay。
-
 import {
   applyControlBarPlacement,
   isControlBarItemMounted,

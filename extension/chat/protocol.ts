@@ -1,25 +1,3 @@
-// offscreen → 宿主聊天通道的出向流式事件协议（唯一地址，ticket 08 收口）。
-// 七个流式事件（token/reasoning/notice/stream-reset/done/stopped/error）的引擎
-// 侧定义单源在 ai/types.ts（StreamChatEvent——chatCompletion onEvent 回调的
-// 「引擎事件」语义，与「端口消息」是两层），本文件以 type-only import 组合线上
-// 形状，不复制定义：
-//   - 全体成员可携带 cachedContextKey（offscreen 单槽字幕体缓存的当前 key 回执，
-//     由 entry/offscreen.ts 的 withCachedContextKey 在回吐出口统一附加；宿主读
-//     它推进 lastAckedContextKey，后续追问省略整份 subtitleBody）；
-//   - error 事件在线上可带类型化 code（字幕体缺失路径的 "subtitle-body-missing"，
-//     宿主据此重置 lastAcked），引擎侧 StreamErrorEvent 不含 code，此处只加宽；
-//   - cost-guard 事件（offscreen 发起 Map-Reduce 前的成本护栏确认）不在引擎
-//     事件之列，在本文件声明。
-//
-// 两端接线：宿主消费侧 chat-runtime.ts 的 ChatPortMessage 从这里 re-export
-// （分派分支对载荷的宽容解析照旧，不依赖类型上的 unknown，联合收窄不影响
-// 运行时）；生产侧 ai/client.ts / ai/map-reduce.ts 的 port 回吐与
-// entry/offscreen.ts 的回吐包装都标注本联合——加事件只改这里，漏发/typo/
-// 形状漂移编译期拦截。入向（宿主 → offscreen 的 chat / stop /
-// cost-guard-confirm）单源在 shared/messaging-protocol.ts，不在本文件。
-// 端口名常量供宿主 connect 与 offscreen onConnect 同址判定，禁止手写
-// 字面量（注释除外）。
-
 import type {
   ChatMessage,
   StreamDoneEvent,
@@ -31,48 +9,28 @@ import type {
   StreamTokenEvent
 } from "../ai/types.js";
 
-// 宿主（sidepanel / reader 对话 tab）↔ offscreen 文档直连的聊天 port 名
 export const OFFSCREEN_CHAT_PORT_NAME = "offscreen-chat" as const;
 
-// 回执增广：offscreen 每条 chat 回执都附带其单槽字幕体缓存当前确认的 key
-//（字幕体缺失等错误回执不带，宿主据 error.code 显式重置）。
 interface ChatReceipt {
   cachedContextKey?: string;
 }
 
-// error 事件的线上形状：引擎只承诺 error 文案，字幕体缺失路径额外带 code。
 type PortErrorEvent = StreamErrorEvent & { code?: string };
 
-// 工具循环整轮重试的代际号。旧读流没有工具事件时保持原线格式。
 type PortStreamResetEvent = StreamResetEvent & { generation?: number };
 
-// notice 事件的线上形状：引擎只承诺文案；截断提示（引擎侧 finishReason=length）
-// 额外带 code: "truncated"，宿主据此渲染成 assistant 消息尾部的常驻徽标，而不是
-// 走「4 秒自动消失的通知条」。
 type PortNoticeEvent = StreamNoticeEvent & { code?: "truncated" };
 
-// cost-guard 事件：offscreen 发起 Map-Reduce 前请求成本确认，宿主经
-// port.postMessage({ action: "cost-guard-confirm", ok }) 回执（入向形状在
-// messaging-protocol）。message 宿主侧按 unknown 宽容读取
-//（String(msg.data?.message || 兜底文案)），生产端恒发 string。
 export interface ChatCostGuardEvent {
   type: "cost-guard";
   data?: { message?: unknown };
 }
 
-// token 合帧事件（07 票）：offscreen 侧按 30~50ms 窗口预算把流式 token 合并成
-// 数组再 postMessage（削减结构化克隆次数）；宿主按数组逐个走同一 appendToken
-// 渲染收口，视觉输出与逐 token 传输逐字节一致。单 token 批次仍走普通 token 事件。
 export interface ChatTokenBatchEvent {
   type: "token-batch";
   data: string[];
 }
 
-// 联网搜索工具状态（spec §2.2，port 层事件，不在引擎 StreamChatEvent 之列）：
-// tool-loop 每次搜索的 searching / done / failed 逐条回吐，宿主渲染搜索时间
-// 线卡（spec §4）。done 的 sources 为该次搜索的 { title, url, snippet }[]，
-// 时间线卡 chip 行与正文内联引用（悬停预览 / 新标签打开）的数据源；形状单源
-// 在 chat/search-sources.ts（回放重建共用同一类型）。
 import type { ChatSearchSource } from "./search-sources.js";
 import type { CapturedVideoFrame } from "../ai/types.js";
 export type ChatToolStatusSource = ChatSearchSource;
@@ -83,7 +41,6 @@ export interface ChatToolStatusEvent {
   query: string;
   tool?: "read_subtitles" | "web_search" | "capture_video_frame_at_time";
   callId?: string;
-  // 同一 port 内的工具循环代际；stream-reset 之后只接收最新一代。
   generation?: number;
   targetTime?: number;
   resultCount?: number;
@@ -91,9 +48,6 @@ export interface ChatToolStatusEvent {
   frames?: CapturedVideoFrame[];
   platform?: string;
   sources?: ChatToolStatusSource[];
-  // 付费平台可见性（GLOSSARY「付费平台」，done 时携带，ai/tool-loop.ts 注入）：
-  // paid = 本次结果来自付费平台（来源列表「付费」徽标）；paidFallbackNotice =
-  // 付费平台失败后回退成功的注记文案（来源区顶部一行小字）。
   paid?: boolean;
   paidFallbackNotice?: string;
 }
@@ -108,18 +62,12 @@ export interface ChatVideoFrameCancelEvent {
   requestId: string;
 }
 
-// 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，
-// tool 内容已截断（完整结果只活在当轮请求里）。宿主 dispatch 缓存，
-// commitAssistantTurn 按 user → tool 消息 → assistant 顺序插入会话历史。
 export interface ChatToolTurnEvent {
   type: "tool-turn";
   messages: ChatMessage[];
   generation?: number;
 }
 
-// offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + 07 票
-// token-batch + 联网搜索的 tool-status/tool-turn，全体可携带 cachedContextKey
-// 回执）。载荷字段与既有线格式对齐。
 export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
   | (ChatTokenBatchEvent & ChatReceipt)
@@ -135,16 +83,9 @@ export type ChatPortMessage =
   | (PortErrorEvent & ChatReceipt)
   | (ChatCostGuardEvent & ChatReceipt);
 
-// 出向回吐侧的 port 窄视图（chrome.runtime.Port 的 postMessage 半边，
-// offscreen 回吐包装 / ai 流式适配器 / map-reduce 编排共用）
 export interface ChatPort {
   postMessage(message: ChatPortMessage): void;
 }
-
-
-// =========================================================================
-// 语音朗读（TTS）端口协议（宿主 ↔ SW chrome.tts 桥接）
-// =========================================================================
 
 export const CHAT_SPEECH_PORT_NAME = "chat-speech" as const;
 export const TTS_UNSUPPORTED_ERROR = "TTS_UNSUPPORTED" as const;

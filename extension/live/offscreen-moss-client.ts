@@ -1,8 +1,3 @@
-// extension/live/offscreen-moss-client.ts
-// 运行在 Offscreen Document 中的 MOSS-LIVE 协议适配器与客户端预设壳。
-// 会话状态机、重连、工具超时与音频播放协调由 OffscreenLiveSessionRuntime 统一承载；
-// 本文件仅负责 MOSS-LIVE (wss://api.mosi.cn/v1/realtime) 的 tagged-v1 二进制帧与 JSON 握手协议映射。
-
 import { logWarn } from "../shared/logging.js";
 import {
   DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS,
@@ -50,8 +45,6 @@ export type MossLiveClientState = LiveSessionClientState;
 export const DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS = DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS;
 export const DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS = DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS;
 export const DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS = DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS;
-// change_voice 的应答等待上限：到点未收到 voice_changed 仍继续发 session.update，
-// 不让音色握手拖住整条会话的可用性。
 const DEFAULT_MOSS_VOICE_ACK_TIMEOUT_MS = 3000;
 
 interface PendingAttach {
@@ -82,15 +75,12 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
   private latestVideoJpeg: ArrayBufferLike | null = null;
   private readonly activeDelegationIds = new Set<string>();
   private delegationVideoKey = "";
-  // 低带宽开关随 start 下发；重连后的 session_attached 继续按同一档位重发配置。
   private lowBandwidth = false;
 
   onStartAction(msg: Extract<MossLiveClientAction, { action: "start" }>): void {
     this.lowBandwidth = msg.lowBandwidth === true;
   }
 
-  // 音色握手：session_attached 后先发 change_voice，等 voice_changed 再发
-  // session.update；session_attached 期间还压着会话完成（completeHandshake）。
   private currentVoiceId = "";
   private attached = false;
   private attachPending: PendingAttach | null = null;
@@ -170,7 +160,6 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
           video: buildMossMediaConfigureVideo(resolveMossVideoConfig(this.lowBandwidth))
         });
         callbacks.markContextSent(videoContext);
-        // 音色：先 change_voice、等 voice_changed，再 session.update（官方会话流程）。
         const pending: PendingAttach = {
           callbacks,
           videoContext,
@@ -223,7 +212,6 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         break;
 
       case "media.configured":
-        // 回执缺省字段按请求档位补齐，避免低带宽档被静默抬回 standard。
         callbacks.applyMediaConfiguration({
           video: normalizeMossVideoConfig(parsed.video, resolveMossVideoConfig(this.lowBandwidth)),
           error: parsed.error
@@ -274,14 +262,9 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         break;
 
       case "error": {
-        // 等待 change_voice 应答期间，仅音色相关的 error 按音色失败处理（错误码
-        // 或错误信息命中其一即可，服务端两处的具体措辞未文档化）；其余错误不吞
-        // 掉，走常规会话错误路径。
         const isVoiceError =
           /voice/i.test(parsed.code) || /voice|音色/i.test(parsed.message);
         if (this.awaitingVoice && isVoiceError) {
-          // change_voice 失败（如音色已删）：回退默认音色、上报一次，再照常
-          // session.update 让会话建立，不把整个会话判失败。
           const voiceId = this.awaitingVoice;
           const pending = this.attachPending;
           this.clearVoiceWait();
@@ -316,8 +299,6 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
     });
   }
 
-  // ===== 音色握手 =====
-
   private clearVoiceWait(): void {
     if (this.voiceAckTimer !== null) {
       clearTimeout(this.voiceAckTimer);
@@ -332,7 +313,6 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
     this.voiceAckTimer = setTimeout(() => {
       this.voiceAckTimer = null;
       this.awaitingVoice = "";
-      // 超时不当失败：可能只是应答慢，继续发 session.update 保证会话可用。
       if (this.attachPending) {
         this.completeAttach(this.attachPending);
       }
@@ -353,8 +333,6 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
     });
   }
 
-  // 通话中改音色：服务端从下一轮回答开始生效；未附着（或握手进行中）时只记下
-  // 选择，由 session_attached 分支带上。
   changeVoice(voiceId: string, transport: LiveWireTransport): boolean {
     const next = String(voiceId || "").trim();
     this.currentVoiceId = next;

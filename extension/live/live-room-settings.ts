@@ -63,8 +63,6 @@ function syncGeminiCredential(current: LiveRoomSettingsSession, status: AiCreden
   if (!region || !reason) return;
   region.hidden = !status || status === "ok";
   reason.textContent = status && status !== "ok" ? getAiCredentialStatusText("gemini-live", status) : "";
-  // 动作随态改口（票 07）：非官方地址给「新建独立官方记录」路径，直达编辑器按
-  // 新建官方记录打开，不静默改写仍可能服务其他任务的中转地址
   if (button) {
     button.textContent = status === "unofficial" ? "新建独立官方记录" : "配置 Gemini Key";
   }

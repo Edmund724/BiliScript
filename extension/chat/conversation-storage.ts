@@ -126,7 +126,6 @@ interface VerifiedChatImage {
 interface HydrationScanResult {
   hydratedRaw: unknown;
   verifiedRefs: Map<string, VerifiedChatImage>;
-  /** 仅在读盘 RPC 瞬态失败时记录受影响消息的原始轻引用，避免并发写另一条会话时擦除未修改会话的 idbRef。 */
   preservedRefsOnRpcFailure: Map<string, PersistedImageRef[]>;
   rawConversationIds: Set<string>;
   rawImageRefs: Set<string>;
@@ -291,7 +290,6 @@ async function hydrateRawConversations(
           } else if (readRpcFailed) {
             failedRefs.push({ mime: entry.mime.trim(), idbRef: refId });
           }
-          // 缺失、损坏或 RPC 失败时安全跳过该单张图片，不影响文本及其他正常图片
         } else if (isInlineImagePart(entry)) {
           hydratedImages.push({ mime: entry.mime, data: entry.data });
         }
@@ -415,14 +413,12 @@ async function lazyMigrateLegacyInlineImages(
       const nextImages: unknown[] = [];
       for (const entry of msgObj.images) {
         if (isPersistedImageRef(entry)) {
-          // 保留既有 idbRef 原样，不覆盖
           nextImages.push(entry);
           continue;
         }
         if (isInlineImagePart(entry)) {
           const mime = entry.mime.trim();
           const idbRef = computeChatImageId(convId, mime, entry.data);
-          // 先写 IDB，确认落盘成功后再将 storage.local 对应条目替换为轻引用
           const writeRes = await putChatImageSafe(store, {
             id: idbRef,
             conversationId: convId,
@@ -545,8 +541,6 @@ async function externalizeConversationsForStorage(
           continue;
         }
 
-        // 先将图片写入 chat_images 并落盘确认成功，再把轻引用写入对话存储；
-        // 写入失败时回退保留原内联 base64，绝不写悬空 idbRef。
         const writeRes = await putChatImageSafe(store, {
           id: idbRef,
           conversationId: conv.id,
@@ -621,7 +615,6 @@ async function reclaimOrphanChatImagesAfterWrite(options: {
       }
     }
 
-    // 1) 清空全部普通会话：直接清空 chat_images，零孤儿残留
     if (nextConversationIds.size === 0) {
       if (rawConversationIds.size > 0 || rawImageRefs.size > 0 || next.length === 0) {
         await store.clearAllChatImages();
@@ -629,7 +622,6 @@ async function reclaimOrphanChatImagesAfterWrite(options: {
       return;
     }
 
-    // 2) 删除单条会话或超 60 条上限淘汰最旧会话：同步按 by_conversationId 索引删除
     const removedConversationIds: string[] = [];
     for (const prevId of rawConversationIds) {
       if (!nextConversationIds.has(prevId)) {
@@ -640,8 +632,6 @@ async function reclaimOrphanChatImagesAfterWrite(options: {
       await store.deleteChatImagesByConversationIds(removedConversationIds);
     }
 
-    // 3) 覆盖保存（某张图被移除/替换）与兜底孤儿清理：
-    //    仅在读盘未发生瞬态 RPC 失败时按全量存活集合裁剪，避免瞬态抖动误删正常图片。
     let hasRemovedRef = false;
     for (const oldRef of rawImageRefs) {
       if (!activeImageIds.has(oldRef)) {
@@ -701,7 +691,6 @@ export function updateConversationHistory(
     try {
       await storage.set({ [HISTORY_STORAGE_KEY]: externalized.persisted });
     } catch (error) {
-      // storage.set 失败时尽力回滚本次新写入 IDB 的图片，避免残留无主记录
       if (externalized.newlyWrittenImageIds.length > 0) {
         await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
       }
@@ -723,9 +712,6 @@ export function updateConversationHistory(
   });
 }
 
-/**
- * 兜底孤儿图片清理：扫描当前持久化会话列表中的存活会话与引用，回收 IDB 中所有无主图片。
- */
 export function pruneOrphanChatImages(storage: StorageArea): Promise<string[]> {
   return enqueue(storage, async () => {
     const store = resolveActiveSubtitleStore();

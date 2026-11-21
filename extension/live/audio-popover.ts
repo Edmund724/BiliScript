@@ -1,7 +1,3 @@
-// extension/live/audio-popover.ts
-// 伴看音频设置弹层：使用受控 popover="manual" 提供 top layer，避免 light-dismiss
-// 与喇叭点击/外点焦点争夺；不支持时移到全屏宿主或 body 以 fixed 定位避开裁切。
-
 import { getFullscreenHost } from "./fullscreen-host.js";
 import {
   animateTriggerEnter,

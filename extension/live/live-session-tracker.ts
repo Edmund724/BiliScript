@@ -1,7 +1,3 @@
-// extension/live/live-session-tracker.ts
-// MOSS-LIVE / Gemini Live 会话所有权追踪与 DNR 鉴权规则（ruleId: 9002）单点管理模块：
-// 防止乱序 prepare、过期 cleanup 与残留标签页锁踩踏在途 WebSocket 鉴权规则。
-
 import { ensureOffscreenDocument } from "../core/offscreen-host.js";
 import {
   getAiCredentialStatusText,
@@ -20,8 +16,6 @@ import {
   type LiveProviderType
 } from "./moss-live-protocol.js";
 import type { LiveSessionTakeoverMessage } from "../shared/messaging-protocol.js";
-
-// ===== 伴看会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
 
 export const MOSS_LIVE_WS_RULE_ID = 9002;
 
@@ -53,10 +47,6 @@ export function extractOriginHeaderFromUrl(url: string): string {
   }
 }
 
-/**
- * 动态注入针对 WebSocket 握手的鉴权请求头（Authorization 或 x-goog-api-key）与 Origin 会话规则。
- * 规避浏览器原生 WebSocket 无法自定义请求头、MV3 SW 绕过 DNR，以及扩展页面 Origin (chrome-extension://) 被服务端同源校验拒绝的限制。
- */
 export async function setMossLiveWsAuthRule(
   apiKey: string,
   baseUrl?: string,
@@ -105,9 +95,6 @@ export async function setMossLiveWsAuthRule(
   });
 }
 
-/**
- * 清除 MOSS-LIVE 专属会话规则（仅移除 9002，不触碰其他规则）。
- */
 export async function clearMossLiveWsAuthRule(): Promise<void> {
   if (
     typeof chrome === "undefined" ||
@@ -120,8 +107,6 @@ export async function clearMossLiveWsAuthRule(): Promise<void> {
     removeRuleIds: [MOSS_LIVE_WS_RULE_ID]
   });
 }
-
-// ===== 会话生命周期与并发守卫 =====
 
 export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 export type AiProviderCredentialCandidate = AiCredentialRecordLike;
@@ -190,7 +175,6 @@ async function notifyTabTakeoverByChromeTabs(tabId: number, _channel = "companio
   try {
     await chrome.tabs.sendMessage(tabId, message);
   } catch {
-    // 忽略旧标签页可能已关闭或未就绪的异常
   }
 }
 
@@ -211,10 +195,6 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
   };
 }
 
-/**
- * 实时伴看会话所有权追踪：单通道独占 WebSocket 鉴权规则（ruleId: 9002）。
- * 跨标签页开启新会话时接管并关闭旧会话，生命周期由会话代际单点托管。
- */
 export class LiveSessionTracker {
   private latestRequestedOwner: string | null = null;
   private activeRuleOwner: string | null = null;
@@ -276,7 +256,6 @@ export class LiveSessionTracker {
       try {
         await deps.clearAuthRule();
       } catch {
-        // 忽略回滚错误
       }
     };
 
@@ -354,7 +333,6 @@ export class LiveSessionTracker {
         };
       }
 
-      // 检查在权限校验与配置读取期间是否已被更新的会话请求取代
       if (this.latestRequestedOwner !== targetSessionId) {
         return { ok: false, error: "会话准备已过期" };
       }
@@ -365,7 +343,6 @@ export class LiveSessionTracker {
 
       await deps.ensureOffscreen();
 
-      // 再次核对所有权：确保在确保 offscreen 期间未被更新的 prepare 取代
       if (this.latestRequestedOwner !== targetSessionId) {
         await releaseRuleHoldIfOwned();
         return { ok: false, error: "会话准备已过期" };

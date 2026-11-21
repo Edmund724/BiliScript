@@ -1,6 +1,3 @@
-// 纯字幕签名与候选列表叶子（零副作用、零 storage/chrome 依赖）：
-// 供 ai/、reader/、agent-bridge/ 等无需 IndexedDB 缓存与生命周期 flush 的调用方直连。
-
 import { fnv1a32 } from "../shared/text-primitives.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { buildSubtitleSourceKey } from "./source-key.js";

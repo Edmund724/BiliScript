@@ -1,16 +1,3 @@
-// extension/subtitle/idb-store.ts
-// 扩展源 IndexedDB v2 分层仓库（biliscript-subtitle-store）：
-// 1) `subtitle_pages`（主键 `${bvid}:${cid}`，索引 `by_lastUsed`、`by_bvid`）：
-//    - 单条分 P 记录内严格隔离三层轨道容器：rawTracks / segmentedTracks / translatedTracks；
-//    - 读命中刷新 lastUsed，写时执行「最大分 P 条目数（100）+ 累计估算体积（150 MB）」双上限 LRU 淘汰；
-//    - 因上限淘汰某分 P 后按 `by_bvid` 检查剩余分 P，仅当该 bvid 已无剩余分 P 时联动清理 `ai_artifacts` 同 bvid 产物。
-// 2) `ai_artifacts`（主键 `key`，索引 `by_family_bvid`、`by_family_lastUsedAt`、`by_bvid`、`by_lastUsedAt`）：
-//    - 统一存放 `biliscript_lvs_l1_index_`、`biliscript_lvs_analysis_final_`、`biliscript_lvs_analysis_`、`biliscript_lvs_summary_`；
-//    - 沿用各族既有保留上限（100 / 100 / 20 / 20 视频）按 `lastUsedAt` 做分族视频级 LRU 淘汰。
-// 3) `chat_images`（主键 `id`，索引 `by_conversationId`、`by_bvid`、`by_lastUsedAt`）：
-//    - 存放对话消息外置图片（`{ id, conversationId, bvid, mime, data, estimatedBytes, ... }`）；
-//    - 读命中刷新 `lastUsedAt`，写时执行总字节上限（默认 80 MB）LRU 淘汰，并支持按 `by_conversationId` 索引清理与孤儿裁剪。
-
 import type { SubtitleBodyItem } from "../ai/types.js";
 import { isAsrVariantSourceKey } from "./source-key.js";
 
@@ -52,7 +39,6 @@ export const AI_ARTIFACT_FAMILY_KEEP_VIDEOS: Record<AiArtifactFamily, number> = 
   biliscript_lvs_summary_: 20
 };
 
-// 按前缀长度降序匹配，防止 `biliscript_lvs_analysis_final_` 被 `biliscript_lvs_analysis_` 误认领。
 const AI_ARTIFACT_FAMILIES_BY_LENGTH: readonly AiArtifactFamily[] = [...AI_ARTIFACT_FAMILIES].sort(
   (a, b) => b.length - a.length
 );
@@ -266,7 +252,6 @@ export interface SubtitleIdbStoreOptions {
   maxChatImageBytes?: number;
   aiArtifactKeepVideos?: Partial<Record<AiArtifactFamily, number>>;
   now?: () => number;
-  /** 仅用于 defaultSubtitleIdbStore 在单测内跨 vi.resetModules 保持同一内存盘。 */
   useSharedMemoryBacking?: boolean;
 }
 
@@ -351,10 +336,6 @@ export function buildTranslatedTrackMapKey(
   return `${String(sourceTrackKey || "").trim()}->${String(targetLang || "").trim()}:${String(translationSig || "").trim()}`;
 }
 
-/**
- * 过滤并深拷贝字幕条目（用于 rawTracks / segmentedTracks）。
- * 仅保留带有限数值时间戳与非空文本的条目。
- */
 export function sanitizeMonolingualItems(items: readonly unknown[]): SubtitleBodyItem[] {
   if (!Array.isArray(items)) {
     return [];
@@ -384,9 +365,6 @@ export function sanitizeMonolingualItems(items: readonly unknown[]): SubtitleBod
   return result;
 }
 
-/**
- * 清洗译文条目：严格剔除空白译文或无效时间戳（绝不落空译文记录）。
- */
 export function sanitizeTranslatedItems(items: readonly unknown[]): SubtitleBodyItem[] {
   if (!Array.isArray(items)) {
     return [];
@@ -408,11 +386,6 @@ export function sanitizeTranslatedItems(items: readonly unknown[]): SubtitleBody
   return result.sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
-/**
- * 增量合并已落盘/已缓冲译文与新到达的流式译文：
- * - 若指定 replaceRange，先移除落在该时间区间内的旧译文再写入新块结果；
- * - 对相同时间轴键（from:to）以新译文覆盖旧译文，并保持按 from 升序排列。
- */
 export function mergeTranslatedItems(
   existing: readonly SubtitleBodyItem[],
   incoming: readonly unknown[],
@@ -917,7 +890,6 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
         const db = req.result;
         const upgradeTx = req.transaction!;
 
-        // 1) subtitle_pages：严禁删建，仅增量补 `by_bvid` 索引，保留历史字幕页与 `by_lastUsed`
         const subtitleStore = db.objectStoreNames.contains(SUBTITLE_IDB_STORE)
           ? upgradeTx.objectStore(SUBTITLE_IDB_STORE)
           : db.createObjectStore(SUBTITLE_IDB_STORE, { keyPath: "id" });
@@ -928,7 +900,6 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
           subtitleStore.createIndex(SUBTITLE_IDB_BVID_INDEX, "bvid", { unique: false });
         }
 
-        // 2) ai_artifacts：四类 AI 派生产物仓库
         const aiStore = db.objectStoreNames.contains(AI_ARTIFACTS_IDB_STORE)
           ? upgradeTx.objectStore(AI_ARTIFACTS_IDB_STORE)
           : db.createObjectStore(AI_ARTIFACTS_IDB_STORE, { keyPath: "key" });
@@ -945,7 +916,6 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
           aiStore.createIndex(AI_ARTIFACTS_INDEX_LAST_USED, "lastUsedAt", { unique: false });
         }
 
-        // 3) chat_images：为对话图片迁移预留空表
         const chatImagesStore = db.objectStoreNames.contains(CHAT_IMAGES_IDB_STORE)
           ? upgradeTx.objectStore(CHAT_IMAGES_IDB_STORE)
           : db.createObjectStore(CHAT_IMAGES_IDB_STORE, { keyPath: "id" });
@@ -1283,7 +1253,6 @@ function selectBackend(options: SubtitleIdbStoreOptions): StorageBackend {
     }
     return createMemoryBackend(options.useSharedMemoryBacking === true);
   }
-  // 内容脚本运行在 bilibili.com 网页 origin，严禁直连网页源 indexedDB
   if (isWebPageOriginContext()) {
     return createMemoryBackend(options.useSharedMemoryBacking === true);
   }
@@ -1357,8 +1326,6 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
 
     await backend.deletePages(evictedIds);
 
-    // 视频级联动清理：按 by_bvid 核查被淘汰分 P 所属 bvid 是否已无剩余分 P；
-    // 仅当该 bvid 下已无任何剩余分 P 时，才联动删除 ai_artifacts 中同 bvid 全部产物。
     const evictedBvids = new Set(evictedRecords.map((item) => item.bvid).filter(Boolean));
     const evictedArtifactKeys: string[] = [];
     for (const evictedBvid of evictedBvids) {
@@ -1465,7 +1432,6 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       const updated = records.map((record) => ({ ...record, lastUsedAt: ts }));
       await backend.putChatImagesMany(updated);
     } catch {
-      // 刷新 lastUsedAt 失败不影响已成功读出的图片
     }
   }
 
@@ -1699,7 +1665,6 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       if (!cleanSource || !cleanLang) {
         return { ok: true, evictedIds: [] };
       }
-      // 严禁创建空译文记录
       if (sanitizedIncoming.length === 0 && !replaceRange) {
         return { ok: true, evictedIds: [] };
       }

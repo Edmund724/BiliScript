@@ -1,6 +1,3 @@
-// extension/live/viewport-drag.ts
-// 宿主容器内 Pointer 拖拽、左右边缘吸附与可达位置钳制原语
-
 export const VIEWPORT_DRAG_SAFE_GAP_PX = 16;
 
 export type ViewportDragEdge = "left" | "right";
@@ -146,7 +143,6 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
         options.handleEl.releasePointerCapture(pointerId);
       }
     } catch {
-      // 节点迁移或指针已释放时捕获可能已不存在。
     }
   }
 
@@ -274,7 +270,6 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
     try {
       options.handleEl.setPointerCapture?.(event.pointerId);
     } catch {
-      // 窗口级监听保证无捕获时也能完成本次手势。
     }
   }
 

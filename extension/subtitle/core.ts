@@ -71,9 +71,6 @@ export function readUploadDate(): string {
   return formatLocalDate();
 }
 
-// 视频简介读取：与 readVideoTitle/readVideoAuthor/readUploadDate 同址
-//（arch-slim-2/03 自 subtitle/ui.js 归位——它与其他 DOM 读取同族，原放在链层
-// 交互文件里纯属错位；唯一消费方是 fetcher 的 refreshClip）。
 export function readVideoDescription(): string {
   const descNode = document.querySelector(
     ".desc-info-text, .video-desc .desc-info-text, .video-info-detail .text, .basic-desc-info"
@@ -81,10 +78,6 @@ export function readVideoDescription(): string {
   return descNode?.textContent?.trim() || "";
 }
 
-// 归一化结果按「body 数组引用」缓存（WeakMap，照 chapters.ts normalizeChapters
-// 先例）：sync tick / 搜索 / 渲染每拍都拿同一 state.clip.subtitleBody 引用重复做
-// map→filter 新建数组，引用相同即零分配复用。前提：写路径一律经
-// clipState.setSubtitleBody(新数组) 整体替换引用，不原地修改。
 const readingSubtitleItemsCache = new WeakMap<object, ReadingSubtitleItem[]>();
 
 export function getReadingSubtitleItems(body: SubtitleBodyItemLike[] = state.clip.subtitleBody): ReadingSubtitleItem[] {
@@ -111,11 +104,6 @@ function buildReadingSubtitleItems(body: SubtitleBodyItemLike[]): ReadingSubtitl
     .filter((item) => item.content);
 }
 
-// 字幕列表空态占位文案（reader/lifecycle 渲染 .biliscript-reading-empty）。
-// 无字幕且已归因（subtitleFetchState === "empty" + noSubtitleReason）时跟随原因：
-// 只出「病因 + 补救」（票 07 Q4）——**不带基础句**（这里不是状态栏，基础句会让
-// 占位块变成一句没用的套话）**也不带详情行**（详情行是单行宿主的设计，塞进
-// 空态排版会破版）。原因缺失（null）或未归因时维持通用句。
 export function getReadingSubtitlePlaceholderText(): string {
   if (state.clip.subtitleFetchState === "loading") {
     return "正在加载字幕...";
@@ -133,15 +121,8 @@ export function getReadingSubtitlePlaceholderText(): string {
   return "当前视频无字幕。";
 }
 
-// 候选10 批1：二分命中回扫上限。写入端已保证 subtitleBody 按 from 升序
-// （字幕接受事务 subtitle/commit.js 落 state 前统一经 sortSubtitleBodyByFrom
-// 稳定排序），
-// 正常顺序字幕区间互不重叠，二分候选点（最后一个 from <= currentTime 的条目）
-// 就是唯一可能命中者，第一步即返回或即无命中。回扫只为兼容写入端排序前遗留
-// 的重叠区间脏缓存，上限之外的深层重叠本就不会出现在正常数据里。
 const ACTIVE_SUBTITLE_BACKWARD_SCAN_LIMIT = 8;
 
-// to 缺省/非法时视为 from + 2（与旧线性扫描逐字一致）。
 function subtitleActiveRange(item: SubtitleBodyItemLike): { from: number; to: number } {
   const from = Number(item?.from || 0) || 0;
   const rawTo = Number(item?.to || 0) || 0;
@@ -155,9 +136,6 @@ export function findActiveSubtitleIndexInItems(
   if (!Array.isArray(items) || items.length === 0 || !Number.isFinite(currentTime)) {
     return -1;
   }
-  // 二分定位最后一个 from <= currentTime 的条目（subtitleBody 按 from 升序，
-  // 由写入端 sortSubtitleBodyByFrom 保证）。旧实现为线性扫描，长视频 1500+
-  // 条时每拍 250ms 全量扫一遍，是阅读视图常驻开销的大头之一。
   let lo = 0;
   let hi = items.length - 1;
   let candidate = -1;
@@ -203,9 +181,6 @@ export function findActiveChapterIndex(currentTime: number): number {
   return -1;
 }
 
-// 派生三件套（markdown / SRT / TXT）失效：三份同时置空。生成方（rebuildDerivedContent /
-// ensureDerivedContent）在本文件，失效与生成的字段口径因此只有一个落点；无字幕出口
-// （commitNoSubtitle）与换片清场（resetClipState）调它清空，消费侧读空串即视为未生成。
 export function invalidateDerived(): void {
   clipState.setMarkdown("");
   clipState.setSrt("");
@@ -218,31 +193,14 @@ export function rebuildDerivedContent(): void {
     invalidateDerived();
     return;
   }
-  // 双语态（07 号票）：三份导出都要出副行，而配对口径的唯一实现是 subtitle/alignment。
-  // 这里把「读 state 的投影」绑成纯函数传进 notes 渲染层——notes 叶子因此零 state 依赖，
-  // 渲染函数仍可单测；双语关时 resolver 为 undefined，单轨输出逐字节不变。
   const secondaryFor = createSecondaryLineResolver();
   clipState.setMarkdown(buildMarkdown(state as State, body, state.settings, secondaryFor));
   clipState.setSrt(buildSrt(body, secondaryFor, state.settings));
   clipState.setTxt(buildTxt(body, state.settings, secondaryFor));
 }
 
-// ===== 派生内容懒生成（opt-backlog-2026-09/04）=====
-// 落账（字幕接受事务）只存原始字幕体 + 拉热评，markdown/SRT/TXT 三份全文派生
-// 内容推迟到首次消费（复制/导出/快照）时生成并缓存：构建各做一遍全文遍历 +
-// 大字符串拼接，原先挡在 subtitle-ready 通知前、推迟阅读列表首屏。缓存输入
-// 指纹取构建读取投影的超集——引用字段（body/settings/chapters）按引用比对
-// （生产写路径经 setters 整体替换引用），标量元信息按值比对。笔记导出删除后
-// buildMarkdown 只读 简介/章节/字幕 三段，location.href、created、hotComments
-// 等已不再是读取项，指纹仍留作超集（多重建一次无害，收窄另立工单）；任何输入
-// 变化即重建，消费产物与逐次重建逐字节一致，字幕更新后不会拿到旧派生。
 interface DerivedContentCacheEntry {
   body: unknown;
-  // 副轨 body 引用（07 号票口径重开：原 05 号票裁定「指纹表不加副轨输入」，落地时发现
-  // 那只剩一个洞——开关打开后、副轨 body 到站前若已发生过一次消费（复制/导出），缓存
-  // 命中会让后续导出永久停在单轨。开关切换本身早已经 settings 引用失效，副轨到站不经
-  // settings ⇒ 只能认这一项。认**引用**与既有四件（body/settings/chapters/hotComments）
-  // 同型，不引入新的比对机制。）
   secondaryBody: unknown;
   settings: unknown;
   chapters: unknown;
@@ -260,7 +218,6 @@ interface DerivedContentCacheEntry {
   videoDuration: number;
 }
 
-// 标量指纹字段单表：capture 与 validate 共用，避免两处清单漂移。
 const DERIVED_SCALAR_FIELDS = [
   "bvid",
   "aid",
@@ -320,8 +277,6 @@ function isDerivedContentCacheValid(): boolean {
   return DERIVED_SCALAR_FIELDS.every((key) => cached[key] === clip[key]);
 }
 
-// 派生内容首次消费入口：缓存命中即零开销返回，未命中重建三份并落 state。
-// 消费点（复制/导出/快照）调用本函数取代原先的消费前无条件重建双保险。
 export function ensureDerivedContent(): void {
   if (isDerivedContentCacheValid()) {
     return;
@@ -330,11 +285,6 @@ export function ensureDerivedContent(): void {
   derivedContentCache = captureDerivedContentInputs();
 }
 
-// 热评拉取（自 refreshDerivedContent 拆出，opt-backlog-2026-09/04）：原是派生
-// 刷新的一部分，但热评消费方不止笔记渲染（overview 分析/context 装配），且落账
-// 后阅读视图即依赖它呈现——留在字幕接受事务内。派生三件套不再随本调用构建。
-// 笔记导出删除后不再有 includeHotCommentsInNote 设置门：热评的消费方（概览 /
-// AI 上下文）与导出无关，落账后一律按需补拉。
 export async function refreshHotComments({ refreshComments = false } = {}): Promise<void> {
   const shouldFetchComments =
     refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
@@ -342,17 +292,10 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
     try {
       clipState.setHotComments(await fetchHotComments(20));
       clipState.setHotCommentsNotice("");
-      // 热评补拉成功可能发生在概览已渲染之后（复制 Markdown 的派生刷新路径），
-      // 投影一次让概览的状态条提示按新状态收掉。
       notifyReaderPresenter({ kind: "rerender" });
     } catch (error) {
       clipState.setHotComments([]);
       logWarn("[BILISCRIPT] failed to fetch hot comments", error);
-      // 热评的消费方是概览（章节目录来源之一），失败提示按职责归位到
-      // state.clip.hotCommentsNotice，由概览 tab 的状态条呈现（不写全局状态行，
-      // 避免任务反馈串位）；文案不写死「失败」——概览条常驻展示，严重度交给
-      // 具体病因（-352 风控/网络 vs -404 评论关闭）。概览可能已渲染（派生刷新
-      // 路径），投影一次让提示即时出现。
       clipState.setHotCommentsNotice(
         `热评没拿到（${getErrorMessage(error)}）：本次概览没有评论目录。`
       );
@@ -361,7 +304,6 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
   }
 }
 
-// 消费侧（复制 Markdown）的完整刷新：热评按需补拉 + 派生内容懒生成。
 export async function refreshDerivedContent({ refreshComments = false } = {}): Promise<void> {
   await refreshHotComments({ refreshComments });
   ensureDerivedContent();

@@ -1,25 +1,3 @@
-// extension/chat/subtitle-wait.ts — 一键总结「等待抓取/音频转写完成」的轮询状态机。
-//
-// 从 sidepanel.js 提取（与 chat-runtime 同一套拆分手法；PR5 自
-// extension/pages/sidepanel-subtitle-wait.ts 迁入 chat 域，逻辑零语义改动）：
-// 组合根只负责组装 deps，本模块拥有轮询/失效/清理的全部时序状态。模块顶层零
-// 副作用，可在 Node 测试环境直接 evaluate（见 tests/chat/subtitle-wait.test.ts）。
-//
-// 为什么存在：一键总结发送前若 content 侧正在抓取或做小时级 ASR 转写
-// （subtitleFetchState === "loading" 且字幕体为空），把空 subtitleBody 直接发
-// 给模型会让它凭标题+热评编造"无公开字幕"的总结。这里等待上下文就绪再放行
-// 发送流程，轮询为主，content 的 biliscript-subtitle-status 广播（asr-done/asr-failed）
-// 到达时由 sidepanel 调 kick() 立即补一轮。
-//
-// 「是否仍在抓取/转写中」的判定不在本模块：deps.pollContext 由调用方组装，
-// 判定单源在 ./subtitle-readiness.ts（readinessFromSnapshot + isPending）。
-//
-// 时序约定（测试锁定，改动前先读）：
-//   - wait() 重复触发：新等待使旧等待立即 resolve false（最后一次发送生效）；
-//   - kick() 与轮询去重：同一时刻最多一轮 pollContext 在跑；
-//   - cancel() 立即 resolve false 并推进代币，在飞轮询的迟到结果不得续跑；
-//   - finish（就绪/失败/失效）后挂着的定时器必须作废，notice 必须清理。
-
 export interface CreateSubtitleWaiterDeps {
   pollContext: () => Promise<{ ok: boolean; pending: boolean }>;
   showWaitingNotice: () => void;
@@ -35,19 +13,6 @@ export interface SubtitleWaiter {
   cancel: () => void;
 }
 
-/**
- * createSubtitleWaiter(deps) — 工厂返回轮询状态机。
- *
- * deps 语义（与迁移前 JSDoc 一致）：
- *   pollContext:      () => Promise<{ok: boolean, pending: boolean}>
- *                     调用方组装：loadContextState(silent) 的快照经
- *                     ./subtitle-readiness.ts 的 readinessFromSnapshot + isPending
- *                     折算成「读取成败 + 是否仍在抓取/转写」。
- *   showWaitingNotice: () => void     等待期间的用户提示（消息区一条 notice）。
- *   removeNotice:      () => void     finish 时清理提示。
- *   setTimer / clearTimer:             可注入定时器（测试手动推进）。
- *   pollIntervalMs:    number         轮询间隔。
- */
 export function createSubtitleWaiter(deps: CreateSubtitleWaiterDeps): SubtitleWaiter {
   const {
     pollContext,
@@ -58,7 +23,6 @@ export function createSubtitleWaiter(deps: CreateSubtitleWaiterDeps): SubtitleWa
     pollIntervalMs
   } = deps;
 
-  // 单调等待代币：只认最新一次 wait()，旧等待在 finish 前先失效
   let token = 0;
   let activeFinish: ((ok: boolean) => void) | null = null;
   let kickCurrent: (() => void) | null = null;

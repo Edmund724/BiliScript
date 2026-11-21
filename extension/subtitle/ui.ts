@@ -5,31 +5,11 @@ import { getSettings } from "../core/runtime.js";
 import { logWarn } from "../shared/logging.js";
 import { clipState, state } from "../core/state.js";
 import { normalizeDownloadFormat } from "../core/validators.js";
-// ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
-// facade 转发（否则总结链会静态拖起整个 reader 域）。
 import { ensureDerivedContent } from "./core.js";
 import { createSecondaryLineResolver } from "./alignment.js";
 
-// ===== 链层交互（候选02 分层惰性：自 ui/ui-renderer.js 移入） =====
-//
-// copySubtitleTranscript / downloadSubtitle 只服务总结链与面板交互，留在
-// ui-renderer（常驻）会把它对 selection.js（isAiSubtitle）及 cache/cache-lru
-// 的依赖一并拖回常驻。
-// 失败（无内容 / 剪贴板拒绝）一律返回 false，由调用方在触发按钮上就地反馈。
-//（script-only-ui：经典侧栏面板删除后，renderMeta / renderSubtitleSelect /
-// setBusyState 三件「抓取结果渲染」已无目标节点——阅读视图的元信息/字幕轨由
-// reader 域的 renderReadingView/renderReadingSubtitleSelect 渲染，本节移除；
-// 02 死代码清理：供经典面板「复制 Markdown」「字幕轨 <select> change」调用的
-// copyMarkdown / onSubtitleChange 随面板退役后全仓零引用，一并移除。）
-
-// 阅读模式字幕 tab 的「复制」（PR3 接线）：复制字幕纯文本——transcript 语义，
-// 与 TXT 导出同一渲染管线（buildTxt，按 includeTimestampInBody 设置决定是否带
-// 时间戳）；与「完整笔记」（clip.markdown，经导出/复制笔记入口消费）语义区分。
-// 取数与反馈风格照抄下方 downloadSubtitle，逻辑零新增。
 export async function copySubtitleTranscript(): Promise<boolean> {
   state.setSettings(await getSettings());
-  // 双语态下复制出的 TXT 也出副行（07 号票）：与 downloadSubtitle 同一条渲染管线，
-  // 配对口径同源 alignment.js（双语关 / 副轨未就绪 ⇒ resolver 短路，文本与单轨逐字相同）。
   const text = buildTxt(state.clip.subtitleBody, state.settings, createSecondaryLineResolver());
   if (!text) {
     return false;
@@ -46,7 +26,6 @@ export async function copySubtitleTranscript(): Promise<boolean> {
 
 export async function downloadSubtitle(options?: { format?: string }): Promise<boolean> {
   state.setSettings(await getSettings());
-  // 懒生成（opt-backlog-2026-09/04）：首次消费时构建并缓存，命中即零开销。
   ensureDerivedContent();
   const format = normalizeDownloadFormat(options?.format ?? state.settings?.downloadFormat);
   let content = "";
@@ -91,11 +70,3 @@ export async function downloadSubtitle(options?: { format?: string }): Promise<b
   return true;
 }
 
-// applyNoSubtitleState 已迁入 subtitle/commit.js（commitNoSubtitle，无字幕出口
-// 逆事务的唯一实现，GLOSSARY.md「字幕接受」词条）——清空选中态/body/派生内容
-// 与预览 DOM 属该事务，调用点（fetcher 的 finishNoSubtitle、asr/fallback 的
-// 失败出口）一律改走 commit。
-//
-// readVideoDescription 已归位 subtitle/core.js（arch-slim-2/03，与
-// readVideoTitle/readVideoAuthor/readUploadDate 同址；fetcher 直接从 core 取，
-// 本模块不再承载 DOM 读取）。

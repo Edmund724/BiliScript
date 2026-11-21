@@ -1,5 +1,3 @@
-// extension/chat/render/source-preview.ts — 检索来源悬浮预览定位/动画与内联引用替换
-
 import {
   animateTriggerEnter,
   animateTriggerExit,

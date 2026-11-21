@@ -1,11 +1,3 @@
-// extension/live/live-transcript-merger.ts
-// 实时全双工语音问答浮窗字幕归并器与共享轮次状态机：
-// 1. 麦克风语音门控：只有在最近检测到用户麦克风语音活动（含尾音滑动窗口）或当前轮用户气泡已在活跃期内建立时，
-//    才将 input.transcript.updated / input.transcript.done 渲染为用户消息；纯视频对白转写不显示在用户消息位置
-// 2. 将 AI 侧 output.transcript.updated（按 runId+turnId 路由，全量替换转增量或重置）交给视图层流式渲染，output.transcript.done / response.ended 时定稿
-// 3. 乱序保护：若 AI 字幕先于用户 input.transcript.done 到达，自动先行提交非空待定用户气泡，保证 user -> assistant 顺序与原位修正
-// 4. 挂断隔离：dispose() 后清理未落盘半截气泡，并拦截一切迟到事件
-
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 
 export interface LiveOverlayTranscriptMergerDeps {

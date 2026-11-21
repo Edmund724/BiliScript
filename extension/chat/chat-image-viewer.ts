@@ -36,7 +36,6 @@ export function createChatImageViewer(): ChatImageViewer {
         try {
           dialog.close();
         } catch {
-          // 忽略 JSDOM 或已脱离节点关闭异常
         }
       }
       dialog.removeAttribute("open");

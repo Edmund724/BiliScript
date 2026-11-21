@@ -1,5 +1,3 @@
-// extension/chat/render/message-actions.ts — 用户/助手消息壳、操作栏与终态 Markdown 水合
-
 import type { ImagePart } from "../../ai/types.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { supportsTtsSpeech } from "../../shared/runtime-capabilities.js";

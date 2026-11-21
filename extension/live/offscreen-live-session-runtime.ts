@@ -1,12 +1,3 @@
-// extension/live/offscreen-live-session-runtime.ts
-// Offscreen 实时伴看会话统一运行时（Deep Module）。
-// 独占持有：
-// 1. WebSocket 代际防串音守卫、握手定时器与基于会话恢复句柄（sessionId / resumption handle）的自动重连状态机
-// 2. 页面工具与内置 web_search 的统一生命周期（activeToolCalls、独立超时、轮次配额、打断取消）
-// 3. MossAudioPlayer 播放队列、打断协调、视频音量压低（duck_video）与发言状态（speaking_state）同步
-// 4. 同片内容更新在发言/播放期暂存；换片立即作废旧轮次并下发最新上下文
-// 通过窄协议适配器接缝（LiveWireProtocolAdapter）分别接入 MOSS tagged-v1 与 Gemini BidiGenerateContent。
-
 import { serializeSearchResults } from "../ai/tool-loop.js";
 import { formatPaidFallbackNotice } from "../search/search-chain.js";
 import { resolveWebSearchRuntime } from "../search/search-runtime.js";
@@ -104,8 +95,6 @@ export interface LiveWireSocketOpenContext extends LiveWireTransport {
   sessionId: string | null;
   videoContext: MossLiveSessionContext | null;
   micEnabled: boolean;
-  // 当前选用的音色（空 = 平台默认音色）：协议适配器在 session_attached 后据此
-  // 决定是否发 change_voice。
   voiceId: string;
   markContextSent(context: MossLiveSessionContext | null): void;
 }
@@ -117,8 +106,6 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   getMicEnabled(): boolean;
   completeHandshake(options?: { sessionId?: string | null; emitSessionAttached?: boolean }): void;
   updateSessionHandle(sessionId: string, options?: { emitSessionAttached?: boolean }): void;
-  // change_voice 失败（音色已删/无权限）时由适配器上报：运行时清空当前音色并
-  // 通知页面侧回退默认音色。
   reportVoiceFallback(voiceId: string): void;
   markContextSent(context: MossLiveSessionContext | null): void;
   applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
@@ -187,8 +174,6 @@ export interface LiveWireProtocolAdapter {
     output: { volumeDb: number; speed?: number },
     transport: LiveWireTransport
   ): boolean;
-  // 通话中改音色：适配器在已附着会话上直接发 change_voice（下一轮回答生效），
-  // 尚未附着时只记下选择、由 session_attached 的握手分支发送。
   changeVoice?(voiceId: string, transport: LiveWireTransport): boolean;
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void;
   sendToolResponse(
@@ -306,8 +291,6 @@ export class OffscreenLiveSessionRuntime {
   protected outputVolume = 1;
   protected outputSpeed = 1;
   protected serverSpeedUnsupported = false;
-  // 当前选用的音色（空 = 平台默认）；start/change_voice 动作写入，重连时随
-  // onSocketOpen 交给适配器重发。
   protected voiceId = "";
 
   protected readonly transport: LiveWireTransport = {
@@ -584,16 +567,12 @@ export class OffscreenLiveSessionRuntime {
         if (msg.volume !== undefined && Number.isFinite(msg.volume)) {
           this.outputVolume = Math.max(0, Math.min(2, msg.volume));
         }
-        // 每次 start 都是新选择：省略 voiceId 表示回到平台默认音色，不能沿用
-        // 上一条会话遗留的旧音色。
         this.voiceId = msg.voiceId !== undefined ? String(msg.voiceId || "").trim() : "";
         this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
         this.connect();
         break;
 
       case "change_voice":
-        // 通话中改音色：直接下发，服务端从下一轮回答开始使用；未附着时由
-        // session_attached 的握手分支带上。
         this.voiceId = String(msg.voiceId || "").trim();
         this.adapter.changeVoice?.(this.voiceId, this.transport);
         break;
@@ -788,7 +767,6 @@ export class OffscreenLiveSessionRuntime {
       },
       reportVoiceFallback: (voiceId) => {
         if (!isCurrent()) return;
-        // 回退默认音色：清空当前选择，避免重连时再次下发已失效音色。
         this.voiceId = "";
         this.emit({ type: "voice_fallback", voiceId });
       },
@@ -811,7 +789,6 @@ export class OffscreenLiveSessionRuntime {
       },
       applyMediaConfiguration: (config) => {
         if (!isCurrent()) return;
-        // 服务端拒绝或回执带错时回退 standard 画质，由页面侧提示一次。
         const error = config.error.trim();
         this.emit({
           type: "video_configured",
@@ -855,7 +832,6 @@ export class OffscreenLiveSessionRuntime {
           if (this.audioPlayer.canActivateTurn(runId, turnId)) {
             this.audioPlayer.stopTurn(runId, turnId);
           }
-          // 已打断回合的元数据仍入队并标 discard，保证随后在途二进制帧被 1:1 消费不串轮。
           this.audioPlayer.enqueueAudioContext(chunkId, runId, turnId, isCurrent);
           return false;
         }

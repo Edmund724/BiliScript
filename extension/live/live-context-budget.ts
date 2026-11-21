@@ -1,8 +1,3 @@
-// 实时伴看初始静态上下文容量预算装配器（纯函数深模块）：
-// 按三档预算把视频元信息、章节骨架、概览导读/压缩摘要裁薄到固定硬上限内，
-// 防止每轮双工语音交互重算过厚的 systemInstruction 抬高首包发声延迟（TTFA）。
-// 纯无状态模块：不触碰 storage / DOM，不引入跨会话记忆或向量库，仅经 formatClock 单源格式化时刻文本。
-
 import { formatClock } from "../shared/clock-text.js";
 import type {
   MossLiveOverviewChapter,
@@ -42,7 +37,6 @@ export interface NormalizedBudgetChapter {
   summary: string;
 }
 
-// 中文标题后不适用 ASCII `\b`，用显式行尾/空白前瞻确保只匹配整节标题。
 const RAW_SUBTITLE_SECTION_RE =
   /(?:^|\n)##[ \t]*(?:相关原始字幕段|字幕)(?=[ \t]*(?:\n|$))[\s\S]*?(?=\n##[ \t]+|$)/g;
 const RAW_SEGMENT_LINE_RE =
@@ -88,9 +82,6 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / LIVE_CONTEXT_CHARS_PER_TOKEN);
 }
 
-/**
- * UTF-16 代理对安全截断：避免把四字节 emoji 从高/低代理项中间劈开产生孤立乱码。
- */
 export function truncateUtf16Safe(text: string, maxChars: number): string {
   const limit = Math.max(0, Math.floor(Number(maxChars) || 0));
   if (limit === 0 || !text) return "";
@@ -105,10 +96,6 @@ export function truncateUtf16Safe(text: string, maxChars: number): string {
   return prefix ? `${prefix}…` : "…";
 }
 
-/**
- * 剥离 Markdown 中的原始字幕节（`## 相关原始字幕段` / `## 字幕`）与逐行台词时间戳行，
- * 保证任何档位下原始字幕都不会进入 Live 模型的常驻系统提示词。
- */
 export function sanitizeLiveSummaryMarkdown(markdown: string): string {
   const normalized = String(markdown || "").replace(/\r\n?/g, "\n");
   if (!normalized.trim()) return "";
@@ -119,10 +106,6 @@ export function sanitizeLiveSummaryMarkdown(markdown: string): string {
   return keptLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/**
- * 从概览简介或追问压缩摘要中提取紧凑核心导读：
- * 有 `## 成稿笔记` 时优先取成稿正文（丢弃冗长分段小结），并在句末标点处收口。
- */
 export function extractCoreSummaryLead(markdown: string, maxChars: number): string {
   const limit = Math.max(0, Math.floor(Number(maxChars) || 0));
   const sanitized = sanitizeLiveSummaryMarkdown(markdown);
@@ -206,9 +189,6 @@ function normalizeBudgetChapters(
   return unique;
 }
 
-/**
- * 档位 C 章节骨架合并/采样：固定保留首章与末章锚点，中间章节等分合并为连续顶层区间。
- */
 export function mergeChapterSkeletonIntervals(
   chapters: ReadonlyArray<NormalizedBudgetChapter>,
   maxAnchors: number,
@@ -447,9 +427,6 @@ function isLiveRoom(context: MossLiveSessionContext): context is MossLiveRoomCon
   return "kind" in context && context.kind === "live-room";
 }
 
-/**
- * 确定性装配 Live 模型建连/更新时的静态视频背景块（严格分三档控制容量）。
- */
 export function assembleLiveContextBudget(
   context: MossLiveSessionContext | null | undefined,
   options: LiveContextBudgetOptions = {}
@@ -482,7 +459,6 @@ export function assembleLiveContextBudget(
     : "";
   const metaLines = buildMetaLines(context);
 
-  // 档位 A：短中视频 / 摘要精炼，总背景块 ≤ 1500 字符且章节 ≤ 40，保留完整概览与金句。
   if (
     totalChapters <= LIVE_CONTEXT_TIER_B_MAX_CHAPTERS &&
     normalizedContextChapters.length <= LIVE_CONTEXT_TIER_B_MAX_CHAPTERS
@@ -506,7 +482,6 @@ export function assembleLiveContextBudget(
     }
   }
 
-  // 档位 B：章节数适中（≤ 40），裁剪导读并剥离逐章正文/金句/分段小结，保留完整章节时刻与标题骨架。
   if (totalChapters <= LIVE_CONTEXT_TIER_B_MAX_CHAPTERS) {
     const tierBLines = [
       ...metaLines,
@@ -529,7 +504,6 @@ export function assembleLiveContextBudget(
     }
   }
 
-  // 档位 C：百段级超长录播或档位 B 溢出，合并顶层区间并逐档收敛，严格保证 ≤ 3000 字符硬上限。
   let fallbackText = "";
   let fallbackIncluded = 0;
   for (const preset of TIER_C_PRESETS) {

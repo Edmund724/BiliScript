@@ -1,5 +1,3 @@
-// extension/chat/render/in-place-turn.ts — 原位重新生成/续写的可恢复 DOM 事务
-
 import type {
   BeginInPlaceTurnOptions,
   ChatAssistantTurn,

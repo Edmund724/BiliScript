@@ -1,10 +1,3 @@
-// extension/live/offscreen-moss-port.ts
-// Offscreen 文档专属 MOSS-LIVE 端口懒加载与代际隔离薄壳。
-// 在 onConnect 同步挂载端口监听，保证首条 start 消息不丢失，并在异步加载客户端模块期间
-// 拦截 stop / disconnect 竞态以防套接字泄漏；具体协议动作与会话状态机全由客户端处理。
-//
-// 伴看单通道模型：全文档独占一个活跃伴看槽位，跨端口 start 触发前序会话接管。
-
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import type {
   LiveProviderType,
@@ -37,7 +30,6 @@ export interface AttachMossLivePortOptions<
 
 interface ActiveLivePortSession {
   port: chrome.runtime.Port;
-  /** 活跃槽位只持有关闭能力：事件转发仍走各端口自己的 onEvent 闭包 */
   client: { close(): void };
   postMessage: (port: chrome.runtime.Port, message: unknown) => void;
 }
@@ -61,7 +53,6 @@ export function attachMossLivePort<
       try {
         p.postMessage(m);
       } catch {
-        // 忽略端口断开时的发送失败
       }
     }
   } = options;
@@ -81,7 +72,6 @@ export function attachMossLivePort<
       try {
         liveClient.close();
       } catch {
-        // 忽略关闭异常
       }
       liveClient = null;
     }

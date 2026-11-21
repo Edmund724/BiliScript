@@ -1,8 +1,3 @@
-// extension/live/player-notice.ts
-// 播放器宿主提示条与可选通知消费槽的零重依赖单源叶：
-// 供 live/live-companion-session（伴看接管提示）与 live/player-interpret（实时字幕翻译提示）
-// 共用，切断伴看会话对实时字幕翻译模块的静态依赖。
-
 import { getFullscreenHost } from "../bilibili/fullscreen.js";
 import {
   VIDEO_PLAYER_CONTAINER_SELECTOR,

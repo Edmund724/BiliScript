@@ -1,29 +1,7 @@
-// 对话 Composer 深 module
-//
-// 职责：
-//   1. 常驻输入区元素级监听（keydown Enter/paste 图片/input/focus/blur/发送钮点击）；
-//   2. 输入框高度自适应（autosizeInput，行内 min-height 内容自然高，上限 320）；
-//   3. 发送态同步（updateSendBtnState/syncSendState、setStreamingUiState、setSubtitleWaitUi）；
-//   4. 发送芯闭包（sendViaInputBox / sendFromUi）。
-//
-// 边界纪律（ADR-0005）：
-//   - 不搬状态袋：state.settings / state.session 由外部持有读写，composer 仅持有自身 UI 相位闭包；
-//   - 不动 send-gate 与 chatRuntime 接口；
-//   - 业务闸（建议 chip / runQuickActionPrompt / explain-intent）保留在各自调用方。
-
 import type { SendTurnOptions } from "../chat/chat-runtime.js";
 import type { SendVerdict } from "../chat/turn-lifecycle.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 
-// 输入框高度只随内容走：scrollHeight（内容自然高）写回 min-height，上限 320。
-// 不设聚焦下限——点击聚焦不再撑高（2026-11 用户决议：去掉「聚焦即展开两行」
-// 的两态设计，只有内容换行才自然长高）。杠杆必须是 min-height 而非 height：
-// 主轴上 flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内
-// height 写了高度不变，只有 min-height 抬得动盒子）。
-// 取值是**屏上盒高**（border-box，见 reader-chat.css 的 box-sizing 声明）：
-// scrollHeight 与 min-height 同一坐标系，上限 320 与 CSS max-height 同值，
-// 不再叠加 4px 内边距。无布局的 jsdom 下 scrollHeight 恒 0，跳过写行内高，
-// 高度落回 CSS 自然高，行为不变。
 export const INPUT_MAX_HEIGHT = 320;
 export const SUBTITLE_WAIT_NOTICE = "正在等待字幕，完成后自动发送";
 export const IMAGE_PROCESSING_NOTICE = "图片处理中…";
@@ -83,7 +61,6 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   const waitText = waitCard?.querySelector<HTMLElement>(".chat-subtitle-wait-text") ?? null;
   const waitCancel = waitCard?.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel") ?? null;
 
-  // 流式中发送键变为停止键；空闲时图片处理中与无正文均不可发送。
   let stopInFlight = false;
   let subtitleWaitActive = false;
   let cancelRequested = false;
@@ -164,39 +141,18 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   }
 
   function autosizeInput(): void {
-    // 测量前先清空行内 min-height（2026-11 用户报障「每敲/删一键长高一行」的 JS
-    // 那一半）：不清空时 textarea 一旦带行内高，scrollHeight 会返回**自身撑开后的
-    // 高度**而非内容自然高——每敲一键把上次写进去的高读回来再加一点，只增不减
-    //（连删除键都会继续长）。先塌回内容高，读到的才是真实自然高；配合 CSS 的
-    // border-box 让 scrollHeight 与 min-height 同一坐标系。
     input.style.minHeight = "";
     input.style.overflowY = "hidden";
     if (input.value !== "") {
-      // 高度只认内容：空输入恒一行（不写行内高、也不留上次的高）。新网页入场时的
-      // 瞬时布局（面板显隐/flex 重排）会把空输入框的 scrollHeight 读成撑开后的盒
-      // 高，旧聚焦分支尚能靠失焦清空兜底；改成每次自适应都写之后，这个巨值会粘在
-      // 行内高上不回缩——用户看到的就是「刚进页面卡一下、输入框巨大」
-      // （2026-11 用户报障）。空内容不测量，这类巨盒从机制上不可能出现。
       const naturalHeight = input.scrollHeight;
       if (naturalHeight > 0) {
         input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
-        // 滚动条收口：未封顶时 overflow-y 恒 hidden——「内容刚好等于盒高」的边界
-        // （line-height 1.45 亚像素行高，实测两行整）会被 Chromium 判出 1px 溢出、
-        // 闪出原生滚动条（2026-11 用户报障：两行出滚动条、三行以上又没了）。封顶
-        // 320 后才放行 auto：超长文本必须滚得动，否则看不见底。
         input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
       }
     }
-    // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
-    // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。
     updateSendBtnState();
   }
 
-  // 发送芯（建议 chip / runQuickActionPrompt / explain-intent 的共同尾部）：填输入框
-  // → autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。
-  // 受理结论来自回合生命周期模块的 SendVerdict（accepted → true，blocked /
-  // ignored → false）：ignored 是入口早退且消息未发出，折算为 false。回放让位
-  // 收敛在发送闸（send-gate.ts 的 G7，放行路径统一 await replayInFlight）。
   function imageSendBlockReason(text: string): string | null {
     if (deps.isImageProcessing?.()) {
       return IMAGE_PROCESSING_NOTICE;
@@ -228,7 +184,6 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       deps.onNotice?.(blockReason, 3000);
       return false;
     }
-    // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
     const verdict = options.interactionAnchor
       ? await chatRuntime.sendTurn(text, { interactionAnchor: options.interactionAnchor })
       : await chatRuntime.sendTurn(text);
@@ -244,14 +199,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     return true;
   }
 
-  /** 独立快捷发送：不占用、不读取也不清空输入框文本与草稿附件。 */
   async function sendDetachedPrompt(text: string): Promise<boolean> {
     const verdict = await chatRuntime.sendTurn(text, { preserveInputDraft: true });
     return verdict === "accepted";
   }
 
-  // 发送入口（回车 / 发送键）直接交给 chatRuntime 的回合受理；
-  // 回放让位已收敛进发送闸的放行路径（send-gate.ts 统一 await replayInFlight）。
   async function sendFromUi(): Promise<void> {
     const blockReason = imageSendBlockReason(input.value);
     if (blockReason) {
@@ -287,9 +239,6 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
         void sendFromUi();
       }
     });
-    // 图片粘贴（image-input 02 号票）：仅当剪贴板含 image/* 时拦截（纯文本/其它
-    // 非图片内容不 preventDefault，既有粘贴行为不变）；压缩与上限判定在
-    // chat/chat-input-images.ts，拒绝提示走消息区通知条。
     input.addEventListener("paste", (e) => {
       onPasteImage?.(e);
     });
@@ -297,11 +246,9 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       autosizeInput();
       updateSendBtnState();
     });
-    // 聚焦/失焦只重测高度（高度只随内容走，聚焦不再撑高——见 autosizeInput）。
     input.addEventListener("focus", autosizeInput);
     input.addEventListener("blur", autosizeInput);
 
-    // 同一按钮按当前形态路由；空输入的 Enter 仍只走发送芯，不会误开伴看。
     sendBtn.addEventListener("click", () => {
       if (sendBtn.classList.contains("is-stop")) {
         chatRuntime.stopActiveStream();

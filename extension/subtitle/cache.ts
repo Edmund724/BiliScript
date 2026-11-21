@@ -105,7 +105,6 @@ const SUBTITLE_CACHE_LIFECYCLE_SYMBOL = Symbol.for("biliscript.subtitleCacheLife
 export interface SubtitleCacheKeyOptions {
   bvid: string;
   cid: string;
-  /** 字幕轨身份（track / url / lang / asr / translated），构造与优先级裁定在 subtitle/source-key。 */
   identity: TrackIdentity;
 }
 
@@ -114,8 +113,6 @@ export type SaveSubtitleResult = EvictionResult | EvictionFailure;
 export function getSubtitleCacheKey({ bvid, cid, identity }: SubtitleCacheKeyOptions): string {
   return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${subtitleSourceKey(identity)}`;
 }
-
-// ===== 抗干扰内容签名（segmentationSig / translationSig）=====
 
 function stableNumericField(value: unknown): string {
   const num = Number(value);
@@ -137,10 +134,6 @@ export interface SegmentationSignatureInput {
   [key: string]: unknown;
 }
 
-/**
- * 本地智能断句签名：
- * 仅纳入算法版本、断句策略、源语种族与内容断句阈值；显式剔除超时、并发、重试间隔等调度参数。
- */
 export function buildSegmentationSignature(input: SegmentationSignatureInput = {}): string {
   const rawStrategy = String(input.strategy ?? "auto").trim().toLowerCase();
   const strategy =
@@ -196,11 +189,6 @@ function resolveMatchedGlossaryForSignature(input: TranslationSignatureInput): S
   return entries.filter((entry) => matchesGlossarySourceInText(entry.source, text));
 }
 
-/**
- * 翻译缓存签名（抗干扰）：
- * 仅纳入模型名、协议版本、规范化目标语言、自定义 Prompt 哈希与当前命中的术语哈希；
- * 显式剔除超时时间、并发度、重试间隔、API Key、Base URL 等非内容调度参数。
- */
 export function buildTranslationSignature(input: TranslationSignatureInput = {}): string {
   const model = normalizeModelForSignature(input.model);
   const protocolVersion = String(input.protocolVersion ?? "cc-json").trim() || "cc-json";
@@ -242,8 +230,6 @@ async function wrapStoreWrite(
     return { ok: false, error: err };
   }
 }
-
-// ===== 1500ms 流式译文写防抖缓冲 + 立即 flush =====
 
 interface PendingTranslatedWrite {
   key: string;
@@ -316,10 +302,6 @@ export interface FlushSubtitleCacheFilter {
   cid?: string;
 }
 
-/**
- * 立即将流式防抖缓冲中尚未落盘的译文合并写入 IndexedDB。
- * 切集（bvid/cid 变更）、切源轨、pagehide 或 visibilitychange 隐藏时必须立即调用。
- */
 export async function flushSubtitleCache(filter?: FlushSubtitleCacheFilter): Promise<void> {
   const filterBvid = filter?.bvid ? String(filter.bvid).trim() : "";
   const filterCid = filter?.cid ? String(filter.cid).trim() : "";
@@ -399,8 +381,6 @@ export function resetSubtitleCacheRuntimeForTests(): void {
 
 registerSubtitleStoreResetHookForTests(clearPendingTranslatedWritesForReset);
 registerLifecycleFlushHandlers();
-
-// ===== 结构化三层读写 API =====
 
 export interface LoadRawTrackOptions {
   bvid: string;
@@ -591,7 +571,6 @@ export async function loadTranslatedSubtitleTrack({
       translationSig
     );
 
-    // 若指定了精确签名但未命中，合并未落盘的防抖缓冲
     const pendingKey = translationSig
       ? buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, translationSig)
       : "";
@@ -621,10 +600,6 @@ const CACHE_FLUSH_BOUNDARY_HOOK: SubtitleSessionBoundaryHook = {
   flush: () => flushSubtitleCache()
 };
 
-/**
- * 流式逐句增量合入：1500ms 防抖合并写盘，期间切集 / 切轨 / pagehide / visibilitychange 会立即 flush。
- * 绝不为纯空白译文创建条目。
- */
 export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOptions): void {
   const cleanBvid = String(options.bvid || "").trim();
   const cleanCid = String(options.cid || "").trim();
@@ -689,9 +664,6 @@ export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOption
   pendingTranslatedWrites.set(pendingKey, record);
 }
 
-/**
- * 立即落盘译文（先合并同键尚未触发防抖的缓冲条目，再写 IndexedDB）。
- */
 export async function saveTranslatedSubtitleTrack(
   options: Omit<TranslatedTrackWriteOptions, "debounceMs">
 ): Promise<SaveSubtitleResult> {
@@ -740,8 +712,6 @@ export async function getSubtitlePageCacheRecord(
   await flushSubtitleCache({ bvid: cleanBvid, cid: cleanCid });
   return resolveActiveStore().getPageRecord(cleanBvid, cleanCid);
 }
-
-// ===== 旧版 chrome.storage.local 平滑兼容迁移 =====
 
 async function readLegacyChromeStorageEntry(cacheKey: string): Promise<unknown[] | null> {
   if (!globalThis.chrome?.storage?.local) {
@@ -797,7 +767,6 @@ export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[]
       return await readLegacyChromeStorageEntry(cacheKey);
     }
     if (parsed.kind === "translated") {
-      // 兼容任何未落盘的同目标译文防抖缓冲
       for (const entry of pendingTranslatedWrites.values()) {
         if (
           entry.bvid === parsed.bvid &&
@@ -872,7 +841,6 @@ async function removeLegacyStorageByPrefix(
     }
     return staleStorageKeys;
   } catch {
-    // 遗留 storage 清理失败不覆盖 IDB 结果
     return [];
   }
 }
@@ -883,9 +851,6 @@ interface AsrCacheCleanupOptions {
   keepKey?: string;
 }
 
-/**
- * ASR 孤儿清理：删除同 (bvid, cid) 下除 keepKey 外的 ASR 变体缓存（IndexedDB + 遗留 chrome.storage.local）。
- */
 export async function clearStaleAsrSubtitleCache({
   bvid,
   cid,
@@ -922,9 +887,6 @@ export async function clearStaleAsrSubtitleCache({
   }
 }
 
-/**
- * 译文副轨失效清理：新转写落盘后清除同分 P 下依赖旧原文的译文轨（含未落盘防抖缓冲）。
- */
 export async function clearTranslatedSubtitleCache({
   bvid,
   cid,
@@ -978,10 +940,6 @@ export interface PersistAsrSubtitleOptions {
   body: unknown[];
 }
 
-/**
- * 新 ASR 转写成果落盘事务：写入主轨缓存成功后，清理同 (bvid, cid) 的旧 ASR 变体与
- * 依赖旧原文的译文副轨缓存；写入失败时保留旧副本，不执行后续清理。
- */
 export async function persistAsrSubtitleToCache({
   bvid,
   cid,
@@ -1037,13 +995,6 @@ export interface ClearVideoCacheResult extends ClearVideoResult {
   removedLegacyKeys: string[];
 }
 
-/**
- * 视频级（或单分 P）缓存统一清理：
- * 1) 取消并清除 `subtitle/cache.ts` 中尚未落盘的译文防抖缓冲；
- * 2) 清理 `l1-chapter-index.ts` 等模块的内存 LRU 缓存；
- * 3) 删除扩展源 IndexedDB（内容脚本经 SW `subtitle-cache` RPC）对应的 `subtitle_pages` 与 `ai_artifacts`；
- * 4) 清理 `chrome.storage.local` 遗留数据键及分键 LRU 索引（优先走 `getKeys()`，不反序列化值）。
- */
 export async function clearVideoCache(bvid: string, cid?: string): Promise<ClearVideoCacheResult> {
   const cleanBvid = String(bvid || "").trim();
   const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";

@@ -1,5 +1,3 @@
-// extension/chat/render/thinking-buffer.ts — 思考文本流式缓冲与钉底滚动
-
 const THINKING_NEAR_BOTTOM_PX = 24;
 
 export interface ThinkingDisplayState {

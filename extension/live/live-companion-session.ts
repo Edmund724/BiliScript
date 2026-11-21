@@ -1,8 +1,3 @@
-// extension/live/live-companion-session.ts
-// 视频页实时伴看会话组合根：将控制器、浮窗绑定、音频同步与设置监听委托给 liveOverlayBinding，
-// 仅注入视频页工具桥与概览上下文；提示与消费槽经零重依赖叶 player-notice 共享，
-// 不静态依赖 player-interpret。
-
 import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import {

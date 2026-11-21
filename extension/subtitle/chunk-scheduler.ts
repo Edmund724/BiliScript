@@ -1,10 +1,3 @@
-// extension/subtitle/chunk-scheduler.ts
-// 播放进度优先懒调度器（参考 fishjar/kiss-translator 的 createAiChunkScheduler）：
-//   - 首屏秒出：初始阶段单路并发独占当前播放点所在分块，完成后或 Seek 时解锁可控并发（默认 2）；
-//   - 90 秒预载窗口：[currentTimeSec, currentTimeSec + 90] 内分块零延迟优先派发，Seek 立即插队；
-//   - 节流与退避：timeupdate 扫描节流（默认 500ms），后台全量补齐块间随机抖动退避（300–600ms），
-//     429 速率限制指数退避冷却重试，支持暂停超时保护（300_000ms）与 AbortSignal 取消。
-
 export const PAUSE_TIMEOUT_MS = 300_000;
 export const DEFAULT_PRELOAD_WINDOW_SEC = 90;
 export const DEFAULT_MAX_CONCURRENCY = 2;
@@ -531,7 +524,6 @@ export function createSubtitleChunkScheduler<T = unknown>(
       }
 
       if (candidate.kind === "window") {
-        // 窗口内高优分块零抖动延迟立即启动，并取消任何挂起的后台抖动等待
         if (backgroundJitterTimer !== null) {
           clearTimeout(backgroundJitterTimer);
           backgroundJitterTimer = null;
@@ -541,7 +533,6 @@ export function createSubtitleChunkScheduler<T = unknown>(
         continue;
       }
 
-      // 非窗口后台补齐分块：按 300ms–600ms 随机抖动退避逐片派发
       if (!backgroundDispatchAllowed) {
         scheduleBackgroundJitter();
         if (!backgroundDispatchAllowed) {

@@ -1,7 +1,3 @@
-// extension/live/live-room-entry.ts
-// 直播间的实时伴看入口：只挂载全屏伴看浮窗与一个开关按钮，不加载文摘面板、字幕与概览。
-// 会话身份是房间号，每次进入都是新会话；换房间时先结束旧会话。
-
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
@@ -203,7 +199,6 @@ export async function startLiveRoomCompanion(): Promise<void> {
   try {
     state.setSettings(await getSettings());
   } catch {
-    // 设置水合失败时沿用默认值；伴看平台与密钥由 SW 在连接时解析。
   }
   ensurePlayerAiStyles();
 

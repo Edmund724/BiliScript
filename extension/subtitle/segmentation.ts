@@ -1,11 +1,3 @@
-// extension/subtitle/segmentation.ts
-// 纯函数智能断句与粗粒度字幕展平模块（参考 fishjar/kiss-translator 的
-// youtubeSubtitleProcessing.js 与 sentenceBreaker.js）：
-//   - expandCoarseEvents：秒/毫秒双向转换、重叠时间钳制、粗粒度中/西文块加权线性展平；
-//   - mergeSubtitlesByRule：模式 A（规则智能合并 + 无标点超长句停顿词二次重切）；
-//   - breakSubtitlesByStats：模式 B（MAD + Z-Score 统计分布断句）；
-//   - shouldSegmentTrack / segmentSubtitles：按轨道类型与设置策略智能分派。
-
 import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { isNonSpeechSegment, isNoSpaceLanguage, joinSubtitleText } from "./text-classification.js";
 
@@ -77,13 +69,11 @@ export interface SegmentSubtitlesOptions {
   statsOptions?: StatsBreakOptions;
 }
 
-// 句末标点与句中逗号/停顿标点（允许末尾紧跟闭合引号/括号）
 const SENTENCE_END_RE = /[。！？.!?…]["'”’」』）\])]*$/u;
 const COMMA_END_RE = /[,，、]["'”’」』）\])]*$/u;
 const STATS_CLAUSE_END_RE = /[，、；：,;]["'”’」』）\])]*$/u;
 const CJK_INTERNAL_SPLIT_PUNCT_RE = /([，、；：,]+)/u;
 
-// 英文口语停顿词集合（二次重切兜底）
 export const EN_PAUSE_WORDS: ReadonlySet<string> = new Set([
   "actually",
   "also",
@@ -133,7 +123,6 @@ export const EN_PAUSE_WORDS: ReadonlySet<string> = new Set([
   "while"
 ]);
 
-// 中文口语停顿/转折前导词集合（按长度降序排列以保证最长前缀优先匹配）
 export const ZH_PAUSE_WORDS: readonly string[] = [
   "换句话说",
   "也就是说",
@@ -310,7 +299,6 @@ function splitLongCjkPiece(piece: string): string[] {
     return [piece];
   }
 
-  // 若以中文停顿词开头，保留停顿词在首片头部，并拆成不超过目标长度的词组片段
   const words = segmentCjkWords(piece);
   const out: string[] = [];
   let current = "";
@@ -347,7 +335,6 @@ function splitCjkTextIntoFragments(text: string): string[] {
   const spaceGroups = text.split(/\s+/).filter(Boolean);
   const punctClauses: string[] = [];
 
-  // 第一步：按内部停顿标点切分，标点粘连在前一小句尾部
   for (const group of spaceGroups) {
     const parts = group.split(CJK_INTERNAL_SPLIT_PUNCT_RE).filter(Boolean);
     for (const part of parts) {
@@ -359,7 +346,6 @@ function splitCjkTextIntoFragments(text: string): string[] {
     }
   }
 
-  // 第二步：按中文高频口语停顿/转折词边界切分，使连接词位于新片段起点
   const pauseSplit: string[] = [];
   for (const clause of punctClauses) {
     const matches = [...clause.matchAll(ZH_PAUSE_BOUNDARY_RE)];
@@ -384,7 +370,6 @@ function splitCjkTextIntoFragments(text: string): string[] {
     }
   }
 
-  // 第三步：超长无标点碎片继续按自然语素拆成 <= 6～8 字小粒度事件
   const fragments: string[] = [];
   for (const piece of pauseSplit) {
     fragments.push(...splitLongCjkPiece(piece));
@@ -437,10 +422,6 @@ function resolveWordTimestamps(
   return out;
 }
 
-/**
- * 将 `{ from, to, content }`（秒级）无损转换为毫秒级 `AtomicSubtitleEvent[]`，
- * 并执行相邻项有效结束时间钳制（`effectiveEndMs = Math.min(endMs, nextItem.startMs)`）。
- */
 export function toAtomicSubtitleEvents(items: readonly CoarseSubtitleInput[]): AtomicSubtitleEvent[] {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
@@ -466,9 +447,6 @@ export function toAtomicSubtitleEvents(items: readonly CoarseSubtitleInput[]): A
   return out;
 }
 
-/**
- * 将毫秒级 `AtomicSubtitleEvent[]` 无损转换回 `{ from, to, content }`（秒级）。
- */
 export function fromAtomicSubtitleEvents(events: readonly AtomicSubtitleEvent[]): SubtitleOutputItem[] {
   if (!Array.isArray(events) || events.length === 0) {
     return [];
@@ -490,13 +468,6 @@ export function fromAtomicSubtitleEvents(events: readonly AtomicSubtitleEvent[])
   return out;
 }
 
-/**
- * 统一细粒度事件中间结构转换与粗粒度块加权线性展平：
- *   - 钳制重叠结束时间；
- *   - 优先保留已有的词级 `words` 时间戳；
- *   - 对粗粒度西文（词数 > 3）或粗粒度中日韩文（字符数 > 6 且含内部分隔/停顿连词，或超长无标点长串）
- *     按字符长度权重线性切分为连续原子事件。
- */
 export function expandCoarseEvents(
   items: readonly CoarseSubtitleInput[],
   lang?: string
@@ -682,9 +653,6 @@ function mergeSubtitlesByRuleInternal(
   return result;
 }
 
-/**
- * 模式 A：规则智能合并 + 无标点超长句停顿词二次重切兜底。
- */
 export function mergeSubtitlesByRule(
   events: readonly AtomicSubtitleEvent[],
   options: MergeRuleOptions = {}
@@ -707,9 +675,6 @@ function computeMedian(values: readonly number[]): number {
   return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/**
- * 模式 B：MAD + Z-Score 统计分布断句（参考 kiss-translator sentenceBreaker.js）。
- */
 export function breakSubtitlesByStats(
   events: readonly AtomicSubtitleEvent[],
   options: StatsBreakOptions = {}
@@ -745,7 +710,6 @@ export function breakSubtitlesByStats(
     return [];
   }
 
-  // 计算相邻语音事件正向停顿间隔的中位数与 MAD
   const positiveGaps: number[] = [];
   for (let i = 1; i < normalized.length; i += 1) {
     const prev = normalized[i - 1];
@@ -829,11 +793,6 @@ export function breakSubtitlesByStats(
   return result;
 }
 
-/**
- * 评估非 AI/ASR 轨道的标点密度是否正常：
- *   - 极短样本（< 10 条且总字符数 < 150）默认视作正常，避免误伤精简测试集或极短视频；
- *   - 正常规模字幕若 >= 15% 条目含标点或总标点密度 >= 1%，视为标点正常（不强行重断人工 CC 轨）。
- */
 export function hasNormalPunctuationDensity(items: readonly CoarseSubtitleInput[]): boolean {
   if (!Array.isArray(items) || items.length === 0) {
     return true;
@@ -866,9 +825,6 @@ export function hasNormalPunctuationDensity(items: readonly CoarseSubtitleInput[
   return punctuatedCues / cueCount >= 0.15 || (totalChars > 0 && punctCount / totalChars >= 0.01);
 }
 
-/**
- * 根据设置策略与轨道身份判定是否执行本地断句。
- */
 export function shouldSegmentTrack({
   strategy,
   selectedSubtitleId = "",
@@ -883,7 +839,6 @@ export function shouldSegmentTrack({
     return true;
   }
 
-  // auto 模式：B 站 AI 字幕轨（lan 以 ai- 开头）及 ASR 伪轨自动执行断句
   const idLower = String(selectedSubtitleId || "").trim().toLowerCase();
   const langLower = String(selectedSubtitleLang || "").trim().toLowerCase();
   const lanLower = String(trackLan || "").trim().toLowerCase();
@@ -895,13 +850,9 @@ export function shouldSegmentTrack({
     return true;
   }
 
-  // 原生人工 CC 轨：标点密度正常时保持原样；缺失标点的粗长/碎片轨才兜底重断
   return !hasNormalPunctuationDensity(items);
 }
 
-/**
- * 字幕预处理断句主入口：策略判定 → 粗粒度展平 → 模式 A/B 断句 → 转换回 `{ from, to, content }[]`。
- */
 export function segmentSubtitles(
   items: readonly CoarseSubtitleInput[],
   options: SegmentSubtitlesOptions = {}

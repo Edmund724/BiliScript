@@ -1,8 +1,3 @@
-// extension/live/pcm-capture-worklet.ts
-// 运行在 AudioWorklet 独立音频渲染线程的采集处理器：
-// 接收麦克风（input 0）与视频原声（input 1），调用 pcm-capture-core 完成混音、纯麦 VAD、
-// 16kHz 重采样与 40ms（1280 字节）S16LE 分帧，并通过 Transferable ArrayBuffer 零拷贝传回主线程。
-
 import {
   DEFAULT_WORKLET_QUANTUM_FRAMES,
   PCM_CAPTURE_PROCESSOR_NAME,

@@ -1,10 +1,3 @@
-// extension/subtitle/ai-artifact-cache.ts
-// AI 派生产物（L1 索引、整份概览、概览分段、分段小结）的 IndexedDB 缓存族与读路径懒迁移：
-// - 内容脚本上下文经 `store-client.ts` 走 SW `subtitle-cache` RPC，严禁网页源直连 indexedDB；
-// - SW / 扩展页 / 单测直连 `SubtitleIdbStore`（`ai_artifacts` ObjectStore）；
-// - 读路径懒迁移严格遵守「先写后删」：IDB 未命中时读旧 `chrome.storage.local`，先成功写入 IDB
-//   确认无异常后再删除旧数据键与分键 LRU 索引；若 IDB 写失败则保留旧键并优雅返回旧数据。
-
 import {
   CacheWriteError,
   buildLruIndexEntryKey,
@@ -17,12 +10,10 @@ import { resolveActiveSubtitleStore, resolveDirectSubtitleStore } from "./store-
 
 export interface AiArtifactFamilyOptions<TValue> {
   family: AiArtifactFamily;
-  /** 旧 chrome.storage.local 封包里的 payload 字段名（{ [payloadField]: value, timestamp }）。 */
   payloadField: string;
   toSourceKey: (subtitleId: unknown, subtitleUrl: unknown, lang: unknown) => string;
   validate?: (value: unknown) => boolean;
   logFailure?: (info: { key: string; error: unknown }) => void;
-  /** SW 专用调用方（如 ai/segment-cache.ts）置 true，直连本地 IDB，绝不经 runtime.sendMessage 自调。 */
   directStore?: boolean;
 }
 
@@ -108,14 +99,9 @@ async function removeLegacyKeysSafe(keys: string[]): Promise<void> {
   try {
     await chrome.storage.local.remove(keys);
   } catch {
-    // 清理旧键失败不影响已写入 IDB 的结果
   }
 }
 
-/**
- * 单趟批量读取多族 AI 产物（如 `readCachedClipOverviewArtifacts` 同时读 `finalKey` 与 `l1Key`）：
- * 优先一次 IDB/RPC 批量读取；仅对未命中的键回查旧 `chrome.storage.local` 并执行先写后删懒迁移。
- */
 export async function loadAiArtifactsBatch(
   specs: readonly AiArtifactBatchSpec[],
   options: { directStore?: boolean } = {}
@@ -165,7 +151,6 @@ export async function loadAiArtifactsBatch(
       if (!extracted) {
         continue;
       }
-      // 先写后删：确认写入 IDB 无异常后再将旧键及分键 LRU 索引加入删除队列
       const migrated = await tryWriteArtifactToIdb(
         store,
         spec.family,
@@ -183,7 +168,6 @@ export async function loadAiArtifactsBatch(
       await removeLegacyKeysSafe(keysToRemove);
     }
   } catch {
-    // 遗留读失败保持已命中的 IDB 结果
   }
 
   return results;
@@ -225,7 +209,6 @@ export function createAiArtifactFamily<TValue>(
           return hit.payload;
         }
       } catch {
-        // IDB 读异常时回退检查旧 storage.local
       }
 
       if (!globalThis.chrome?.storage?.local) {
@@ -294,7 +277,6 @@ export function createAiArtifactFamily<TValue>(
           }
         }
       } catch {
-        // IDB 读异常时仍尝试兼容扫描旧 storage.local
       }
 
       if (globalThis.chrome?.storage?.local) {
@@ -315,7 +297,6 @@ export function createAiArtifactFamily<TValue>(
                 continue;
               }
               if (byKey.has(legacyKey)) {
-                // IDB 已有同键数据，直接清理遗留重复副本
                 keysToRemove.push(...legacyCleanupKeys(family, legacyKey, cleanBvid));
                 continue;
               }
@@ -340,7 +321,6 @@ export function createAiArtifactFamily<TValue>(
             }
           }
         } catch {
-          // 遗留扫描失败不丢弃已命中的 IDB 数据
         }
       }
 
@@ -381,7 +361,6 @@ export function createAiArtifactFamily<TValue>(
       try {
         await getStore().deleteAiArtifact(cleanKey);
       } catch {
-        // 忽略 IDB 删除错误
       }
       const parsed = parseAiArtifactKey(cleanKey);
       await removeLegacyKeysSafe(legacyCleanupKeys(family, cleanKey, parsed?.bvid ?? ""));

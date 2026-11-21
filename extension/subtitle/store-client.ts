@@ -1,9 +1,3 @@
-// extension/subtitle/store-client.ts
-// 扩展源 IndexedDB 仓库的传输桥接与活跃实例解析：
-// - 内容脚本上下文（bilibili.com，http:/https:）严禁直连 indexedDB，统一经既有 `subtitle-cache` 消息族走 SW RPC；
-// - Service Worker / 扩展页 / 单测环境直连本地 `SubtitleIdbStore`；
-// - 轻量无 UI/state 依赖，供 subtitle/cache.ts 与 subtitle/ai-artifact-cache.ts 共享，避免 SW 静态图拖入 subtitle/cache.ts。
-
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import {
   defaultSubtitleIdbStore,
@@ -41,7 +35,6 @@ export function resetSubtitleStoreClientForTests(): void {
     try {
       hook();
     } catch {
-      // ignore test reset errors
     }
   }
   void defaultSubtitleIdbStore.clearAll();
@@ -498,8 +491,6 @@ export function resolveActiveSubtitleStore(): SubtitleIdbStore {
   return shouldRouteViaBackground() ? rpcSubtitleIdbStore : defaultSubtitleIdbStore;
 }
 
-// ===== 视频级内存缓存联动清理钩子（避免 subtitle/cache 与 ai/l1-chapter-index 循环依赖）=====
-
 export type VideoCacheClearHook = (bvid: string, cid?: string) => void;
 
 const videoCacheClearHooks = new Set<VideoCacheClearHook>();
@@ -516,7 +507,6 @@ export function runVideoCacheClearHooks(bvid: string, cid?: string): void {
     try {
       hook(bvid, cid);
     } catch {
-      // 内存清理钩子异常不阻断后续 IDB / legacy 清理
     }
   }
 }

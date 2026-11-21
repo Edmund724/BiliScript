@@ -1,10 +1,3 @@
-// extension/subtitle/streaming-parser.ts
-// 增量流式 JSON 字幕解析器（参考 fishjar/kiss-translator 的 createStreamingSubtitleParser）：
-//   - 在 SSE delta 到达时以 O(N) 增量游标状态机扫描缓冲区内刚闭合的顶层对象 `{ ... }`；
-//   - 正确处理 JSON 字符串字面量内的转义引号 `\"`、反斜杠 `\\` 与花括号 `{}`；
-//   - 兼容 `boundary-v3`（`{"groups":[...]}`）与 `cc-json`（顶层 `[...]` 或包裹对象）；
-//   - 每个对象闭合瞬间校验索引区间连续性并按 `${startIndex}:${endIndex}` 去重立即触发 `onCueReady`。
-
 import type { SubtitleBodyItem } from "../ai/types.js";
 import {
   joinEventsSliceText,
@@ -272,7 +265,6 @@ export function createStreamingSubtitleParser(
         if (ch === "]") {
           continue;
         }
-        // 非数组元素的普通方括号前缀（如 [Note]），按普通非目标字符继续扫描
       }
 
       if (awaitingColonForArrayKey) {
@@ -338,7 +330,6 @@ export function createStreamingSubtitleParser(
         continue;
       }
 
-      // 已进入目标数组 `[`
       if (ch === "{") {
         if (elementBraceDepth === 0) {
           currentObjectStart = scanIndex;

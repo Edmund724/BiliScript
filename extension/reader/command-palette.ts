@@ -1,13 +1,3 @@
-// extension/reader/command-palette.ts
-// 侧边栏内 ⌘K / Ctrl+K 命令面板（原生 <dialog closedby="any"> + 键盘导航 + 模糊检索 + 紧凑 <kbd> 提示）。
-//
-// 支持高频动作：
-//   - 生成/刷新章节摘要（切概览 tab 并触发 overviewCoordinator）
-//   - 切换思考强度（直接持久化 aiThinkingLevel 并同步本地存储与对话态）
-//   - 跳转指定字幕（支持输入时间戳如 03:15 或模糊搜索字幕/章节直达跳播）
-//   - 导出笔记（一键复制模板笔记 / 下载 Markdown / 写入 Obsidian / 编辑导出模板）
-//   - 打开设置、切换深浅主题、收起侧边栏
-
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -70,10 +60,6 @@ function modKeyLabel(): string {
   return isMacPlatform() ? "⌘" : "Ctrl";
 }
 
-/**
- * 解析时间戳查询（如 "1:23"、"01:02:03"、"95s"、"95秒"）。
- * 无法解析时返回 null。
- */
 export function parseTimestampQuery(raw: string): number | null {
   const trimmed = String(raw || "").trim();
   if (!trimmed) {
@@ -104,13 +90,6 @@ export function parseTimestampQuery(raw: string): number | null {
   return null;
 }
 
-/**
- * 轻量模糊匹配评分：
- * - 空查询返回 1；
- * - 连续子串命中返回高分（越靠前分越高）；
- * - 有序子序列命中返回基础分；
- * - 不匹配返回 0。
- */
 export function scoreFuzzyMatch(query: string, ...fields: Array<string | undefined>): number {
   const q = String(query || "").trim().toLowerCase();
   if (!q) {
@@ -128,11 +107,9 @@ export function scoreFuzzyMatch(query: string, ...fields: Array<string | undefin
   for (const token of tokens) {
     const directIdx = haystack.indexOf(token);
     if (directIdx !== -1) {
-      // 前缀或首词命中额外加分
       totalScore += 100 - Math.min(directIdx, 80);
       continue;
     }
-    // 有序子序列匹配
     let hi = 0;
     let matched = 0;
     let streak = 0;
@@ -331,7 +308,6 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
   const withHours = shouldShowHoursInNote(state, body);
   const trimmed = String(query || "").trim();
 
-  // 1. 显式时间戳输入（如 03:15 或 90s）
   const parsedSec = parseTimestampQuery(trimmed);
   if (parsedSec !== null) {
     const stamp = formatClock(parsedSec, { hours: withHours });
@@ -345,7 +321,6 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
     });
   }
 
-  // 2. 空查询时展示前 3 个章节直达
   if (!trimmed) {
     chapters.slice(0, 3).forEach((ch, idx) => {
       const stamp = formatClock(ch.from, { hours: withHours });
@@ -361,7 +336,6 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
     return results;
   }
 
-  // 3. 模糊匹配章节
   for (let i = 0; i < chapters.length; i += 1) {
     const ch = chapters[i];
     const score = scoreFuzzyMatch(trimmed, ch.title);
@@ -378,7 +352,6 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
     }
   }
 
-  // 4. 模糊匹配字幕句（按子串优先，最多 MAX_SUBTITLE_MATCHES 条）
   if (body.length > 0 && trimmed.length >= 1) {
     const matchedSubtitles: Array<{ idx: number; from: number; text: string; score: number }> = [];
     for (let i = 0; i < body.length; i += 1) {
@@ -623,7 +596,6 @@ function ensurePaletteDom(): PaletteRuntime {
     statusTimer: null
   };
 
-  // 为不支持 closedby="any" 的浏览器（Chrome 120–133 等）提供指针坐标外点关闭回退
   const isOutsideDialog = (event: PointerEvent): boolean => {
     const rect = dialog.getBoundingClientRect();
     return (

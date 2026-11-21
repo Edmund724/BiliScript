@@ -1,29 +1,3 @@
-// extension/reader/explain-card.ts — 字幕 tab 内的「解释」卡片（选区解释的落点）。
-//
-// 交互链：在字幕句里选中词/句 → 选区下方浮出「解释」按钮（浮层 DOM 与选区
-// 监听/定位/快照在 reader/explain-pop-ui.ts，arch-slim-2/06 随本域下放；壳层
-// 只组装模板叶子）→ 点按钮调本模块 openReaderExplainCard
-// → 面板内弹卡片（遮罩 + 对话框），就地展示模型给出的解释。
-//
-// 为什么不发到对话 tab：解释是「读完这句马上要懂」的即时动作，跳到对话 tab 会
-// 打断阅读、且把一次短问答塞进长会话历史里。对话链路仍然保留——卡片底部的
-// 「去对话追问」按钮走 reader/explain-intent 的单槽意图契约，把选中片段 + 所在
-// 整句交给对话 tab 自动发送（用户在解释之后想继续追问时的正路）。
-//
-// 依赖方向：本模块属 reader 动态域（reader/index.js 聚合导出，ui-renderer 经
-// ensureReaderDomain 装载后调用），可静态依赖 ai 域；对 ui 壳的「切对话 tab +
-// 激活」回头调经标签激活属主 reader/script-tab-activation（它再经 reader-bus 的
-// project-tab 命令投影 DOM），本模块不再静态 import ui 壳。
-//
-// 竞态：一次只开一张卡；重复打开（换选区再点）先 abort 上一请求，runId 守卫
-// 丢弃过期回执。关闭阅读视图（lifecycle.closeReadingView）也走 close。
-//
-// 首配续跑（票 provider-onboarding-consistency/02）：配置类错误（无平台/缺 Key，
-// 分类器复用 core/overview-setup-error——文案由 SW resolve-ai-provider 产生、两条
-// 链同源）的 error 态给「去设置」，直达平台编辑（无记录新增 / 缺 Key 聚焦 Key）；
-// 保存成功回到本卡续跑一次（runId + 视频身份 + 选区快照校验，一次性消费）；
-// 取消/关抽屉/换选区/换视频均作废。非配置类错误保持原重试语义。
-
 import { state } from "../core/state.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -56,25 +30,15 @@ type ExplainCardPhase = "loading" | "ready" | "error";
 interface ExplainCardState {
   open: boolean;
   phase: ExplainCardPhase;
-  /** 用户选中的原文 */
   selection: string;
-  /** 选中所在的整条字幕句 */
   line: string;
-  /** 所在句起始秒 */
   from: number;
-  /** 所在句在字幕体中的下标（上下文窗口锚点） */
   index: number;
-  /** 成功回执文本 */
   text: string;
-  /** 失败文案 */
   error: string;
-  /** 在飞请求的中止器 */
   controller: AbortController | null;
-  /** 代际号：回执落定前比对，过期回执丢弃 */
   runId: number;
-  /** 联网搜索进行中（loading 态文案区分「正在解释」与「正在联网搜索」） */
   searching: boolean;
-  /** 工具循环给出的提示（搜索失败原因 / 额度用尽）：渲染在卡片内容区，不借全局状态条 */
   notice: string;
 }
 
@@ -151,7 +115,6 @@ function getClipBody(): { from: number; content: string }[] {
   return Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
 }
 
-// 整卡重建（结构与概览/对话 tab 同款：状态机驱动 innerHTML，容器不换）。
 function renderCard(): void {
   const root = getCardRoot();
   if (!root) {
@@ -197,8 +160,6 @@ function renderCard(): void {
           </div>
         `
         : `<div class="biliscript-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
-  // 工具提示（搜索失败原因 / 额度用尽）留在卡片里随答案一起呈现（回答不因搜索
-  // 失败中断）；空串不渲染节点。
   const noticeHtml = card.notice
     ? `<div class="biliscript-reading-explain-card-notice">${escapeHtml(card.notice)}</div>`
     : "";
@@ -224,7 +185,6 @@ function renderCard(): void {
     </section>
   `;
 
-  // 作答块里的图表与数学公式：卡片每次整卡重建，水合随时机同走一次
   hydrateMarkdownContent(root);
 
   const dialogForMotion = root.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
@@ -244,7 +204,6 @@ function renderCard(): void {
     }
   }
 
-  // 仅在首次打开或聚焦本来就在卡片内时接管/恢复焦点；设置层盖在上方或后台阶段变化不抢焦点。
   const overlayBlocked = state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen();
   if (!overlayBlocked) {
     if (pendingInitialFocus) {
@@ -264,8 +223,6 @@ function renderCard(): void {
   }
 }
 
-// 键盘拦截（Esc 关闭 + Tab/Shift+Tab 焦点圈禁）：仅在卡片开着且无设置浮层叠加时接管。
-// 设置抽屉 / 平台编辑器 / 确认弹层叠在卡片上时交回上层叠层规则处理。
 function onCardKeyDown(event: KeyboardEvent): void {
   if (!card.open) {
     return;
@@ -316,7 +273,6 @@ function unbindCardEsc(): void {
   document.removeEventListener("keydown", onCardKeyDown, true);
 }
 
-// 发起解释请求（provider 解析失败/请求失败都落 error 态，不静默）。
 function startExplainRequest(): void {
   const runId = card.runId;
   card.phase = "loading";
@@ -332,14 +288,7 @@ function startExplainRequest(): void {
   void (async () => {
     try {
       const provider = await resolveActiveProvider();
-      // explainSelection 按需动态装载（ai/explain 不再常驻 reader chunk），
-      // 装载失败与请求失败同走 error 态。
       const { explainSelection } = await import("../ai/explain.js");
-      // 联网搜索（spec §2.1：选区解释链同样可用）：经 search/opt-in-notice.ts 在
-      // 解析搜索运行时之前完成开关判定与首次授权——未获同意不外发查询词；用户拒绝时
-      // 闸侧已关闭联网偏好，本卡按无搜索继续解释。授权通过但当前链为空（未配置 /
-      // 全冷却）时，平台可用性反馈与授权分开：落在本卡的 notice 通道（下方），解释
-      // 照常进行。视图销毁或卡片代际失效时直接取消，不再发起生成。
       const optIn = await resolveWebSearchOptIn();
       if (optIn === "view-destroyed" || runId !== card.runId) {
         return;
@@ -363,8 +312,6 @@ function startExplainRequest(): void {
         body: getClipBody(),
         signal: controller?.signal,
         webSearch,
-        // 搜索中/完成切换 loading 文案；notice（搜索失败原因 / 额度用尽）留在
-        // 卡片内容区呈现（本模块的 notice 通道），回答不因搜索失败中断。
         onSearchStatus: (payload) => {
           if (runId !== card.runId) {
             return;
@@ -382,7 +329,7 @@ function startExplainRequest(): void {
         }
       });
       if (runId !== card.runId) {
-        return; // 已被新的打开/关闭取代：丢弃过期回执
+        return;
       }
       card.phase = "ready";
       card.text = text;
@@ -390,7 +337,7 @@ function startExplainRequest(): void {
       renderCard();
     } catch (error) {
       if (runId !== card.runId || isAbortedMarkerError(error)) {
-        return; // 中止/过期：卡片已关闭或已换选区，不打扰
+        return;
       }
       logWarn("[BILISCRIPT] explain selection failed", error);
       card.phase = "error";
@@ -440,10 +387,6 @@ function beginExplainSetup(): void {
   });
 }
 
-/**
- * 打开解释卡片并发起解释请求。
- * 重复打开（换了选区再点「解释」）：先中止上一请求，代际号 +1 让旧回执作废。
- */
 export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   const selection = String(payload?.selection || "").trim();
   const line = String(payload?.line || "").trim();
@@ -487,7 +430,6 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   startExplainRequest();
 }
 
-/** 关闭卡片：中止在飞请求并整卡归位（幂等）。 */
 export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): void {
   if (!card.open) {
     return;
@@ -544,11 +486,6 @@ export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): vo
   }
 }
 
-/**
- * 卡片内点击委托（reader/explain-pop-ui.ts 挂在卡片容器上转发）：
- * close（遮罩 / ×）→ 关卡片；retry → 重发；setup（票 02，配置类 error）→ 记录
- * 续跑意图并直达平台编辑；ask-chat → 写待解释意图并切到对话 tab。
- */
 export function onReaderExplainCardClick(event: MouseEvent): void {
   const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-explain-card-action]");
   if (!target) {
@@ -572,8 +509,6 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
     return;
   }
   if (action === "ask-chat") {
-    // 意图契约（reader/explain-intent.ts）：已生成解释一并带走，对话侧直接保留上下文
-    // 供用户继续追问（不再重发同一遍）；加载失败无解释时保持原解释请求兜底。
     const explanation = card.phase === "ready" && card.text.trim() ? card.text.trim() : undefined;
     setPendingExplainIntent({
       from: card.from,
@@ -583,14 +518,10 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
       createdAt: Date.now()
     });
     closeReaderExplainCard({ restoreFocus: false });
-    // 切对话 tab + 激活（含二级激活）由标签激活属主统一执行：写状态位/持久化 →
-    // 投影命令 → 对话组合根激活（consumeIntent 默认 true，落定即消费上面写入的
-    // 待解释意图）。fire-and-forget：点击反馈（卡片收起、tab 投影）不依赖它。
     void activateScriptTab("chat");
   }
 }
 
-/** 卡片是否开着（closeReadingView 收尾判定 / 测试）。 */
 export function isReaderExplainCardOpen(): boolean {
   return card.open;
 }

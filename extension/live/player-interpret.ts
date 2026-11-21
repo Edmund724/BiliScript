@@ -1,7 +1,3 @@
-// extension/live/player-interpret.ts
-// 播放器实时字幕翻译全链路模块：双语/单语显示行判定、全屏字幕浮层、仿原生字幕菜单、
-// 快捷按钮状态同步，以及与播放器/扩展设置/页面生命周期的自包含接线。
-
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { getFullscreenHost } from "../bilibili/fullscreen.js";

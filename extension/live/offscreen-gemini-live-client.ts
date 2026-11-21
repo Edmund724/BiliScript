@@ -1,8 +1,3 @@
-// extension/live/offscreen-gemini-live-client.ts
-// 运行在 Offscreen Document 中的 Gemini Live (BidiGenerateContent) 协议适配器与客户端预设壳。
-// 会话状态机、重连、工具超时与音频播放协调由 OffscreenLiveSessionRuntime 统一承载；
-// 本文件仅负责 Gemini BidiGenerateContent JSON 帧、Session Resumption 句柄与增量字幕合成。
-
 import {
   DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS,
   DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS,
@@ -150,21 +145,18 @@ export const GEMINI_LIVE_WEB_SEARCH_DECLARATION = {
 
 export type GeminiFunctionResponseScheduling = "SILENT" | "WHEN_IDLE";
 
-/** 判断当前 Gemini Live 模型是否支持并启用 NON_BLOCKING 异步工具调度（仅 gemini-3.1-* 为同步工具）。 */
 export function supportsGeminiNonBlockingTools(model?: string | null): boolean {
   const raw = typeof model === "string" ? model.trim() : "";
   const normalized = (raw || DEFAULT_GEMINI_LIVE_MODEL).replace(/^models\//i, "").toLowerCase();
   return normalized !== "gemini-3.1" && !normalized.startsWith("gemini-3.1-");
 }
 
-/** 判断当前 Gemini Live 模型是否支持会话中途发送纯文本 clientContent（3.1 仅允许初始化历史，中途须走 realtimeInput.text）。 */
 export function supportsGeminiClientContentMidSession(model?: string | null): boolean {
   const raw = typeof model === "string" ? model.trim() : "";
   const normalized = (raw || DEFAULT_GEMINI_LIVE_MODEL).replace(/^models\//i, "").toLowerCase();
   return normalized !== "gemini-3.1" && !normalized.startsWith("gemini-3.1-");
 }
 
-/** 根据模型能力与工具类别解析 FunctionResponse.scheduling 策略。 */
 export function resolveGeminiToolResponseScheduling(
   toolName: string,
   model?: string | null
@@ -747,7 +739,6 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
 
   sendRealtimeText(text: string, transport: LiveWireTransport): boolean {
     if (typeof text !== "string" || !text.trim()) return false;
-    // 离散文本输入不会产生服务端 inputTranscription，需复位防丢弃标记以免吞掉新回复。
     this.discardOutputUntilInput = false;
     this.awaitingInterruptedTurnSeal = false;
     this.pendingBargeInServerAck = false;
@@ -797,8 +788,6 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   }
 
   sendContextUpdate(_context: MossLiveSessionContext | null, _transport: LiveWireTransport): void {
-    // Gemini Live 禁止会话中途发 turnComplete: false（会挂起服务端），也不可静默刷新时发
-    // turnComplete: true（会打断发言）；同片上下文更新仅保留在运行时内存，跨片由运行时重建 WS。
   }
 
   private sendVideoTaskResponse(

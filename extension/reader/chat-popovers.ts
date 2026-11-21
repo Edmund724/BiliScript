@@ -1,4 +1,3 @@
-// 历史内容模式、模型面板与显示设置弹层共用 hidden 投影；同一事件只结算最上层。
 import { ids } from "./state.js";
 
 export type HistoryExitFocus = "trigger" | "input" | "none";
@@ -10,7 +9,6 @@ export interface CreateReaderChatPopoversDeps {
   modelChipBtn: HTMLElement;
   historyBackBtn?: HTMLElement | null;
   conversationInput?: HTMLElement | null;
-  // 历史入口在菜单内时，关闭后菜单按钮已不可聚焦，焦点改落到该元素（⋮ 触发键）。
   historyExitFocusEl?: HTMLElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
@@ -66,7 +64,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (moreMenu && moreMenu !== except) setMoreMenuHidden(true);
   }
 
-  // 模型面板开合同步 chip 箭头与展开语义；toggle/Esc 主动关闭时把焦点还给 chip，互斥与外点不抢焦点。
   function setModelPanelHidden(hidden: boolean, restoreFocus = false): void {
     const wasOpen = !modelPanel.hidden;
     modelPanel.hidden = hidden;

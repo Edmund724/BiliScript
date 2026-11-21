@@ -1,9 +1,3 @@
-// extension/live/page-media-capture.ts
-// 页面侧（Content Script）音频采集模块（AudioWorklet 线程隔离版）。
-// 伴看：麦克风输入（AEC/ANS/AGC）与视频原声接入双输入 AudioWorkletNode，
-// 混音、纯麦克风支路本地 VAD、视频上行压低、16kHz 重采样与 40ms（1280B）S16LE 编码全部在音频线程执行；
-// 主线程仅经 Transferable ArrayBuffer 接收分帧并透传状态。
-
 import {
   DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN,
   DEFAULT_VAD_BARGE_IN_MS,
@@ -132,14 +126,12 @@ export interface PageAudioCaptureSession {
   stop(): void;
 }
 
-/** 将浏览器 getUserMedia / getDisplayMedia 异常转换为统一中文提示 */
 export function formatMediaCaptureError(error: unknown): string {
   const errObj = error as { name?: unknown; message?: unknown } | null;
   const name = typeof errObj?.name === "string" ? errObj.name : "";
   const message = typeof errObj?.message === "string" ? errObj.message : String(error || "");
   const combined = `${name} ${message}`.toLowerCase();
 
-  // 1. 麦克风授权弹窗被关闭
   if (
     combined.includes("dismiss") ||
     combined.includes("closed") ||
@@ -148,7 +140,6 @@ export function formatMediaCaptureError(error: unknown): string {
     return "麦克风授权弹窗被关闭，请重新点击并允许使用麦克风";
   }
 
-  // 2. 屏幕共享被取消
   if (
     combined.includes("screen capture") ||
     combined.includes("display media") ||
@@ -159,7 +150,6 @@ export function formatMediaCaptureError(error: unknown): string {
     return "屏幕共享被取消";
   }
 
-  // 3. 麦克风或摄像头权限被拒绝
   if (
     name === "NotAllowedError" ||
     name === "PermissionDeniedError" ||
@@ -171,7 +161,6 @@ export function formatMediaCaptureError(error: unknown): string {
     return "麦克风或摄像头权限被拒绝（麦克风权限被拒绝），请在浏览器地址栏网站设置中允许权限后重试";
   }
 
-  // 4. 没有找到可用设备
   if (
     name === "NotFoundError" ||
     name === "DevicesNotFoundError" ||
@@ -182,7 +171,6 @@ export function formatMediaCaptureError(error: unknown): string {
     return "没有找到可用设备（未检测到可用的麦克风设备），请检查音频或视频输入设备连接";
   }
 
-  // 5. 设备被其他应用占用
   if (
     name === "NotReadableError" ||
     name === "TrackStartError" ||
@@ -235,8 +223,6 @@ function defaultCaptureVideoStream(video: HTMLVideoElement): MediaStream | null 
   }
 }
 
-// ===== 视频音轨管线（伴看混音） =====
-
 interface VideoAudioPipelineDeps {
   audioCtx: PageAudioContextLike;
   getVideo: () => HTMLVideoElement | null;
@@ -253,11 +239,6 @@ interface VideoAudioPipeline {
   stop(): void;
 }
 
-/**
- * 视频原声采集管线：按视频元素缓存 captureStream（只在换片时重新采集，避免每秒
- * 重复 captureStream 产生泄漏），评估音轨状态（已获取 / 未检测到 / 已静音 / 未开启），
- * 状态不可用时只断开音源节点、保留流缓存，恢复后从缓存流重连。
- */
 function createVideoAudioPipeline(deps: VideoAudioPipelineDeps): VideoAudioPipeline {
   let status: VideoAudioTrackStatus = deps.isSharing() ? "未检测到音轨" : "未开启";
   let activeVideoEl: HTMLVideoElement | null = null;
@@ -509,10 +490,6 @@ export async function createPageAudioCapture(
     track.addEventListener("ended", handleMicrophoneEnded);
   }
 
-  // 严格前级分路节点拓扑：
-  // 1. 分支 A（纯人声检测）：micSource (micStream) -> workletNode input 0（绝不混入视频音轨）
-  // 2. 分支 B（混音上行）：micSource -> workletNode input 0，videoSource -> videoSendGain -> workletNode input 1
-  // 3. 静音负载：workletNode output 0 -> silentGain (gain=0) -> destination
   const micSource = audioCtx.createMediaStreamSource(micStream);
   const videoSendGain = audioCtx.createGain();
   const initialGainTransition = resolveVideoSendGainTarget(
@@ -636,7 +613,6 @@ export async function createPageAudioCapture(
     }
 
     if (msg.type === "pcm") {
-      // 闭麦后立即拦截在途 Worklet 批量帧（含开启视频原声共享场景），防止残留采样泄漏。
       if (muted) return;
       if (msg.hadSpeech) {
         lastVoiceActivityTimestamp = Date.now();

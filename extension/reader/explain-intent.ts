@@ -1,11 +1,3 @@
-// 待解释意图契约与控制器：字幕侧「去对话追问」与 AI 对话 tab 之间的交接面。
-//
-// 生产方：解释卡片（reader/explain-card.ts）底部的「去对话追问」按钮——把选中片段、
-// 所在整句（以及已生成的解释正文）记入本模块单槽 pending 后切到 AI 对话 tab。
-// 消费方：对话 tab 经 createExplainIntentController 驱动引用卡渲染、回合在途守卫、
-// 发送/取消按钮绑定、追问提示词拼接与受理后消费。
-//
-// 单槽 pending（后写覆盖先写）：仅保留最新一条待解释意图。
 import { formatClock } from "../shared/clock-text.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 
@@ -21,7 +13,6 @@ export interface ReaderExplainIntent {
 
 let pendingIntent: ReaderExplainIntent | null = null;
 
-// 记录或覆盖待解释意图；selection 与整句相同或为空白时不落字段，explanation 仅保留非空文本。
 export function setPendingExplainIntent(intent: ReaderExplainIntent): void {
   const content = String(intent?.content || "");
   const selection = String(intent?.selection || "").trim();

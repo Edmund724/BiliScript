@@ -1,5 +1,3 @@
-// extension/chat/render/thought-chain.ts — 统一可折叠思维链状态条与工具状态归并
-
 import { READING_CHEVRON_DOWN_ICON } from "../../ui/reading-icons.js";
 import { formatClock } from "../../shared/clock-text.js";
 import { createChatImageViewButton, type ChatImageViewer } from "../chat-image-viewer.js";

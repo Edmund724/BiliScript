@@ -1,13 +1,9 @@
-// 页面当前视频元素的 JPEG 抽帧；单帧在飞，换来源或停止后丢弃迟到编码结果。
-// 实时伴看的长边、质量与间隔取自服务端 media.configured.video 回执（会话可重配）。
-
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
   MOSS_STANDARD_VIDEO_CONFIG,
   type MossVideoCaptureConfig
 } from "./moss-video-config.js";
 
-// 一次性画面截取（AI 视觉工具）使用的固定画质，与会话抽帧参数无关。
 export const MOSS_VIDEO_FRAME_MAX_EDGE = 960;
 export const MOSS_VIDEO_JPEG_QUALITY = 0.72;
 export const MIN_LIVE_VIDEO_CAPTURE_INTERVAL_MS = 1000;
@@ -17,23 +13,16 @@ export interface PageVideoFrameCaptureOptions {
   onJpegFrame: (jpegBytes: Uint8Array<ArrayBuffer>) => void;
   getVideo?: () => HTMLVideoElement | null;
   createCanvas?: () => HTMLCanvasElement | null;
-  /** 初始抽帧参数；缺省为服务端 standard 默认值。 */
   config?: Partial<MossVideoCaptureConfig>;
-  /** 静止/后台状态是否停推周期帧（Gemini Live 启用以防 token 膨胀，MOSS 保留保活心跳）。 */
   pauseWhenStatic?: boolean;
-  /** seeked 落定后防抖补帧延迟（毫秒）。 */
   seekDebounceMs?: number;
-  /** 可选页面可见性探针（便于单测与宿主覆写）。 */
   isDocumentHidden?: () => boolean;
 }
 
 export interface PageVideoFrameCaptureSession {
   stop(): void;
-  /** 按服务端回执重配抽帧参数（长边、质量即时生效；间隔变更重新排期）。 */
   configure(config: Partial<MossVideoCaptureConfig>): void;
-  /** 当前是否处于暂停/结束/隐藏导致的周期帧停推状态。 */
   isSuspended?(): boolean;
-  /** 按当前会话参数抓取单帧快照（不触发周期帧回调，供暂停态离散提问补帧）。 */
   captureSnapshot?(): Promise<Uint8Array<ArrayBuffer> | null>;
 }
 
@@ -295,7 +284,6 @@ export function createPageVideoFrameCapture(
       lastCaptureAt = Date.now();
       options.onJpegFrame(bytes);
     } catch {
-      // 单帧读取或编码失败不影响后续抽帧。
     } finally {
       encoding = false;
       if (pendingSeekCapture && !stopped && !isHidden()) {
@@ -346,7 +334,6 @@ export function createPageVideoFrameCapture(
         scheduleNext();
         return;
       }
-      // 无 addEventListener 的纯对象桩仍需低频巡检状态变化；真实 DOM 节点由 play/visibility 事件唤醒。
       if (video && typeof video.addEventListener !== "function") {
         scheduleNext();
       }
@@ -371,7 +358,6 @@ export function createPageVideoFrameCapture(
         config.maxLongSide !== previous.maxLongSide ||
         config.jpegQuality !== previous.jpegQuality
       ) {
-        // 画质变化后旧缓存帧尺寸/质量已过期，下一帧强制重编码。
         lastFrameKey = "";
         lastJpegBytes = null;
       }

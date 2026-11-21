@@ -1,13 +1,3 @@
-// 模型 chip、「模型 + 思考强度」面板与联网搜索开关的渲染与偏好控制器。
-//
-// 职责：
-//   1. 从 core/messaging 并行拉取启用的平台列表、sync settings 与 chrome.storage.local 偏好，
-//      经 chat-state 的意图原语写入 chatSessionState，并自动解析/回落当前选中模型；
-//   2. 维护模型 chip（平台名·裸模型名 + 实发思考档位）及宽度自适应（canvas 度量 + rAF 合帧）；
-//   3. 维护模型面板（按平台分组渲染、键盘导航、打开时按 chip 可见宽快照设宽、内联思考强度
-//      滑轨/单档胶囊/重置键与底部提示行），以及隐藏 <select>（#readingChatModelSelect）的单向
-//      同步与外部 change 监听；
-//   4. 维护联网搜索开关 pill（状态渲染、点击切换持久化与旋转切换动画）与缺平台/缺模型诊断。
 import {
   normalizeAiInitialQuickPrompts,
   normalizeAiThinkingLevel
@@ -52,9 +42,7 @@ export type ChatSetupTarget = {
   providerId: string;
 };
 
-// 拖拽时的刻度磁吸半径（归一化档位间距的 10%）。
 const SNAP_THRESHOLD = 0.1;
-// 最高档（档位数 ≥ 3 的最右端）触发时的脉冲增亮时长（ms）。
 const ULTRA_BURST_MS = 420;
 const MODEL_CHIP_MAX_WIDTH = 420;
 const MODEL_CHIP_MIN_WIDTH = 92;
@@ -94,7 +82,6 @@ function formatProviderLabel(provider: { name?: string; model?: unknown }): stri
   return String(provider.model || "").trim();
 }
 
-// 集合站模型 id 带组织命名空间前缀时，显示层只展示最后一段裸名；值源保持完整。
 function displayModelName(model: string): string {
   const slash = model.lastIndexOf("/");
   if (slash < 0 || slash === model.length - 1) {
@@ -985,7 +972,6 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         try {
           track.setPointerCapture(e.pointerId);
         } catch {
-          // jsdom 或未激活 pointer 时忽略
         }
       }
       previewNearest = previewAt(pos);

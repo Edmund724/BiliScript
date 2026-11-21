@@ -1,6 +1,3 @@
-// extension/live/live-provider-probe.ts
-// 实时伴看平台的模型列表、音色库与连通性测试探针（经 SW provider-http 代发）。
-
 import {
   getAiCredentialStatusText,
   queryAiCredentialKey
@@ -49,9 +46,6 @@ export function resolveLiveModelsUrl(baseUrl: string, type?: string): string {
   }
   return `${normalized}/v1/models`;
 }
-
-// ===== 平台音色库（MOSS-LIVE 音色选择器）=====
-// GET /v1/audio/voices 分页取全（limit 上限 150，after=next_cursor）；空名回落 id。
 
 export function resolveLiveVoicesUrl(baseUrl: string): string {
   const normalized = normalizeBaseUrl(baseUrl);
@@ -115,7 +109,6 @@ export async function listLiveVoices({
     }
 
     const nextCursor = typeof data?.next_cursor === "string" ? data.next_cursor.trim() : "";
-    // 有的分页实现只回 next_cursor 不带 has_more：以游标是否前进为准。
     if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }

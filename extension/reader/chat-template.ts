@@ -1,22 +1,3 @@
-// AI 对话 tab 的模板叶子（arch-slim-2/06：模板段自 ui/ui-renderer.ts 下放）。
-//
-// 为什么是纯模板叶子：chat-tab.ts（对话组合根）已反向 import ui-renderer 的
-// setReaderScriptTab/openReaderSettingsPanel——对话 tab 模板若直接搬进
-// chat-tab.ts 会成环；本模块只依赖 reader/state.js 的 ids 表与纯字符串图标
-//（无逻辑、无状态），壳（ui-renderer）组装、chat-tab 消费 els，依赖图保持无环。
-//
-// 结构对应 sidepanel.html 的 sp* 树（id 换 readingChat* 前缀）。对话组合根
-//（reader/chat-tab.ts）首次激活时接线；未激活前壳保持静默空态（空消息区 +
-// 空输入框），不放假数据。待解释意图引用卡（PR3 契约）由对话组合根按
-// pending 意图渲染，自动发送成功即消费隐藏；卡上的取消按钮清意图。
-// 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden）。
-// 06 号票增量：档位 chip 由 3 档静态按钮改为 7 档静态占位（激活后由
-// reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
-// 历史是对话区的内容模式：它是对话根的第一个子元素，同一 [hidden] 投影同时隐藏
-// 标签行与后续对话内容；类名沿用 chat-history-popover，但不新增 Tab 或开关状态。
-// 会话动作（新建会话 / 历史对话）收在壳标签行 ⋮ 菜单内，排版与朗读同菜单调；
-// 「更多显示设置」深链经 open-settings/appearance 直达外观分区。
-
 import { ids } from "./state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";

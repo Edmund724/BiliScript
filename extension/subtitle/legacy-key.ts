@@ -1,7 +1,3 @@
-// extension/subtitle/legacy-key.ts
-// 旧版 chrome.storage.local 字幕缓存键解析（供 subtitle/cache.ts 与 SW 启动迁移模块共用，
-// 避免 background.ts 静态图拖入 subtitle/cache.ts 及其 state/UI 链）。
-
 import { TRANSLATED_SOURCE_KEY_PREFIX } from "./source-key.js";
 import { toCanonicalTargetLangBcp47 } from "./selection.js";
 

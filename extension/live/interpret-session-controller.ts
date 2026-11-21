@@ -144,7 +144,6 @@ export function createInterpretSessionController(
   let processingAbortController: AbortController | null = null;
   let scheduler: SubtitleChunkScheduler<void> | null = null;
 
-  // 播放游标优先调度分片状态跟踪
   const activeChunkPromises = new Map<number, Promise<void>>();
   const isAsrDoneChunk = new Set<number>();
   let activeTrackSession: TranslatedTrackSession | null = null;
@@ -235,12 +234,10 @@ export function createInterpretSessionController(
   async function refreshAvailability(): Promise<InterpretAvailability> {
     const currentGeneration = ++availabilityGeneration;
     try {
-      // 跨语种原生双轨（未强制开启 AI 精翻）零 Token 直接配对，无需任何 AI 或 ASR 密钥
       if (isZeroTokenNativePairScenario()) {
         return updateAvailability({ ok: true });
       }
 
-      // 1. 检查字幕翻译 AI 平台（或默认 AI 平台）
       try {
         await resolveTranslateProvider();
       } catch (aiError) {
@@ -251,7 +248,6 @@ export function createInterpretSessionController(
         });
       }
 
-      // 2. 检查语音识别 (ASR) 平台（已有原生 CC 或内存中已有主轨则可跳过 ASR 检查）
       if (!hasPrimaryReadyInMemoryOrCache()) {
         const { activeProvider: activeAsr, setupState } = await resolveActiveAsrRuntimeState({
           loadProviders: deps.loadAsrProviders
@@ -740,7 +736,6 @@ export function createInterpretSessionController(
       const nativeTracks = currentNativeTracks();
       const refineMode = getAiRefineMode();
 
-      // ===== 分支 1：跨语种原生多轨零 Token 配对（场景 A / 默认场景 C）=====
       if (nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks) && refineMode === "off") {
         activeSessionKind = "native-pair";
         const mainRef =
@@ -792,7 +787,6 @@ export function createInterpretSessionController(
         return true;
       }
 
-      // ===== 分支 2：原生 CC 主轨 → AI 流式翻译（单轨 CC / 纯中文外译 / 场景 A&C 精翻覆盖）=====
       if (nativeTracks.length > 0) {
         activeSessionKind = "cc-translate";
         const foreignSource =
@@ -874,7 +868,6 @@ export function createInterpretSessionController(
         return true;
       }
 
-      // ===== 分支 3：无原生 CC 轨 → ASR 语音转写 + LLM 翻译 =====
       activeSessionKind = "asr";
       const targetLang = getTargetLang();
 
@@ -898,7 +891,6 @@ export function createInterpretSessionController(
       activeProviderRes = await resolveTranslateProvider();
       if (isSessionStale(currentGeneration)) return false;
 
-      // 1. 检查主轨缓存（内存优先，次选本地 storage 缓存）
       let primaryItems: SubtitleBodyItem[] | null = null;
       if (state.clip.subtitleFetchState === "ready" && state.clip.subtitleBody?.length) {
         primaryItems = [...state.clip.subtitleBody];
@@ -921,11 +913,9 @@ export function createInterpretSessionController(
       });
       activeTrackSession = session;
 
-      // 2. 检查译文副轨缓存
       const secondaryItems = await session.loadCached();
       if (isSessionStale(currentGeneration)) return false;
 
-      // 全命中：零网络请求挂载并渲染
       if (primaryItems && primaryItems.length > 0 && secondaryItems.length > 0) {
         markPrimaryChunksReadyInAsr(primaryItems);
         seedAsrPseudoTrackIfNeeded(activeAsrLabel);
@@ -948,7 +938,6 @@ export function createInterpretSessionController(
         return true;
       }
 
-      // 主轨已就绪仅缺译文：跳过 ASR，按 [currentTime, +90s] 优先队列调度 LLM 翻译
       if (primaryItems && primaryItems.length > 0) {
         markPrimaryChunksReadyInAsr(primaryItems);
         seedAsrPseudoTrackIfNeeded(activeAsrLabel);
@@ -981,7 +970,6 @@ export function createInterpretSessionController(
       await ensureTranslatorConfigured(session, [{ from: 0, to: 1, content: "probe" }]);
       if (isSessionStale(currentGeneration)) return false;
 
-      // 需要 ASR 转写：启动统一调度器与 ASR 流水线
       needsTranslatedCacheInvalidation = true;
       showNotice("正在转写并翻译字幕...", 3000);
       startScheduledTranslation(currentGeneration, session, false);

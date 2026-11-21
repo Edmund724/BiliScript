@@ -1,15 +1,3 @@
-// extension/subtitle/translated-track-session.ts
-// 60 秒分块译文副轨会话（深模块）：统一封装轨道身份与缓存签名装配、分片缓冲与修订版门控、
-// 跨分块双语前情与 L1 章节语境拼装、流式逐句聚合上屏与防抖写盘队列。
-//
-// 消费方：
-//   - subtitle/asr-translation.ts（阅读面板批量补齐，经 lazy 边按需装载 ai/subtitle-translate）
-//   - live/interpret-session-controller.ts（播放器实时字幕翻译叠层与滑动窗口调度）
-//
-// 懒加载缝纪律（ADR-0025 / scripts/build-content.js）：
-// 本模块禁止静态 import ai/subtitle-translate.ts，确保 cache-only 路径不提前拉起翻译协议栈；
-// translateItems 与 resolveProtocolMode 由调用方通过 deps 注入。
-
 import { state } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
@@ -216,9 +204,6 @@ function computeItemsRange(items: readonly SubtitleBodyItem[]): { from: number; 
     : undefined;
 }
 
-/**
- * 创建 60 秒分块译文副轨会话，收口身份签名、分块缓存读写、流式聚合上屏与持久化写队列。
- */
 export function createTranslatedTrackSession(
   options: TranslatedTrackSessionOptions,
   deps: TranslatedTrackSessionDeps = {}

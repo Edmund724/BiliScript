@@ -1,8 +1,3 @@
-// extension/live/live-voice-fallback-notice.ts
-// 音色回退的一次性提示信箱：伴看会话里 change_voice 失败时由页面侧写入
-//（chrome.storage.local），设置面板下一次打开时取出并清除——「设置里提示一次」
-// 的存储口径只此一处，避免会话侧与设置侧各自拼 key/形状。
-
 export const LIVE_VOICE_FALLBACK_NOTICE_STORAGE = "liveVoiceFallbackNotice";
 
 export interface LiveVoiceFallbackNotice {
@@ -27,11 +22,9 @@ export async function recordLiveVoiceFallbackNotice(notice: LiveVoiceFallbackNot
       [LIVE_VOICE_FALLBACK_NOTICE_STORAGE]: normalizeNotice(notice)
     });
   } catch {
-    // 提示信箱是尽力而为：写失败不影响会话回退本身
   }
 }
 
-/** 读取并清除：同一份提示最多出现一次。 */
 export async function takeLiveVoiceFallbackNotice(): Promise<LiveVoiceFallbackNotice | null> {
   try {
     const stored = await chrome.storage.local.get([LIVE_VOICE_FALLBACK_NOTICE_STORAGE]);

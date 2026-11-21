@@ -1,5 +1,3 @@
-// extension/chat/render/token-stream.ts — 双容器 Markdown 流式帧预算调度
-
 import {
   createMarkdownStreamSession,
   renderMarkdownStripped,

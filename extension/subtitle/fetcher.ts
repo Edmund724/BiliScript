@@ -1,4 +1,3 @@
-// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js。
 import { setStatus } from "../core/ui-status.js";
 import {
   state,
@@ -17,8 +16,6 @@ import {
   retryAsync
 } from "../shared/error-helpers.js";
 import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
-// isReaderViewOpen 位于 reader 状态微模块（候选04 结构归并）：纯 state 读取，
-// 不再经 reader/index.js facade 静态转发（否则整条 reader 域会被拖进本链闭包）。
 import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
@@ -28,9 +25,6 @@ import { buildSubtitleCandidates } from "./signature.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
-// 字幕接受事务（GLOSSARY.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏
-// 回调在模块求值期注入（下方 configureCommitUi），保持 commit → 本模块/UI 层
-// 无静态边。
 import { acceptSubtitle, acceptSecondarySubtitle, commitNoSubtitle, configureCommitUi } from "./commit.js";
 import {
   fetchVideoMeta as gatewayFetchVideoMeta,
@@ -43,43 +37,16 @@ import {
   resolveBiliSubtitleAccessBlocker,
   type BiliSubtitleAccessBlocker
 } from "../bilibili/video-api.js";
-// 取体深 module（GLOSSARY.md「字幕」的正文）：两条装载链共用的唯一取体实现，
-// 出口（接受事务）由下方两个装载器注入。
 import { loadTrackBody } from "./body.js";
 import { slot } from "./slot.js";
 
-// ASR 域（pipeline + fallback 及其专属依赖 audio-source/offscreen-bridge.page）
-// 经动态 import 按需加载（候选4 分包）：只有视频无 CC 字幕时才需要语音转写。
-// 装配组合根（provider 列表读取 + createAsrFallback deps 装配 + promise 缓存
-// 单例 + broadcastSubtitleStatus）已归位 asr/active-fallback.ts
-//（arch-review-2026-09/09）；本模块只经下方 loadAsrFallbackOrNull /
-// finishNoSubtitle 的动态 import 边获取回退单例——此依赖为单向边，import 环 A
-// 不再成立。分包前这些模块随单文件 bundle 常驻；分包后成为动态 import 边被切
-// 进 entry/chunks/。实例缓存与失败重试语义见 asr/active-fallback.ts。
-
-// The fetcher is lazily loaded as part of the summarize chain (候选02 分层惰性
-// ，见 subtitle/lazy.js): the reader-bus (presenter seam) registration below used
-// to be a module-level side effect, which relied on "fetcher is always loaded at
-// startup" — no longer true once the chain is on-demand. Registration now
-// binds to chain loading: initSummarizeChain() runs once on the
-// ensureSummarizeChain() success path (subscribeSubtitleRefresh 自带去重，
-// 重复调用安全), and the reader side triggers a re-fetch by ensuring the chain
-// first (call site in reader/lifecycle.js) and then calling requestSubtitleRefresh().
 export function initSummarizeChain(): void {
   subscribeSubtitleRefresh(refreshClip);
 }
 
-// 字幕接受事务的渲染/状态栏回调接线（GLOSSARY.md：DOM 渲染回调由 fetcher 注入，
-// 保持静态图无环）。放在模块求值期执行：本模块任何导出可被调用前必然完成，
-// asr/active-fallback.ts 装配（loadActiveAsrFallback）注入的 commitNoSubtitle
-// 也因此保证先接线后可用。
 configureCommitUi({
   setStatus
 });
-
-// fetchVideoMeta / fetchSubtitleBundle 纯直通包装已删除（arch-slim-2/03）：原
-// 26 行只加 logInfo/logWarn，日志下沉到 gateway 对应函数（debug 级差异），本
-// 模块与 ai/context-resolver 一致直用 bilibili/gateway 的函数 + contentFetchJson。
 
 export async function tryLoadSubtitleCandidates(
   candidates: SubtitleTrack[],
@@ -130,18 +97,6 @@ export async function tryLoadSubtitleCandidates(
   throw new Error("这个视频暂时没有可用字幕。");
 }
 
-// keepFetchState：错误路径专用（586c61b 纪律，见 sidepanel-subtitle-wait.js
-// 复述）——reset 全清会把 fetchState 洗成 idle，等待转写的侧边栏轮询会误判
-// "非转写中"提前放行空字幕。错误路径传 true 保留调用方随后覆写的 "error"
-//（见 refreshClip catch），其余调用方（message-handler 的 URL 变化等）默认
-// 全清，语义不变。
-// runId 代次协调（M23）：本函数不递增 fetchRunId——递增单点在 URL 变化编排
-//（entry/message-handler 的 handleUrlChange）感知签名变化处同步先行，早于本
-// reset 与新视频 refreshClip 各自的异步装载链（递增若放在这里，新视频的
-// refreshClip 可能先起跑再被迟到的递增误杀）。在飞 run 的让位由提交事务的
-// runId 自检（commit.acceptSubtitle / commitNoSubtitle）与各 ensureRunActive
-// 检查点承担。错误路径的 reset 不递增：本 run 已终态，不得顶掉并发中更新的
-// 同视频抓取。
 export function resetClipState({ keepFetchState = false }: { keepFetchState?: boolean } = {}): void {
   if (!keepFetchState && (state.clip.bvid || state.clip.cid)) {
     void flushSubtitleCache({
@@ -162,7 +117,6 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   clipState.setAuthor("");
   clipState.setUploadDate("");
   clipState.setSubtitles([]);
-  // 副轨槽与主轨槽同生命周期：换视频（含错误路径的 keepFetchState 清场）经 slot 动词一并复位
   slot.clearAllForVideoSwitch({ keepFetchState });
   clipState.setChapters([]);
   clipState.setHotComments([]);
@@ -193,10 +147,6 @@ export async function refreshClip(): Promise<void> {
 
     const metaResult = await resolveClipMeta(runId);
 
-    // 视频身份（作者/分P）此刻已落 state，但字幕还没到手：无字幕轨时更是整轮
-    // ASR 转写（几分钟到几小时）期间不会再有任何渲染通知——subtitle-ready 在
-    // 转写收尾才发，reset 后的空 meta 会一直留在面板 header。身份一确定就按
-    // 当前 state 重投影一次（rerender 是纯 state 投影，幂等）。
     if (isReaderViewOpen()) {
       notifyReaderPresenter({ kind: "rerender" });
     }
@@ -214,9 +164,6 @@ export async function refreshClip(): Promise<void> {
     ensureRunActive(runId, state.clip.fetchRunId);
     clipState.setSubtitles(normalizeSubtitleTracks(subtitleBundle.tracks) as unknown as SubtitleOption[]);
     clipState.setChapters(normalizeChapters(subtitleBundle.chapters) as import("../core/state.js").ChapterItem[]);
-    // 惰性求值（10-9）：logInfo 内部按调试门过滤，但 .map() 作为实参会先于门
-    // 判定无条件执行、为每条章节/字幕各分配一个数组——门关闭时零收益纯浪费。
-    // 改在门外先判 shouldDebugLog()，门关时跳过整套 map 分配。
     if (shouldDebugLog()) {
       logInfo(
         "[BILISCRIPT] chapters",
@@ -237,7 +184,6 @@ export async function refreshClip(): Promise<void> {
       );
     }
 
-    // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
     const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
 
@@ -257,7 +203,6 @@ export async function refreshClip(): Promise<void> {
         throw error;
       }
 
-      // Retry because subtitle signed URLs may expire quickly or hit rate limit.
       selected = await retryWithFreshBundle({ retryReason: error, preferred, runId, forceRefresh });
     }
     ensureRunActive(runId, state.clip.fetchRunId);
@@ -268,20 +213,11 @@ export async function refreshClip(): Promise<void> {
         lanDoc: selected.lanDoc
       });
     }
-    // fetchState/reason 已由 tryLoadSubtitleCandidates → loadSubtitle 内的
-    // 字幕接受事务（commit.acceptSubtitle）落位（ready + 清原因），渲染也由
-    // 事务内的 subtitle-ready 通知驱动（唯一 emit 点，此处补发即双渲染），
-    // 成功不提示：列表本身就是结果。
   } catch (error) {
     await handleClipFetchError(error, runId);
   }
 }
 
-// ===== refreshClip 三段纯提取（arch-review-2026-09/09，零行为变化）=====
-
-// 段1 meta 解析：bvid 校验 → meta 抓取（带重试）→ clipState 基础信息写入 →
-// 分 P / cid / duration 经 page-context seam 解析（时长缺失兜底
-// readRuntimeVideoDuration，仍缺失则中止）→ resolved ids 日志。
 async function resolveClipMeta(runId: number): Promise<VideoMeta> {
   const prevBvid = state.clip.bvid;
   const prevCid = state.clip.cid;
@@ -293,7 +229,6 @@ async function resolveClipMeta(runId: number): Promise<VideoMeta> {
   const meta = await retryAsync(() => gatewayFetchVideoMeta(contentFetchJson, state.clip.bvid), 2, 250);
   ensureRunActive(runId, state.clip.fetchRunId);
 
-  // 调试：打印 API 返回的原始数据
   logInfo("[BILISCRIPT] raw meta data", {
     meta,
     defaultCid: meta.defaultCid,
@@ -308,7 +243,6 @@ async function resolveClipMeta(runId: number): Promise<VideoMeta> {
   clipState.setPageCount(Array.isArray(meta.pages) ? meta.pages.length : 0);
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
 
-  // 分 P / cid / duration 解析统一走 page-context seam；结果由本模块写入 state.clip。
   const pageContext = resolvePageContext(location.href, meta);
   const resolvedPageIndex = pageContext.pageIndex;
   const nextCid = String(pageContext.cid || "");
@@ -340,14 +274,10 @@ async function resolveClipMeta(runId: number): Promise<VideoMeta> {
   return meta;
 }
 
-// 段2 轨道选择：无字幕轨 / 无偏好轨两个守卫出口经 finishNoSubtitle 收尾
-//（转写成果在 fallback 内经字幕接受事务落位后直接让调用方 return），返回选中
-// 的偏好轨，null = 已走无字幕出口。
 async function selectSubtitleTrack(
   runId: number,
   accessBlocker: BiliSubtitleAccessBlocker | null = null
 ): Promise<SubtitleTrack | null> {
-  // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
   if (state.clip.subtitles.length === 0) {
     await finishNoSubtitle(runId, accessBlocker);
     return null;
@@ -366,28 +296,16 @@ async function selectSubtitleTrack(
   return preferred;
 }
 
-// 段3 错误分类与 ASR 等待（refreshClip 的 catch 主体）：stale 让位 → 当前视频
-// 有 ASR 转写进行中则等待共享转写继续收尾 → 其余落 reset+error 统一收尾，并按
-// 错误类型分类文案（时长不匹配 vs 通用失败）。
 async function handleClipFetchError(error: unknown, runId: number): Promise<void> {
   if (isStaleRunError(error)) {
     return;
   }
-  // 当前视频有 ASR 转写进行中：本轮辅助抓取的失败绝不能清上下文（
-  // resetClipState 会把 subtitleFetchState 置回 idle，等待转写的侧边栏轮询
-  // 会误判"非转写中"提前放行空字幕）。改为等待共享转写结果继续收尾。
-  // 探针按当前视频 bvid/cid 匹配——切走视频后仍在后台跑的其它视频转写
-  // 不拦截本路径，其成果也不会串到当前 UI（转写与视频切换解耦，见
-  // asr/fallback.js）。
   const asrFallbackInstance = await loadAsrFallbackOrNull();
   if (asrFallbackInstance?.hasActiveAsrTranscribe({ bvid: state.clip.bvid, cid: state.clip.cid })) {
     setStatus(`抓取失败：${getErrorMessage(error)}，继续等待音频转写…`);
     await asrFallbackInstance.awaitActiveAsrTranscribe({ runId, bvid: state.clip.bvid, cid: state.clip.cid });
     return;
   }
-  // 586c61b 纪律：reset 全清会把 fetchState 洗回 idle（等待转写的侧边栏轮询
-  // 会误判"非转写中"提前放行空字幕），错误路径以 keepFetchState 保住状态、
-  // 再一次写 error，替代历史「error → reset → error」双写。
   resetClipState({ keepFetchState: true });
   clipState.setSubtitleFetchState("error");
   if (isReaderViewOpen()) {
@@ -400,12 +318,6 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
   setStatus(`抓取失败：${getErrorMessage(error)}`);
 }
 
-// 无字幕出口编排（refreshClip 两处守卫分支共用）：
-// 充电专属未充电 / 未登录 B 站由 resolveBiliSubtitleAccessBlocker 单源裁定，
-// 均优先于 ASR 回退直接落入对应无字幕状态；其余视频先给 ASR 回退一个机会——
-// done 时转写成果已在 fallback 内经字幕接受事务（commit.acceptSubtitle）收尾，
-// 这里直接 return；skip / empty / error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
-// STALE_RUN（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
 async function finishNoSubtitle(
   runId: number,
   accessBlocker: BiliSubtitleAccessBlocker | null = null
@@ -420,17 +332,9 @@ async function finishNoSubtitle(
   if (asrResult === "done") {
     return;
   }
-  // 无字幕出口逆事务随行 runId 自检（M23）：maybeRunAsrFallback 的 skip/empty
-  // 判定与出口提交之间隔着 await，reset/新抓取推进代次后不把「无字幕」写进
-  // 新视频的 state（STALE_RUN 上抛，refreshClip catch 静默吞掉）。
   await commitNoSubtitle({ runId });
 }
 
-// 签名 URL 失效重试（refreshClip 的 catch 路径）：字幕签名 URL 可能快速过期
-// 或触发限流，重抓 bundle 后重建轨道/章节、按原偏好重选轨并重试候选。与主
-// 路径重复的 normalizeSubtitleTracks/normalizeChapters/setSubtitles/
-// setChapters 四步收拢于此，避免双抄。无合适轨时抛出触发重试的原始错误，
-// 交由 refreshClip 的错误路径统一收尾。
 async function retryWithFreshBundle({
   retryReason,
   preferred,
@@ -498,9 +402,6 @@ export async function loadSubtitle(
       ensureRunActive(runId, state.clip.fetchRunId);
     }
   }
-  // 取体链收口 subtitle/body.js（缓存键装配 → 缓存命中与时长校验 → 坏缓存
-  // 清键 → 网络取体 → 空体/时长校验 → 落缓存与写失败上浮）。本壳保留主轨
-  // URL 空值守卫、上下文注入与主轨接受事务出口（ADR-0016）。
   await loadTrackBody(
     {
       bvid: state.clip.bvid,
@@ -519,12 +420,9 @@ export async function loadSubtitle(
         cacheHit: "[BILISCRIPT] using cached subtitle",
         cacheMismatch: "[BILISCRIPT] cached subtitle duration mismatch, clearing cache"
       },
-      // 出口：字幕接受事务（commit.acceptSubtitle）——写 selected 三项 →
-      // ready → 清原因 → 刷新派生（含事务内排序后的 body）→ 通知 reader。
       onBody: (body) =>
         acceptSubtitle({
           body,
-          // 轨 id 缺省时沿用当前已选中的那条（主轨口径；副轨回退空串）。
           selectedSubtitleId: subtitleId ? String(subtitleId) : state.clip.selectedSubtitleId,
           selectedSubtitleUrl: url,
           selectedSubtitleLang: lang,
@@ -534,10 +432,6 @@ export async function loadSubtitle(
   );
 }
 
-// ===== 双语副轨装载 =====
-//
-// 与主轨并列的第二条装载链：取体链走同一模块（subtitle/body.js），分叉在
-// 乐观写槽 + 失败写 error 态 + 并列的 acceptSecondarySubtitle（ADR-0016）。
 export async function loadSecondarySubtitle(
   url: string,
   lang: string,
@@ -548,7 +442,6 @@ export async function loadSecondarySubtitle(
   if (!url) {
     throw new Error("字幕 URL 为空。");
   }
-  // 代次自检先于乐观写入：迟到的旧 run 不得把目标写进已重置的新视频槽。
   if (runId !== undefined) {
     ensureRunActive(runId, state.clip.fetchRunId);
   }
@@ -586,7 +479,6 @@ export async function loadSecondarySubtitle(
       }
     );
   } catch (error) {
-    // 让位（STALE_RUN）不写 error：更新的 run 已接手，不得用旧失败污染新槽。
     if (!isStaleRunError(error)) {
       slot.markSecondaryError();
       if (isReaderViewOpen()) {
@@ -597,15 +489,6 @@ export async function loadSecondarySubtitle(
   }
 }
 
-// 无字幕提示文案（buildNoSubtitleStatusMessage）已随无字幕出口迁入
-// subtitle/commit.js——它是无字幕出口事务的一部分，唯一消费点在该事务内。
-//
-// ASR 回退装配（broadcastSubtitleStatus / loadAsrProviderList / createAsrFallback
-// deps 八项 / promise 缓存单例）已整体归位 asr/active-fallback.ts
-//（arch-review-2026-09/09）。本模块只保留下方动态 import 边：加载失败按
-//「无活动转写」降级（返回 null 继续原错误处理）——chunk 加载失败绝不能掩盖
-// 原始抓取错误；加载成功后与原同步调用语义一致（awaitActiveAsrTranscribe 的
-// 异常保持原样向上抛）。
 async function loadAsrFallbackOrNull() {
   try {
     const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");

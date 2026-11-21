@@ -1,13 +1,3 @@
-// 对话排版（文摘排版）与对话朗读音量的单源偏好模块（平行于 live/live-audio-settings.ts）。
-//
-// 收口 chatLineHeight / chatParagraphSpacing / speechVoiceVolume 三项双端控件的：
-//   - 规格单源（范围 / 步进 / 默认值 / 归一 / 格式化 / 文案 / TTS 能力门控）
-//   - 同页即时应用与同步（state.patchSettings + applyReadingViewTypography + localListeners）
-//   - 持久化写盘（save-settings）与跨标签页 storage 监听（watchStorageKeys）
-//   - 可重置滑块批量绑定（bindResettableRangeSlider）
-//
-// 设置抽屉（ui/settings-panel*）与对话更多操作菜单（ui/ui-renderer + reader/chat-tab）共用本模块。
-
 import { DEFAULT_SETTINGS, type Settings } from "../core/defaults.js";
 import { state } from "../core/state.js";
 import {

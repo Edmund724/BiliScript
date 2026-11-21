@@ -1,7 +1,3 @@
-// 字幕、AI 产物与对话图片分层 IndexedDB 仓库的 SW 端消息 handler：
-// 页面内容脚本无扩展源 IndexedDB 访问权限（按页面 origin 隔离会无法与 SW/agent-bridge 共享），
-// 故经本消息族在扩展源（Service Worker）读写 `biliscript-subtitle-store`（subtitle_pages + ai_artifacts + chat_images）。
-
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import {
   defaultSubtitleIdbStore,

@@ -132,8 +132,6 @@ export function createHistoricalVideoFrameSession(
     const onAbort = () => controller.abort();
     captureOptions.signal?.addEventListener("abort", onAbort, { once: true });
     let timer: ReturnType<typeof setTimeout> | null = null;
-    // 唯一监听调用方 signal 的是 onAbort；race 侧的 aborted 只观察内部 controller，
-    // 随本次取帧一起回收，不在调用方 signal 上留下第二个匿名监听。
     const aborted = new Promise<never>((_, reject) => {
       controller.signal.addEventListener("abort", () => reject(abortError()), { once: true });
     });
@@ -196,7 +194,6 @@ export function createHistoricalVideoFrameSession(
           });
         } catch (error) {
           if (controller.signal.aborted) throw abortError();
-          // 单帧失败不阻断其余时间点；仅成功画面进入后续模型请求。
         }
       }
       return frames;

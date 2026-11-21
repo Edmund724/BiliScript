@@ -439,7 +439,6 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       }
 
       if (isSummarizeVideo) {
-        // 1. 缓存优先：已有完整或部分概览时直接返回，不受字幕当前加载状态阻碍
         const cachedSnapshot = getOverview();
         const cachedOverview = projectLiveOverview(cachedSnapshot, { fetchState: clip.subtitleFetchState });
         if (cachedOverview && (cachedOverview.coverage === "complete" || cachedOverview.coverage === "partial")) {
@@ -448,7 +447,6 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
           return projectOverviewResponse(context, cachedOverview);
         }
 
-        // 2. 字幕守卫：尚未生成时必须依赖有效字幕
         if (clip.subtitleFetchState === "loading") {
           const message = "当前视频字幕仍在加载，请稍后重试。";
           showNotice(message, 4000);

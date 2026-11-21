@@ -1,6 +1,3 @@
-// extension/live/liquid-glass-lens.ts
-// 液态玻璃 12px 窄边缘 SVG 位移贴图缓存与三通道色散滤镜生命周期（Chromium backdrop-filter url(#id)）
-
 export const LENS_CORNER_RADIUS = 14;
 export const LENS_MAX_EDGE = 12;
 export const LENS_MIN_SURFACE_SIZE = 32;
@@ -104,7 +101,6 @@ export function buildLensDisplacementMap(
         ny = signY;
       }
 
-      // 距离边缘 d 处的向内折返偏移量：1.1 × edge × (1 - d / edge)^2.6
       const offset = maxOffset * Math.pow(1 - d / edge, 2.6);
       const dx = -nx * offset;
       const dy = -ny * offset;
@@ -116,8 +112,6 @@ export function buildLensDisplacementMap(
     }
   };
 
-  // 圆角矩形 SDF 在纵向中段 y ∈ [capRows, height - capRows) 每行水平分布完全恒等，
-  // 仅需计算首行模板并用 TypedArray.set 整行复制，消除约 90% 的逐像素三角与幂次计算。
   const capRows = Math.min(Math.floor(height / 2), Math.ceil(Math.max(r, edge)));
   const midStart = capRows;
   const midEnd = height - capRows;
@@ -256,7 +250,6 @@ export function createLiquidGlassLens(deps: LiquidGlassLensDeps): LiquidGlassLen
       feImg.setAttribute("height", String(height));
       feImg.setAttribute("href", mapped.dataUrl);
     }
-    // 三遍色散处理：红色偏移 +15%，绿色基准，蓝色偏移 -15%
     dispR?.setAttribute("scale", (mapped.scale * 1.15).toFixed(2));
     dispG?.setAttribute("scale", mapped.scale.toFixed(2));
     dispB?.setAttribute("scale", (mapped.scale * 0.85).toFixed(2));

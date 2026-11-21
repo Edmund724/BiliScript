@@ -1,12 +1,3 @@
-// extension/subtitle/boundary-protocol.ts
-// 字幕 AI 双通道协议编解码与四重防崩容错纯函数层（借鉴 fishjar/kiss-translator）：
-//   - splitEventsIntoAiChunks：80% 软边界无重叠批次切分；
-//   - formatBoundaryEvents：boundary-v3 零时间戳输入编码；
-//   - salvageTruncatedSubtitleJson：第 1 重（围栏剥离、尾逗号修复、截断 JSON 前缀抢救）；
-//   - takeContinuousCuePrefix：第 2 重（连续无跳号前缀提取）；
-//   - mapBoundaryGroupsToCues：精确索引区间回填与前端原文拼接；
-//   - finalizeAiCues：第 4 重（时间轴一致性守卫与本地规则降级）。
-
 import {
   mergeSubtitlesByRule,
   type AtomicSubtitleEvent,
@@ -63,13 +54,6 @@ const DEFAULT_MAX_CHUNK_CHARS = 1000;
 const SOFT_BOUNDARY_PAUSE_MS = 1000;
 const SOFT_BOUNDARY_PUNCT_RE = /[。！？.!?…\)）]["'”’」』\]]*$/u;
 
-/**
- * 80% 软边界无重叠批次切分：
- * - 顺序累加 `event.text.length`，硬上限 `maxChunkChars`（默认 1000，超限前先封块）；
- * - 软边界 `Math.floor(maxChunkChars * 0.8)`（默认 800）：达到软边界后一旦遇到句末标点
- *   `/[。！？.!?…\)]$/` 或与下一事件停顿间隔 `next.startMs - curr.endMs > 1000`，立即提前封块；
- * - 不设滑动重叠窗口。
- */
 export function splitEventsIntoAiChunks(
   events: readonly AtomicSubtitleEvent[],
   maxChunkChars = DEFAULT_MAX_CHUNK_CHARS
@@ -127,11 +111,6 @@ export function splitEventsIntoAiChunks(
   return chunks;
 }
 
-/**
- * `boundary-v3` 输入编码：
- * 仅编码 `{ id, text, pauseMs? }`，仅当正整数 `Math.round(next.startMs - curr.endMs) > 0` 时附带 `pauseMs`，
- * 严禁向 LLM 发送 `start` / `end` 时间戳，阻断时间戳幻觉。
- */
 export function formatBoundaryEvents(
   events: readonly AtomicSubtitleEvent[]
 ): BoundaryInputEvent[] {
@@ -154,9 +133,6 @@ export function formatBoundaryEvents(
   });
 }
 
-/**
- * 人工精校 CC 字幕批量协议输入编码：`[{"id":"0","text":"..."}]`
- */
 export function formatCcSubtitleItems(
   items: ReadonlyArray<{ content?: unknown }>
 ): CcSubtitleInputItem[] {
@@ -171,12 +147,10 @@ export function formatCcSubtitleItems(
 
 function stripMarkdownCodeFences(raw: string): string {
   const trimmed = raw.trim();
-  // 若包含完整代码块围栏，优先提取代码块主体
   const fullFenceMatch = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
   if (fullFenceMatch) {
     return fullFenceMatch[1].trim();
   }
-  // 截断场景：存在开头 ```json 但尚未输出闭合 ```
   const openFenceMatch = /```(?:json)?\s*([\s\S]*)$/i.exec(trimmed);
   if (openFenceMatch) {
     return openFenceMatch[1].trim();
@@ -184,9 +158,6 @@ function stripMarkdownCodeFences(raw: string): string {
   return trimmed;
 }
 
-/**
- * 在 JSON 字符串字面量之外安全移除尾部多余逗号（如 `,}` 与 `,]`）。
- */
 export function stripTrailingCommasOutsideStrings(input: string): string {
   let out = "";
   let inString = false;
@@ -241,9 +212,6 @@ function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: f
   }
 }
 
-/**
- * 扫描目标数组 `[` 之后每个完整闭合顶层元素对象 `}` 的下标。
- */
 function collectCompletedArrayObjectEnds(source: string, arrayOpenIndex: number): number[] {
   const ends: number[] = [];
   let inString = false;
@@ -291,12 +259,6 @@ function collectCompletedArrayObjectEnds(source: string, arrayOpenIndex: number)
   return ends;
 }
 
-/**
- * 第 1 重容错（截断 JSON 抢救）：
- * - 自动剥离 ` ```json ` 围栏，修复尾部逗号；
- * - 若因 `max_tokens` 等截断，定位 `"groups": [`（补齐 `]}`）或首个顶层 `[`（补齐 `]`），
- *   截取到最后一个完整闭合的 `}` 恢复已生成的有效前缀。
- */
 export function salvageTruncatedSubtitleJson<T = unknown>(raw: string): T | null {
   if (typeof raw !== "string" || !raw.trim()) {
     return null;
@@ -308,7 +270,6 @@ export function salvageTruncatedSubtitleJson<T = unknown>(raw: string): T | null
     return direct.value as T;
   }
 
-  // 若模型附带了前后解释文字但 JSON 本身已闭合，先尝试截取外层 `{...}` 或 `[...]`
   const firstBrace = unfenced.indexOf("{");
   const firstBracket = unfenced.indexOf("[");
   const startIsObject =
@@ -332,7 +293,6 @@ export function salvageTruncatedSubtitleJson<T = unknown>(raw: string): T | null
     }
   }
 
-  // 截断抢救分支 A：形如 `{ "groups": [ { ... }, { "ids": ["3" ...`
   const groupsArrayMatch = /"(?:groups|items|translations)"\s*:\s*\[/.exec(unfenced);
   if (groupsArrayMatch && firstBrace !== -1 && firstBrace <= groupsArrayMatch.index) {
     const arrayOpenIdx =
@@ -347,7 +307,6 @@ export function salvageTruncatedSubtitleJson<T = unknown>(raw: string): T | null
     }
   }
 
-  // 截断抢救分支 B：顶层数组形如 `[ { "id": "0", "translation": "..." }, { "id": "1"...`
   if (firstBracket !== -1) {
     const completedEnds = collectCompletedArrayObjectEnds(unfenced, firstBracket);
     for (let i = completedEnds.length - 1; i >= 0; i -= 1) {
@@ -406,12 +365,6 @@ export function parseGroupIdRange(ids: unknown): { startIndex: number; endIndex:
   return { startIndex: parsed[0], endIndex: parsed[parsed.length - 1] };
 }
 
-/**
- * 第 2 重容错（连续无跳号前缀提取）：
- * 从 `expectedNextIndex`（默认 0）开始校验每组区间连续性
- * （`startIndex === expectedNextIndex && endIndex >= startIndex` 且不越界），
- * 一旦某组跳号、重叠或越界立即截断后续脏数据，保留已对齐的合法前缀。
- */
 export function takeContinuousCuePrefix<
   T extends { startIndex: number; endIndex: number }
 >(
@@ -473,14 +426,6 @@ export function joinEventsSliceText(
   return joined;
 }
 
-/**
- * 精确索引区间回填：
- * - 解析 `{"groups": [{"ids": [startId, endId] | [singleId] | ["0","1","2"], "text": "...", "translation": "..."}]}`；
- * - 维护单调游标 `nextIndex = 0`（经 `takeContinuousCuePrefix` 截断跳号/越界项）；
- * - 直接在原始 `events` 上切片 `events.slice(startIndex, endIndex + 1)`：
- *   `from = events[startIndex].startMs / 1000`、`to = events[endIndex].endMs / 1000`，
- *   原文由前端用 `joinSubtitleText` 精确拼接（杜绝模型篡改原文），`translation` 取该组译文。
- */
 export function mapBoundaryGroupsToCues(
   groupsInput: unknown,
   events: readonly AtomicSubtitleEvent[],
@@ -505,7 +450,6 @@ export function mapBoundaryGroupsToCues(
   for (const group of rawGroups) {
     const range = parseGroupIdRange(group?.ids);
     if (!range) {
-      // 置入非法区间交由 takeContinuousCuePrefix 在当前位置截断
       candidates.push({
         startIndex: -1,
         endIndex: -1,
@@ -542,10 +486,6 @@ export function mapBoundaryGroupsToCues(
   });
 }
 
-/**
- * 解析人工精校 CC 字幕批量 JSON 响应（支持 `[{"id":"0","translation":"..."}]` 及常见包裹对象），
- * 返回按整数索引对齐的译文字典。
- */
 export function parseCcTranslationMap(
   rawOrParsed: unknown,
   itemCount: number
@@ -598,12 +538,6 @@ export function parseCcTranslationMap(
   return result;
 }
 
-/**
- * 第 4 重容错（一致性守卫与本地规则降级）：
- * - 校验 cues 的连续覆盖性、时间有限性、`to > from`、单调不重叠（`from >= prev.to`）；
- * - 若仍有尾部残余事件未覆盖（或整块彻底解析失败导致 `validCues` 为空），
- *   仅对未覆盖切片调用 `mergeSubtitlesByRule` 生成原文并走轻量逐句补译，绝不抛错中断整集字幕。
- */
 export async function finalizeAiCues(
   cues: readonly BoundaryCue[],
   events: readonly AtomicSubtitleEvent[],
@@ -687,7 +621,6 @@ export async function finalizeAiCues(
             }
           }
         } catch {
-          // 降级补译失败时静默兜底，绝不抛错中断整集字幕
         }
       }
 
@@ -707,7 +640,6 @@ export async function finalizeAiCues(
             ? rawTo
             : Number((safeFrom + 0.001).toFixed(3));
 
-        // 定位该规则合并块对应的原残余事件末尾下标
         let matchedEnd = cursorIndex;
         while (
           matchedEnd + 1 < events.length &&

@@ -1,11 +1,3 @@
-// extension/subtitle/storage-migration.ts
-// 启动 / 安装 / 更新一次性幂等迁移：
-// 分批将旧 `chrome.storage.local` 中的历史 `biliscript_lvs_*` AI 产物与 `biliscript_subtitle_cache_*`
-// 遗留字幕键迁入 IndexedDB v2（`subtitle_pages` + `ai_artifacts`），严格遵守先写后删：
-// - 每批先成功写入 IDB，确认无异常后再删除该批旧数据键及对应分键 LRU 索引；
-// - 任一条写入失败时保留对应旧键，且不落完成标记，下次启动安全续跑；
-// - 全部完成后清理已退役族的残余 LRU 索引条目与汇总清单，再写完成标记保护后续启动零扫描。
-
 import {
   CACHE_FAMILIES,
   LRU_MANIFEST_STORAGE_KEY,
@@ -174,7 +166,6 @@ async function runMigration(
   const failedKeys: string[] = [];
   const removedSet = new Set<string>();
 
-  // 1) 分批迁移 AI 产物与遗留字幕键（先写 IDB 确认成功，再删同批旧键与分键 LRU 索引）
   const dataKeys = [...aiKeys, ...subtitleKeys];
   for (const batch of chunkKeys(dataKeys, batchSize)) {
     const values = (await storage.get(batch)) || {};
@@ -213,7 +204,6 @@ async function runMigration(
             failedKeys.push(key);
           }
         } else {
-          // 损坏或无法解析封包：作为垃圾键清理，不阻塞迁移完成
           collectKeyWithIndex(
             keysToRemove,
             removedSet,
@@ -279,7 +269,6 @@ async function runMigration(
     }
   }
 
-  // 2) 分批清理已废弃的 biliscript_lvs_raw_* 遗留原始段键
   for (const batch of chunkKeys(obsoleteRawKeys, batchSize)) {
     const keysToRemove: string[] = [];
     for (const key of batch) {
@@ -303,7 +292,6 @@ async function runMigration(
     };
   }
 
-  // 3) 清理已退役缓存族的残余孤儿分键 LRU 索引与汇总清单
   const retiredIndexPrefixes = CACHE_FAMILIES.map(
     (family) => `${LRU_INDEX_ENTRY_PREFIX}${family}:`
   );
@@ -340,7 +328,6 @@ async function runMigration(
     }
   }
 
-  // 4) 仅在全部迁移与清理无失败时落完成标记
   await storage.set({
     [STORAGE_TO_IDB_MIGRATION_DONE_KEY]: {
       version: 2,

@@ -1,11 +1,3 @@
-// 伴看上下文的全片概览投影：把 reader 概览协调器的快照
-// 压缩成「伴看会话回答全片问题所需」的最小事实面——简介、带真实时刻文本的章节
-// 与金句、覆盖完整性、未就绪状态。故意不携带 progressText 与完整字幕：
-// 前者每秒变化只会让会话指令抖动，后者不属于全片总结所需。
-//
-// 相位语义与 reader/overview-coordinator 的 ReaderOverviewPhase 对齐；本模块
-// 不认识 reader 类型，只吃结构等价的窄输入，保持 live 域不反向依赖 reader 域。
-
 import { formatClock } from "../shared/clock-text.js";
 import {
   MOSS_LIVE_OVERVIEW_PHASES,
@@ -23,14 +15,12 @@ export interface LiveOverviewAnalysisSource {
   summaryFailed?: unknown;
 }
 
-/** reader 概览快照的结构等价窄面（phase / analysis / errorText 三件）。 */
 export interface LiveOverviewSource {
   phase: string;
   analysis: LiveOverviewAnalysisSource | null;
   errorText?: string;
 }
 
-/** 字幕整片相位（clip.subtitleFetchState）：空态与失败态给不同的等待/重试话术。 */
 export interface LiveOverviewSubtitleState {
   fetchState?: string;
 }
@@ -132,12 +122,6 @@ function partialStatusText(failedRanges: Array<{ from: number; to: number }>, su
   return `${notes.join("；")}；不得当作完整全片总结。`;
 }
 
-/**
- * 概览快照 → 伴看上下文。
- * 返回 null 表示装配方没有接入概览来源（与「有来源但尚未就绪」区分开）。
- * 只有 ready / partial 相位才暴露产物；其余相位一律空产物 + 状态文案，
- * 避免取消或失败后残留旧内容被当成最新概览。
- */
 export function projectLiveOverview(
   source: LiveOverviewSource | null | undefined,
   subtitleState: LiveOverviewSubtitleState = {}

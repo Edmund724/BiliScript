@@ -1,8 +1,3 @@
-// extension/live/pcm-capture-core.ts
-// 实时伴看音频采集纯内核（零 DOM/扩展 API 依赖）：
-// 供 AudioWorkletProcessor 线程与 Vitest 单测共用，负责双路混音、纯麦 VAD 计数释放、
-// 分数相位线性插值重采样（-> 16kHz）及 S16LE 分帧批输出。
-
 export const MOSS_UPSTREAM_SAMPLE_RATE = 16000;
 export const MOSS_DOWNSTREAM_SAMPLE_RATE = 48000;
 export const MOSS_FRAME_DURATION_MS = 20;
@@ -64,12 +59,6 @@ function positiveTimeConstant(value: number | undefined, fallback: number): numb
     : fallback;
 }
 
-/**
- * 解析送往混音总线的视频支路增益节点（videoSendGain）目标值：
- * 1. 未开启视频原声共享 -> 0
- * 2. 开启共享 + AI 正在播报 + 真人未说话 -> 平滑压低至 0.06（防视频对白误触发云端 VAD）
- * 3. 开启共享 + (AI 未播报 或 真人已开口) -> 平滑恢复至正常混音比例 1
- */
 export function resolveVideoSendGainTarget(
   state: VideoSendGainState,
   options: VideoSendGainOptions = {}
@@ -127,7 +116,6 @@ export type PcmCaptureWorkletToMainMessage =
   | { type: "speech" }
   | { type: "pcm"; pcmBuffer: ArrayBuffer; hadSpeech: boolean };
 
-/** 将 [-1, 1] Float32 采样编码为小端序 PCM S16LE 字节流 */
 export function encodeFloat32ToPcmS16LE(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const buffer = new ArrayBuffer(samples.length * 2);
   const view = new DataView(buffer);
@@ -140,7 +128,6 @@ export function encodeFloat32ToPcmS16LE(samples: Float32Array): Uint8Array<Array
   return new Uint8Array(buffer);
 }
 
-/** 将小端序 PCM S16LE 字节流解码为 [-1, 1] Float32 采样 */
 export function decodePcmS16LEToFloat32(pcmBuffer: ArrayBufferLike): Float32Array {
   const sampleCount = Math.floor(pcmBuffer.byteLength / 2);
   if (sampleCount <= 0) {
@@ -155,7 +142,6 @@ export function decodePcmS16LEToFloat32(pcmBuffer: ArrayBufferLike): Float32Arra
   return out;
 }
 
-/** 单声道 Float32 线性插值重采样（例如浏览器 AudioContext 48kHz -> 16kHz） */
 export function resampleMonoFloat32(
   samples: Float32Array,
   srcSampleRate: number,
@@ -185,10 +171,6 @@ export interface Pcm16kFrameChunker {
   reset(): void;
 }
 
-/**
- * 将任意块大小的 Float32 音频流按 16kHz 连续相位重采样并按固定采样数（默认 20ms = 320 采样）切帧输出。
- * 跨量子保留小数相位与尾采样，消除 128 采样量子非整除比（48kHz->16kHz 3:1 下 128/3）时的采样率漂移与边界爆音。
- */
 export function createPcm16kFrameChunker(
   onFrame: (pcmBytes: Uint8Array<ArrayBuffer>) => void,
   batchSamples: number = MOSS_UPSTREAM_FRAME_SAMPLES

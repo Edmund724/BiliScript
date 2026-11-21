@@ -1,6 +1,3 @@
-// 输入区图片附件：粘贴时同步占位，压缩后原位填充；发送按快照消费，
-// 保留等待期间新增的图片及其在途压缩。
-
 import type { ImagePart } from "../ai/types.js";
 import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import {
@@ -27,7 +24,6 @@ export interface PasteEventLike {
 export interface ChatInputImagesDeps {
   strip: HTMLElement | null;
   compress?: (blob: Blob) => Promise<CompressedImage>;
-  // 流式生成中不接受新图片；字幕等待期间仍可粘贴。
   isStreaming?: () => boolean;
   onReject: (message: string) => void;
   onPendingChange?: (pending: boolean) => void;
@@ -86,8 +82,6 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
   const compress = deps.compress || createImageCompressor().compress;
   const viewer = createChatImageViewer();
   let attachments: Attachment[] = [];
-  // clear 与无快照的 takeImages 递增附件区世代号，作废此前在途压缩；按快照
-  // 消费不递增，等待期间新粘贴的图片可以正常落位。
   let generation = 0;
   let nextId = 1;
   let pendingUi = false;

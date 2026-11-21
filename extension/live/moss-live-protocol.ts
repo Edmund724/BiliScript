@@ -1,14 +1,3 @@
-// extension/live/moss-live-protocol.ts
-// MOSS-LIVE 全双工实时对话协议定义与二进制编解码工具。
-// 官方实时接口规范：wss://api.mosi.cn/v1/realtime?model=moss-live-1.0
-//
-// 上行二进制帧（tagged-v1 协议）：
-// 首字节为通道标签（Tag）：
-//   0x00: 单声道 PCM S16LE 音频（16 kHz，每帧 20 ms = 320 采样 = 640 字节，加 1 字节 Tag 共 641 字节）
-//   0x01: 摄像头画面帧（JPEG）
-//   0x02: 屏幕/视频共享帧（JPEG）
-// 后续字节为原始 payload。
-
 import { formatClock } from "../shared/clock-text.js";
 import {
   MOSS_DOWNSTREAM_SAMPLE_RATE,
@@ -62,7 +51,6 @@ export const DEFAULT_MOSS_LIVE_WS_URL = "wss://api.mosi.cn/v1/realtime?model=mos
 export const MOSS_LIVE_PORT_NAME = "offscreen-moss-live";
 export const MAX_MOSS_RECONNECT_ATTEMPTS = 3;
 export const DEFAULT_MOSS_RECONNECT_DELAY_MS = 500;
-/** 会话附着握手等待上限 */
 export const DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS = 10000;
 
 export {
@@ -78,7 +66,6 @@ export {
   type Pcm16kFrameChunker
 };
 
-/** 打包 tagged-v1 二进制帧（首字节 Tag + 原始二进制 Payload） */
 export function packTaggedBinary(
   tag: MossBinaryTag,
   payload: ArrayBufferLike | Uint8Array
@@ -90,7 +77,6 @@ export function packTaggedBinary(
   return out;
 }
 
-/** 解包 tagged-v1 二进制帧 */
 export function unpackTaggedBinary(data: ArrayBufferLike): { tag: MossBinaryTag; payload: Uint8Array } | null {
   if (data.byteLength < 1) return null;
   const view = new Uint8Array(data);
@@ -100,10 +86,6 @@ export function unpackTaggedBinary(data: ArrayBufferLike): { tag: MossBinaryTag;
   };
 }
 
-/**
- * 将二进制字节编码为 Base64 字符串，用于跨 chrome.runtime Port 传输
- * （Chrome 消息通道使用 JSON 序列化，直接传 Uint8Array/ArrayBuffer 会退化为普通对象）。
- */
 export function encodeBase64Bytes(bytes: Uint8Array | ArrayBufferLike): string {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (view.byteLength === 0) return "";
@@ -116,7 +98,6 @@ export function encodeBase64Bytes(bytes: Uint8Array | ArrayBufferLike): string {
   return btoa(binary);
 }
 
-/** 将 Base64 字符串解码为 Uint8Array */
 export function decodeBase64Bytes(base64: string): Uint8Array<ArrayBuffer> {
   if (!base64 || typeof base64 !== "string") {
     return new Uint8Array(0);
@@ -133,7 +114,6 @@ export function decodeBase64Bytes(base64: string): Uint8Array<ArrayBuffer> {
   }
 }
 
-/** 由 baseUrl 与 model 计算 WebSocket 连接地址 */
 export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
   const rawUrl = String(baseUrl || "").trim() || "https://api.mosi.cn";
   const selectedModel = String(model || "").trim() || "moss-live-1.0";
@@ -145,7 +125,6 @@ export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
     if (!path || path === "/") {
       path = "/v1/realtime";
     } else if (path.endsWith("/realtime")) {
-      // keep
     } else if (path.endsWith("/v1")) {
       path = path + "/realtime";
     } else {
@@ -160,7 +139,6 @@ export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
 export const DEFAULT_GEMINI_LIVE_WS_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
-/** 由 baseUrl 计算 Gemini Live BidiGenerateContent WebSocket 连接地址 */
 export function resolveGeminiLiveWsUrl(baseUrl?: string): string {
   const rawUrl = String(baseUrl || "").trim() || "https://generativelanguage.googleapis.com";
   try {
@@ -173,10 +151,6 @@ export function resolveGeminiLiveWsUrl(baseUrl?: string): string {
   }
 }
 
-/**
- * 推导实时伴看平台所需的双协议（HTTP(S) + WS(S)）权限源地址对。
- * Chromium DNR modifyHeaders 拦截 WebSocket 握手要求扩展同时持有 http(s):// 与 ws(s):// 源权限。
- */
 export function resolveMossLivePermissionOrigins(
   baseUrl?: string,
   model?: string,
@@ -206,10 +180,6 @@ export function resolveMossLivePermissionOrigins(
 
 export const resolveLivePermissionOrigins = resolveMossLivePermissionOrigins;
 
-/**
- * MOSS-LIVE 前台轻量工具清单。客户端通过 session.update.session.tools 声明，
- * 接收 tool.call / response.function_call_arguments.done 后在本地执行播放器控制与局部字幕查询。
- */
 export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     type: "function",
@@ -274,7 +244,6 @@ export type MossLiveOverviewPhase = (typeof MOSS_LIVE_OVERVIEW_PHASES)[number];
 export interface MossLiveOverviewChapter {
   from: number;
   to: number;
-  /** 真实时刻文本（formatClock 单源），引用章节时原样保留。 */
   time: string;
   title: string;
   summary: string;
@@ -286,20 +255,14 @@ export interface MossLiveOverviewQuote {
   content: string;
 }
 
-/**
- * 伴看上下文的概览事实面：只承载回答全片问题所需的简介、章节脉络、金句与
- * 覆盖完整性，不携带完整字幕或每秒变化的生成进度。
- */
 export interface MossLiveOverviewContext {
   phase: MossLiveOverviewPhase;
-  /** complete 仅当整份概览完整；partial = 分段或简介失败；none = 无可用产物。 */
   coverage: "complete" | "partial" | "none";
   summary: string;
   chapters: MossLiveOverviewChapter[];
   quotes: MossLiveOverviewQuote[];
   failedRanges?: Array<{ from: number; to: number }>;
   summaryFailed?: boolean;
-  /** 未就绪/不完整时的如实说明与等待、重试方式；ready 完整覆盖时为空串。 */
   statusText: string;
 }
 
@@ -316,7 +279,6 @@ export interface MossLiveVideoContext {
   compressedSummaryMarkdown?: string;
 }
 
-/** 直播间伴看上下文：只有房间号与展示信息，没有视频身份、字幕与概览。 */
 export interface MossLiveRoomContext {
   kind: "live-room";
   url: string;
@@ -339,7 +301,6 @@ export interface MossLiveVideoIdentity {
   pageIndex: number;
 }
 
-/** 工具调用携带的视频身份；直播间与未就绪上下文都没有视频身份。 */
 export function toolCallVideoIdentity(
   context: MossLiveSessionContext | null | undefined
 ): MossLiveVideoIdentity | null {
@@ -355,7 +316,6 @@ export interface MossLiveToolCall {
   video?: MossLiveVideoIdentity | null;
 }
 
-/** 建立或刷新伴看会话的 session.update 载荷。 */
 export interface MinimalSessionUpdatePayload {
   action: "session.update";
   session: {
@@ -413,7 +373,6 @@ export function buildMinimalSessionUpdatePayload(
   };
 }
 
-/** 会话建立后的客户端上下文上报：只带设备时区，不上报设备位置。 */
 export interface ClientContextUpdatePayload {
   action: "client_context.update";
   context: {
@@ -430,7 +389,6 @@ export function buildClientContextUpdatePayload(
   };
 }
 
-/** 双端字幕与回合生命周期事件（经 Offscreen 转发至页面侧归并器） */
 export type MossLiveTranscriptEvent =
   | { kind: "input.updated"; text: string }
   | { kind: "input.done"; text: string }
@@ -458,7 +416,6 @@ export interface MossLiveDelegationRequest {
   timeRange?: { startSec?: number; endSec?: number };
 }
 
-/** change_voice 载荷：voice_name 为音色列表返回的 data[].id（官方文档字段名）。 */
 export interface ChangeVoicePayload {
   action: "change_voice";
   voice_name: string;
@@ -468,7 +425,6 @@ export function buildChangeVoicePayload(voiceId: string): ChangeVoicePayload {
   return { action: "change_voice", voice_name: String(voiceId || "").trim() };
 }
 
-/** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
   | { kind: "voice_changed"; voiceId: string }
@@ -505,7 +461,6 @@ function readStr(data: Record<string, unknown> | null, obj: Record<string, unkno
   return "";
 }
 
-/** 解析 MOSS-LIVE WebSocket 下行 JSON 消息 */
 export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | null {
   const obj = asRecord(raw);
   if (!obj) return null;
@@ -523,7 +478,6 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       return { kind: "session_attached", sessionId };
     }
     case "voice_changed": {
-      // 官方文档：data.name 为当前会话设置成功的音色 ID；兼容 voice_name / voice_id 变体。
       const voiceId =
         readStr(data, obj, "name") || readStr(data, obj, "voice_name") || readStr(data, obj, "voice_id");
       return { kind: "voice_changed", voiceId };
@@ -546,7 +500,6 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       };
     }
     case "media.configured": {
-      // 回执原样透传：逐字段归一化由适配器完成，缺省字段以请求档位补齐。
       const error = readStr(data, obj, "error");
       const video = asRecord(data?.video) ?? asRecord(obj.video) ?? {};
       return {
@@ -671,7 +624,6 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
   }
 }
 
-/** Offscreen 端口上行（Client -> Offscreen）消息 */
 export type MossLiveClientAction =
   | {
       action: "start";
@@ -707,7 +659,6 @@ export type MossLiveClientAction =
   | { action: "user_text"; text: string; jpegBase64?: string }
   | { action: "mic_state"; enabled: boolean };
 
-/** Offscreen 端口下行（Offscreen -> Client）消息 */
 export interface LiveReconnectingEvent {
   type: "reconnecting";
   attempt: number;
@@ -745,9 +696,6 @@ export interface LiveCloseDiagnosticsOptions {
   error?: string;
 }
 
-/**
- * 格式化伴看连接诊断；外部 reason/error 不进入用户反馈，仅保留安全关闭码与重连进度。
- */
 export function formatLiveCloseDiagnostics(options: LiveCloseDiagnosticsOptions): string {
   const rawCode = typeof options.code === "number" ? options.code : String(options.code || "").trim();
   const safeCode = typeof rawCode === "number"

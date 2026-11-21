@@ -1,5 +1,3 @@
-// extension/reader/chat-live-bridge.ts — 实时伴看接线、状态条与设置直达桥接切片。
-
 import {
   ensureLiveController,
   getLiveController,

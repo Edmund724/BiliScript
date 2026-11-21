@@ -1,12 +1,3 @@
-// extension/reader/asr-translation.ts
-// 译文副轨（ASR 伪轨 / 单语种原生轨 / 多轨手动精翻覆盖）：面板侧的启动、中止、目标语言
-// 同族过滤与列投影模型。
-//
-// 分工：真正的分片调度、缓存覆盖判定、逐片翻译与写槽在链层
-//（subtitle/asr-translation.ts，经 subtitle/lazy 的 chain 暴露）；本模块是
-// 轻叶子，只持有「在飞、进度、是否开启手动 AI 精翻覆盖」面板要同步读取的事实，
-// 并负责偏好写入与用户动作编排。
-
 import {
   state,
   clipState,
@@ -79,7 +70,6 @@ export function normalizeAsrTranslationLang(
   return resolveTargetLang(sourceLan, value);
 }
 
-// ===== 在飞、进度与手动精翻覆盖（本模块持有）=====
 let activeAbort: AbortController | null = null;
 let progress: { total: number; done: number; failed: number } = { total: 0, done: 0, failed: 0 };
 let startRequested = false;
@@ -120,12 +110,6 @@ export function setAiRefineOverride(enabled: boolean): void {
   aiRefineVideoKey = enabled ? currentVideoKey() : "";
 }
 
-/**
- * 判定当前视频是否走 AI 译文副轨模式：
- * 1) 存在跨语种多轨但用户显式开启了「AI 精翻」覆盖；
- * 2) 存在 ASR 伪轨且原生可配对跨语种轨不足；
- * 3) 原生轨全属同一语种族（单条 `en-US`、单条 `zh-CN`、或 `zh-Hans` + `zh-Hant` 同族多轨）。
- */
 export function isTranslationSecondaryScenario(
   tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string }> | null | undefined = state.clip.subtitles
 ): boolean {
@@ -269,12 +253,6 @@ export function selectAsrTranslationLanguage(value: unknown): void {
   void ensureAsrTranslation("translate");
 }
 
-/**
- * 在跨语种多轨视频中激活 AI 精翻覆盖：
- * - `preferManualForeignSource = true`（场景 C：`en-US` + `ai-zh`）：若当前主轨非原版人工外语轨，
- *   先将主轨切到该人工外语轨，并以中文（`zh` / `zh-CN`）作为精翻目标生成独立缓存副轨；
- * - 常规多轨覆盖（场景 A：「改用 AI 重新精翻」）：保持当前主轨，按同族过滤后的目标语言发起精翻。
- */
 export async function activateAiTranslationRefine(options?: {
   preferManualForeignSource?: boolean;
 }): Promise<AsrTranslationEnsureResult> {
@@ -307,7 +285,6 @@ export async function activateAiTranslationRefine(options?: {
     const target = resolveTrackTarget(foreignTrack, tracks);
     const chain = await ensureSummarizeChain();
     await chain.loadSubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
-    // 换主轨后同步刷新 contextKey，避免 ensureAsrTranslation 把本次覆盖重置
     contextKey = currentContextKey();
   } else {
     await triggerSubtitleSessionBoundary("processing-switch");

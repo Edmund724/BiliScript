@@ -183,7 +183,6 @@ export function createWebSpeechEngine(
   synth: SpeechSynthesis | undefined = typeof window !== "undefined" ? window.speechSynthesis : undefined,
   createUtterance: (text: string) => SpeechSynthesisUtterance = (text) => new SpeechSynthesisUtterance(text)
 ): ChatSpeechEngine {
-  // 保持当前活动 utterance 引用，防止未触发 onend 前被 GC 提前回收
   let activeUtterance: SpeechSynthesisUtterance | null = null;
   let cachedNativeVoices: SpeechSynthesisVoice[] = [];
   const pendingVoiceWaiters = new Set<() => void>();
@@ -343,10 +342,6 @@ export interface DefaultSpeechEngineDeps {
   createWebEngine?: () => ChatSpeechEngine;
 }
 
-/**
- * 组合语音引擎：默认通过后台端口使用 `chrome.tts`，当后台返回 `TTS_UNSUPPORTED`
- * 或缺少端口连接能力时释放主端口适配器并无缝切换缓存的 `createWebSpeechEngine()`。
- */
 export function createDefaultSpeechEngine(deps: DefaultSpeechEngineDeps = {}): ChatSpeechEngine {
   const createChromeEngine = deps.createChromeEngine ?? (() => createChromeSpeechEngine());
   const createWebEngine = deps.createWebEngine ?? (() => createWebSpeechEngine());

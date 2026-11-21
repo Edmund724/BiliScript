@@ -1,7 +1,3 @@
-// extension/live/live-provider-store.ts
-// 实时伴看平台的 Provider/Key 存储、归一化与预设定义。
-// 平台列表存储在 chrome.storage.sync，自有 API Key 存储在 chrome.storage.local。
-
 import { normalizeBaseUrl } from "../core/presets.js";
 import { createProviderStore } from "../core/provider-store.js";
 
@@ -26,7 +22,6 @@ export interface LiveProvider {
   enabled: boolean;
   apiKey?: string;
   liveGeminiNativeSearch?: boolean;
-  // 会话音色（仅 MOSS-LIVE）：音色列表返回的 voice id，空/缺省 = 平台默认音色。
   voiceId?: string;
 }
 

@@ -1,8 +1,3 @@
-// extension/live/moss-audio-player.ts
-// Offscreen MOSS-LIVE 下行 48kHz 单声道 PCM S16LE 无缝队列播放器与回合进度追踪器。
-// 封装 AudioContext 创建/恢复/销毁、共享输出增益、元数据与二进制音频帧配对排程、
-// 局部打断停播，以及 playback.chunk.completed / playback.completed / playback.stopped 回执发射。
-
 import {
   MOSS_DOWNSTREAM_SAMPLE_RATE,
   decodePcmS16LEToFloat32
@@ -444,7 +439,6 @@ export class MossAudioPlayer {
   }
 
   interruptActiveTurns(): Array<{ runId: string; turnId: string }> {
-    // 保留 pendingAudioContexts 槽位并标 discard，以 1:1 吸收并丢弃跨打断边界晚到的分离二进制帧。
     for (const context of this.pendingAudioContexts) {
       context.discard = true;
     }

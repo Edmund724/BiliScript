@@ -1,7 +1,3 @@
-// extension/chat/chat-stream-render.ts — chat 消息 DOM 渲染/滚动/水合门面
-// 组合 extension/chat/render/* 六个子模块，向 chat-runtime / replay 提供窄门面。
-// 所有按节点/实例隔离的 WeakMap 与帧调度状态均封装在各控制器工厂闭包内，实例间互不共享。
-
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { ImagePart } from "../ai/types.js";
 import { createChatImageViewer } from "./chat-image-viewer.js";
@@ -14,7 +10,6 @@ import { createThinkingBufferController } from "./render/thinking-buffer.js";
 import { createThoughtChainController } from "./render/thought-chain.js";
 import { createTokenStreamController } from "./render/token-stream.js";
 
-// chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染与消息操作回调。
 export interface ChatStreamRendererDeps {
   messages: HTMLElement;
   getTimestampNavDeps: () => TimestampNavDeps;
@@ -25,8 +20,6 @@ export interface ChatStreamRendererDeps {
   onSpeak?: (messageId: string, button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
-  // 消息操作反馈（导出失败等）：由装配方接到对话 tab 自己的通知通道
-  //（reader 侧 showConversationContextNotice），不借全局状态条——反馈留在对话上下文。
   onNotice?: (message: string) => void;
 }
 
@@ -54,34 +47,19 @@ export interface ChatMessageArea {
   clear: () => void;
 }
 
-// 回合节点句柄：一个助手消息节点的操作面（状态机不再出现选择器与节点创建；
-// 一代际的 token 缓冲、思考节点状态都由本句柄闭包持有）。
 export interface ChatAssistantTurn {
-  /** 助手消息节点元素 */
   node?: HTMLDivElement;
-  /** 登记本回合字幕条数（供思维链自动补齐「读取字幕」前置步骤，不单独创建 DOM）。 */
   setSubtitleContextCount?: (count: number) => void;
-  /** 灌入 token 增量（帧合批；未 flush 的增量同样进终态原文）。 */
   appendToken: (token: unknown) => void;
-  /** 灌入思考增量；并入当前回合的思维链状态条。 */
   appendThinking: (text: unknown) => void;
-  /** 获取本回合累积的思考文本。 */
   getThinking?: () => string;
-  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思维链状态条与累加器，内部自动取消挂起帧，光标归位。 */
   reset: () => void;
-  /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
   discard: () => void;
-  /** 收尾成终态形态（正文 + 操作行，自动折叠思维链为单行摘要；内部自动取消挂起帧）；返回本次渲染所用原文。 */
   finish: (opts?: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
-  /** 挂错误占位（内部自动取消挂起帧；收口在途工具并展示错误文案与可选原位重试操作）。 */
   fail: (text: string, opts?: { onRetry?: () => void; searchStatus?: "failed" | "cancelled" }) => void;
-  /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文保留已展开思维链或仅留徽标。 */
   stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
-  /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
-  /** 工具 tool-status → 汇入本回合思维链状态条。 */
   applySearchStatus: (msg: ChatToolStatusEvent) => void;
-  /** 回放：把该回合的静态检索步骤与来源合并/挂载进本节点思维链状态条。 */
   attachSearchTimelineCard: (turn: HistorySearchTurn) => void;
 }
 
@@ -91,18 +69,10 @@ export interface ChatStreamRenderer {
   messageArea: ChatMessageArea;
 }
 
-/**
- * createChatStreamRenderer(deps) — chat 消息 DOM 渲染/滚动/水合的工厂。
- *
- * 由 createChatRuntime(deps) 在工厂体内调用一次；闭包状态（自动滚动标志 /
- * flush 帧调度 / 按节点 WeakMap）随实例隔离。
- */
 export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStreamRenderer {
   const imageViewer = createChatImageViewer();
   let shouldAutoScrollMessages = true;
 
-  // instant=true 显式 behavior:"instant" 覆盖 CSS scroll-behavior:smooth，
-  // 避免流式期间与发送路径扫掠 c-v 塌缩块引发跳变（behavior:"auto" 在规范下压不住 smooth）。
   function scrollToBottom(force = false, { instant = false }: { instant?: boolean } = {}): void {
     if (!force && !shouldAutoScrollMessages) {
       return;

@@ -1,36 +1,3 @@
-// extension/chat/conversation-store.ts
-// 会话持久化 + 上下文绑定关注点（sidepanel-split ticket #05 抽出；PR5 自
-// extension/pages/sidepanel-conversation-store.ts 迁入 chat 域，逻辑零语义改动；
-// arch-slim 工单 05：渲染面反转为能力事件，见下）。
-//
-// 本模块从 extension/pages/sidepanel.js 抽出「会话列表的存取、按视频上下文
-// 绑定/恢复、增删改」这条关注点。会话状态本体收拢在 ./chat-state.js
-// 的 chatSessionState，本模块直接 import 读写。
-//
-// 工单 05（渲染编排反转）：原 14 键 deps 里 9 个 caller 必学的渲染/行为回调
-// （renderHistoryList / renderInitialState / show·removeConversationContextNotice /
-// showConversationContextError / hideHistoryPopover / stopActiveChat）收窄为 3 个
-// 能力事件——store 自己编排渲染时机，caller 只订阅结果：
-//   - onConversationChanged(change)：会话相关状态已写入后发出；历史列表恒随
-//     事件重渲，change 标志（historyCleared / resetView）声明其余需要刷新的
-//     呈现面。上下文快照本身写进 chatSessionState，由需要它的 caller 自行读。
-//     发火点与反转前各渲染回调的位点逐一对齐：loadAll/save（仅列表）、
-//     apply/hydratePinned 成功（仅列表）、applyById/删当前/清空（列表+视图重建；
-//     清空另收 popover）。
-//     分页补水（hydrateConversationPage，opt-backlog-2026-09/05 自 hydratePages
-//     收敛）只在 restoreLatest 命中项上发起：变更经 save 落盘（列表）后 apply。
-//     （原「chip 刷新」标志 refreshContextChip 随 2026-10 删除头部标题 chip 下线。）
-//   - onStreamInterrupted()：当前会话被拆除（恢复无匹配 / 删当前会话 / 清空
-//     全部 / 新会话重启经 detachForRestart）时同步发出——必须先于任何 await
-//     落盘（原 stopActiveChat dep 的承重时序：流式身份守卫在 id 清空前依赖
-//     同步断流，防会话复活）。工单 arch-slim-2/07 把该序列收进「拆除会话」
-//     唯一事务（detachCurrent / repopulateLive 原语，见实现区注记）。
-//   - onContextNotice(notice)：上下文补水提示生命周期（pending 展示 / clear
-//     撤除 / error 展示），消息文案属补水结果，由 store 提供。
-//
-// 纯函数（`needsConversationPageHydration`）直接 export，可在无 store 实例时测试。
-// 工厂返回的窄接口仅暴露组合根真正调用的方法。
-
 import {
   buildAiContextRef,
   buildContextPlaceholder,
@@ -68,10 +35,6 @@ import {
   type ChatSessionSavedConversation
 } from "./chat-state.js";
 
-// ---------------------------------------------------------------------------
-// 本地类型契约
-// ---------------------------------------------------------------------------
-
 export interface Conversation {
   id: string;
   title: string;
@@ -85,14 +48,9 @@ export interface Conversation {
   messages: ChatSessionMessage[];
   kind?: "live-text-tool";
   records?: LiveTextToolRecord[];
-  // 反向赋值用：store 写入状态袋的存档镜像按宽形态（ChatSessionSavedConversation
-  // 的索引签名）声明，见 chat-state.ts。
   [key: string]: unknown;
 }
 
-// 历史消息压平的单点（加载/持久化两处共用）：{ role, content } 基础形状上
-// 条件透传联网搜索的 tool 字段（spec §2.5，tool 轮消息从历史重建）与图片字段
-//（image-input 路线 B；合法性判定复用 ai/conversation 的同一份）。
 function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   const base: ChatSessionMessage = { role: item.role, content: String(item.content || "") };
   const images = normalizeImageParts(item.images);
@@ -129,8 +87,6 @@ export interface ConversationMeta {
   pinnedContext: boolean;
   contextRef: AiContext | null;
   resolvedContext?: AiContext | null;
-  // 反向赋值用：store 把 currentConversationMeta 的产物写回存档条目时按
-  // ChatSessionSavedConversation 的宽形态落盘（其索引签名在 chat-state.ts）。
   [key: string]: unknown;
 }
 
@@ -142,68 +98,39 @@ export interface StorageArea {
 export interface LoadContextStateOptions {
   forceRefresh?: boolean;
   silent?: boolean;
-  // 闸内重启（发送闸调用链）保留输入框与附件区：闸内 apply-live 的 restartChat
-  // 是上下文跟随，不是用户语义上的「新会话」——带了它才不会被清场把随本条消息
-  // 附的图片吞掉（消费方是 context-load 的 restartChat 调用点）。
   preserveInput?: boolean;
 }
 
 export interface HydratePinnedOptions {
   silent?: boolean;
-  // 同上：pinned 补水内部的 loadContextState 也在发送闸调用链上。
   preserveInput?: boolean;
 }
 
-// 能力事件一：会话相关状态变更声明。历史列表恒随事件重渲；其余呈现面由标志
-// 声明（store 编排「何时」，caller 只实现「各表面怎么刷」）。
 export interface ConversationChange {
-  // 存档已整体清空（clearAll）——caller 收起历史 popover
   historyCleared?: boolean;
-  // 当前会话视图需按最新会话状态重建（applyById / 流式中删除当前会话 / clearAll）
   resetView?: boolean;
 }
 
-// 能力事件三：上下文补水提示生命周期。pending = 补水开始（applyById 载入旧会话）；
-// clear = 一次补水尝试收尾（成功失败均发，与反转前 removeConversationContextNotice
-// 的 5 个位点一致）；error = 补水失败的用户可见文案（silent 路径不发）。
 export type ConversationContextNotice =
   | { kind: "pending"; message: string }
   | { kind: "clear" }
   | { kind: "error"; message: string };
 
 export interface CreateConversationStoreDeps {
-  // ---- 上下文获取（数据面，非渲染） ----
-  // live 快照静默重取（hydratePinned 分支 2：targetKey === liveContextKey 时
-  // 先刷新 live 快照再写入，ok=false 落回网络解析）。
   loadContextState: (opts: LoadContextStateOptions) => Promise<boolean | object>;
-  // 会话引用解析单接缝（工单 05 合并原 resolveAiConversationContext /
-  // resolveAiConversationPageRef 两个同形 dep）：purpose="context" 解析整份
-  // 对话上下文（pinned 补水；组合根接工单 04 的进程内短路 + 网络复合适配器），
-  // purpose="page" 解析分页信息（restoreLatest 命中项的分页补水，
-  // opt-backlog-2026-09/05 自 hydratePages 批量收敛为单条）。
   resolveAiConversationRef: (
     contextRef: AiContext,
     purpose: "context" | "page"
   ) => Promise<Record<string, unknown>>;
-  // ---- 能力事件（store 编排渲染时机；caller 只订阅结果） ----
   onConversationChanged: (change: ConversationChange) => void;
   onStreamInterrupted: () => void;
   onContextNotice: (notice: ConversationContextNotice) => void;
-  // ---- 存储（可选；测试注入，缺省 chrome.storage.local） ----
   storage?: StorageArea;
   syncStorage?: StorageArea;
   isCleanEnabled?: () => Promise<boolean> | boolean;
-  // 清空全部历史记录前的确认通道（惯用法同 chat-runtime 的 confirmCostGuard）。
-  // 可选注入，缺省面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也
-  // 合法（Node 测试注入桩函数），clearAll 统一 await 归一。
   confirmClearAll?: (message: string) => boolean | Promise<boolean>;
 }
 
-// 工单 arch-slim-2/07 接口收窄 11→8：apply / resolveContext / hydratePages 三键
-// 摘除（全仓无外部消费方，仅 store 内部互调；实现保留为工厂内私有函数）。
-// 另有工单 D 授权的公开窄方法 detachForRestart（「拆除会话」出口四）。
-// opt-backlog-2026-09/05：私有 hydratePages 进一步收敛为 hydrateConversationPage
-// （单条，只服务 restoreLatest 命中项；loadAll 不再批量发起分页补水）。
 export interface ConversationDeletion {
   id: string;
   undo: () => Promise<void>;
@@ -220,10 +147,6 @@ export interface ConversationStore {
   detachForRestart: () => void;
   hydratePinned: (opts?: HydratePinnedOptions) => Promise<boolean>;
 }
-
-// ---------------------------------------------------------------------------
-// 纯函数（直接 export，无需 store 实例即可测试）
-// ---------------------------------------------------------------------------
 
 export function needsConversationPageHydration(conversation: Conversation | null | undefined): boolean {
   if (!conversation?.isVideoContext) {
@@ -243,12 +166,6 @@ export function needsConversationPageHydration(conversation: Conversation | null
   return Boolean(conversation.contextRef?.bvid && conversation.contextRef?.cid);
 }
 
-// ---------------------------------------------------------------------------
-// 工厂：createConversationStore(deps)
-// ---------------------------------------------------------------------------
-
-// 存档存储键与容量上限（工单 05 收窄：原 deps 可选键收进模块常量——唯一生产
-// 宿主组合根传的正是这两个值，测试无一覆盖）。
 export const CONVERSATIONS_STORAGE_KEY = HISTORY_STORAGE_KEY;
 export const CONVERSATION_RETENTION_MS = 30 * 86400 * 1000;
 
@@ -335,9 +252,7 @@ export async function cleanExpiredConversations(
   return { prunedCount, kept };
 }
 
-
 export function createConversationStore(deps: CreateConversationStoreDeps): ConversationStore {
-  // 工厂期校验（缺 dep 早失败；原为调用期 requireDep 逐点检查，单宿主下等价）
   for (const key of [
     "loadContextState",
     "resolveAiConversationRef",
@@ -351,20 +266,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
   const { loadContextState, resolveAiConversationRef, onConversationChanged, onStreamInterrupted, onContextNotice } = deps;
   const storage = deps.storage || (typeof chrome !== "undefined" && chrome?.storage?.local) || undefined;
-  // deps 注入（缺省面板内确认弹层 ui/confirm-dialog.js；Node 测试注入桩；
-  // 惯用法同 chat-runtime 的 confirmCostGuard）。
   const confirmClearAll = deps.confirmClearAll || ((message: string) => confirmDialog({ message, confirmText: "清空", danger: true }));
   const conversationsStorageKey = CONVERSATIONS_STORAGE_KEY;
   const maxSavedConversations = MAX_SAVED_CONVERSATIONS;
 
-  // 能力事件出心：change 事件统一经此发出（detail 缺省 = 仅历史列表面）
   function emitChange(change: ConversationChange = {}): void {
     onConversationChanged(change);
   }
 
-  // 存档条目的窄视图：状态袋声明的是持久化镜像的宽形态（ChatSessionSaved-
-  // Conversation，contextRef/messages 走 unknown），store 内部一律按 Conversation
-  // 消费——收窄点唯一即此。
   function saved(): Conversation[] {
     return chatSessionState.savedConversations as Conversation[];
   }
@@ -372,24 +281,11 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     setSavedConversations(next as Conversation[]);
   }
 
-  // =========================================================================
-  // 「拆除会话」唯一事务的原语（GLOSSARY.md 词条；工单 arch-slim-2/07 收口）
-  // =========================================================================
-  // 原语一 detachCurrent：清会话身份与历史。断流通知同步发出——必须先于任何
-  // await 与落盘（流式身份守卫在 id 清空前依赖同步断流，防会话复活；「断流
-  // 先于落盘」的不变式全仓只在此表达，各出口禁止手抄序列）。是否 live 回填
-  // 由各出口自行组合：restoreLatest 无匹配 / detachForRestart 不回填，
-  // deleteById 当前会话 / clearAll 在落盘后经 repopulateLive 回填。
   function detachCurrent(): void {
     onStreamInterrupted();
     detachConversationIdentity();
   }
 
-  // 原语二 repopulateLive：live 上下文回填——拆除当前会话后把活跃标签页快照
-  // （liveContextData/liveContextKey，loadContextState 维护）拷回主上下文，
-  // 让视图立刻持有最新页面上下文。无 live 快照时为无害空操作。
-  // 注意：apply 内的 live 写入不是本原语的同型体——它条件于会话键 === live 键
-  // 且额外写 meta.resolvedContext，语义不同，保持独立。
   function repopulateLive(): void {
     applyLiveContextToMain();
   }
@@ -430,14 +326,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     commitSaved(normalized);
     emitChange({});
-    // opt-backlog-2026-09/05：分页补水不再随 loadAll 对全部候选（至多 12 条）各发
-    // 一次串行视频元数据请求——首开等待从「12 次串行网络往返」降到 0；补水收敛
-    // 到 restoreLatest 命中项（见 hydrateConversationPage）。
   }
 
-  // 单条会话的分页补水（自原 hydratePages 循环体抽出，opt-backlog-2026-09/05）：
-  // 拉原视频分页元数据（bvid+cid → 第几 P / 分 P 标题），就地更新会话的
-  // title/contextUrl/contextKey/contextRef。返回是否有字段变化（变化才需落盘）。
   async function hydrateConversationPage(conversation: Conversation): Promise<boolean> {
     const contextRef = conversation.contextRef || null;
     if (!contextRef?.bvid || !contextRef?.cid) {
@@ -538,15 +428,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       doesConversationMatchCurrentContext(item, currentRef, targetContextKey)
     );
     if (!latest) {
-      // 当前会话拆除（出口一 = detachCurrent 原语：断流先于状态清空，无落盘、
-      // 无 live 回填——原编排此处不重渲列表/视图）。
       detachCurrent();
       return false;
     }
-    // opt-backlog-2026-09/05：分页补水收敛到命中项单条——首开对话 tab 不再为
-    // 至多 12 条历史会话各发一次串行视频元数据请求（恢复逻辑只消费命中项，
-    // 其余列表项保持存档原样）。补水有变更先落盘（历史列表重渲），apply 随后
-    // 再发一次 change；无变更则保持原编排的单次发火。
     if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
       await saveHydratedConversation(latest);
     }
@@ -554,7 +438,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return true;
   }
 
-  // change 缺省为空（仅历史列表重渲）；resetView 由 applyById 等会话重建入口追加。
   function apply(conversation: Conversation | null | undefined, change: ConversationChange = {}): void {
     if (!conversation) {
       return;
@@ -582,7 +465,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const liveKey = chatSessionState.liveContextKey;
     if (liveData && conversation.contextKey && conversation.contextKey === liveKey) {
       applyContextToMain({ ...liveData }, liveKey);
-      // 读-改-写依赖上一步刚落进状态袋的 meta，故仍从状态袋读回再补字段
       applyConversationIdentity({
         meta: {
           ...chatSessionState.currentConversationMeta,
@@ -600,9 +482,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!conversation || isLiveTextToolHistoryEntry(conversation)) {
       return;
     }
-    // 单次 change 声明全部呈现面（反转前为 apply 的列表刷新、随后
-    // renderInitialState 的视图重建两段；合成一次发火，最终 DOM 与原两段一致
-    //——各面均为幂等状态投影）。
     apply(conversation, { resetView: true });
     if (conversation.contextKey && conversation.contextKey !== chatSessionState.liveContextKey) {
       onContextNotice({ kind: "pending", message: "正在加载原视频上下文..." });
@@ -618,8 +497,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const conversation = saved()[index];
     const wasCurrent = id === chatSessionState.currentConversationId;
     if (wasCurrent) {
-      // 拆除当前会话（出口二 = detachCurrent 原语）：断流先于落盘——同步发出，
-      // 亦即先于下方 commitSaved 与 await save（原编排同位次序）。
       detachCurrent();
     }
     const next = saved().filter((item) => item.id !== id);
@@ -629,7 +506,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     emitChange({});
     if (wasCurrent) {
-      // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
       repopulateLive();
       emitChange({ resetView: true });
     }
@@ -672,8 +548,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       return;
     }
     commitSaved([]);
-    // 拆除当前会话（出口三 = detachCurrent 原语）：commitSaved([])（内存）→
-    // detach → await save 的次序保持（断流先于落盘）。
     detachCurrent();
     if (storage) {
       await updateConversationHistory(storage, () => []);
@@ -683,12 +557,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange({ historyCleared: true, resetView: true });
   }
 
-  // 「拆除会话」出口四：新会话重启（reader/chat-tab 的 restartChat 消费）。
-  // 公开窄方法（工单 arch-slim-2/07 D 半场）——断流双轨统一：caller 不再直调
-  // chatRuntime.resetStreamState，经本方法发出 onStreamInterrupted（组合根订阅
-  // 处是 resetStreamState 的唯一接线点），断流仍先于会话身份清空（时序与直调
-  // 时代一致）。不回填 live、不发 change——原 restartChat 编排即不重渲列表，
-  // 视图重建由 caller 在清键后自行编排（防第三轨的边界注记在 restartChat）。
   function detachForRestart(): void {
     detachCurrent();
   }
@@ -733,9 +601,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       createdAt: Number(meta?.createdAt) || now,
       updatedAt: now,
       contextRef: meta?.contextRef || buildAiContextRef(context),
-      // 落盘前的图片保留策略（04 号票）：整条历史只留最近一张图，其余摘掉
-      //（占位由请求组装期的 ai/context 现拼，不写进 content——否则历史消息
-      // 在界面上会多出一句占位文本）。
       messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item)))
     };
     const filtered = saved().filter((item) => item.id !== currentId);
@@ -839,10 +704,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
   }
 
-  // 工单 arch-slim-2/07：返回面 9 键 = 收窄 8 键（原 11 摘除 apply/resolve-
-  // Context/hydratePages——私有实现 hydratePages 后于 opt-backlog-2026-09/05
-  // 收敛为 hydrateConversationPage 单条，只服务 restoreLatest 命中项）+ 工单 D
-  // 授权的公开窄方法 detachForRestart。
   return {
     loadAll,
     isCurrent,
@@ -884,10 +745,6 @@ function areSavedConversationsEquivalent(
   return true;
 }
 
-/**
- * 将外部 storage.onChanged 传入的会话列表快照幂等合入本页内存存档镜像。
- * 内容等价时直接返回 false，消除本页自写回声导致的重复重渲。
- */
 export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
   const next = normalizeConversations(rawValue) as Conversation[];
   if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
