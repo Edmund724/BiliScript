@@ -1,12 +1,3 @@
-// 构建期 Firefox Manifest 派生纯函数模块（ADR-0028 / 工单 01）。
-//
-// 设计原则：
-//   - extension/manifest.json 维持 Chromium 120 单一事实源；
-//   - 本模块提供纯函数 deriveFirefoxManifest 与官方 HTTPS 预设提取函数，
-//     供 scripts/build.js --target=firefox 与 Vitest 单测直接复用；
-//   - 不依赖静态手抄域名表：build 时从 extension/core/presets.ts 实时加载
-//     PRESETS（含 protocolBaseUrls）与 ASR_PROVIDER_PRESETS，自动合并去重。
-
 const path = require("path");
 
 const DEFAULT_PRESETS_PATH = path.join(__dirname, "..", "extension", "core", "presets.ts");
@@ -22,10 +13,6 @@ const FIREFOX_GECKO_SETTINGS = Object.freeze({
   }),
 });
 
-/**
- * 将单个预设 URL 归一化为无端口 HTTPS host permission（`${protocol}//${hostname}/*`）。
- * 非 https 协议、空串、非法 URL 及 localhost/127.0.0.1 返回 null。
- */
 function toOfficialHttpsHostPattern(rawUrl) {
   const trimmed = typeof rawUrl === "string" ? rawUrl.trim() : "";
   if (!trimmed) return null;
@@ -40,16 +27,6 @@ function toOfficialHttpsHostPattern(rawUrl) {
   return `${parsed.protocol}//${parsed.hostname}/*`;
 }
 
-/**
- * @typedef {{ id?: string; baseUrl?: string; protocolBaseUrls?: Record<string, string | undefined> }} PresetLike
- */
-
-/**
- * 从 PRESETS（含 protocolBaseUrls）与 ASR_PROVIDER_PRESETS 提取全部官方 HTTPS 预设域。
- * @param {readonly PresetLike[]} [presets]
- * @param {readonly PresetLike[]} [asrPresets]
- * @returns {string[]}
- */
 function extractOfficialHttpsHostPermissions(presets, asrPresets) {
   const collected = new Set();
 
@@ -71,9 +48,6 @@ function extractOfficialHttpsHostPermissions(presets, asrPresets) {
   return [...collected];
 }
 
-/**
- * 在 Node CJS 构建期环境编译并读取 extension/core/presets.ts 的 PRESETS 与 ASR_PROVIDER_PRESETS。
- */
 function loadExtensionPresets(presetsPath = DEFAULT_PRESETS_PATH) {
   const esbuild = require("esbuild");
   const result = esbuild.buildSync({
@@ -100,13 +74,7 @@ function loadExtensionPresets(presetsPath = DEFAULT_PRESETS_PATH) {
   return { presets: PRESETS, asrPresets: ASR_PROVIDER_PRESETS };
 }
 
-/**
- * 纯函数：由 Chromium manifest 与 presets.ts 数据派生桌面端 Firefox 153+ manifest。
- * 不修改入参对象。
- * @param {Record<string, any>} chromiumManifest
- * @param {{ presets?: readonly PresetLike[]; asrPresets?: readonly PresetLike[] }} [options]
- */
-function deriveFirefoxManifest(chromiumManifest, { presets = [], asrPresets = [] } = {}) {
+function deriveFirefoxManifest(chromiumManifest, { presets, asrPresets } = {}) {
   const derived = JSON.parse(JSON.stringify(chromiumManifest));
 
   delete derived.minimum_chrome_version;
@@ -151,9 +119,6 @@ function deriveFirefoxManifest(chromiumManifest, { presets = [], asrPresets = []
   delete nextSettings.gecko_android;
   derived.browser_specific_settings = nextSettings;
 
-  // Firefox MV3 默认 extension_pages CSP 含 upgrade-insecure-requests，会将后台对本机
-  // Agent Bridge（ws://127.0.0.1）与本地模型服务（http://localhost）的连接强制升级为
-  // wss:///https:// 导致握手失败；显式声明 script-src 'self' 仅解除该自动升级。
   derived.content_security_policy = {
     ...(derived.content_security_policy ?? {}),
     extension_pages:

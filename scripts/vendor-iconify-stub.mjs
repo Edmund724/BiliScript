@@ -1,11 +1,3 @@
-// 最小 @iconify/utils 替身（体积裁剪）：mermaid rendering-util/icons.ts 只用到
-// stringToIcon / getIconData / iconToSVG / iconToHTML / replaceIDs 五个导出。
-// 产品侧不注册任何图标包（icon: 配置为空），getRegisteredIconData 会先抛
-// "Icon set not found"，随后 icons.ts 内部降级为 unknownIcon 占位问号——stub
-// 保住这条降级路径不崩即可，语义照 @iconify/utils 1.x 做了忠实简化。经 esbuild
-// alias（vendor-mermaid-slim.mjs 探针轮 + build-content.js 轮 B）接入，砍掉
-// ~240KB 的 @iconify/utils 依赖树。
-
 let idCounter = 0;
 
 export function stringToIcon(value, _validate = false, allowSimpleNames = false) {

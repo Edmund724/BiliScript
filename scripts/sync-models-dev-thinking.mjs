@@ -1,40 +1,3 @@
-// 构建期生成思考事实产物（工单 upstream-model-facts/02）。
-//
-// 抓 https://models.dev/api.json，读 12 个上游 provider 的 `reasoning_options`，
-// 归一成值集并去重，产出 extension/ai/catalog/models-dev-thinking.generated.ts：
-//   - VALUESETS：值集常量表（稳定 id + 结构 + 人可读 label）；
-//   - ASSIGNMENTS：(上游 provider, modelId) → valuesetId 的指派表。
-// 产物是零 import 的叶子模块，提交进仓库；构建只做打包，不在构建时现场生成。
-//
-// 与 01（UI 目录）的分工：01 只带展示字段，刻意裁掉 reasoning_options；本脚本是
-// 思考事实的唯一读点。两者共用 scripts/models-dev-upstream-providers.mjs 的 12 家映射，
-// 口径必须一致。
-//
-// 三条纪律：
-//   1. 不猜上游没有的值：词表为空就标「未知词表」（查表函数返回 null，请求侧不发参），
-//      宁可 fail-closed 也不臆造档位；
-//   2. 生成期对账：模型总数 / reasoning 数 / 有词表数 / 缺口数 / effort 值集数不是常量
-//      就 fail（上游漂移必须吵，不能悄悄换一份产物）；
-//   3. 重跑幂等：产物里没有生成/抓取时间戳，同一份上游数据两次输出字节相同。
-//
-// 用法：
-//   pnpm catalog:sync:thinking
-//   node scripts/sync-models-dev-thinking.mjs \
-//     [--input <path|url>] [--out <path>] [--expect-counts a/b/c/d/e] \
-//     [--aliases <path|none>] [--redirects <path|none>] [--overrides <path|none>]
-//     [--off-declarations <path|none>] [--report <path>] [--matrix <path>]
-//
-//   --input          读本地 api.json 快照（默认直连 https://models.dev/api.json）。
-//   --out            产物落点（默认 extension/ai/catalog/models-dev-thinking.generated.ts）。
-//   --expect-counts  对账常量，形如 `<模型数>/<reasoning 数>/<有词表数>/<缺口数>/<effort 值集数>`；
-//                    只给 fixture 用，生产不许改（改了等于关掉对账）。
-//   --aliases        显式别名表（默认脚本里的 MODEL_ID_ALIASES；`none` = 不加载）。
-//   --redirects      canonical 重定向表（默认脚本里的 CANONICAL_MODEL_REDIRECTS；`none` = 不加载）。
-//   --overrides      值集覆盖表（默认脚本里的 VOCABULARY_OVERRIDES；`none` = 不加载）。
-//   --off-declarations 能力补声明表（默认脚本里的 OFF_CAPABILITY_DECLARATIONS；`none` = 不加载）。
-//   --report         另把本次 sync 的摘要 + 63 个缺口的逐条处理写成文件。
-//   --matrix         另把逐 (provider, 模型, 档位空间) 矩阵写成 TSV（后续 golden 的数据来源）。
-
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -44,9 +7,6 @@ import { DEFAULT_SOURCE, UPSTREAM_PROVIDERS } from "./models-dev-upstream-provid
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MODULE_FILE = "extension/ai/catalog/models-dev-thinking.generated.ts";
 
-// 上游 reasoning_options 只有这三种类型（spec §上游形态：toggle 205 / effort 194 /
-// budget_tokens 43）。出现第四种必须吵：静默丢掉一种等于对整批模型丢档。
-// 每种类型的合法键也在下面钉死（上游加新键 = 形状漂移）。
 const OPTION_KEYS = {
   toggle: ["type"],
   effort: ["type", "values"],
@@ -54,18 +14,8 @@ const OPTION_KEYS = {
 };
 const REASONING_OPTION_TYPES = new Set(Object.keys(OPTION_KEYS));
 
-// effort 档位词表（spec 实测 30 种值集只用这些词）。上游新增词必须吵：UI 的三档
-// 投影（05/06 号票）按词表认档，静默接受新词会让投影悄悄掉档。
 const EFFORT_VOCABULARY = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-// 显式别名表（spec 裁定 13：精确匹配 + 折叠大小写 + 别名表）。一张表两个用途：
-//   1. 查表兜底：请求里的本仓/历史口径 id → 上游 id 的同一份事实；
-//   2. 缺词表补录：上游该网关没有 canonical_model_id 可借时，按上游 id 借原生词表。
-// 每条必须写清上游 id 与理由（可审）。生成期校验：目标模型必须存在且有 reasoning_options，
-// 否则 fail —— 别名指错等于静默落空（fail-closed 的兜底是「未知词表」，不是猜档位）。
-// 刻意不做的：openrouter 的 `:batch` / `:free` / `auto` 变体（上游没有对应 id，有 78 个），
-// modelscope 的 `Qwen/…` 命名空间 id（上游 alibaba-cn 没有同名 id，见 --report 的缺口清单）
-// —— 这些一律落「未知词表」，不臆造映射。
 const MODEL_ID_ALIASES = [
   {
     provider: "kimi-code-plan-cn",
@@ -105,11 +55,6 @@ const MODEL_ID_ALIASES = [
   }
 ];
 
-// canonical 重定向表（13 号票裁定 2）：行的 canonical_model_id 指向上游**并不存在**的 id 时，
-// 改借另一条上游记录的词表。取值序见 compileFacts 第一遍：direct 非空时先查 canonical
-// （→ 本表 → 目标词表）；本表让悬空指针落到真实存在的目标上。
-// 与 MODEL_ID_ALIASES 同纪律：每条必须写清上游依据（可审），生成期逐条 fail-loud 校验
-// redirect 目标存在且有 reasoning_options —— 指错等于静默落空，宁可硬错也不猜档位。
 const CANONICAL_MODEL_REDIRECTS = [
   {
     canonical: "deepseek/deepseek-v4.1-flash",
@@ -147,15 +92,6 @@ const CANONICAL_MODEL_REDIRECTS = [
   }
 ];
 
-// 值集覆盖表（19 号票裁定 3）：本仓显式声明「这一行的档位词表主人是另一条上游记录」。
-// 与 CANONICAL_MODEL_REDIRECTS 的分工：后者修的是**指针指向**（上游 canonical_model_id 悬空，
-// 换到同族真实存在的目标）；本表修的是**这一行归谁**——指针没有、或有但不足以代表该网关事实时。
-// 与 MODEL_ID_ALIASES 的分工：别名只对**缺口行**生效（运行期也只在指派表未命中时才查，
-// 见 resolveThinkingKey），对已有 direct 词表的行是死条目；本表在有 direct 词表时就生效。
-// 取值序（19 号票）：本表 > canonical_model_id（13 号票）> direct —— 本表插在最前，
-// 所以「本仓声明的词表主人」压过上游自己写的那一行（两表指向同一条时二者同值，无矛盾）。
-// 纪律同前两张表：每条必须写清上游依据（可审），生成期逐条 fail-loud 校验「被覆盖的行确实存在」
-// 与「目标存在且有 reasoning_options」——覆盖指错等于静默发错档位，宁可硬错也不猜。
 const VOCABULARY_OVERRIDES = [
   {
     key: "opencode-go/deepseek-v4-pro",
@@ -171,24 +107,8 @@ const VOCABULARY_OVERRIDES = [
   }
 ];
 
-// 能力补声明表（D1=A2，2026-10-05 用户裁定；本仓第一次「能力补声明」）：本仓显式给**一行**补上
-// 它缺失的 off 能力（结构里插一个 {"type":"toggle"}），不改词表主人、不改档位词表。
-// 与三张既有表的分工：MODEL_ID_ALIASES 管 id 解析（本仓/历史口径 → 上游 id）、
-// CANONICAL_MODEL_REDIRECTS 管**指针指向**（悬空 canonical → 真实目标）、
-// VOCABULARY_OVERRIDES 管**归属**（这一行的词表主人是另一条上游记录）；
-// **本表是第一次「能力补声明」** —— 词表主人不动（仍是这一行自己，canonical 子行照旧继承），
-// 只把它缺失的 off 写点来源补进上游事实，使上游投影与本仓既有口径一致。
-// 纪律同前三张表：每条必须写清依据（可审），生成期逐条 fail-loud 校验三件事（见 compileFacts）：
-//   ① key 形状合法、存在于快照、reasoning_options 非空；
-//   ② 该行**当前不得**已有 toggle —— 上游将来补上就硬报错提醒删除本条（**自退役**）；
-//   ③ 增强后的 effort 词表必须等于声明里写的期望值 —— 上游改词表时硬报错，防静默漂移。
 const OFF_CAPABILITY_DECLARATIONS = [];
 
-// 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
-// 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量与 spec
-// （产物事实面由 tests/ai/thinking-upstream-facts.test.ts 逐行钉住）。
-// effortSets 是**派生计数**（被引用值集里的 effort 词表去重），不等于上游原始的
-// effort 值集种数（见 spec §上游形态）。
 const EXPECTED_COUNTS = {
   models: 600,
   reasoning: 451,
@@ -242,8 +162,6 @@ function parseArgs(argv) {
   return options;
 }
 
-// 重定向表来源：默认脚本里的 CANONICAL_MODEL_REDIRECTS（本仓事实，生产路径）；fixture 用
-// 小表，`none` = 不加载（同 --aliases 的纪律）。表里的条目生成期逐条校验（见 compileFacts）。
 function loadRedirects(option) {
   if (option === null) {
     return CANONICAL_MODEL_REDIRECTS;
@@ -276,8 +194,6 @@ function loadRedirects(option) {
   return parsed;
 }
 
-// 值集覆盖表来源：默认脚本里的 VOCABULARY_OVERRIDES（本仓事实，生产路径）；fixture 用小表，
-// `none` = 不加载（只跑 canonical 优先 + direct 回落路径）。表里的条目生成期逐条校验。
 function loadOverrides(option) {
   if (option === null) {
     return VOCABULARY_OVERRIDES;
@@ -310,8 +226,6 @@ function loadOverrides(option) {
   return parsed;
 }
 
-// 能力补声明表来源：默认脚本里的 OFF_CAPABILITY_DECLARATIONS（本仓事实，生产路径）；fixture
-// 用小表，`none` = 不加载（fixture 快照里没有这些行，默认表会触发校验①硬错）。
 function loadOffDeclarations(option) {
   if (option === null) {
     return OFF_CAPABILITY_DECLARATIONS;
@@ -351,8 +265,6 @@ function loadOffDeclarations(option) {
   return parsed;
 }
 
-// 别名表来源：默认脚本里的 MODEL_ID_ALIASES（本仓事实，生产路径）；fixture 用小表，
-// `none` = 不加载（只跑 canonical 借词路径）。表里的条目生成期逐条校验。
 function loadAliases(option) {
   if (option === null) {
     return MODEL_ID_ALIASES;
@@ -385,7 +297,6 @@ function loadAliases(option) {
   return parsed;
 }
 
-// `<模型数>/<reasoning 数>/<有词表数>/<缺口数>/<effort 值集数>`
 function parseExpectCounts(value) {
   const parts = String(value).split("/");
   const keys = ["models", "reasoning", "withOptions", "gaps", "effortSets"];
@@ -422,7 +333,6 @@ async function readSnapshot(input) {
   return fs.readFileSync(input, "utf8");
 }
 
-// 值集 id 文法（产物头注释同源）："toggle" / effort 档位以 "-" 连接 / "b" 或 "b:<min>-<max>"。
 function slugOf({ toggle, effort, budget }) {
   const parts = [];
   if (toggle) parts.push("toggle");
@@ -437,8 +347,6 @@ function slugOf({ toggle, effort, budget }) {
   return parts.join("+");
 }
 
-// label 沿用 ai/thinking-profiles.ts 的 CLASSES 命名（hybrid/always/switch/effort/budget/none）：
-// 关得掉（有开关，或 effort 词表含 none）→ hybrid，关不掉 → always；后接机制词。
 function labelOf({ toggle, effort, budget, off }) {
   const parts = [off === null ? "always" : "hybrid"];
   if (toggle) parts.push("switch");
@@ -448,7 +356,6 @@ function labelOf({ toggle, effort, budget, off }) {
   return parts.join("-");
 }
 
-// 把上游 reasoning_options 归一成内部值集结构。任何形状越界都 fail（见文件头纪律 1、2）。
 function normalizeOptions(where, options) {
   if (!Array.isArray(options) || options.length === 0) {
     fail(`${where}: reasoning_options 不是非空数组（收到 ${JSON.stringify(options)}）`);
@@ -489,8 +396,6 @@ function normalizeOptions(where, options) {
       effort = [...values];
       continue;
     }
-    // budget_tokens：min/max 都可选，给了就必须是非负整数（上游用 min: 0 表示没有
-    // 下界，如 alibaba-cn/qwen3.8-max 的 { min: 0, max: 262144 }）。
     budget = {};
     for (const key of ["min", "max"]) {
       const value = option[key];
@@ -507,12 +412,10 @@ function normalizeOptions(where, options) {
   if (effort && new Set(effort).size !== effort.length) {
     fail(`${where}: effort 词表有重复档位（${effort.join("/")}）。`);
   }
-  // 归一后的结构：三种可共存（spec §范围 1）。
   const off = toggle ? "toggle" : effort && effort.includes("none") ? "effort-none" : null;
   return { toggle, effort, budget, off };
 }
 
-// 取上游 provider，缺 / 空都 fail（对账第一道：12 家少一家必须是硬错）。
 function pickUpstreamProvider(api, upstreamId, preset) {
   const provider = api[upstreamId];
   if (!provider || typeof provider !== "object") {
@@ -525,7 +428,6 @@ function pickUpstreamProvider(api, upstreamId, preset) {
   return provider;
 }
 
-// 编译一遍：值集去重 + 逐模型指派。返回的都是纯数据，渲染与报告共用。
 function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
   const valuesets = new Map();
   const structureOf = new Map();
@@ -533,10 +435,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
   const counts = { models: 0, reasoning: 0, withOptions: 0, gaps: 0, effortSets: 0 };
   const effortSets = new Set();
 
-  // 上游缺口对账（交接单 §8.4；只报告不改动）：在本行被增强**之前**扫原始快照，回答
-  // 「本行缺 toggle/none，但同为 <该模型 id> 的上游行里有多少条有」。口径 = 上游模型 id 含
-  // 声明里的模型 id（大小写不敏感，覆盖 openrouter 的 `z-ai/glm-5.2` 与 zai-coding-plan 的
-  // `glm-5.2-highspeed` 这类同族写法）。报表专用，不改任何事实、不建规则。
   const offDeclarationGaps = offDeclarations.map((entry) => {
     const parts = splitUpstreamId(entry.key);
     const needle = parts ? parts.modelId.toLowerCase() : entry.key.toLowerCase();
@@ -566,9 +464,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     };
   });
 
-  // 能力补声明解析（D1=A2）：逐条 fail-loud 校验（见 OFF_CAPABILITY_DECLARATIONS 注释的
-  // ① ② ③），校验通过后就地增强快照对象。增强必须发生在逐 provider 循环**之前**：
-  // canonical 借词在循环里读 target.reasoning_options，override 表也在循环前解析目标数组。
   const offDeclarationHits = [];
   for (const entry of offDeclarations) {
     const parts = splitUpstreamId(entry.key);
@@ -606,8 +501,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     });
   }
 
-  // 重定向表解析：逐条 fail-loud 校验目标存在且有词表（见 CANONICAL_MODEL_REDIRECTS 注释）；
-  // 同一个 canonical 出现两条也硬错（静默取后者等于表里有条死条目）。key = canonical id。
   const redirectByCanonical = new Map();
   for (const entry of redirects) {
     if (redirectByCanonical.has(entry.canonical)) {
@@ -628,10 +521,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     redirectByCanonical.set(entry.canonical, entry.redirect);
   }
 
-  // 值集覆盖表解析（19 号票）：本仓声明「被覆盖行的词表主人是另一条上游记录」。
-  // 逐条 fail-loud 校验两件事——被覆盖的行确实在快照里（覆盖一个不存在的行 = 表里有条死条目，
-  // 上游删了模型也不会有人发现）、目标存在且有 reasoning_options（覆盖指错等于静默发错档位）。
-  // 同一个 key 两条也硬错（同 redirect 表的纪律）。
   const overrideByKey = new Map();
   for (const entry of overrides) {
     const keyParts = splitUpstreamId(entry.key);
@@ -660,7 +549,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     overrideByKey.set(entry.key, { ...entry, options: target.reasoning_options });
   }
 
-  // canonical 优先改写（13 号票裁定 1）与回落 direct 的逐行留档（--report 新增节的数据源）。
   const canonicalPriority = [];
   const canonicalFallbacks = [];
   const redirectHits = [];
@@ -670,8 +558,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     redirectHits.push(`${key} ← canonical:${canonical} → ${target}`);
   };
 
-  // 值集去重 + 登记：同一个 slug 只登记一次；两条不同结构撞同一个 slug 直接 fail
-  // （去重过头 = 指派指向错误的档位空间，是最危险的失败方式）。
   const registerValueset = (where, structure) => {
     const valuesetId = slugOf(structure);
     const fingerprint = JSON.stringify(structure);
@@ -689,8 +575,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     return valuesetId;
   };
 
-  // 第一遍：有词表的直接登记；缺口只记形状，借词放第二遍（canonical / 别名都可能指向
-  // 本表其它 provider 的模型，必须等全部直接指派就位）。
   const rowsByProvider = {};
   const statsByProvider = {};
 
@@ -717,9 +601,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
       stats.reasoning += 1;
       counts.reasoning += 1;
 
-      // 值集覆盖优先（19 号票裁定 3，序：覆盖 > canonical > direct）：本仓显式声明了这一行
-      // 的词表主人，压过该行自己的 direct，也压过它的 canonical_model_id。命中即整行改写，
-      // direct / canonical / 缺口三条路径都不再看这条模型 —— 这正是它与别名表的分工。
       const override = overrideByKey.get(`${providerId}/${modelId}`);
       if (override) {
         const where = `${providerId}/${modelId} ← override:${override.upstream}`;
@@ -735,10 +616,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
       if (Array.isArray(options) && options.length > 0) {
         counts.withOptions += 1;
         stats.assigned += 1;
-        // canonical 优先（13 号票裁定 1）：direct 非空时先查 canonical（→ 重定向表 → 目标
-        // 词表），命中就用 canonical 的结构 —— 上游给了更宽词表的那一行，canonical 才是词表
-        // 主人；direct 的窄词表在命中时不再登记。无指针 / 悬空 / 目标无词表 → 回落 direct
-        // （现行行为不变）。
         const canonical = borrowOptions(api, model.canonical_model_id, redirectByCanonical);
         if (canonical) {
           const where = `${providerId}/${modelId} ← canonical:${canonical.from}`;
@@ -769,7 +646,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
         }
         continue;
       }
-      // 词表缺口：占位 null，第二遍借词；借不到就删掉（不进表 = 未知词表）。
       counts.gaps += 1;
       rows[modelId] = null;
       gaps.push({
@@ -785,14 +661,9 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     statsByProvider[providerId] = stats;
   }
 
-  // 别名表解析：目标必须在快照里存在且有词表；目标已在本表里就直接引用它的值集，
-  // 否则把目标自己的词表也登记进 VALUESETS（别名是它的唯一使用者）。
   const resolvedAliases = aliases.map((alias) => resolveAlias(api, alias, rowsByProvider, registerValueset));
   const aliasByLocal = new Map(resolvedAliases.map((alias) => [`${alias.provider}\u0000${alias.localId}`, alias]));
 
-  // 第二遍：缺口按 canonical_model_id 到原生 provider 借词表（spec 裁定 4）；没有
-  // canonical 可借时看别名表补录；都借不到就标「未知词表」（查表返回 null，请求侧
-  // 不发任何思考参数）。借错平台或臆造档位是硬错误，所以两条路径都只认上游原文。
   for (const gap of gaps) {
     const canonical = borrowOptions(api, gap.canonical, redirectByCanonical);
     const alias = canonical ? null : aliasByLocal.get(`${gap.provider}\u0000${gap.modelId}`);
@@ -809,8 +680,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     }
     const where = `${gap.provider}/${gap.modelId} ← ${target.from}`;
     gap.valuesetId = registerValueset(where, normalizeOptions(where, target.options));
-    // 重定向表在缺口路径同样生效：from = 真实目标（重定向表命中时重定向事实记进
-    // --report 的新节；06 工件的 upstreamSource 列按 "canonical:" 前缀解析）。
     gap.resolution = `${target.via}:${target.from}`;
     if (canonical?.redirectedFrom) {
       recordRedirectHit(`${gap.provider}/${gap.modelId}`, canonical.redirectedFrom, canonical.from);
@@ -828,8 +697,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
     coverage.push({ id: providerId, ...statsByProvider[providerId] });
   }
 
-  // deprecated 保留并标记（spec 裁定 12：「表里有但废弃」与「表里没有」行为不同）。
-  // 只标进表的（查表能返回 deprecated 才有意义），顺序 = 上游 provider/模型顺序。
   const deprecated = [];
   for (const { id: providerId } of UPSTREAM_PROVIDERS) {
     for (const modelId of Object.keys(rowsByProvider[providerId])) {
@@ -841,8 +708,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
 
   counts.effortSets = effortSets.size;
 
-  // 逐 (provider, 模型, 档位空间) 矩阵：--matrix 工件的数据源，也是后续 golden 的数据来源。
-  // 顺序 = 上游 provider 顺序 + 逐家上游模型顺序（缺口也在，档位列留空）。
   const gapByKey = new Map(gaps.map((gap) => [`${gap.provider}\u0000${gap.modelId}`, gap]));
   const matrix = [];
   for (const { id: providerId } of UPSTREAM_PROVIDERS) {
@@ -886,7 +751,6 @@ function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
   };
 }
 
-// 别名解析（见 MODEL_ID_ALIASES 的注释）。返回渲染与借词共用的纯数据。
 function resolveAlias(api, alias, rowsByProvider, registerValueset) {
   if (!UPSTREAM_PROVIDERS.some(({ id }) => id === alias.provider)) {
     fail(`别名表 ${alias.provider}/${alias.localId}: provider 不是 12 家上游之一（请求侧不会出现这个键）。`);
@@ -914,8 +778,6 @@ function resolveAlias(api, alias, rowsByProvider, registerValueset) {
   return { ...alias, options, valuesetId: registerValueset(where, normalizeOptions(where, options)) };
 }
 
-// "<上游 provider id>/<上游模型 id>" 切分：模型 id 本身可含 "/"（如
-// cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6），按第一个 "/" 切；形状不合法返回 null。
 function splitUpstreamId(id) {
   if (typeof id !== "string" || id.length === 0) {
     return null;
@@ -927,10 +789,6 @@ function splitUpstreamId(id) {
   return { providerId: id.slice(0, slash), modelId: id.slice(slash + 1) };
 }
 
-// canonical 借词：canonical_model_id 形如 "<上游 provider id>/<上游模型 id>"（模型 id
-// 本身可含 "/"），按第一个 "/" 切。先过 canonical 重定向表（13 号票裁定 2），再查目标。
-// 目标 provider 不在快照里 / 没有前缀 / 目标模型本身也没有词表 → 都返回 null（软失败）。
-// 返回的 from = 实际借词目标；redirectedFrom = 命中的重定向 key（没命中为 null）。
 function borrowOptions(api, canonicalModelId, redirectByCanonical) {
   const redirectedFrom = typeof canonicalModelId === "string" ? redirectByCanonical.get(canonicalModelId) ?? null : null;
   const parts = splitUpstreamId(redirectedFrom ?? canonicalModelId);
@@ -965,7 +823,6 @@ function hashFacts(facts) {
     valuesets: sortedValuesets,
     assignments: facts.assignments,
     deprecated: facts.deprecated,
-    // 别名表也进 hash（值集/上游 id 变了要换 hash），但 reason 是文档、不进 hash。
     aliases: facts.aliases.map(({ provider, localId, upstream, valuesetId }) => ({ provider, localId, upstream, valuesetId }))
   });
   return createHash("sha256").update(payload, "utf8").digest("hex");
@@ -978,8 +835,6 @@ function emitBudget(budget) {
   return parts.length === 0 ? "{}" : `{ ${parts.join(", ")} }`;
 }
 
-// 值集行只写"有值"的部分：缺省 = toggle false / effort 无 / budget 无（见产物头注释）。
-// 少写一半的 null/false 让表更短也更好读；查表结果一律补全（ThinkingModelFact）。
 function emitValueset(valueset) {
   const parts = [`label: ${JSON.stringify(valueset.label)}`];
   if (valueset.toggle) parts.push("toggle: true");
@@ -1205,8 +1060,6 @@ function summaryLines({ source, input, contentHash, facts, bytes }) {
   return lines;
 }
 
-// 缺口逐条清单（票面验收：63 个缺口的处理逐条可追 —— 借到了 / 标未知）+ 别名表逐条理由。
-// 报告文件是**唯一**允许出现抓取时间的地方（产物必须幂等）。
 function renderReport(summary, facts, capturedAt) {
   const lines = [...summary, `  capturedAt: ${capturedAt}`];
   lines.push("", `缺口逐条（${facts.gaps.length}）：`);
@@ -1220,7 +1073,6 @@ function renderReport(summary, facts, capturedAt) {
     }
     lines.push(`  ${key} ← ${gap.resolution} → ${gap.valuesetId}`);
   }
-  // canonical 优先节（13 号票）：改写行数 / 重定向命中行 / 回落 direct 行逐条可追。
   lines.push(
     "",
     `canonical 优先（13 号票）：改写 ${facts.canonicalPriority.length} 行 / 重定向命中 ${facts.redirectHits.length} 行 / ` +
@@ -1247,7 +1099,6 @@ function renderReport(summary, facts, capturedAt) {
   for (const alias of facts.aliases) {
     lines.push(`  ${alias.provider}/${alias.localId} → ${alias.upstream}（值集 ${alias.valuesetId}）：${alias.reason}`);
   }
-  // 值集覆盖节（19 号票）：本仓声明的词表主人逐条可追（表内容 + 实际命中的行）。
   lines.push(
     "",
     `值集覆盖（19 号票）：表 ${facts.overrides.length} 条 / 命中 ${facts.overrideHits.length} 行`
@@ -1258,7 +1109,6 @@ function renderReport(summary, facts, capturedAt) {
   for (const hit of facts.overrideHits) {
     lines.push(`    命中 ${hit}`);
   }
-  // 本仓补声明节（D1=A2）：能力补声明逐条可追（表内容 + 实际命中的行 before/after + 理由）。
   lines.push(
     "",
     `本仓补声明（能力补声明，D1=A2）：表 ${facts.offDeclarations.length} 条 / 命中 ${facts.offDeclarationHits.length} 行`
@@ -1269,8 +1119,6 @@ function renderReport(summary, facts, capturedAt) {
     );
     lines.push(`      reason: ${hit.reason}`);
   }
-  // 上游缺口对账（交接单 §8.4）：只报告不改动 —— 本行缺 toggle/none，但同为该模型的上游行
-  // 有多少条有；以及仍缺的行清单。不建规则、不逐条修。
   lines.push("", "上游缺口对账（只报告不改动；交接单 §8.4）：");
   for (const gap of facts.offDeclarationGaps) {
     lines.push(
@@ -1294,8 +1142,6 @@ function renderReport(summary, facts, capturedAt) {
   return `${lines.join("\n")}\n`;
 }
 
-// 逐 (provider, 模型, 档位空间) 矩阵 TSV（后续 golden 的数据来源）。未知词表的行也要在，
-// 档位列留空 —— 这正是「静默不发参」的可见性。
 function renderMatrix(facts) {
   const header = [
     "provider",

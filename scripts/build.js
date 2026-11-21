@@ -1,39 +1,3 @@
-// 多入口构建 + dist/ 组装（候选5）。
-//
-// 职责与产物形态：
-//   1. content 部分沿用 build-content.js（bootstrap IIFE + ESM 主包 + 动态
-//      chunk），产物先落在 extension/entry/（dev load unpacked 直接用），
-//      本脚本再把它们按源相对路径拷进 dist/。
-//   2. 其余入口（SW）bundle 成单文件 + minify，无 code splitting：SW 不做
-//      运行时惰性（ADR-0003），全静态图。offscreen 例外（见
-//      buildOffscreenEntry）：AI / ASR 两族任务链动态 import 后开
-//      splitting，常驻接线与动态 chunk 分文件落盘。
-//      （script-only-ui：options/popup 页面已随「侧边栏成为唯一界面」删除，
-//      不再有扩展页面入口。）
-//   3. CSS minify 到 dist 同相对路径。
-//   4. 静态资源（manifest.json / html / icons）原样拷入；产物路径与源路径
-//      完全一致，因此 html 与 manifest 零改写。
-//   5. 校验：dist/manifest.json 合法 JSON 且引用路径全部存在；html 本地
-//      引用存在；JS 产物按 ESM 语法自检。
-//   6. 报表：content 常驻/按需沿用 build-content.js 口径（子进程直接打印）；
-//      新增入口打印 raw（模块图源文件字节合计）-> minified 产物字节对比；
-//      offscreen 额外按「常驻 wiring / 动态 chunk」两行口径输出拆分字节。
-//
-// 产物清单（dist/，整体 gitignore；只服务发布，日常开发不变）：
-//   entry/background.js              SW 单文件 bundle
-//   entry/offscreen.js               offscreen 常驻接线（splitting 主入口）
-//   entry/offscreen-chunks/*.js      offscreen 动态 chunk（AI / ASR 两族按需）
-//   entry/styles/*.css                样式表（入口集合按该目录派生，见 cssEntries；
-//                                     挂载时机与顺序的属主是 shared/style-injector）
-//   entry/content-bootstrap.iife.js  拷贝自 build-content.js 产物
-//   entry/content-main.mjs           拷贝自 build-content.js 产物
-//   entry/chunks/*.mjs               拷贝自 build-content.js 产物
-//   entry/offscreen.html             原样拷贝
-//   icons/*.png                      原样拷贝
-//   manifest.json                    原样拷贝（零改写）
-//   各 JS/CSS 产物伴随同名 .map        linked sourcemap（devtools 调试用；
-//                                    release zip 由 build_release.py 剔除）
-
 const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
@@ -51,34 +15,19 @@ const targetPlatform = resolveTargetPlatform(process.argv);
 const esbuildTarget = getEsbuildTarget(targetPlatform);
 const distDirName = targetPlatform === "firefox" ? "dist-firefox" : "dist";
 
-// --watch（npm run dev）：首轮走与发布完全一致的全量构建 + 自检 + 报表，之后
-// esbuild context 监听三个构建任务原地重建 dist/，content 部分拉起
-// build-content.js --watch 子进程（产物落 extension/entry/，由下方 fs.watch
-// 侦测后重拷进 dist/），静态资源（manifest/html/icons）变化同样重拷。watch
-// 只做重建与拷贝，manifest/html 校验留给首轮全量构建。
 const watchMode = process.argv.includes("--watch");
 
 const root = path.join(__dirname, "..");
-// 固定 cwd：metafile.inputs 的 key 是相对 esbuild 进程 cwd 的路径，固定后
-// 报表与校验才能稳定解析。
 process.chdir(root);
 
 const extensionRoot = path.join(root, "extension");
 const distDir = path.join(root, distDirName);
 
-// JS 入口：bundle + minify，单文件（无 splitting），产物路径 = 源相对路径。
-// offscreen 入口不在此列——它开 splitting 拆动态 chunk（见 buildOffscreenEntry）。
 const jsEntries = [
   "entry/background.ts",
   "entry/permission-grant.ts",
 ];
 
-// CSS minify 入口 = entry/styles/ 下的全部 .css（按目录派生，不维护逐文件白名单）。
-// 多入口各自独立 bundle/minify，本列表的顺序不进产物、与运行时级联无关——挂载
-// 先后由 shared/style-injector 的消费方决定，覆盖关系由选择器特异性决定。
-// S3 分层：content 样式全部按需挂载（reader/player-ai 各自运行时 link 挂载，见
-// shared/style-injector），仍走 minify 保证 dist 无未压缩 CSS。
-//（script-only-ui：常驻表 panel.css 已随经典侧栏面板删除。）
 const stylesDir = path.join(extensionRoot, "entry/styles");
 const cssEntries = fs
   .readdirSync(stylesDir)
@@ -86,40 +35,22 @@ const cssEntries = fs
   .sort()
   .map((name) => `entry/styles/${name}`);
 
-// 原样拷贝的文件（产物路径与源路径一致 → html/manifest 零改写）。
 const copyFiles = [
   "manifest.json",
   "onboarding.html",
   "entry/offscreen.html",
   "entry/permission-grant.html",
   "entry/theme-init.js",
-  // content 构建产物（build-content.js 跑完后的最新产物；.map 为 linked
-  // sourcemap，devtools 调试用，release zip 由 build_release.py 剔除）。
   "entry/content-bootstrap.iife.js",
   "entry/content-bootstrap.iife.js.map",
   "entry/content-main.mjs",
   "entry/content-main.mjs.map",
 ];
 
-// 原样拷贝的目录（icons 资源；chunks/ 文件名带内容 hash，整目录拷；
-// _locales 为扩展语言包，决定商店清单语言检测）。
 const copyDirs = ["icons", "entry/chunks", "_locales"];
 
-// background.js 体积守卫（防呆上限）：防止 context-resolver / gateway /
-// subtitle 等大链意外重新内联回 SW 包——只拦 KB 量级的意外回流，不追求极限
-// 压缩。用户明确决策（2026-09，工单 03 offscreen-runtime-bridge 期间转达）：
-// 「size-guard 可以取消或者放宽很多，我更在乎最终综合体验，而不是极限压缩
-// 体积」。历史阈值 35→36→38 KB 是贴近实测字节的旧口径，现放宽为 256 KB 的
-// 防呆上限并保留 fail fast 语义。
 const BACKGROUND_JS_MAX_KB = 256;
 
-// 版本一致性守卫（与 build-content.js 同源逻辑提前到这里没必要——
-// build-content.js 子进程内已做 manifest vs core/version.js 的守卫并会
-// fail fast；这里不重复）。
-
-// Guard: every resolved local (`./`/`../`) import **from extension/ source** must
-// stay inside extension/. 实现在 ./build-guards.js——与 build-content.js 共用同
-// 一份工厂，两边不再手工同步；只校验不改写路径。
 const localImportGuard = createLocalImportGuard(extensionRoot);
 
 function cleanDist() {
@@ -127,8 +58,6 @@ function cleanDist() {
   fs.mkdirSync(distDir, { recursive: true });
 }
 
-// watch 重建日志（与 build-content.js 同款）：首轮 rebuild 由全量报表覆盖，
-// 只在后续增量重建时各任务打一行；构建错误由 esbuild 自身输出。
 const watchRebuildLog = {
   name: "watch-rebuild-log",
   setup(buildApi) {
@@ -144,8 +73,6 @@ const watchRebuildLog = {
   },
 };
 
-// 先跑 content 构建（bootstrap + ESM 主包 + chunks），保证拷进 dist 的是
-// 最新产物；其字节报表由子进程直接打印，保持现有口径不变。
 function runContentBuild() {
   const args = [path.join(root, "scripts", "build-content.js")];
   if (targetPlatform !== "chromium") {
@@ -212,10 +139,6 @@ function copyDirRecursive(src, dest) {
   }
 }
 
-// JS 入口统一 bundle：format esm（源即 ESM，manifest background.type=module、
-// 页面 script type=module，产物路径与源一致 → 零改写）；不 splitting，动态
-// import 的本地模块会被内联进同一文件（SW 全静态图，ADR-0003 的预期形态）。
-// sourcemap 恒开（linked external，非 inline/eval——扩展 CSP 禁 eval）。
 function restJsOptions() {
   return {
     entryPoints: jsEntries.map((rel) => path.join(extensionRoot, rel)),
@@ -234,13 +157,6 @@ function restJsOptions() {
   };
 }
 
-// offscreen 入口：开 splitting（format esm）。源里 AI 族（../ai/ladder.js）
-// 与 ASR 族（./offscreen-asr.js）两条任务链是动态 import()，esbuild 把它们
-// 拆成独立 chunk，dist/entry/offscreen.js 只剩常驻接线，首次用到某族时才
-// 加载对应 chunk（offscreen 是页面环境，动态 import 合法；ADR-0003 只约束
-// SW，background 仍走上方无 splitting 构建）。chunkNames 用
-// entry/offscreen-chunks/ 与 content 产物的 entry/chunks/ 区分（两者同在
-// dist/entry/ 下，避免混淆）；chunk 由 esbuild 直接写进 dist，无需拷贝。
 function offscreenOptions() {
   return {
     entryPoints: [path.join(extensionRoot, "entry/offscreen.ts")],
@@ -260,7 +176,6 @@ function offscreenOptions() {
   };
 }
 
-// CSS minify：@import 会内联，产物落 dist 同相对路径。
 function cssOptions() {
   return {
     entryPoints: cssEntries.map((rel) => path.join(extensionRoot, rel)),
@@ -277,9 +192,6 @@ function cssOptions() {
   };
 }
 
-// 语法自检：dist 产物按 ESM 解析（node --check 对 .js 文件会按最近
-// package.json 的 type 决定解析模式，dist/ 下无 package.json 会误按 CJS，
-// 因此用 --input-type=module 从 stdin 读）。
 function syntaxCheckEsm(file) {
   execFileSync(process.execPath, ["--input-type=module", "--check"], {
     input: fs.readFileSync(file),
@@ -287,9 +199,6 @@ function syntaxCheckEsm(file) {
   });
 }
 
-// dist/manifest.json 校验：合法 JSON（readFileSync + JSON.parse 本身即断言）
-// 且引用的每个路径在 dist/ 下存在；WAR 的 "entry/chunks/*" 通配按
-// 「dist 内至少一个文件匹配」校验。
 function assertManifestReferences() {
   const manifestPath = path.join(distDir, "manifest.json");
   let manifest;
@@ -313,10 +222,6 @@ function assertManifestReferences() {
   if (manifest.background?.service_worker) refs.push(manifest.background.service_worker);
   if (Array.isArray(manifest.background?.scripts)) refs.push(...manifest.background.scripts);
 
-  // S2 收紧 host_permissions：通配符只允许出现在 optional_host_permissions
-  // （常驻权限只剩 B 站三条；AI/ASR 平台域名按需申请，见
-  // core/host-permissions.js）。用 http://*/* 或 https://*/* 兜底会导致
-  // Chrome Web Store 审核挑战项复现，在此 fail fast。
   const wildcardHostPatterns = ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"];
   const residentWildcards = (manifest.host_permissions || []).filter((p) => wildcardHostPatterns.includes(p));
   if (residentWildcards.length > 0) {
@@ -361,8 +266,6 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// background.js 体积守卫：minified 产物字节数超过上限时 fail fast，防止
-// context-resolver / gateway / subtitle 等链意外重新内联回 SW 包。
 function assertBackgroundBundleSize() {
   const backgroundPath = path.join(distDir, "entry", "background.js");
   const bytes = fs.statSync(backgroundPath).size;
@@ -376,15 +279,6 @@ function assertBackgroundBundleSize() {
   }
 }
 
-// SW 静态图脱钩守卫（protocol-vocab-leaf + model-catalog/05 不变式 5）：
-//   - 协议栈：SW 对协议栈的唯一值引用已拆到词表叶，adapters / thinking-profiles /
-//     plan-thinking / sse-parser / protocol-adapter 若再次出现在 background.js 的 map
-//     sources，说明某条新 import 把整条协议栈拖回了 SW；
-//   - 模型目录：models.dev 上游目录产物（103KB 构建期数据）与它的域模块只服务设置
-//     UI 的只读展示，只准经 ui/lazy-model-catalog.ts 动态 import；
-//   - 请求路径事实：models.dev 的思考事实编译产物（值集表 + 指派表，02 号票）是构建期
-//     数据的编译结果，只准由调用侧显式引入，不得被 SW 静态图吞进来。
-// 三类都 fail fast。
 const BACKGROUND_FORBIDDEN_STATIC_SOURCES = [
   /(^|\/)ai\/adapters\//,
   /(^|\/)ai\/thinking-profiles\.ts$/,
@@ -414,7 +308,6 @@ function assertBackgroundStaticGraphSlim() {
   }
 }
 
-// html 本地引用校验（src/href，排除外链与锚点），保证 dist 内页面资源闭合。
 function assertHtmlReferences() {
   const htmlFiles = copyFiles.filter((f) => f.endsWith(".html"));
   const missing = [];
@@ -441,13 +334,6 @@ function assertHtmlReferences() {
   }
 }
 
-// ladder chunk 依赖守卫（arch-review-2026-09/04+05，照 build-content.js 的
-// reader 装载图守卫先例）：ladder chunk（ai/ladder.ts 所在 chunk）不得含
-// notes/render / subtitle/selection / core/validators（04：prompt 组装只消费
-// notes/section-lines 与 subtitle/chapters 两个窄叶子），也不得含
-// core/cache-lru / ai/segment-cache / subtitle/cache（05：段缓存宿主迁 SW，
-// offscreen 经 segment-cache-proxy 消息调用，存储层不进 chunk）。
-// 静态 import 一旦把这些模块焊回即 fail fast。
 const LADDER_CHUNK_FORBIDDEN_INPUTS = [
   "notes/render.ts",
   "subtitle/selection.ts",
@@ -474,13 +360,10 @@ function assertLadderChunkSlim(meta) {
   }
 }
 
-// 字节报表：raw = 模块图源文件磁盘字节合计（metafile.inputs 列表逐个 stat），
-// min = minified 产物字节。这是后续验收口径，输出保持固定列与固定顺序。
 function formatBytes(n) {
   return `${String(n).padStart(7)} B`;
 }
 
-// 单个 output 的 raw：其模块图 inputs 的源文件字节合计。
 function sumRawBytes(meta) {
   return Object.keys(meta.inputs).reduce(
     (sum, input) => sum + fs.statSync(path.resolve(root, input)).size,
@@ -512,10 +395,6 @@ function printEntryReport(result, label) {
   return { totalRaw, totalMin };
 }
 
-// offscreen 拆分报表：产物分「常驻 wiring」（entry/offscreen.js）与「动态
-// chunk」（entry/offscreen-chunks/*，AI / ASR 两族按需装载）两个口径各一行，
-// 列格式与上方入口报表对齐。esbuild splitting 后每个 output 的 inputs 互不
-// 重叠（共享模块归入共享 chunk），两行 raw 相加即 offscreen 全量源图字节。
 function printOffscreenSplitReport(result) {
   const outputs = Object.entries(result.metafile.outputs)
     .filter(([file]) => !file.endsWith(".map"));
@@ -546,8 +425,6 @@ function printOffscreenSplitReport(result) {
   return { entryRaw, entryMin, chunkRaw, chunkMin, chunkCount };
 }
 
-// dist 运行时体积守卫：全部运行时文件（不含 Source Map .map 文件）总量上限。
-// 预算：3,900,000 B（仅打包 400 字重思源宋体供金句与 editorial 标题消费，UI 黑体走系统与页面零体积栈）。
 const DIST_RUNTIME_MAX_BYTES = 3900000;
 
 function printDistSummary() {
@@ -595,8 +472,6 @@ async function main() {
     );
   }
 
-  // 自检：JS 产物按 ESM 语法过一遍（offscreen 动态 chunk 也是 ESM 产物，
-  // 一并检查）；manifest 与 html 引用闭合。
   const outputs = [jsResult, offscreenResult]
     .flatMap((result) => Object.keys(result.metafile.outputs))
     .filter((f) => f.endsWith(".js") || f.endsWith(".ts"));
@@ -609,8 +484,6 @@ async function main() {
   assertBackgroundStaticGraphSlim();
   assertLadderChunkSlim(offscreenResult.metafile);
 
-  // offscreen 拆分守卫：常驻文件必须仍含动态 import( 且至少产出一个动态
-  // chunk——防止未来依赖变化把动态图又内联回单文件而无人察觉。
   const offscreenDist = fs.readFileSync(path.join(distDir, "entry", "offscreen.js"), "utf8");
   if (!offscreenDist.includes("import(")) {
     console.error("build.js: dist/entry/offscreen.js 不含动态 import(，offscreen splitting 失效");
@@ -637,10 +510,6 @@ async function main() {
   }
 }
 
-// watch 模式收尾：esbuild context 监听三个构建任务；content 产物由
-// build-content.js --watch 子进程重建（落 extension/entry/），连同静态资源
-// 一起由 fs.watch 侦测后重拷进 dist/。重拷统一走 copyStaticAssets() 全量
-// （幂等、文件少），150ms 去抖等 esbuild 同轮多个产物写入落盘。
 async function startWatch(esbuildContexts) {
   const watchArgs = [path.join(root, "scripts", "build-content.js"), "--watch"];
   if (targetPlatform !== "chromium") {
@@ -651,8 +520,6 @@ async function startWatch(esbuildContexts) {
     watchArgs,
     { stdio: "inherit" }
   );
-  // SIGINT/SIGTERM 默认终止不触发 "exit" 事件，必须显式监听才能把
-  // build-content 子进程一起带走，否则会残留孤儿 watch 进程。
   const shutdown = () => {
     child.kill();
     process.exit(0);
@@ -666,11 +533,6 @@ async function startWatch(esbuildContexts) {
     if (recopyTimer) clearTimeout(recopyTimer);
     recopyTimer = setTimeout(() => {
       recopyTimer = null;
-      // content 子进程每轮重建先 cleanPreviousOutput() 再写回，watch 去抖
-      // （150ms）远短于一轮重建（vendor 探针 + 7.9MB chunk 复制），去抖到期
-      // 时可能正处删除后、写回前的窗口：本轮跳过，子进程后续写入会继续
-      // 触发 watch 事件并拉起新的 recopy。首轮全量拷贝（main() 里的
-      // copyStaticAssets）保持严格，仍 fail fast。
       const contentArtifactsReady =
         copyFiles.every((rel) => fs.existsSync(path.join(extensionRoot, rel))) &&
         copyDirs.every((dir) => fs.existsSync(path.join(extensionRoot, dir)));

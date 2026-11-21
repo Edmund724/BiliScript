@@ -10,7 +10,6 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = ROOT / "extension"
 DIST_DIR = ROOT / "dist"
@@ -21,7 +20,6 @@ BUILD_AMO_PATH = ROOT / "BUILD_AMO.md"
 PACKAGE_NAME = "BiliScript"
 FIREFOX_GECKO_ID = "biliscript@edmund724.github.io"
 
-# 发布 ZIP 体积守卫：Chromium 与 Firefox 各自独立校验（2.7.5 实测 1,074,178 B / 1,074,378 B，预算上限 1,110,000 B）。
 MAX_CHROMIUM_ZIP_BYTES = 1_110_000
 MAX_FIREFOX_ZIP_BYTES = 1_110_000
 
@@ -44,16 +42,13 @@ SOURCE_EXCLUDED_FILES = {
     "extension/entry/content-main.mjs.map",
 }
 
-
 def load_manifest():
     with MANIFEST_PATH.open("r", encoding="utf-8") as fh:
         return json.load(fh)
 
-
 def load_package_version():
     with (ROOT / "package.json").open("r", encoding="utf-8") as fh:
         return json.load(fh).get("version") or ""
-
 
 def run_build(target: str):
     cmd = ["node", str(ROOT / "scripts" / "build.js")]
@@ -62,7 +57,6 @@ def run_build(target: str):
     elif target != "chromium":
         raise SystemExit(f"Unsupported build target: {target!r}")
     subprocess.run(cmd, cwd=ROOT, check=True)
-
 
 def validate_dist_manifest(dist_dir: Path, expected_version: str, target: str) -> dict:
     manifest_path = dist_dir / "manifest.json"
@@ -100,7 +94,6 @@ def validate_dist_manifest(dist_dir: Path, expected_version: str, target: str) -
 
     return dist_manifest
 
-
 def build_dist_zip(dist_dir: Path, zip_name: str, expected_version: str, target: str) -> Path:
     validate_dist_manifest(dist_dir, expected_version, target)
 
@@ -111,7 +104,6 @@ def build_dist_zip(dist_dir: Path, zip_name: str, expected_version: str, target:
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_path in sorted(dist_dir.rglob("*")):
-            # sourcemap（构建恒开，供 devtools 调试）不进发布包。
             if file_path.is_dir() or file_path.suffix == ".map":
                 continue
             archive.write(file_path, file_path.relative_to(dist_dir).as_posix())
@@ -125,7 +117,6 @@ def build_dist_zip(dist_dir: Path, zip_name: str, expected_version: str, target:
 
     return zip_path
 
-
 def is_excluded_source_path(rel_posix: str) -> bool:
     parts = rel_posix.split("/")
     if not parts or parts[0] in SOURCE_EXCLUDED_TOP_DIRS:
@@ -135,7 +126,6 @@ def is_excluded_source_path(rel_posix: str) -> bool:
     if rel_posix in SOURCE_EXCLUDED_FILES:
         return True
     return False
-
 
 def collect_source_files() -> list[str]:
     if not BUILD_AMO_PATH.is_file():
@@ -166,7 +156,6 @@ def collect_source_files() -> list[str]:
 
     return filtered
 
-
 def build_source_zip(version: str) -> tuple[Path, int]:
     source_files = collect_source_files()
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,7 +178,6 @@ def build_source_zip(version: str) -> tuple[Path, int]:
 
     return zip_path, len(source_files)
 
-
 def assert_zip_budget(zip_path: Path, max_bytes: int, label: str):
     zip_size = zip_path.stat().st_size
     if zip_size > max_bytes:
@@ -197,17 +185,12 @@ def assert_zip_budget(zip_path: Path, max_bytes: int, label: str):
             f"{label} ZIP size guard failed: {zip_size} bytes exceeds budget {max_bytes} bytes"
         )
 
-
 def main():
     manifest = load_manifest()
     version = str(manifest.get("version") or "").strip()
     if not version:
         raise SystemExit("manifest.json is missing a version")
 
-    # Version-consistency guard: the extension version lives in three places
-    # (manifest.json, extension/core/version.ts via build-content.js,
-    # and package.json). Fail fast if package.json drifts from manifest.json
-    # before stamping the release zips with a stale version.
     package_version = load_package_version().strip()
     if package_version != version:
         raise SystemExit(
@@ -242,7 +225,6 @@ def main():
     print(f"- Chromium: {chromium_zip} ({chromium_zip.stat().st_size} bytes)")
     print(f"- Firefox:  {firefox_zip} ({firefox_zip.stat().st_size} bytes)")
     print(f"- Source:   {source_zip} ({source_zip.stat().st_size} bytes, {source_count} files)")
-
 
 if __name__ == "__main__":
     main()

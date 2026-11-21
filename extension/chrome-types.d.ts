@@ -1,10 +1,3 @@
-// extension/chrome-types.d.ts
-// 最小 Chrome 扩展 API 类型声明：本仓库未安装 @types/chrome，声明覆盖迁移模块
-// 实际使用的 runtime / tabs / storage / permissions / scripting / offscreen / tts /
-// declarativeNetRequest 表面。保持最窄契约，不扩展未使用的方法/事件。
-// 域目录的局部 ambient 补充（asr/chrome-asr-types.d.ts、entry/entry-globals.d.ts）
-// 已归并于此，不再维护分散声明。
-
 declare namespace chrome {
   namespace runtime {
     interface LastError {
@@ -28,13 +21,9 @@ declare namespace chrome {
 
     function getManifest(): Manifest;
     function getURL(path: string): string;
-    // 页面直连 offscreen 文档的具名端口（asr-decode 端口，asr/offscreen-bridge.page）。
     function connect(connectInfo: { name: string }): Port;
     function sendMessage(message: unknown): Promise<unknown>;
     function sendMessage(message: unknown, responseCallback?: SendMessageCallback): void;
-    // Chrome 116+：查询 offscreen 文档是否存在（chat/offscreen-ensure 的
-    // 存在性判定；Chrome <116 或查询失败时调用方降级为直接 createDocument）。
-    //（声明自删掉的 pages/pages-chrome-types.d.ts 归并于此。）
     function getContexts(query: {
       contextTypes?: string[];
       documentUrls?: string[];
@@ -84,10 +73,6 @@ declare namespace chrome {
   }
 
   namespace action {
-    // 工具栏 action（manifest.action，无 default_popup）：点击事件在
-    // entry/background.ts 顶层同步注册（MV3：SW 重启后监听器须在首个事件前
-    // 就位）。徽标/标题表面供非支持页可见反馈（工单 04，
-    // extension/entry/unsupported-page-feedback.ts）。不扩展未使用的表面。
     interface OnClickedEvent {
       addListener(listener: (tab: tabs.Tab) => void): void;
     }
@@ -104,7 +89,6 @@ declare namespace chrome {
 
     interface TitleDetails {
       tabId?: number;
-      // 空字符串清除标题并回落 manifest.action.default_title（Chrome 语义）。
       title: string;
     }
 
@@ -191,8 +175,6 @@ declare namespace chrome {
       addListener(
         listener: (changes: Record<string, StorageChange>, areaName: string) => void
       ): void;
-      // 对话组合根的会话收尾摘除 providers 刷新监听（bind/unbind 对称；
-      // 声明自删掉的 pages/pages-chrome-types.d.ts 归并于此）。
       removeListener(
         listener: (changes: Record<string, StorageChange>, areaName: string) => void
       ): void;
@@ -220,8 +202,6 @@ declare namespace chrome {
 
     function executeScript(injection: { target: InjectionTarget; files: string[] }): Promise<InjectionResult[]>;
     function executeScript(injection: { target: InjectionTarget; func: () => unknown }): Promise<InjectionResult[]>;
-    // func + args：非支持页页内提示的轻量注入（工单 04），func 被序列化进目标页，
-    // 不得闭包引用模块作用域（闭包引用在序列化后失效）。
     function executeScript(injection: { target: InjectionTarget; func: (...args: never[]) => unknown; args?: unknown[] }): Promise<InjectionResult[]>;
     function insertCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
   }
@@ -279,10 +259,6 @@ declare namespace chrome {
 
     interface RuleCondition {
       urlFilter?: string;
-      // 域名匹配（Chrome 101+，最低支持版本 120 已覆盖）：与 urlFilter 的
-      // "||domain" 不同，requestDomains 只精确匹配域名本身及其子域，不会
-      // 误命中 "bilivideo.com.evil.com" 这类拼接域——防盗链规则的目标 host
-      // 收窄用（asr/offscreen-bridge.bg.ts addDownloadRules）。
       requestDomains?: string[];
       initiatorDomains?: string[];
       tabIds?: number[];
@@ -305,8 +281,6 @@ declare namespace chrome {
   }
 }
 
-// content 入口的全局哨兵（原 entry/entry-globals.d.ts 归并于此）：全局脚本
-// 作用域直接与 lib.dom 的 Window 合并；var 声明供 globalThis.xxx 访问。
 interface Window {
   __BILISCRIPT_CONTENT_SCRIPT_LOADED__?: string;
   __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__?: boolean;

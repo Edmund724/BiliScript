@@ -1,32 +1,3 @@
-// 构建期生成 UI 目录产物（工单 upstream-model-facts/01）。
-//
-// 抓 https://models.dev/api.json，裁剪成本仓需要的 12 个上游 provider，产出
-// extension/ai/catalog/models-dev-catalog.generated.ts。产物是零 import 的叶子
-// 模块，提交进仓库；构建只做打包，不在构建时现场生成（spec §产物形态）。
-//
-// 为什么直读源头而不是沿用 pi-ai 快照：`scripts/sync-pi-ai-catalog.mjs` 读的是
-// devDependency @earendil-works/pi-ai 里那 39 个 JSON，而它们本身就是 pi-ai 发版
-// 时从 models.dev 重新生成的快照 —— 等于隔了两层转发（spec §背景）。本脚本直连
-// models.dev，所以「上游变了」这件事在本仓只剩一次转发（对账常量 + contentHash）。
-//
-// 与 pi-ai 脚本一致的三条纪律：
-//   1. 字段白名单口径固定，裁剪掉线格式/价格类第二事实源（reasoning_options /
-//      tool_call / cost / canonical_model_id … 是 02/09/10 号票的事）；
-//   2. 生成期对账：模型总数不是常量就 fail（上游漂移必须吵，不能悄悄换一份产物）；
-//   3. 重跑幂等：产物里没有生成/抓取时间戳，同一份上游数据两次输出字节相同。
-//
-// 用法：
-//   pnpm catalog:sync:upstream
-//   node scripts/sync-models-dev-catalog.mjs \
-//     [--input <path|url>] [--out <path>] [--expect-models <n>] [--report <path>]
-//
-//   --input          读本地 api.json 快照（默认直连 https://models.dev/api.json）。
-//                    给离线跑、测试 fixture 与「同一份数据两次比对」用。
-//   --out            产物落点（默认 extension/ai/catalog/models-dev-catalog.generated.ts）。
-//   --expect-models  覆盖对账常量；只给 fixture 用，生产不许改（改了等于关掉对账）。
-//   --report         另把本次 sync 的摘要写成文件（抓取时间只允许出现在这里，
-//                    绝不进产物）。
-
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,15 +7,8 @@ import { DEFAULT_SOURCE, UPSTREAM_PROVIDERS } from "./models-dev-upstream-provid
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 
-// preset → 上游 provider 的单源在 extension/core/presets.ts 的 PRESETS[].catalogProvider
-// （10 号票起）：本脚本经 scripts/models-dev-upstream-providers.mjs 读取它（该模块按
-// presets.ts 源码取值并校验完整性），不再自持映射列表；02 号票的思考事实产物共用同一
-// 份投影，两份产物对「12 家是谁」因此是同一口径（新增 preset 漏配即脚本报错）。
-
-// 产物字段白名单（顺序 = 每行字段序）与上游字段的对应关系（spec §范围 3）。
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];
 
-// 13 家合计模型总数（含第 13 家 google）。
 const EXPECTED_MODEL_COUNT = 600;
 
 function fail(message) {
@@ -101,8 +65,6 @@ async function readSnapshot(input) {
   return { text: fs.readFileSync(input, "utf8"), fetched: false };
 }
 
-// 一个模型的 6 个白名单字段。缺任何一项都 fail —— 静默写 undefined / NaN 才是要
-// 避免的失败方式（上游字段一旦改名，产物必须立刻吵，而不是变成半张表）。
 function pickModel(upstreamId, modelId, model) {
   if (!model || typeof model !== "object") {
     fail(`${upstreamId}/${modelId}: 上游模型不是对象`);
@@ -141,7 +103,6 @@ function pickModel(upstreamId, modelId, model) {
   };
 }
 
-// 裁剪：只取映射表里的 12 家，逐家校验存在 / 非空 / doc 非空，再逐模型走白名单。
 function cropCatalog(api) {
   const upstreams = UPSTREAM_PROVIDERS.map(({ preset, id }) => {
     const provider = api[id];
@@ -164,8 +125,6 @@ function cropCatalog(api) {
   return upstreams;
 }
 
-// contentHash 只覆盖「裁剪后的 12 家子集」：api.json 里另有 200+ provider，
-// 它们变了与本仓目录无关，不该让本仓报漂移（spec §范围 4）。
 function hashCatalog(upstreams) {
   return createHash("sha256").update(JSON.stringify(upstreams), "utf8").digest("hex");
 }
@@ -316,7 +275,6 @@ async function main() {
   console.log(lines.join("\n"));
 
   if (options.report) {
-    // 报告文件是**唯一**允许出现抓取时间的地方（产物必须幂等）。
     const reportPath = path.resolve(rootDir, options.report);
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
     const capturedAt = new Date().toISOString();

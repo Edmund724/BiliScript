@@ -1,16 +1,5 @@
-// 构建期守卫（build.js 与 build-content.js 共享，CJS）。
-//
-// 02 复制粘贴收口：localImportGuard 此前在两份脚本里各存一份逐字相同的实现
-//（因脚本未导出而手工复制，靠注释约定「两边改动必须同步」）。收口为单份工厂，
-// 双份 build 脚本从同一处 import——逻辑漂移在物理上不再可能。
-
 const path = require("path");
 
-// esbuild target 单一来源（mermaid-12-upgrade/08）：build-content.js（轮 A/轮 B/
-// bootstrap）、build.js（SW / offscreen）、vendor-mermaid-slim.mjs（探针轮）六处
-// 原本各写死 "chrome120"，零处互校验，现统一从这里取。manifest.json 的
-// minimum_chrome_version 是签入的静态文件、构建零改写，无法从此派生——
-// 它与本常量的一致性由 build-content.js 的 manifest 守卫块逐构建断言。
 const BUILD_TARGET = "chrome120";
 const BUILD_TARGETS = Object.freeze({
   chromium: "chrome120",
@@ -33,19 +22,6 @@ function getEsbuildTarget(platform = "chromium") {
   return target;
 }
 
-// 双实例守卫（build-content.js 的 assertDualInstanceAllowlist 专用，纯函数收在此
-// 是为了让 tests/ 能不经构建直接喂 fixture 对账）：content 两轮构建把共享底座
-// 各装一份实例，「允许双实例模块清单」必须与构建产物 sourcemap 的交集逐字一致
-// ——清单外的新双实例模块（如懒侧新 import 了某个常驻模块）在此现形。
-
-// Guard: every resolved local (`./`/`../`) import **from extension/ source** must
-// stay inside extension/. Absolute and external (package) imports are left
-// untouched. The guard lives on the build object via esbuild's onResolve so it
-// never rewrites paths, only validates them as esbuild resolves them.
-//
-// 只查 extension/ 内的导入方：第三方包（mermaid 及其 d3-*/es-toolkit 等依赖）
-// 内部也满是相对导入，那类不越界概念——它们由 esbuild 正常解析并打包进产物，
-// 拦下来只会让任何运行时依赖都无法引入。
 function createLocalImportGuard(extensionRoot) {
   const extensionRootAbs = path.resolve(extensionRoot) + path.sep;
   return {
@@ -69,10 +45,6 @@ function createLocalImportGuard(extensionRoot) {
   };
 }
 
-// 归一化单个 sourcemap 的 sources：map 的 sources 相对于 map 文件所在目录，
-// 解析后只保留落在 extension/ 内的 .ts 源（构建产物、node_modules 依赖天然
-// 排除；.d.ts 无运行时声明，排除——与 build-content.js collectSlotKeys 的
-// 判据一致），返回 extension 相对路径（posix 风格，与清单书写一致）。
 function sourcesFromMap(mapJson, mapDir, extensionRoot) {
   return mapJson.sources
     .map((source) => path.normalize(path.join(mapDir, source)))
@@ -85,18 +57,6 @@ function sourcesFromMap(mapJson, mapDir, extensionRoot) {
     .map((source) => path.relative(extensionRoot, source).split(path.sep).join("/"));
 }
 
-// 「种子产物不得含禁区」判据（build.js 的 ladder chunk 守卫与 build-content.js 的
-// reader 装载图守卫共用）：metafile 里任一产物，其模块图 inputs 命中 seed 即视为该
-// 守卫的被检产物，此时不得再命中 forbidden 中任一项。只回违例、不打印、不退出——
-// 两处守卫的产物与错误文案不同（ladder chunk 讲 prompt 组装与段缓存落点，reader
-// 装载图讲概览管线按需动态装载），文案与 process.exit 留在各自脚本的 adapter。
-//
-// seed / forbidden 都是「子串命中 inputs 键」口径（既有两份守卫的判据逐字保留，不做
-// 路径解析）；outputExtensions 过滤被检产物扩展名（ladder chunk 看 .js、reader 轮 B
-// 看 .mjs）。返回 [{ output, hits }]，hits 保持 forbidden 的书写顺序。
-// 沿 esbuild metafile 的静态 import-statement 边收集输出产物的完整静态输入闭包
-// （跳过 dynamic-import 与外部引用）。splitting:true 时被检入口的共享依赖会提升至
-// 独立 chunk，只看单文件 out.inputs 会漏检经静态 chunk 传递进入的禁区模块。
 function collectStaticClosureInputs(outputs, startFile) {
   const visitedFiles = new Set();
   const inputs = new Set();
@@ -137,9 +97,6 @@ function findForbiddenInputs(meta, { seed, forbidden, outputExtensions }) {
   return violations;
 }
 
-// 对账：实测双实例集合（常驻包 sourcemap ∩ 全部 chunk sourcemap）vs 允许
-// 双实例模块清单。unexpected = 产物里有、清单没有（新双实例模块，构建报错、
-// 强制人工评估）；missing = 清单有、产物没有（清单漂移，提示清理）。
 function diffDualInstanceAllowlist(actualSources, allowlistSources) {
   const actual = new Set(actualSources);
   const allowlisted = new Set(allowlistSources);

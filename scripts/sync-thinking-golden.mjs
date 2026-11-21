@@ -1,8 +1,3 @@
-// scripts/sync-thinking-golden.mjs
-// 同步三条协议通道按类 golden 用例表（pnpm catalog:sync:golden）。
-// 因包为 CommonJS，这里用 esbuild 将 scripts/sync-thinking-golden.ts 现场打进临时目录后执行，
-// 结束后立即清理临时文件，不在仓库或 .scratch/ 留下中间产物。
-
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

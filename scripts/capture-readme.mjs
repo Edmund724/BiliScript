@@ -1,5 +1,3 @@
-// README 功能截图：先运行 pnpm build，再运行 node scripts/capture-readme.mjs [输出目录]。
-// 隔离 Edge + 固定演示数据；默认覆盖 docs/images/ 下 5 张 Flyme 浅色 2x 右栏截图。
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";

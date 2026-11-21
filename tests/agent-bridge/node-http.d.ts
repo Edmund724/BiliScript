@@ -1,4 +1,3 @@
-// Minimal Node.js type stubs for agent-bridge installer tests (tsconfig intentionally excludes @types/node).
 declare module "node:fs" {
   export function chmodSync(path: string, mode: number): void;
 }

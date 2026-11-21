@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * 零外部运行时依赖的静态文档站构建与自检脚本。
- *
- * 公开范围白名单（严守 AGENTS / .scratch / docs/agents 隔离边界）：
- *   - 定制首页（对齐 README.md 核心能力） -> index.html
- *   - docs/guide.md        -> docs/guide.html
- *   - docs/agent-bridge.md -> docs/agent-bridge.html
- *   - docs/development.md  -> docs/development.html
- *   - PRIVACY.md           -> privacy.html
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -122,10 +112,6 @@ function stripInlineFormattingForText(raw) {
     .trim();
 }
 
-/**
- * 将相对资源/文档链接解析为目标站点路由或 GitHub 源文件路径。
- * 严禁把未公开的内部路径静默打包进站点。
- */
 function resolveRepoLink(rawUrl, fromSrcRel, referencedAssets, kind) {
   const trimmed = rawUrl.trim();
   if (
