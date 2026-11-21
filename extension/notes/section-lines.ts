@@ -1,17 +1,7 @@
-// 字幕段行渲染窄叶子（arch-review-2026-09/04 自 notes/render.ts 提取，逐字节
-// 零逻辑改动）：ai/subtitle-prompt 只需要 buildSubtitleSectionLines 与
-// shouldShowHoursInNote 两个函数，此前经 notes/render 拖入整个 render 依赖树
-//（validators / selection 等）进 ladder chunk。本叶子只依赖 subtitle/chapters
-// 与 shared/clock-text。
-
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
 import type { State } from "../core/state.js";
 
-// 渲染入参的宽松 meta 形状：字段全部按可选收口，各渲染函数内部沿用原有的
-// String()/Number() 归一，行为与迁出前一致。clipState 片段按结构直接兼容；
-// State 容器（无同名字段）经 shouldShowHoursInNote 的联合参数收口（TS 弱类型
-// 检查要求联合显式包含 State）。
 interface NoteRenderMeta {
   title?: unknown;
   aid?: unknown;
@@ -26,26 +16,17 @@ interface NoteRenderMeta {
   hotComments?: unknown[];
 }
 
-// 字幕条目的宽松形状：ai/subtitle-prompt 的 unknown[] body 与 core/state 的
-// SubtitleBodyItem 都按此结构传入；时间戳消费点按 number 断言（与迁出前
-// 直传的运行时值一致），文案统一经 String() 归一。
 interface SubtitleBodyItemLike {
   from?: unknown;
   to?: unknown;
   content?: unknown;
 }
 
-// 派生渲染只读 includeTimestampInBody 一个开关；buildSubtitleSectionLines 的
-// 调用方（ai/subtitle-prompt）只构造该字段。
 interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
   bilingualDisplayOrder?: "original-first" | "translation-first";
 }
 
-// 双语副行解析器（07 号票）：由消费点（subtitle/core 的派生重建 / subtitle/ui 的复制）
-// 传入的**纯函数**，notes 叶子因此不 import core/state、也不 import subtitle/alignment
-//（配对口径唯一一份仍在 subtitle/alignment，本叶子只消费它的输出）。
-// undefined = 双语关（或调用方没给）⇒ 一次调用都不多，输出与单轨逐字相同。
 export type SecondaryLineResolver = (item: SubtitleBodyItemLike) => string | null;
 
 export function buildSubtitleSectionLines(body: unknown[] | null | undefined, chapters: unknown[] | null | undefined, settings: NoteRenderSettings, withHours: boolean, secondaryFor?: SecondaryLineResolver): string[] {
@@ -81,7 +62,6 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
       end = chapterTo;
     }
 
-    // 推进游标跳过 from < start 的字幕（前一章已消费或未归入任何章节）
     while (subtitleCursor < subtitleItems.length) {
       const from = Number(subtitleItems[subtitleCursor].from || 0) || 0;
       if (from + 0.001 >= start) {
@@ -90,7 +70,6 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
       subtitleCursor++;
     }
 
-    // 收集属于当前 chapter 的字幕
     const sectionItems: Array<SubtitleBodyItemLike & { _index: number; text: string }> = [];
     while (subtitleCursor < subtitleItems.length) {
       const from = Number(subtitleItems[subtitleCursor].from || 0) || 0;
@@ -151,9 +130,6 @@ function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSett
   return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
 }
 
-// withHours 元数据级判定（arch-slim-2/08）：聚合（字幕末尾 / 章节边界 / 视频时长
-// 取 max）留在 notes 域——normalizeChapters 与 meta 形状是 notes 域知识，不拖入
-// 共享叶子；「≥3600 才带小时位」的阈值判定单源 shared/clock-text.ts。
 export function shouldShowHoursInNote(meta: NoteRenderMeta | State | null | undefined, body: unknown[] | null | undefined): boolean {
   const m = (meta || {}) as NoteRenderMeta;
   const items = (body || []) as SubtitleBodyItemLike[];

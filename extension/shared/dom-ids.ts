@@ -1,16 +1,5 @@
-// shared/dom-ids.ts — 文摘面板与阅读视图的 DOM id 契约表（shared 叶子）。
-//
-// 为什么独立成 shared 叶子：id 表被三方共享——UI 模板（ui/ui-renderer.js
-// buildUiHtml）、总结链（subtitle/ui.js）与 reader 域实现（video-bind/
-// sync/lifecycle）。它只是一张纯常量表、零依赖，因此放在 shared 谁都能取；
-// 早先它由 reader/state.js 持有时，shared/ui-status.js 为了读一个 id 就得反向
-// import reader 域，破了 shared 的叶子纪律（02 分层归位把它下沉到此处）。
-
 export const ids = {
   root: "biliscript-root",
-  // script-only-ui：经典侧栏面板 ids（panel/status/meta/subtitleSelect/preview/
-  // message/copyBtn/downloadBtn/refreshBtn/closeBtn/settingsBtn）已随 A 形态壳
-  // 删除——文摘面板是唯一界面。
   readingView: "biliscript-reading-view",
   readingCloseBtn: "biliscript-reading-close-btn",
   readingThemeSelect: "biliscript-reading-theme-select",
@@ -20,8 +9,6 @@ export const ids = {
   readingSettingsHost: "biliscript-reading-settings-host",
   readingMeta: "biliscript-reading-meta",
   readingSubtitleList: "biliscript-reading-subtitle",
-  // 统一 文摘面板（PR2）：右侧面板壳 + 三标签（字幕/概览/AI 对话）分段控件。
-  // 字幕列表（readingSubtitleList）整体挂进字幕 tab body；概览/AI 对话为诚实占位。
   readingScriptPanel: "biliscript-reading-script-panel",
   readingTabSubtitle: "biliscript-reading-tab-subtitle",
   readingTabOverview: "biliscript-reading-tab-overview",
@@ -29,14 +16,7 @@ export const ids = {
   readingTabBodySubtitle: "biliscript-reading-tabbody-subtitle",
   readingTabBodyOverview: "biliscript-reading-tabbody-overview",
   readingTabBodyChat: "biliscript-reading-tabbody-chat",
-  // PR4 概览 tab 渲染宿主：reader/overview.ts 按状态机整块重建其内容
-  //（idle/generating/ready/partial/error/empty，全诚实态）。
   readingOverviewBody: "biliscript-reading-overview-body",
-  // PR3 字幕 tab 五件事：句内搜索、Copy/Export、Follow 悬浮按钮、转写中间态
-  // 横幅、选区「解释」浮层与卡片、AI 对话 tab 的待解释意图卡。
-  // 字幕轨选择器（票 subtitle-track-picker/08）：字幕工具条里的选轨控件值源
-  //（ui/custom-select 建壳前的原生 select；该 id 于 2f974c5 随控件删除，本票
-  // 恢复——控件本体换成了组件形态，id 与选择器语义不变）。
   readingSubtitleSelect: "biliscript-reading-subtitle-select",
   readingSearchInput: "biliscript-reading-search-input",
   readingSearchClearBtn: "biliscript-reading-search-clear",
@@ -47,26 +27,14 @@ export const ids = {
   readingExportSubtitleBtn: "biliscript-reading-export-subtitle",
   readingFollowBtn: "biliscript-reading-follow-btn",
   readingTranscribeBanner: "biliscript-reading-transcribe-banner",
-  // 字幕区就地失败提示（reader/subtitle-notice.ts）：只在失败时显示，成功与进行中不提示。
   readingSubtitleNotice: "biliscript-reading-subtitle-notice",
-  // 转写横幅的标题与副文案：文案按相位取（reader/transcribe-banner.ts 的相位
-  // 文案表），id 用于把「按相位写文案」落到具体节点——不靠 class 选择器走私
-  // 字符串（样式类不是文案契约）。
   readingTranscribeBannerTitle: "biliscript-reading-transcribe-banner-title",
   readingTranscribeBannerCopy: "biliscript-reading-transcribe-banner-copy",
   readingTranscribeProgress: "biliscript-reading-transcribe-progress",
   readingExplainPop: "biliscript-reading-explain-pop",
-  // 选区「解释」卡片宿主（面板内弹层；状态机与渲染在 reader/explain-card.ts）
   readingExplainCard: "biliscript-reading-explain-card",
-  // PR3 占位期的待解释意图卡（PR5 起由对话 tab 组合根渲染/消费）
   readingChatIntent: "biliscript-reading-chat-intent",
-  // PR5 AI 对话 tab（readingChat* 前缀，不用 sp 前缀）：对话区全部元素 id。
-  // 结构与 sidepanel.html 的 sp* 树一一对应（设置 / 新对话、
-  // 转写提示行、消息区、模型/思考档/历史、输入卡片），逻辑内核
-  // 在 reader/chat-tab.ts（组合根）+ reader/chat-{lists,notices,popovers}.ts
-  //（重建壳）+ ../chat/*（内核）。头部不再有上下文标题 chip（2026-10 用户决议）。
   readingChatRoot: "biliscript-reading-chat",
-  // 联网搜索开关 pill（spec §4，chat header 工具条，历史按钮同排）
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
   readingChatSpeechVolume: "biliscript-reading-chat-speech-volume",
   readingChatSpeechVolumeInput: "biliscript-reading-chat-speech-volume-input",
@@ -88,37 +56,21 @@ export const ids = {
   readingChatLiveStatus: "biliscript-reading-chat-live-status",
   readingChatMessages: "biliscript-reading-chat-messages",
   readingChatSuggestions: "biliscript-reading-chat-suggestions",
-  // 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。挂在
-  // 输入卡所在 footer 内（非消息区：那里是滚动容器，绝对定位子节点会跟着滚走）。
   readingChatScrollBottomBtn: "biliscript-reading-chat-scroll-bottom-btn",
   readingChatModelSelect: "biliscript-reading-chat-model-select",
-  // 模型 + 思考档位面板（发送框底部 chip 弹出）：分组模型列表 + 底部固定
-  // 思考档位行与「关不掉」提示行；chip 是隐藏 select 的展示层。
   readingChatModelChip: "biliscript-reading-chat-model-chip",
   readingChatModelPanel: "biliscript-reading-chat-model-panel",
   readingChatModelList: "biliscript-reading-chat-model-list",
-  // 思考强度内联选择区：面板底部固定区（标题行「思考强度 <当前值>」+ 右上角 ↻ 重置键
-  // 对应 Default 不干预档 + 胶囊滑轨/单档胶囊）。档位由 reader/chat-model-panel.ts 按
-  // chat/thinking-picker 的显示条目现渲。
   readingChatThinkingRow: "biliscript-reading-chat-thinking-row",
   readingChatThinkingRowValue: "biliscript-reading-chat-thinking-row-value",
-  // 思考档位交互容器（承载右上角 Default ↻ 按钮与滑轨刻度/单档胶囊，条目 = 可用集按显示口径派生）。
   readingChatThinkingToggle: "biliscript-reading-chat-thinking-toggle",
-  // 思考档位「关不掉 / clamp」提示行（工单 03）：档位区之后（面板底部固定区），
-  // 默认 hidden，由模型面板（reader/chat-model-panel.ts）按 chat/thinking-picker 视图值
-  // 的 hint 写文案与显隐。
   readingChatThinkingHint: "biliscript-reading-chat-thinking-hint",
   readingChatHistoryPopover: "biliscript-reading-chat-history-popover",
   readingChatHistoryList: "biliscript-reading-chat-history-list",
   readingChatHistoryClearBtn: "biliscript-reading-chat-history-clear-btn",
-  // 历史整页头部的返回键（历史对话已从浮层改为盖住对话内容区的整页，入口键
-  // 自身也在被盖住的一侧，退出只能靠本键/Esc/切走标签条）。
   readingChatHistoryBackBtn: "biliscript-reading-chat-history-back-btn",
   readingChatInput: "biliscript-reading-chat-input",
   readingChatInputBar: "biliscript-reading-chat-input-bar",
-  // 图片附件区（image-input 02 号票）：粘贴图片的缩略图条目 + 单个删除键，
-  // 无附件时 hidden（不占位）。
   readingChatImageStrip: "biliscript-reading-chat-image-strip",
-  // 发送按钮：空闲为 ↑（空输入禁用），流式中切换为停止键（圆形 + 方块图标）。
   readingChatSendBtn: "biliscript-reading-chat-send-btn"
 };

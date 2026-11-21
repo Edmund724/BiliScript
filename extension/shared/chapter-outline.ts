@@ -1,56 +1,26 @@
-// 章节来源叶子（概览分章票 03 决议）：从视频简介/评论里解析「时间戳 + 标题」目录、
-// 把 B 站官方章节（player/v2 的 view_points）归一成同一形状，并裁定概览的分章来源
-// 优先级——简介/评论时间轴 > 官方章节 > AI 自由分章。
-//
-// 为什么住在 shared 叶子：概览管线的提示词装配与缓存签名要用这份裁定，reader
-// 概览 tab 的「当前产物身份键」也必须用同一份裁定与同一份指纹（否则目录变化后
-// 面板会继续复用旧产物）；而 reader 不得静态引 AI 管线（build-content 的装载图
-// 守卫），故下沉到此。定位容错单源 shared/clock-text.ts 的 parseClock。
-
 import { parseClock } from "./clock-text.js";
 import { decodeHtmlEntities } from "./string-utils.js";
 
-/** 时间轴目录里的单条章节：秒数 + 标题（标题原样保留，不让模型改写）。 */
 export interface OutlineChapter {
   seconds: number;
   title: string;
-  /** 官方章节自带的结束秒（简介/评论时间轴目录没有此字段），末章落界时优先用它。 */
   to?: number;
 }
 
-// 目录条数上限：防止简介/评论里上百行时间戳把提示词撑爆。与产物裁剪上限
-// （analysis-validate.ts 的 MAX_ANALYSIS_CHAPTERS）同量级但各自独立——这里是
-// 「解析上限」，那里是「产物上限」，改动需同时复核。
 export const MAX_OUTLINE_CHAPTERS = 100;
 
-// 时间戳行识别：行首（可带列表符号/引用符号）后跟 M:SS / MM:SS / H:MM:SS，
-// 后接标题文字（标题与时间戳之间也可用「・」「·」等间隔符）。纯时间戳行（无标题）
-// 不算章节条目。上游正则约束形状，数值容错（2 段分钟位不封顶、拒 ss≥60/
-// 3 段 mm≥60/hh≥24）单源到 clock-text 的 parseClock。
 const OUTLINE_LINE_RE = /^(?:[-*•>#\s]|\d+[.、)])*\s*(\d{1,2}:\d{2}(?::\d{2})?)[\s・·]+(.{1,120}?)\s*$/;
 
-// 目录时间戳解析：容错规则单源（parseClock），哨兵语义保留——解不出返回 -1，
-// parseChapterOutline 丢弃该条（「99:99」这类非法时刻归一后按拍板拒绝）。
 function parseOutlineClock(text: string): number {
   return parseClock(text) ?? -1;
 }
 
-/**
- * 正文里是否含「时间戳 + 标题」的章节行（与 parseChapterOutline 同一识别口径）。
- * 消费方：热评楼中楼补抓（gateway）只为含章节行的顶层评论拉续篇——精准覆盖
- * 「置顶目录的第二段发在楼中楼里」的场景，其余评论零请求。
- */
 export function hasOutlineTimestampLine(text: unknown): boolean {
   return String(text ?? "")
     .split(/\r?\n/)
     .some((line) => OUTLINE_LINE_RE.test(line));
 }
 
-/**
- * 从简介/评论文本提取「时间戳目录」：形如「00:00 开场 / 03:25 安装」的行。
- * 至少 2 条才认定为现成章节划分（单条时间戳行不构成划分）；重复秒数去重、
- * 按秒排序；默认上限 MAX_OUTLINE_CHAPTERS。
- */
 export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_CHAPTERS): OutlineChapter[] {
   const lines = String(text ?? "").split(/\r?\n/);
   const out: OutlineChapter[] = [];
@@ -59,8 +29,6 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
     const match = line.match(OUTLINE_LINE_RE);
     if (!match) continue;
     const seconds = parseOutlineClock(match[1]);
-    // 源文本（简介/评论接口正文）常带 HTML 字符实体：标题还原成真实字符再入目录，
-    // 下游渲染统一 escapeHtml，解码不引入 XSS 面。
     const title = decodeHtmlEntities(match[2]).trim();
     if (seconds < 0 || !title || seen.has(seconds)) continue;
     seen.add(seconds);
@@ -73,11 +41,6 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
   return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)));
 }
 
-/**
- * 热门评论（HotComment[]）→ 可解析文本：message 正文 + 楼中楼续篇（subMessages）
- * 依次拼接，一行一条。续篇是置顶目录评论发在楼中楼里的第二段目录，只进目录解析；
- * 聊天工具结果仍只用 message（ai/tool-loop.ts 的评论工具）。
- */
 export function hotCommentsText(hotComments: unknown): string {
   if (!Array.isArray(hotComments)) return "";
   return hotComments
@@ -93,12 +56,6 @@ export function hotCommentsText(hotComments: unknown): string {
     .join("\n");
 }
 
-/**
- * B 站官方章节（view_points）→ 目录形状：剔空标题与非法 from、按 from 升序、
- * 同秒去重（保留先到者），保留 to 供末章落界。
- * 注：这里按**秒**去重（不是 subtitle/chapters.ts 的 (from, title) 对）——给定章节
- * 以秒为身份，同秒两条会让章界塌成 0 长度。
- */
 export function manuscriptChapterOutline(chapters: unknown): OutlineChapter[] {
   const list = (Array.isArray(chapters) ? chapters : [])
     .map((raw) => {
@@ -124,25 +81,14 @@ export function manuscriptChapterOutline(chapters: unknown): OutlineChapter[] {
   return out.slice(0, MAX_OUTLINE_CHAPTERS);
 }
 
-/** 概览的分章来源：时间轴目录 / 官方章节 / AI 自由分章。 */
 export type ChapterSourceKind = "outline" | "manuscript" | "auto";
 
 export interface ChapterSource {
   kind: ChapterSourceKind;
-  /** 给定章节清单（outline / manuscript 非空；auto 为空）——提示词、边界与签名都用它。 */
   chapters: OutlineChapter[];
-  /**
-   * 进签名的章节模式位：只有「官方章节作给定来源」时才是原始官方章节数组，其余为空。
-   * 管线与 reader 都从这里取值，禁止各自手拼——同构是「目录/章节变化后面板旧产物
-   * 必须退场」的前提。数组内容变（标题/秒数）即签名变（见 subtitle/cache.ts 的指纹位）。
-   */
   signatureChapters: unknown[];
 }
 
-/**
- * 裁定分章来源（概览分章票 03 决议）：简介 + 评论里的时间轴目录（≥2 条）优先；
- * 没有目录时用 B 站官方章节；两者都没有则 auto（AI 自由分章 + 后段门槛）。
- */
 export function resolveChapterSource(
   description: unknown,
   hotComments: unknown,

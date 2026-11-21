@@ -1,12 +1,3 @@
-// extension/shared/typed-event-bus.ts
-// 零依赖进程内强类型事件总线与统一资源生命周期上下文（DisposableContext）。
-//
-// 设计约束：
-// - shared 叶子层，严禁 import shared/ 以外任何模块；
-// - 支持强类型事件映射与 `{ signal?: AbortSignal, once?: boolean }` 自动退订；
-// - DisposableContext 围绕单一 AbortController 管理 DOM 监听、定时器、rAF 与任意
-//   可释放资源（observer / 订阅 / 子上下文），通过一次 dispose() 逆序回收，防止泄漏。
-
 export interface EventSubscribeOptions {
   signal?: AbortSignal;
   once?: boolean;
@@ -104,12 +95,10 @@ export function createTypedEventBus<TEventMap extends object>(): TypedEventBus<T
       return;
     }
     const payload = args[0];
-    // 快照遍历：订阅者在回调内退订或新增订阅不影响本轮派发。
     for (const listener of [...listeners]) {
       try {
         listener(payload);
       } catch {
-        // 订阅者异常隔离：单个消费方抛错不得打断其它订阅者与发布主流程。
       }
     }
   }
@@ -215,13 +204,11 @@ export function createDisposableContext(parentSignal?: AbortSignal): DisposableC
       controller.abort();
     }
 
-    // 逆序（LIFO）回收全部已登记资源，单个清理失败不阻塞剩余资源释放。
     while (cleanups.length > 0) {
       const cleanup = cleanups.pop()!;
       try {
         cleanup();
       } catch {
-        // 清理异常隔离
       }
     }
   };
@@ -353,7 +340,6 @@ export function createDisposableContext(parentSignal?: AbortSignal): DisposableC
       try {
         invokeCleanup(cleanup);
       } catch {
-        // 清理异常隔离
       }
       return () => {};
     }

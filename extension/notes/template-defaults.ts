@@ -1,6 +1,3 @@
-// extension/notes/template-defaults.ts
-// 模板化笔记导出的默认模板与上限常量（零依赖纯数据叶，供 validators 与 template 共享）。
-
 export const MAX_NOTE_EXPORT_TEMPLATE_BYTES = 4096;
 export const MAX_OBSIDIAN_FIELD_LENGTH = 120;
 

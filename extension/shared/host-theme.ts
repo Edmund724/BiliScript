@@ -1,8 +1,3 @@
-// extension/shared/host-theme.ts
-// B 站宿主主题自动探测、四模式主题解析（bilibili / system / light / dark）、
-// 外部主题实时监听（MutationObserver + matchMedia）与首屏防闪烁本地快照。
-// 纯 DOM/Web API 轻量叶子，零业务域依赖，供 content / shell / reader / onboarding / permission-grant 共用。
-
 import type { Settings } from "../core/defaults.js";
 import type { ReaderThemeMode } from "../core/validators.js";
 
@@ -67,7 +62,6 @@ function normalizeSignalValue(raw: string | null | undefined): ResolvedReaderThe
 function detectFromElementAttributes(el: Element | null): ResolvedReaderTheme | null {
   if (!el) return null;
 
-  // 1. B 站原生 / 插件显式深浅属性（含 BewlyBewly / BewlyCat / Dark Reader）
   const attrNames = [
     "data-dark",
     "data-theme",
@@ -80,7 +74,6 @@ function detectFromElementAttributes(el: Element | null): ResolvedReaderTheme | 
     if (signal) return signal;
   }
 
-  // 2. 常见深色/浅色类名（BewlyBewly/BewlyCat 在 html 注入 .dark；Bilibili Evolved 注入 html.dark / body.dark）
   if (el.classList && el.classList.length > 0) {
     let sawLight = false;
     for (const token of el.classList) {
@@ -97,7 +90,6 @@ function detectFromElementAttributes(el: Element | null): ResolvedReaderTheme | 
     }
   }
 
-  // 3. 显式单值 inline color-scheme（排除 "light dark" 双值声明）
   if (el instanceof HTMLElement) {
     const scheme = (el.style?.colorScheme || "").trim().toLowerCase();
     if (scheme === "dark") return "dark";
@@ -118,7 +110,6 @@ function parseColorLuminance(raw: string | null | undefined): number | null {
     return null;
   }
 
-  // rgb(r, g, b) / rgba(r, g, b, a) / rgb(r g b / a)
   const rgbMatch = value.match(
     /^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/
   );
@@ -134,7 +125,6 @@ function parseColorLuminance(raw: string | null | undefined): number | null {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 
-  // #rgb / #rrggbb / #rrggbbaa
   const hexMatch = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/);
   if (hexMatch) {
     const hex = hexMatch[1];
@@ -160,7 +150,6 @@ function parseColorLuminance(raw: string | null | undefined): number | null {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 
-  // oklch(L C H [/ alpha])
   const oklchMatch = value.match(
     /^oklch\(\s*([\d.]+%?)\s+[\d.]+\s+[\d.a-z]+(?:\s*\/\s*([\d.]+%?))?\s*\)$/
   );
@@ -173,7 +162,6 @@ function parseColorLuminance(raw: string | null | undefined): number | null {
     const lRaw = oklchMatch[1];
     const l = lRaw.endsWith("%") ? parseFloat(lRaw) / 100 : parseFloat(lRaw);
     if (!Number.isFinite(l)) return null;
-    // OKLCH L^3 approximates perceptual relative luminance closely enough for dark/light classification
     return Math.pow(Math.min(1, Math.max(0, l)), 3);
   }
 
@@ -217,7 +205,6 @@ export function detectBilibiliHostTheme(doc: Document = document): ResolvedReade
   if (!doc || !doc.documentElement) {
     return null;
   }
-  // 扩展独立页（onboarding / permission-grant）自带 data-theme，不是 B 站宿主，直接返回 null 回落系统
   if (doc.documentElement.getAttribute("data-biliscript-onboarding") === "1") {
     return null;
   }
@@ -288,7 +275,6 @@ export function writeThemeSnapshot(snapshot: ThemeSnapshot): void {
     }
     window.localStorage.setItem(THEME_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot));
   } catch {
-    // 隐私模式或存储受限时静默降级，不影响主题应用
   }
 }
 
@@ -351,7 +337,6 @@ export function watchExternalThemeChanges(
     });
   };
 
-  // 1. 监听系统 prefers-color-scheme 实时变更
   let media: MediaQueryList | null = null;
   if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
     try {
@@ -366,7 +351,6 @@ export function watchExternalThemeChanges(
     }
   }
 
-  // 2. 监听宿主 html / body 属性变化（排除 data-biliscript-*，仅观测 B 站与美化插件主题信号）
   let observer: MutationObserver | null = null;
   const isStandaloneExtensionPage =
     doc?.documentElement?.getAttribute("data-biliscript-onboarding") === "1";

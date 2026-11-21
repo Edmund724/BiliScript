@@ -1,46 +1,6 @@
-// 样式注入器（S3 分层）：阅读表（styles/tokens-primitive.css + styles/reader.css + styles/reader-gate.css）、
-// 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
-// reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）、
-// 自定义下拉组件表（styles/custom-select.css，2026-10 从设置表抽出，随
-// ui/custom-select.ts 组件走）、自绘开关组件表（styles/toggle-switch.css，随
-// ui/toggle-switch.ts 组件走）、对话分区表（styles/reader-chat.css，arch-slim-4/07）
-// 与双语字幕表（styles/bilingual-subtitles.css，随 reader/subtitle-tab-ui.ts 走）
-// 不再经 manifest 常驻注入，改由本模块在对应能力启用时挂载。
-//
-// 挂载机制：<link rel="stylesheet" href="chrome.runtime.getURL(...)">。link
-// 挂进页面 DOM 后由页面渲染管线加载，属页面侧资源访问——全部样式表依赖
-// manifest WAR 里的 "entry/styles/*" 放行（matches 限 www.bilibili.com）。
-//
-// 为什么不用 fetch + textContent/adoptedStyleSheets：内容脚本建 link 的样式
-// 参与级联顺序与原 manifest css 注入一致（同为文档级样式表，晚挂则靠后），
-// 且无需在 JS 里维护 CSS 文本；adoptedStyleSheets 还要在每个宿主元素上挂接
-// 并复刻级联位置，收益为零。
-//
-// 幂等/防泄漏：挂载记录存 Map，重复挂同路径直接跳过；移除按引用摘 link 并
-// 从 Map 删除。移除不是「卸载语义」——数据留在浏览器样式缓存；阅读壳重开时
-// 仍等待三张 link 加载完成，避免 .open 先于样式生效而跳过 @starting-style。
-//
-// 挂载态即 DOM：不导出只读探针，某张表挂没挂就是
-// link[data-biliscript-style="1"]（href 尾段 = entry/styles/<name>.css）在不在
-// document 里，消费方与测试同口径。各 ensure 原语由对应能力模块挂载，
-// 阅读壳退出只移除其拥有的阅读主表。
-//
-// 挂载记录与设置表的 ready promise 挂 globalThis 而非模块级变量：两轮构建
-//（scripts/build-content.js）把常驻底座在轮 B 懒 chunk 区重复一份，本模块在
-// content-main 与 chunks/ 共享 chunk 里各是一个实例——挂载点本就分居两侧
-//（常驻 entry/content.ts 的直达阅读 URL 路径、懒加载区 reader/shell.ts 的进入
-// 事务），各记各的 Map 会让同一路径被注入两个 <link>，且一侧 removeReaderStyles
-// 摘不掉另一侧那个（退出阅读模式后样式表残留）。隔离世界的 globalThis 在同一
-// 扩展的全部 content 模块间唯一，两侧对齐到同一份记录（与 shared/messaging.ts
-// 的页内分发槽、reader/reader-bus.ts 的槽表、core/state.ts 的状态单例同款
-// 先例）。
-//
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（挂载
-// 记录与 ready promise 表），允许双实例；安全依据即上文的 globalThis 槽。
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 interface StyleInjectorSlots {
   mounted: Map<string, HTMLLinkElement>;
-  // 设置分区表组的首挂 ready promise（null = 尚未首挂）；同表组跨实例共享，
-  // 后求值的实例经 whenReaderSettingsStylesReady 等的是同一份。
   readerSettingsReady: Promise<void> | null;
 }
 
@@ -79,13 +39,6 @@ export function removePlayerAiStyles(): void {
   unmountStyleLink("entry/styles/player-ai.css");
 }
 
-// 设置分区表组（arch-slim-4/04；2026-09 按分区拆为三份，列表顺序 = 拆分前
-// 单表内的规则顺序 = 级联顺序）：随 ui/settings-panel chunk 按需装载（模块
-// 顶层 ensure，抽屉首次打开才动态 import 该 chunk）。onload 门控：首挂时等
-// 全部三表 link load 再渲染抽屉内容（每表 ~50ms 兜底超时），首帧零闪变；
-// 重挂命中 mounted Map 即时渲染。
-// 与 reader/player-ai 表不同：exitReaderShell 不摘除——设置表数据留在浏览器
-// 样式缓存，二进宫免闪变（同 reader 主表「link 数据在缓存」口径）。
 const READER_SETTINGS_STYLE_PATHS = [
   "entry/styles/reader-settings-shell.css",
   "entry/styles/reader-settings-rows.css",
@@ -99,14 +52,9 @@ export function ensureReaderSettingsStyles(): void {
   if (!isFirstMount) {
     return;
   }
-  // link 可能已缓存命中（load 已触发过或同步完成），readyState/监听双口径；
-  // 全部三表就绪才算 ready（级联顺序三份一起生效，单表先行无意义）。
   slots.readerSettingsReady = Promise.all(links.map(waitForStyleLinkLoad)).then(() => {});
 }
 
-// 单表 onload 门控原语：sheet 已在即视为同步完成，否则等 load/error（once）。
-// 兜底：load 事件异常不达（如宿主扩展上下文异常）时放行渲染，闪变概率
-// 换可用性——体验优先（grilling Q7 决策）。
 function waitForStyleLinkLoad(link: HTMLLinkElement): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => resolve();
@@ -130,59 +78,24 @@ export async function ensureLiveRoomSettingsStyles(): Promise<void> {
   await Promise.all([readerReady, whenReaderSettingsStylesReady()]);
 }
 
-// 自定义下拉组件表（2026-10 从设置三件套里抽出）：组件在设置抽屉与阅读面板两侧
-// 都用（ui/custom-select.ts），规则不再随 ui/settings-panel chunk 按需装载——只看
-// 字幕、没开过设置抽屉时也必须有样式。故由组件模块顶层 ensure（settings-panel.ts
-// 顶挂载同款先例），不并入上方三件套路径数组、不建 onload 门控（组件首个实例在
-// 抽屉首建/工具条渲染时建，link 早已挂上）。与设置表同口径：exitReaderShell 不摘除，
-// 数据留在浏览器样式缓存，二进宫免闪变。
 const CUSTOM_SELECT_STYLE_PATH = "entry/styles/custom-select.css";
 
 export function ensureCustomSelectStyles(): void {
   mountStyleLink(CUSTOM_SELECT_STYLE_PATH);
 }
 
-// 自绘开关组件表（随 ui/toggle-switch.ts 组件走）：设置抽屉的持久布尔开关
-//（ADR-0019 自绘控件边界）由本组件接管展示，规则不住进设置三件套。挂载点
-// 同组件表先例——组件模块顶层 ensure，不建 onload 门控，exitReaderShell 不摘除。
 const TOGGLE_SWITCH_STYLE_PATH = "entry/styles/toggle-switch.css";
 
 export function ensureToggleSwitchStyles(): void {
   mountStyleLink(TOGGLE_SWITCH_STYLE_PATH);
 }
 
-// 双语字幕表（bilingual-subtitles/06）：字幕工具条选轨控件的双语弹层（两列 +
-// 页脚开关 + trigger 徽标）与字幕列表的副行两处共用一份表。挂载点同组件表：
-// 消费者 leaf（reader/subtitle-tab-ui.ts）模块顶层 ensure，不并入阅读主表
-// （removeReaderStyles 不管它：数据留在浏览器样式缓存，二进宫免闪变），也不建
-// onload 门控（首个消费帧是工具条渲染，link 早已挂上）。
-// 与组件表的覆盖关系不依赖两张 link 的挂载先后，判据全在选择器特异性：
-//   - 度量覆盖（右锚 / flex 列 / 滚动区下移）：本表卡片规则带
-//     `:has(> .biliscript-bilingual-popover)`（(1,2,0)），高于组件表
-//     `.custom-select-dropdown`（(1,1,0)），谁先挂都赢；
-//   - 唯一同分的对是收起态：卡片规则声明的 display 与组件表
-//     `.custom-select-dropdown[hidden] { display: none }` 同为 (1,2,0)，故本表必须
-//     同步重述 `[hidden]`（(1,3,0)，见 entry/styles/bilingual-subtitles.css），
-//     漏掉就是「列表常开」。
 const BILINGUAL_SUBTITLE_STYLE_PATH = "entry/styles/bilingual-subtitles.css";
 
 export function ensureBilingualSubtitleStyles(): void {
   mountStyleLink(BILINGUAL_SUBTITLE_STYLE_PATH);
 }
 
-// 对话分区表（arch-slim-4/07）：随对话域首次激活按需装载，不建 onload 门控
-//（1-2 帧无样式窗口只落在未激活的静默空态上）。挂载点两个：setReaderScriptTab
-// 的 chat 分支同步 ensure（盖住 tab 点击/解释卡/快捷动作全部入口），reader/
-// chat-tab.ts 模块顶层兜底（盖住未来入口）。与设置表同口径：exitReaderShell
-// 不摘除，数据留在浏览器样式缓存，二进宫免闪变。
-//
-// 三层栈（顺序即级联顺序，后续层覆盖前者）：
-//   1. github-markdown.css：AI 回复 markdown 排版基线（vendored，选择器
-//      特异性低，作底座）；
-//   2. github-markdown-theme.css：primer --fgColor-*/--bgColor-* 变量映射到
-//      --biliscript-reader-*（含 data-theme 暗色档），并复位字体/字号/背景为宿主值；
-//   3. reader-chat.css：站内有意为之的覆盖层（气泡紧凑间距、标题字号阶梯、
-//      时间戳 pill、content-visibility），特异性 0-2-x 且排在最后，稳赢基线。
 const READER_CHAT_STYLE_PATHS = [
   "entry/styles/github-markdown.css",
   "entry/styles/github-markdown-theme.css",

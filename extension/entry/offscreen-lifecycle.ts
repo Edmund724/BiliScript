@@ -1,16 +1,3 @@
-// offscreen-lifecycle.ts — Offscreen document lease tracking and tiered idle reclaim arbitration.
-//
-// Tiered reclaim policy ("light stay-warm, heavy fast-reclaim, all-tabs-closed fallback"):
-// - Light channels (chat, provider-http): when all active ports and tasks drop to zero,
-//   schedule a long idle fallback timer (default 10 min) and a short-delay check asking SW
-//   whether any `*://*.bilibili.com/*` tab remains open. If all Bilibili tabs are closed or
-//   the document stays completely idle past 10 min, trigger closeSelf; otherwise keep warm.
-// - Heavy media channels (ASR decode/probe, live companion, video frame capture): mark the
-//   session as having used high-memory media resources (OfflineAudioContext / <video> buffers).
-//   Once all active ports and tasks drop to zero, reclaim after a short grace window
-//   (ASR: 4s; live/frame media: 45s). Any new port or task entering during the grace window
-//   cancels the pending timer immediately.
-
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import type { OffscreenCloseReason } from "../shared/messaging-protocol.js";
 
@@ -54,7 +41,6 @@ export interface OffscreenLifetime {
   dispose(): void;
 }
 
-/** Returns true only when both active non-ASR port and task counts are <= 0 (NaN/undefined preserve). */
 export function shouldCloseAfterAsrTask(
   activePortCount: unknown,
   activeTaskCount: unknown
@@ -67,7 +53,6 @@ function normalizeDelay(value: number | undefined, fallback: number): number {
   return Number.isFinite(num) && num >= 0 ? num : fallback;
 }
 
-/** Creates a tiered offscreen document lifetime tracker. */
 export function createOffscreenLifetime({
   closeSelf,
   asrIdleGraceMs = DEFAULT_ASR_IDLE_GRACE_MS,

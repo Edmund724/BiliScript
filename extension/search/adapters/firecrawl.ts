@@ -1,9 +1,3 @@
-// extension/search/adapters/firecrawl.ts
-// Firecrawl 搜索适配器（spec §2 调用形状表）：POST /v2/search，**无鉴权头**
-// （keyless 模式完全不发 Authorization）。请求体 { query, limit }。响应
-// data.web[].title/url/description（v2 的 data 是对象；v1 的扁平数组不用）。
-// 纯函数，零 Chrome API / 零 DOM。
-
 import { mapSearchResultRows } from "./rows.js";
 import {
   type BuildSearchRequestInput,
@@ -36,7 +30,6 @@ export function parseFirecrawlSearchResponse(payload: unknown): ParsedSearchResp
   };
 }
 
-// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
 export const firecrawlAdapter: SearchAdapter = {
   type: "firecrawl",
   name: "Firecrawl",

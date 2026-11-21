@@ -1,9 +1,3 @@
-// extension/search/adapters/parallel.ts
-// Parallel 搜索适配器（spec §2 调用形状表）：POST /mcp，JSON-RPC tools/call +
-// web_search，**无鉴权**。响应是两层 JSON 信封（不是 SSE）：取
-// result.structuredContent.results[].title/url/excerpts[0]。纯函数，零 Chrome
-// API / 零 DOM。
-
 import { mapSearchResultRows } from "./rows.js";
 import {
   type BuildSearchRequestInput,
@@ -48,7 +42,6 @@ export function parseParallelSearchResponse(payload: unknown): ParsedSearchRespo
   };
 }
 
-// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
 export const parallelAdapter: SearchAdapter = {
   type: "parallel",
   name: "Parallel",

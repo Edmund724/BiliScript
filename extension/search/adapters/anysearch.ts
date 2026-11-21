@@ -1,8 +1,3 @@
-// extension/search/adapters/anysearch.ts
-// AnySearch 搜索适配器（spec §2 调用形状表）：POST /v1/search，**无鉴权**。
-// 请求体 { query, max_results }。响应 data.results[].title/url/snippet（同项另有
-// 更长的 content，不用）。纯函数，零 Chrome API / 零 DOM。
-
 import { mapSearchResultRows } from "./rows.js";
 import {
   type BuildSearchRequestInput,
@@ -35,7 +30,6 @@ export function parseAnySearchResponse(payload: unknown): ParsedSearchResponse {
   };
 }
 
-// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
 export const anysearchAdapter: SearchAdapter = {
   type: "anysearch",
   name: "AnySearch",

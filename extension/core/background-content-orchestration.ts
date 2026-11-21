@@ -1,11 +1,3 @@
-// background-content-orchestration.ts — SW 侧「content 注入恢复 + 触发重试」编排。
-//
-// 从 entry/background.js 提取：background 只组装真实 chrome API 传入工厂，
-// 本模块拥有全部时序与错误分类决策。模块顶层零 chrome 依赖（仅 shared/utils
-// 的 sleep 作默认延时、shared 的错误哨兵常量），可在 Node 测试环境直接 evaluate。
-//（02 分层归位：工厂本体自 entry/ 下沉 core/——它零 chrome 依赖，属 core 层纯
-// 编排；chrome 触点接线留在 entry/content-orchestration-wiring.ts。）
-
 import { sleep } from "../shared/utils.js";
 import {
   DUPLICATE_CLASSIC_INJECTION_SENTINEL,
@@ -82,7 +74,6 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
           return version;
         }
       } catch {
-        // ignore probe failures
       }
       if (attempt < probeAttempts - 1) {
         await delay(probeRetryDelayMs);
@@ -176,7 +167,6 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
           try {
             await ensureReaderContentReady(tabId);
           } catch {
-            // keep retrying
           }
           continue;
         }
@@ -204,7 +194,6 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
           return true;
         }
       } catch (error) {
-        // 忽略瞬时失败（消息端口被提前关闭等），下方通过 URL 二次确认。
       }
 
       if (await isTabReaderModeOff(tabId)) {
@@ -240,7 +229,6 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
           try {
             await ensureReaderContentReady(tabId);
           } catch {
-            // keep retrying
           }
           continue;
         }

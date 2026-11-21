@@ -1,24 +1,6 @@
-// extension/core/ai-provider-store.ts
-// AI 平台 Provider/Key 的存储（列表 CRUD + 归一化）。
-// 从 extension/entry/background.js 提取的深模块：只与 chrome.storage 交互，
-// 不涉及消息路由。所有函数返回 Promise，由 background.js 的消息处理函数调用。
-// 全局设置（reader/AI/ASR/下载域）的归一化与读写已拆到 settings-store.js，
-// 本模块只负责 AI 平台列表 CRUD。连通性测试/探针已移至 ai/provider-test.js
-// （候选 04 拆链：探针依赖 ai/completion.js，留在本文件会把整条 completion 链
-// 拖进 SW 静态图；options 页直调 provider-test，本模块回归纯存储）；
-// 模型列表拉取的协议知识（端点/鉴权/分页/过滤）归各协议 adapter 的 listModels
-//（ai/protocol-adapter.ts 契约），content 侧薄壳在 ai/provider-models.js
-//（arch-slim-2/09：探针是 ai 域知识，core/ 回归纯共享底座）。
-
 import { createProviderStore } from "./provider-store.js";
 import { normalizeBaseUrl } from "./presets.js";
 import { AI_PROTOCOLS, type AiProtocol } from "../ai/protocol-vocab.js";
-// 条目类型单源（票 ai-entry-type/01）：AI 平台条目的字段真值在协议侧
-//（ai/types.AiProvider，线格式宽松面）——本接口继承它，只在其上补记录面的
-// 精确必需字段。继承同时带来线格式面的 string 索引签名，故 store 产物
-//（AiProvider & {hasSavedKey}）成为协议条目 ProviderListEntry 的子类型；
-// 此前 store 面是独立声明的精确交叉类型，交叉类型不获得隐式索引签名
-//（microsoft/TypeScript#15300），两侧静态互不可赋值。
 import type { AiProvider as AiProviderWire } from "../ai/types.js";
 
 export interface AiProvider extends AiProviderWire {
@@ -26,26 +8,14 @@ export interface AiProvider extends AiProviderWire {
   presetId: string;
   name: string;
   baseUrl: string;
-  // 模型目录（multi-model-catalog 拍板 Q7：纯 ID 数组，删除即移除，无启停
-  // 开关；允许空数组——空目录平台在聊天选择器中不显示任何模型）。
   models: string[];
   requiresKey: boolean;
   enabled: boolean;
-  // 平台协议（multi-protocol-ai）：设置 UI 写入显式值；缺省/未知值不落盘，
-  // 读侧经 resolveAdapter 兜底 openai（存量记录零变化）。
   protocol?: AiProtocol;
   hasSavedKey?: boolean;
   apiKey?: string;
 }
 
-// ===== AI 模型平台存储 =====
-// 列表 CRUD（load/save/delete/Key 读写）委托给通用工厂 createProviderStore，
-// 本模块只提供 storage key 与 AI 专属的 normalizeProvider。不变式
-// “apiKey 永不进同步列表”由工厂统一保证。直接导出绑定好的 store 实例，
-// 消费方（background 消息路由）调用实例方法。
-
-// 存储键字面量单源（跟随 search-provider-store.ts:16-24 先例）：settings-snapshot
-// 的族键面与 onChanged 订阅键面从这两个常量派生，别处不再复写字面量。
 export const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
 export const AI_PROVIDERS_STORAGE = "aiProviders";
 
@@ -64,12 +34,9 @@ function normalizeModelsField(raw: unknown): string[] {
 
 function normalizeAiProvider(item: unknown): AiProvider | null {
   if (!item || typeof item !== "object") return null;
-  // 遗留单模型字段 model 由继承的线格式面声明（AiProviderWire.model?: string）。
   const raw = item as Partial<AiProvider>;
   const id = String(raw.id || "").trim();
   if (!id) return null;
-  // 无感迁移（拍板 Q2）：旧单模型记录读时包成单元素目录。trim/去空/去重由
-  // normalizeModelsField 收口（拍板 Q7 校验口径）。
   const legacyModel = String(raw.model ?? "").trim();
   const models = normalizeModelsField(raw.models);
   const normalized: AiProvider = {
@@ -81,9 +48,6 @@ function normalizeAiProvider(item: unknown): AiProvider | null {
     requiresKey: raw.requiresKey !== false,
     enabled: raw.enabled !== false
   };
-  // 协议字段：仅词表叶内的值落盘（缺省/未知值省略，读侧经 resolveAdapter
-  // 兜底 openai——存量记录读写出形状不变，multi-protocol-ai 设置 UI 章）。
-  // 词表校验只 import 词表叶，不拖入分发表及其协议栈（protocol-vocab-leaf）。
   if (typeof raw.protocol === "string" && (AI_PROTOCOLS as readonly string[]).includes(raw.protocol)) {
     normalized.protocol = raw.protocol as AiProtocol;
   }

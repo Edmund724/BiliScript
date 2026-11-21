@@ -1,7 +1,3 @@
-// extension/shared/utils.ts
-// Small generic utilities (timing, dates) shared across ui / reader /
-// bilibili / popup code. No Chrome APIs, no DOM.
-
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

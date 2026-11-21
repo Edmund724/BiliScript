@@ -1,6 +1,3 @@
-// extension/bilibili/fullscreen.ts
-// B 站播放器全屏状态判定（浏览器全屏与网页全屏）
-
 import {
   BILI_HOST_SELECTORS,
   PLAYER_WEB_FULLSCREEN_SELECTOR,
@@ -26,7 +23,6 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
     return false;
   }
 
-  // 1. 浏览器原生全屏判定
   const fsEl = getFullscreenElement();
   if (fsEl) {
     if (!targetHost) {
@@ -35,7 +31,6 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
     return targetHost.contains(fsEl) || fsEl.contains(targetHost);
   }
 
-  // 2. B 站网页全屏判定（bpx-player / 容器 data-screen 或 class 属性）
   const bpx =
     targetHost?.querySelector(BILI_HOST_SELECTORS.playerBpxContainer) ||
     document.querySelector(BILI_HOST_SELECTORS.playerBpxContainer);
@@ -57,7 +52,6 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
     return true;
   }
 
-  // 3. body 级网页全屏标记
   if (
     document.body?.classList.contains("player-mode-webfullscreen") ||
     document.body?.classList.contains("player-full-win")

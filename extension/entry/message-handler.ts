@@ -1,53 +1,23 @@
-// content 侧消息分发 + URL 变化编排的组合根（arch-slim-2/09 自 core/ 归位
-// entry/：消息分发与页内编排是 entry 层知识，core/ 回归纯共享底座）。
 import { state, uiState, clipState, getReaderShellState, triggerSubtitleSessionBoundary } from "../core/state.js";
 
 import { startUrlWatcher } from "../core/url-watcher.js";
 import { contentEventBus, getCurrentClipScope } from "../shared/content-event-bus.js";
-// 换片事务：URL 变化编排（签名判定 → runId 递增 → 各域步骤次序 → 完成边）的唯一
-// 落点；本文件只把各域调用装配成它的依赖。
 import { createClipSwitchTransaction } from "./clip-switch-transaction.js";
 import {
   getErrorMessage,
   isStaleRunError
 } from "../shared/error-helpers.js";
 
-// 总结链（fetcher/ui + notes/render）经加载器按需引入（候选02 分层惰性）：
-// 链内符号一律先 await ensureSummarizeChain() 再取用。一键总结
-// 热路径上的装载是本地 chunk 动态 import（~10ms），被消息往返掩盖。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-// 候选03 常驻瘦身：UI 壳经 ui/lazy-ui.js 惰性构建（只在阅读视图已开或本次 URL
-// 变化正要进入阅读模式时才需要）。
 import { ensureUiReady } from "../ui/lazy-ui.js";
 
-// player-ai 的「是否已加载」判定直接取加载器（候选4 分包：开关关闭态不常驻，
-// 默认开启，2026-09 起）。「未加载」时按钮不可能存在，sync 可安全跳过（幂等
-// 不变量见 ai/lazy-player-ai.js 头注）；同步实现只有一处——reader/init-essentials
-// 的 syncPlayerAiQuickAction，本文件只注入调用。
 import { isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
-// reader 侧轻符号直接从 reader 状态微模块 import
-//（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫），
-// 不拖入 reader 重文件；阅读壳经
-// lazy-shell 按需装载。本文件不再装载 reader 动态域。
-// 阅读壳（工单 arch-slim/02）：reading-view 四个消息分支与 URL 跳转编排的
-// 进入/退出事务统一委托 reader/shell.ts（enterReaderShell / exitReaderShell /
-// enterReaderShellOnUrlNavigation），八步无闪变时序不再有本文件的手抄。
-// （候选06：seek 的滚动暂停重置/跟随设置已收进 reader 域单入口
-// seekReadingTarget 的规范序，本文件不再触碰 scroll-state 与跟随状态。）
-// arch-slim-2/09 shell 静态边改动态（ADR-0003 拆边）：reader/shell.ts 不再借道
-// 常驻包，四个 reading-view 分支与 URL 跳转入口改经 reader/lazy-shell.js 动态
-// 装载（reader-enter 本来就要装载 reader 域，shell 随行净增≈0）。
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
-// 预抓取与 URL 换片刷新共用 subtitle/kick-subtitle-fetch 的起跑序列
-//（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
-// reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
-// 本文件不静态依赖 fetcher，也不碰 reader 重域）。
 import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
-// 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
 import { collectAgentBridgeTabSnapshot } from "../agent-bridge/content.js";
 
@@ -62,9 +32,6 @@ import type {
   ContentScriptMessageType,
   SendResponse
 } from "../shared/messaging-protocol.js";
-// 页内分发原语（arch-slim-2/09，与 sendRuntimeMessage 同址 shared/messaging.js）：
-// ui/script-button.ts 等页内触发源经它进同一条处理器路径，本组合根在
-// bindRuntimeEvents 时把分发主体注册进去。
 import { registerContentScriptDispatcher } from "../shared/messaging.js";
 
 export function bindRuntimeEvents() {
@@ -73,22 +40,11 @@ export function bindRuntimeEvents() {
   }
   uiState.setRuntimeEventsBound(true);
 
-  // 页内源（ui/script-button.ts 的点击 / 失同步自愈）与 runtime 监听器共用
-  // 同一分发主体：注册进 shared/messaging.js 的原语槽（ui 侧只依赖 shared，
-  // 不建 ui → entry 静态边），再挂 chrome.runtime.onMessage。
   registerContentScriptDispatcher(dispatchContentScriptMessage);
   chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse: SendResponse) => {
     return dispatchContentScriptMessage(rawMessage, sendResponse);
   });
 }
-
-// onMessage 监听器的分发主体抽成可导出函数：除 runtime 消息外，页内触发源
-//（ui/script-button.ts 的工具栏按钮）也走同一处理器路径——页内源经
-// shared/messaging.js 的 dispatchContentScriptMessage 原语（本函数在
-// bindRuntimeEvents 时注册进去）复用同一处理逻辑（保持 handler 单源，消息
-// 形状不变）。
-
-// ===== content 侧消息处理器与路由表（arch-slim-3/04）=====
 
 type Msg<T extends ContentScriptMessageType> = Extract<ContentScriptMessage, { type: T }>;
 
@@ -97,12 +53,6 @@ type ContentScriptHandler<K extends ContentScriptMessageType> = (
   sendResponse: SendResponse
 ) => boolean;
 
-// 进阅读壳（工单 arch-slim/02）：reading-view 消息只做意图路由，八步无闪变
-// 时序与 restore 失同步自愈都在 reader/shell.ts 唯一实现；意图从消息负载推导
-//——reader-restore → restore；reader-enter 无 chat 负载 → open，带 chat 负载
-// → chat（进入事务内激活对话 tab，prompt 非空时按会话状态发送快捷提示词）。
-// shell 经 lazy-shell 动态装载；回包等待进入事务完成，chat 档同时等待对话
-// 定位/快捷提示词处理完成。装载或事务失败均回 ok:false，让实际触发入口呈现失败。
 type ReaderShellEntryType = "reader-enter" | "reader-restore";
 
 function handleReaderShellEnter(
@@ -127,7 +77,6 @@ function handleReaderShellEnter(
   return true;
 }
 
-// 跨标签页会话接管（live-session-takeover）：经 reader-bus 通知当前页停止被接管的实时伴看会话。
 function handleLiveSessionTakeover(
   _message: Msg<"live-session-takeover">,
   sendResponse: SendResponse
@@ -141,8 +90,6 @@ function handleLiveSessionTakeover(
   return false;
 }
 
-// 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
-//（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
 function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResponse): boolean {
   (async () => {
     try {
@@ -209,12 +156,6 @@ function handleAgentBridgeFrame(message: Msg<"agent-bridge-frame">, sendResponse
   return true;
 }
 
-// 编译期穷尽路由表（与 SW 侧 background.ts 的 messageHandlerTable 同款收敛，
-// arch-slim-3/04）：字面量表经 satisfies 对
-// { [K in ContentScriptMessageType]: ContentScriptHandler<K> } 校验——消息名
-// typo / 漏注册 handler 在 typecheck 即报错（此前 9 分支 if-chain + 末尾
-// return false 对此零捕获，与 SW 侧不对称）。每个条目的处理器同时按其具体
-// 消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。
 const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
@@ -247,25 +188,11 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
   return handler(rawMessage as ContentScriptMessage, sendResponse);
 }
 
-// ===== 字幕预抓取（支持页载入即起跑 + SPA 换片起跑）=====
-//
-// 抓取起跑点前移到页面载入与 URL 变化：面板打开 / reader 模式换片 / 发消息时
-// 字幕通常已在手。起跑序列本体在 subtitle/kick-subtitle-fetch（等视频元数据 →
-// 装载总结链 → 经 reader-bus seam 请 fetcher 刷新，refreshClip 事务），本处只
-// 注入出口，因此没有第二条抓取实现。字幕列表请求兼作可用性探测：无字幕的
-// 视频只多一次列表请求，不触发 ASR。
-//
-// 去重守卫 isSubtitleInHandOrInFlight 是 subtitle/subtitle-in-hand 叶子单源：
-// 字幕在手或在飞都不起跑（在飞即已有抓取在路上，打开面板触发的那条据此让位，
-// 不并发双抓）。预抓取是后台兜底，失败静默——只在链外漏网异常记日志，不写状态栏。
-
 async function ensureSubtitlePrefetch(): Promise<void> {
   await kickSubtitleFetch(() => requestSubtitleRefresh(), {
     skipIfInHandOrInFlight: true,
     awaitVideoMetadata: true,
     signal: getCurrentClipScope().signal,
-    // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏；照旧发起刷新
-    //（seam 无 handler 时空转）。
     onChainLoadFailed: (error) =>
       logWarn("[BILISCRIPT] subtitle prefetch (summarize chain load) failed", { error }),
     continueAfterChainLoadFailed: true,
@@ -273,26 +200,18 @@ async function ensureSubtitlePrefetch(): Promise<void> {
   });
 }
 
-// 预抓取的 fire-and-forget 入口（content 载入、URL 变化两处调用）：调用方不等它；
-// 链内各自吞掉业务失败，此处的 catch 只兜住 reader 域装载失败这类漏网异常。
 export function startSubtitlePrefetch(): void {
   void ensureSubtitlePrefetch().catch((error) => {
     logWarn("[BILISCRIPT] subtitle prefetch failed", error);
   });
 }
 
-// URL 换片自动刷新的失败出口（链装载与刷新失败共用）：记日志（失败态由字幕列表
-// 空态呈现），stale（代次让位）静默。
 function reportAutoRefreshFailure(error: unknown): void {
   if (!isStaleRunError(error)) {
     logWarn("[BILISCRIPT] auto refresh failed", error);
   }
 }
 
-// URL 变化编排：core/url-watcher.js 只负责给 history 打补丁并广播
-// biliscript:urlchange（纯机制），本组合根把各域调用装配成换片事务
-// （entry/clip-switch-transaction.ts）的依赖，再注册三个入口——签名判定、
-// 抓取代次递增、步骤启动次序与完成边都在事务内单源（不变量见该模块头注）。
 let urlChangeHandlerBound = false;
 
 export function bindUrlChangeHandler() {
@@ -312,7 +231,6 @@ export function bindUrlChangeHandler() {
     readRunId: () => clipState.fetchRunId,
     writeRunId: (runId) => {
       clipState.setFetchRunId(runId);
-      // 同步 flush 流式缓冲 + 递增双代数令牌 + 级联中止在途采集与翻译 + 清空播放器叠层
       void triggerSubtitleSessionBoundary("clip-switch");
     },
     enforceNormalPageStateIfNeeded,
@@ -322,29 +240,16 @@ export function bindUrlChangeHandler() {
     shouldAutoOpen: (url: string) => Boolean(state.settings?.autoOpenReader && isAutoOpenEligible(url)),
     isPlayerAiLoaded,
     ensureUiReady,
-    // resetClipState 属总结链层，经 ensure 装载后执行（装载/执行失败由事务记日志）。
     resetClipState: async () => {
       const chain = await ensureSummarizeChain();
       chain.resetClipState();
     },
-    // 换片后让快捷按钮跟上（同一实现见 reader/init-essentials）：未加载即
-    // no-op，已加载则装载缓存 promise 后 schedule，不阻塞换片事务的其余步骤。
     syncPlayerAiQuickAction,
-    // URL 跳转进入阅读壳：与消息意图三档共享同一条进入链（挂表 → 翻门控属性 →
-    // enterReaderMode），但无 player-ai 前奏（URL 跳转没有用户点击在先，不抑制、
-    // 不摘快捷按钮）。shell 经 lazy-shell 装载（本地 chunk 装载 ~10ms，被跳转往返
-    // 掩盖）；进入失败由壳默认口径记日志，装载失败异常外抛，日志由事务统一收口。
     enterReaderShellOnUrlNavigation: async (nextUrl) => {
       const shell = await ensureReaderShell();
       await shell.enterReaderShellOnUrlNavigation({ readerUrl: nextUrl });
     },
-    // 阅读视图刷新：刷新链只等视频元数据，而该等待已出装配根到
-    // bilibili/video-probe 叶子（ADR-0017 修订），本步骤不装载 reader 域。
     refreshReaderClip: async () => {
-      // waitForVideoMetadata 的失败口径保持同型：浮空执行、不进外层错误口径
-      //（该等待永不拒绝）；refreshClip 属总结链层，经 kick-subtitle-fetch 装链后
-      // 直调（本路径无 seam 约束），失败记日志（代次让位静默）。整条浮空：
-      // 换片事务不等抓取落定。
       void kickSubtitleFetch((chain) => chain.refreshClip(), {
         awaitVideoMetadata: true,
         signal: getCurrentClipScope().signal,
@@ -356,15 +261,10 @@ export function bindUrlChangeHandler() {
       const shell = await ensureReaderShell();
       await shell.exitReaderShell();
     },
-    // 普通页换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
-    //「刷新抓取」按钮，本档不写这类引导）。守卫的先决是「clip 身份 = 当前
-    // 地址」，故上一个视频残留的 ready / loading 状态不会让本轮跳过。
     startSubtitlePrefetch,
     logWarn
   });
 
-  // 先注册监听，再由 startUrlWatcher 安装 history 补丁——与搬迁前
-  // startUrlWatcher 内部「监听在前、补丁在后」的顺序保持一致。
   const handleUrlChange = () => transaction.handleUrlChange();
   window.addEventListener("popstate", handleUrlChange);
   window.addEventListener("hashchange", handleUrlChange);

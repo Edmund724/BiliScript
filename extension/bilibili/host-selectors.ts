@@ -1,19 +1,11 @@
-// extension/bilibili/host-selectors.ts
-// B 站页面宿主 DOM 选择器单一事实源与降级查找纯函数。
-//
-// 本模块零可变状态、无副作用，可被常驻包（bilibili/video-probe）与懒加载区共用。
-
 export const BILI_HOST_SELECTORS = Object.freeze({
-  /** 优先播放器容器（视频播放页核心容器） */
   playerPrimary: Object.freeze([".bpx-player-container", "#bilibili-player"] as const),
-  /** 视频播放器容器完整降级链 */
   playerContainers: Object.freeze([
     ".bpx-player-container",
     "#bilibili-player",
     ".player-wrap",
     "#playerWrap"
   ] as const),
-  /** 播放器容器含 video-area 的降级链（快捷操作与视频探针用） */
   playerContainersWithVideoArea: Object.freeze([
     ".bpx-player-container",
     ".bpx-player-video-area",
@@ -21,36 +13,30 @@ export const BILI_HOST_SELECTORS = Object.freeze({
     "#playerWrap",
     ".player-wrap"
   ] as const),
-  /** 视频探针识别播放器内 <video> 的宿主祖先链 */
   playerVideoHosts: Object.freeze([
     ".bpx-player-container",
     ".bpx-player-video-area",
     "#bilibili-player"
   ] as const),
-  /** 直播间播放器容器降级链 */
   liveRoomPlayers: Object.freeze([
     "#live-player",
     ".live-player-mounter",
     "#live-player-ctnr"
   ] as const),
-  /** 直播间视频元素降级链 */
   liveRoomVideos: Object.freeze([
     "#live-player video",
     ".live-player-mounter video",
     "video"
   ] as const),
-  /** 播放器控制栏挂载容器降级链 */
   playerControlContainers: Object.freeze([
     ".bpx-player-control-bottom-right",
     ".bpx-player-control-wrap"
   ] as const),
-  /** 播放器控制条显隐监控候选 */
   playerControlBars: Object.freeze([
     ".bpx-player-control-wrap",
     ".bpx-player-control-entity",
     ".bpx-player-control-bottom"
   ] as const),
-  /** 播放器内字幕控件搜索根 */
   playerSubtitleControlRoots: Object.freeze([
     "#bilibili-player .bpx-player-control-wrap",
     "#playerWrap .bpx-player-control-wrap",
@@ -60,29 +46,24 @@ export const BILI_HOST_SELECTORS = Object.freeze({
     ".bpx-player-container",
     ".player-wrap"
   ] as const),
-  /** 播放器网页全屏态选择器 */
   playerWebFullscreen: Object.freeze([
     '.bpx-player-container[data-screen="web"]',
     ".bpx-player-container.bpx-state-web-fullscreen"
   ] as const),
-  /** 播放器网页全屏切换按钮 */
   playerWebFullscreenToggle: Object.freeze([
     ".bpx-player-ctrl-web",
     ".squirtle-video-pagefullscreen"
   ] as const),
-  /** 播放器内嵌 iframe 降级链 */
   playerIframes: Object.freeze([
     "#bilibili-player iframe",
     ".bpx-player-container iframe",
     "iframe[src*='player.bilibili.com']",
     "iframe[src*='bilibili.com/player']"
   ] as const),
-  /** 播放页工具栏宿主（文摘按钮锚点） */
   toolbarHosts: Object.freeze([
     "#arc_toolbar_report",
     ".video-toolbar-container"
   ] as const),
-  /** 播放页右栏贴栏定位锚点降级链 */
   rightColumnAnchors: Object.freeze([
     ".right-container-inner",
     ".right-container",
@@ -91,7 +72,6 @@ export const BILI_HOST_SELECTORS = Object.freeze({
     "#viewbox_report",
     ".up-info-container"
   ] as const),
-  /** 调试快照采集的播放器与页面节点清单 */
   debugSnapshotNodes: Object.freeze([
     "#app",
     "#playerWrap",
@@ -137,7 +117,6 @@ export type QuerySelectorRoot = {
   querySelector(selectors: string): Element | null;
 };
 
-/** 按优先级降级链查找首个匹配且通过谓词的 DOM 元素。 */
 export function querySelectorFallback<T extends Element = HTMLElement>(
   selectors: readonly string[],
   root: QuerySelectorRoot | null = typeof document !== "undefined" ? document : null,
@@ -155,7 +134,6 @@ export function querySelectorFallback<T extends Element = HTMLElement>(
   return null;
 }
 
-/** 按优先级降级链沿祖先查找最近的匹配容器。 */
 export function closestFallback<T extends Element = HTMLElement>(
   element: Element | null | undefined,
   selectors: readonly string[]
@@ -172,7 +150,6 @@ export function closestFallback<T extends Element = HTMLElement>(
   return null;
 }
 
-/** 按降级链查找视频播放器容器（`.bpx-player-container` → `#bilibili-player` → `.player-wrap` → `#playerWrap`）。 */
 export function findVideoPlayerContainer(
   root: ParentNode | null = typeof document !== "undefined" ? document : null,
   predicate?: (element: HTMLElement) => boolean
@@ -180,7 +157,6 @@ export function findVideoPlayerContainer(
   return querySelectorFallback<HTMLElement>(BILI_HOST_SELECTORS.playerContainers, root, predicate);
 }
 
-/** 按降级链查找含 `.bpx-player-video-area` 在内的播放器宿主（供 AI 快捷操作等使用）。 */
 export function findPlayerHostWithVideoArea(
   root: ParentNode | null = typeof document !== "undefined" ? document : null,
   predicate?: (element: HTMLElement) => boolean
@@ -192,7 +168,6 @@ export function findPlayerHostWithVideoArea(
   );
 }
 
-/** 从 `<video>` 向上解析其所属播放器宿主容器。 */
 export function findPlayerHostFromVideo(
   video: Element | null | undefined,
   options: { includeWrapFallbacks?: boolean } = {}
@@ -206,14 +181,12 @@ export function findPlayerHostFromVideo(
   return closestFallback<Element>(video, chain) || video.parentElement;
 }
 
-/** 按降级链查找直播间播放器宿主容器。 */
 export function findLiveRoomPlayerHost(
   root: ParentNode | null = typeof document !== "undefined" ? document : null
 ): HTMLElement | null {
   return querySelectorFallback<HTMLElement>(BILI_HOST_SELECTORS.liveRoomPlayers, root);
 }
 
-/** 按降级链查找任意播放器宿主容器（视频页 + 直播间）。 */
 export function findAnyPlayerHost(
   root: ParentNode | null = typeof document !== "undefined" ? document : null
 ): HTMLElement | null {
@@ -223,7 +196,6 @@ export function findAnyPlayerHost(
   );
 }
 
-/** 从给定基节点解析 `.bpx-player-container`（自身 → 子树 → 祖先 → 原节点）。 */
 export function resolveBpxPlayerContainer(
   base: HTMLElement | null | undefined,
   options: { checkClosest?: boolean } = {}
@@ -247,7 +219,6 @@ export function resolveBpxPlayerContainer(
   return base;
 }
 
-/** 判断节点是否为 B 站播放器核心宿主或包含 video-area。 */
 export function isPlayerHostElement(host: Element | null | undefined): boolean {
   if (!host) {
     return false;

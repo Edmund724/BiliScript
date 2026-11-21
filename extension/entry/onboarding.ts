@@ -1,7 +1,3 @@
-// extension/entry/onboarding.ts
-// 内置交互式引导页控制器：复用现有主题令牌、AI/ASR 存储与校验、
-// 协议适配器与连通性探针、host 权限申请以及联网搜索首次授权闭环。
-
 import { DEFAULT_SETTINGS, type Settings } from "../core/defaults.js";
 import {
   ASR_PROVIDER_PRESETS,
@@ -182,7 +178,6 @@ export interface OnboardingController {
 const activeMountDisposers = new WeakMap<Document, () => void>();
 
 export async function mountOnboardingPage(doc: Document = document): Promise<OnboardingController> {
-  // 清理同文档上一次挂载（例如模块自动挂载后测试再次显式挂载），避免重复绑定事件监听
   activeMountDisposers.get(doc)?.();
   const mountAbort = new AbortController();
   const { signal } = mountAbort;
@@ -196,7 +191,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   const versionEl = byId<HTMLElement>("onboardingVersion");
   const themeBtn = byId<HTMLButtonElement>("onboardingThemeBtn");
 
-  // AI 表单节点
   const aiForm = byId<HTMLFormElement>("onboardingAiForm");
   const aiReadyBadge = byId<HTMLElement>("aiReadyBadge");
   const aiPresetSelect = byId<HTMLSelectElement>("aiPresetSelect");
@@ -216,7 +210,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   const aiSaveBtn = byId<HTMLButtonElement>("aiSaveBtn");
   const aiStatus = byId<HTMLElement>("aiStatus");
 
-  // ASR 表单节点
   const asrForm = byId<HTMLFormElement>("onboardingAsrForm");
   const asrReadyBadge = byId<HTMLElement>("asrReadyBadge");
   const asrPresetSelect = byId<HTMLSelectElement>("asrPresetSelect");
@@ -233,7 +226,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   const asrSaveBtn = byId<HTMLButtonElement>("asrSaveBtn");
   const asrStatus = byId<HTMLElement>("asrStatus");
 
-  // 联网搜索节点
   const searchReadyBadge = byId<HTMLElement>("searchReadyBadge");
   const webSearchToggle = byId<HTMLInputElement>("webSearchToggle");
   const searchStatus = byId<HTMLElement>("searchStatus");
@@ -243,7 +235,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     versionEl.textContent = version ? `v${version}` : "";
   }
 
-  // 步骤 1 固定图标图示按当前浏览器切换：Firefox 扩展菜单无图钉，走齿轮菜单「固定到工具栏」
   const isFirefox = isFirefoxRuntime();
   const extMenuTitle = doc.getElementById("onboardingExtMenuTitle");
   const pinCaption = doc.getElementById("onboardingPinCaption");
@@ -433,7 +424,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   }
 
   function renderReadiness(settings: Settings, aiList: ProviderListEntry[], asrList: AsrProviderListEntry[]): void {
-    // AI 就绪态
     const enabledAi = aiList.filter((p) => p && p.enabled !== false);
     const activeAi =
       enabledAi.find((p) => p.id === settings.defaultModel) ??
@@ -450,7 +440,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           : "未配置";
     }
 
-    // ASR 就绪态
     const activeAsrId = resolveActiveAsrProviderId(asrList, settings.activeAsrProviderId);
     const activeAsr = asrList.find((p) => p.id === activeAsrId) ?? asrList[0] ?? null;
     const asrPreset = activeAsr ? resolveAsrPreset(activeAsr.presetId) : null;
@@ -464,7 +453,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           : "可选";
     }
 
-    // 搜索就绪态
     const searchEnabled = settings.webSearchEnabled === true;
     const searchAck = settings.searchOptInNoticeAcknowledged === true;
     if (searchReadyBadge) {
@@ -478,7 +466,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   }
 
   function hydrateForms(): void {
-    // AI 表单水合：优先当前 defaultModel 对应平台，其次首个 AI 平台，否则默认 ModelScope
     const preferredAi =
       aiProviders.find((p) => p.id === currentSettings.defaultModel) ??
       aiProviders[0] ??
@@ -509,7 +496,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       syncAiPresetMetadata(DEFAULT_AI_PRESET_ID, { updateBaseUrl: true, updateProtocol: true, updateModel: true });
     }
 
-    // ASR 表单水合
     const activeAsrId = resolveActiveAsrProviderId(asrProviders, currentSettings.activeAsrProviderId);
     const preferredAsr =
       asrProviders.find((p) => p.id === activeAsrId) ??
@@ -578,8 +564,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     run: () => Promise<void>;
   }): void {
     const urls = options.permissionUrls?.filter(Boolean) ?? [];
-    // 同步手势链：permissionUrls 非空时在首个 await 前同步发起域名权限申请；
-    // 走 providerTransactions 时省略 permissionUrls，由 run() 同步段直接经事务发起申请。
     const permissionPromise: Promise<{ ok: boolean; error?: string }> | null =
       urls.length > 0 ? requestProviderOriginsViaBackground(urls) : null;
     if (options.button) options.button.disabled = true;
@@ -602,7 +586,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       });
   }
 
-  // ===== 主题切换 =====
   themeBtn?.addEventListener("click", () => {
     const current = doc.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
     const next = current === "dark" ? "light" : "dark";
@@ -625,7 +608,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   };
   colorSchemeMedia?.addEventListener?.("change", onColorSchemeChange);
 
-  // ===== AI 平台表单逻辑 =====
   aiPresetSelect?.addEventListener("change", () => {
     aiModelCombobox?.close(false);
     const presetId = aiPresetSelect.value;
@@ -845,7 +827,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     });
   }, { signal });
 
-  // ===== ASR 转写表单逻辑 =====
   asrPresetSelect?.addEventListener("change", () => {
     const presetId = asrPresetSelect.value;
     const matched = asrProviders.find((p) => p.presetId === presetId);
@@ -1017,7 +998,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     void sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: checked } });
   }, { signal });
 
-  // ===== 免 Key 联网搜索开关（严守现有 opt-in 授权确认流程） =====
   webSearchToggle?.addEventListener("change", () => {
     if (searchBusy) return;
     const targetEnabled = webSearchToggle.checked;
@@ -1032,7 +1012,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           return;
         }
 
-        // 先落盘偏好开关，再走标准 resolveWebSearchOptIn 授权弹窗（绝不绕过确认状态位）
         await sendRuntimeMessage({ type: "save-settings", settings: { webSearchEnabled: true } });
         const optInResult = await resolveWebSearchOptIn(true, { mountHost: doc.body });
         if (optInResult === "granted") {
@@ -1048,7 +1027,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           return;
         }
 
-        // 取消 / 拒绝：由 opt-in 逻辑写回 webSearchEnabled: false，此处同步界面状态
         currentSettings = { ...currentSettings, webSearchEnabled: false };
         webSearchToggle.checked = false;
         syncToggleSwitch(webSearchToggle);

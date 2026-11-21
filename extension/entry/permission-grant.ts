@@ -40,7 +40,6 @@ async function readStoredAppearance(): Promise<Partial<Settings>> {
         return stored as Partial<Settings>;
       }
     } catch {
-      // Fall back to default appearance when storage is unavailable.
     }
   }
   return {};
@@ -97,7 +96,6 @@ function openPermissionGrantKeepalivePort(): { disconnect: () => void } | null {
       try {
         port.disconnect();
       } catch {
-        // Ignore errors when the port is already disconnected.
       }
     }
   };
@@ -125,8 +123,6 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
   allowBtn.disabled = !reqId || origins.length === 0;
   cancelBtn.disabled = false;
 
-  // Keep the Firefox Event Page awake for the full popup window lifetime so pendingPermissionGrants
-  // stays resident across the 120s authorization window.
   const keepalivePort = reqId ? openPermissionGrantKeepalivePort() : null;
   const releaseKeepalive = (): void => {
     keepalivePort?.disconnect();
@@ -143,7 +139,6 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
       try {
         await sendRuntimeMessage({ type: "permission-grant-result", reqId, ok, error });
       } catch {
-        // Ignore send errors when background has timed out or closed.
       }
     }
     releaseKeepalive();
@@ -168,8 +163,6 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
       return;
     }
 
-    // Must call chrome.permissions.request synchronously inside the click handler
-    // so Firefox / Chrome preserves the extension page user gesture.
     let requestTask: Promise<boolean>;
     try {
       requestTask = globalThis.chrome.permissions.request({ origins });

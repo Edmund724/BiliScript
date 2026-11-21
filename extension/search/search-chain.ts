@@ -1,29 +1,7 @@
-// extension/search/search-chain.ts
-// 回退链（spec §1 S1/S4/S6、§2、§3 落点表第 8 行、§4、§6.4、§6.8、§12.1–§12.3、
-// §12.5 第 6 行）：
-//   ① 纯函数 resolveSearchChain——链解析：进组判据（记录的 presetId 查预设表得
-//      access）、两模式排序（单选 = 独苗链、无回退；智能 = 归一 order 序 > 内置默认序）、
-//      按 presetId 去重（代表 = 排序最靠前的合格记录）、智能链冷却跳过，产出
-//      「有序候选 + 各自 Key + 空链归因」（S4 的单趟回传形状，SW 是唯一知道 Key 的一侧）；
-//      归因随链**一趟返回**：调用方不再同参重跑判因（票 16 C3）。
-//   ①' 顺序规则不在此处：归一（normalizeSearchProviderOrder）与排序键
-//      （providerOrderRank）单源在零依赖叶 search/search-order.ts（票 15 Q1-a），
-//      本模块 import 消费——存储键归一与键算法各只有一份实现；
-//   ② 执行器 executeSearchChain / classifySearchFailure / SEARCH_CHAIN_BUDGET_MS
-//      ——顺序逐候选调一次既有 executeWebSearch（单候选失败静默、分类保序收集）、
-//      链级预算 30s 到点主动放弃、调用方中止立即抛出、每次真实出网尝试按 presetId
-//      记一次引擎级健康度（§12.4 第 1–2 条，调用方中止不记）。
-// 纯函数纪律：resolveSearchChain 零 Chrome API / 零 DOM / 不改写入参 / 不取时间
-// （now 由调用方注入）；Key 只经返回值中转，不进日志。执行器只经 deps.fetchImpl →
-// provider-http 出网。
 import { type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
-// 中止形状单源在 core/provider-http-shared.ts 的 makeAbortError（tool-loop 据
-// name 判中止），与两条平台请求代发通道共用。
 import { makeAbortError } from "../core/provider-http-shared.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { type SearchMode } from "../core/search-mode.js";
-// 链候选形状单源在协议层（shared/messaging-protocol.ts，chain 是线格式、主人归
-// 协议层）：本模块反向 import 消费（search → shared 为顺向），不再自持结构副本。
 import type { SearchChainCandidate } from "../shared/messaging-protocol.js";
 import { normalizeSearchProviderOrder, providerOrderRank } from "./search-order.js";
 import { executeWebSearch } from "./search-executor.js";
@@ -31,59 +9,22 @@ import { recordSearchAttempt } from "./search-health-client.js";
 import type { NormalizedSearchResult } from "./adapters/types.js";
 import type { SearchProvider } from "./search-provider-normalize.js";
 
-// 既有消费方（本域调用方与 tests/）仍从本模块取该类型：原样 re-export，避免 churn。
 export type { SearchChainCandidate };
 
-// 链解析选项（spec §1 S4 第五参）：模式由消费方经 core/search-mode.ts 的
-// resolveSearchMode 判定后传入；order / cooldownUntil 是 SW 侧快照的归一产物
-// （§12.3 / §12.4 第 6 条）；now 注入以满足纯函数纪律。
 export interface SearchChainOptions {
   mode: SearchMode;
-  // 用户拖拽顺序（记录 id 数组；键缺席 / 脏值 → 传 [] 或缺省）
   order?: readonly string[] | null;
-  // presetId → 冷却截止 epoch ms（只含 cooldownUntil > now 的项）；只对智能链生效
   cooldownUntil?: Record<string, number> | null;
-  // 付费平台准入（GLOSSARY「付费平台」，设置标量 allowPaidSearchProviders）：缺省 /
-  // 非 true = 智能链跳过 access === "paid" 的候选；单选不受此开关限制。
   allowPaid?: boolean;
-  // 付费候选的 Key（presetId → Key，凭据引用解析产物；链装配时就绪）。paid 候选
-  // 无 Key 同 free-quota 无 Key 口径自动跳过。
   paidKeys?: Record<string, string> | null;
-  // 注入时钟（epoch ms）
   now?: number;
 }
 
-// 链解析产物（spec §1 S4 单趟回传形状 + §12.7 第 6 条空链归因）：
-// chain = 有序候选；emptyCause 只取 "cooldown"（链空且确有合格候选在冷却处被剔）；
-// 缺省 = 空链无冷却剔除（真的没有合格记录）或链非空——调用方据此分「未配置」与
-// 冷却专属文案，不必再拿同一批入参重跑一次。
 export interface SearchChainResolution {
   chain: SearchChainCandidate[];
   emptyCause?: "cooldown";
 }
 
-/**
- * 解析回退链：链成员是**记录**（S1），成员资格由记录的 presetId 查预设表得出
- * （§7「只挂预设表，记录不带副本」）：
- *   - 查不到预设表（脏值 / 未知 presetId）→ 不进候选（最保守）；
- *   - 记录须 enabled !== false；
- *   - access === "keyless" 无条件进；access === "free-quota" 仅该记录有 Key 才进；
- *   - access === "paid"（凭据引用，GLOSSARY「付费平台」）：Key 取 options.paidKeys
- *     [presetId]（AI 族解析产物），无 Key 跳过；智能链仅在 options.allowPaid 为
- *     true 时进链，单选不受开关限制（单选本身是显式付费意图）；
- *   - 模式（options.mode，spec §12.1）："single" = 只有 activeId 那一条记录（无回退；
- *     悬空 activeId 按空处理走智能链，§6.8）；"smart" = 全部在组记录按
- *     「归一 order 下标 > 内置默认序 DEFAULT_SEARCH_PROVIDER_ORDER」排序（键相同保持
- *     输入序），不在 order 中的记录排到数组内记录之后；
- *   - 按 presetId 去重（裁定②）：同一家只入链一次，代表 = 排序最靠前的合格记录
- *     （含它自己的 Key）；同 presetId 的其余记录不进链、不试第二次；
- *   - 智能链剔除 cooldownUntil[presetId] > now 的引擎（单选不消费冷却，§12.4 第 5 条）；
- *   - 空链归因（§12.7 第 6 条翻案）：冷却是链上最后一个过滤器，故「链空且确有合格
- *     幸存者（含去重赢家）在冷却处被剔」⟺「去掉冷却后链非空」；此时返回
- *     emptyCause:"cooldown"。单选短路分支**永远不带**归因（单选不消费冷却，空链只
- *     可能是真未配置）；qualify / 去重的静默丢弃不参与归因（只保留二元）。
- *   - keyless 无 Key 时候选的 apiKey 为 ""（适配器据此不产鉴权头）。
- */
 export function resolveSearchChain(
   providers: ReadonlyArray<SearchProvider>,
   keys: Record<string, string> | null | undefined,
@@ -91,7 +32,6 @@ export function resolveSearchChain(
   presets: readonly SearchProviderPreset[],
   options: SearchChainOptions
 ): SearchChainResolution {
-  // presetId → 预设（access）；同 id 重复预设取表内首个
   const presetById = new Map<string, SearchProviderPreset>();
   for (const preset of presets) {
     if (!presetById.has(preset.id)) presetById.set(preset.id, preset);
@@ -99,12 +39,9 @@ export function resolveSearchChain(
 
   const knownIds = new Set(providers.map((record) => record.id));
   const activeRecordId = String(activeId ?? "").trim();
-  // 悬空的单选 activeId 按空处理走智能链（spec §6.8）：只有 id 在记录集合中才是单选。
   const mode: SearchMode = options.mode === "single" && knownIds.has(activeRecordId) ? "single" : "smart";
   const order = normalizeSearchProviderOrder(options.order, knownIds);
 
-  // 进组判据 + 候选装配（presetId 与 access 一并带出：健康度按引擎记账 /
-  // 执行器按 access 做付费可见性标注都要用）
   const qualify = (record: SearchProvider): SearchChainCandidate | null => {
     if (record.enabled === false) return null;
     const presetId = String(record.presetId || "").trim();
@@ -112,8 +49,6 @@ export function resolveSearchChain(
     if (!preset) return null;
     let apiKey = String(keys?.[record.id] ?? "").trim();
     if (preset.access === "paid") {
-      // 付费平台（GLOSSARY「付费平台」）：智能链只在开关打开时入链（单选不受限）；
-      // Key 经凭据引用取 AI 族解析产物，无 Key 同 free-quota 口径跳过。
       if (mode === "smart" && options.allowPaid !== true) return null;
       apiKey = String(options.paidKeys?.[presetId] ?? "").trim();
       if (!apiKey) return null;
@@ -133,19 +68,12 @@ export function resolveSearchChain(
     };
   };
 
-  // 单选（spec §12.1）：只有该记录一家——它不合格（未配 Key 的 free-quota / 停用 /
-  // 未知 presetId）就是空链，调用方走既有「未配置搜索平台」路径（§12.7 第 2 条）。
-  // 不带归因：单选不消费冷却，空链不可能是「全在冷却中」。
   if (mode === "single") {
     const record = providers.find((item) => item.id === activeRecordId);
     const candidate = record ? qualify(record) : null;
     return { chain: candidate ? [candidate] : [] };
   }
 
-  // 智能：排序键规则（spec §12.2）——① 在 order 中的按数组下标；② 不在数组中的排到
-  // 所有在数组中的记录之后，相互之间按内置默认序；键相同的保持输入序（稳定排序）。
-  // 键算法单源在 search-order.ts 的 providerOrderRank（设置列表侧同调），此处只做
-  // Schwartzian 装饰以保留单趟键计算。
   const ranked: Array<{ candidate: SearchChainCandidate; orderIndex: number; defaultIndex: number }> = [];
   for (const record of providers) {
     const candidate = qualify(record);
@@ -164,69 +92,46 @@ export function resolveSearchChain(
   let cooledFiltered = false;
   for (const { candidate } of ranked) {
     const presetId = candidate.provider.presetId;
-    // 同 presetId 只入链一次，代表 = 排序最靠前的合格记录（裁定②）
     if (seen.has(presetId)) continue;
     seen.add(presetId);
-    // 冷却按 presetId 判（不按记录 id）；过滤后为空也如实返回空链（§12.7 第 6 条）
     if (Number(cooldownUntil[presetId] ?? 0) > now) {
       cooledFiltered = true;
       continue;
     }
     chain.push(candidate);
   }
-  // 归因随链一趟返回（票 16 C3）：冷却是最后一个过滤器且去重代表唯一，"有幸存者被剔"
-  // ⟺ "去掉冷却后链非空"，故等价于旧的同参重跑判据。
   return chain.length === 0 && cooledFiltered ? { chain, emptyCause: "cooldown" } : { chain };
 }
 
-// ===== 执行器（spec §4 / §6.4 / §3 落点表第 8 行②）=====
-
-// 链级预算（spec §4）：由链持有、按「单次搜索调用」计。算术依据 = 最坏现实成功
-// 路径「首家吃满 15s + 第二家正常 ≈5.5s」≈21s 必须容得下；无预算时最坏 6×15s=90s。
 export const SEARCH_CHAIN_BUDGET_MS = 30000;
 
-// 整链无果且额度类在列时的终态文案（spec §6.4 唯一映射表第 ① 行）。
 export const SEARCH_QUOTA_MESSAGE =
   "搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度";
 
-// 失败三等（spec §6.4）：额度 / 鉴权 / 其余。鉴权类不单开终态文案（走其余类）。
 export type SearchFailureClass = "quota" | "auth" | "other";
 
-// 首个成功即返回的产物：platform = 实际产出结果的引擎名；成功家不是链首时
-// downgradedFrom = 链首 provider.name（模型侧降级注记的输入，已接线于
-// ai/tool-loop.ts 的降级注记行）。
 export interface SearchChainOutcome {
   results: NormalizedSearchResult[];
   platform: string;
   downgradedFrom?: string;
-  // 付费可见性（GLOSSARY「付费平台」）：成功家为付费平台时 true（来源列表「付费」
-  // 徽标）；paidFallback = 链上有付费平台失败、最终由后一家回退成功时的注记
-  // （来源区顶部一行小字）。两者都只对付费平台这一家豁免「链内失败静默」。
   paid?: boolean;
   paidFallback?: PaidSearchFallback;
 }
 
-// 付费平台失败 → 后一家回退成功的注记（reason 映射在 formatPaidFallbackNotice）。
 export interface PaidSearchFallback {
-  // 失败的付费平台名（链上首个失败的付费候选）。
   platform: string;
   reason: PaidFallbackReason;
-  // 实际回退成功的平台名。
   fallbackTo: string;
 }
 
 export type PaidFallbackReason = "balance" | "rate-limit" | "timeout";
 
-// 回退注记文案（额度类与超时/网络类分文案，措辞对齐 spec §6.4 的既有 notice
-// 风格）：402 = 余额不足、429 = 已达限速、其余（超时 / 网络 / 5xx）= 请求超时。
 export function formatPaidFallbackNotice(fallback: PaidSearchFallback): string {
   const reasonText =
     fallback.reason === "balance" ? "余额不足" : fallback.reason === "rate-limit" ? "已达限速" : "请求超时";
   return `${fallback.platform} 搜索不可用（${reasonText}），已回退至 ${fallback.fallbackTo}`;
 }
 
-// 单个失败 → 回退原因：HTTP status 直读（402/429），其余归 timeout（含链预算到点
-// 中止与底层网络错误——对用户都是「这次请求没成」）。
 function paidFallbackReason(error: unknown): PaidFallbackReason {
   const status = Number((error as { status?: unknown } | null | undefined)?.status);
   if (status === 402) return "balance";
@@ -234,44 +139,28 @@ function paidFallbackReason(error: unknown): PaidFallbackReason {
   return "timeout";
 }
 
-// 整链无果抛出的错误：failures 是**保序保留**的分类列表（不塌成字符串），
-// searchFailureClass 是决定终态文案的那一类。
 export interface SearchChainError extends Error {
   searchFailureClass: SearchFailureClass;
   failures: SearchFailureClass[];
 }
 
 export interface ExecuteSearchChainDeps {
-  // 缺省 executeWebSearch（provider-http 通道，SW 代发）；测试注入桩。
   execute?: (
     candidate: SearchChainCandidate,
     query: string,
     signal?: AbortSignal | null
   ) => Promise<{ results: NormalizedSearchResult[]; platform: string }>;
   fetchImpl?: typeof fetch;
-  // 调用方中止信号（聊天 abort controller / 解释卡中止器）：中止即抛出、不试下一家。
   signal?: AbortSignal | null;
-  // 健康度记账（spec §12.4 第 1–2 条 / §12.5 第 7 行）：每次真实出网尝试记一次
-  // （成功 / 失败各一次，键 = 候选 provider.presetId）；调用方中止不记
-  // （不是引擎的失败）。缺省 = search-health-client 的 fire-and-forget 消息侧。
-  // 记账抛错 / 返回 rejected promise 都不影响链结果。
   recordAttempt?: (presetId: string, ok: boolean, latencyMs: number) => void | Promise<void>;
-  // 延迟度量时钟（注入以满足可测：纯逻辑不取时间）；缺省 Date.now。
   nowMs?: () => number;
 }
 
 const QUOTA_HTTP_STATUSES = new Set([402, 429]);
 const AUTH_HTTP_STATUSES = new Set([401, 403]);
-// 豆包 HTTP 200 信封码（spec §6.4；票 11 裁定 700901/10403 归鉴权类，覆盖票 08）。
 const QUOTA_PROVIDER_CODES = new Set(["10406", "10407", "700429"]);
 const AUTH_PROVIDER_CODES = new Set(["700901", "10403"]);
 
-/**
- * 失败分类（spec §6.4 唯一映射表）：输入 = 带 `status?: number` 与
- * `providerCode?: string` 的 Error（search-executor 的 `HTTP <status>`；
- * 豆包适配器的 200 信封码）。码按字符串比对，数字也认；其余一律归「其余类」
- * （超时 / 网络 / 5xx / 形状 4xx / 解析失败）。
- */
 export function classifySearchFailure(error: unknown): SearchFailureClass {
   const status = Number((error as { status?: unknown } | null | undefined)?.status);
   if (Number.isFinite(status)) {
@@ -290,8 +179,6 @@ function isAbortError(error: unknown): boolean {
   return isAbortedMarkerError(error) || isAbortNamedError(error);
 }
 
-// 整链无果的错误装配：额度类在列 → 额度文案；否则沿用最后一个错误的既有文案
-// （「HTTP 503」等，供 tool-loop 的「联网搜索失败：<原因>」沿用）。
 function createSearchChainError(
   failures: SearchFailureClass[],
   lastError: unknown,
@@ -327,18 +214,6 @@ function defaultChainExecute(deps: ExecuteSearchChainDeps) {
     );
 }
 
-/**
- * 链执行（spec §4）：顺序逐候选调一次既有 executeWebSearch——单候选失败**静默**
- * （不上 notice、不进 tool 结果），失败经 classifySearchFailure 保序收集；首个成功
- * 即返回（带 platform 与实际降级来源）；链级预算 30s 到点主动放弃（真中止在飞候选）
- * 并如实报失败；调用方 AbortSignal 中止立即抛出（不写缓存、不上 notice）。
- * 每次真实出网尝试按 presetId 记一次健康度（§12.4 第 1–2 条）：成功 / 失败各一次
- * （预算到点中止的在飞候选也算一次「出网未拿到结果」的失败），**调用方中止不记**
- * ——那不是引擎的失败；记账失败不影响链结果。
- * 付费平台（access === "paid"）是「链内失败静默」的唯一豁免：失败收集进
- * paidFailures，由后一家回退成功时产出 paidFallback 注记（GLOSSARY「付费平台」，
- * 成功家为付费平台时另带 paid 标记）——标注透传链由 tool-status 给 UI。
- */
 export async function executeSearchChain(
   candidates: readonly SearchChainCandidate[],
   query: string,
@@ -351,7 +226,6 @@ export async function executeSearchChain(
   const execute = deps.execute ?? defaultChainExecute(deps);
   const nowMs = deps.nowMs ?? Date.now;
   const recordAttempt = deps.recordAttempt ?? recordSearchAttempt;
-  // 记账安全网：同步抛错与 rejected promise 都吞掉（账失败静默，绝不影响链结果）。
   const noteAttempt = (presetId: string, ok: boolean, latencyMs: number): void => {
     try {
       const pending: unknown = recordAttempt(presetId, ok, Math.max(0, latencyMs));
@@ -359,12 +233,10 @@ export async function executeSearchChain(
         void (pending as Promise<void>).catch(() => {});
       }
     } catch {
-      // 静默
     }
   };
   const headName = candidates.length > 0 ? candidates[0].provider.name : "";
   const failures: SearchFailureClass[] = [];
-  // 内部控制器：预算到点真中止在飞候选；调用方中止经外部 signal 转发过来。
   const controller = new AbortController();
   let lastError: unknown = null;
   let budgetExpired = false;
@@ -384,8 +256,6 @@ export async function executeSearchChain(
   });
 
   const run = async (): Promise<SearchChainOutcome> => {
-    // 付费平台失败收集（链内失败静默纪律的唯一豁免标注）：任一付费候选失败后由
-    // 后一家回退成功时，产出 paidFallback 注记。
     const paidFailures: Array<{ name: string; error: unknown }> = [];
     for (let index = 0; index < candidates.length; index += 1) {
       if (externalSignal?.aborted) throw makeAbortError();
@@ -409,15 +279,12 @@ export async function executeSearchChain(
             : { results: outcome.results, platform: outcome.platform };
         return paid || paidFallback ? { ...base, ...(paid ? { paid: true } : {}), ...(paidFallback ? { paidFallback } : {}) } : base;
       } catch (error) {
-        // 调用方中止不是引擎的失败：不记账、不试下一家（§12.4 第 2 条）。
         if (externalSignal?.aborted) throw error;
-        // 自伤中止（预算到点）也确实出网且没拿到结果：照记一次失败，随后退出循环。
         if (!budgetExpired && isAbortError(error)) throw error;
         noteAttempt(presetId, false, nowMs() - startedAt);
         if (candidate.provider.access === "paid") {
           paidFailures.push({ name: candidate.provider.name, error });
         }
-        // 预算到点：中止由预算造成，不再试下一家（最后一类的错误留待终态文案）。
         if (budgetExpired) break;
         lastError = error;
         failures.push(classifySearchFailure(error));

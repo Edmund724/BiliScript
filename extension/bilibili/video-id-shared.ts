@@ -1,8 +1,3 @@
-// Shared pure URL / video-identity helpers (issue 02).
-// Extracted from extension/url-utils.js and extension/background.js.
-// These functions are pure, deterministic computations over a URL string.
-// They must NOT contain any transport logic, Chrome APIs, DOM, or `state`.
-
 export function isReaderMode(url: string = location.href): boolean {
   try {
     return new URL(url).searchParams.get("biliscript_reader") === "1";
@@ -29,22 +24,15 @@ export function isWatchlaterPage(url: string = location.href): boolean {
   }
 }
 
-// Unified "supported video page" predicate (arch-slim-3/riders R1): a /video/
-// pathname or a watchlater list playback page. Single source shared by the
-// content.ts startup gate and the script-button self-check (previously two
-// hand-copied versions of the same rule).
-// 自动展开文摘面板判定：仅普通视频播放页自动展开；排除稍后再看与收藏夹/合集列表
 export function isAutoOpenEligible(url: string = location.href): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.hostname !== "www.bilibili.com") {
       return false;
     }
-    // 必须是普通视频播放页（/video/BV...）
     if (!parsed.pathname.startsWith("/video/")) {
       return false;
     }
-    // 排除稍后再看列表页或带稍后再看标记
     if (isWatchlaterPage(url)) {
       return false;
     }
@@ -53,7 +41,6 @@ export function isAutoOpenEligible(url: string = location.href): boolean {
     if (from.includes("watchlater") || business.includes("watchlater")) {
       return false;
     }
-    // 排除收藏夹/合集列表来源（business 或 from 包含 favlist / collection 等）
     if (
       from.includes("fav") ||
       from.includes("collection") ||
@@ -62,7 +49,6 @@ export function isAutoOpenEligible(url: string = location.href): boolean {
     ) {
       return false;
     }
-    // 排除媒体列表播放页（/list/ml... /medialist/... 等）
     if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/")) {
       return false;
     }
@@ -83,7 +69,6 @@ export function isSupportedVideoPage(url: string = location.href): boolean {
   }
 }
 
-// 顶层直播间与同源 blanc 内嵌播放器共用房间号；顶层 blanc 不启动，嵌入时启动。
 export function parseLiveRoomId(url: string = location.href): string {
   try {
     const parsed = new URL(url);
@@ -107,10 +92,6 @@ export function computeCurrentClipSignature(url: string = location.href): string
   return [bvid, page].map((item) => String(item || "").trim()).join("|");
 }
 
-// ===== from extension/url-utils.js =====
-// extractBvid / extractPageIndex / cleanVideoUrl were re-exported verbatim by
-// url-utils.js before that shallow module was merged into this one.
-
 export function extractBvid(url: string): string {
   const match = url.match(/\/video\/(BV[0-9A-Za-z]+)/);
   if (match?.[1]) {
@@ -124,7 +105,6 @@ export function extractBvid(url: string): string {
       return fromQuery;
     }
   } catch {
-    // ignore invalid URL
   }
 
   return "";
@@ -189,14 +169,6 @@ export function cleanVideoUrl(href: string = location.href): string {
   }
 }
 
-// biliscript_reader=1 阅读模式 URL 的唯一拼法：先经 cleanVideoUrl 净化当前页面 URL
-// （/video/ 收敛为规范视频 URL，/list/watchlater 保留路径与上下文参数并去除尾部斜杠、
-// 追踪参数与旧 biliscript_reader）再加 biliscript_reader=1；非 B 站/非视频 URL 原样返回
-// （cleanVideoUrl 语义），URL 解析失败回落 cleanVideoUrl 的结果，绝不抛出。
-// 2026-09 工单 02-toolbar-icon-opens-script：工具栏 action 点击（SW 侧）与页内
-// 文摘按钮共用本单源——原住 bilibili/reader-url.ts，因该文件拖 core/state
-// （content 侧状态单例）不能进 SW 图，而本函数是纯 URL 计算，故收编到本模块
-//（reader-url.ts 保留 re-export，页内消费方不动）。
 export function buildReaderModeUrl(rawUrl: string): string {
   const base = cleanVideoUrl(rawUrl);
   try {
@@ -211,8 +183,6 @@ export function buildReaderModeUrl(rawUrl: string): string {
 export function extractPageIndex(url: string): number {
   return extractPageIndexFromUrl(url);
 }
-
-// ===== from extension/background.js =====
 
 export function extractPageIndexFromUrl(url: string): number {
   try {
@@ -234,18 +204,6 @@ export function buildCanonicalVideoUrl(bvid: string, pageIndex: number | string 
   return `https://www.bilibili.com/video/${safeBvid}/`;
 }
 
-// Pure variant of the former sidepanel.js buildCleanBilibiliVideoUrl.
-// The original read the module-level mutable `currentConversationMeta?.contextUrl`
-// as a fallback, which made it impure. Here that fallback is injected as an
-// explicit `currentMetaContextUrl` argument so the function is a deterministic
-// computation over its inputs.
-//
-// Fallback chain (preserves the original behavior exactly):
-//   bvid = context?.bvid
-//        || extractBvid(context?.url)
-//        || extractBvid(currentMetaContextUrl)
-//   if bvid -> "https://www.bilibili.com/video/${bvid}/"
-//   else      -> context?.url || currentMetaContextUrl  (stringified + trimmed)
 export function isSupportedBilibiliPage(url: unknown): boolean {
   try {
     const parsed = new URL(String(url || ""));

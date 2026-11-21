@@ -1,16 +1,3 @@
-// eval/sweep.ts
-// 并发上限扫描（独立于 run.ts 的速度评测）：对单个 ASR 模型，用不同并发
-// 档位（默认 1/2/4/8/16/32）各把同一份音频完整转写一遍，记录每档的墙钟 /
-// 段均耗时 / 限流与错误计数。判读口径：
-//   - 墙钟相对上一档的加速明显低于并发倍数 → 服务端开始排队（撞顶信号）；
-//   - 首次出现 429 的档位 → 明确的限流信号；
-//   - 段均随并发上升被拉长 → 请求在服务端排队的旁证。
-//
-// 配置复用 eval/config.json 的 audioPath / baseUrl / requestGapMs / models，
-// 扫描自己的参数放 config 的 sweep 块（model / concurrencyLevels /
-// runsPerLevel / chunkSeconds / audioSeconds）。运行：npm run eval:sweep，
-// 报告写 eval/out/sweep-report.json / sweep-report.md。
-
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -27,13 +14,11 @@ import { sliceWavToChunks } from "./lib/wav-slice.js";
 import type { PcmChunk } from "./lib/wav-slice.js";
 import { nextReportPath } from "./lib/report.js";
 
-// ===== 配置 =====
-
 const DEFAULT_CONCURRENCY_LEVELS = [1, 2, 4, 8, 16, 32];
 const DEFAULT_RUNS_PER_LEVEL = 1;
-const DEFAULT_CHUNK_SECONDS = 120;   // 切小片让调度填满每一档，扫描才准
-const DEFAULT_AUDIO_SECONDS = 1800;  // 只取音频前 30 分钟，测上限不需要全片
-const LEVEL_COOLDOWN_MS = 2000;      // 档间冷却，避免前档限流污染后档
+const DEFAULT_CHUNK_SECONDS = 120;
+const DEFAULT_AUDIO_SECONDS = 1800;
+const LEVEL_COOLDOWN_MS = 2000;
 
 interface SweepOptions {
   model?: string;
@@ -72,7 +57,6 @@ function loadConfig(configPath: string): SweepConfig {
     throw new Error("配置缺少 audioPath：待评测的 WAV 音频路径");
   }
 
-  // 扫描模型：默认取主配置模型名单第一个
   const models = Array.isArray(cfg.models) ? cfg.models.map((m) => String(m).trim()).filter(Boolean) : [];
   const sweep = (typeof cfg.sweep === "object" && cfg.sweep !== null ? cfg.sweep : {}) as SweepOptions;
 
@@ -115,8 +99,6 @@ function loadConfig(configPath: string): SweepConfig {
   };
 }
 
-// ===== 小工具 =====
-
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -129,16 +111,13 @@ function mean(values: number[]): number | null {
   return values.length === 0 ? null : values.reduce((s, v) => s + v, 0) / values.length;
 }
 
-// ===== 单次 run =====
-
-// 一次 run 的请求分类计数（并发上限的判读信号就在这里：429 = 明确限流）
 interface RequestCounts {
   total: number;
   ok: number;
-  rateLimited: number;   // 429
-  serverError: number;   // 5xx
-  clientError: number;   // 其他 4xx（确定性失败）
-  networkError: number;  // status -1
+  rateLimited: number;
+  serverError: number;
+  clientError: number;
+  networkError: number;
 }
 
 function countRequests(timings: RequestTiming[]): RequestCounts {
@@ -153,7 +132,6 @@ function countRequests(timings: RequestTiming[]): RequestCounts {
   return c;
 }
 
-// 段均：2xx 请求的往返耗时均值；无 2xx 请求返回 null
 function segmentMeanMs(timings: RequestTiming[]): number | null {
   const ok = timings.filter((t) => is2xx(t.status)).map((t) => t.durationMs);
   return mean(ok);
@@ -205,19 +183,17 @@ async function runOnce(
   };
 }
 
-// ===== 报告 =====
-
 interface LevelReport {
   level: number;
   runs: LevelRun[];
   wallMean: number | null;
   segmentMeanMean: number | null;
-  speedupVsPrev: number | null;   // 相对上一档的加速（>1 变快）
-  speedupVsFirst: number | null;  // 相对首档的加速
+  speedupVsPrev: number | null;
+  speedupVsFirst: number | null;
   rateLimitedTotal: number;
   serverErrorTotal: number;
   completedTotal: number;
-  chunkTotal: number;             // 该档单次 run 的片数
+  chunkTotal: number;
 }
 
 interface SweepReport {
@@ -231,7 +207,6 @@ interface SweepReport {
     runsPerLevel: number;
   };
   levels: LevelReport[];
-  // 简单判读：首个出现 429 的档位；以及墙钟相对上一档加速 < 1.2 的首档（疑似撞顶）
   firstRateLimitedLevel: number | null;
   firstPlateauLevel: number | null;
 }
@@ -280,8 +255,6 @@ function renderMarkdown(report: SweepReport): string {
   return lines.join("\n");
 }
 
-// ===== 编排 =====
-
 function printSummaryTable(report: SweepReport): void {
   const header = "| 并发 | 墙钟均值ms | 段均均值ms | 相对上一档加速 | 相对首档加速 | 429 | 5xx |";
   const divider = "| --- | --- | --- | --- | --- | --- | --- |";
@@ -307,7 +280,6 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 读音频并切片；扫描只用前 audioSeconds 秒（测上限不需要全片）
   let audioBuffer: Uint8Array;
   try {
     audioBuffer = new Uint8Array(readFileSync(config.audioPath));
@@ -326,13 +298,11 @@ export async function main(): Promise<void> {
   console.log(`音频：${config.audioPath}（本次取前 ${usedSec.toFixed(0)} 秒，切 ${chunks.length} 片，每片 ${config.chunkSeconds} 秒）`);
   console.log(`并发档位：${config.concurrencyLevels.join(" → ")}，每档 ${config.runsPerLevel} 次`);
 
-  // 安装计时 fetch：全程累加，每次 run 用 sliceStart 切分；finally 还原
   const realFetch = globalThis.fetch;
   const records: RequestTiming[] = [];
   const restoreFetch = installTimingFetch(realFetch, (t) => records.push(t));
 
   try {
-    // /models 确认模型在线（非 2xx 直接终止）
     let modelsBody: unknown;
     try {
       const r = await realFetch(`${config.baseUrl}/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
@@ -385,11 +355,9 @@ export async function main(): Promise<void> {
         completedTotal: runs.reduce((s, r) => s + r.completedChunks, 0),
         chunkTotal: chunks.length
       });
-      // 档间冷却
       await sleep(LEVEL_COOLDOWN_MS);
     }
 
-    // 加速比：相对上一档 / 相对首档（以有效 run 的墙钟均值为准）
     const firstWall = levels.find((l) => l.wallMean !== null)?.wallMean ?? null;
     for (let i = 0; i < levels.length; i += 1) {
       const l = levels[i];
@@ -422,7 +390,6 @@ export async function main(): Promise<void> {
   }
 }
 
-// CLI 入口：与 run.ts 同款判断，被 import 时不执行
 const isCliEntry = process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href;
 if (isCliEntry) {
   main().catch((error) => {

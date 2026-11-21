@@ -1,15 +1,10 @@
-// extension/notes/highlights-store.ts
-// 按视频维度持久化用户划词「高亮存笔记」条目（落 chrome.storage.local，不占 sync 配额）。
-
 export type NoteHighlightSource = "subtitle" | "overview";
 
 export interface NoteHighlightItem {
   id: string;
   text: string;
-  /** 条目关联的视频秒数；概览全片简介等无时间戳来源为 null */
   from: number | null;
   source: NoteHighlightSource;
-  /** 字幕句在当前字幕体中的下标（用于字幕列表原位高亮标示） */
   subtitleIndex?: number;
   createdAt: number;
 }
@@ -32,7 +27,6 @@ interface VideoHighlightBucket {
 
 type HighlightStoreMap = Record<string, VideoHighlightBucket>;
 
-// 无 chrome.storage.local 的测试或受限环境降级到进程内内存表
 let memoryFallbackStore: HighlightStoreMap = {};
 
 function hasLocalStorage(): boolean {

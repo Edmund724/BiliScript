@@ -1,14 +1,3 @@
-// extension/bilibili/host-adapter.ts
-// B 站宿主适配器（BiliHostAdapter）：
-// 1. 统一收口播放器/工具栏/右栏锚点选择器配置与降级查找；
-// 2. 提供共享的单一 MutationObserver 调度器：
-//    - 同一 DOM 容器的多个订阅方复用同一个 MutationObserver（按观察选项并集监听，
-//      按各订阅方自己的选项过滤派发 MutationRecord[]，避免 childList 订阅方被无关
-//      属性变更唤醒）；
-//    - 容器未水合时共用单一 document.body 回退观察器，容器出现即收敛到局部容器；
-//    - SPA 换片/换房导致局部容器脱离文档时自动回退重绑；
-//    - 支持 `{ signal?: AbortSignal }` 与句柄 `disconnect()` 退订，零订阅时立即彻底断开。
-
 import {
   ANY_PLAYER_HOST_SELECTOR,
   BILI_HOST_SELECTORS,
@@ -64,15 +53,10 @@ export interface HostObserverHandle {
 }
 
 export interface ObserveHostContainerOptions {
-  /** 优先观察的局部容器选择器或降级链（默认 `PLAYER_PRIMARY_SELECTOR`） */
   containerSelector?: string | readonly string[];
-  /** 局部容器的 MutationObserver 配置（默认 `{ childList: true, subtree: true }`） */
   containerObserveOptions?: MutationObserverInit;
-  /** 容器内发生匹配变更（或由 body 回退观察首次发现容器）时的回调 */
   onMutations: (records: MutationRecord[]) => void;
-  /** 当前活跃的 MutationObserver 实例切换时同步通知（退订时回调 null） */
   onObserverChange?: (observer: MutationObserver | null) => void;
-  /** 可选 AbortSignal，中止时自动退订 */
   signal?: AbortSignal;
 }
 
@@ -251,7 +235,6 @@ export function createBiliHostAdapter(): BiliHostAdapter {
             try {
               sub.onMutations([]);
             } catch {
-              // 回调异常隔离
             }
           }
         }
@@ -327,7 +310,6 @@ export function createBiliHostAdapter(): BiliHostAdapter {
           try {
             subscriber.onMutations(matched);
           } catch {
-            // 回调异常隔离
           }
         }
       });

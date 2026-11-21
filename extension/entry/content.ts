@@ -6,25 +6,13 @@ import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { logInfo, logWarn } from "../shared/logging.js";
 
-// 播放器 AI 模块经加载器按需引入（候选4 分包）：开关关闭态下该能力零装载，
-// start/stop/sync 全部走 loadPlayerAi() 的动态 import。默认开启（2026-09 起，
-// core/defaults.ts），分包收益保留给关闭态用户——关闭时 chunk 不下载。
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
-// Script 工具栏按钮经加载器按需引入（统一 文摘阅读模式 PR1）：非阅读模式
-// 分支与阅读模式直达分支都装载——直达分支上按钮由自查守卫恒摘除（无意义），
-// 装载为的是视图失同步自愈与关闭视图后补回按钮（见 ui/script-button.ts 头注）。
 import { loadScriptButton } from "../ui/lazy-script-button.js";
 import { loadLiveRoom } from "../live/lazy-live-room.js";
 import { loadPlaybackRate, isPlaybackRateLoaded } from "../bilibili/lazy-playback-rate.js";
 
-// 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
-//（hydrateReaderStateFromSettings / applyReadingViewPresentation）
-// 已惰性化，只在面板打开或进入阅读模式时加载。普通页启动路径不再构建
-// #biliscript-root / #biliscript-reading-view 壳，也不应用阅读排版属性。
 import { ensureUiReady } from "../ui/lazy-ui.js";
-// 候选02 分层惰性 + 候选03 常驻瘦身：init() 的启动符号只保留真正常驻的轻量
-// 接线与页面状态守卫；设置水合/排版呈现随阅读模式进入惰性装载。
 import {
   installReaderDebugHelpers,
   bindSettingsWatcher
@@ -40,24 +28,14 @@ import { ensureReaderDomain } from "../reader/lazy-reader.js";
 import { registerContentCapabilities } from "../reader/reader-bus.js";
 
 import { bindRuntimeEvents, bindUrlChangeHandler, startSubtitlePrefetch } from "./message-handler.js";
-// S3 分层：阅读表随阅读模式挂载（进入/退出事务的挂摘在 reader/shell.ts 阅读壳
-// 内；此处处理启动直开路径与非阅读页的预清理，门控等待样式就绪后翻转）
 import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
-// 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
-// storage.onChanged 区/键过滤 seam（R3 收口：播放器 AI 开关门不再自挂监听）
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
 globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 
-// 播放器 AI 开关监听只注册一次：init 在模块加载时同步执行，声明必须位于
-// 其之前（避免 TDZ），标志兜底防重复注入。
 let playerAiSettingsWatcherBound = false;
 let playbackRateSettingsWatcherBound = false;
-// 10-10：enablePlayerAiQuickAction 启动决策是否已由快路径（content 直连
-// storage.sync 单键读）决出。真 = 快路径读成功并完成启停，getSettings 水合
-// 路径跳过对同一键的重复读/决策；假 = 快路径读失败，由 getSettings 水合值
-// 兜底启停。把「同键双读」收口为快路径一次决策 + 水合异常兜底。
 let quickActionStartupDecided = false;
 
 init();
@@ -77,11 +55,8 @@ function isSupportedUrl(): boolean {
 }
 
 function init(): void {
-  // 先注册调试日志门再打启动日志；初始读 storage 是异步的，首条日志可能竞争
-  // 失败，onChanged 保活后续开关。
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
-  // 直播间只挂实时伴看浮窗，不走视频页的面板/字幕/概览装配；Firefox 首期门控下安全短路。
   if (isLiveRoomPage()) {
     if (isFirefoxExtensionRuntime()) {
       return;
@@ -97,13 +72,10 @@ function init(): void {
     return;
   }
 
-  // 候选03：普通页启动不再同步构建 UI 壳。面板/阅读视图壳在首次打开/进入时
-  // 经 ensureUiReady 惰性构建。
   installReaderDebugHelpers();
 
   const shouldEnterReaderMode = isReaderMode();
   if (shouldEnterReaderMode) {
-    // 属性门控是阅读样式生效开关，必须等全部 link 就绪后再翻转。
     void Promise.all([ensureReaderStyles(), applyPrePaintReaderTheme()]).then(() => {
       document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
       document.body.setAttribute("data-biliscript-reader-mode", "1");
@@ -115,8 +87,6 @@ function init(): void {
 
   bindRuntimeEvents();
   bindSettingsWatcher();
-  // 常驻能力槽注册：settings 持久化出口（读全量 state.settings 后发
-  // save-settings）的实现在常驻侧，reader 域只经 reader-bus 调用。
   registerContentCapabilities({
     persistSettings: () => {
       sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
@@ -125,35 +95,13 @@ function init(): void {
     }
   });
   bindNormalPageStateGuard();
-  // 播放器 AI 按钮的 layout 监听与 observer 改由 startPlayerAiQuickAction
-  // 显式启动（见 init 的 getSettings 水合与 bindPlayerAiSettingsWatcher），
-  // 开关关闭态不再无条件绑定（默认开启，2026-09 起）。
-  // URL 变化编排已搬到组合根（bindUrlChangeHandler）：监听 popstate/hashchange/
-  // biliscript:urlchange 并按序编排；runtime.startUrlWatcher 由其内部调用，只负责
-  // history 补丁与 biliscript:urlchange 广播。
   bindUrlChangeHandler();
-  // 字幕预抓取：载入即起跑（fire-and-forget，不阻塞 init 的其余接线），面板
-  // 打开时字幕通常已在手。init 已在入口按 isSupportedUrl() 收口，走到本行即
-  // 支持页；失败静默、不写状态栏。SPA 换片的起跑点在 URL 变化编排里。
   startSubtitlePrefetch();
   bindPlayerAiSettingsWatcher();
   bindPlaybackRateSettingsWatcher();
-  // Script 工具栏按钮快路径（工单 button-injection-stability/01）：不等
-  // getSettings 水合（SW 往返是按钮首载慢的主因之一）。script 按钮无设置键、
-  // 常驻，模块自管「寻锚注入/摘除 → 定时自查」生命周期——装载即寻锚，锚点未
-  // 就绪的注入自然失败，靠 200ms 自查自愈；阅读模式直达分支上按钮被自查守卫
-  // 恒摘除，装载为视图失同步自愈与「关闭视图后补回按钮」。完整设置水合失败
-  // 不影响按钮（模块不消费任何设置）。
   loadScriptButton().catch((error) => {
     logWarn("[BILISCRIPT] script-button module load failed", error);
   });
-  // 快路径门控：按钮启停只依赖 enablePlayerAiQuickAction 单键。直连
-  // chrome.storage.sync 读取（content 脚本本就有 storage 权限），绕开
-  // getSettings 的 SW 往返——SW 冷启动唤醒是按钮出现慢的主因之一。10-10
-  // 收口：直连读与 getSettings 同口径（storage 未显式存该键时回落默认值），
-  // 使快路径成为启动启停的唯一读/决策点，getSettings 路径不再对同一键二次
-  // 读/启停；读失败（quickActionStartupDecided 保持 false）时静默回退慢路径，
-  // 由 getSettings 水合兜底。完整设置仍由下方 getSettings 水合覆盖。
   (async () => {
     try {
       const data = await chrome.storage.sync.get("enablePlayerAiQuickAction");
@@ -165,7 +113,6 @@ function init(): void {
         startPlayerAiQuickActionLazy();
       }
     } catch {
-      // 读失败：维持 quickActionStartupDecided = false，交给 getSettings 兜底
     }
   })();
   (async () => {
@@ -175,11 +122,6 @@ function init(): void {
       if (settings.enableExtraPlaybackRates) {
         startPlaybackRateLazy();
       }
-      // 10-10 收口：快路径已按同一键直连读决策过（正常路径），这里不再对
-      // enablePlayerAiQuickAction 做第二次读/启停——同键双读收口为一次。仅当
-      // 快路径读失败（quickActionStartupDecided 仍为 false）时，才由本水合值
-      // 兜底启停（回退慢路径）。懒加载语义：开启才触发模块加载；关闭时模块
-      // 未加载即无任何残留可清理，加载过（isPlayerAiLoaded）才需要走 stop 收尾。
       if (!quickActionStartupDecided) {
         if (settings.enablePlayerAiQuickAction) {
           startPlayerAiQuickActionLazy();
@@ -192,9 +134,6 @@ function init(): void {
         await Promise.all([ensureReaderStyles(), applyPrePaintReaderTheme(settings)]);
         document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
         document.body.setAttribute("data-biliscript-reader-mode", "1");
-        // 候选03：阅读模式直达链接才惰性装载 UI 壳 + reader 呈现层，再进入重域。
-        // ensureUiReady 与 hydrate/apply 并发装载，壳构建完成后应用排版属性，
-        // 最后 enterReaderMode（其内部会再次 hydrate/apply，保证状态最终一致）。
         try {
           await ensureUiReady({ forceRecreate: true });
           await hydrateReaderStateFromSettings(settings);
@@ -205,18 +144,11 @@ function init(): void {
           logWarn("[BILISCRIPT] reader mode direct entry failed", error);
         }
       }
-      // 两分支（阅读直达 / 非阅读模式）的 script 工具栏按钮装载已上移到
-      // init() 快路径（01：不等 getSettings 水合），此处不再重复装载。
     } catch (error) {
-      // getSettings 水合拒绝的外层兜底（内层子链各有降级口径，不经此 catch）：
-      // 记日志，避免 unhandled rejection。
       logWarn("[BILISCRIPT] settings hydration failed", error);
     }
   })();
 }
-
-// 播放器 AI 开关存放在 chrome.storage.sync：监听该键变更动态启停，设置切换
-// 无需刷新页面即可生效。
 
 async function startPlaybackRateLazy(): Promise<void> {
   try {
@@ -270,8 +202,6 @@ function bindPlayerAiSettingsWatcher(): void {
       return;
     }
     const enabled = Boolean(change.newValue);
-    // syncPlayerAiQuickActionButton 读 state.settings，先同步该键再启停，
-    // 不依赖 reader watcher（bindSettingsWatcher）的异步全量回读时序
     state.patchSettings({ enablePlayerAiQuickAction: enabled });
     if (enabled) {
       startPlayerAiQuickActionLazy();
@@ -280,10 +210,6 @@ function bindPlayerAiSettingsWatcher(): void {
     }
   }, { sync: ["enablePlayerAiQuickAction"] });
 }
-
-// ===== 懒加载边界 a（候选4 分包）：player-ai 的 start/stop 适配 =====
-// 加载器语义：模块未加载时 stop/remove 都是 no-op（按钮只可能由该模块创建，
-// 未加载 ⇒ 无残留），因此「关闭设置」分支只在已加载时才需要真正执行 stop。
 
 async function startPlayerAiQuickActionLazy(): Promise<void> {
   try {

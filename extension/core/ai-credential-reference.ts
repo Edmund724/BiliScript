@@ -1,9 +1,3 @@
-// extension/core/ai-credential-reference.ts
-// 跨族「凭据引用」与「官方端点判定」唯一真源（GLOSSARY.md 同名词条）。
-// 搜索侧 DeepSeek（search/deepseek）与实时伴看侧 Gemini Live（live/gemini-live）
-// 不设独立 API Key 输入框，统一实时读取 AI 平台族中「第一条启用、对应 presetId 且
-// 通过官方 HTTPS 端点 host 严格判等」的记录及其 Key（aiProviderKeys）。
-
 import {
   PRESETS,
   effectivePresetBaseUrl,
@@ -22,7 +16,6 @@ export type AiCredentialStatus = "ok" | "no-record" | "unofficial" | "no-key";
 
 export interface AiCredentialRecordLike {
   id?: string;
-  // 记录自定义名（缺省时来源展示回落 AI 预设名）
   name?: string;
   presetId?: string;
   baseUrl?: string;
@@ -125,8 +118,6 @@ export function getAiCredentialStatusText(
   return AI_CREDENTIAL_REFERENCE_SPECS[target].rowStatusText[status];
 }
 
-// 命中来源的人读名：记录自定义名优先，缺省回落 AI 预设名（多处官方记录时
-// 用来指出实际生效的那一条，避免误判成「刚保存的这条」）。
 export function getAiCredentialSourceLabel(
   target: AiCredentialReferenceTarget,
   record: AiCredentialRecordLike | null | undefined,
@@ -184,9 +175,6 @@ export function resolveAiCredentialKey(
   return { key, status: "ok" };
 }
 
-// 消费族行注解：statusNote 供副行文案，credentialStatus / credentialSource 是
-// 结构化产物——行的 Key 指示点与来源展示都读这两项，不再把消费族 hasSavedKey
-// 当成应有自有 Key（DeepSeek 搜索 / Gemini 伴看都不设自有 Key 输入框）。
 export interface AiCredentialRowAnnotation {
   presetId?: string;
   statusNote?: string;

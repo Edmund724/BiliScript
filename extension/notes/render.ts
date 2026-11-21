@@ -1,8 +1,3 @@
-// extension/notes/render.ts
-// Note/export rendering logic (Markdown, SRT, TXT, chapters, subtitles).
-// 导出正文只有 简介 / 章节 / 字幕 三段：frontmatter、播放器 <iframe> 与评论节
-// 随笔记导出功能删除，Markdown/SRT/TXT 下载与时间戳口径原样保留。
-
 import { type Settings } from "../core/defaults.js";
 import { formatTimestamp } from "../shared/string-utils.js";
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
@@ -10,27 +5,18 @@ import { normalizeChapters } from "../subtitle/chapters.js";
 import { buildSubtitleSectionLines, shouldShowHoursInNote, type SecondaryLineResolver } from "./section-lines.js";
 import { type State } from "../core/state.js";
 
-// 渲染入参的宽松 meta 形状：字段全部按可选收口，各渲染函数内部沿用原有的
-// String()/Number() 归一，行为与迁出前一致。clipState 片段按结构直接兼容；
-// State 容器（无同名字段）经 buildMarkdown 的联合参数收口（TS 弱类型检查
-// 要求联合显式包含 State）。
 interface NoteRenderMeta {
   description?: unknown;
   videoDuration?: unknown;
   chapters?: unknown[];
 }
 
-// 字幕条目的宽松形状：ai/subtitle-prompt 的 unknown[] body 与 core/state 的
-// SubtitleBodyItem 都按此结构传入；时间戳消费点按 number 断言（与迁出前
-// 直传的运行时值一致），文案统一经 String() 归一。
 interface SubtitleBodyItemLike {
   from?: unknown;
   to?: unknown;
   content?: unknown;
 }
 
-// 派生渲染（预览/字幕段/TXT）只读 includeTimestampInBody 一个开关；
-// 字幕段行渲染（arch-review-2026-09/04 起在 ./section-lines.ts）同口径。
 interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
   bilingualDisplayOrder?: "original-first" | "translation-first";
@@ -76,9 +62,6 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
   return lines.join("\n");
 }
 
-// SRT 的双语形态（07 号票裁定）：**同一个 cue 两行**（主行 + 副行，SRT 原生支持多行）。
-// 副行**不缩进**——SRT 的行首空白会被播放器原样渲染成字幕里的缩进，不是文本可读性标记
-//（TXT / Markdown 的「缩进两格」是给纯文本读者的区分标记，落点不同）。副轨缺失段折叠。
 export function buildSrt(
   body: SubtitleBodyItemLike[] | null | undefined,
   secondaryFor?: SecondaryLineResolver,
@@ -168,9 +151,6 @@ export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settin
     .join("\n");
 }
 
-// withHours 字幕级判定：只聚合字幕末尾 to；「≥3600 才带小时位」的阈值判定
-// 单源 shared/clock-text.ts。含章节边界/视频时长的元数据级口径见
-// ./section-lines.ts 的 shouldShowHoursInNote。
 function shouldShowHoursInSubtitle(body: SubtitleBodyItemLike[] | null | undefined): boolean {
   const maxTo = (body || []).reduce((max, item) => {
     const to = Number(item?.to || 0);

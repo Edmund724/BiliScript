@@ -1,7 +1,3 @@
-// extension/notes/export-actions.ts
-// 模板化笔记导出的运行时编排：聚合当前视频元数据、概览摘要/章节/金句、高亮笔记与设置，
-// 提供「一键复制」「下载 Markdown」「写入 Obsidian URI」三个出口。
-
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";

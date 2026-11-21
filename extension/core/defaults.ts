@@ -1,12 +1,3 @@
-// extension/core/defaults.ts
-// Default settings shared across extension contexts. AI prompt 默认文本已拆至
-// default-prompts.ts（first-button-ux/03）：常驻底座不搭车 prompt 文本。
-// Pure data only — no logic; normalizers live in validators.ts /
-// presets.ts, generic utils in shared/utils.ts.
-
-// 思考档位的取值域类型（05 号票 7 档 + 2026-10-05 的 default「不干预」）。type-only
-// import = 编译后无边，取值域实体在零 import 的词表叶 ai/thinking-levels.ts
-//（core 与请求路径两侧同源）。
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
 import type {
   BilingualDisplayOrder,
@@ -16,30 +7,12 @@ import type {
 import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
 export type { SubtitleSegmentationStrategy, BilingualDisplayOrder };
 
-// ===== Version =====
-// Single source of truth for the extension version; consumed by the content
-// script and the background side panel. Kept in sync with manifest.json's
-// "version" by scripts/build-content.js' version guard.
-// 实体在 core/version.ts（bootstrap 只打包这一个常量，不连带全部默认设置），
-// 这里 re-export 维持既有 import 路径不变。
 export { BILISCRIPT_VERSION } from "./version.js";
-
-// ===== AI Prompts =====
-// prompt 默认文本（当前第五代 + 各代 legacy 冻结常量）在 default-prompts.ts。
-// DEFAULT_SETTINGS 的 prompt 字段是空占位："" / [] 经 validators.ts 归一化
-// 回落当前默认（空串不落盘，新装/缺键/清空保存都收敛到当前默认文本）。
-
-// PR5c：player-ai 的 storage 信箱（biliscript_player_ai_quick_action_v1）已随 AI
-// 侧边栏摘除退役——快捷动作改走消息直发（reader-enter 的 chat 负载），
-// 信箱键不再读写；存量键留存在用户 storage 中，无害。
 
 export interface KnownSettings {
   downloadFormat: string;
   includeDateInFilename: boolean;
   enablePlayerAiQuickAction: boolean;
-  // AI 键默认开迁移旗标（entry/settings-migration.ts）：true 表示存量显式
-  // false 已随迁移改写回默认 true 一次，此后用户显式关闭的值不再被安装/更新
-  // 迁移翻转。
   aiBtnDefaultOnMigrated: boolean;
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
@@ -47,10 +20,7 @@ export interface KnownSettings {
   enableAgentBridge: boolean;
   agentBridgeUrl: string;
   readerTheme: string;
-  // 主题手动选择哨兵：用户在顶栏或设置抽屉主动选择主题后置 true；
-  // 存量未手选（false）或默认 bilibili 模式自动跟随 B 站宿主并回落系统偏好。
   readerThemeUserSet: boolean;
-  // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物。
   readerPalette: string;
   chatInputGlow: boolean;
   reduceTransparency: boolean;
@@ -77,45 +47,27 @@ export interface KnownSettings {
   liveInterpretBlurSecondary: boolean;
   asrAutoFallback: boolean;
   asrLanguage: string;
-  // ===== 联网搜索（spec §3.2）=====
-  // searchProviders 列表不在此处：provider 列表归 search/search-provider-store.js
-  //（provider-store 收口，经 search-providers-save 消息写回），settings 只存标量。
-  // activeSearchProviderId 对齐 ASR radio 心智（string，"" = 无激活平台；
-  // spec 的 string | null 在 normalizeSettings 收口为 ""）。
-  activeSearchProviderId: string; // 当前选用的搜索平台 id
-  webSearchEnabled: boolean;      // 对话/选区解释链联网开关，全局记住上次状态，默认关
-  webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–20）
-  // 付费平台准入（GLOSSARY「付费平台」，默认关——花钱必须是显式动作）：只控制
-  // 智能链是否跳过 access === "paid" 的候选；单选付费平台不受此开关限制。
+  activeSearchProviderId: string;
+  webSearchEnabled: boolean;
+  webSearchMaxToolCalls: number;
   allowPaidSearchProviders: boolean;
-  // 两个非可调一次性状态位（不在设置页渲染、无校验区间，spec §3 落点表 20–21）。
-  // searchPresetsAutoActivated：安装/更新时四条免 Key 预设记录已自动补齐的一次性
-  // 旗标，置位后永不再自动激活；落 sync 是刻意的——同账号另一台设备不应重建已删
-  // 记录（否则「删除即撤回」不成立）。
   searchPresetsAutoActivated: boolean;
-  // searchOptInNoticeAcknowledged：联网搜索 opt-in 一次性说明已确认，只在用户点
-  // 「允许并继续」时置位。
   searchOptInNoticeAcknowledged: boolean;
-  // ===== 双语字幕 =====
-  bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关
-  secondarySubtitleLang: string;  // 副字幕语言标签（BCP-47，如 en-US），默认 en-US
-  bilingualDisplayOrder: BilingualDisplayOrder; // 双语主副语序（original-first / translation-first），默认原文在上
-  subtitleSegmentationStrategy: SubtitleSegmentationStrategy; // 字幕本地断句策略（auto/rule/stats/off）
-  // ===== 文摘排版 =====
-  readerFontSizeScale: number;    // 文摘面板字体大小（百分比，70–130），默认 100
-  chatLineHeight: number;         // 对话行高（百分比，120–200），默认 160
-  chatParagraphSpacing: number;   // 对话段落间距（像素，4–20），默认 12
-  // ===== 文摘面板布局与自动展开 =====
-  customPanelWidthEnabled: boolean; // 是否启用自定义文摘面板宽度，默认关
-  customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 540
-  autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
-  // ===== 历史会话清理 =====
-  cleanConversationsOlderThan30Days: boolean; // 自动清理 30 天以前的历史会话记录，默认关
-  enableExtraPlaybackRates: boolean; // 在视频播放器控制栏显示 3x/4x 倍速按钮，默认关
-  // ===== 模板化笔记导出与 Obsidian =====
-  noteExportTemplate: string; // 自定义 Markdown 笔记模板（空占位，归一化回落 DEFAULT_NOTE_TEMPLATE）
-  obsidianVaultName: string;  // 目标 Obsidian Vault 名称（留空写入当前默认库）
-  obsidianFolder: string;     // Obsidian 库内目标文件夹路径（可选）
+  bilingualSubtitles: boolean;
+  secondarySubtitleLang: string;
+  bilingualDisplayOrder: BilingualDisplayOrder;
+  subtitleSegmentationStrategy: SubtitleSegmentationStrategy;
+  readerFontSizeScale: number;
+  chatLineHeight: number;
+  chatParagraphSpacing: number;
+  customPanelWidthEnabled: boolean;
+  customPanelWidth: number;
+  autoOpenReader: boolean;
+  cleanConversationsOlderThan30Days: boolean;
+  enableExtraPlaybackRates: boolean;
+  noteExportTemplate: string;
+  obsidianVaultName: string;
+  obsidianFolder: string;
 }
 
 export interface Settings extends KnownSettings {
@@ -124,18 +76,11 @@ export interface Settings extends KnownSettings {
 
 export type KnownSettingKey = keyof KnownSettings;
 
-// ===== Merged default settings =====
 export const DEFAULT_SETTINGS: Settings = {
   downloadFormat: "srt",
   includeDateInFilename: true,
-  // 2026-09 起默认开启：AI 键与 script 按钮一样进视频页即可见可点（此前默认
-  // false，按钮对未手动开启的用户从不出现——设置门控挂载语义本身不变，见
-  // content.ts 的启停接线与 ai/player-ai.ts 的 sync 门控）。存量显式 false 由
-  // 安装/更新迁移一次性清位（entry/settings-migration.ts），此后用户显式关闭
-  // 的值不再被后续更新翻转。
   enablePlayerAiQuickAction: true,
   aiBtnDefaultOnMigrated: false,
-  // prompt 默认文本在 default-prompts.ts；此处空占位，validators 归一化回落。
   playerAiQuickPrompt: "",
   includeTimestampInBody: true,
   enableDebugLogs: false,
@@ -150,49 +95,38 @@ export const DEFAULT_SETTINGS: Settings = {
   aiInitialQuickPrompts: [],
   defaultModel: "",
   defaultAiModel: "",
-  // 思考档位出厂/重置默认 = default（不干预：不发任何思考字段，由平台默认行为决定）。
-  // 2026-10-05 用户裁定；7 档强度偏好的合法值不变（见 ai/thinking-levels 的两个词表）。
   aiThinkingLevel: "default",
-  // ===== ASR（语音转写）回退配置 =====
-  // asrProviders 列表不在此处：provider 列表归 asr/asr-provider-store.js
-  // （provider-store 收口，经 asr-providers-save 消息写回），settings 只存标量。
-  activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
-  activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
-  liveVoiceVolume: 100,      // 实时伴看 AI 音量（百分比）
-  liveVoiceSpeed: 1,         // 实时伴看 AI 语速（0.5/0.75/1/1.25/1.5）
-  speechVoiceVolume: 100,    // AI 回答朗读音量（百分比）
-  liveVoicePriority: true,   // 实时伴看语音优先（自动压低视频音量，默认开启）
-  liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
-  liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
-  liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
-  subtitleTranslateProviderId: "bilibili-index-translate", // 字幕翻译引擎 id，默认使用内置免 Key 的 Index-Translate
-  subtitleTranslateModel: "Index-Translate-35B-A3B",      // 字幕翻译模型，默认 Index-Translate-35B-A3B
-  subtitleTranslateGlossary: "",   // 字幕翻译自定义术语对照表（多行，原文 = 译文 或 仅原文保留原词）
+  activeAsrProviderId: "",
+  activeLiveProviderId: "",
+  liveVoiceVolume: 100,
+  liveVoiceSpeed: 1,
+  speechVoiceVolume: 100,
+  liveVoicePriority: true,
+  liveShareVideoAudio: false,
+  liveGeminiNativeSearch: false,
+  liveLowBandwidth: false,
+  subtitleTranslateProviderId: "bilibili-index-translate",
+  subtitleTranslateModel: "Index-Translate-35B-A3B",
+  subtitleTranslateGlossary: "",
   liveInterpretTargetLang: "zh",
   liveInterpretDisplayMode: "auto",
   liveInterpretFontScale: 100,
   liveInterpretBlurSecondary: false,
-  asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
-  asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
-  // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====
-  activeSearchProviderId: "", // 当前选用的搜索平台 id（单选激活，对齐 ASR radio）
-  webSearchEnabled: false,    // 全局记住上次开关状态，默认关
-  webSearchMaxToolCalls: 5,   // 单轮搜索次数上限（1–10）
-  // 付费平台准入：默认关（花钱必须是显式动作）；存量缺省 false 即旧行为，无迁移。
+  asrAutoFallback: true,
+  asrLanguage: "auto",
+  activeSearchProviderId: "",
+  webSearchEnabled: false,
+  webSearchMaxToolCalls: 5,
   allowPaidSearchProviders: false,
-  // 两个一次性状态位默认 false（含义见 Settings 声明处）；设置页不渲染。
   searchPresetsAutoActivated: false,
   searchOptInNoticeAcknowledged: false,
-  // ===== 双语字幕 =====
-  bilingualSubtitles: false,     // 主字幕之外再叠一路译文轨（面板弹层开关的全局偏好），默认关
-  secondarySubtitleLang: "en-US", // 副字幕语言标签（BCP-47，如 en-US / zh-CN）
-  bilingualDisplayOrder: "original-first", // 双语主副语序：默认主轨/原文在上，副轨/译文在下
-  subtitleSegmentationStrategy: "auto", // 字幕本地断句策略：默认仅对 ai- 与 asr 轨智能重断句
-  // ===== 文摘排版 =====
+  bilingualSubtitles: false,
+  secondarySubtitleLang: "en-US",
+  bilingualDisplayOrder: "original-first",
+  subtitleSegmentationStrategy: "auto",
   readerFontSizeScale: 100,
   chatLineHeight: 160,
   chatParagraphSpacing: 12,
-  // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: false,
   customPanelWidth: 540,
   autoOpenReader: false,

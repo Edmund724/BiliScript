@@ -29,18 +29,9 @@ declare global {
   }
 }
 
-// 传输叶拆出（arch-slim-2/04）：isBiliUrl / bgFetchJson / JsonTransport 迁至
-// gateway-core.ts（零 extension/ 内部依赖的叶子），SW 静态图不再经本模块拖入
-// state/video-probe/selection→cache→cache-lru 链。此处 re-export 保持既有
-// import 面兼容；视频元信息与字幕列表由 video-api.ts 承载，本模块只剩页面侧编排
-//（getCurrentAid / readRuntimeVideoDuration / fetchHotComments / fetchSubtitleBody）。
-// 轨道身份批后本模块对 subtitle/ 已无静态 import：映射改由本层的 native-payload.ts
-// 提供（它只额外触达 subtitle/chapters 的归一叶）。
 export { bgFetchJson, isBiliUrl } from "./gateway-core.js";
 export { contentFetchJson } from "./content-transport.js";
 export type { JsonTransport } from "./gateway-core.js";
-
-// ===== content-side adapters =====
 
 export function getCurrentAid(): number {
   let aid = Number(state.clip.aid) || 0;
@@ -80,11 +71,6 @@ export async function fetchHotComments(count = 20): Promise<HotComment[]> {
   return fetchHotCommentsJson(contentFetchJson, aid, safeCount);
 }
 
-// 热评编排单源（arch-review-2026-09/07）：「getCurrentAid 判空 → fetchHotComments(20)
-// → clipState.setHotComments 落账 → 失败降级空列表 + note」序列此前在
-// core/context-assembly 与 entry/message-handler 逐字手抄两份，此处收口。
-// message-handler 消费它包 sendResponse 外壳；context-assembly 缺省实现直接注入。
-// deps 可注入 ledger/aid/拉取替身（测试），缺省全部取本模块与 core/state 真身。
 export interface HotCommentsWithLedgerDeps {
   clipState?: { setHotComments(comments: HotComment[]): void };
   getCurrentAid?: () => number;
@@ -93,7 +79,6 @@ export interface HotCommentsWithLedgerDeps {
 
 export interface HotCommentsWithLedgerOutcome {
   comments: HotComment[];
-  // 降级说明（无 aid / 拉取失败）；成功路径缺省。
   note?: string;
 }
 

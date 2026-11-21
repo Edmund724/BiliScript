@@ -1,9 +1,3 @@
-// offscreen-chat-port.ts — offscreen 聊天端口单连接运行态隔离模块。
-//
-// 每个连入的 "offscreen-chat" 端口独立持有一套生成代际、AbortController、
-// 90 秒流式空闲计时器、成本护栏确认与视频截帧等待句柄；不同标签页的并发端口
-// 互不中止、互不覆盖，单端口内的连续提问仍保持旧请求代际清理语义。
-
 import { bgFetchJson } from "../bilibili/gateway-core.js";
 import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, shouldDebugLog } from "../shared/logging.js";
@@ -39,9 +33,6 @@ export interface AttachOffscreenChatPortDeps {
   streamIdleTimeoutMs?: number;
 }
 
-// 给 port 的出站消息统一附带 cachedContextKey（本侧多槽缓存当前确认持有的字幕体
-// key）。发起侧从任意一条 chat 回执读它推进 lastAckedContextKey，后续追问省略
-// subtitleBody。只包装 postMessage 一个入口，断连后的迟到回执由 safePostMessage 吞掉。
 function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, contextKey: string) {
   return {
     postMessage: (data: T): void => {
@@ -50,11 +41,6 @@ function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, 
   };
 }
 
-/**
- * 为一条 "offscreen-chat" 端口挂载独立聊天状态机与消息/断连监听。
- * 所有可变状态（代际号、AbortController、空闲超时、成本确认、截帧挂起）
- * 均驻留在本函数闭包内，确保多网页并发对话完全隔离。
- */
 export function attachOffscreenChatPort(
   port: chrome.runtime.Port,
   deps: AttachOffscreenChatPortDeps
@@ -195,7 +181,6 @@ export function attachOffscreenChatPort(
     const msg = rawMsg as OffscreenChatPortMessage;
     if (!msg) return;
     if (msg.action === "stop") {
-      // 只 abort 本端口在飞请求：Map-Reduce 写会话在 finally 里收尾落盘。
       abortActiveRequest();
       return;
     }
@@ -230,9 +215,6 @@ export function attachOffscreenChatPort(
     }
     if (msg.action !== "chat") return;
 
-    // 候选5（多槽扩展）：先结算字幕体。SP/面板侧 lastAckedContextKey 命中时消息
-    // 不带 subtitleBody，由共享多槽缓存按 contextKey 补齐；未命中或已被淘汰直接
-    // 回错误且不带 cachedContextKey，让发起侧重置 lastAcked 重发全文。
     const settled = deps.subtitleSlot.settle(msg);
     if (!settled.ok) {
       safePostMessage(port, { type: "error", error: settled.error, code: settled.code });

@@ -1,9 +1,3 @@
-// extension/core/host-permission-handlers.ts
-// SW 侧 host 权限消息族的深 module：收口 request-provider-origins（含同步用户手势链、
-// Firefox 缺少扩展手势时的常驻权限复核与未授权子集弹窗回退）、permission-grant-result
-// （弹窗回包校验与挂起表结算）、check-provider-origin 与 revoke-provider-origin。
-// 本模块零 ambient chrome 依赖：全部宿主能力经 HostPermissionHostAdapter 注入。
-
 import {
   buildPermissionGrantQuery,
   checkHostPermission,
@@ -259,9 +253,6 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     return await requestPermissionViaPopup(missingOrigins, windowsApi);
   }
 
-  // 手势不变式：permissions.request({ origins }) 必须是入口内首个动作（零先行 await），
-  // 确保 Chromium 经一次 runtime 消息传导的用户手势不被耗尽；Firefox 手势缺失时
-  // 复核常驻权限，仅对未授权子集拉起扩展授权弹窗。
   function handleRequestProviderOrigins(
     message: Msg<"request-provider-origins">,
     _sender: MessageSender,
@@ -371,7 +362,6 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
       try {
         port.disconnect?.();
       } catch {
-        // Ignore disconnect errors on rejected ports.
       }
       return true;
     }

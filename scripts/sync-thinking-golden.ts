@@ -1,10 +1,3 @@
-// scripts/sync-thinking-golden.ts
-// 同步三条协议通道的按类 golden 用例表：
-// 从运行时（thinking-golden-classes.ts 的 productRealizationsFor + channelHarness +
-// resolveThinkingAdjustment）直接算出 `CASES` 字面表，并原地写回三个 golden 测试文件。
-//
-// 跑法：pnpm catalog:sync:golden（由 scripts/sync-thinking-golden.mjs 经 esbuild 打包运行）。
-
 import { readFileSync, writeFileSync } from "node:fs";
 import { AI_THINKING_LEVELS, resolveThinkingAdjustment } from "../extension/ai/thinking-profiles.js";
 import {
@@ -24,7 +17,6 @@ const TARGETS: ReadonlyArray<{ readonly path: string; readonly channel: Channel 
 
 const CASES_START = "const CASES: readonly ByClassCase[] = [";
 
-/** 按 (值集类, 出口形态签名) 归纳该通道全部产物实现的代表用例。 */
 function buildCases(channel: Channel): ByClassCase[] {
   const harness = channelHarness(channel);
   const byClass = new Map<string, ByClassCase[]>();

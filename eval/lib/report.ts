@@ -1,15 +1,6 @@
-// eval/lib/report.ts
-// 评测报告结构 + Markdown 渲染。buildReport 以 runs 为准重算每个模型的
-// aggregate（保证与 run 数据一致）后原样返回；renderMarkdown 输出人类友好的
-// 中文 Markdown（meta 摘要 + 每模型一节：时间戳判定 / 样例文本 / runs 表格
-// / 末尾 aggregate 行）。
-
 import type { RequestTiming } from "./timing-fetch.js";
 import type { TimestampDetection } from "./timestamp-detect.js";
 
-// 报告落盘路径：base 已存在时自动加序号（report → report-2 → report-3…），
-// 新报告不覆盖旧的。json/md 一次运行共用同一条 base，序号保持一致。
-// exists 由调用方注入（run.ts/sweep.ts 传 node:fs 的 existsSync），lib 保持纯逻辑。
 export function nextReportPath(outDir: string, base: string, exists: (p: string) => boolean): string {
   const first = `${outDir}/${base}`;
   if (!exists(`${first}.json`) && !exists(`${first}.md`)) {
@@ -29,29 +20,29 @@ export interface RunReport {
   segmentCount: number;
   failedChunks: number;
   requestTimings: RequestTiming[];
-  segmentMeanMs: number | null; // 请求计时均值
-  rtf: number | null; // wallMs / audioDurationMs
-  success: boolean; // 有无成功请求判定（segments 完成）
+  segmentMeanMs: number | null;
+  rtf: number | null;
+  success: boolean;
 }
 
 export interface PerModelReport {
   model: string;
   runs: RunReport[];
   aggregate: {
-    segmentMeanMean: number | null; // 各 run segmentMeanMs 的均值（忽略 null）
+    segmentMeanMean: number | null;
     wallMean: number | null;
     rtfMean: number | null;
     successCount: number;
   };
   timestamps: TimestampDetection;
-  sampleText: string; // 转写文本样例
-  skipped: boolean; // 端点不支持被跳过
+  sampleText: string;
+  skipped: boolean;
   skipReason?: string;
 }
 
 export interface EvalReport {
   meta: {
-    generatedAt: string; // ISO
+    generatedAt: string;
     audioName: string;
     audioDurationSec: number;
     config: Record<string, unknown>;
@@ -70,7 +61,6 @@ export function buildReport(input: {
 }
 
 function aggregateRuns(runs: RunReport[]): PerModelReport["aggregate"] {
-  // 失败 run（success=false）不计入平均，只统计成功 run（Q8 口径）
   const successful = runs.filter((run) => run.success);
   const nonNull = <T>(values: Array<T | null>): T[] => values.filter((v): v is T => v !== null);
   const mean = (values: number[]): number | null =>

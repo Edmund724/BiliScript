@@ -1,31 +1,9 @@
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
 import { logWarnAlways } from "../shared/logging.js";
 
-/**
- * State namespace objects.
- *
- * Access patterns:
- * - Structured: state.reader.X, state.clip.X, state.ui.X
- * (the playerAi namespace has moved to ai/player-ai-state.ts)
- *
- * The structured namespaces expose the sub-state objects directly.
- * Flat sub-state property access (e.g. state.readingViewOpen) is no longer
- * supported; use the structured namespace (state.reader.readingViewOpen) instead.
- */
-
-// subtitleFetchState 的取值全集（写入点：fetcher resetClipState/refreshClip/catch
-// 收尾与 subtitle/commit 的接受/无字幕两事务；读取点 subtitle/core 占位文案、
-// chat/subtitle-wait pending 判定、chat/no-subtitle 拦截、context-payload 快照）。
 export type SubtitleFetchState = "idle" | "loading" | "ready" | "error" | "empty";
 
-// noSubtitleReason 的取值全集（写入点 fetcher 充电专属/未登录拦截、asr/fallback.ts 各终态分支
-// 与 commit 事务；KNOWN_ASR_SKIP_REASONS 白名单与 "asr-disabled"/"no-asr-config" 同源）。
-// 十二个非 null 值分三类：视频准入/登录限制类（"upower-exclusive" 未充电的充电专属视频、
-// "bili-login-required" 未登录 B 站）、
-// 两个路由类（"no-asr-config" / "asr-disabled"，由 asr-skip 的 reason 白名单产生）
-// 与八个失败类（其余，由 asr/failure-kind.ts 判出的 kind 经 core/asr-failure-notice.ts
-// 映射而来）。历史字面量 "asr-failed" 已删除（reason 从不落盘，没有兼容对象；
-// 判定口径见 .scratch/tickets/asr-error-reporting/04）。
 export type NoSubtitleReason =
   | null
   | "upower-exclusive"
@@ -54,29 +32,15 @@ export type SubtitleBodyItem = {
   content: string;
 };
 
-// 双语副轨槽（bilingual-subtitles/05 号票）：与主轨槽**平级但独立**的第二份 body +
-// 目标轨身份 + 独立装载态。三条纪律：
-//   ① 主轨三项（selectedSubtitleId/Url/Lang）在双语态下**逐字节不变**——它们是
-//      core/context-payload 的载荷三元组与变化签名键、也是 ai/segment-cache 段缓存键
-//      的输入，副轨借道会把 AI 面一起污染；
-//   ② 副轨装载态**绝不复用** subtitleFetchState——那是整片单相位，会把整个字幕 tab
-//      洗成「正在加载字幕…」/「字幕加载失败」面（02 号票 Q6/Q9）；
-//   ③ 写入只经 subtitle/slot 的成组动词（副轨接受事务、fetcher 的装载器与换片清场、
-//      弹层的同轨防呆清槽），**成组替换**（ADR 0005 的意图级原语，不铺逐字段 setter）；
-//      槽外直接调本组原语即绕过隔离不变量。
 export type SecondarySubtitleState = "idle" | "loading" | "ready" | "error";
 
 export interface SecondarySubtitle {
-  // 目标轨身份：用户在弹层选定副轨的那一刻**乐观写入**（02 号票 Q3），网络结果只改
-  // state/body，不回退目标。目标轨的 `lang` 分量不落槽（它只进 per-track 缓存键，
-  // 由装载事务的参数携带；落槽的那一枚全仓无读方，2026-10 删除）。
   id: string;
   url: string;
   body: SubtitleBodyItem[];
   state: SecondarySubtitleState;
 }
 
-// 空槽每次新建：槽是成组整体替换的，不共享可变引用（避免跨视频串体）。
 export function emptySecondarySubtitle(): SecondarySubtitle {
   return { id: "", url: "", body: [], state: "idle" };
 }
@@ -87,15 +51,6 @@ export type ChapterItem = {
   to?: number;
 };
 
-// ===== Reader namespace =====
-// Issue 06 hoisted reader-internal bookkeeping into reader-impl.js module closure;
-// issue 07 removed the now-dead fields. The remaining fields are settings/shared
-// flags plus a few cross-module bookkeeping fields: readingVideoEl (video-probe
-// reads, fetcher writes null, reader-impl writes the element when binding/
-// unbinding), readingDocumentClickBound (ui-renderer sets), readingShellState
-// (阅读壳生命周期状态机，唯一写手 transitionReaderShell).
-
-// 阅读壳生命周期四态。合法迁移集见 transitionReaderShell 处的注释。
 export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 
 type ReaderBusinessState = {
@@ -111,8 +66,6 @@ type ReaderBusinessState = {
 };
 
 type ReaderInternalState = {
-  // 阅读壳生命周期状态机（closed/entering/open/exiting），唯一写手是下方
-  // transitionReaderShell；readingViewOpen 是它的派生投影。
   readingShellState: ReaderShellState;
   readingVideoEl: HTMLVideoElement | null;
   readingDocumentClickBound: boolean;
@@ -135,9 +88,6 @@ type ReaderStateWritable = ReaderBusinessState & ReaderInternalState & ReaderSet
 
 const localReaderState: ReaderStateWritable = {
   readingShellState: "closed",
-  // readingViewOpen 是阅读壳状态机的派生投影（readingShellState === "open"）：
-  // 全部读取点零改动。setter 保留直写兼容（测试脚手架/历史直写点经它对齐
-  // 状态机，绕过迁移校验）——生产写入点一律走 transitionReaderShell。
   get readingViewOpen() { return this.readingShellState === "open"; },
   set readingViewOpen(value: boolean) { this.readingShellState = value ? "open" : "closed"; },
   readingTheme: "light",
@@ -160,8 +110,6 @@ const localReaderState: ReaderStateWritable = {
   setNextScrollBehavior(value) { this.readingNextScrollBehavior = value; },
   setViewReady(value) { this.readingViewReady = value; }
 };
-
-// ===== Clip namespace =====
 
 type ClipBusinessState = {
   currentUrl: string;
@@ -187,19 +135,10 @@ type ClipBusinessState = {
   subtitleBody: SubtitleBodyItem[];
   subtitleFetchState: SubtitleFetchState;
   noSubtitleReason: NoSubtitleReason;
-  // 失败详情行（已由 core/asr-failure-notice.ts 格式化并截断，含「（错误详情：…）」
-  // 括号；无结构化信息时为空串）。与 noSubtitleReason 同生命周期：失败终态写入，
-  // 同一视频内不清，切视频（resetClipState）与字幕接受事务（acceptSubtitle）清空。
   noSubtitleDetail: string;
-  // 双语副轨槽（形状与纪律见 SecondarySubtitle 的类型注释）。默认空槽 = 双语关 /
-  // 未选副轨 / 本视频无该语言轨三种来路，语义差别在投影层（06）不在这里。
   secondarySubtitle: SecondarySubtitle;
   chapters: ChapterItem[];
   hotComments: unknown[];
-  // 热评拉取失败留给概览 tab 的提示文案（空串 = 无/已恢复）。热评的消费方是
-  // 概览（章节目录来源之一），失败反馈按职责归位到概览 tab 的状态条渲染
-  // （reader/overview-ui.ts），不写全局状态行；与 hotComments 同生命周期——
-  // 拉取成功清空、换视频（resetClipState）复位。
   hotCommentsNotice: string;
   markdown: string;
   srt: string;
@@ -231,15 +170,9 @@ type ClipSetters = {
   setSubtitleFetchState(value: SubtitleFetchState): void;
   setNoSubtitleReason(value: NoSubtitleReason): void;
   setNoSubtitleDetail(value: string): void;
-  // ===== 双语副轨槽：四个成组意图（ADR 0005 的意图级原语，不铺逐字段 setter）=====
-  // 乐观写目标 + 置 loading：用户在弹层选定副轨语言的那一刻调用（02 号票 Q3：
-  // 「选中」=「目标」）。body 一并清空——旧语言的正文不能挂在新目标下面。
   markSecondarySubtitleLoading(value: { id: string; url: string }): void;
-  // 接受事务收尾：写目标轨身份 + 已排序 body + ready（subtitle/commit 唯一调用点）。
   applySecondarySubtitle(value: { id: string; url: string; body: SubtitleBodyItem[] }): void;
-  // 装载失败：保目标轨身份（副列要显示"哪条语言失败了"），清 body、置 error。
   markSecondarySubtitleError(): void;
-  // 清场（换视频 / resetClipState）：整体复位回空槽。
   clearSecondarySubtitle(): void;
   setChapters(value: ChapterItem[]): void;
   setHotComments(value: unknown[]): void;
@@ -276,25 +209,6 @@ const localClipState: ClipStateWritable = {
   selectedSubtitleLang: "",
   subtitleBody: [],
   subtitleFetchState: "idle",
-  // 无字幕原因（subtitleFetchState === "empty" 时的归类，供 sidepanel 拦截总结
-  // 时按原因提示）：
-  //   null               未知/不适用
-  //   "upower-exclusive"    充电专属视频且未开通充电（无完整音轨，跳过 ASR）
-  //   "bili-login-required" 未登录 B 站，无法获取视频自带字幕（跳过 ASR）
-  //   "no-asr-config"       语音识别平台 / 模型不可用（未配置、域名未授权、模型不存在）
-  //   "asr-disabled"     无字幕自动转写开关未开启
-  //   "asr-auth"         鉴权/授权不通过（401 / 403）
-  //   "asr-quota"        额度或余额不足（402；429 且额度语义）
-  //   "asr-ratelimit"    被限流（429）
-  //   "asr-network"      连不上 / 超时
-  //   "asr-media"        音轨取不到 / 解不了（含 415 与格式类 400）
-  //   "asr-server"       平台侧故障（5xx）
-  //   "asr-unknown"      无从判断（保留截断详情）
-  //   "asr-empty"        转写成功但未识别到语音内容
-  // 写入点在 fetcher.ts（充电专属视频直接落位）与 asr/fallback.js 各终态分支
-  //（skip/empty 原因；失败原因随无字幕出口逆事务 commitNoSubtitle 写入）；清除点
-  // 为 resetClipState 与字幕接受事务（subtitle/commit.js acceptSubtitle，
-  // subtitleFetchState → "ready" 的唯一写入点）。
   noSubtitleReason: null,
   noSubtitleDetail: "",
   secondarySubtitle: emptySecondarySubtitle(),
@@ -358,8 +272,6 @@ const localClipState: ClipStateWritable = {
   setCurrentClipSignature(value) { this.currentClipSignature = value; }
 };
 
-// ===== UI namespace =====
-
 type UiBusinessState = {
   uiEventsBound: boolean;
   runtimeEventsBound: boolean;
@@ -396,15 +308,11 @@ const localUiState: UiStateWritable = {
   setStatusText(value) { this.statusText = value; }
 };
 
-// ===== State container =====
-
 export interface State {
   settings: Settings;
   reader: ReaderState;
   clip: ClipState;
   ui: UiState;
-  // settings 写入面（ADR-0005）：setSettings 整体替换（getSettings 水合的唯一
-  // 写入点），patchSettings 按键合并——写方不再对 state.settings 就地写字段。
   setSettings(next: Settings): void;
   patchSettings(patch: Partial<Settings>): void;
 }
@@ -418,23 +326,6 @@ const localState: State = {
   patchSettings(patch) { this.settings = { ...this.settings, ...patch }; }
 };
 
-// ===== 单例槽（content 双实例收口） =====
-//
-// 状态单例挂 globalThis 而非模块级：两轮构建（scripts/build-content.js）把常驻
-// 底座在轮 B 懒 chunk 区重复一份，本模块在 content-main 与 chunks/ 共享 chunk
-// 里各是一个实例——两份 state 各写各的，常驻侧（content.ts / message-handler /
-// ui-status）与懒加载区（fetcher / reader / 对话）看到的 clip/ui/reader 不是
-// 同一份，只靠「各自自洽」侥幸不出事（跨侧读取随时可能拿到空值：状态行文案、
-// 视图开关、fetchRunId 代次）。隔离世界的 globalThis 在同一扩展的全部 content
-// 模块间唯一，两侧对齐到同一份状态（与 shared/messaging.ts 的页内分发槽、
-// reader/reader-bus.ts 的槽表同款先例）。
-//
-// 初始值（clip.currentUrl 读 location）由先求值的实例——常驻包——创建；后求值
-// 的实例把自己那份本地对象丢弃、改用槽内对象，因此下面只导出槽内绑定，本地
-// 对象仅作为「第一个实例」的建槽材料（一次性小开销，换来声明体逐字不动）。
-//
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态，允许
-// 双实例；安全依据即上文的 globalThis 槽（状态本体在槽内，两侧同一份）。
 export type SubtitleSessionBoundaryReason = "clip-switch" | "source-track-switch" | "processing-switch";
 
 export interface SubtitleSessionBoundarySnapshot {
@@ -482,13 +373,6 @@ export function registerSubtitleSessionBoundaryHooks(hook: SubtitleSessionBounda
   };
 }
 
-/**
- * 字幕会话切换边界的原子协调：
- * 1) 同步启动所有注册方的流式分块落盘 flush；
- * 2) 同步递增 acquisitionVersion / processingVersion 双代数令牌；
- * 3) 同步触发级联 abort() 与播放器叠层字幕清空；
- * 4) 等待 flush 写盘完成后返回最新版本号。
- */
 export async function triggerSubtitleSessionBoundary(
   reason: SubtitleSessionBoundaryReason
 ): Promise<{ acquisitionVersion: number; processingVersion: number }> {
@@ -499,7 +383,6 @@ export async function triggerSubtitleSessionBoundary(
     try {
       flushTasks.push(Promise.resolve(hook.flush(reason)));
     } catch {
-      // flush 回调失败不阻断版本递增与级联中止
     }
   }
 
@@ -515,33 +398,12 @@ export async function triggerSubtitleSessionBoundary(
     try {
       hook.onAbortAndClear?.(snapshot);
     } catch {
-      // 清理回调失败不阻断其他订阅方
     }
   }
 
   await Promise.allSettled(flushTasks);
   return versions;
 }
-
-// ===== 阅读壳生命周期状态机 =====
-//
-// 四态单源（ReaderShellState）+ 唯一写手 transitionReaderShell；派生布尔
-// readingViewOpen（state === "open"）让既有读取点零改动。生产写入点一律走
-// 迁移函数校验 from→to 合法性；非法迁移拒绝并经 logWarnAlways 直出（调试门
-// 缺省关，异常路径不能静默）。
-//
-// 合法迁移集（含回退边——按 restore 自愈「先 close 再 enter」与直开路径的
-// 现状定，保持既有行为全部合法）：
-//   closed → entering   进入事务开始（reader/shell.ts 两个进入入口）
-//   entering → open     enterReaderMode 打开视图
-//   entering → closed   进入失败回退 / entering 中 restore 自愈先收敛
-//   closed → open       直开兜底（entry/content.ts 直达路径直调 enterReaderMode）
-//   open → exiting      退出事务开始（exitReaderShell 入队后）
-//   open → closed       closeReadingView 兜底直关（不经退出事务的调用）
-//   exiting → closed    退出事务内 closeReadingView 收尾
-//   exiting → open      退出失败回退（视图仍在，不能卡在 exiting）
-// 同态迁移（from === to）视为幂等 no-op，不记日志。desync（壳失整）不进状态机
-// ——isReaderShellIntact 谓词 + script-button 自查维持现状。
 
 const READER_SHELL_TRANSITIONS: Record<ReaderShellState, readonly ReaderShellState[]> = {
   closed: ["entering", "open"],

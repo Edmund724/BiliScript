@@ -1,19 +1,8 @@
-// extension/entry/content-orchestration-wiring.ts
-// SW 专属的 content 注入恢复接线。
-// 把真实 chrome API 触点组装进 background-content-orchestration 工厂，
-// 仅 entry/background.ts import 本模块；本模块拥有全部 chrome 副作用，工厂仍零 chrome 依赖。
-//（02 分层归位：工厂本体下沉 core/，本接线属组合根侧，归位 entry/——依赖方向
-// 从「core 反向指 entry」翻正为「entry 顺向指 core」。）
-
 import { sendMessageToTab, waitForTabComplete } from "../shared/tab-utils.js";
 import { createBackgroundContentOrchestrator } from "../core/background-content-orchestration.js";
 
-// 期望版本单源（arch-slim-3/04）：此前 wiring 与 entry/background.ts 各算一份
-// chrome.runtime.getManifest().version，现收编为此处唯一导出。
 export const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 
-// 版本探针单发：读页面里 content 主包置的版本哨兵，空串 = 未读到；API 抛错
-// 交给编排层吞掉重试，单发自身不 try/catch。
 async function probeContentScriptVersionOnce(tabId: number) {
   const probe = await chrome.scripting.executeScript({
     target: { tabId },
@@ -23,19 +12,7 @@ async function probeContentScriptVersionOnce(tabId: number) {
 }
 
 async function injectReaderAssets(tabId: number) {
-  // S3 分层：阅读表由 style-injector 的挂载记录注入（ensureReaderStyles 挂
-  // link、exitReaderShell → removeReaderStyles 摘除）。内容脚本在进入阅读模式
-  // 时经 ensureReaderStyles 以同一枚 link 挂载——若此处再 insertCSS 同一份，
-  // 会形成「insertCSS 永久残留（无可摘除点）+ link 挂载」两份并存的样式表，
-  // 退出阅读模式后 insertCSS 那份永不摘除（10-5）。收口只走挂载记录单通道：
-  // 这里的修复注入经 bootstrap 拉起内容主包，由其在进入阅读模式时挂 link
-  //（见 content.ts ensureReaderStyles / removeReaderStyles）;播放器 AI 表只随
-  // ai/player-ai.js 惰性挂载，与内容脚本注入无关。
   await chrome.scripting.executeScript({
-    // 候选4 分包后这里注入 classic bootstrap：它置版本哨兵后异步拉起 ESM
-    // 主包（manifest.content_scripts 指向同一文件，注入语义一致）。重复注入
-    // 由 bootstrap 的 __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__ 标志挡住；classic 重复
-    // 注入的词法冲突哨兵（见 shared/content-error-sentinels.js）由编排层吞掉。
     target: { tabId },
     files: ["entry/content-bootstrap.iife.js"]
   });
@@ -61,15 +38,12 @@ export const {
   triggerReaderModeCloseInTab,
   triggerReaderModeToggleInTab
 } = createBackgroundContentOrchestrator({
-  // 单发副作用（chrome API 触点）
   probeOnce: probeContentScriptVersionOnce,
   injectAssets: injectReaderAssets,
   reloadTab: (tabId: number) => chrome.tabs.reload(tabId),
   waitForTabComplete,
   sendMessageToTab,
   isTabReaderModeOff,
-  // 前置守卫：无 scripting 能力或无 tabId 时，编排按「无事可做」直接返回
-  //（与抽离前 ensureReaderContentReady 开头的 `!chrome.scripting || !tabId` 等价）。
   canInject: (tabId: number) => Boolean(chrome.scripting) && Boolean(tabId),
   expectedVersion: EXPECTED_CONTENT_SCRIPT_VERSION
 });

@@ -1,8 +1,3 @@
-// extension/core/validators.ts
-// Pure normalizers / validators for stored settings: reader preferences,
-// download format, AI prompts, AI providers and web search. No Chrome APIs, no
-// DOM. Default constants live in defaults.ts; prompt default texts in
-// default-prompts.ts; provider presets in presets.ts.
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
@@ -38,7 +33,6 @@ import {
   type LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
 
-// ===== Shared scalar helpers =====
 export function toString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -62,11 +56,6 @@ export function clampedIntField(min: number, max: number, fallback: number): (va
   };
 }
 
-// ===== Reader normalizers =====
-// 留守本模块的原因不变：core/settings-store.ts（后台设置归一化）静态依赖它，
-// 迁移会破坏后台 bundle 与其测试。
-// 明暗主题模式：bilibili（跟随 B 站，默认）| system（跟随系统）| light | dark；
-// 未知存量值（如退役的 paper / flyme）收敛为 bilibili。
 export type ReaderThemeMode = "bilibili" | "system" | "light" | "dark";
 
 export function normalizeReaderTheme(value: unknown): ReaderThemeMode {
@@ -76,19 +65,14 @@ export function normalizeReaderTheme(value: unknown): ReaderThemeMode {
   return "bilibili";
 }
 
-// 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物；缺失/非法
-// 存量值收敛为默认 flyme。
 export function normalizeReaderPalette(value: unknown): string {
   return value === "editorial" ? value : "flyme";
 }
 
-// AI 对话输入框光晕：默认 true，仅显式 false 时关闭。
 export const normalizeChatInputGlow = booleanField(true);
 
-// 减弱透明效果：默认 false，仅显式 true 时开启。
 export const normalizeReduceTransparency = booleanField(false);
 
-// ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
   if (value === "txt") return "txt";
   if (value === "vtt") return "vtt";
@@ -160,7 +144,6 @@ export const normalizeEnablePlayerAiQuickAction = booleanField(false);
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 历史旧默认快捷提示词一次性升到当前默认（与 aiSystemPrompt 的 LEGACY 映射同机制）。
   if (
     normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT ||
     normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 ||
@@ -168,7 +151,6 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
   ) {
     return DEFAULT_PLAYER_AI_QUICK_PROMPT;
   }
-  // 空串（DEFAULT_SETTINGS 空占位 / 用户清空保存）回落当前默认：清空即恢复默认。
   if (!normalized) {
     return DEFAULT_PLAYER_AI_QUICK_PROMPT;
   }
@@ -177,7 +159,6 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 六代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
   if (
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 ||
@@ -188,17 +169,12 @@ export function normalizeAiSystemPrompt(value: unknown): string {
   ) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
-  // 空串（DEFAULT_SETTINGS 空占位 / 用户清空保存）回落当前默认：清空即恢复默认。
   if (!normalized) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
   return normalized;
 }
 
-// 初始快捷问题：留空 = 按视频即时生成（空数组是合法值，不再回落固定文案——
-// 固定三条只在生成不可用时由渲染侧兜底，见 chat/quick-prompts.ts）。
-// 用户填了则归一为最多三条、去空白项，供建议区原样使用（不限长：可能是一整句
-// 指令，静默截短会改变语义）。
 export function normalizeAiInitialQuickPrompts(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -217,14 +193,8 @@ export function normalizeDefaultAiModel(value: unknown): string {
   return toString(value).trim();
 }
 
-// 思考档位（8 个可选值：default/off/minimal/low/medium/high/xhigh/max），
-// default = 不干预（不发任何思考参数），缺省 / 非法值回落 default（2026-10-05
-// 裁定，见 docs/adr/0015 修订块）。05 号票起值域来自 ai/thinking-levels 词表叶
-//（零 import 的纯叶，与 SW 静态图里的本模块两侧同源；请求路径的 ai/thinking-profiles
-// 也从同一叶取词表）；函数名保留 core 侧的历史 import 面。
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
-// ===== 语音输出 normalizers =====
 export { normalizeLiveVoiceSpeed } from "../live/live-voice-speed.js";
 export const normalizeLiveVoiceVolume = clampedIntField(
   0,
@@ -275,30 +245,20 @@ export const normalizeLiveInterpretBlurSecondary = booleanField(false);
 
 export const normalizeWebSearchEnabled = booleanField(false);
 
-// 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与
-// normalizeWebSearchEnabled 同型的布尔归一，非 boolean 一律回落 false。
-// searchPresetsAutoActivated：安装/更新时免 Key 预设已自动补齐的旗标。
 export const normalizeSearchPresetsAutoActivated = booleanField(false);
 
-// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「允许并继续」置位）。
 export const normalizeSearchOptInNoticeAcknowledged = booleanField(false);
 
-// 单轮搜索次数上限：整数，区间 1–20，越界夹取，非法值回落默认 5（spec §3.2）
 export const normalizeWebSearchMaxToolCalls = clampedIntField(
   1,
   20,
   DEFAULT_SETTINGS.webSearchMaxToolCalls
 );
 
-// 付费平台准入开关（GLOSSARY「付费平台」）：与 normalizeWebSearchEnabled 同型的
-// 布尔归一，非 boolean 一律回落 false（默认关——花钱必须是显式动作）。
 export const normalizeAllowPaidSearchProviders = booleanField(false);
 
-// ===== 双语字幕 normalizers =====
-// 双语字幕开关：与 normalizeWebSearchEnabled 同型的布尔归一，非 boolean 回落 false。
 export const normalizeBilingualSubtitles = booleanField(false);
 
-// ===== 文摘面板排版 normalizers =====
 export const normalizeReaderFontSizeScale = clampedIntField(
   70,
   130,
@@ -317,7 +277,6 @@ export const normalizeChatParagraphSpacing = clampedIntField(
   DEFAULT_SETTINGS.chatParagraphSpacing
 );
 
-// ===== 文摘面板布局与自动展开 normalizers =====
 export const normalizeCustomPanelWidthEnabled = booleanField(false);
 
 export const normalizeCustomPanelWidth = clampedIntField(
@@ -328,9 +287,6 @@ export const normalizeCustomPanelWidth = clampedIntField(
 
 export const normalizeAutoOpenReader = booleanField(false);
 
-// 副字幕语言标签：trim 后做 BCP-47 粗校验（2–3 位主语言 + 若干 2–8 位子标签）。
-// 空串（DEFAULT_SETTINGS 缺键 / 用户清空保存）与非法标签一样回落当前默认：清空即
-// 恢复默认；合法标签保留调用方原样的大小写与连字格式（不转小写）。
 export function normalizeSecondarySubtitleLang(value: unknown): string {
   const normalized = toString(value).trim();
   if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(normalized)) {
@@ -375,7 +331,6 @@ interface AiProviderValidationInput {
   name?: unknown;
 }
 
-// ===== AI provider validation =====
 export function validateAiProviders(items: unknown[]): ValidationResult {
   const seenIds = new Set<string>();
   for (let i = 0; i < (items as unknown[]).length; i++) {
@@ -394,8 +349,6 @@ export function validateAiProviders(items: unknown[]): ValidationResult {
     if (item.requiresKey && !item.apiKey && !item.hasSavedKey) {
       return { ok: false, message: "平台「" + item.name + "」需要填写 API Key" };
     }
-    // 模型目录允许为空（multi-model-catalog 拍板 Q13）：空目录平台只是不出现在
-    // 聊天模型选择器，目录外 ID 仍可直接发送；不再强制至少一个模型。
     if (seenIds.has(String(item.id))) {
       return { ok: false, message: "平台 id 重复，请刷新页面后重试" };
     }

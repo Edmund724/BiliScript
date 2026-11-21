@@ -1,8 +1,3 @@
-// extension/entry/on-installed.ts
-// SW 安装 / 更新生命周期编排与引导页打开入口。
-// 抽成纯依赖注入模块，便于在 Vitest 中直接断言 install 触发 onboarding.html、
-// update / chrome_update 等非首次安装原因绝不弹窗打扰老用户。
-
 export const ONBOARDING_PAGE_PATH = "onboarding.html" as const;
 
 export interface OpenOnboardingPageDeps {

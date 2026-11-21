@@ -1,8 +1,3 @@
-// extension/bilibili/playback-rate.ts
-// B 站播放器 3x / 4x 倍速按钮模块。
-// 为播放器控制栏添加 3 倍速和 4 倍速按钮，点击切换 1x/3x 或 1x/4x，切换视频自动恢复 1x。
-// 字体样式在挂载及全屏切换时同步原生倍速按钮。
-
 import { getRuntimeVideoElement } from "./video-probe.js";
 import {
   applyControlBarPlacement,

@@ -1,6 +1,3 @@
-// extension/bilibili/player-control-mount.ts
-// B 站播放器控制栏锚点解析、幂等挂载与两段式局部容器 MutationObserver 原语。
-
 import {
   BILI_HOST_SELECTORS,
   PLAYER_PRIMARY_SELECTOR,
@@ -21,24 +18,16 @@ export type ControlBarPlacement =
 
 export interface ResolveControlBarPlacementOptions {
   host?: ParentNode | null;
-  /** 优先匹配直播间现行控制栏扩展区 `.live-web-player-controller .right-area .ext-nodes` */
   preferLiveRoomExtNodes?: boolean;
-  /** 控制栏右侧与清晰度控件均未就绪时，是否回退挂载到 host 根节点末尾 */
   fallbackToHost?: boolean;
-  /** 是否允许回退到 document 级查找 `.bpx-player-control-bottom-right`（默认 true） */
   allowDocumentFallback?: boolean;
 }
 
 export interface ObservePlayerContainerOptions {
-  /** 优先观察的局部播放器容器选择器（默认 `.bpx-player-container, #bilibili-player`） */
   containerSelector?: string | readonly string[];
-  /** 局部容器的 MutationObserver 配置（默认 `{ childList: true, subtree: true }`） */
   containerObserveOptions?: MutationObserverInit;
-  /** 容器内发生变更（或由 body 回退观察首次发现容器）时的回调 */
   onMutations: (records: MutationRecord[]) => void;
-  /** 当前活跃的 MutationObserver 实例切换（含启动、由 body 切局部容器、disconnect）时同步给外部状态槽位 */
   onObserverChange?: (observer: MutationObserver | null) => void;
-  /** 可选 AbortSignal，中止时自动退订 */
   signal?: AbortSignal;
 }
 
@@ -175,12 +164,6 @@ export function applyControlBarPlacement(node: Node, placement: ControlBarPlacem
   }
 }
 
-/**
- * 两段式播放器容器观察原语（委托 BiliHostAdapter 共享 MutationObserver 调度器）：
- * 1. 若目标播放器容器已在 DOM 中，直接观察该局部容器子树（同容器多方共享单 observer）；
- * 2. 若容器尚未水合，先共用单一 `document.body` 回退观察，发现容器立即收敛到局部容器；
- * 3. 若局部容器在 SPA 换房/换片时被整棵替换脱离文档，自动回退观察并在新容器出现时重绑。
- */
 export function observePlayerContainer(
   options: ObservePlayerContainerOptions
 ): PlayerContainerObserverHandle {

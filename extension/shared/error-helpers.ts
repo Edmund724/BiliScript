@@ -1,9 +1,6 @@
 import { sleep } from "./utils.js";
 import { logInfo } from "./logging.js";
 
-// Loose shape shared by the custom error objects this module creates/consumes.
-// Kept internal; callers pass `unknown` and we cast only when reading optional
-// diagnostic fields.
 interface BiliscriptErrorLike {
   code?: unknown;
   retryable?: boolean;
@@ -32,7 +29,6 @@ export function toReadableText(value: unknown, fallback = ""): string {
       return json;
     }
   } catch {
-    // ignore
   }
   const text = String(value);
   if (!text || text === "[object Object]") {
@@ -54,16 +50,12 @@ export function getErrorMessage(error: unknown, fallback = "未知错误"): stri
   return toReadableText(error, fallback);
 }
 
-// STALE_RUN 哨兵构造单源（arch-slim-2/03）：本模块的 ensureRunActive 与
-// asr/fallback（原 throwStaleRun 逐字双份）共用同一形状，构造点唯一。
 export function makeStaleRunError(): Error & { code: string } {
   const error = new Error("Stale refresh run") as Error & { code: string };
   error.code = "STALE_RUN";
   return error;
 }
 
-// 双参纯函数：期望 runId 由调用方传入（消费方只有页面侧两条字幕抓取链，
-// 本模块是 shared 叶子，不读 core/state——SW/offscreen 经此静态边拖入状态袋）。
 export function ensureRunActive(runId: string | number, expectedRunId: string | number): void {
   if (runId !== expectedRunId) {
     throw makeStaleRunError();
@@ -75,11 +67,6 @@ export function isStaleRunError(error: unknown): boolean {
 }
 
 export function isRetryableNetworkError(error: unknown): boolean {
-  // 显式 HTTP 状态码优先判定（err.status 为正数才视为真实状态码）：408（请求
-  // 超时）/ 429（限流）/ >=500（服务端错误）可重试；其余 4xx（400/401/403/404…）
-  // 是确定性失败，原样重发只会再次失败，不重试。status<=0 不是有效 HTTP 状态码
-  // （ASR 适配器用 -1 表示响应体解析失败等自造哨兵）；无 status 的错误（如
-  // bilibili 网关只把状态码写进消息文本）维持下方消息启发式不变。
   const err = error as BiliscriptErrorLike;
   const status = Number(err?.status);
   if (Number.isFinite(status) && status > 0) {
@@ -134,12 +121,6 @@ export async function retryAsync<T>(task: () => Promise<T>, retries = 1, delayMs
   throw lastError || new Error("Unknown retry error");
 }
 
-// 限时竞速：ms 内 promise 完成则透传其结果/异常；到点未完成时，传了
-// timeoutError（Error）则以它拒绝（硬超时），否则以 undefined 兑现（软超时，
-// 由调用方自行回退）。
-// 定时器走全局 setTimeout 而非 window.setTimeout：本模块同时被 SW
-//（ai/context-resolver.js）与页面/offscreen context 消费，MV3 service worker
-// 全局无 window（回归测试 tests/shared/with-timeout.test.ts 钉 node 环境）。
 export function withTimeout<T>(promise: Promise<T>, ms: number, timeoutError?: null): Promise<T | undefined>;
 export function withTimeout<T>(promise: Promise<T>, ms: number, timeoutError: Error): Promise<T>;
 export function withTimeout<T>(
@@ -160,29 +141,20 @@ export function withTimeout<T>(
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
-// 中止标记错误工厂：AI 编排（map-reduce / merge / pool）统一用 e.aborted === true 收束
-// 中止，避免各处手工 `new Error + err.aborted = true` 的重复形状。
 export function makeAbortedError(message = "已停止生成"): Error & { aborted: true } {
   const err = new Error(message) as Error & { aborted?: boolean };
   err.aborted = true;
   return err as Error & { aborted: true };
 }
 
-// 中止形状谓词三件套（工单 01）：把各处内联 cast 的「形状判据拼写」收成单源。
-// 三谓词正交、各自只认一种形状，互不吸收——每个调用点用 OR 组合出自己的接受集，
-// 「我的上游已归一」这条契约因此仍显式写在调用点。判据统一严格：`aborted` 标记的
-// 唯一产出点 makeAbortedError 只写 true，真值性 → 严格在现网不可观测。
 export function isAbortedMarkerError(error: unknown): boolean {
   return (error as { aborted?: unknown } | null | undefined)?.aborted === true;
 }
 
-// 中止形状之二：name === "AbortError"。覆盖 makeAbortError 造出的普通 Error 与浏览器
-// fetch 中止时抛出的原生 DOMException（全仓不按 instanceof/同一性认，只按名字认）。
 export function isAbortNamedError(error: unknown): boolean {
   return (error as { name?: unknown } | null | undefined)?.name === "AbortError";
 }
 
-// 中止形状之三：cancelled === true。用户主动取消与其它 abort 来源的分流点。
 export function isCancelledError(error: unknown): boolean {
   return (error as { cancelled?: unknown } | null | undefined)?.cancelled === true;
 }

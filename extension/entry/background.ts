@@ -11,8 +11,6 @@ import {
   triggerReaderModeInTab,
   triggerReaderModeToggleInTab
 } from "./content-orchestration-wiring.js";
-// 非支持页工具栏可见反馈（工单 04，触点与文案单源在
-// extension/entry/unsupported-page-feedback.ts）：徽标/标题/页内提示的应用与清空。
 import {
   applyUnsupportedPageFeedback,
   clearUnsupportedPageFeedback,
@@ -21,14 +19,6 @@ import {
 } from "./unsupported-page-feedback.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 import { createSaveSettingsHandler } from "../core/save-settings-handler.js";
-// 设置快照（sw-settings-snapshot 票）：四个热路径读 handler 读设置/平台存储
-// 的唯一读路径（设置 UI 的 list/get CRUD 读维持直读 provider-store，不入快照）。
-// 读命中时热路径 storage 读为 0；失效双通道 = 写 handler 落盘后 inline
-// invalidate + 快照内 onChanged 订阅兜底跨设备 sync 变更（onChanged 不在写入
-// 方上下文触发，inline 失效是写后读的唯一保证）。写侧收口：本文件不再手写
-// invalidate 调用，也不再直调 chrome.storage.*.set——包住 store 落盘动作的写点
-// 走 invalidatingWrite，裸 storage 写点走 writeSnapshotKeys（键 → 缓存域与键 →
-// 存储区的映射、失效时机都归 core/settings-snapshot）。
 import {
   getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
@@ -38,16 +28,12 @@ import {
   writeSnapshotKeys,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
-// 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位；免 Key 搜索
-// 预设自动激活的决策半边）
 import {
   applyPlayerAiQuickActionDefaultOnMigration,
   applySubtitleTranslateDefaultMigration,
   planSearchPresetsAutoActivation
 } from "./settings-migration.js";
-// 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
-// storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { createAgentBridge, testAgentBridgeConnection } from "../agent-bridge/background.js";
@@ -61,22 +47,12 @@ import {
   liveSessionTracker,
   clearMossLiveWsAuthRule
 } from "../live/live-session-tracker.js";
-// 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
-// 查询缓存族 / 引擎健康度族 / 链装配解析的 SW 端 handler 工厂
-//（arch-review-2026-09/08）：handler 本体按工厂形态住 search 域 module，本文件只
-// 登记与注入实例（形态同 ai/segment-cache-handler.ts；记账族的落盘后 inline 失效
-// 随工厂搬入）。链装配编排（快照读 / 冷却图 / 模式 / 凭据引用 / 空链归因）住
-// resolve-search-provider-handler.ts；撤回判据与清缓存钩子住 search-opt-out.ts
-//（撤回是搜索域知识，spec §6.7 / §10 第 40 行的入口分工见该模块头注）。
 import { createSearchCacheHandler } from "../search/search-cache-handler.js";
 import { createSearchHealthHandler } from "../search/search-health-handler.js";
 import { createResolveSearchProviderHandler } from "../search/resolve-search-provider-handler.js";
 import { createSearchOptOutHook } from "../search/search-opt-out.js";
-// 平台请求代发（AI 探针 / 模型列表的传输层）：content script 的跨域 fetch 服从网页
-// CORS，不支持浏览器预检的平台（OPTIONS 无 Access-Control-Allow-*）只能报
-// 「Failed to fetch」——代发让探针与模型列表同源路径（core/provider-http.ts）。
 import { handleProviderHttpRequest } from "../core/provider-http.js";
 import {
   createProviderMessageHandlers,
@@ -85,19 +61,11 @@ import {
   createSubtitleTranslateProviderHandler,
   withOkResponse
 } from "../core/provider-handlers.js";
-// offscreen 段缓存消息族 SW 端 handler（offscreen 文档无 chrome.storage，
-// 段缓存读写经消息直调 ai/segment-cache 单源——arch-review-2026-09/05）
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
 import { createSubtitleCacheHandler } from "../subtitle/subtitle-cache-handler.js";
 import { migrateLegacyLocalStorageToIdb } from "../subtitle/storage-migration.js";
-// 08 票 SW 保活：Map-Reduce/流式运行期间 offscreen 持长连端口钉住 SW
-// （防 30s 空闲回收反复冷启动），SW 端接受持有即生效
 import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
-// SW 静态图只进传输叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 拆至 gateway-core，
-// 不经 gateway 拖入 state/video-probe/selection→cache 链。
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
-// host 权限 SW 端消息族（申请 / Firefox 小窗回包 / 代查 / 回收）：编排体收口在 core 域工厂，
-// 组合根只注入 chrome.permissions / chrome.windows / chrome.runtime 宿主适配。
 import {
   createHostPermissionHandlers,
   type PermissionGrantWindowsAdapter
@@ -114,8 +82,6 @@ import {
 import { attachChatSpeechPort } from "../chat/chat-speech-bg.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose } from "../asr/offscreen-bridge.bg.js";
 import { ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
-// 消息入口策略（路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径）：组合根只注入
-// handler 表、来源判据与拒绝文案。
 import { createMessageRouter } from "../core/message-router.js";
 import {
   type BackgroundMessage,
@@ -131,39 +97,15 @@ import {
   type LiveProviderListEntry
 } from "../shared/messaging-protocol.js";
 
-// ===== 写入口（落盘 + 失效一次做完）=====
-// 设置/平台存储的每个落盘点都经 core/settings-snapshot 收口：写点只声明「包住哪个
-// 落盘动作 / 写哪些键的新值」，键 → 缓存域的映射、键 → 存储区的映射与失效时机都归
-// 那个模块。此前「谁在什么时候调 invalidate」「本次写入影响哪个域」「这次写哪个区」
-// 全在写点脑子里，漏调、键名写错或区写错只表现为脏读/脏快照；现在写点不持有
-// invalidate 调用，也不再给区（本文件因此零 chrome.storage.*.set 直调）。
-// load-modify-write 本体仍直读存储，不经快照（spec Q3 写路径纪律）。
-
-// 设置保存：失效键面从 payload 键集派生（saveSettings 内部按白名单落盘，
-// payload 里的白名单外键在映射表里自然落空）。落盘语义（白名单、归一化）仍归
-// settings-store 单源，本处只把「落盘 + 失效」绑成一次调用。
 const saveSettingsWithInvalidate = invalidatingWrite(
   saveSettings,
   (payload) => Object.keys((payload || {}) as object)
 );
 
-// 裸 storage 写点（安装/更新迁移、自动激活的链首与 flag、删除记录时的顺序剔除）
-// 不经本文件：它们只交「哪些键的新值」，区由 core/settings-snapshot 的键面表反查
-// （writeSnapshotKeys），失效键面与时机也在那里——写点既不用抄键名也不用报区。
-
-// ===== 消息路由表 =====
-
-// 入口按键调用的统一 handler 面就是下方的 messageHandlerTable 字面量本身：逐键
-// 契约在它的 satisfies 处校验，表以单一事实源直接注入 core/message-router（派发
-// 策略住 router，本处只保证「按键能找到 handler」）。
 type Msg<T extends BackgroundMessageType> = Extract<BackgroundMessage, { type: T }>;
-// 回包形参按消息键收型（ResponseOf 的注册表派生面）：响应载荷与消息键配错、
-// 少写多写字段都在 tsc 门禁即红。
 type Reply<T extends BackgroundMessageType> = (response: BackgroundResponseOf<T>) => void;
 
 function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender, sendResponse: Reply<"get-settings">): void {
-  // 异步错误回包统一走 withOkResponse（arch-slim-2/03 单源）；同步错误回包
-  // （缺参/拒绝处理等）保持处理器内直写。
   withOkResponse(
     (async () => ({ ok: true, settings: await getSettingsSnapshot() }))(),
     sendResponse
@@ -195,9 +137,6 @@ function handleAgentBridgeTest(message: Msg<"agent-bridge-test">, _sender: Messa
   );
 }
 
-// save-settings 处理器（core/save-settings-handler.ts 工厂）：写入口（落盘 + 失效）
-// → 撤回判定 → 撤回钩子的编排收进 core 域；撤回判据与清缓存钩子住 search 域
-//（search-opt-out.ts，撤回是搜索域知识，spec §6.7 / §10 第 40 行），此处一行装配。
 const handleSaveSettings = createSaveSettingsHandler({
   saveSettingsWithInvalidate,
   getSettingsSnapshot,
@@ -218,10 +157,6 @@ const hostPermissionHandlers = createHostPermissionHandlers({
   }
 });
 
-// 对话 tab（content script）发送前的 offscreen 文档自愈 ensure。chrome.offscreen
-// / chrome.runtime.getContexts 仅扩展上下文可用，content script 经此消息委托
-// background 幂等创建（core/offscreen-host.ts）。ensure 失败时原始错误经
-// withOkResponse 回 { ok:false, error }。
 function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: Reply<"ensure-offscreen-chat">): void {
   withOkResponse(
     (async () => {
@@ -234,10 +169,6 @@ function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _send
   );
 }
 
-// 「进/聚焦阅读模式 + 定位对话 tab + 按会话状态发送快捷提示词」的统一编排：
-// 单条带 chat 负载的 reader-enter 命令直达 content 侧
-//（进入事务内激活对话 tab），不再即答后二次直发——双消息直发的进入/对话竞态
-// 在消息序上收口。触发失败回可读文案。
 const readerTriggerFailedText = "阅读模式触发失败，请刷新浏览器网页重试";
 
 async function triggerReaderChatInTab(
@@ -272,17 +203,9 @@ async function triggerReaderChatInTab(
   return { ok: true };
 }
 
-// player-ai 悬浮按钮语义反转（工单 08 决议 2）：不再打开 AI 侧边栏/写 storage
-// 信箱（biliscript_player_ai_quick_action_v1 已退役），改为「进入/聚焦阅读模式 +
-// 定位对话 tab + 按会话状态发送快捷提示词」——单条带 chat 负载的 reader-enter 走
-// triggerReaderModeInTab 链（空 readerUrl = 已在阅读模式内，只聚焦），
-// 提示词组装后由 content 侧进入事务内的对话 seam runQuickActionPrompt 消费。
 function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sender: MessageSender, sendResponse: Reply<"player-ai-quick-action">): MessageReplyDecision {
   const senderTabId = Number(sender.tab?.id) || 0;
   const requestedTabId = Number(message.tabId) || 0;
-  // 标签页归属（工单 03）：带 sender.tab 的来源（content script）只能操作
-  // 自己所在的标签页——message.tabId 与 sender.tab.id 同时存在且不一致即
-  // 跨标签页伪造，拒绝且不执行任何副作用。
   if (senderTabId && requestedTabId && requestedTabId !== senderTabId) {
     sendResponse({ ok: false, error: "请求目标与发送者标签页不一致，已拒绝。" });
     return "answered";
@@ -310,16 +233,11 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
     sendResponse({ ok: false, error: "Missing subtitle URL" });
     return "answered";
   }
-  // 策略收口到通道：本处理器只为 B 站 API/字幕 CDN 带 cookie 代理取数，
-  // 非 B 站 URL 一律拒绝——调用方（gateway 的 isBiliUrl 前置过滤）之外再挡一层，
-  // 防止未来新调用方漏掉前置过滤时把本通道当成任意 URL 的带凭据代理。
   if (!isBiliUrl(url)) {
     sendResponse({ ok: false, error: "Non-Bilibili URL" });
     return "answered";
   }
 
-  // withOkResponse 收口（arch-slim-2/03）：JSON 解析失败（200 但非 JSON 响应）
-  // 时给用户稳定的可读文案，而非引擎原生 SyntaxError。
   withOkResponse(
     (async () => ({ ok: true, data: await bgFetchJson(url) }))(),
     sendResponse,
@@ -328,17 +246,6 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
   return "hold";
 }
 
-// Provider CRUD 消息：AI / ASR 两个家族形状相同，统一由
-// core/provider-handlers.js 的工厂装配。响应负载与消息名保持不变，
-// 路由表只换处理器指向。连通性测试均不在 SW 静态图里跑探针本体：AI 探针的
-// 请求构造仍在 content 侧 ai/provider-test.js（completion 链不进 SW，候选 04
-// 拆链），只有传输经 provider-http 代发；ASR 探针（asr/provider-test.js）仍在
-// content 侧直调，wav-encode 链同样不进 SW。故本工厂不注入 probe。
-// 族 CRUD 的落盘走写入口（族键面直接吃 PROVIDER_FAMILY_STORAGE_KEYS），落盘
-// await 完成后族快照立即失效——load-modify-write 本体仍直读存储，不经快照。
-// 工厂的族条目类型实参显式取该族协议条目类型（AI/ASR/search 三处同理）：store
-// 产物必须保持可赋给它，条目类型单源的不变量由这层注解在 tsc 门禁钉住（票
-// ai-entry-type/01）。
 const aiProviderHandlers = createProviderMessageHandlers<ProviderListEntry>({
   loadProviders: aiProviderStore.loadProviders,
   saveProviders: invalidatingWrite(aiProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.ai),
@@ -346,10 +253,6 @@ const aiProviderHandlers = createProviderMessageHandlers<ProviderListEntry>({
   loadKeys: aiProviderStore.loadKeys
 });
 
-// 「激活平台」单趟解析（arch-slim-3/09）：offscreen 聊天链与 content 侧
-// 概览/选区解释共用，解析策略与密钥校验单源在处理器内。列表与 Key 同走
-// settings-snapshot 的 ai 族快照：一次 storage 读拿全（此前 aiProviderKeys
-// 在 loadProviders 与 loadKeys 间重复读两次）。
 const aiResolvedProviderHandler = createAiResolvedProviderHandler({
   getMergedSettings: getSettingsSnapshot,
   loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
@@ -366,9 +269,6 @@ function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageS
   sendResponse({ ok: true, presets: PRESETS.slice() });
 }
 
-// 平台请求代发（AI 探针 / 模型列表传输层）：URL 合法性与 host 权限判定收口在
-// core/provider-http.ts；代发结果（含 HTTP 状态与响应体文本）原样回给
-// content 侧合成的 Response，探针的错误文案仍由 completion 链统一拼装。
 function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSender, sendResponse: Reply<"provider-http">): void {
   withOkResponse(
     handleProviderHttpRequest({
@@ -382,13 +282,6 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
   );
 }
 
-// ===== 联网搜索消息处理 =====
-
-// 联网搜索运行时解析（spec §1 S4/S6、§3 落点表第 11 行）：offscreen 文档无
-// chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** + 单轮上限）经本
-// 消息单趟往返。链装配编排整体住 search/resolve-search-provider-handler.ts 工厂
-//（快照读 / 冷却图 / 模式 / 凭据引用 / 空链归因都是搜索域知识），本处只注入读取
-// primitive 并登记工厂实例（形态同下方的 search-cache / search-health 两族）。
 const handleResolveSearchProvider = createResolveSearchProviderHandler({
   getSettings: getSettingsSnapshot,
   getSearchStore: () => getProviderStoreSnapshot("search"),
@@ -398,22 +291,13 @@ const handleResolveSearchProvider = createResolveSearchProviderHandler({
   now: () => Date.now()
 });
 
-// 查询缓存消息族 / 引擎健康度记账消息族的 SW 端 handler（spec §5 / §3 落点表第 13 行、
-// §12.4 第 7–8 条 / §12.5 第 11 行）：两族 handler 本体已按工厂形态搬入 search 域
-// module（search-cache-handler.ts / search-health-handler.ts），本文件只登记工厂实例。
-// 两族的来源口径（**不得**进 OFFSCREEN_ONLY_MESSAGE_TYPES 名单，发送者含 content）
-// 随 handler 随迁，见各模块头注释。
 const handleSearchCache = createSearchCacheHandler();
 const handleSearchHealth = createSearchHealthHandler();
-
-// ===== ASR 平台消息处理 =====
 
 function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: MessageSender, sendResponse: Reply<"asr-presets-list">): void {
   sendResponse({ ok: true, presets: ASR_PROVIDER_PRESETS.slice() });
 }
 
-// ASR 平台 CRUD 处理器：连通性测试已迁出 SW，本工厂只负责列表 / Key 的
-// 消息路由，与 AI 家族共用同一套契约。
 const asrProviderHandlers = createProviderMessageHandlers<AsrProviderListEntry>({
   loadProviders: asrProviderStore.loadProviders,
   saveProviders: invalidatingWrite(asrProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.asr),
@@ -421,10 +305,6 @@ const asrProviderHandlers = createProviderMessageHandlers<AsrProviderListEntry>(
   loadKeys: asrProviderStore.loadKeys
 });
 
-// 搜索平台 CRUD 处理器（spec §3.3）：与 AI / ASR 家族共用同一套契约（列表 /
-// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。删除入口委托给 search 域
-// 撤回事务（§6.7 / §10 第 40 行，search/search-provider-deletion.ts），注入落盘 primitive
-// 与失效键面；删掉记录即本地不再留 query 哈希与结果。
 const searchProviderHandlers = createProviderMessageHandlers<SearchProviderListEntry>({
   loadProviders: searchProviderStore.loadProviders,
   saveProviders: invalidatingWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
@@ -436,16 +316,11 @@ const searchProviderHandlers = createProviderMessageHandlers<SearchProviderListE
   loadKeys: searchProviderStore.loadKeys
 });
 
-// 自动激活的记录写走与 CRUD 同一条写入口（spec §2 落点③）：落盘后失效
-// search 族快照，写后读（resolve-search-provider）拿新链。
 const saveSearchProvidersWithInvalidate = invalidatingWrite(
   searchProviderStore.saveProviders,
   PROVIDER_FAMILY_STORAGE_KEYS.search
 );
 
-// 内容脚本 ASR 回退的运行时配置：settings 标量 + provider-store 列表 + 激活
-// 平台 Key 一次回包，provider-store 存储层不再进内容 bundle（契约见
-// provider-handlers.js）。读路径走 settings-snapshot 的 asr 族快照。
 const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
   getMergedSettings: getSettingsSnapshot,
   loadProviders: async () => (await getProviderStoreSnapshot("asr")).providers,
@@ -455,14 +330,9 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
   }
 });
 
-// offscreen 段缓存消息族：offscreen 文档只有 chrome.runtime（平台限制），
-// Map-Reduce / 追问链的段缓存读写经此 handler 直调 ai/segment-cache 落真实
-// chrome.storage.local（arch-review-2026-09/05，替下 storage-local-bridge 垫片）。
 const handleSegmentCache = createSegmentCacheHandler();
 const handleSubtitleCache = createSubtitleCacheHandler();
 
-
-// MOSS-LIVE 伴看平台 CRUD 与会话准备处理器
 const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
   loadProviders: liveProviderStore.loadProviders,
   saveProviders: invalidatingWrite(liveProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.live),
@@ -497,11 +367,6 @@ function handleLiveSessionCleanup(
   );
 }
 
-// ===== 通用 offscreen 任务通道 =====
-
-// 把任务转发给"临时创建的 offscreen 文档"执行：asr-decode-prepare 建文档 +
-// 加防盗链规则（页面侧随后直连 offscreen 的 asr-decode 端口传下载解码任务），
-// asr-decode-cleanup 清规则。消息类型分发给对应执行函数。
 const offloadTaskHandlers = new Map<string, (message: unknown, sender: MessageSender, sendResponse: Reply<"offload-task">) => void>([
   [ASR_TASK_PREPARE, handleAsrDecodePrepare],
   [ASR_TASK_CLEANUP, handleAsrDecodeCleanup]
@@ -518,15 +383,10 @@ function handleOffloadTask(message: Msg<"offload-task">, _sender: MessageSender,
   return "hold";
 }
 
-// 工单 03：offscreen 文档自关闭的代执行（offscreen 无 chrome.offscreen）。
-// 发送者校验在执行器内（isOffscreenDocumentSender，与入口守卫共用判定）。
 function handleOffscreenRequestCloseMsg(_message: Msg<"offscreen-request-close">, sender: MessageSender, sendResponse: Reply<"offscreen-request-close">): void {
   void handleOffscreenRequestClose(_message, sender, sendResponse);
 }
 
-// 工单 03：offscreen 侧调试日志门的初始开关（offscreen 无 chrome.storage，
-// 由 SW 代读；enableDebugLogs 在 DEFAULT_SETTINGS 键面内，读走 settings 快照，
-// 不直读 storage。变更经下方 watchStorageKeys 订阅广播）。
 function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: MessageSender, sendResponse: Reply<"get-debug-log-gate">): void {
   withOkResponse(
     (async () => {
@@ -551,16 +411,6 @@ function handleOpenOnboarding(_message: Msg<"open-onboarding">, _sender: Message
   );
 }
 
-// 编译期穷尽路由表（arch-slim-2/02；handler 面按消息键收型：message-registry/02）：
-// 字面量表经 satisfies 对 { [K in BackgroundMessageType]: BackgroundMessageHandler<K> }
-// 校验——消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
-// 逐条 `as BackgroundHandler` 断言对这一切零捕获）；每个条目的处理器同时按其具体
-// 消息形状收型：sendResponse 形参 = 本条消息的响应类型（响应载荷与消息键配错即红），
-// 返回值 = 注册表 reply 登记的派生面（async / sync 档恒 void，branch 档必须回判定）。
-// 键集与协议层 SW 消息注册表（BACKGROUND_MESSAGE_REGISTRY）逐键对齐：形状判据与
-// 回包口径归注册表，本表只登记 handler 本体。script-only-ui：
-// open-options 处理器已随 options 页删除（设置已全部并入侧边栏面板，无独立
-// 设置页可开）。
 const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
@@ -607,14 +457,7 @@ const messageHandlerTable = {
   "permission-grant-result": hostPermissionHandlers.permissionGrantResult
 } satisfies BackgroundMessageHandlers;
 
-// EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts
-//（arch-slim-3/04 收编，本文件经 import 消费）。
-
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // B 站媒体防盗链会话规则整池清理（逻辑在 core/offscreen-host.ts）：
-  // 安装/更新后把池区间内平台现存规则清掉并重置账本，防旧规则泄漏（会话规则
-  // 跨浏览器重启由平台自动清空，本清理是对扩展 reload/update 行为差异的兜底）。
-  // 仅首次安装（INSTALL）时打开内置引导页，版本更新（update）不弹窗打扰老用户。
   await runOnInstalled(details, {
     installReason:
       (chrome.runtime as unknown as { OnInstalledReason?: { INSTALL?: string } }).OnInstalledReason?.INSTALL ?? "install",
@@ -643,23 +486,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       await injectReaderContent(tabId);
     }
   } catch (error) {
-    // ignore injection failure; user may need a hard refresh
   }
 });
 
-// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script；非支持页反馈 04）=====
-
-// 与页内 文摘按钮同一条 reader-enter 事务：经 triggerReaderModeInTab 的
-// 重试/注入链发 reader-enter，content 侧落 entry/message-handler.ts →
-// ensureReaderShell 进入事务——不建 popup / Side Panel / 第二套打开流程。
-// 目标标签页只取 onClicked 事件自带的活动标签页：reader-enter 载荷没有 tabId
-// 字段，跨标签页消息无从伪造目标。受支持页触发成功后清掉本标签页的非支持反馈；
-// 非支持页不再静默——打 tab 级「!」徽标 + 标题引导（applyUnsupportedPageFeedback），
-// www.bilibili.com 已有 host 权限覆盖的页面（首页/番剧等）再注入 6 秒页内提示，
-// 搜索/空间等未获权限页只徽标+标题、不注入（isWwwBilibiliPage 判据，manifest 不动）。
-// readerUrl 与页内按钮同源 buildReaderModeUrl（单源 bilibili/video-id-shared.ts，
-// SW 侧不 import 拖 core/state 的 bilibili/reader-url.ts）。监听器顶层同步注册
-//（MV3：SW 可被重启，事件监听器必须在首个事件前同步就位）。
 chrome.action?.onClicked?.addListener(
   async (tab) => {
     const tabId = tab.id ?? 0;
@@ -687,7 +516,6 @@ chrome.action?.onClicked?.addListener(
       try {
         await showUnsupportedPageToast(tabId);
       } catch (error) {
-        // 注入失败只记日志：徽标/标题已先落，反馈不静默丢失（工单 04）。
         logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
       }
     }
@@ -728,14 +556,11 @@ chrome.commands?.onCommand?.addListener?.(async (command, commandTab) => {
   }
 });
 
-// 非支持页反馈的清理：标签页一开始导航（loading）即清徽标/标题，不跨导航残留。
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "loading") return;
   void clearUnsupportedPageFeedback(tabId);
 });
 
-// 全部 B 站标签页关闭时通知 offscreen 检查轻量空闲回收：仅当无打开的 B 站标签页且
-// offscreen 仍存活时广播，由 offscreen 校验无活跃端口/任务后再委托 SW 串行关闭。
 chrome.tabs?.onRemoved?.addListener?.(() => {
   void (async () => {
     if (await hasOpenBilibiliTabs()) {
@@ -750,12 +575,6 @@ chrome.tabs?.onRemoved?.addListener?.(() => {
   })().catch(() => {});
 });
 
-// ===== 入口监听 =====
-
-// 内容脚本没有 chrome.tts：朗读请求与事件经专用端口在 SW 转发。
-// Firefox 授权弹窗在开启期间连保活端口钉住 Event Page，窗口关闭即自动清理。
-// offscreen 保活端口接受持有即生效；可选链与 chrome.action 先例一致，
-// 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
 chrome.runtime.onConnect?.addListener?.((port) => {
   if (attachChatSpeechPort(port)) {
     return;
@@ -786,15 +605,8 @@ void migrateLegacyLocalStorageToIdb().catch((error) => {
   logWarn("[BILISCRIPT] legacy storage migration on cold start failed", error);
 });
 
-// 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
-// 用户开的调试日志在 SW 静默）。
 registerDebugLogGate();
 
-// 调试日志门变更广播（工单 03）：offscreen 文档没有 chrome.storage，其调试
-// 门靠本广播保活（初始开关走 get-debug-log-gate 消息）。区/键过滤复用
-// shared/watch-storage-keys（sync 区 enableDebugLogs 命中才分发），不再自挂
-// onChanged 手写过滤。无接收方（offscreen 未开、扩展页全关）时 sendMessage 会
-// reject——广播即止，不进 unhandled rejection。
 watchStorageKeys((changes) => {
   void Promise.resolve(
     chrome.runtime.sendMessage({
@@ -804,52 +616,21 @@ watchStorageKeys((changes) => {
   ).catch(() => {});
 }, { sync: ["enableDebugLogs"] });
 
-// ===== 消息入口（守卫在路由之后、处理器之前）=====
-//
-// 路由 / 来源守卫 / payload 形状守卫 / 派发 / 回包口径全在 core/message-router 的
-// createMessageRouter（零 chrome 的策略单点）——本文件只接线三样：按键 handler 表、
-// 来源判据（标签 → 判据；判据本体 isOffscreenDocumentSender 住
-// core/offscreen-host.ts）与拒绝文案（字面量单源在 asr/protocol.ts，经
-// core/offscreen-host.ts 导出，router 不持文案）。两项检查的判据逐条登记在协议层的 SW 消息注册表
-// （shared/messaging-protocol.ts 的 BACKGROUND_MESSAGE_REGISTRY，一条消息一处
-// 登记）：
-//   ① 来源标签：注册表逐条 sender 登记派生的 OFFSCREEN_ONLY_MESSAGE_TYPES
-//      （名单单源在协议层；语义 = 扩展级副作用能力只开放给 offscreen 文档本身）；
-//   ② payload 最小 schema：注册表逐条 shape 判据。
-// 守卫语义不变：路由之后、处理器执行之前；只拦形状明显非法 / 来源不合法的请求，
-// 业务归一仍归处理器；被拒显式回 { ok:false, error }（不静默吞、不让调用方空等）
-// 且零副作用。
 const messageRouter = createMessageRouter({
   handlers: messageHandlerTable,
   senders: { offscreen: isOffscreenDocumentSender },
   rejectionMessage: OFFSCREEN_SENDER_REJECTION_MESSAGE
 });
 
-// 入口监听：一行委派（MV3：监听器顶层同步注册）。
 chrome.runtime.onMessage.addListener(messageRouter);
 
 async function initializeSettingsStorage() {
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  // 2026-09 AI 键默认开一次性迁移：存量显式 false 清位（清位后下方合并以新
-  // 默认 true 写回），旗标随本次全量写落盘（语义见 entry/settings-migration.ts）。
   applyPlayerAiQuickActionDefaultOnMigration(syncCurrent);
   applySubtitleTranslateDefaultMigration(syncCurrent);
-  // 安装/更新迁移：合并结果先经 normalizeSettings 收口再落盘，存量 LEGACY
-  // 默认提示词等旧值在此一次性改写为当前值，而不是每次读取时重复映射。
   await writeSnapshotKeys(normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
-  // 迁移是裸 storage 写（不经 save-settings），同样走写入口：区由快照键面表反查
-  // （settings 键面全在 sync），落盘后 inline 失效 settings 快照——SW 存活期内的
-  // onInstalled（扩展 reload/update）可能带着热缓存跑。失效键面 = 落盘对象键面 =
-  // DEFAULT_SETTINGS 键面（syncCurrent 取自按 DEFAULT_SETTINGS 的读，只含键面内键），
-  // 与迁移前手写的显式键面等价。
 }
 
-// 免 Key 搜索预设自动激活（spec §1 S2 / §2 展开，落点 §3 第 12 行）：决策走纯函数
-// （输入 = 当前 settings 标量 + 当前搜索记录），写入顺序固定「记录 → 链首 → flag」。
-// ① 记录写走 CRUD 同款写后失效包装（无记录要补时整步跳过；只追加不覆盖，已有
-// 同 presetId 记录连同它的 Key 与 enabled 原样不动）；② 链首仅在为空或悬空时
-// 直写 storage；③ flag **最后写**——即使本轮一条记录都没补也要写，否则判定会在
-// 每次启动重跑；任一步失败时 flag 未落盘，下一次 onInstalled 重试整段。
 async function autoActivateSearchPresets(): Promise<void> {
   const settings = await getSettingsSnapshot();
   const { providers } = await getProviderStoreSnapshot("search");
@@ -858,8 +639,6 @@ async function autoActivateSearchPresets(): Promise<void> {
     await saveSearchProvidersWithInvalidate([...providers, ...plan.providersToAdd]);
   }
   if (plan.activeSearchProviderId !== undefined) {
-    // 链首与 flag 都是裸 sync 写：走 writeSnapshotKeys（区与失效键面都由快照表决定，
-    // 写后读语义靠它保证——onChanged 不在写入方触发）。
     await writeSnapshotKeys({ activeSearchProviderId: plan.activeSearchProviderId });
   }
   if (plan.shouldWriteFlag) {

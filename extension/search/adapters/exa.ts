@@ -1,8 +1,3 @@
-// extension/search/adapters/exa.ts
-// Exa 搜索适配器：POST /search，x-api-key 头鉴权（spec §3.1/§6）。请求体
-// { query, numResults, contents: { summary: true } }——只有请求 summary 才有
-// 摘要可回。响应 results[].title/url/summary。纯函数，零 Chrome API / 零 DOM。
-
 import { mapSearchResultRows } from "./rows.js";
 import {
   type BuildSearchRequestInput,
@@ -30,7 +25,6 @@ export function buildExaSearchRequest({ baseUrl, apiKey, query, count }: BuildSe
 export function parseExaSearchResponse(payload: unknown): ParsedSearchResponse {
   const data = (payload && typeof payload === "object" ? payload : {}) as {
     results?: unknown;
-    // Exa 计费字段（credits / costDollars）随 API 版本漂移：可读即透传
     credits?: unknown;
     costDollars?: { total?: unknown };
   };
@@ -42,7 +36,6 @@ export function parseExaSearchResponse(payload: unknown): ParsedSearchResponse {
   };
 }
 
-// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
 export const exaAdapter: SearchAdapter = {
   type: "exa",
   name: "Exa",

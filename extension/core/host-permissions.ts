@@ -1,30 +1,6 @@
-// extension/core/host-permissions.ts
-// 按需申请 host 权限的纯逻辑层（S2 收紧 host_permissions：通配符从常驻权限移入
-// optional_host_permissions，各平台域名在保存时按 origin 申请）。与 DOM
-// 解耦，chrome.permissions 一律经参数注入（默认值在调用时取全局实现），供
-// options 页调用与单测驱动。
-//
-// 不变式：
-// - baseUrl 必须是 http(s):// 开头的合法 URL（与 validators.ts 的
-//   validateAiProviders 同型校验），origin 一律取 new URL(baseUrl).origin 并补上
-//   "/*" 路径——Chrome match pattern 要求非空 path，裸 origin（如
-//   https://api.stepfun.com）会被 request/contains/remove 判为 "Empty path"；
-// - 交互式授权（chrome.permissions.request）必须落在用户手势的同步调用链上，
-//   且一次手势只够一次弹窗：所有待申请 origin 合并成单次 request，request 之前
-//   不得有先行 await，否则从第二个 origin 起会被 Chrome 以「缺少用户手势」拒绝；
-// - 非法/空 baseUrl 不参与申请（格式问题由 validators 的输入校验负责报错）；
-// - 探针/模型列表在发起 fetch 之前先 contains() 预检该 origin：未授权时跨域 fetch
-//   只会以 CORS 失败（原样抛出是「Failed to fetch」这种看不出原因的文案），故直接
-//   短路回可操作提示、不再发注定失败的请求；已授权时探针错误一律原样透传，权限
-//   判定不得覆盖 HTTP 层错误（拿到 HTTP 状态说明请求已到达服务端）；
-// - 删除 provider 时 origin 仍被任一存活 provider（各平台家族都要查）使用
-//   则不回收；被删项自身按 id 剔除——钩子早于 DOM row.remove() 执行，不剔除就
-//   永远判定「仍被占用」。
-
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { CheckProviderOriginMessage, CheckProviderOriginResponse } from "../shared/messaging-protocol.js";
 
-// 探针/权限缺失时的统一可操作文案（AI 探针、ASR 探针共享）
 export const HOST_PERMISSION_HINT = "该平台域名未授权，请在保存时允许权限";
 export const HOST_INVALID_ORIGIN_HINT = "请求地址不合法，请检查平台 baseUrl 配置";
 
@@ -33,7 +9,6 @@ export type HostPermissionResult =
   | { granted: true; status: "granted" }
   | { granted: false; status: "denied" | "invalid-origin" };
 
-// Firefox 扩展授权小窗路径与保活端口名（SW 弹窗派发与 permission-grant.ts 共用单源）
 export const PERMISSION_GRANT_PAGE_PATH = "entry/permission-grant.html" as const;
 export const PERMISSION_GRANT_KEEPALIVE_PORT_NAME = "permission-grant-keepalive" as const;
 
@@ -68,8 +43,6 @@ export function parsePermissionGrantParams(search: string): PermissionGrantParam
   }
 }
 
-// 从 baseUrl 提取展示/键位用的 origin match pattern（https://host[:port]/*）。非法/边界
-// 输入（空串、非 http(s) 协议、URL 解析失败）返回 null，由调用方跳过申请。
 export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
   const text = String(baseUrl || "").trim();
   if (!text) return null;
@@ -84,9 +57,6 @@ export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
   }
 }
 
-// 转换为 chrome.permissions.contains/request/remove 所需的无端口 match pattern
-// （`${protocol}//${hostname}/*`）：Firefox permissions API 传带端口 pattern 会直接抛错，
-// 而无端口 pattern 在 Chromium 与 Firefox 中均匹配该主机任意端口。
 export function toPermissionMatchPattern(input: unknown): string | null {
   const text = String(input || "").trim();
   if (!text) return null;
@@ -104,7 +74,6 @@ export function toPermissionMatchPattern(input: unknown): string | null {
   }
 }
 
-// 一组 baseUrl → 去重后的无端口权限 match pattern 列表（保持首次出现顺序，非法项丢弃，供 permissions API 使用）。
 export function collectPermissionMatchPatterns(baseUrls: unknown): string[] {
   const patterns: string[] = [];
   for (const baseUrl of Array.isArray(baseUrls) ? baseUrls : []) {
@@ -125,10 +94,6 @@ interface RequestResult {
   error?: string;
 }
 
-// 单次批量申请一组 baseUrl 的 host 权限，返回 { ok, origins, error? }。
-// requestPermissions 注入 chrome.permissions.request 本体（测试注入 mock）。
-// 本函数在 await 之前不做任何异步等待，所以调用方（保存按钮的同步调用链）的
-// 用户手势不会丢；待申请集合为空时连 request 都不发起，避免无谓弹窗。
 export async function requestProviderOrigins(
   baseUrls: unknown,
   requestPermissions: typeof chrome.permissions.request | undefined = globalThis.chrome?.permissions?.request
@@ -156,38 +121,20 @@ export async function requestProviderOrigins(
   return { ok: true, origins };
 }
 
-// ===== 跨语境代申请（设置面板保存链 / AI 平台行预设切换链的唯一通道） =====
-
 export interface ProviderOriginsProxyResult {
   ok: boolean;
   error?: string;
 }
 
-// host 权限代申请的单一实现：content script 语境没有 chrome.permissions API
-// （Chromium 该 API 仅扩展自有页面/SW 可用），发 request-provider-origins 消息
-// 由 SW 代为申请；扩展页面语境（防御性分支）直接走 requestProviderOrigins。
-// 手势安全由两段各自保证，缺一不可：
-// - 本函数两个分支的申请发起（requestProviderOrigins 的同步段 / sendRuntimeMessage
-//   调用）之前零 await，调用方（click/change 手势处理器）再保证「调用本函数前
-//   零先行 await」——逐调用方扫描见 tests/ui/options-save-gesture.test.ts；
-// - SW 处理器（entry/background.ts 的 handleRequestProviderOrigins）在
-//   chrome.permissions.request 前零 await，手势随一次 runtime 消息传导。
-// 返回 { ok, error? }：ok=false 时 error 为可操作提示（用户拒绝 / 环境不支持 /
-// SW 侧报错）；调用方对结果不关心的（预设切换链）可忽略返回值。
 export async function requestProviderOriginsViaBackground(baseUrls: string[]): Promise<ProviderOriginsProxyResult> {
   if (typeof globalThis.chrome?.permissions?.request === "function") {
     const result = await requestProviderOrigins(baseUrls);
     return { ok: result.ok, error: result.error };
   }
-  // 响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）
   const resp = await sendRuntimeMessage({ type: "request-provider-origins", baseUrls });
   return { ok: Boolean(resp?.ok), error: resp?.error };
 }
 
-// 当前扩展是否已获该 URL（或 baseUrl）的 host 权限。origin 缺失或非法时显式
-// 返回 { granted: false, status: "invalid-origin" }，不再静默 fail-open；仅当
-// origin 合法但拿不到 chrome.permissions 实现（单测、非扩展环境）或 contains 抛错时
-// 才按已授权处理，不阻塞既有请求路径。
 export async function checkHostPermission(
   target: unknown,
   contains: typeof chrome.permissions.contains | undefined = globalThis.chrome?.permissions?.contains
@@ -215,9 +162,6 @@ export async function hasHostPermission(
   return (await checkHostPermission(target, contains)).granted;
 }
 
-// host 权限代查一跳的共体（两种语境共用）：URL/origin 非法时显式返回
-// { granted: false, status: "invalid-origin" } 且不发消息；仅当 origin 合法但无回包
-// （旧 SW 不认识这条消息）或消息抛错时才 fail-open。两种语境的差别只在消息发送方式。
 type CheckProviderOriginSender = (
   message: CheckProviderOriginMessage
 ) => Promise<Partial<CheckProviderOriginResponse> | null | undefined>;
@@ -241,8 +185,6 @@ async function checkProviderOriginViaSW(target: unknown, send: CheckProviderOrig
   }
 }
 
-// host 权限代查（content 语境的只读一面）：返回判别联合类型，非法 origin 在本端即
-// 显式拦下（不创建 Offscreen、不发消息）。
 export async function checkHostPermissionViaBackground(target: unknown): Promise<HostPermissionResult> {
   if (!toPermissionMatchPattern(target)) {
     return { granted: false, status: "invalid-origin" };
@@ -260,10 +202,7 @@ export async function hasHostPermissionViaBackground(target: unknown): Promise<b
   return (await checkHostPermissionViaBackground(target)).granted;
 }
 
-// offscreen 语境的同款代查（返回判别联合类型）。
 export async function checkHostPermissionFromOffscreen(target: unknown): Promise<HostPermissionResult> {
-  // 回包是 unknown（chrome.runtime.sendMessage 的 Promise 形态不携带响应类型）：
-  // 传输边界这一次收窄，与 entry/offscreen.ts 的 resolveProviderWithKey 同款。
   return checkProviderOriginViaSW(
     target,
     async (message) => (await chrome.runtime.sendMessage(message)) as Partial<CheckProviderOriginResponse> | null | undefined
@@ -301,9 +240,6 @@ function readManifestHostPermissions(): readonly string[] {
   }
 }
 
-// 判定无端口 match pattern 是否属于 manifest.host_permissions 声明的静态常驻域：
-// 常驻域（例如 Firefox 28 个官方预设域、Chromium 的 api.deepseek.com）不可通过
-// permissions.remove 按可选权限回收，删除平台时应直接跳过而不误报回收失败。
 export function isStaticHostPermission(
   pattern: string,
   staticHostPermissions: readonly string[] = readManifestHostPermissions()
@@ -319,8 +255,6 @@ export function isStaticHostPermission(
   });
 }
 
-// 回收单个无端口权限 pattern（供 SW/扩展页直调及 revokeOrphanOriginViaBackground 共用）。
-// 命中 manifest 静态常驻域或权限本就不在时跳过 remove 并返回空 origins（不算失败）。
 export async function revokeOriginPermission(
   origin: unknown,
   {
@@ -366,10 +300,6 @@ function resolveOrphanPattern(deleted: ProviderLike, providers: unknown): string
   return stillUsed ? null : pattern;
 }
 
-// 跨语境孤儿权限回收（设置抽屉 / 编辑 Modal 删除链的唯一通道）：
-// content script 无 chrome.permissions API，经 revoke-provider-origin 委托 background
-// 执行回收；扩展页或单测已注入 chrome.permissions.remove 时直接本地执行；命中
-// manifest 静态常驻域时零消息跳过。
 export async function revokeOrphanOriginViaBackground(
   deleted: ProviderLike,
   providers: unknown
@@ -395,6 +325,5 @@ export async function revokeOrphanOriginViaBackground(
   }
 }
 
-// 回收失败时的提示文案：删除已完成，只是权限残留，不影响使用
 export const permissionRevokeErrorMessage = (origins: string[]): string =>
   `已删除平台，但回收域名权限失败（${origins.join("、")}），不影响使用，可到浏览器扩展权限设置手动移除`;

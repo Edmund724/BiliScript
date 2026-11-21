@@ -1,7 +1,3 @@
-// extension/search/provider-test.ts
-// 搜索平台连通性测试探针：使用单引擎执行路径发起一次测试搜索（不经回退链，
-// 不走、不写查询缓存，也不记录健康度），不落盘任何配置。
-
 import {
   getAiCredentialStatusText,
   queryAiCredentialKey

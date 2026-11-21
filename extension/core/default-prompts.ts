@@ -1,11 +1,3 @@
-// extension/core/default-prompts.ts
-// AI prompt 默认文本：当前第七代系统提示词 + 各代 legacy 冻结常量 + 快捷
-// 提示词默认列表。从 defaults.ts 拆出（first-button-ux/03），让常驻底座
-// （version + DEFAULT_SETTINGS + state）不搭车 prompt 文本；DEFAULT_SETTINGS
-// 的 prompt 字段是空占位，空串/空数组/legacy 经 validators.ts 归一化回落到
-// 本模块的当前默认。纯数据无逻辑。
-
-// ===== 内部共享长句片段（各代提示词复用，消除产物重复字面量） =====
 const PROMPT_PLAYER_SUMMARY_PREFIX = "整理这期视频的内容，输出结构化总结：";
 
 const PROMPT_ROLE_ANALYSIS_ASSISTANT = "你是一名专业的视频内容分析助手。";
@@ -18,18 +10,12 @@ const PROMPT_FILTER_ADS = "自动过滤广告、废话和重复表达。";
 const PROMPT_INSUFFICIENT_INFO = "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。";
 const PROMPT_TIMESTAMP_FORMAT = "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。";
 
-// ===== AI Prompts =====
-// 旧默认快捷提示词（长度规则引入前在用）：升新默认时冻结于此，供
-// normalizePlayerAiQuickPrompt 对存量用户做一次性迁移。
 export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT =
   `${PROMPT_PLAYER_SUMMARY_PREFIX}主题、核心观点、关键细节、结论与可执行启发。`;
 
-// 第二代默认快捷提示词（一行式 + 长度规则，第五代结构化默认引入前在用）：
-// 升新默认时冻结于此，同机制迁移。
 export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 =
   `${LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT}总结的详略按视频长度掌握，长视频不要压缩成短摘要。`;
 
-// 第三代默认快捷提示词（五段式结构化）：升第六代精简结构时冻结于此，同机制迁移。
 export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3 = [
   PROMPT_PLAYER_SUMMARY_PREFIX,
   "1. TL;DR：两三句话说清这期视频讲了什么、核心结论是什么",
@@ -46,14 +32,8 @@ export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
   "3. 核心启发或行动建议（仅在视频明确提供时给出，无则省略）"
 ].join("\n");
 
-// 初始快捷问题的条数上限：设置面板的输入位、归一化与建议区渲染共用同一常量
-//（chat/quick-prompts.ts 从本模块取用并再导出）。
 export const MAX_INITIAL_QUICK_PROMPTS = 3;
 
-// 初始快捷问题的固定三条：默认不再预先展示（设置里留空 = 按视频即时生成，
-// 见 chat/quick-prompts.ts），只在生成不可用时兜底——没配 AI 平台、请求失败、
-// 模型输出解析不出。三条按「整体结论 / 要点清单 / 时间脉络」三个角度铺开，
-// 故意不含依赖热评的提问（评论可能没抓到时那条会答非所问）。
 export const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
@@ -68,8 +48,6 @@ export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
   PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
-// 第二代默认（2026-09-13 前在用，无 ASR 提示行）：升第三代时冻结于此，供
-// normalizeAiSystemPrompt 对存量用户做一次性迁移（与上面第一代的机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 = [
   PROMPT_ROLE_ANALYSIS_ASSISTANT,
   PROMPT_EXTRACT_HIGH_VALUE_INFO,
@@ -80,8 +58,6 @@ export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 = [
   PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
-// 第三代默认（长度规则引入前在用）：升第四代时冻结于此，供
-// normalizeAiSystemPrompt 对存量用户做一次性迁移（与第一/二代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 = [
   PROMPT_ROLE_ANALYSIS_ASSISTANT,
   PROMPT_EXTRACT_HIGH_VALUE_INFO,
@@ -93,8 +69,6 @@ export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 = [
   PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
-// 第四代默认（分段式结构化默认引入前在用，一行式长度规则）：升第五代时冻结于
-// 此，供 normalizeAiSystemPrompt 对存量用户做一次性迁移（与前几代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 = [
   PROMPT_ROLE_ANALYSIS_ASSISTANT,
   PROMPT_EXTRACT_HIGH_VALUE_INFO,
@@ -107,8 +81,6 @@ export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 = [
   PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
-// 第五代默认（2026-10-26 前在用，五段式结构化）：升第六代时冻结于此，供
-// normalizeAiSystemPrompt 对存量用户做一次性迁移（与前几代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 = [
   "# 角色",
   "你是一名视频内容分析助手，服务于一个 B 站视频总结浏览器扩展。输入是视频字幕（多为 ASR 产物）与评论，输出是让用户「不看视频也能掌握全部重点」的结构化总结。",
@@ -135,8 +107,6 @@ export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 = [
   "- 直接输出总结：不寒暄、不解释自己在做什么、不复述指令。"
 ].join("\n");
 
-// 第六代默认（区分内容类型与诚实标注损失引入前在用）：升第七代时冻结于此，供
-// normalizeAiSystemPrompt 对存量用户做一次性迁移（与前几代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6 = [
   "# 角色",
   "你是一名视频内容分析助手，服务于一个 B 站视频总结浏览器扩展。输入是视频字幕（多为 ASR 产物），输出是让用户「不看视频也能掌握全部重点」的结构化总结。",

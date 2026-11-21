@@ -1,12 +1,3 @@
-// extension/search/adapters/doubao.ts
-// 豆包（火山联网搜索）适配器（spec §2 调用形状表）：POST /search_api/web_search，
-// authorization: Bearer <key>（必填，无 Key 不进链）。请求体 PascalCase
-// （Query/SearchType/Count/NeedSummary）。响应 Result.WebResults[].Title/.Url，
-// 摘要按 Summary → Content → Snippet 三级回退。额度与限流藏在 HTTP 200 信封
-// （ResponseMetadata.Error，按 Code/CodeN 双查，码可能是字符串）：命中即抛带
-// providerCode 的错，让链侧分类（search-chain.ts 的 classifySearchFailure；
-// 适配器只原样抛出，不做映射）。纯函数，零 Chrome API / 零 DOM。
-
 import { mapSearchResultRows } from "./rows.js";
 import {
   type BuildSearchRequestInput,
@@ -32,8 +23,6 @@ export function buildDoubaoSearchRequest({ baseUrl, apiKey, query, count }: Buil
   };
 }
 
-// Code / CodeN 双查：真实响应里码可能是字符串，数值也可能落在 CodeN；0 / 空串
-// 视为「无错误码」。
 function readErrorCode(error: { Code?: unknown; CodeN?: unknown }): string {
   const code = [error.Code, error.CodeN]
     .map((value) => (value === undefined || value === null ? "" : String(value).trim()))
@@ -69,7 +58,6 @@ export function parseDoubaoSearchResponse(payload: unknown): ParsedSearchRespons
   };
 }
 
-// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
 export const doubaoAdapter: SearchAdapter = {
   type: "doubao",
   name: "豆包",

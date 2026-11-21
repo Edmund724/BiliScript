@@ -1,7 +1,3 @@
-// extension/notes/template.ts
-// 轻量纯函数模板渲染器与 Obsidian URI 构造器（零 eval / 零 DOM / 零 chrome 依赖）。
-// 独立于 notes/section-lines.ts 之外，不影响 offscreen ladder chunk 依赖守卫。
-
 import { formatClock } from "../shared/clock-text.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
@@ -188,12 +184,6 @@ export function buildNoteTemplateVariables(
   };
 }
 
-/**
- * 渲染自定义 Markdown 笔记模板：
- * - 支持 `{{#if var}}...{{/if}}` 轻量条件段（变量为空白时整段移除）；
- * - 支持 `{{var}}` 变量替换（未知变量保留为空串，避免残留花括号）；
- * - 折叠连续 3+ 换行为双换行，输出干净的 Markdown。
- */
 export function renderNoteTemplate(
   template: string | null | undefined,
   variables: NoteTemplateVariables | Partial<Record<string, string>>
@@ -205,7 +195,6 @@ export function renderNoteTemplate(
     return typeof val === "string" ? val : "";
   };
 
-  // 先展开 {{#if var}}...{{/if}}（支持简单非嵌套条件块）
   const afterIf = source.replace(
     /\{\{#if\s+([a-zA-Z0-9_]+)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g,
     (_match, key: string, inner: string) => {
@@ -213,7 +202,6 @@ export function renderNoteTemplate(
     }
   );
 
-  // 再替换 {{var}} 占位符
   const replaced = afterIf.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) =>
     lookup(key)
   );
@@ -229,7 +217,6 @@ export interface BuildObsidianUriInput {
   folder?: string;
   fileName: string;
   content: string;
-  /** 编码后 URI 安全长度上限；超出时回退到 &clipboard 模式防止系统协议静默截断 */
   maxUriLength?: number;
 }
 

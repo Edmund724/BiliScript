@@ -54,10 +54,6 @@ export interface VideoMeta {
   upowerBlocked?: boolean;
 }
 
-/**
- * 从视频元信息中按 `cid` → `page === pageIndex` → `pages[pageIndex - 1]` 顺序解析当前分P，
- * 并统一处理 cid / duration / pageIndex 的兜底逻辑。
- */
 export function resolveVideoPageFromMeta(
   meta: VideoMetaLike | null | undefined,
   query: VideoPageQuery = {}
@@ -189,10 +185,6 @@ export interface SubtitleBundleResult {
 
 export type BiliSubtitleAccessBlocker = "upower-exclusive" | "bili-login-required";
 
-/**
- * 单源裁定 B 站字幕访问受限原因（优先级：充电专属未充电 > 未登录）。
- * 供无字幕分支复用，避免调用方各自组合 raw boolean。
- */
 export function resolveBiliSubtitleAccessBlocker(
   meta?: Pick<VideoMeta, "upowerBlocked"> | null,
   bundle?: Pick<SubtitleBundleResult, "upowerBlocked" | "loginRequired"> | null

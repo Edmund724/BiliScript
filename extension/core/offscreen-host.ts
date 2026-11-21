@@ -1,6 +1,3 @@
-// Background host for the shared offscreen document (Chrome offscreen API / Firefox Event Page iframe)
-// and Bilibili media DNR session rules.
-
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { OFFSCREEN_CREATE_REASONS, OFFSCREEN_URL } from "../shared/offscreen-constants.js";
@@ -20,7 +17,6 @@ export const INDEX_TRANSLATE_USER_AGENT_VALUE = "Index-Translate-Client/1.0" as 
 
 export const OFFSCREEN_IFRAME_ID = "biliscript-offscreen-iframe";
 export const OFFSCREEN_SENDER_REJECTION_MESSAGE = ASR_OFFSCREEN_REJECTION_MESSAGE;
-// chrome.tabs.TAB_ID_NONE: matches requests not originating from any browser tab (background / offscreen).
 export const NON_TAB_DNR_TAB_ID = -1;
 
 export type BiliMediaSessionRuleKind = "audio-xhr" | "video-media";
@@ -50,9 +46,6 @@ const sessionRuleManager = createAsrSessionRuleManager();
 let inflightIframePromise: Promise<boolean> | null = null;
 let cancelInflightIframe: ((reason: Error) => void) | null = null;
 
-// Serialized lifecycle queue and generation counter shared across ensure/close operations.
-// Prevents Chromium closeDocument/createDocument races and lets queued close operations
-// bail out cleanly when a newer ensure request is already waiting in line.
 let activeLifecycleOp: LifecycleOpKind | null = null;
 let activeEnsurePromise: Promise<boolean> | null = null;
 let queuedEnsureEntry: QueuedLifecycleOp | null = null;
@@ -95,7 +88,6 @@ async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
       });
       return Array.isArray(contexts) && contexts.length > 0;
     } catch {
-      // Fall back to ServiceWorkerGlobalScope.clients.matchAll on Chrome <116 or query failure.
     }
   }
   const swScope = typeof self !== "undefined" ? (self as unknown as ServiceWorkerScopeLike) : undefined;
@@ -110,7 +102,6 @@ async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
   return false;
 }
 
-/** Returns true if an offscreen document (native or Firefox hidden iframe) currently exists. */
 export async function hasOffscreenDocument(): Promise<boolean> {
   if (typeof chrome === "undefined" || typeof chrome.runtime?.getURL !== "function") {
     return false;
@@ -121,7 +112,6 @@ export async function hasOffscreenDocument(): Promise<boolean> {
   return hasExistingOffscreenDocument(chrome.runtime.getURL(OFFSCREEN_URL));
 }
 
-/** Returns true if at least one Bilibili tab (`*://*.bilibili.com/*`) is currently open. */
 export async function hasOpenBilibiliTabs(): Promise<boolean> {
   if (typeof chrome === "undefined" || typeof chrome.tabs?.query !== "function") {
     return true;
@@ -130,7 +120,6 @@ export async function hasOpenBilibiliTabs(): Promise<boolean> {
     const tabs = await chrome.tabs.query({ url: BILIBILI_TAB_URL_PATTERN });
     return Array.isArray(tabs) && tabs.length > 0;
   } catch {
-    // Query failure falls back conservatively so light idle fallback handles teardown instead of premature close.
     return true;
   }
 }
@@ -142,7 +131,6 @@ function ensureOffscreenIframe(url: string): Promise<boolean> {
   if (isLiveOffscreenIframe(getExistingOffscreenIframe())) {
     return Promise.resolve(true);
   }
-  // Remove any stale iframe (contentWindow === null) or colliding node before mounting a fresh one.
   document.getElementById(OFFSCREEN_IFRAME_ID)?.remove();
 
   let settled = false;
@@ -333,7 +321,6 @@ function enqueueLifecycleOp<T>(kind: LifecycleOpKind, run: () => Promise<T>): Qu
   return entry;
 }
 
-/** Ensures the shared offscreen document exists, serialized through the lifecycle queue. */
 export function ensureOffscreenDocument(): Promise<boolean> {
   ensureGeneration += 1;
 
@@ -355,11 +342,6 @@ export function ensureOffscreenDocument(): Promise<boolean> {
   return entry.promise as Promise<boolean>;
 }
 
-/**
- * Closes the shared offscreen document via the serialized lifecycle queue.
- * If a newer ensureOffscreenDocument() request enters the queue before this close runs,
- * the close is skipped and the existing document is reused. Returns true if teardown ran.
- */
 export function tryCloseOffscreenDocument(): Promise<boolean> {
   const enqueuedGeneration = ensureGeneration;
   const runClose = async (): Promise<boolean> => {
@@ -377,8 +359,6 @@ export function tryCloseOffscreenDocument(): Promise<boolean> {
   const entry = enqueueLifecycleOp("close", runClose);
   queuedEnsureEntry = null;
 
-  // On Firefox Event Page iframe path, an in-flight iframe load waits on external DOM events;
-  // cancelling it unblocks teardown immediately when close is requested before load completes.
   if (activeLifecycleOp === "ensure" && !hasNativeOffscreenCreate() && cancelInflightIframe) {
     cancelInflightIframe(new Error("Offscreen iframe closed before load completed."));
   }
@@ -386,12 +366,10 @@ export function tryCloseOffscreenDocument(): Promise<boolean> {
   return entry.promise as Promise<boolean>;
 }
 
-/** Closes the shared offscreen document via the service worker API or Event Page iframe teardown. */
 export async function closeOffscreenDocument(): Promise<void> {
   await tryCloseOffscreenDocument();
 }
 
-/** Returns true only when the runtime message sender is the offscreen document itself. */
 export function isOffscreenDocumentSender(sender: MessageSender): boolean {
   return !sender?.tab && sender?.url === chrome.runtime.getURL(OFFSCREEN_URL);
 }
@@ -410,12 +388,9 @@ function resolveExtensionInitiatorDomain(): string | null {
         }
       }
     } catch {
-      // Ignore malformed runtime URLs.
     }
     return null;
   };
-  // Firefox 下 chrome.runtime.id 是清单 gecko.id（如 biliscript@edmund724.github.io），
-  // 含 "@" 不符合规范域名且与实际 initiator（moz-extension://<uuid>）不一致，必须取 runtime.getURL("") 的内部 UUID。
   if (isFirefoxRuntime()) {
     return getHostnameFromRuntimeUrl();
   }
@@ -472,7 +447,6 @@ async function addBiliMediaSessionRule(ruleId: number, kind: BiliMediaSessionRul
       ]
     });
   } catch (error) {
-    // Firefox 部分运行时可能拒绝 moz-extension UUID 作为 initiatorDomains；保留 tabIds: [-1] 隔离并降级重试。
     if (!isFirefoxRuntime() || !initiatorDomain) {
       throw error;
     }
@@ -493,7 +467,6 @@ async function addBiliMediaSessionRule(ruleId: number, kind: BiliMediaSessionRul
   }
 }
 
-/** Ensures the offscreen document and installs an isolated Bilibili media DNR session rule. */
 export async function acquireBiliMediaSessionRule(
   kind: BiliMediaSessionRuleKind,
   ownerKey = "o"
@@ -514,7 +487,6 @@ export async function acquireBiliMediaSessionRule(
   }
 }
 
-/** Verifies recorded rule ownership (if provided), removes the DNR session rule, and releases its id. */
 export async function releaseBiliMediaSessionRule(ruleId: number, ownerKey?: string): Promise<void> {
   const id = Number(ruleId) || 0;
   if (id <= 0) {
@@ -532,7 +504,6 @@ export async function releaseBiliMediaSessionRule(ruleId: number, ownerKey?: str
   sessionRuleManager.release(id);
 }
 
-/** Runs an async operation under a scoped Bilibili media DNR rule and releases it in finally. */
 export async function withBiliMediaSessionRule<T>(
   kind: BiliMediaSessionRuleKind,
   run: () => Promise<T>,
@@ -546,21 +517,14 @@ export async function withBiliMediaSessionRule<T>(
   }
 }
 
-/** Removes all session rules in the pool range and resets the rule manager ledger. */
 export async function reapAllBiliMediaSessionRules(): Promise<void> {
   await sessionRuleManager.clearAll();
 }
 
-/** Returns the recorded owner key for an active session rule id, or "" if unrecorded. */
 export function getBiliMediaSessionRuleOwner(ruleId: number): string {
   return sessionRuleManager.getOwner(ruleId) ?? "";
 }
 
-/**
- * Ensures the DNR session rule (ruleId 9003) for Bilibili Index-Translate requests
- * from extension/offscreen contexts: injects the required User-Agent and a compliant
- * Origin header so requests are not rejected by Bilibili WAF (HTTP 412).
- */
 export async function ensureIndexTranslateSessionRule(): Promise<void> {
   if (
     typeof chrome === "undefined" ||
