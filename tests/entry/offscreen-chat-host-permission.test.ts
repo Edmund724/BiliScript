@@ -1,22 +1,3 @@
-// offscreen 对话链 host 权限预检（ADR-0010 残留收口）。
-//
-// 对话链的平台请求在 offscreen 内直发（ai/completion.ts 的默认 globalThis.fetch，
-// 经 offscreen-chat 端口），而 offscreen 文档只有 chrome.runtime、查不了
-// chrome.permissions——未授权落到 fetch 上只表现为「网络错误：Failed to fetch」，
-// 用户看不出是权限问题（与 SW 代发通道 / 概览代发通道的口径不一致）。
-// 本轮在链入口（entry/offscreen.ts 的 chat 消息处理器，resolveProviderWithKey 之后、
-// 起空闲超时之前）补一层经 SW 代查的预检：未授权即以 HOST_PERMISSION_HINT 经 port
-// error 回吐，且一个请求都不发。
-//
-// 不 mock ladder（真链路）+ promise 风格 sendMessage stub，手法沿
-// offscreen-chat-presetid.test.js。
-//
-// 同一 harness 另覆盖搜索运行时解析的 notice 面（spec §10 第 10 行）：
-// entry/offscreen.ts 的 notice 判据是解析产物的 runtime 是否为缺省——keyless 无 Key
-// 的链（S4 形状 chain 非空、apiKey:""）必须放行、不弹该 notice；空链的两类归因
-// （真未配置 / 智能链全冷却）分别落既有「未配置」文案与冷却专属文案
-//（spec §12.7 第 6 条翻案：全冷却 ≠ 未配置）。
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_INVALID_ORIGIN_HINT, HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 import {
@@ -29,11 +10,8 @@ const BASE_URL = "https://api.siliconflow.cn/v1";
 
 let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
-// 消息与请求的到达顺序（跨两个 stub 共用）：断言预检发生在发请求之前
 let events: string[] = [];
-// check-provider-origin 的回包（undefined = 无回包，fail-open 用例）
 let checkReply: unknown;
-// resolve-search-provider 的回包（缺省 = 无链：走「未配置搜索平台」notice 分支）
 let searchReply: unknown = { ok: true };
 
 function installHost() {
@@ -69,7 +47,6 @@ function installHost() {
   });
 }
 
-// 组装一条 OpenAI 兼容 SSE data: 行（对话链走流式）。
 function sseData(delta: { content?: unknown }) {
   return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
 }
@@ -129,8 +106,6 @@ function makeChatPort() {
   };
 }
 
-// 连一条聊天端口并完整跑完一轮（监听器本身是 async：await 即等到本轮收尾）。
-// extra 追加进 chat 消息体（如 webSearchEnabled: true）。
 async function runChatTurn(extra: Record<string, unknown> = {}) {
   const session = makeChatPort();
   expect(host.onConnectListeners).toHaveLength(1);
@@ -182,7 +157,6 @@ describe("offscreen 对话链 host 权限预检", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(postedErrors(session)).toEqual([expect.objectContaining({ error: HOST_PERMISSION_HINT })]);
-    // 预检在发请求之前：代查消息排在 provider 解析之后、且没有任何 fetch
     expect(events).toContain("msg:check-provider-origin");
     expect(events.indexOf("msg:check-provider-origin")).toBeGreaterThan(events.indexOf("msg:resolve-ai-provider"));
   });

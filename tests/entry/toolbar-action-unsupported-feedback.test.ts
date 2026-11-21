@@ -1,19 +1,3 @@
-// 非支持页扩展图标可见反馈（工单 04）——toolbar-* 命名（entry 测试 scope 限制）。
-//
-// 两段验证：
-//   1. SW 半边（background.js 动态装载 + superset chrome stub）：支持页零打扰
-//      （无徽标/无注入、照常 reader-enter）；www.bilibili.com 非支持页（首页/
-//      番剧/缺 url）徽标 + 标题 + 页内提示注入；search./space. 等未获 host 权限
-//      页只徽标+标题不注入（权限边界）；注入失败降级（徽标保留 + 失败日志）；
-//      导航开始（loading）与支持页成功打开均清反馈。
-//   2. 页内提示渲染（renderUnsupportedPageToast 直接进 jsdom）：顶部居中样式、
-//      6 秒自动移除、重复点击复用同一节点并重置计时器。
-//
-// stub 与装载方式同 tests/entry/toolbar-action-script.test.ts。
-// 监听器是异步链：waitFor 的立即检查可能在链尾副作用落盘前返回，凡断言「先置
-// 条件之后」的副作用，一律先 flushMicrotasks()（一个宏任务 = 排干全部微任务链，
-// 链内无定时器）再做断言。
-
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import {
@@ -30,12 +14,9 @@ vi.mock("../../extension/shared/tab-utils.js", () => ({
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1abc000000/";
 
-// 排干监听器微任务链：链内全是即时 resolve 的 mock，一个宏任务足够。
 function flushMicrotasks() {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
-
-// ===== SW 半边：非支持页点击 → 徽标/标题/页内提示 =====
 
 describe("SW 半边：非支持页 action 点击的可见反馈", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
@@ -102,7 +83,6 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
     await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
     await flushMicrotasks();
 
-    // 成功路径只做防御性清理（空串调用）；「!」徽标与引导标题不得出现。
     const badgeCalls = setBadgeText.mock.calls.map((call) => call[0]);
     expect(badgeCalls.every((details) => details.text === "")).toBe(true);
     expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
@@ -202,8 +182,6 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
     expect(setTitle).toHaveBeenCalledWith({ tabId: 7, title: "" });
   });
 });
-
-// ===== 页内提示渲染：顶部居中 / 6 秒消失 / 重复点击复用 =====
 
 describe("页内提示渲染（renderUnsupportedPageToast）", () => {
   beforeEach(() => {

@@ -1,19 +1,3 @@
-// 双实例纪律守卫（构建期守卫的接线锁，content-dual-instance-guard，2026-09-18）：
-//
-// content 两轮构建把共享底座各装一份实例。「允许双实例模块清单」+ 含模块级可变
-// 状态模块的头注 BILISCRIPT_DUAL_INSTANCE_STATEFUL 声明 + build-content.js 的
-// assertDualInstanceAllowlist 对账（实测双实例集合 vs 清单、mutable 位 vs 头注
-// 标记），把此前「懒侧不碰模块级可变状态」的隐形约定变显式（背景与裁决见
-// docs/adr/0008）。
-//
-// 本测试锁三件事（构建期守卫本身由 npm run build 每次跑）：
-//   1. 守卫函数、清单、selfCheck 接线在场（删掉守卫要显式改这里）；
-//   2. 清单与头注逐模块一致：mutable: true ⇔ 源文件头注有标记，且清单源码
-//      文件都存在（清单漂移在测试期就现形，不必等构建）；
-//   3. 对账纯函数 diffDualInstanceAllowlist / sourcesFromMap 的行为：清单外
-//      新双实例模块（懒侧新 import 含可变状态模块的事故形态）被报出、清单
-//      漂移被报出、完全一致时零误报。
-
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -28,7 +12,6 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const BUILD_CONTENT = "scripts/build-content.js";
 const MARKER = "BILISCRIPT_DUAL_INSTANCE_STATEFUL";
 
-// 从 build-content.js 解析清单（与守卫同一份数据源，不复制清单内容）。
 function parseAllowlist() {
   const entries = [];
   for (const match of read(BUILD_CONTENT).matchAll(
@@ -42,7 +25,6 @@ function parseAllowlist() {
 describe("双实例纪律守卫（构建期接线）", () => {
   it("build-content.js 声明守卫、清单并在 selfCheck 里调用", () => {
     const text = read(BUILD_CONTENT);
-    // selfCheck 以守卫的返回值收尾——守卫失败即 selfCheck 失败（build fail fast）
     expect(text.includes("assertDualInstanceAllowlist()")).toBe(true);
     expect(text.includes("assertSharedSlotsInBothRegions() &&")).toBe(true);
   });
@@ -80,10 +62,6 @@ describe("双实例纪律守卫（构建期接线）", () => {
   });
 
   it("sourcemap 归一化：只留 extension/ 内 .ts 源，map 相对路径按 map 目录解析", () => {
-    // mapDir / extensionRoot 用宿主平台原生路径拼（生产侧传的是
-    // path.dirname(mapFile) 与 resolve 后的 extension 根，都是原生形态）：
-    // sourcesFromMap 的 filter 拿 extensionRoot + path.sep 做前缀比对，写死
-    // POSIX 绝对路径会在 Windows 上整条落空。返回值恒为 posix 风格。
     const extensionRoot = resolve("repo-fixture", "extension");
     const entryDir = join(extensionRoot, "entry");
     const mainMap = {

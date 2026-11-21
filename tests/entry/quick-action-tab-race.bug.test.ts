@@ -1,41 +1,3 @@
-// Bug 回归回路（工单：点 AI 键偶发进的是字幕 tab 而不是 AI 对话）——单命令形状
-// + 标签激活属主串行化。
-//
-// 历史形状（双消息直发，已退役）：background 先发 reader-enter，content 侧处理器
-// 「即答」后紧接着再直发 player-ai-quick-action-chat——两条链在 content 侧并发：
-//   链 A（reader-enter → shell open）：ensureUiReady → … → enterReaderMode
-//        → 按持久值恢复 tab（无对话步）
-//   链 B（quick-action-chat）：ensureUiReady → ensureReaderChatTab
-//        → runQuickActionPrompt → 激活对话 tab
-// 谁后落谁赢。链 B 的对话激活先落、链 A 的恢复后落 ⇒ 最终停在「字幕」tab——
-// 与生产偶发一致（胜负由两侧动态 chunk 装载快慢决定）。
-//
-// 新形状（单命令 + 属主收口）：background 的 handlePlayerAiQuickAction 只发一条
-// 带 chat 负载的 reader-enter（经 triggerReaderModeInTab 的重试/注入链）；content
-// 侧对话激活收进 shell 进入事务体内（reader/shell.ts chat 档，单飞队列排尾），
-// 在进入事务收敛（含按持久值恢复 tab）后才落地。race 防护两层：进入事务单飞
-// 队列 + 标签激活属主（reader/script-tab-activation）的激活串行队列——不变式是
-// 「并发意图串行化，最终状态 = 最后意图」，不再依赖「谁后落」。
-//
-// 本文件两段验证：
-//   1. background 半边（handlePlayerAiQuickAction → triggerReaderChatInTab →
-//      triggerReaderModeInTab）：只发一条 { type: "reader-enter", chat: { prompt } }，
-//      无任何二次直发；重试耗尽回固定失败文案。
-//   2. content 半边（dispatchContentScriptMessage）：带 chat 负载的 reader-enter
-//      在进入事务收敛后激活对话 tab（输序 gate 钉死确定性防护）；无 chat 负载
-//      则零对话激活。断言面是真实 ui-renderer 投影出的 DOM（is-active /
-//      aria-selected / hidden 三通道）+ 真实状态位谓词（isReadingSubtitleBodyVisible）。
-//
-// 保真边界（content 半边；两个 tab 写手都是属主 activateScriptTab 的排队调用，
-// 其余代码只决定到达次序）：
-//   - enterReaderMode 桩复刻 lifecycle.enterReaderMode 的 tab 相关行为
-//     （setViewOpen(true) + await activateScriptTab(持久值, { persist:false })，
-//     lifecycle.ts 的恢复链）；
-//   - runQuickActionPrompt 桩复刻 chat-tab.runQuickActionPrompt 的 tab 相关
-//     行为（await activateScriptTab("chat", { consumeIntent:false })）。
-// 两个写手之间的派发链（message-handler → shell → 属主串行队列 → project-tab
-// 投影命令 → ui-renderer 的 setReaderScriptTab）全部走真实模块。
-
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
@@ -60,7 +22,6 @@ vi.mock("../../extension/ai/lazy-player-ai.js", () => ({
   loadPlayerAi: vi.fn(),
   isPlayerAiLoaded: vi.fn(() => false)
 }));
-// shell 进入链的 replaceState：jsdom 下无谓改写地址，mock 掉（与 shell.test.ts 同款）
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
@@ -69,14 +30,10 @@ vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
   };
 });
 
-// ===== background 半边：单命令形状 =====
-
 describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-enter", () => {
   let onMessageListener: (message: unknown, sender: MessageSender, sendResponse: SendResponse) => boolean | void;
 
   beforeAll(async () => {
-    // setup.ts 的 chrome stub 缺 getManifest / tabs.onUpdated / runtime.onMessage
-    //（background 顶层要注册监听器），这里装 superset 后动态装载 background。
     vi.stubGlobal("chrome", {
       runtime: {
         lastError: null,
@@ -97,8 +54,6 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
     onMessageListener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
   });
 
-  // content 半边的用例依赖 setup.ts 的 chrome stub：用例结束后摘掉本 describe
-  // 的 superset，让 resetModuleState → setupEnvironment 重新装回通用 stub。
   afterAll(() => {
     vi.unstubAllGlobals();
   });
@@ -148,12 +103,6 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
   });
 });
 
-// ===== content 半边：对话激活在进入事务收敛后落地 =====
-
-// 每用例 resetModules 后动态重取（setup.ts 的全局 beforeEach 会清
-// globalThis.__BILISCRIPT_READER_BUS__ 槽；ui-renderer 与属主的订阅都在模块求值时
-// 注册，必须每用例重新求值/装载，否则 subscribeUiCommand/subscribeTabIntent 落在
-// 已被清空的槽上）。
 type Modules = {
   dispatch: typeof import("../../extension/entry/message-handler.js").dispatchContentScriptMessage;
   ensureReaderDomain: typeof import("../../extension/reader/lazy-reader.js").ensureReaderDomain;
@@ -216,16 +165,11 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     m.state.reader.setViewOpen(false);
     m.state.reader.setViewReady(false);
 
-    // 预热壳：装载真实 ui-renderer（注册 project-tab 订阅者）并构建 文摘面板
-    // DOM。消息链的 ensureUiReady 桩走幂等 no-op，把「模块装载快慢」这一生产
-    // 随机项从回路里钉掉，只留我们要测的事务序。
     uiRenderer.ensureUiReady();
     (m.ensureUiReady as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       uiRenderer.ensureUiReady();
     });
 
-    // chat 档的对话 seam 桩（tab 相关行为 = chat-tab.ts runQuickActionPrompt 的
-    // await activateScriptTab("chat", { consumeIntent: false })）
     (m.ensureReaderChatTab as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       return {
         ensureChatTabActivated: vi.fn(async () => {}),
@@ -255,33 +199,25 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
         order.push("enter-start");
         await enterGate;
         order.push("restore-tab");
-        // lifecycle.enterReaderMode 的 tab 相关行为：按持久值恢复所在标签
-        //（persist:false —— 恢复不是一次用户切换）
         await m.activateScriptTab("overview", { persist: false });
       }
     });
 
-    // 生产消息序（新形状）：background 只发一条带 chat 负载的 reader-enter
     const sendResponse = vi.fn();
     m.dispatch({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, sendResponse);
 
     await vi.waitFor(() => expect(order).toContain("enter-start"));
-    // 进入事务被 gate 卡住：不能提前回成功，对话激活也只能排尾
     expect(sendResponse).not.toHaveBeenCalled();
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
 
-    // 放行 enterReaderMode 尾段：tab 恢复落地、进入事务收敛
     releaseEnter();
     await vi.waitFor(() => expect(order).toContain("restore-tab"));
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
 
-    // 事务收敛后 chat 档才激活对话 tab：用户最终停在 AI 对话 tab（恢复的概览
-    // 意图先经属主队列落定，随后对话意图覆盖它——最终状态 = 最后意图）
     await vi.waitFor(() => expectTabActive(m.ids, "Chat", true));
     expectTabActive(m.ids, "Chat", true);
     expectTabActive(m.ids, "Subtitle", false);
     expectTabActive(m.ids, "Overview", false);
-    // 状态位与 DOM 同源：谓词不再判定字幕 tab 可见
     expect(m.isReadingSubtitleBodyVisible()).toBe(false);
   });
 
@@ -291,14 +227,12 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
       ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
         m.state.reader.setViewOpen(true);
-        // 进入事务先把 tab 恢复到持久值（此处概览），随后被 chat 档激活覆盖
         await m.activateScriptTab("overview", { persist: false });
         order.push("enter-done");
       }
     });
 
     m.dispatch({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, vi.fn());
-    // 进入事务先收敛（信号用事务尾，不用 DOM——命令落地后 DOM 还可能是模板初值）
     await vi.waitFor(() => expect(order).toContain("enter-done"));
 
     await vi.waitFor(() => expectTabActive(m.ids, "Chat", true));

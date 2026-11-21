@@ -1,10 +1,3 @@
-// createSubtitleBodySlot（entry/offscreen-subtitle-slot.js）纯逻辑测试：
-// 候选5「追问不重传字幕体」的 offscreen 单槽缓存——
-// - 消息自带 subtitleBody → 覆盖槽（以消息 contextKey 为 key）；
-// - 未携带 + 槽 key 匹配 → 从槽补写 msg.context.subtitleBody；
-// - 未携带 + 无槽（= 文档重启后的新实例）/ key 不匹配 → 回「字幕体缺失」错误；
-// - 无 context 的异常消息同样回缺失，不做猜测式兜底。
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,7 +21,6 @@ describe("createSubtitleBodySlot", () => {
     const result = slot.settle({ action: "chat", contextKey: "video:BV1|101", context });
 
     expect(result).toEqual({ ok: true, contextKey: "video:BV1|101" });
-    // 全量路径不改动消息本体
     expect(context.subtitleBody).toBe(BODY);
   });
 
@@ -89,9 +81,7 @@ describe("createSubtitleBodySlot", () => {
 
     slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
     slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
-    // 读取 A 使 A 成为最近使用，B 变为最旧
     expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(true);
-    // 写入 C 超过容量 2 → 淘汰 B，保留 A 与 C
     slot.settle({ action: "chat", contextKey: "video:C|3", context: { subtitleBody: bodyC } });
 
     const missB = slot.settle({ action: "chat", contextKey: "video:B|2", context: {} });
@@ -113,7 +103,6 @@ describe("createSubtitleBodySlot", () => {
     const bodyOversized = [{ from: 0, to: 5, content: "0123456789AB" }];
 
     slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
-    // A(6) + B(6) = 12 > 10 → 淘汰 A，保留 B
     slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
 
     expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(false);
@@ -121,7 +110,6 @@ describe("createSubtitleBodySlot", () => {
     expect(slot.settle(hitB).ok).toBe(true);
     expect(hitB.context!.subtitleBody).toBe(bodyB);
 
-    // 单条 12 字超过 10 上限 → 淘汰 B，保底保留当次刚写入的超大条目
     slot.settle({ action: "chat", contextKey: "video:BIG|3", context: { subtitleBody: bodyOversized } });
     expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(false);
     const hitBig: ChatMessage = { action: "chat", contextKey: "video:BIG|3", context: {} };
@@ -167,7 +155,6 @@ describe("createSubtitleBodySlot", () => {
   it("默认字节上限为 16 MB，超过 maxTotalBytes 时按 LRU 淘汰并保底保留当次超大条目", () => {
     expect(DEFAULT_MAX_SUBTITLE_SLOT_BYTES).toBe(16 * 1024 * 1024);
 
-    // 字符数很少但条目数多，靠单条对象开销触发 maxTotalBytes 淘汰（远未达到 maxTotalChars）
     const bodyA = Array.from({ length: 4 }, (_, i) => ({ from: i, to: i + 1, content: "a" }));
     const bodyB = Array.from({ length: 4 }, (_, i) => ({ from: i, to: i + 1, content: "b" }));
     const bodyHuge = Array.from({ length: 10 }, (_, i) => ({ from: i, to: i + 1, content: "x" }));
@@ -183,13 +170,11 @@ describe("createSubtitleBodySlot", () => {
     slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
     slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
 
-    // A + B 超过 maxTotalBytes → 淘汰 A，保留 B
     expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(false);
     const hitB: ChatMessage = { action: "chat", contextKey: "video:B|2", context: {} };
     expect(slot.settle(hitB).ok).toBe(true);
     expect(hitB.context!.subtitleBody).toBe(bodyB);
 
-    // 单条超过上限 → 淘汰 B，保底保留自身
     slot.settle({ action: "chat", contextKey: "video:HUGE|3", context: { subtitleBody: bodyHuge } });
     expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(false);
     const hitHuge: ChatMessage = { action: "chat", contextKey: "video:HUGE|3", context: {} };

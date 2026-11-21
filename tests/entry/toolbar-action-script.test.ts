@@ -1,21 +1,3 @@
-// 工具栏 action 点击（工单 02-toolbar-icon-opens-script）——toolbar-* 命名
-//（entry 测试 scope 限制）。
-//
-// 两段验证：
-//   1. SW 半边：chrome.action.onClicked 只认事件自带的活动标签页；受支持的
-//      B 站视频/稍后再看页派发单条 reader-enter（经 triggerReaderModeInTab 的
-//      重试/注入链），载荷与页内 文摘按钮同源 buildReaderModeUrl 且不含
-//      tabId 字段（跨标签页消息无从伪造目标）；非受支持页/缺 tab id 零派发；
-//      重复点击与活动标签页切换各投递到当次事件标签页，重试不换目标。
-//   2. 等价性（content 半边）：工具栏载荷与页内按钮点击走同一条
-//      dispatchContentScriptMessage → ensureReaderShell 进入事务——同消息形状、
-//      同 readerUrl 拼法、同 open 意图。
-//
-// harness 与 quick-action-tab-race.bug.test.ts 同款：SW 半边 superset stub
-// chrome 后动态装载 background.js，摘 stub 后 content 半边回到 setup.ts 通用
-// stub + 每用例干净模块纪元。shell 的 enterReaderShell mock 挂 vi.hoisted
-// 槽跨纪元共享（resetModules 只换模块实例，不换 hoisted 槽）。
-
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
@@ -29,15 +11,11 @@ vi.mock("../../extension/shared/tab-utils.js", () => ({
 const VIDEO_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&spm_id_from=x";
 const VIDEO_READER_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&biliscript_reader=1";
 
-// ===== SW 半边：action onClicked → 同一条 reader-enter 事务 =====
-
 describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
   const actionOnClickedAddListener = vi.fn();
 
   beforeAll(async () => {
-    // setup.ts 的 chrome stub 缺 action.onClicked / getManifest / tabs.onUpdated
-    //（background 顶层要同步注册监听器），装 superset 后动态装载 background。
     vi.stubGlobal("chrome", {
       runtime: {
         lastError: null,
@@ -50,7 +28,6 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       tabs: { onUpdated: { addListener: vi.fn() } },
       action: {
         onClicked: { addListener: actionOnClickedAddListener },
-        // 工单 04：非支持页点击打徽标/改标题（stub 缺这些 API 时可选链跳过）。
         setBadgeText: vi.fn(async () => {}),
         setBadgeBackgroundColor: vi.fn(async () => {}),
         setTitle: vi.fn(async () => {})
@@ -66,8 +43,6 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     onClickedListener = actionOnClickedAddListener.mock.calls[0][0] as typeof onClickedListener;
   });
 
-  // content 半边的用例依赖 setup.ts 的 chrome stub：用例结束后摘掉本 describe
-  // 的 superset，让 resetModuleState → setupEnvironment 重新装回通用 stub。
   afterAll(() => {
     vi.unstubAllGlobals();
   });
@@ -82,14 +57,11 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
 
     await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
 
-    // readerUrl = buildReaderModeUrl(tab.url)：cleanVideoUrl 清掉非视频参数
-    // （spm_id_from）保留分 P 后加 biliscript_reader=1，与页内按钮同源单源拼法。
     expect(sendMessageToTab).toHaveBeenCalledWith(7, {
       type: "reader-enter",
       readerUrl: VIDEO_READER_URL
     });
     const payload = vi.mocked(sendMessageToTab).mock.calls[0][1] as Record<string, unknown>;
-    // 目标只取事件标签页：载荷不得携带 tabId（伪造目标的结构性不可能）。
     expect(payload).not.toHaveProperty("tabId");
   });
 
@@ -164,8 +136,6 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   });
 });
 
-// ===== 等价性：工具栏载荷与页内 文摘按钮走同一进入事务 =====
-
 const shellMocks = vi.hoisted(() => ({
   enterReaderShell: vi.fn(
     async (_options: { readerUrl: string; intent: string; prompt?: string }) => {}
@@ -215,7 +185,6 @@ describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
     const { dispatchContentScriptMessage } = await import("../../extension/entry/message-handler.js");
     const sendResponse = vi.fn();
 
-    // 工具栏在 tab.url === NORMAL_PAGE_URL 时派发的载荷（SW 半边断言的形状）。
     const keepOpen = dispatchContentScriptMessage(
       { type: "reader-enter", readerUrl: buildReaderModeUrl(NORMAL_PAGE_URL) },
       sendResponse
@@ -233,8 +202,6 @@ describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
   it("页内按钮点击与工具栏路径产生相同的事务参数（同 readerUrl / 同 open 意图）", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
-    // 生产时序：content.ts init() 先 bindRuntimeEvents 注册分发主体，script
-    // 按钮后装载——与本用例动态 import 同一模块纪元。
     const handler = await import("../../extension/entry/message-handler.js");
     handler.bindRuntimeEvents();
     const lazy = await import("../../extension/ui/lazy-script-button.js");
@@ -248,9 +215,6 @@ describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
 
     const options = shellMocks.enterReaderShell.mock.calls[0][0];
 
-    // 页内按钮的 readerUrl（buildReaderModeUrl(location.href)）与工具栏在同
-    // 一 URL 上派发的 readerUrl 完全一致；意图同为 open、无快捷对话负载
-    //（message-handler 对 open 档传 prompt: undefined）。
     expect(options.readerUrl).toBe(buildReaderModeUrl(NORMAL_PAGE_URL));
     expect(options.intent).toBe("open");
     expect(options.prompt).toBeUndefined();

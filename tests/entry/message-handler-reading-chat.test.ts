@@ -1,23 +1,5 @@
-// reader-enter 的 chat 负载（快捷对话单命令）在 dispatchContentScriptMessage
-// 的 content 侧回归测试。
-//
-// 锁定新形状：background 只发一条带 chat 负载的 reader-enter——
-// - 无 chat 负载：open 意图，零对话激活；
-// - chat.prompt 非空：进入阅读模式后走 runQuickActionPrompt（快捷动作自动发送）；
-// - chat 无 prompt：只 ensureChatTabActivated（定位/聚焦）。consumeIntent 均为 false。
-// （player-ai-quick-action-chat / reader-enter-chat 两个退役消息不再有处理器。）
-//
-// 写法与 message-handler-seek.test.js 同款：重依赖全部 vi.mock，state 走真实
-// 模块，单纪元；对话 seam 经 reader/lazy-chat-tab mock（组合根本体由
-// tests/reader/chat-tab.test.ts 覆盖）。
-// （arch-slim-2/09：message-handler 自 core/ 归位 entry/，shell 静态边改动态；
-// reader-enter 等待进入事务完成后回包，相关断言走 waitFor。）
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// mock 句柄用 vi.hoisted 提出模块纪元外：.ts 测试里静态 import 的是真实模块
-// 类型（运行时才被 mock 掉），mock 配置/断言一律走这组句柄，避免 TS2339
-// （与 tests/reader/shell.test.ts 同款手法）。
 const mocks = vi.hoisted(() => ({
   ensureReaderDomain: vi.fn(),
   isReaderViewOpen: vi.fn(() => false),
@@ -31,14 +13,11 @@ vi.mock("../../extension/reader/state.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../extension/reader/state.js")>(),
   isReaderViewOpen: mocks.isReaderViewOpen,
   enforceNormalPageStateIfNeeded: vi.fn(),
-  // 标签激活属主（reader/script-tab-activation）经它写唯一状态位
   setReaderActiveScriptTab: vi.fn()
 }));
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn()
 }));
-// arch-slim-2/03：reader-url 单源后 shell 的兜底 URL 也经 buildReaderModeUrl——
-// 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
@@ -59,12 +38,10 @@ vi.mock("../../extension/ai/lazy-player-ai.js", () => ({
   loadPlayerAi: vi.fn(),
   isPlayerAiLoaded: vi.fn(() => false)
 }));
-// 对话 seam（reader/lazy-chat-tab）：mock 掉组合根，断言消费路径与参数。
 vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
   ensureReaderChatTab: mocks.ensureReaderChatTab,
   isReaderChatTabLoaded: vi.fn(() => false)
 }));
-// bilibili/gateway.js：别名校验用例只走 get-context 路径，不需要真热评。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   getCurrentAid: vi.fn(() => ""),
   fetchHotComments: vi.fn(async () => [])
@@ -131,7 +108,6 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
     );
 
     expect(keepOpen).toBe(true);
-    // 进入事务完成后才回成功。
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await vi.waitFor(() => expect(chat.runQuickActionPrompt).toHaveBeenCalledTimes(1));
     expect(chat.runQuickActionPrompt).toHaveBeenCalledWith("总结");
@@ -188,10 +164,6 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
 });
 
 describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL", () => {
-  // PR5c 回归：background 的 player-ai 链在「未在阅读模式」时也传空 readerUrl
-  //（原语义假设空串 = 已在阅读模式内只聚焦）。若 content 侧跳过 URL 改写 +
-  // 阅读表 + data-biliscript-reader-mode 门控，enterReaderMode 会落在无样式的半进入态
-  //（布局微变但阅读模式不出现）。
   afterEach(() => {
     document.documentElement.removeAttribute("data-biliscript-reader-mode");
     document.body.removeAttribute("data-biliscript-reader-mode");
@@ -221,7 +193,6 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
 
     const sendResponse = vi.fn();
     messageListener({ type: "reader-enter", readerUrl: "" }, {}, sendResponse);
-    // shell 装载完成（回包已达）且进入链微任务排空后再做负向断言。
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 

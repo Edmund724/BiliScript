@@ -1,17 +1,3 @@
-// offscreen 空闲超时 × Map-Reduce 非流式段调用接线测试（回归：编排期间暂停空闲计时）：
-// 原始 bug——7 小时长视频 Map-Reduce 期间弹「错误：请求超时（90 秒未返回任何数据），
-// 已自动中断」且成稿失败。机制：map-reduce 全部模型调用走非流式 chatCompletion
-// （无流式活动），进度 notice 只在整段完成时重挂空闲超时——任一时刻在途段调用
-// 全部超过 90 秒无完成，空闲计时器就中止整个运行。
-//
-// 修复语义：Map-Reduce 编排期间整体暂停空闲超时（ladder.ts 两处 orchestrate 前
-// pauseIdleTimeout），空闲计时只管流式单路；挂死由用户「停止」兜底。
-//
-// 回路设计：真实 ladder + 真实 map-reduce + 真实 budgeter/pool/cache-lru（内存
-// chrome.storage），仅在协议接缝（ai/completion.js 的 chatCompletion）打桩为
-// 「挂起直到 abort」的非流式调用；3 段并发全部挂起 → 推进假时钟远超 90 秒 →
-// 断言端口不出现超时错误、运行不被中止（修复前此断言为红）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
@@ -22,8 +8,6 @@ vi.mock("../../extension/ai/completion.js", async (importOriginal) => ({
   chatCompletion: chatCompletionMock
 }));
 
-// 208k 字符（>200k 预算线 → map-reduce；5 段 + 成稿 = 6 次调用 ≥5 → 弹成本护栏，
-// 测试内自动确认）
 function makeBody() {
   return Array.from({ length: 2600 }, (_, i) => ({
     from: i * 4,
@@ -56,8 +40,6 @@ async function importOffscreen() {
 
 function connectChat() {
   expect(host.onConnectListeners).toHaveLength(1);
-  // 原实现把监听挂在 port._onMessage 上；chrome-types 的 Port 无此字段，改挂局部
-  // 变量（单监听覆盖语义与运行时行为不变，同 offscreen-segment-cache.test.ts）
   let onMessageListener: ((message: unknown) => void) | undefined;
   const port = {
     name: "offscreen-chat",
@@ -82,8 +64,6 @@ function connectChat() {
 }
 
 async function flushThroughChatCall(session: ReturnType<typeof connectChat>) {
-  // 微任务排水：让 chat 处理链走到挂起的 chatCompletion（多轮推进假时钟，其间
-  // advanceTimersByTimeAsync 会排空微任务）
   for (let i = 0; i < 50 && chatCompletionMock.mock.calls.length === 0; i++) {
     await vi.advanceTimersByTimeAsync(1);
   }
@@ -92,8 +72,6 @@ async function flushThroughChatCall(session: ReturnType<typeof connectChat>) {
 
 beforeEach(async () => {
   chatCompletionMock.mockReset();
-  // 预热 AI 模块图（真实时钟下）：vitest 在假时钟下解析动态 import() 会挂起，
-  // 预热后 offscreen 的 ladderLoader.load() 命中注册表缓存、微任务即返回。
   await import("../../extension/ai/ladder.js");
   vi.useFakeTimers();
 });
@@ -105,7 +83,6 @@ afterEach(() => {
 
 describe("Map-Reduce 编排期间空闲超时暂停（回归）", () => {
   it("段调用（非流式）挂起远超 90 秒 → 不再出现空闲超时中止，运行保持等待", async () => {
-    // 挂起直到 abort：模拟慢供应商的非流式段调用（无任何流式活动）
     chatCompletionMock.mockImplementation(({ signal }) => {
       return new Promise((_, reject) => {
         if (signal?.aborted) {
@@ -128,7 +105,6 @@ describe("Map-Reduce 编排期间空闲超时暂停（回归）", () => {
       prompt: "总结"
     });
 
-    // 抬线（200k）后夹具预估 6 次调用 ≥5 → 先弹成本护栏：自动确认后编排才启动
     for (let i = 0; i < 50; i++) {
       await vi.advanceTimersByTimeAsync(1);
       if (session.port.postMessage.mock.calls.some((c) => c[0]?.type === "cost-guard")) break;
@@ -138,7 +114,6 @@ describe("Map-Reduce 编排期间空闲超时暂停（回归）", () => {
 
     await flushThroughChatCall(session);
 
-    // 并发 3：首批段调用全部在途且挂起；推进远超原 90 秒窗口（含多次窗口跨度）
     await vi.advanceTimersByTimeAsync(90_000);
     await vi.advanceTimersByTimeAsync(90_000);
 

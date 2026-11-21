@@ -1,15 +1,3 @@
-// 工单 03：offscreen 文档只保留标准 Web API + chrome.runtime 消息能力。
-//
-// 三段验证：
-//   1. 静态扫描：entry/offscreen*.ts 与 offscreen.html 的代码（剥注释后）不再
-//      出现 chrome.storage / chrome.offscreen / 其他扩展级 API——storage 读写、
-//      closeDocument 等扩展级操作一律由 SW 代执行；
-//   2. 调试日志门消息化：初始开关经 "get-debug-log-gate" 向 SW 读，变更靠
-//      SW 广播的 "debug-log-gate-changed" 翻转（offscreen 侧零 chrome.storage）；
-//   3. ASR 任务终态自关：直调 chrome.offscreen.closeDocument 改为
-//      "offscreen-request-close" 消息请求 SW 代执行——SW 明确 ok:false 时记
-//      日志，回包丢失（文档已在关闭中）静默不抛。
-
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +9,6 @@ const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({
   createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>()
 }));
 
-// sender / sendResponse 可选：测试里按消息单参直调广播监听
 type OnMessageListener = (
   message: unknown,
   sender?: chrome.runtime.MessageSender,
@@ -32,8 +19,6 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
   createAsrDecodeHandler: createAsrDecodeHandlerMock
 }));
 
-// ===== 1. 静态扫描：offscreen 侧零扩展级 API =====
-
 const OFFSCREEN_SOURCES = [
   "../../extension/entry/offscreen.ts",
   "../../extension/entry/offscreen-chat-port.ts",
@@ -41,30 +26,17 @@ const OFFSCREEN_SOURCES = [
   "../../extension/entry/offscreen-lifecycle.ts",
   "../../extension/entry/offscreen-subtitle-slot.ts",
   "../../extension/entry/offscreen.html",
-  // 概览代发通道的 offscreen 半边（overview-offscreen-transport）：接收端在
-  // core/provider-http-offscreen.ts，同文件另有 content 侧发送端（不在本文档内运行）
   "../../extension/core/provider-http-offscreen.ts",
-  // 概览代发链的传输层公共件叶（两端共用）：叶子纪律零 chrome.*，已由
-  // tests/core/provider-http-shared.test.ts 钉住，此处双保险
   "../../extension/core/provider-http-shared.ts",
-  // 页面半边（内容脚本侧，见上方注释）：纵深防御收编（r1 审查 P2）
   "../../extension/asr/offscreen-bridge.page.ts"
 ];
 
-// 扩展级 Chrome API 黑名单：offscreen 只保留标准 Web API + chrome.runtime 消息
 const FORBIDDEN_API_RE = /chrome\.(storage|offscreen|declarativeNetRequest|tabs|permissions|scripting|action|alarms|windows|downloads)\b/g;
-
-// offscreen-bridge.page.ts 是内容脚本侧（offscreen 桥的页面半边），不在
-// offscreen 文档内运行，本就不受「offscreen 只剩 chrome.runtime」的平台约束；
-// 收编进扫描是 r1 审查 P2 的纵深防御要求：桥链两端的运行时源码都不得新增
-// 扩展级 chrome API（该文件现仅用 chrome.runtime.connect/sendMessage）。
 
 function readStrippedSource(relativePath: string) {
   const url = new URL(relativePath, import.meta.url);
   expect(existsSync(fileURLToPath(url)), `扫描目标存在：${relativePath}`).toBe(true);
   const raw = readFileSync(fileURLToPath(url), "utf8");
-  // 剥块注释与整行注释：注释里的 API 名举例（如「chrome.offscreen 由 SW 代执行」）
-  // 不参与扫描
   return raw
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
@@ -81,15 +53,9 @@ describe("静态扫描：offscreen 文档不触碰扩展级 Chrome API", () => {
   });
 });
 
-// ===== 2/3. 行为测试：消息式调试门 + 自关请求 =====
-
 let host: MinimalChromeHost;
 let onMessageListeners: OnMessageListener[];
 
-// 本文件原有的 runtime 面是 lastError / onConnect / onMessage / sendMessage：共享宿主
-// 收编按 type 分发的 sendMessage 与 onConnect 登记袋；其余成员宿主不装，仍在宿主装好的
-// 最小面上补回（本文件要 onMessage 接 SW 的 debug-log-gate-changed 广播），chrome 面
-// 与替换前逐字相同。
 function installRuntimeExtras() {
   const runtime = chrome.runtime as unknown as Record<string, unknown>;
   runtime.lastError = null;
@@ -100,9 +66,6 @@ function installRuntimeExtras() {
   };
 }
 
-// 缺省面：原桩缺省对任何 type 回 { ok: true }，本文档会发的只有加载期的
-// get-debug-log-gate，故登记这一条。replyStyle "both"：原桩回包只经 callback，宿主
-// 两种风格同答（多出的 promise 返回值无人读）；「不回包」的用例按需覆盖为 "promise"。
 function stubOffscreenEnv(options: MinimalChromeHostOptions = {}) {
   onMessageListeners = [];
   host = installMinimalChromeHost({
@@ -154,7 +117,6 @@ beforeEach(() => {
 
 describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消息", () => {
   it("启动即向 SW 请求初始开关：get-debug-log-gate，enabled=true 时门打开", async () => {
-    // 只答 get-debug-log-gate，回包带 enabled=true（原 impl 的判别即此一条）
     stubOffscreenEnv({
       replies: { "get-debug-log-gate": { ok: true, enabled: true } }
     });
@@ -190,7 +152,6 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
     logging.logInfo("[BILISCRIPT] off");
     expect(infoSpy).toHaveBeenCalledTimes(1);
 
-    // 非门广播（其他消息）不翻转
     broadcastListener({ type: "something-else" });
     broadcastListener({ type: "debug-log-gate-changed" });
     logging.logInfo("[BILISCRIPT] still off");
@@ -204,10 +165,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
     process.on("unhandledRejection", onUnhandled);
     try {
       stubOffscreenEnv();
-      // 回包前置 lastError、回包后复位：宿主的回包表只回答「回什么」，表达不了回包前后
-      // 改 lastError 这条事实，故本用例仍按原 impl 接管宿主公开的 sendMessage Mock。
       host.sendMessage.mockImplementation((_message, callback?: (response?: unknown) => void) => {
-        // chrome-types 里 lastError 是只读 const，测试替身需可写
         const mutableRuntime = chrome.runtime as { lastError: chrome.runtime.LastError | null };
         mutableRuntime.lastError = { message: "Receiving end does not exist" };
         callback?.(undefined);
@@ -232,8 +190,6 @@ import { DEFAULT_ASR_IDLE_GRACE_MS } from "../../extension/entry/offscreen-lifec
 
 describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 消息", () => {
   function armTerminalEcho() {
-    // 任务执行器立即回终态：触发 lifetime.noteAsrTerminal（端口已入集、
-    // 无聊天端口 → 在 ASR 短宽限窗口后应自关）
     createAsrDecodeHandlerMock.mockImplementation(({ onTaskTerminal }) => {
       return async (_task, port) => {
         onTaskTerminal(port);
@@ -245,8 +201,6 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
     vi.useFakeTimers();
     try {
       armTerminalEcho();
-      // 原 impl 只答 offscreen-request-close；加载期的 get-debug-log-gate 无实质回包
-      //（宿主以回 undefined 表达「无应答」，与真实 MV3 同形）
       await importOffscreen({
         replies: {
           "get-debug-log-gate": undefined,
@@ -279,7 +233,6 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
         }
       });
 
-      // logWarn 走调试门：先经广播把门打开，告警才可观测
       onMessageListeners[0]({ type: "debug-log-gate-changed", enabled: true });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const session = makeAsrPort();
@@ -303,8 +256,6 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
-      // 原 impl 不回任何包：promise 风格只给返回值、不答 callback（sendRuntimeMessage
-      // 的 promise 永不 settle）。回包值无人读，本文档会发的两条仍按宿主契约登记。
       armTerminalEcho();
       await importOffscreen({
         replyStyle: "promise",

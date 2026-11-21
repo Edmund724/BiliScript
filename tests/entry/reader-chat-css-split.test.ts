@@ -1,9 +1,3 @@
-// 对话分区 CSS 拆分守卫（arch-slim-4/07，照 reader-settings-css-split 模式）：
-// reader.css 不得再含对话分区 .chat-* 规则，reader-chat.css 必须持有分区标记；
-// style-injector 的对话表挂载原语与两个挂载点（setReaderScriptTab chat 分支同步挂载 +
-// chat-tab 模块顶兜底）在场。防倒退：对话样式一旦回流主表，按需装载的 chunk
-// 边就静默失效（主表常驻、分区表空挂）。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,9 +11,6 @@ const INJECTOR = "extension/shared/style-injector.ts";
 const UI_RENDERER = "extension/ui/ui-renderer.ts";
 const CHAT_TAB = "extension/reader/chat-tab.ts";
 
-// 对话分区样式标记：拆分前全部在 reader.css，拆分后只允许在 reader-chat.css。
-// 不用裸串 biliscript-reading-chat——留守壳分区的 intent 卡（biliscript-reading-chat-intent-*）
-// 与三 tab 共享滚动条（.biliscript-reading-chat .chat-messages 滚动条）合法引用同前缀。
 const CHAT_MARKERS = [
   "chat-hero",
   "chat-model-panel",
@@ -56,8 +47,6 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
     const injector = read(INJECTOR);
     expect(injector).toMatch(/export function ensureReaderChatStyles/);
     expect(injector).toMatch(/entry\/styles\/reader-chat\.css/);
-    // 三份路径须在 injector 源码中按 READER_CHAT_STYLE_PATHS 顺序出现
-    //（github-markdown 基线 → theme 变量映射 → reader-chat 覆盖层），顺序即级联顺序。
     const CHAT_STYLE_PATHS = [
       "entry/styles/github-markdown.css",
       "entry/styles/github-markdown-theme.css",
@@ -78,23 +67,13 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
     const renderer = read(UI_RENDERER);
     expect(renderer).toMatch(/if \(tab === "chat"\)\s*\{\s*ensureReaderChatStyles\(\);/);
     const chatTab = read(CHAT_TAB);
-    // 模块顶层 ensure（settings-panel.ts 顶挂载先例：求值即挂表）
     expect(chatTab).toMatch(/^ensureReaderChatStyles\(\);/m);
   });
 });
 
-// 长回复屏外段落跳过渲染（M13，defer-rendering-heavy-content 指南）：
-// renderMarkdown 的块级输出（清单由 tests/ui/markdown-split-tail.test.ts 钉住）
-// 逐块 content-visibility: auto + contain-intrinsic-size（auto 记忆实际尺寸、
-// none 不占宽度），只跳过滚动容器视口外的块。防倒退：规则被删或占位改回无
-// 记忆形式（滚动条跳动回归）时这里红。
 describe("长回复屏外段落跳过渲染（M13）", () => {
-  // renderMarkdown 块级目标集（块内结构标签 li/tr/td 等不适用——随父块整体跳过）
   const BLOCKS = ["p", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "table", "blockquote", "hr"];
 
-  // 顶层规则抽取：先剥注释（避免注释黏进 selector 片段），再取上个 } 到下个
-  // { 之间的文本为 selector 部（c-v 规则不嵌套在 at-rule 内），按逗号拆开精
-  // 确比对，body 须含 content-visibility: auto。
   const findRule = (cssText: string, selector: string) =>
     (cssText.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+\{[^}]*\}/g) || []).find((rule) => {
       const [head, body] = rule.split("{");
@@ -109,8 +88,6 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
   it("reader-chat.css 对话区 markdown 块级容器逐块 c-v:auto + auto 记忆占位（流式消息豁免）", () => {
     const css = read(CHAT_CSS);
     for (const block of BLOCKS) {
-      // c-v 跳过渲染只施加在历史消息上：正在流式输出的消息
-      //（.chat-msg-streaming）豁免——估算占位高会让流式「滚到底」落点不准
       const rule = findRule(css, `.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) ${block}`);
       expect(rule, `chat 分区缺块级 c-v 规则: ${block}`).toBeTruthy();
       expect(rule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);

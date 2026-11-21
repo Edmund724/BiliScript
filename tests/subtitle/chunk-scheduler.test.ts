@@ -1,14 +1,3 @@
-// 播放进度优先懒调度器（subtitle/chunk-scheduler.ts）单测。
-//
-// 系统可能的失败方式：
-//   1. 起播并发未限制首屏单路独占，导致第 1 块与第 0 块同时发出争抢首屏带宽；
-//   2. 用户 seek 到视频后半段时未即时插队新窗口 [currentTime, +90] 内分块，仍按序调度块 1；
-//   3. 高频 timeupdate 未受节流保护导致反复无效扫描；
-//   4. 后台全量补齐未对非窗口块施加 300–600ms 随机抖动退避，或窗口高优任务未打断后台抖动；
-//   5. 遇到 429 速率限制未触发指数退避与冷却重试；
-//   6. 视频暂停满 PAUSE_TIMEOUT_MS（300,000ms）未自动停机，或恢复播放未重置计时器；
-//   7. AbortSignal 中止或 stop() 未清理定时器并中止在飞任务。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSubtitleChunkScheduler,
@@ -98,17 +87,14 @@ describe("createSubtitleChunkScheduler：90s 播放游标优先与并发懒调�
       }
     });
 
-    // 起播仅独占调度块 0（块 1 保持 pending，不抢首屏带宽）
     scheduler.start();
     expect(scheduledOrder).toEqual([0]);
     expect(scheduler.getChunkStatus(1)).toBe("pending");
 
-    // 块 0 处理期间用户 seek 到第 7 块对应时间（425s，预载窗口 [425, 515] 相交块 7 与块 8）
     scheduler.seek(425);
     expect(scheduledOrder).toEqual([0, 7]);
     expect(scheduler.getChunkStatus(1)).toBe("pending");
 
-    // 块 0 释放并发槽后，下一个立即被调度的是块 8，而非块 1
     gates.get(0)!.resolve();
     await flushMicrotasks();
     expect(scheduledOrder).toEqual([0, 7, 8]);
@@ -137,7 +123,7 @@ describe("createSubtitleChunkScheduler：90s 播放游标优先与并发懒调�
       fillBackground: true,
       scanThrottleMs: 500,
       backgroundJitterRangeMs: [300, 600],
-      random: () => 0.5, // 精确落点 450ms
+      random: () => 0.5,
       runChunk: async (chunk) => {
         scheduledOrder.push(chunk.index);
         await gates.get(chunk.index)!.promise;
@@ -147,28 +133,23 @@ describe("createSubtitleChunkScheduler：90s 播放游标优先与并发懒调�
     scheduler.start();
     expect(scheduledOrder).toEqual([0]);
 
-    // 窗口块 0 完成 -> 解锁并发并立即调度同处 [0, 90) 窗口内的块 1
     gates.get(0)!.resolve();
     await flushMicrotasks();
     expect(scheduledOrder).toEqual([0, 1]);
 
-    // 窗口块 1 完成后，块 2、3 位于窗口外，必须等待 450ms 抖动延迟
     gates.get(1)!.resolve();
     await flushMicrotasks();
     expect(scheduledOrder).toEqual([0, 1]);
 
-    // 高频 timeupdate 在 500ms 节流窗内不触发额外后台派发
     await vi.advanceTimersByTimeAsync(100);
     scheduler.updatePlaybackTime(5);
     scheduler.updatePlaybackTime(10);
     await vi.advanceTimersByTimeAsync(340);
     expect(scheduledOrder).toEqual([0, 1]);
 
-    // 满 450ms 抖动期，启动首个后台块 2
     await vi.advanceTimersByTimeAsync(10);
     expect(scheduledOrder).toEqual([0, 1, 2]);
 
-    // 在块 3 的抖动等待期间用户 seek 到 185s（直接命中块 3），立即取消抖动零延迟插队启动块 3
     scheduler.seek(185);
     expect(scheduledOrder).toEqual([0, 1, 2, 3]);
 
@@ -204,14 +185,12 @@ describe("createSubtitleChunkScheduler：90s 播放游标优先与并发懒调�
 
     scheduler.start();
     await flushMicrotasks();
-    // 首轮 429 -> 冷却 1000ms，期间不重试
     expect(latestChunk0Attempt).toBe(1);
 
     await vi.advanceTimersByTimeAsync(999);
     expect(latestChunk0Attempt).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
     await flushMicrotasks();
-    // 第 2 次尝试再遇 429 -> 指数退避冷却 2000ms
     expect(latestChunk0Attempt).toBe(2);
 
     await vi.advanceTimersByTimeAsync(1999);
@@ -223,7 +202,6 @@ describe("createSubtitleChunkScheduler：90s 播放游标优先与并发懒调�
     const idle = await scheduler.waitForIdle();
     expect(idle).toEqual({ total: 2, done: 2, failed: 0, aborted: false });
 
-    // 验证暂停 5 分钟超时保护与恢复播放重置计时器
     scheduler.notifyPause();
     await vi.advanceTimersByTimeAsync(PAUSE_TIMEOUT_MS - 1000);
     expect(onPauseTimeout).not.toHaveBeenCalled();

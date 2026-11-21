@@ -1,9 +1,3 @@
-// 删除搜索平台记录时的 order 剔除（spec §12.2 末条 / §12.3 / §10 第 85 行）。
-// 「删除平台」是撤回的次入口；若删除后 searchProviderOrder 仍留该 id，整份自定义
-// 顺序会因「未知 id → 整体作废」被丢掉。故删除入口在删掉记录后把该 id 从数组剔除
-// （仅在存在时写回 + inline 失效），写失败静默（顺序是偏好不是数据）。
-// chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款，
-// 差别在 set 真实写回 fixture（断言落盘值）。
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_PROVIDER_ORDER_STORAGE } from "../../extension/search/search-provider-store.js";

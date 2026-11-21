@@ -1,11 +1,3 @@
-// 免 Key 预设自动激活（spec §1 S2 / §2「自动激活规则（S2 展开）」/ §3 落点表第 12 行
-// / §10 第 56 行）：
-//   ① 决策半边是纯函数 entry/settings-migration.ts 的 planSearchPresetsAutoActivation
-//      ——本文件第一个 describe 覆盖决策面（补齐集合、链首、flag、幂等）；
-//   ② background onInstalled 的接线面——写入顺序固定「记录 → 链首 → flag」，flag
-//      最后写，任一步失败时下一次 onInstalled 重试整段；判据按 presetId 查缺使重试安全。
-// chrome stub 手法与 tests/core/settings-normalization.test.ts 同款（真实 background
-// 入口 + onInstalled 监听器直调 + 写回 fixture 的真实存储替身）。
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
@@ -14,8 +6,6 @@ import { planSearchPresetsAutoActivation } from "../../extension/entry/settings-
 
 const KEYLESS_PRESETS = SEARCH_PROVIDER_PRESETS.filter((preset) => preset.access === "keyless");
 
-// 自动补齐的记录形状（spec §2：「id = "search_" + preset.id、presetId / name / type /
-// baseUrl 取预设、enabled: true、无 Key」——不带 apiKey，也不带 access 副本）。
 const EXPECTED_KEYLESS_RECORDS = KEYLESS_PRESETS.map((preset) => ({
   id: `search_${preset.id}`,
   presetId: preset.id,
@@ -107,13 +97,10 @@ describe("planSearchPresetsAutoActivation 决策", () => {
   });
 });
 
-// ===== background onInstalled 接线 =====
-
 let syncFixture: Record<string, unknown>;
 let localFixture: Record<string, unknown>;
 let syncSetMock: Mock;
 let localSetMock: Mock;
-// 首次记录写入失败的重试用例开关
 let failProviderWrite: boolean;
 
 function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<string, unknown> {
@@ -194,10 +181,8 @@ describe("onInstalled 免 Key 预设自动激活接线", () => {
     expect(syncFixture.searchProviders).toEqual(EXPECTED_KEYLESS_RECORDS);
     expect(syncFixture.activeSearchProviderId).toBe(SMART_SEARCH_ACTIVE_ID);
     expect(syncFixture.searchPresetsAutoActivated).toBe(true);
-    // 自动补齐的记录不带 Key：local 侧只有 provider-store 写回的同一份空映射
     expect(localFixture.searchProviderKeys).toEqual({});
 
-    // 写入顺序 = 记录 → 链首 → flag（flag 是最后一次 sync.set）
     const payloads = syncWriterPayloads();
     const providerWriteIndex = payloads.findIndex((obj) => "searchProviders" in obj);
     const activeWriteIndex = payloads.findIndex((obj) => Object.keys(obj).join(",") === "activeSearchProviderId");

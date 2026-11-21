@@ -1,13 +1,3 @@
-// subtitle/source-key.js 键位叶直测：「字幕轨身份」立成封闭判别联合（track / url /
-// lang / asr）后的编码单点，以及与编码同根派生的「这是不是 ASR 变体键」判据。
-//
-// 真值表钉的是字节：四态产物是既有缓存的兼容面（缓存零迁移是硬验收），trim 语义、
-// URL 归一后空串回落 lang、空语言的 unknown 兜底、ASR 分段用 ":" 原样拼接（空 model
-// 段不剔）逐格钉住。
-// 对拍钉的是耦合：ASR 身份组出的键必被变体判据认出，平台轨三态必不被认出——这层
-// 耦合此前零断言（组键方在 asr/fallback 手拼字符串、识别方在 subtitle/cache 反推
-// 前缀），改编码会让孤儿清理静默漏删。
-
 import { describe, expect, it } from "vitest";
 import {
   ASR_SOURCE_KEY_PREFIX,
@@ -25,7 +15,6 @@ const QUERY_URL = "https://i0.hdslb.com/bfs/ai_subtitle/p/zh.json?auth_key=123";
 describe("字幕轨身份 → source key：四态真值表（字节 = 既有缓存兼容面）", () => {
   it("track：轨 id 前后空格 trim 进 id_ 分支", () => {
     expect(subtitleSourceKey({ kind: "track", trackId: "  abc  " })).toBe("id_abc");
-    // 便捷形（三字段原始输入）与被裁定的身份逐字节一致
     expect(buildSubtitleSourceKey("  abc  ", QUERY_URL, "zh-CN")).toBe("id_abc");
   });
 

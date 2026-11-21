@@ -1,25 +1,10 @@
-// 伪轨视频的译文批量器（subtitle/asr-translation.ts）：分片覆盖、逐片翻译与合入、
-// 缓存命中、片级容错与代次让位。
-//
-// 这个模块是链层唯一会花钱的地方（每片一次 LLM 请求），本套件锁的都是「花没花、
-// 花了多少、花完写到哪」。
-//
-// 系统可能怎么坏：
-//   a. 缓存命中仍发请求：重开视频把整片再翻一遍（重复付费）；
-//   b. 已翻分片不落盘：中断后从头再来；
-//   c. 单片失败整轮报错：一处失败让全片没有译文；
-//   d. 零产出写成「ready 空槽」：副行既没有译文也没有失败占位，用户不知道要重试；
-//   e. 换视频/换代次后仍写槽：旧视频的译文落进新视频。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 const translator = vi.hoisted(() => ({
   calls: [] as Array<{ count: number; targetLang: string }>,
-  // failStarts：这些分片起点的请求抛错（片级失败）
   failStarts: new Set<number>(),
-  // 按输入条数原样返回「已翻译」的条目（内容加前缀，便于断言合入来源）
   gate: null as null | (() => void)
 }));
 
@@ -43,7 +28,6 @@ vi.mock("../../extension/ai/subtitle-translate.js", () => ({
 const BODY = [
   { from: 0, to: 3, content: "第一句" },
   { from: 3, to: 6, content: "第二句" },
-  // 第二片（60s 窗口）
   { from: 65, to: 70, content: "第三句" }
 ];
 

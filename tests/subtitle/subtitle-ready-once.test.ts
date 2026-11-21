@@ -1,17 +1,3 @@
-// 字幕就绪通知「全程恰一次」链级防回焊锁（#3 subtitle-ready 单点收口）。
-//
-// refreshClip 全程（网络新抓 → loadSubtitle → 字幕接受事务）只允许 emit 一次
-// "subtitle-ready"：事务内（commit.acceptSubtitle）是唯一 emit 点，fetcher 编排
-// 层历史上补发过一次，导致同一事件触发两遍全套渲染（renderReadingView +
-// startReadingViewSync + 概览触发）。本锁与 commit.test.js（事务侧单发）、
-// presenter-forward.test.ts（转发形状）互补：链上任何一处补发都会在此变红；
-// 事务侧若被摘除通知则 commit.test.js 变红。
-//
-// 依赖处理走 fetcher-retry.test.js 同款 vi.mock：网络边界（gateway）、页面
-// 上下文、派生内容刷新（subtitle/core）、缓存落盘口（cache）全部 mock，
-// commit / reader-bus / state / selection 保持真实——reader-bus 的
-// notifyReaderPresenter 用 importOriginal 包 vi.fn 计数，语义不变。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockedFunction } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -38,9 +24,6 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-// 取体链已收口 subtitle/body.js：本锁不再整体替换 subtitle/cache.js——真实缓存
-// 模块在 tests/setup.js 的 chrome.storage stub 上自然是未命中 + 写入成功，链级
-// 通知计数走的仍是真实取体分支。
 vi.mock("../../extension/core/runtime.js", () => ({
   getSettings: vi.fn(async () => ({}))
 }));

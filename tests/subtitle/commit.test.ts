@@ -1,26 +1,3 @@
-// subtitle/commit.js 字幕接受事务测试（GLOSSARY.md「字幕接受」词条的契约锁）。
-//
-// 一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径
-// findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +
-// subtitleBody）→ fetchState="ready" → 清 noSubtitleReason/noSubtitleDetail →
-// await refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套自
-// opt-backlog-2026-09/04 起改为首次消费时懒生成，落账不再触发）→ 通知
-// "subtitle-ready"（发射无条件，视图过滤归 reader 侧）→ 发布同名相位进
-// shared/subtitle-status-bus（只驱动 chat 发送闸的等待闸 kick）。本套件在纯
-// state 级锁死这些不变量；无字幕出口（逆事务）与接受互为逆，同样锁清空完整性。
-//
-// 无字幕出口是**失败文案的唯一出口**（asr-error-reporting/07 Q1）：reader 通知
-// 与状态栏吃同一句（buildNoSubtitleStatusMessage = 基础句 + core/asr-failure-notice
-// 的病因/补救/详情行），不再有 asrResult 分叉。
-//
-// mock 结构：只替换 refreshHotComments / refreshDerivedContent 两个可观察调用
-//（落账只拉热评、不建派生的调用/时序断言是本套件职责，懒生成本体归 core 测试），
-// 其余导出（含 invalidateDerived 的真实清空）走真实模块——无字幕出口的清空完整性
-// 必须打在真实现上才有意义；reader-bus mock（notifyReaderPresenter 可观察）。
-// 状态栏回调（setStatus）不静态可达，经 configureCommitUi 注入 vi.fn——与生产由
-// fetcher 注入同一条接线。view-state / dom-utils / reader-ids / selection / state
-// 保持真实：纯叶子。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -53,7 +30,6 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeReaderPresenter: vi.fn(() => () => {})
 }));
 
-// 乱序字幕体（含同 from 条目验证稳定排序）：内容字段编码了期望顺序
 const UNSORTED_BODY = [
   { from: 3, to: 290, content: "c-最后" },
   { from: 0, to: 1.2, content: "a-第一" },
@@ -61,8 +37,6 @@ const UNSORTED_BODY = [
   { from: 0, to: 0.5, content: "a2-同from稳定" }
 ];
 
-// 十一个非 null 值（文案表按 reason 逐个断言，不许用一个循环糊过去：
-// 循环会在文案表本身写错时仍然通过——那正是本票要防的漂移）。
 const ALL_REASONS: NoSubtitleReason[] = [
   "upower-exclusive",
   "bili-login-required",
@@ -90,7 +64,6 @@ beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
 
-  // 与生产一致：fetcher 在模块求值期注入的状态栏回调，这里注入 vi.fn
   commitUiMocks = {
     setStatus: vi.fn()
   };
@@ -113,16 +86,12 @@ describe("acceptSubtitle：字幕接受事务", () => {
 
     const body = state.clip.subtitleBody;
     expectStrictlySortedByFrom(body);
-    // 稳定排序：同 from=0 的两条保持输入中的相对顺序（a 先于 a2）
     expect(body.map((item) => item.content)).toEqual(["a-第一", "a2-同from稳定", "b-第二", "c-最后"]);
-    // 返回值即落 state 的有序副本
     expect(result).toEqual(body);
-    // 不原地修改入参（调用方持有的原引用——如缓存副本——保持不变）
     expect(UNSORTED_BODY.map((item) => item.content)).toEqual(["c-最后", "a-第一", "b-第二", "a2-同from稳定"]);
   });
 
   it("写齐 selected 三项 + fetchState=ready + 清除陈旧 noSubtitleReason 与 detail", async () => {
-    // 预放脏状态：出口残留的 empty 态、失败原因与详情必须被接受事务一次性翻转
     clipState.setSelectedSubtitleId("stale");
     clipState.setSubtitleBody([{ from: 9, to: 10, content: "旧字幕" }]);
     clipState.setSubtitleFetchState("empty");
@@ -141,7 +110,6 @@ describe("acceptSubtitle：字幕接受事务", () => {
     expect(state.clip.selectedSubtitleLang).toBe("英语");
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(clipState.noSubtitleReason).toBe(null);
-    // 详情与原因同生命周期：接受后不得留下旧失败的报文明细
     expect(clipState.noSubtitleDetail).toBe("");
   });
 
@@ -163,10 +131,7 @@ describe("acceptSubtitle：字幕接受事务", () => {
     });
 
     expect(refreshHotComments).toHaveBeenCalledTimes(1);
-    // 派生内容（笔记/SRT/TXT）自 opt-backlog-2026-09/04 起首次消费时才懒生成，
-    // 落账路径零构建（refreshDerivedContent 是消费侧入口，落账不得触达）。
     expect(refreshDerivedContent).not.toHaveBeenCalled();
-    // 热评拉取读到的是已接受完成的状态，不是半事务态
     expect(stateAtRefresh).toEqual({
       body: ["a-第一", "a2-同from稳定", "b-第二", "c-最后"],
       fetchState: "ready",
@@ -175,8 +140,6 @@ describe("acceptSubtitle：字幕接受事务", () => {
   });
 
   it("通知发射无条件（视图门控裁决权归 reader 侧）：reader 关闭也通知 subtitle-ready", async () => {
-    // 视图未开时截断通知会让「抓取完成时视图未开」的轮次永久丢渲染；发射
-    // 改为无条件，视图过滤由 init-essentials 分派门与 lifecycle 处理体负责。
     state.reader.setViewOpen(false);
     await acceptSubtitle({
       body: UNSORTED_BODY,
@@ -232,7 +195,6 @@ describe("acceptSubtitle：字幕接受事务", () => {
 
 describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
   it("清空完整性：selected 三项/body/派生内容全清，fetchState=empty，subtitle-ready 通知触发", async () => {
-    // 预放脏状态：与接受后的 state 互为镜像
     clipState.setSelectedSubtitleId("track-1");
     clipState.setSelectedSubtitleUrl("https://example.com/sub.json");
     clipState.setSelectedSubtitleLang("中文");
@@ -256,9 +218,7 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     expect(state.clip.markdown).toBe("");
     expect(state.clip.srt).toBe("");
     expect(state.clip.txt).toBe("");
-    // 原因未显式传参：保留 maybeRunAsrFallback 终态分支写入的值，不覆盖
     expect(clipState.noSubtitleReason).toBe("asr-empty");
-    // 阅读视图的落空态渲染由 subtitle-ready 通知驱动（renderReadingView）
     expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
   });
 
@@ -267,7 +227,6 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     await commitNoSubtitle({ noSubtitleReason: "asr-auth" });
     expect(clipState.noSubtitleReason).toBe("asr-auth");
 
-    // fallback 失败出口的形状：原因随出口写入事务
     clipState.setNoSubtitleReason("no-asr-config");
     await commitNoSubtitle({ noSubtitleReason: null });
     expect(clipState.noSubtitleReason).toBe(null);
@@ -332,14 +291,11 @@ describe("接受 ↔ 无字幕出口 互逆", () => {
 });
 
 describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => {
-  // 票 07 Q2 的不变量：状态栏文案永远含基础句 → 命中 reading-status-line 的
-  // /无字幕/ 常驻词表 → 5 秒自动收起不会吞掉失败原因。这里按面锁住它。
   it("任何 reason（含 asr-empty 与 null）的文案都含基础句", () => {
     for (const reason of [...ALL_REASONS, null] as NoSubtitleReason[]) {
       clipState.setNoSubtitleReason(reason);
       expect(buildNoSubtitleStatusMessage()).toContain(STATUS_LINE_BASE);
     }
-    // 缺省读 clipState（上一步刚设为 null）
     expect(buildNoSubtitleStatusMessage()).toContain(STATUS_LINE_BASE);
   });
 
@@ -371,7 +327,6 @@ describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => 
       ],
       ["asr-server", "当前视频无字幕。 语音识别平台暂时不可用（服务端错误）。 请稍后重新抓取"],
       ["asr-unknown", "当前视频无字幕。 语音识别失败，未能识别具体原因。 可重新抓取或稍后重试"],
-      // asr-empty 无补救句：平台成功、只是没人声，没有可做的事
       ["asr-empty", "当前视频无字幕。 未识别到语音内容，这个视频可能没有人声。"],
       [null, "当前视频无字幕。 可在设置页配置语音识别平台自动生成字幕。"]
     ];
@@ -389,7 +344,6 @@ describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => 
       `当前视频无字幕。 语音识别平台拒绝了本次请求：API Key 无效、已过期，或没有权限。 请到设置页检查或更换 API Key （错误详情：HTTP 401: {"message":"Invalid token"}）`
     );
 
-    // 详情为空串 → 整段不出现（不留尾空格）
     clipState.setNoSubtitleDetail("");
     expect(buildNoSubtitleStatusMessage()).toBe(
       "当前视频无字幕。 语音识别平台拒绝了本次请求：API Key 无效、已过期，或没有权限。 请到设置页检查或更换 API Key"
@@ -422,13 +376,11 @@ describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => 
 
 describe("未接线防护", () => {
   it("configureCommitUi 未注入时 commitNoSubtitle 拒绝执行（防静默丢渲染）", async () => {
-    // 新纪元拿到未经 configureCommitUi 的 commit 实例（守卫在触碰 state 前抛出）
     vi.resetModules();
     const freshCommit = await import("../../extension/subtitle/commit.js");
     const freshState = await import("../../extension/core/state.js");
 
     await expect(freshCommit.commitNoSubtitle({})).rejects.toThrow("configureCommitUi");
-    // 守卫先于任何 state 写入
     expect(freshState.clipState.subtitleFetchState).toBe("idle");
   });
 });

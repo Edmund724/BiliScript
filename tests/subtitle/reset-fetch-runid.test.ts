@@ -1,25 +1,3 @@
-// 回归测试（M23 / finding resetClipState×refreshClip runId 协调）：
-// B 站 SPA 内快速换片时，URL 变化编排先同步递增 fetchRunId（entry/message-handler
-// 的 handleUrlChange）再 resetClipState；在飞的旧视频 refreshClip 落定后必须在
-// 字幕接受事务门口自检代次让位，不得把旧字幕写进已重置的 state。
-//
-// 三层锁：
-//   1. 事务级——commit.acceptSubtitle / commitNoSubtitle 的可选 runId 自检：
-//      代次已被推进时抛 STALE_RUN，且零 state 写入、零派生刷新、零通知；
-//      未传 runId（asr/fallback 收尾路径）行为不变。
-//   2. 编排级——真实 refreshClip 全链路：旧 run 在「网络抓取 → 提交」的
-//      await 窗口（落缓存）被 reset+递增插队，到站后在事务门口让位；
-//      对照组证明同一链路无干扰时正常提交（red-capable）。
-//   3. URL 变化同步递增本身的回归见 tests/reader/url-change-runid.test.ts。
-//
-// mock 结构：与 fetcher-retry.test.js 同款 vi.mock（gateway/page-context/core/
-// ui-status/reader-bus mock 掉，state/selection/error-helpers 保持真实）；
-// commit.js 保持真实——runId 自检是被测对象，不能 mock。**subtitle/cache.js 不再
-// 整体替换**：取体链收口 subtitle/body.js 后，落缓存口跑在内存版
-// chrome.storage.local 上（与 tests/subtitle/asr-fallback.test.ts 同款），
-// 「提交前 await 窗口」由挂在该键真正文写入上的可控 promise 精确复现——窗口开在
-// 真实落盘路径内，而不是被 mock 掉的函数上。
-
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost } from "../helpers/chrome-host.js";
@@ -54,7 +32,6 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshDerivedContent: vi.fn(async () => {})
 }));
 
-// 与 asr-fallback-concurrent.test.js 同款时长合规体：videoDuration=300、maxTo=290
 const GOOD_BODY = [
   { from: 0, to: 1.2, content: "第一条" },
   { from: 1.5, to: 290, content: "第二条" }
@@ -67,9 +44,6 @@ const TRACK = {
   source: "player-wbi-v2"
 };
 
-// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/chrome-host.ts）
-
-// 可控 promise：resolve 由测试在窗口点手动触发（挂起期间的插队竞态）
 function createPending<T = void>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
@@ -164,12 +138,10 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
     const { commitNoSubtitle, configureCommitUi } = await import("../../extension/subtitle/commit.js");
     configureCommitUi({ setStatus: uiStatus.setStatus });
 
-    // 预放已接受态：过期出口不得清掉它
     clipState.setSubtitleFetchState("ready");
     clipState.setSubtitleBody(GOOD_BODY);
     clipState.setFetchRunId(3);
 
-    // asrResult 参数已随失败文案归一删除（票 07 Q1），出口只认 reason + runId
     await expect(commitNoSubtitle({ runId: 2 })).rejects.toMatchObject({ code: "STALE_RUN" });
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toEqual(GOOD_BODY);
@@ -180,7 +152,6 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
   });
 });
 
-// 字幕接受事务（真实实现）快捷调用
 function accept({ runId }: { runId?: number }) {
   return import("../../extension/subtitle/commit.js").then(({ acceptSubtitle }) =>
     acceptSubtitle({
@@ -195,10 +166,6 @@ function accept({ runId }: { runId?: number }) {
 
 describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
   async function driveRefreshClipToCommitWindow() {
-    // 旧视频抓取 run 1：走到「网络抓取完成 → 落缓存」的提交前 await 窗口。
-    // 窗口开在真实落盘路径上：只有正文键（biliscript_subtitle_cache_*）的那次
-    // storage.set 挂起，LRU 索引/清单照常写；正文写入挂起期间 saveSubtitleToCache
-    // 不落定，插队（reset+递增）必须发生在窗口内才能命中事务门口的自检。
     clipState.setFetchRunId(1);
     clipState.setVideoDuration(300);
     const bodyPending = createPending<{ body: unknown[] }>();
@@ -221,23 +188,17 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
   it("reset+递增插队后旧字幕到站：事务门口 STALE_RUN 让位，state 保持 reset 干净态", async () => {
     const { run, dataWritePending } = await driveRefreshClipToCommitWindow();
 
-    // 模拟 URL 变化编排（message-handler.handleUrlChange 的顺序）：同步递增代次
-    // → resetClipState 全清。注意 refreshClip 起跑时已自增（fetchRunId=2、run 的
-    // runId=2），编排递增后为 3——与生产一致的相对递增。
     clipState.setFetchRunId(clipState.fetchRunId + 1);
     fetcher.resetClipState();
 
     dataWritePending.resolve();
-    // STALE_RUN 被 refreshClip 的 catch 静默吞掉（isStaleRunError 分支）
     await expect(run).resolves.toBeUndefined();
 
-    // 关键断言：旧视频字幕没有写进已重置的 state
     expect(state.clip.subtitleBody).toEqual([]);
     expect(state.clip.subtitleFetchState).toBe("idle");
     expect(state.clip.selectedSubtitleId).toBe("");
     expect(state.clip.selectedSubtitleUrl).toBe("");
     expect(state.clip.title).toBe("");
-    // 让位路径零错误文案（「抓取失败」不落状态栏）
     const statusTexts = uiStatus.setStatus.mock.calls.map((call) => String(call[0]));
     expect(statusTexts.some((text) => text.includes("抓取失败"))).toBe(false);
   });

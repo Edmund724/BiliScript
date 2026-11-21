@@ -1,10 +1,3 @@
-// subtitle/subtitle-in-hand.ts 直测：谓词只读 core/state 的 state.clip 与地址中的
-// bvid、页号，是「叶子事实」——面板兜底抓取（reader/lifecycle 的
-// maybeRefreshReaderSubtitleInBackground）与页面预抓取（entry/message-handler 的
-// ensureSubtitlePrefetch）共用的去重守卫，两侧同一份语义。
-//
-// 覆盖两种判假的先决（身份不成立）与三种判真的在手/在飞形态。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 

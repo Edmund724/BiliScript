@@ -1,5 +1,3 @@
-// createOffscreenLifetime (offscreen document tiered idle reclaim & lease tracking) tests.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOffscreenLifetime,
@@ -64,7 +62,6 @@ describe("三条件穷举：只有活跃端口、其他解码端口与在飞任�
       lifetime.trackAsrPort(self.port);
       lifetime.noteAsrTerminal(self.port);
 
-      // ASR 宽限期内尚未关闭
       vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 1);
       expect(closeSelf).not.toHaveBeenCalled();
 
@@ -87,7 +84,6 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
     chat.fireDisconnect();
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // 1.5s 后请求 SW 校验是否仍有打开的 B 站标签页（若仍有标签页则 SW 跳过关闭）
     vi.advanceTimersByTime(DEFAULT_LIGHT_TAB_CHECK_DELAY_MS - 1);
     expect(closeSelf).not.toHaveBeenCalled();
 
@@ -98,11 +94,9 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
       onlyIfNoBilibiliTabs: true
     });
 
-    // 模拟 SW 因仍有 B 站标签页跳过关闭：刷视频 9 分钟内不再触发关闭
     vi.advanceTimersByTime(DEFAULT_LIGHT_IDLE_MS - DEFAULT_LIGHT_TAB_CHECK_DELAY_MS - 1);
     expect(closeSelf).toHaveBeenCalledTimes(1);
 
-    // 彻底闲置满 10 分钟：触发长空闲兜底无条件回收
     vi.advanceTimersByTime(1);
     expect(closeSelf).toHaveBeenCalledTimes(2);
     expect(closeSelf).toHaveBeenLastCalledWith({ reason: "light-idle" });
@@ -114,9 +108,8 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
     lifetime.trackPort(chat1.port);
     chat1.fireDisconnect();
 
-    // 9 分钟后再次打开对话
     vi.advanceTimersByTime(9 * 60_000);
-    expect(closeSelf).toHaveBeenCalledTimes(1); // 仅 1.5s 时的一次条件校验
+    expect(closeSelf).toHaveBeenCalledTimes(1);
     expect(closeSelf).toHaveBeenLastCalledWith({
       reason: "no-bilibili-tabs",
       onlyIfNoBilibiliTabs: true
@@ -125,14 +118,12 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
     const chat2 = makePort();
     lifetime.trackPort(chat2.port);
 
-    // 持续连接超过原 10 分钟窗口，不会触发关闭
     vi.advanceTimersByTime(5 * 60_000);
     expect(closeSelf).toHaveBeenCalledTimes(1);
 
-    // 新连接断开后重新计时 10 分钟
     chat2.fireDisconnect();
     vi.advanceTimersByTime(DEFAULT_LIGHT_IDLE_MS - 1);
-    expect(closeSelf).toHaveBeenCalledTimes(2); // 1.5s 条件校验
+    expect(closeSelf).toHaveBeenCalledTimes(2);
 
     vi.advanceTimersByTime(1);
     expect(closeSelf).toHaveBeenCalledTimes(3);
@@ -144,11 +135,9 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
     const chat = makePort();
     lifetime.trackPort(chat.port);
 
-    // 活跃连接在飞时忽略关站通知
     lifetime.notifyAllBilibiliTabsClosed();
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // 断开后在短延迟前收到关站通知，立即触发且不再重复发短延迟校验
     chat.fireDisconnect();
     lifetime.notifyAllBilibiliTabsClosed();
     expect(closeSelf).toHaveBeenCalledTimes(1);
@@ -160,7 +149,6 @@ describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校�
     vi.advanceTimersByTime(DEFAULT_LIGHT_TAB_CHECK_DELAY_MS);
     expect(closeSelf).toHaveBeenCalledTimes(1);
 
-    // 有在飞异步任务时同样忽略关站通知
     let resolveTask!: () => void;
     const task = lifetime.withTask(
       () =>
@@ -186,7 +174,6 @@ describe("重型音视频通道（ASR / 实时伴看 / 视频截帧）：短宽�
     vi.advanceTimersByTime(2_000);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // 终态后 2s 端口才断连：已移出集合，不得重置倒计时
     asr.fireDisconnect();
     vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 2_000);
     expect(closeSelf).toHaveBeenCalledTimes(1);
@@ -230,7 +217,6 @@ describe("重型音视频通道（ASR / 实时伴看 / 视频截帧）：短宽�
     expect(closeSelf).toHaveBeenCalledTimes(1);
     expect(closeSelf).toHaveBeenLastCalledWith({ reason: "media-idle" });
 
-    // 抛错路径同样递减计数并按重型宽限回收，原样透传错误
     const second = setup();
     await expect(
       second.lifetime.withTask(
@@ -252,7 +238,6 @@ describe("重型音视频通道（ASR / 实时伴看 / 视频截帧）：短宽�
     lifetime.trackAsrPort(asr.port);
     lifetime.noteAsrTerminal(asr.port);
 
-    // 宽限期走到一半时进入新轻量对话连接：必须取消关闭计时器
     vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS / 2);
     const chat = makePort();
     lifetime.trackPort(chat.port);
@@ -260,12 +245,10 @@ describe("重型音视频通道（ASR / 实时伴看 / 视频截帧）：短宽�
     vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS * 2);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // 对话断开归零后，因为本次会话使用过 ASR 高内存能力，仍按 ASR 短窗口回收
     chat.fireDisconnect();
     vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 1);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // 再次被异步任务打断
     let resolveTask!: () => void;
     const task = lifetime.withTask(
       () =>

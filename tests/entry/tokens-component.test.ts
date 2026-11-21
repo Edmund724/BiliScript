@@ -1,8 +1,3 @@
-// tests/entry/tokens-component.test.ts
-// Component Token 组件层契约测试：
-// 验证 5 类高频公共组件（Buttons & Chips、Segmented Controls / Pills & Tabs、
-// Chat Input card、Custom Select、Toggle Switch）的组件级 Token 提取与接入。
-
 import { describe, expect, it } from "vitest";
 import { extractBlock, readStyleFile, stripCssComments } from "./css-token-test-utils.js";
 
@@ -22,7 +17,6 @@ describe("Component Tokens: 组件层契约测试", () => {
     it("声明完整的 --btn-* 与 --chip-* 组件级 Token", () => {
       const block = BASE_GATE();
 
-      // 基础按钮度量与色彩
       expect(block).toContain("--btn-bg:");
       expect(block).toContain("--btn-text: var(--biliscript-reader-text)");
       expect(block).toContain("--btn-border: var(--biliscript-reader-border)");
@@ -31,7 +25,6 @@ describe("Component Tokens: 组件层契约测试", () => {
       expect(block).toContain("--btn-hover-bg: var(--biliscript-reader-fill-hover)");
       expect(block).toContain("--btn-active-scale: var(--biliscript-reader-press-scale");
 
-      // 主要、次要与危险按钮变体
       expect(block).toContain("--btn-primary-bg: var(--biliscript-reader-accent)");
       expect(block).toContain("--btn-primary-text: var(--biliscript-reader-on-fill)");
       expect(block).toContain("--btn-secondary-bg: var(--biliscript-reader-surface-2)");
@@ -39,7 +32,6 @@ describe("Component Tokens: 组件层契约测试", () => {
       expect(block).toContain("--btn-danger-bg: var(--biliscript-reader-danger)");
       expect(block).toContain("--btn-danger-text: var(--biliscript-reader-on-fill)");
 
-      // Chips 类组件 Token
       expect(block).toContain("--chip-bg:");
       expect(block).toContain("--chip-text: var(--biliscript-reader-text)");
       expect(block).toContain("--chip-border: var(--biliscript-reader-border)");
@@ -114,22 +106,17 @@ describe("Component Tokens: 组件层契约测试", () => {
     it("custom-select.css 全面消费组件 Token 与语义 Token，无裸 HEX 与硬编码 28px/14px", () => {
       const css = stripCssComments(readStyleFile(CUSTOM_SELECT_CSS));
 
-      // 禁止裸 HEX 颜色（包括之前的 #00aeec 和 #999）
       const hexMatches = css.match(/#[0-9a-fA-F]{3,8}(?![a-zA-Z0-9_-])/g) || [];
       expect(hexMatches, "custom-select.css 中不应有裸 HEX 颜色").toEqual([]);
 
-      // 弹层与触发器圆角应消费 --select-*-radius
       expect(css).toMatch(/border-radius:\s*var\(--select-dropdown-radius/);
       expect(css).toMatch(/border-radius:\s*var\(--select-trigger-radius/);
 
-      // 选项行圆角应消费 --select-option-radius 或 --biliscript-radius-panel-inner
       expect(css).toMatch(/border-radius:\s*(?:var\(--select-option-radius|max\(0px,\s*var\(--select-option-radius)/);
 
-      // 搜索框字号与圆角应消费 token
       expect(css).toMatch(/border-radius:\s*var\(--select-search-radius/);
       expect(css).toMatch(/font-size:\s*var\(--select-search-font-size/);
 
-      // 箭头颜色消费 --select-arrow-color
       expect(css).toMatch(/color:\s*var\(--select-arrow-color/);
     });
   });
@@ -150,18 +137,14 @@ describe("Component Tokens: 组件层契约测试", () => {
     it("toggle-switch.css 消费组件 Token 与语义 Token", () => {
       const css = stripCssComments(readStyleFile(TOGGLE_SWITCH_CSS));
 
-      // 轨道圆角消费 token
       expect(css).toMatch(/border-radius:\s*var\(--toggle-track-radius/);
 
-      // 轨道关态与开态背景消费 token
       expect(css).toMatch(/background:\s*var\(--toggle-track-bg-off/);
       expect(css).toMatch(/background:\s*var\(--toggle-track-bg-on/);
 
-      // 滑块圆角与背景消费 token
       expect(css).toMatch(/border-radius:\s*var\(--toggle-thumb-radius/);
       expect(css).toMatch(/background:\s*var\(--toggle-thumb-bg/);
 
-      // 滑块微阴影消费 token
       expect(css).toMatch(/box-shadow:\s*var\(--toggle-thumb-shadow/);
     });
   });

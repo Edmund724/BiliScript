@@ -1,23 +1,3 @@
-// ASR 连通性探针（asr-probe）端到端测试：页面侧 asr-probe 任务 → offscreen 懒装载
-// 的 offscreen-asr.js → 真适配器 asr/adapters/openai-transcriptions.ts。
-//
-// 本文件钉的就是「测试与实际转写同一条链」这条契约。回归背景：旧探针在 content
-// script 里自己发 fetch——那里没有 chrome.permissions（权限门必然 fail-open），
-// 且其 fetch 受网页 CORS 约束、扩展文档里的出口只受 host 权限约束，于是域名未授权
-// 也能报「连接成功」，而真跑必然失败（误报方向：测试过、实际 401/网络错误）。
-//
-// 覆盖的失败模式：
-//   - 未授权 → 与转写链同一道 HOST_PERMISSION_HINT 预检，连请求都不发（本次修复的
-//     正主用例）；
-//   - 已授权 → 请求构造逐字同源：同一 URL、同一 Authorization、同一 FormData 字段、
-//     连「verbose_json 无 segments 再降级 json」的两次 POST 都一样；
-//   - 平台 401 → 文案 / kind / status 与实际转写同一串（asr-auth），且不再发第二次
-//     请求（确定性失败不降级）；
-//   - 语言档位 en → ?language=english 由适配器的 URL 构造给出（不再是探针自抄的
-//     平行实现）；
-//   - 配置项缺失 / 类型不支持 → 本地可读文案，不发请求；
-//   - 探针不读运行时配置（Key 随任务过来），终态照走端口簿记（自关判定）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
@@ -41,7 +21,6 @@ function installHost() {
     replyStyle: "both",
     replies: {
       "check-provider-origin": () => checkReply,
-      // 探针不读运行时配置：该回包只用来记名（登记后若被发到，断言即失败）
       "get-asr-runtime-config": () => {
         messages.push("get-asr-runtime-config");
         return { ok: true };
@@ -162,7 +141,6 @@ describe("探针走真链路：请求构造与实际转写逐字同源", () => {
     const { payload } = await runProbe();
 
     expect(payload).toEqual({ type: "probe-result", ok: true });
-    // 2xx 返回 { text }（即使无 segments）也不再重复发第二次 POST
     expect(requests).toHaveLength(1);
     const { url, init } = requests[0];
     expect(url).toBe(`${BASE_URL}/audio/transcriptions`);
@@ -195,7 +173,6 @@ describe("探针走真链路：请求构造与实际转写逐字同源", () => {
     expect(payload.error).toContain("Token is invalid");
     expect(payload.kind).toBe("asr-auth");
     expect(payload.status).toBe(401);
-    // 确定性失败不降级（38MB 级真实音轨同理，探针沿用同一条判定）
     expect(requests).toHaveLength(1);
   });
 });

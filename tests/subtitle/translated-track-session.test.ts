@@ -1,12 +1,3 @@
-// 60 秒分块译文副轨会话（subtitle/translated-track-session.ts）接口测试：
-// 直接穿过 createTranslatedTrackSession seam，以内存 IndexedDB 替身与注入的翻译/协议适配器验证：
-//   1. ASR 伪轨与原生 CC 源轨的身份/槽位/签名/遗留键装配一致；
-//   2. reconfigure 切换协议/模型/术语后重新命中对应签名缓存；
-//   3. 相邻分块缺失（chunkIndex - 1 为空）时，previousLines 回溯更早已完成分块的双语前情；
-//   4. 流式 onCueReady 即时聚合上屏与 1500ms 防抖写入，flush() 立即落盘；
-//   5. invalidateChunk / setPrimaryChunk 递增修订版，拦截旧版迟到流式与终态写入；
-//   6. 分块异常回滚流式缓冲而不污染已完成分块，isStale 拦截过期会话写入。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -136,7 +127,6 @@ describe("createTranslatedTrackSession seam", () => {
       { from: 10, to: 14, content: "Second sentence" },
       { from: 20, to: 25, content: "Third sentence" }
     ];
-    // chunk 1 (60-120s) 无字幕，直接跳到 chunk 2 (120-180s)
     const chunk2: SubtitleBodyItem[] = [{ from: 125, to: 130, content: "Later sentence" }];
 
     const capturedInputs: TranslatedTrackTranslateInput[] = [];
@@ -226,7 +216,6 @@ describe("createTranslatedTrackSession seam", () => {
     expect(session.getSecondaryItems()).toEqual([{ from: 0, to: 5, content: "你好" }]);
     expect(clipState.secondarySubtitle.body).toEqual([{ from: 0, to: 5, content: "你好" }]);
 
-    // 未满 1500ms 防抖阈值前尚未落盘
     const pageBeforeFlush = await idbStore.getPageRecord("BV1session01", "100");
     expect(pageBeforeFlush?.translatedTracks ?? {}).toEqual({});
 

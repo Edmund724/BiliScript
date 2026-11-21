@@ -1,10 +1,3 @@
-// 换片事务（entry/clip-switch-transaction.ts）的 seam 测试：假步骤 + 假订阅者直接
-// 驱动，锁定同步段的次序不变量（runId 递增先行于异步步骤启动）、签名守卫的零步骤
-// 语义、三档互斥分支的步骤集合与「每步恰一次」，以及完成边恰发布一次。
-//
-// 事务不静态依赖任何域，故本文件不需要 state / DOM 夹具，只注入假依赖；断言与读
-// 取都走调用序日志（记录调用名与参数），不 mock 模块。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   createClipSwitchTransaction,
@@ -13,8 +6,6 @@ import {
 
 const URL = "https://www.bilibili.com/video/BV1fake/";
 
-// 假依赖 + 调用序日志：调用名（带参数时以空格分隔）即事件，暴露每个依赖被调用
-// 的次数与先后。
 function createDeps() {
   const calls: string[] = [];
   const deps: ClipSwitchTransactionDeps = {
@@ -87,12 +78,10 @@ function createDeps() {
   return { deps, calls };
 }
 
-// 调用次数（步骤名或「名 参数」都算同一步）。
 function times(calls: string[], name: string): number {
   return calls.filter((call) => call === name || call.startsWith(`${name} `)).length;
 }
 
-// 让已完成步骤的 continuation 与完成边（microtask 链）全部落地。
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -110,11 +99,9 @@ describe("同步段：签名守卫与 runId 递增", () => {
 
     transaction.handleUrlChange();
 
-    // handleUrlChange 返回时身份与代次已落（同步段），reset 步骤的收尾还没到。
     expect(calls).toContain(`writeIdentity ${URL} sig-new`);
     expect(calls).toContain("writeRunId 6");
     expect(calls).not.toContain("resetClipState");
-    // 递增先于异步步骤（这里以 reset 步骤的第一个依赖调用为代表）。
     expect(calls.indexOf("writeRunId 6")).toBeLessThan(calls.indexOf("ensureUiReady"));
 
     await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
@@ -349,7 +336,6 @@ describe("完成边", () => {
     transaction.subscribeSettled(settled);
 
     transaction.handleUrlChange();
-    // 步骤未 settle 前不发边
     expect(settled).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));

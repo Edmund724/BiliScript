@@ -1,19 +1,3 @@
-// subtitle/fetcher.ts retryWithFreshBundle 重试链测试（arch-slim-2/05 测试网，
-// 此前全仓零覆盖）。
-//
-// retryWithFreshBundle 未导出，生产路径只有 refreshClip 的 catch 一个入口：
-// 候选加载失败且「message 含 HTTP 或 code=SUBTITLE_DURATION_MISMATCH」（签名
-// URL 快速过期 / 限流特征）时触发——重抓 bundle → 重建轨道/章节 → 按原偏好
-// （previousId/URL/lang）重选轨 → 重试一次；重试仍败或新 bundle 无合适轨时把
-// 触发重试的原始错误上抛，交 refreshClip 错误路径收尾。
-//
-// 依赖处理用 vi.mock（重依赖 mock 掉，轻依赖
-// state/selection/error-helpers 保持真实）：gateway 四个抓取口、page-context、
-// cache、commit 事务、ASR 域（错误路径 loadAsrFallback 会动态 import）全部
-// mock；ASR 实例固定「无活动转写」，让错误路径干净落到 reset+error 收尾。
-// 每个用例在 beforeEach 内重取 fetcher 与 state（同纪元实例），共享的 mock
-// 实例手工 mockReset（resetModules 后 mock 工厂不重跑，见 fetcher-logging.test.js）。
-
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -46,16 +30,11 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-// 取体链收口 subtitle/body.js 后本文件不再整体替换 subtitle/cache.js：真实模块的
-// buildSubtitleCandidates / normalizeSubtitleUrlForCache 走真实实现（原 mock 是它们
-// 的简化抄写），读缓存口在 tests/setup.js 的 chrome.storage stub 上自然未命中。
 vi.mock("../../extension/subtitle/commit.js", () => ({
   configureCommitUi: vi.fn(),
   acceptSubtitle: vi.fn(async () => {}),
   commitNoSubtitle: vi.fn(async () => {})
 }));
-// 错误路径 loadAsrFallback 的动态 import 域：固定「无活动转写」，避免拖入真实
-// ASR 域（pipeline/fallback 及其 offscreen 闭包）——重试链用例不关心 ASR 回退。
 vi.mock("../../extension/asr/pipeline.js", () => ({
   runAsrPipeline: vi.fn()
 }));
@@ -95,7 +74,6 @@ async function importEpoch() {
   uiStatus.setStatus.mockReset();
   readerBus.notifyReaderPresenter.mockReset();
 
-  // meta 抓取成功（refreshClip 前置段），时长由 page-context 落 300
   gateway.fetchVideoMeta.mockResolvedValue({
     aid: "123",
     title: "测试标题",
@@ -124,18 +102,14 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
-    // 重试链恰好各跑两次：初始抓取 + 重抓 bundle / 初始加载 + 重试加载
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
     expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
-    // 重抓 bundle 复用同一 bvid/cid/aid 上下文
     expect(gateway.fetchSubtitleBundle).toHaveBeenLastCalledWith(
       gateway.contentFetchJson,
       expect.objectContaining({ bvid: "BV1test000000", cid: "101", aid: "123" })
     );
-    // 第二次加载用的是新 bundle 里的签名 URL（旧 URL 失效）
     expect(gateway.contentFetchJson.mock.calls[0][0]).toBe(oldTrack.subtitleUrl);
     expect(gateway.contentFetchJson.mock.calls[1][0]).toBe(freshTrack.subtitleUrl);
-    // 字幕接受事务只落一次，选中轨即重选后的同 id 轨 + 新 URL
     expect(commit.acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(commit.acceptSubtitle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -145,15 +119,12 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
         selectedSubtitleLang: "中文"
       })
     );
-    // 成功收尾（fetchState/selectedUrl 由字幕接受事务落位，本文件 mock 了事务，
-    // 终态断言只看事务入参）。
   });
 
   it("SUBTITLE_DURATION_MISMATCH 触发：时长不匹配的 body 落到重试，新 bundle 重载成功", async () => {
     gateway.fetchSubtitleBundle
       .mockResolvedValueOnce({ tracks: [oldTrack], chapters: [] })
       .mockResolvedValueOnce({ tracks: [freshTrack], chapters: [] });
-    // 首次 body 覆盖 10s ≪ 300s×0.22 → too-short（SUBTITLE_DURATION_MISMATCH）
     gateway.contentFetchJson
       .mockResolvedValueOnce({ body: [{ from: 0, to: 10, content: "short" }] })
       .mockResolvedValueOnce({ body: goodBody });
@@ -171,10 +142,8 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
-    // 恰好一次重试：bundle 两抓、body 两载，不无限循环
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
     expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
-    // 原始错误（HTTP 403）上抛后的统一收尾：reset(keepFetchState) + error + 文案
     expect(uiStatus.setStatus).toHaveBeenLastCalledWith("抓取失败：HTTP 403");
     expect(state.clip.subtitleFetchState).toBe("error");
     expect(state.clip.noSubtitleReason).toBe(null);

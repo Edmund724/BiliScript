@@ -1,15 +1,3 @@
-// offscreen.js 聊天通道的断连容错测试：
-// 聊天中途端口断开（面板关闭 / SPA 换页 / 页面刷新）后——
-// - ladder 迟到的流式回执（经 withCachedContextKey 包装）不得抛
-//   "Attempting to use a disconnected port object"；
-// - ladder 抛错后 catch 通道的错误回报不得再抛出，避免 async 消息监听器的
-//   unhandled rejection（chrome://extensions 里的 "Uncaught (in promise)"）。
-// 口径与 ASR 通道一致（offscreen.ts 的 dispatchAsrDecodeTask：port 已断开，
-// postMessage 抛错被吞）。
-//
-// 假端口模拟 Chrome 行为：断连后 postMessage 抛错。chrome 依赖 mock 与
-// 「vi.resetModules + 动态导入 = 文档纪元」手法沿 offscreen-chat-subtitle-slot.test.js。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatPort } from "../../extension/ai/ladder.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
@@ -48,7 +36,6 @@ async function importOffscreen() {
   return import("../../extension/entry/offscreen.js");
 }
 
-// 断连后 postMessage 抛错（Chrome 的 Port 行为）
 function makeChatPort() {
   const listeners: { message: Array<(message: unknown) => void>; disconnect: Array<() => void> } = {
     message: [],
@@ -105,7 +92,6 @@ beforeEach(() => {
 describe("offscreen 聊天通道断连容错", () => {
   it("断连后 ladder 的迟到回执不抛 disconnected port 错误", async () => {
     let ladderPort: ChatPort | null = null;
-    // ladder 挂在半空（永不结算），模拟流式进行中端口被断开
     runLadderChatMock.mockImplementation(async ({ port }: { port: ChatPort }) => {
       ladderPort = port;
       await new Promise(() => {});
@@ -271,8 +257,6 @@ describe("offscreen 聊天通道断连容错", () => {
       session.send(CHAT_MSG);
       await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(1));
 
-      // 端口断开（面板关闭/换页/刷新），随后 ladder 才以失败收场——
-      // catch 通道向已断开的端口回报错误
       session.fireDisconnect();
       rejectLadder!(new Error("网络中断"));
       await flushTicks();

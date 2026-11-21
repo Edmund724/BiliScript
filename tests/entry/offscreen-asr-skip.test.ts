@@ -1,18 +1,3 @@
-// entry/offscreen-asr.js 的 resolveAsrProvider 结构化 skip 原因测试。
-//
-// 背景：offscreen 侧配置级问题以 code "asr-skip" 抛出，页面 asr/fallback.js
-// catch 后静默 skip。此前原因只存在于 message 字符串里（页面不做字符串匹配，
-// 无法归类）；现新增结构化 reason 字段（"asr-disabled" / "no-asr-config"），
-// 经 port 错误消息（offscreen-bridge.page）与管线 reject 透传回页面，最终落
-// clipState.noSubtitleReason 供 sidepanel 按原因提示。
-//
-// resolveAsrProvider 是纯函数（只读传入的 config 快照），直接 import
-// offscreen-asr.js 测试（模块顶层不触 chrome）。port 透传契约测试则动态
-// import entry/offscreen.js——它顶层注册 chrome.runtime.onConnect 监听，
-// beforeEach 的 chrome stub 捕获该监听器，测试内拿它接一个可手动驱动消息的
-// 假 asr-decode 端口（接线层把任务转给 offscreen-asr 的执行器）。其余依赖
-// （ai/*、asr/*、core/runtime → fetcher 链）在 jsdom 下均可真实加载。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -41,18 +26,12 @@ const RUNTIME_CONFIG_OK: AsrRuntimeConfig = {
   asrLanguage: "auto"
 };
 
-// 本文件的 chrome 面（beforeEach 装缺省面；用例内可换 sendMessage 面）。onConnect
-// 监听器登记袋由共享宿主持有。
 let host: MinimalChromeHost;
 
-// 原桩的 sendMessage 对任何 type 一律同步抛错（扩展上下文失效）
 function refuseSendMessage(): never {
   throw new Error("Extension context invalidated");
 }
 
-// 换本用例的 sendMessage 面，但沿用已登记的 onConnect 监听器：原桩的登记袋是模块级
-// 数组、跨 chrome 替换存活，而 offscreen.js 已在 loadOffscreen 时把端口监听登记进前一台
-// 宿主（新宿主自带的登记袋是空的）。
 function swapHost(options: MinimalChromeHostOptions) {
   const registered = host.onConnectListeners.slice();
   host = installMinimalChromeHost({
@@ -65,10 +44,6 @@ function swapHost(options: MinimalChromeHostOptions) {
 
 beforeEach(() => {
   resetModuleState();
-  // 缺省面沿用缺省全局桩的其余成员（原桩展开 globalThis.chrome），只换回包表与
-  // onConnect 登记：offscreen.js 加载时先发 get-debug-log-gate，原缺省桩回
-  // { ok: true }。replyStyle "both"：原桩回包只经 callback，宿主两种风格同答
-  //（多出的 promise 返回值无人读）。
   host = installMinimalChromeHost({
     preserveExisting: true,
     onConnect: true,
@@ -81,7 +56,6 @@ async function loadOffscreen() {
   return import("../../extension/entry/offscreen.js");
 }
 
-// 连一个可手动驱动消息的 asr-decode 端口，返回 { port, taskListener }
 function connectAsrDecodePort() {
   const listener = host.onConnectListeners.at(-1)!;
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
@@ -147,11 +121,6 @@ describe("resolveAsrProvider 结构化 skip 原因", () => {
 describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）", () => {
   it("asr-skip 的结构化 reason 随 { type: error } 消息 postMessage 回页面", async () => {
     await loadOffscreen();
-    // requestAsrRuntimeConfig 以 Promise 风格 await sendMessage 返回值（MV3
-    // 无回调签名），setup 的回调式 stub 不适用——这里改为直接返回响应体。
-    // 响应无 provider 字段 → resolveAsrProvider 走「无激活平台」分支。
-    // 原桩对任何 type 都回 { ok: true }；本文档在该场景只发这两条（回包只经返回值，
-    // 与宿主缺省的 promise 风格同形）。
     swapHost({
       replies: {
         "get-asr-runtime-config": { ok: true },
@@ -163,8 +132,6 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
     taskListener({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
 
     await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(1));
-    // 配置级失败不带 kind 字段（asr-skip 的属性归 reason，不是失败类别）——
-    // 这里用严格相等断言「不多出键」；kind 仅随非 skip 的错误路径出现
     expect(port.postMessage.mock.calls[0][0]).toEqual({
       type: "error",
       error: "没有激活的语音识别平台",
@@ -174,13 +141,7 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
   });
 
   it("config 消息失败/超时的 asr-skip 不带 reason（未知，页面归 null）", async () => {
-    // sendMessage 直接抛错 → requestAsrRuntimeConfig 失败（非 asr-skip）→
-    // 按「配置缺失」兜底 makeAsrSkipError(error)，不带 reason。
-    // offscreen.js 已在上一用例的 stub 下加载完毕，这里只替换 sendMessage。
     await loadOffscreen();
-    // 原桩对任何 type 一律同步抛错，故本文档可能发的三条都挂同一个抛错回包；
-    // replyStyle "both" 保持「同步抛出」（promise 风格会把抛出转成被丢弃的 rejected
-    // promise，回包通道不同）。
     swapHost({
       replyStyle: "both",
       replies: {
@@ -202,12 +163,7 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
   });
 });
 
-// 管线级失败的 kind（票 03 Q2）：ERROR 是**管线级**语义的载体——音轨下载/解码/
-// 切片这类媒体来源抛出点由 offscreen 侧按 media 来源就地分类；两处配置抛出点
-// （域名未授权 / baseUrl 未配置）自带 platform 来源的 kind。这里用本文件现成的
-// 「真 offscreen.js 接线 + 假端口」手法断言 port 上的实际 payload。
 describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）", () => {
-  // 全套运行时配置 + 已授权，让链路走过配置与权限预检，一路到下载
   const CONFIG_WITH_PROVIDER = {
     ok: true,
     asrAutoFallback: true,
@@ -230,9 +186,6 @@ describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）"
 
   async function runWithDownloadFailure() {
     await loadOffscreen();
-    // 原桩按 type 分发、其余 type 回 { ok: true }：逐条登记本文档在该场景会发的三条
-    //（加载期的 get-debug-log-gate 已在缺省面下发出）。回包只经返回值，与宿主缺省的
-    // promise 风格同形。
     swapHost({
       replies: {
         "get-asr-runtime-config": CONFIG_WITH_PROVIDER,
@@ -240,7 +193,6 @@ describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）"
         "offscreen-request-close": { ok: true }
       }
     });
-    // 下载一律失败（HEAD/GET 都非 ok）→ streamAudioSegments 抛「音频下载失败」
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500 })));
     const { port, taskListener } = connectAsrDecodePort();
     taskListener({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
@@ -253,8 +205,6 @@ describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）"
 
     expect(payload.type).toBe("error");
     expect(payload.error).toBe("音频下载失败");
-    // media 来源：音轨从 B 站 CDN 下来，绝不能落进平台语义（CDN 的 403/404
-    // 与 ASR 平台同形，误判会把 CDN 拦截报成「API Key 无效」）
     expect(payload.kind).toBe("asr-media");
   });
 });

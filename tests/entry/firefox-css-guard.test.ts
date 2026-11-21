@@ -1,9 +1,3 @@
-// Firefox CSS 适配守卫：
-// 1. 严禁在 @supports (-moz-appearance: none) 块外裸写 scrollbar-width / scrollbar-color
-//    （Chrome 121+ 会因标准滚动条属性跳过 ::-webkit-scrollbar，回退 Windows 原生粗灰条）。
-// 2. 6 份定制滚动条的样式表均需在 @supports (-moz-appearance: none) 内提供细滚动条声明。
-// 3. 设置抽屉、对话更多菜单与伴看浮窗的 range 滑块均需补齐 ::-moz-range-track 与 ::-moz-range-thumb。
-
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

@@ -1,5 +1,3 @@
-// content.ts 启动路径：Script 工具栏按钮不等待 getSettings；阅读模式门控等待样式就绪。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL, READER_MODE_URL } from "../setup.js";
 
@@ -28,7 +26,6 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
   }))
 }));
 
-// 默认让 get-settings 挂起，模拟 SW 冷启动未响应；传入设置时同步回包。
 function stubChrome(settings?: { autoOpenReader?: boolean }) {
   vi.stubGlobal("chrome", {
     runtime: {

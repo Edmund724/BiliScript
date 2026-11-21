@@ -1,12 +1,3 @@
-// 增量流式 JSON 字幕解析器（subtitle/streaming-parser.ts）单测。
-//
-// 系统可能的失败方式：
-//   1. 多字节 UTF-8 字符（中文/Emoji）被 5～12 字节随机分片截断时产生乱码或替换字符 \uFFFD；
-//   2. 字符串字面量内包含转义引号 `\"`、双反斜杠 `\\` 或花括号 `{}`、`[]` 时误触发对象闭合或提前切片报错；
-//   3. 对象尚未闭合前提前触发 `onCueReady`，或在尾部 `,` / `]}` 到达时重复触发；
-//   4. 区间跳号、倒序或越界时未在断点熔断而继续发射脏后缀；
-//   5. 流断线重置或降级重跑（`resetStreamAttempt`）后未按 `${startIndex}:${endIndex}` 去重导致重复上屏。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   createStreamingSubtitleParser,
@@ -113,12 +104,10 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
 
     const snapshots = feedChunksAndRecordCounts(parser, chunks, emitted);
 
-    // 验证所有内部切片严格处于 5~12 字节区间
     expect(chunks.slice(0, -1).every((chunk) => chunk.byteLength >= 5 && chunk.byteLength <= 12)).toBe(true);
     expect(chunks[chunks.length - 1].byteLength).toBeGreaterThanOrEqual(1);
     expect(chunks[chunks.length - 1].byteLength).toBeLessThanOrEqual(12);
 
-    // 第 1、2、3、4 个对象闭合前一碎片未提前触发，闭合碎片到达瞬间立即触发且计数精准递增
     expect(snapshots[closeChunkIndices[0] - 1].totalAfter).toBe(0);
     expect(snapshots[closeChunkIndices[0]].totalAfter).toBe(1);
 
@@ -131,7 +120,6 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     expect(snapshots[closeChunkIndices[3] - 1].totalAfter).toBe(3);
     expect(snapshots[closeChunkIndices[3]].totalAfter).toBe(4);
 
-    // 仅在 4 个对象闭合瞬间触发，喂完尾部围栏不重复触发
     expect(snapshots.filter((s) => s.emittedNow > 0).map((s) => s.chunkIndex)).toEqual(closeChunkIndices);
     expect(onCueReady).toHaveBeenCalledTimes(4);
 
@@ -197,7 +185,6 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     feedChunksAndRecordCounts(parser, prefixChunks, emitted);
     expect(onCueReady).toHaveBeenCalledTimes(2);
 
-    // 模拟流断流重试或降级非流式：重置当前流扫描游标并重放全量响应
     parser.resetStreamAttempt();
     const replayChunks = sliceUtf8Randomly(
       new TextEncoder().encode(
@@ -209,7 +196,6 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     );
     feedChunksAndRecordCounts(parser, replayChunks, emitted);
 
-    // 0:0 与 1:1 不重复触发，仅新增触发 2:2
     expect(onCueReady).toHaveBeenCalledTimes(3);
     expect(emitted.map((c) => `${c.startIndex}:${c.endIndex}:${c.translation}`)).toEqual([
       '0:0:第一"句" {a}',
@@ -231,7 +217,6 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     parser.feed('{"groups":[{"ids":["0","1"],"text":"a b","translation":"甲乙"},');
     expect(onCueReady).toHaveBeenCalledTimes(1);
 
-    // 跳过索引 "2"，直接跳到 "3"
     parser.feed('{"ids":["3"],"text":"d","translation":"丁"}]}');
     expect(onCueReady).toHaveBeenCalledTimes(1);
   });

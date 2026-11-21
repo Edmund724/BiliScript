@@ -80,7 +80,6 @@ describe("joinSubtitleText：中英文与标点边界拼接", () => {
     expect(joinSubtitleText("这是", "TypeScript")).toBe("这是TypeScript");
     expect(joinSubtitleText("TypeScript", "很好用")).toBe("TypeScript很好用");
     expect(joinSubtitleText("第1章。", "React")).toBe("第1章。React");
-    // 即使全局语言标注为 zh，英文短语之间仍保留空格避免粘连
     expect(joinSubtitleText("React", "Hooks", "zh")).toBe("React Hooks");
   });
 

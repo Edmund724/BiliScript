@@ -1,28 +1,3 @@
-// 工单 03：后台（SW）消息入口守卫的**整包装载 SW 入口**用例——发送者来源、内部
-// 消息 schema、标签页归属都经真实 handler 行为验证。
-//
-// 守卫在路由之后、处理器执行之前：非法来源/载荷在产生任何副作用前被拒绝并
-// 明确回 { ok:false }。覆盖场景：
-//   - 内部 schema：save-settings / providers-save / player-ai-quick-action 的
-//     形状明显非法载荷被拒；
-//   - 标签页归属：player-ai-quick-action 的 message.tabId 与 sender.tab.id
-//     不一致（跨标签页伪造）→ 拒绝且不向任何标签页发消息；
-//   - 未知消息类型 / 非对象消息：不回包、零副作用（与既有行为一致）。
-//   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
-//     content（选区解释卡），**不得**进来源名单（协议层
-//     OFFSCREEN_ONLY_MESSAGE_TYPES）；tab 来源的调用照常落到 SW 叶（本文件只钉
-//     来源守卫这一面，get/put 的键与回包形状见本文件「撤回同意」一节的删除入口
-//     真实 handler 往返用例）。
-//
-// 「撤回同意」主入口（关 pill，webSearchEnabled true→false → 清缓存）随
-// save-settings handler 工厂化搬入 core/save-settings-handler.ts：行为分支直测在
-// tests/core/save-settings-handler.test.ts，组合根接线断言在
-// tests/entry/background-search-handlers-wiring.test.ts——本文件不再重复往返。
-//
-// 守卫与回包口径本身的零 chrome 用例（含源码结构锁）住在
-// tests/core/message-router.test.ts——它们直接驱动 core/message-router 的
-// createMessageRouter，不必装载本入口。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
@@ -36,9 +11,7 @@ vi.mock("../../extension/shared/tab-utils.js", () => ({
 
 const TAB_SENDER = (id: number): MessageSender => ({ tab: { id }, url: "https://www.bilibili.com/video/BV1/" });
 
-// storage.local 内存 fixture：查询缓存 handler 的落盘面要能读回（单键映射）。
 let localFixture: Record<string, unknown>;
-// storage.sync 内存 fixture：设置 / 平台存储的落盘面读回。
 let syncFixture: Record<string, unknown>;
 
 function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<string, unknown> {
@@ -136,9 +109,6 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
     sendResponse: (response: unknown) => void
   ) => unknown;
 
-  // 先写一条缓存（走真实 search-cache handler → SW 叶 → 内存 storage），
-  // 撤回入口执行后必须整张清空。关 pill 主入口的 save-settings 往返已随工厂化
-  // 塌缩（见文件头注），此处保留删除平台记录的次入口整包证明。
   async function seedCacheEntry(listener: BackgroundListener, query: string): Promise<void> {
     const respond = vi.fn();
     listener(

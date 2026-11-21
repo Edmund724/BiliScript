@@ -1,8 +1,3 @@
-// tests/entry/offscreen-chat-concurrent.test.ts
-// 多视频网页并发 AI 对话集成测试：验证同一个 Offscreen 文档下多条 "offscreen-chat"
-// 端口并行运行时的流式回吐隔离、多槽字幕缓存命中、单侧停止/断连/空闲超时隔离，
-// 以及成本护栏与视频截帧的端口独立结算。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatPort, RunLadderChatArgs, RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
@@ -163,7 +158,6 @@ describe("offscreen 多端口并发 AI 对话隔离", () => {
     });
     await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(2));
 
-    // 两端各自新建端口追问（不携带 subtitleBody）
     const portA2 = connectChat();
     const portB2 = connectChat();
     portA2.send({
@@ -256,7 +250,6 @@ describe("offscreen 多端口并发 AI 对话隔离", () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(runs).toHaveLength(1);
 
-    // 50 秒后端口 B 启动，且端口 A 保持静默
     await vi.advanceTimersByTimeAsync(50_000);
     portB.send({
       action: "chat",
@@ -268,7 +261,6 @@ describe("offscreen 多端口并发 AI 对话隔离", () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(runs).toHaveLength(2);
 
-    // 再推 40 秒（端口 A 累计静默 >90 秒，端口 B 仅 40 秒）
     await vi.advanceTimersByTimeAsync(40_000);
 
     expect(runs[0].signal?.aborted).toBe(true);
@@ -321,7 +313,6 @@ describe("offscreen 多端口并发 AI 对话隔离", () => {
       expect(portB.postedMessages.some((m: any) => m?.type === "cost-guard")).toBe(true);
     });
 
-    // B 先确认 false，A 再确认 true，验证互不误结算
     portB.send({ action: "cost-guard-confirm", ok: false });
     portA.send({ action: "cost-guard-confirm", ok: true });
 

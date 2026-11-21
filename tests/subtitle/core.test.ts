@@ -1,11 +1,3 @@
-// subtitle/core.js 的 findActiveSubtitleIndex 直测（候选10 批1：线性 → 二分）。
-//
-// 等价性策略：先在测试内保留一份旧线性实现作为参照（快照基准），用边界用例 +
-// 随机模糊（有序不重叠 body，含间隙 / to 缺省 / 单条 / 空数组）逐一对比新旧
-// 结果，必须完全一致。二分依赖「subtitleBody 按 from 升序」不变量——该不变量
-// 由写入端 sortSubtitleBodyByFrom（fetcher / asr fallback 落 state 前）保证，
-// 见 tests/subtitle/selection.test.ts 的 sortSubtitleBodyByFrom 用例。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -21,9 +13,6 @@ import {
 import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
-// 热评抓取链路（opt-backlog-2026-09/04）：笔记导出删除后热评仍有非导出的消费方
-// （概览 / AI 上下文），refreshHotComments 不再有设置门——字幕接受事务无条件
-// 按需拉取。本文件用固定热评替身驱动该函数。
 const HOT_COMMENTS = [{ uname: "甲", like: 3, message: "热评一" }];
 
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
@@ -31,12 +20,8 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
   return { ...actual, fetchHotComments: vi.fn(async () => HOT_COMMENTS) };
 });
 
-// 本套件刻意喂 to 缺省/非法与 undefined body（防御性脏数据）：body 用 to 可选的
-// 局部口径，落 state 前断言回写入端的 SubtitleBodyItem。
 type TestSubtitleItem = { from: number; to?: number; content: string };
 
-// 旧线性实现的快照基准（与重构前 core.js 逐字同语义）：
-// to 缺省/非法时视为 from + 2；命中返回条目索引，否则 -1。
 function legacyLinearFindActiveSubtitleIndex(
   body: TestSubtitleItem[] | null | undefined,
   currentTime: number
@@ -74,12 +59,12 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（边界用例）",
 
   it("单条字幕：命中与未命中", () => {
     const body = [{ from: 10, to: 20, content: "a" }];
-    expectSameAsLegacy(body, 10); // 起点（含）
-    expectSameAsLegacy(body, 15); // 中间
-    expectSameAsLegacy(body, 19.999); // 终点前
-    expectSameAsLegacy(body, 20); // 终点（不含）
-    expectSameAsLegacy(body, 9.999); // 起点前
-    expectSameAsLegacy(body, 25); // 终点后
+    expectSameAsLegacy(body, 10);
+    expectSameAsLegacy(body, 15);
+    expectSameAsLegacy(body, 19.999);
+    expectSameAsLegacy(body, 20);
+    expectSameAsLegacy(body, 9.999);
+    expectSameAsLegacy(body, 25);
   });
 
   it("命中首条 / 末条 / 中间条", () => {
@@ -88,11 +73,11 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（边界用例）",
       { from: 10, to: 20, content: "b" },
       { from: 30, to: 40, content: "c" }
     ];
-    expectSameAsLegacy(body, 0); // 首条
-    expectSameAsLegacy(body, 5); // 首条中段
-    expectSameAsLegacy(body, 35); // 末条
-    expectSameAsLegacy(body, 39.5); // 末条尾
-    expectSameAsLegacy(body, 15); // 中间条
+    expectSameAsLegacy(body, 0);
+    expectSameAsLegacy(body, 5);
+    expectSameAsLegacy(body, 35);
+    expectSameAsLegacy(body, 39.5);
+    expectSameAsLegacy(body, 15);
   });
 
   it("间隙（前后条目之间）返回 -1", () => {
@@ -109,7 +94,6 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（边界用例）",
     expectSameAsLegacy([{ from: 5, content: "no-to" }], 6.999);
     expectSameAsLegacy([{ from: 5, content: "no-to" }], 7);
     expectSameAsLegacy([{ from: 5, to: 0, content: "bad-to" }], 6.5);
-    // 多条混排：带 to 与缺 to 相邻
     expectSameAsLegacy(
       [
         { from: 0, to: 10, content: "a" },
@@ -130,22 +114,15 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（边界用例）",
 });
 
 describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）", () => {
-  // 随机生成「按 from 升序、区间严格不重叠（可带间隙）」的 body——与写入端
-  // sortSubtitleBodyByFrom + B站 CC / ASR pipeline 产物的真实形态一致（条目都
-  // 带有效 to）。严格不重叠时任意时刻至多一条命中，新旧实现必然同索引。
-  // 注意：to 缺省（from+2）若落在相邻条目区间内会构成重叠，重叠数据上线性
-  // 返回最早命中、二分返回最靠近候选点的命中（都是包含 t 的条目）——那属于
-  // 防御性脏数据，见下方「重叠区间」用例的显式说明。
   function randomSortedBody(rng: () => number): TestSubtitleItem[] {
     const length = 1 + Math.floor(rng() * 60);
     const body: TestSubtitleItem[] = [];
     let from = 0;
     for (let i = 0; i < length; i += 1) {
-      from += rng() * 4; // 随机间隙
+      from += rng() * 4;
       const duration = 0.5 + rng() * 3;
       const item: TestSubtitleItem = { from: Math.round(from * 100) / 100, content: `line-${i}` };
       if (i < length - 1 || rng() < 0.5) {
-        // 非末条必须带 to（保证与下一条不重叠）；末条随机缺省 to（from+2 语义）
         item.to = Math.round((from + duration) * 100) / 100;
       }
       body.push(item);
@@ -155,7 +132,6 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）",
   }
 
   it("有序不重叠 body（含间隙/to 缺省）上新旧结果完全一致", () => {
-    // 可复现的伪随机序列（mulberry32）
     let seed = 20260829;
     const rng = () => {
       seed |= 0;
@@ -179,7 +155,6 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）",
           );
         }
       }
-      // 常驻探测点：首条起点、最末条之后
       expect(findActiveSubtitleIndex(body[0].from)).toBe(
         legacyLinearFindActiveSubtitleIndex(body, body[0].from)
       );
@@ -198,26 +173,21 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）",
     for (const t of [0, 1.79, 2, 999, 1000.5, 3198, 3199.9, 3200, 5000]) {
       expect(findActiveSubtitleIndex(t)).toBe(legacyLinearFindActiveSubtitleIndex(body, t));
     }
-    expect(findActiveSubtitleIndex(999)).toBe(499); // 精确命中中段某条
-    expect(findActiveSubtitleIndex(3200)).toBe(-1); // 末条终点（不含）
+    expect(findActiveSubtitleIndex(999)).toBe(499);
+    expect(findActiveSubtitleIndex(3200)).toBe(-1);
   });
 });
 
 describe("findActiveSubtitleIndex：重叠区间的已记录偏差（防御性脏数据）", () => {
-  // 重叠只可能来自 to 缺省（from+2）压到相邻条目，或写入端排序前遗留的旧缓存。
-  // 此类数据上线性实现返回「最早的命中条目」，二分实现返回「最靠近二分候选点
-  // 的命中条目」——两者都是包含 currentTime 的条目，返回值约定（命中索引 / -1）
-  // 不变；正常生产数据（条目带有效 to、区间不重叠）任意时刻至多一条命中，
-  // 新旧实现完全一致。这里断言「返回的条目确实包含 t」而非与线性同索引。
   it("重叠区间：返回包含 currentTime 的条目", () => {
     const body: TestSubtitleItem[] = [
       { from: 0, to: 10, content: "a" },
-      { from: 10, content: "b" }, // to 缺省 → [10, 12)，与下一条重叠
+      { from: 10, content: "b" },
       { from: 11, to: 15, content: "c" }
     ];
     state.clip.setSubtitleBody(body as SubtitleBodyItem[]);
     const index = findActiveSubtitleIndex(11.5);
-    expect(index).toBe(2); // 候选点（最后 from <= t）即命中
+    expect(index).toBe(2);
     const item = body[index];
     const to = item.to! > item.from ? item.to! : item.from + 2;
     expect(11.5).toBeGreaterThanOrEqual(item.from);
@@ -226,7 +196,7 @@ describe("findActiveSubtitleIndex：重叠区间的已记录偏差（防御性�
 
   it("重叠区间但候选点未命中：有限回扫仍能找到包含 t 的条目", () => {
     const body = [
-      { from: 0, to: 20, content: "a" }, // 深度覆盖（脏数据形态）
+      { from: 0, to: 20, content: "a" },
       { from: 5, to: 8, content: "b" },
       { from: 6, to: 9, content: "c" }
     ];
@@ -237,9 +207,6 @@ describe("findActiveSubtitleIndex：重叠区间的已记录偏差（防御性�
   });
 });
 
-// arch-review-2026-09/01 修3：getReadingSubtitleItems 按「body 数组引用」WeakMap
-// 缓存（normalizeChapters 先例）。写路径经 clipState.setSubtitleBody 整体替换
-// 引用、不原地改——同引用重复调用零分配复用，换引用即重建。
 describe("getReadingSubtitleItems：按引用缓存", () => {
   it("同一 body 引用重复调用返回同一数组引用（不重建）", () => {
     const body = [
@@ -250,7 +217,6 @@ describe("getReadingSubtitleItems：按引用缓存", () => {
     const first = getReadingSubtitleItems();
     const second = getReadingSubtitleItems();
     expect(second).toBe(first);
-    // 显式传参同引用同样命中缓存
     expect(getReadingSubtitleItems(body)).toBe(first);
   });
 
@@ -259,7 +225,7 @@ describe("getReadingSubtitleItems：按引用缓存", () => {
     const first = getReadingSubtitleItems();
     state.clip.setSubtitleBody([
       { from: 0, to: 2, content: "甲" },
-      { from: 2, to: 4, content: "  " }, // 空内容被过滤
+      { from: 2, to: 4, content: "  " },
       { from: 4, to: 6, content: "丙" }
     ]);
     const second = getReadingSubtitleItems();
@@ -269,10 +235,6 @@ describe("getReadingSubtitleItems：按引用缓存", () => {
   });
 });
 
-// opt-backlog-2026-09/04：字幕落账不再预建 markdown/SRT/TXT，首次消费时经
-// ensureDerivedContent 构建并缓存。锁三件事：缓存命中零重建（消费点不再每
-// 次全文遍历）、输入（body/settings/元信息）变化即失效重建（不拿旧派生）、
-// 懒生成产物与裸重建逐字节一致。
 describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
   const BODY = [
     { from: 0, to: 2, content: "甲" },
@@ -418,7 +380,6 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     await refreshHotComments({ refreshComments: true });
 
     expect(state.clip.hotComments).toEqual([]);
-    // 热评的消费方是概览，失败提示写给概览 tab 的 hotCommentsNotice
     expect(state.clip.hotCommentsNotice).toContain("热评没拿到");
     expect(state.clip.hotCommentsNotice).toContain("B 站风控校验失败（-352）");
   });
@@ -447,8 +408,6 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
   });
 });
 
-// 票 07 Q4：字幕 tab 空态只跟随 reason（病因 + 补救，**不带基础句、不带详情行**），
-// 与状态栏/概览的排版约束不同——这是占位块，基础句已在标题行语义里。
 describe("getReadingSubtitlePlaceholderText：空态跟随 reason", () => {
   it("loading / error：维持原有文案", () => {
     state.clip.setSubtitleFetchState("loading");

@@ -1,6 +1,3 @@
-// tests/entry/toggle-reader-command.test.ts
-// 全局快捷键 toggle-reader（manifest commands → SW onCommand → content reader-toggle）。
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,7 +126,6 @@ describe("content 端 reader-toggle 处理器：开/关双向切换", () => {
     const { state } = await import("../../extension/core/state.js");
     const { dispatchContentScriptMessage } = await import("../../extension/entry/message-handler.js");
 
-    // 1. 初始关闭态 → 展开
     state.reader.setViewOpen(false);
     const openResp = await new Promise<Record<string, unknown>>((resolve) => {
       dispatchContentScriptMessage(
@@ -143,7 +139,6 @@ describe("content 端 reader-toggle 处理器：开/关双向切换", () => {
       intent: "open"
     });
 
-    // 2. 已展开态 → 收起
     state.reader.setViewOpen(true);
     const closeResp = await new Promise<Record<string, unknown>>((resolve) => {
       dispatchContentScriptMessage(

@@ -1,5 +1,3 @@
-// IndexedDB v2 升级、AI 派生产物迁入、Origin 隔离 SW RPC、先写后删迁移与视频级联动清理单元测试
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
@@ -305,7 +303,6 @@ describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
     const { factory, databases } = createVersionedFakeIdbFactory();
     const dbName = "biliscript-upgrade-test";
 
-    // 预置 v1 数据库（仅有 subtitle_pages + by_lastUsed 及一条历史字幕记录）
     databases.set(dbName, {
       version: 1,
       stores: new Map([
@@ -344,7 +341,6 @@ describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
 
     const store = createSubtitleIdbStore({ indexedDB: factory, dbName });
 
-    // 读取历史 v1 数据触发 v1 → v2 升级
     const legacyTrack = await store.getRawTrack("BV1hist", "100", "id_cc1");
     expect(legacyTrack).toEqual([{ from: 0, to: 2, content: "历史字幕保留验证" }]);
 
@@ -393,16 +389,13 @@ describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
       }
     });
 
-    // BV1a 有 2 段 summary，BV1b 有 1 段 summary，同时 BV1b 有 1 条 l1 索引
     await store.putAiArtifact({ key: "biliscript_lvs_summary_BV1a_1_id_s_1", payload: "a1" });
     await store.putAiArtifact({ key: "biliscript_lvs_summary_BV1a_1_id_s_2", payload: "a2" });
     await store.putAiArtifact({ key: "biliscript_lvs_summary_BV1b_1_id_s_1", payload: "b1" });
     await store.putAiArtifact({ key: "biliscript_lvs_l1_index_BV1b_1_id_s_sig", payload: { ok: true } });
 
-    // 读命中 BV1a 刷新其 lastUsedAt，最旧变为 BV1b
     await store.getAiArtifact("biliscript_lvs_summary_BV1a_1_id_s_1");
 
-    // 写入第 3 个视频 BV1c → 淘汰 BV1b 的 summary，但保留 BV1a 两段与 BV1b 的 l1 索引
     const writeC = await store.putAiArtifact({ key: "biliscript_lvs_summary_BV1c_1_id_s_1", payload: "c1" });
     expect(writeC.ok).toBe(true);
     expect(writeC.evictedKeys).toEqual(["biliscript_lvs_summary_BV1b_1_id_s_1"]);
@@ -469,7 +462,6 @@ describe("Origin 隔离与内容脚本 SW RPC（禁止网页源直连 indexedDB�
     expect(await remoteStore.getAiArtifact(finalKey)).toMatchObject({ payload: analysis });
     expect(await remoteStore.getAiArtifact(l1Key)).toMatchObject({ payload: l1 });
 
-    // clearVideoCache 也经 SW RPC clear-video 清理远端 store
     const cleared = await clearVideoCache("BV1rpc001");
     expect(cleared.removedArtifactKeys.sort()).toEqual([finalKey, l1Key].sort());
     expect(await remoteStore.listAiArtifactsByBvid("BV1rpc001")).toEqual([]);
@@ -507,7 +499,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
       [summaryIdxKey]: { ts: 12345 }
     });
 
-    // 1) IDB 写失败 → 优雅返回旧数据，但严禁删除旧键或分键索引
     store.setWriteInterceptorForTests(() => {
       throw new Error("IDB quota failure");
     });
@@ -519,7 +510,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
     expect(chromeHost.hasEntry(summaryKey)).toBe(true);
     expect(chromeHost.hasEntry(summaryIdxKey)).toBe(true);
 
-    // 2) IDB 恢复可写 → 成功写入 IDB 后清理旧键与分键索引
     store.setWriteInterceptorForTests(null);
     expect(await loadAnalysisFinal(finalKey)).toEqual(analysis);
     expect(await loadSegmentSummary(summaryKey)).toBe("旧分段小结");
@@ -531,7 +521,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
     expect(await store.getAiArtifact(finalKey)).toMatchObject({ payload: analysis });
     expect(await store.getAiArtifact(summaryKey)).toMatchObject({ payload: "旧分段小结" });
 
-    // 3) 再次读取命中 IDB，零 storage.local.get
     chromeHost.local.get.mockClear();
     expect(await loadAnalysisFinal(finalKey)).toEqual(analysis);
     expect(await readCachedClipOverviewArtifacts(clipInput)).toBeDefined();
@@ -584,7 +573,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
       savedConversations: [{ id: "conv-keep" }]
     });
 
-    // 第一次迁移：注入 summaryKey 写入失败，模拟中途异常
     store.setWriteInterceptorForTests((ctx) => {
       if (ctx.key === summaryKey) {
         throw new Error("simulated crash on summaryKey");
@@ -595,14 +583,11 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
     expect(first.skipped).toBe(false);
     expect(first.completed).toBe(false);
     expect(first.failedKeys).toEqual([summaryKey]);
-    // 失败键仍保留在 storage.local，未落完成标记
     expect(chromeHost.hasEntry(summaryKey)).toBe(true);
     expect(chromeHost.hasEntry(STORAGE_TO_IDB_MIGRATION_DONE_KEY)).toBe(false);
-    // 已成功批次已完成先写后删
     expect(chromeHost.hasEntry(l1Key)).toBe(false);
     expect(await store.getAiArtifact(l1Key)).toMatchObject({ payload: l1Record });
 
-    // 第二次续跑：恢复写入 → 迁完剩余键、清理清单与孤儿索引、落完成标记
     store.setWriteInterceptorForTests(null);
     const second = await migrateLegacyLocalStorageToIdb({ store, batchSize: 2, now: () => 10000 });
     expect(second.skipped).toBe(false);
@@ -614,7 +599,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
     expect(await store.getAiArtifact(summaryKey)).toMatchObject({ payload: "小结迁移" });
     expect(await store.getRawTrack("BV1mig1", "11", "id_s1")).toEqual([{ from: 0, to: 3, content: "遗留字幕迁移" }]);
 
-    // 所有旧缓存键、废弃 raw 键与 LRU 清单均已清理；无关业务键原样保留
     expect(chromeHost.hasEntry(summaryKey)).toBe(false);
     expect(chromeHost.hasEntry(subKey)).toBe(false);
     expect(chromeHost.hasEntry(rawObsoleteKey)).toBe(false);
@@ -622,7 +606,6 @@ describe("先写后删懒迁移与启动/更新分批幂等迁移", () => {
     expect(chromeHost.map.get("savedConversations")).toEqual([{ id: "conv-keep" }]);
     expect(chromeHost.map.get(STORAGE_TO_IDB_MIGRATION_DONE_KEY)).toEqual({ version: 2, completedAt: 10000 });
 
-    // 第三次运行：命中完成标记，零扫描直接跳过
     chromeHost.local.getKeys.mockClear();
     const third = await migrateLegacyLocalStorageToIdb({ store, batchSize: 2 });
     expect(third.skipped).toBe(true);
@@ -645,7 +628,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
       }
     });
 
-    // BV1multi 有 p1、p2 两分 P；BV1solo 仅有 s1 一分 P
     await store.putRawTrack({ bvid: "BV1multi", cid: "p1", trackKey: "id_1", items: [{ from: 0, to: 1, content: "m1" }] });
     await store.putRawTrack({ bvid: "BV1solo", cid: "s1", trackKey: "id_1", items: [{ from: 0, to: 1, content: "s1" }] });
     await store.putRawTrack({ bvid: "BV1multi", cid: "p2", trackKey: "id_1", items: [{ from: 0, to: 1, content: "m2" }] });
@@ -654,7 +636,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
     await store.putAiArtifact({ key: "biliscript_lvs_l1_index_BV1multi_p2_id_1_sig", payload: { ok: 2 } });
     await store.putAiArtifact({ key: "biliscript_lvs_analysis_final_BV1solo_s1_id_1_sig", payload: { ok: 3 } });
 
-    // 写入第 4 个分 P → 淘汰最旧的 BV1multi:p1，但 BV1multi:p2 仍在 subtitle_pages 中，故不删 BV1multi 的 AI 产物
     const evict1 = await store.putRawTrack({
       bvid: "BV1newA",
       cid: "a1",
@@ -665,7 +646,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
     expect(evict1.evictedArtifactKeys).toBeUndefined();
     expect(await store.listAiArtifactsByBvid("BV1multi")).toHaveLength(2);
 
-    // 写入第 5 个分 P → 淘汰 BV1solo:s1（唯一分 P）→ 联动删除 BV1solo 全部 AI 产物
     const evict2 = await store.putRawTrack({
       bvid: "BV1newB",
       cid: "b1",
@@ -676,7 +656,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
     expect(evict2.evictedArtifactKeys).toEqual(["biliscript_lvs_analysis_final_BV1solo_s1_id_1_sig"]);
     expect(await store.listAiArtifactsByBvid("BV1solo")).toEqual([]);
 
-    // 写入第 6 个分 P → 淘汰 BV1multi:p2（此时 BV1multi 已无剩余分 P）→ 联动删除 BV1multi 全部 AI 产物
     const evict3 = await store.putRawTrack({
       bvid: "BV1newC",
       cid: "c1",
@@ -696,7 +675,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
     const store = createSubtitleIdbStore({ indexedDB: null });
     configureSubtitleCacheStoreForTests(store);
 
-    // 预置 BV1clr 的 p1 与 p2 以及无关视频 BV1other
     await saveRawSubtitleTrack({ bvid: "BV1clr", cid: "p1", trackKey: "id_1", items: [{ from: 0, to: 2, content: "p1" }] });
     await saveRawSubtitleTrack({ bvid: "BV1clr", cid: "p2", trackKey: "id_1", items: [{ from: 0, to: 2, content: "p2" }] });
     await saveRawSubtitleTrack({ bvid: "BV1other", cid: "o1", trackKey: "id_1", items: [{ from: 0, to: 2, content: "o1" }] });
@@ -732,13 +710,11 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
       [legacyOther]: { summary: "old other", timestamp: 1 }
     });
 
-    // 1) 单分 P 清理：仅清 BV1clr:p1，保留 BV1clr:p2 与 BV1other
     const resP1 = await clearVideoCache("BV1clr", "p1");
     expect(resP1.removedPageIds).toEqual(["BV1clr:p1"]);
     expect(resP1.removedArtifactKeys).toEqual([l1KeyP1]);
     expect(resP1.removedLegacyKeys.sort()).toEqual([legacyP1Idx, legacyP1].sort());
 
-    // 推进定时器确认被取消的 p1 防抖译文绝不再写盘
     await vi.advanceTimersByTimeAsync(2000);
     expect(await store.getPageRecord("BV1clr", "p1")).toBeNull();
     expect(await loadL1Index(l1KeyP1)).toBeNull();
@@ -746,7 +722,6 @@ describe("视频级联动清理（多 P 防误删与 clearVideoCache 全清）",
     expect(await loadL1Index(l1KeyP2)).toEqual(l1P2);
     expect(chromeHost.hasEntry(legacyP2)).toBe(true);
 
-    // 2) 整视频清理：清掉 BV1clr 全部剩余分 P 与产物，不影响 BV1other
     const resAll = await clearVideoCache("BV1clr");
     expect(resAll.removedPageIds).toEqual(["BV1clr:p2"]);
     expect(resAll.removedArtifactKeys).toEqual([l1KeyP2]);

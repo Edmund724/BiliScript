@@ -1,17 +1,6 @@
-// 构建图「种子产物不得含禁区」判据（scripts/build-guards.js 的 findForbiddenInputs）：
-// build.js 的 ladder chunk 守卫与 build-content.js 的 reader 装载图守卫共用这一份判定。
-// 判定收进零依赖叶之后，首次可由合成 metafile 驱动——不必跑真实构建、也不必断言两份
-// 脚本正文里的循环字面量。
-//
-// 锁三件事：
-//   1. 被检产物（模块图含种子）命中禁区即报违例，hits 保持禁区书写顺序；
-//   2. 不含种子的产物不参与判定（别的 chunk 静态引用禁区不算本守卫的违例）；
-//   3. 产物扩展名过滤生效（ladder chunk 看 .js、reader 轮 B 看 .mjs）。
-
 import { describe, expect, it } from "vitest";
 import { findForbiddenInputs } from "../../scripts/build-guards.js";
 
-// 与 build.js 的 LADDER_CHUNK_FORBIDDEN_INPUTS 同形（本用例只驱动判据本身，不复制清单）。
 const FORBIDDEN = ["notes/render.ts", "subtitle/selection.ts", "core/cache-lru.ts"];
 
 type Meta = {

@@ -1,8 +1,3 @@
-// 「取体」深 module（subtitle/body.ts）的直驱测试。
-//
-// 本模块脱离 core/state、core/ui-status 与 bilibili/gateway，通过参数显式注入
-// 视频身份、JsonTransport、活跃校验与写失败回调。
-
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { CacheWriteError } from "../../extension/core/cache-lru.js";
@@ -20,12 +15,10 @@ vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
   };
 });
 
-// videoDuration=300 的合规体（覆盖率门槛 0.22 ⇒ maxTo ≥ 66）
 const GOOD_BODY = [
   { from: 0, to: 1.2, content: "First" },
   { from: 1.5, to: 290, content: "Second" }
 ];
-// 过短体：maxTo=10 < 66 ⇒ too-short
 const TOO_SHORT_BODY = [{ from: 0, to: 10, content: "过短" }];
 const TRACK: SubtitleTrack = {
   id: "sub-en",

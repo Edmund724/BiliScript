@@ -1,12 +1,3 @@
-// offscreen.js 对话链会话头穿线测试（Opencode Go 的 x-opencode-session，见
-// ai/preset-headers.ts）：宿主随 chat 消息带的 conversationId 经
-// runLadderChat → streamChat → chatCompletion 抵达唯一 fetch 点，转成会话头；
-// 同一会话的请求共用同一个 id，新会话换新 id，未携带时也不缺该头（现造一个）。
-//
-// 不 mock ladder（真链路），只 stub globalThis.fetch 与 chrome.runtime.sendMessage。
-// chrome 依赖 mock 与「vi.resetModules + 动态导入 = 文档纪元」手法沿
-// offscreen-chat-presetid.test.js。
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
@@ -127,14 +118,11 @@ describe("offscreen 对话链会话头穿线", () => {
     for (const [url] of fetchMock.mock.calls) {
       expect(url).toBe(`${BASE_URL}/chat/completions`);
     }
-    // 同一会话的两轮共用同一个会话 id（平台据此做路由与 prompt 缓存）
     expect(headers[0]["x-opencode-session"]).toMatch(UUID_V4);
     expect(headers[1]["x-opencode-session"]).toBe(headers[0]["x-opencode-session"]);
     expect(headers[2]["x-opencode-session"]).not.toBe(headers[0]["x-opencode-session"]);
-    // 旧宿主不携带 conversationId 也不缺该头（preset-headers 现造一个随机 id）
     expect(headers[3]["x-opencode-session"]).toMatch(UUID_V4);
     expect(headers[3]["x-opencode-session"]).not.toBe(headers[0]["x-opencode-session"]);
-    // 鉴权头不受影响
     expect(headers[0].Authorization).toBe("Bearer test-key");
   });
 });

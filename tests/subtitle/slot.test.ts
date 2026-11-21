@@ -32,12 +32,8 @@ const SECONDARY_IDENTITY = {
   url: "https://i0.hdslb.com/en.json"
 };
 
-/**
- * 辅助函数：将 clipState 中与业务相关的字段做浅快照，用于结构性对账
- */
 function captureClipSnapshot() {
   return {
-    // 主轨槽与抓取态
     selectedSubtitleId: clipState.selectedSubtitleId,
     selectedSubtitleUrl: clipState.selectedSubtitleUrl,
     selectedSubtitleLang: clipState.selectedSubtitleLang,
@@ -46,7 +42,6 @@ function captureClipSnapshot() {
     noSubtitleReason: clipState.noSubtitleReason,
     noSubtitleDetail: clipState.noSubtitleDetail,
 
-    // 副轨槽
     secondarySubtitle: {
       id: clipState.secondarySubtitle.id,
       url: clipState.secondarySubtitle.url,
@@ -54,12 +49,10 @@ function captureClipSnapshot() {
       state: clipState.secondarySubtitle.state
     },
 
-    // 派生三件套
     markdown: clipState.markdown,
     srt: clipState.srt,
     txt: clipState.txt,
 
-    // 视频元数据与其它无关字段（结构对账守卫：确保不被 slot 动词误碰）
     bvid: clipState.bvid,
     aid: clipState.aid,
     cid: clipState.cid,
@@ -71,9 +64,6 @@ function captureClipSnapshot() {
   };
 }
 
-/**
- * 计算两个快照之间发生变更的键集合
- */
 function diffSnapshotKeys(
   before: ReturnType<typeof captureClipSnapshot>,
   after: ReturnType<typeof captureClipSnapshot>
@@ -99,9 +89,6 @@ function diffSnapshotKeys(
   return changed.sort();
 }
 
-/**
- * 为 clipState 注入一批脏数据（包含槽字段与元数据字段）
- */
 function seedDirtyClipState() {
   clipState.setBvid("BV1dirty000");
   clipState.setAid("123456");
@@ -136,7 +123,6 @@ beforeEach(() => {
 describe("extension/subtitle/slot", () => {
   describe("结构性特征对账：clearAllForVideoSwitch 清除字段为 install（主轨）与 installSecondary（副轨）写入字段的并集", () => {
     it("install 写入字段集合与 installSecondary 写入字段集合无重叠，clearAllForVideoSwitch 清除字段恰为二者并集（默认 keepFetchState: false）", () => {
-      // 1. 测试 install 写入的字段集合
       clipState.setSelectedSubtitleId("initial-id");
       clipState.setSelectedSubtitleUrl("initial-url");
       clipState.setSelectedSubtitleLang("initial-lang");
@@ -150,7 +136,6 @@ describe("extension/subtitle/slot", () => {
       const afterInstall = captureClipSnapshot();
       const installChangedKeys = diffSnapshotKeys(beforeInstall, afterInstall);
 
-      // install 仅写入主轨 selected 三项、body、fetchState(ready)、并清空 noSubtitleReason/Detail
       expect(installChangedKeys).toEqual([
         "noSubtitleDetail",
         "noSubtitleReason",
@@ -161,16 +146,13 @@ describe("extension/subtitle/slot", () => {
         "subtitleFetchState"
       ]);
 
-      // 2. 测试 installSecondary 写入的字段集合
       const beforeSec = captureClipSnapshot();
       installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
       const afterSec = captureClipSnapshot();
       const installSecChangedKeys = diffSnapshotKeys(beforeSec, afterSec);
 
-      // installSecondary 仅写入 secondarySubtitle
       expect(installSecChangedKeys).toEqual(["secondarySubtitle"]);
 
-      // 3. 计算二者并集
       const unionKeys = Array.from(new Set([...installChangedKeys, ...installSecChangedKeys])).sort();
       expect(unionKeys).toEqual([
         "noSubtitleDetail",
@@ -183,17 +165,14 @@ describe("extension/subtitle/slot", () => {
         "subtitleFetchState"
       ]);
 
-      // 4. 测试 clearAllForVideoSwitch 清除字段
       seedDirtyClipState();
       const beforeClear = captureClipSnapshot();
       clearAllForVideoSwitch();
       const afterClear = captureClipSnapshot();
       const clearChangedKeys = diffSnapshotKeys(beforeClear, afterClear);
 
-      // 严格对账：清除的字段全集恰为 install ∪ installSecondary
       expect(clearChangedKeys).toEqual(unionKeys);
 
-      // 验证各个被清除字段的落定值
       expect(clipState.selectedSubtitleId).toBe("");
       expect(clipState.selectedSubtitleUrl).toBe("");
       expect(clipState.selectedSubtitleLang).toBe("");
@@ -203,7 +182,6 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.noSubtitleDetail).toBe("");
       expect(clipState.secondarySubtitle).toEqual(emptySecondarySubtitle());
 
-      // 验证元数据、热评、章节、派生文本等无关字段未被清空或篡改（由 fetcher/resetClipState 其余部分分别维护）
       expect(clipState.bvid).toBe("BV1dirty000");
       expect(clipState.title).toBe("测试脏视频标题");
       expect(clipState.author).toBe("测试脏UP主");
@@ -223,7 +201,6 @@ describe("extension/subtitle/slot", () => {
       const afterClear = captureClipSnapshot();
       const clearChangedKeys = diffSnapshotKeys(beforeClear, afterClear);
 
-      // keepFetchState 分支下，变动集合恰为 并集 \ { "subtitleFetchState" }
       expect(clearChangedKeys).toEqual([
         "noSubtitleDetail",
         "noSubtitleReason",
@@ -247,7 +224,6 @@ describe("extension/subtitle/slot", () => {
 
   describe("05 票副轨隔离不变量：clearToEmpty 仅将主轨置为 empty，副轨槽保持原样不变", () => {
     it("clearToEmpty 显式指定 reason 时，重置主轨字段与 reason，绝对不影响副轨槽内容与状态", () => {
-      // 预置主轨已就绪，副轨也已就绪
       install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
       installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
 
@@ -255,7 +231,6 @@ describe("extension/subtitle/slot", () => {
 
       clearToEmpty("asr-disabled");
 
-      // 主轨字段清空
       expect(clipState.selectedSubtitleId).toBe("");
       expect(clipState.selectedSubtitleUrl).toBe("");
       expect(clipState.selectedSubtitleLang).toBe("");
@@ -263,7 +238,6 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.subtitleFetchState).toBe("empty");
       expect(clipState.noSubtitleReason).toBe("asr-disabled");
 
-      // 副轨字段完全原样保留
       expect(clipState.secondarySubtitle).toEqual(secondaryBefore);
       expect(clipState.secondarySubtitle.id).toBe("sub-en-2");
       expect(clipState.secondarySubtitle.url).toBe("https://i0.hdslb.com/en.json");
@@ -297,7 +271,6 @@ describe("extension/subtitle/slot", () => {
 
   describe("隔离不变量：副轨动词绝不触碰主轨状态", () => {
     it("installSecondary 写入副轨不改变主轨 selected 三项、subtitleFetchState 与 noSubtitle*", () => {
-      // 预置主轨状态
       install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
       clipState.setNoSubtitleDetail("detail-preserved");
 
@@ -311,7 +284,6 @@ describe("extension/subtitle/slot", () => {
 
       installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
 
-      // 主轨全项分毫不动
       expect(clipState.selectedSubtitleId).toBe(primarySelectedId);
       expect(clipState.selectedSubtitleUrl).toBe(primarySelectedUrl);
       expect(clipState.selectedSubtitleLang).toBe(primarySelectedLang);
@@ -320,7 +292,6 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.noSubtitleReason).toBe(primaryReason);
       expect(clipState.noSubtitleDetail).toBe(primaryDetail);
 
-      // 副轨槽写入成功
       expect(clipState.secondarySubtitle.id).toBe("sub-en-2");
       expect(clipState.secondarySubtitle.url).toBe("https://i0.hdslb.com/en.json");
       expect(clipState.secondarySubtitle.body).toEqual(SAMPLE_BODY_B);
@@ -340,7 +311,6 @@ describe("extension/subtitle/slot", () => {
         body: [],
         state: "loading"
       });
-      // 主轨保持 ready 与原有身份
       expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
       expect(clipState.subtitleFetchState).toBe("ready");
     });

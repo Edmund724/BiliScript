@@ -1,10 +1,3 @@
-// subtitle/cache.js ASR 孤儿清理测试：
-// (d) clearStaleAsrSubtitleCache 只删除同 (bvid, cid) 的过期 ASR 变体键
-//     （不同 provider/model/language），平台字幕轨（track / url / lang 三态身份）
-//     与其它视频一律不动；keepKey（本轮刚写入的变体）保留。
-// 期望键由字幕轨身份构造（subtitle/source-key 的编码单点），不再手抄 "asr:..." 字面量。
-// 同时覆盖 subtitle/cache.js 与统一 LRU 的接线：写失败先淘汰重试、最终失败返回 { ok:false }。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
@@ -15,7 +8,6 @@ let storage: ChromeHost;
 
 const BODY = [{ from: 0, to: 5, content: "字幕" }];
 
-// 期望键的驱动口：身份（而非三个散字段）进缓存键入口。
 function cacheKey(bvid: string, cid: string, identity: TrackIdentity) {
   return cache.getSubtitleCacheKey({ bvid, cid, identity });
 }
@@ -60,11 +52,9 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     expect(storage.map.has(keepKey)).toBe(true);
     expect(storage.map.has(staleAsr1)).toBe(false);
     expect(storage.map.has(staleAsr2)).toBe(false);
-    // 平台字幕轨不是孤儿：id / url / lang 三种 source key 全保留
     expect(storage.map.has(platformId)).toBe(true);
     expect(storage.map.has(platformUrl)).toBe(true);
     expect(storage.map.has(platformLang)).toBe(true);
-    // 其它视频的 ASR 变体不动
     expect(storage.map.has(otherVideoAsr)).toBe(true);
   });
 
@@ -151,8 +141,6 @@ describe("saveSubtitleToCache 与 IndexedDB LRU 的接线", () => {
   });
 });
 
-// 译文副轨失效：译文键不含原文身份（`id_translate-<lang>` 是已落盘缓存的兼容面），
-// 新一版转写落盘后同一目标语言会命中旧原文的译文——必须整体作废。
 describe("clearTranslatedSubtitleCache：新转写落盘后旧译文整体作废", () => {
   it("删除同视频的 translate-* 键，保留平台轨 / ASR 变体 / 其它视频", async () => {
     const translatedEn = cacheKey("BV1t", "3", { kind: "track", trackId: "translate-en" });

@@ -1,21 +1,7 @@
-// context-payload 形状单源回归测试：
-// - computeContextStateSignature：签名字段覆盖 对话侧 消费的全部可变状态，
-//   且对 url/title/hotComments 等非判定字段免疫；
-// - createReaderContextPayload：组装映射与缺省/归一化口径；
-// - 消费方对账锚点：对话侧读取的快照字段 ⊆ payload ∪ 附加层字段（源码静态
-//   扫描）。
-// （原 reader-get-context 处理器回归随该处理器退役——消息链策略与消息本身
-// 已删，见 ticket arch-slim-4/01；签名语义由 context-payload 纯函数测试与
-// context-inprocess.test.js 的进程内链契约覆盖。）
-// mock 模式：重依赖全 mock，state 走真实模块，单纪元导入。（arch-slim-2/09：
-// 测试随 message-handler 自 tests/core/ 迁 tests/entry/。）
-
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// 原 core/runtime.js 的三个符号已按职责拆分：startUrlWatcher / BILISCRIPT_URL_CHANGE_EVENT
-// 在 core/url-watcher.js，replaceReaderModeUrl 在 bilibili/reader-url.js。
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn()
 }));
@@ -24,7 +10,6 @@ vi.mock("../../extension/bilibili/reader-url.js", () => ({
 }));
 vi.mock("../../extension/bilibili/video-probe.js", () => ({
   getRuntimeVideoElement: vi.fn(() => null),
-  // ADR-0017 修订：元数据等待叶子出装配根后，message-handler 静态 import 它。
   waitForVideoMetadata: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/ui.js", () => ({}));
@@ -33,8 +18,6 @@ vi.mock("../../extension/subtitle/fetcher.js", () => ({
   loadSubtitle: vi.fn(async () => {}),
   resetClipState: vi.fn()
 }));
-// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js；ensureUiReady 迁入
-// ui/lazy-ui.js；renderReadingStatus 迁入 reader/lazy-reader-presentation.js。
 vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn()
 }));
@@ -43,7 +26,6 @@ vi.mock("../../extension/ui/lazy-ui.js", () => ({
 }));
 vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
   renderReadingStatus: vi.fn(async () => {}),
-  // 错误路径的浮空播报包装（真实实现吞错，mock 同为空实现）
   announceReadingStatus: vi.fn()
 }));
 vi.mock("../../extension/ai/player-ai.js", () => ({
@@ -83,7 +65,6 @@ import {
 } from "../../extension/core/context-payload.js";
 import { state, type ClipState } from "../../extension/core/state.js";
 
-// chrome-types.d.ts 的 OnMessage 监听器形状（message/sender/sendResponse）。
 type OnMessageListener = (
   message: unknown,
   sender: unknown,
@@ -101,7 +82,6 @@ vi.stubGlobal("chrome", {
 
 bindRuntimeEvents();
 
-// 组一份「就绪」状态的 clip：字段覆盖签名判定矩阵
 function seedReadyClip() {
   state.clip.setBvid("BV1sig");
   state.clip.setAid("9");
@@ -136,22 +116,18 @@ describe("computeContextStateSignature 纯函数", () => {
   it("签名覆盖字段逐一变化 → 签名变化", () => {
     const base = computeContextStateSignature(buildPayload());
 
-    // subtitleBody 长度
     state.clip.setSubtitleBody([{ from: 0, to: 5, content: "第一句" }]);
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
 
-    // subtitleFetchState（ASR 转写完成 → 就绪的关键信号）
     state.clip.setSubtitleFetchState("loading");
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
 
-    // selectedSubtitleId
     state.clip.setSelectedSubtitleId("s2");
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
 
-    // subtitleOptions 数量
     state.clip.setSubtitles([
       { id: "s1", subtitleUrl: "u1", lan: "zh" },
       { id: "s2", subtitleUrl: "u2", lan: "en" }
@@ -159,17 +135,14 @@ describe("computeContextStateSignature 纯函数", () => {
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
 
-    // chapters 数量
     state.clip.setChapters([{ title: "开场", from: 0, to: 60 }]);
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
 
-    // includeTimestampInBody（设置项变化）
     state.setSettings({ ...state.settings!, includeTimestampInBody: false });
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     state.setSettings({ ...state.settings!, includeTimestampInBody: true });
 
-    // bvid / cid / pageIndex / subtitleLang
     state.clip.setBvid("BV1other");
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
     seedReadyClip();
@@ -203,7 +176,6 @@ describe("computeContextStateSignature 纯函数", () => {
     const payload = buildPayload();
     payload.url = "https://www.bilibili.com/video/BV1sig/?p=9&t=1";
     payload.hotComments = [{ uname: "u", like: 1, message: "m" }];
-    // 数组内容变但长度不变：索引型数组只取长度（与 对话侧 contextKey 去重语义一致）
     payload.subtitleBody = [
       { from: 0, to: 5, content: "完全不同的内容" },
       { from: 5, to: 9, content: "另一条不同的内容" }
@@ -212,19 +184,6 @@ describe("computeContextStateSignature 纯函数", () => {
   });
 });
 
-// ============================================================
-// context-payload 形状单源（补齐模块头注承诺的形状锁死断言）
-//
-// 覆盖四类对账：
-//   1. 形状快照：payload 字段集合/顺序锁死——未过测试不得增删字段；
-//   2. 签名三分类（参与/间接/排除）与字段清单的完备性 + 与签名实现的一致性；
-//   3. 组装映射：工厂对 state 输入的逐字段映射与缺省/归一化口径；
-//   4. 消费方对账锚点：sidepanel 侧读取的快照字段 ⊆ payload ∪ 附加层字段。
-// ============================================================
-
-// —— 手写期望固件：改动以上任一清单都必须显式过这里的逐字断言 ——
-
-// AiContext 快照全量 payload 的字段清单（顺序 = 工厂组装序）
 const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
   "url",
   "title",
@@ -249,8 +208,6 @@ const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
   "hotComments"
 ];
 
-// —— 组装映射固件：字段名映射注意 subtitleLang ← clip.selectedSubtitleLang、
-//    subtitleOptions ← clip.subtitles（payload 与 clip 的字段名不同名）——
 const FULL_CLIP = {
   title: "映射测试视频",
   author: "某位UP主",
@@ -277,7 +234,6 @@ const FULL_CLIP = {
 const FULL_SETTINGS = { includeTimestampInBody: true };
 const FULL_URL = "https://www.bilibili.com/video/BV1map/?p=3";
 
-// 与 FULL_CLIP/FULL_SETTINGS/FULL_URL 对应的期望 payload（全字段）
 const EXPECTED_FULL_PAYLOAD: Record<string, unknown> = {
   url: FULL_URL,
   title: "映射测试视频",
@@ -293,7 +249,6 @@ const EXPECTED_FULL_PAYLOAD: Record<string, unknown> = {
   videoDuration: 754.5,
   includeTimestampInBody: true,
   subtitleFetchState: "ready",
-  // "" || null → null：空串归一为 null（未知/未归类）
   noSubtitleReason: null,
   subtitleLang: "zh-CN",
   selectedSubtitleId: "s9",
@@ -303,11 +258,6 @@ const EXPECTED_FULL_PAYLOAD: Record<string, unknown> = {
   hotComments: []
 };
 
-// 组 payload 供签名测试：工厂直读当下 state（不重置——用例先 seed/扰动再
-// buildPayload，内置 seed 会抹掉扰动）。原「经 reader-get-context 处理器组
-// payload」随处理器退役（ticket arch-slim-4/01）；签名键/排除语义由
-// context-payload 单源覆盖，线上组装点（message-handler bindUrlChangeHandler /
-// context-assembly 进程内链）喂同一工厂。
 function buildPayload() {
   return createReaderContextPayload({
     clip: state.clip,
@@ -316,9 +266,6 @@ function buildPayload() {
   });
 }
 
-// 纯函数块的基础 payload：直接经工厂组（不经处理器），只依赖单源模块
-// FULL_CLIP 有意夹带「未归一化输入」（noSubtitleReason 空串/原始字符串态），
-// 强转仅为通过 Partial<ClipState> 入参面——取值与断言对象就是归一化行为本身。
 function makeFullPayload() {
   return createReaderContextPayload({
     clip: FULL_CLIP as Partial<ClipState>,
@@ -357,7 +304,6 @@ describe("context-payload 形状快照与签名三分类对账", () => {
 
   it("排除清单逐字段机械遍历：实质扰动 → 签名不变", () => {
     const base = computeContextStateSignature(makeFullPayload());
-    // 每个排除字段一个「穿透普通等值比较」的实质扰动值（数组换内容、字符串换值）
     const mutations: Record<string, unknown> = {
       hotComments: [{ uname: "评论者", like: 1, message: "热评内容" }],
       url: "https://www.bilibili.com/video/BV1map/?p=3&t=9",
@@ -368,7 +314,6 @@ describe("context-payload 形状快照与签名三分类对账", () => {
       pageTitle: "另一话标题",
       videoDuration: 12345,
       selectedSubtitleUrl: "https://subtitle/9?alt=signed",
-      // 基础 payload 里为 null（"" || null），扰动为非空原因
       noSubtitleReason: "asr-unknown"
     };
     expect(Object.keys(mutations).sort()).toEqual([...SIGNATURE_EXCLUDED_FIELDS].sort());
@@ -384,9 +329,7 @@ describe("context-payload 形状快照与签名三分类对账", () => {
 
   it("间接字段 aid：cid 在场时签名不变；cid 缺席时经回退投影生效", () => {
     const base = computeContextStateSignature(makeFullPayload());
-    // cid 非空：aid 自身变化不独立驱动签名
     expect(computeContextStateSignature({ ...makeFullPayload(), aid: "100" })).toBe(base);
-    // cid 为空：aid 经 cid 投影回退进入签名
     const withoutCid = { ...makeFullPayload(), cid: "" };
     const byAid99 = computeContextStateSignature(withoutCid);
     expect(computeContextStateSignature({ ...withoutCid, aid: "100" })).not.toBe(byAid99);
@@ -395,8 +338,6 @@ describe("context-payload 形状快照与签名三分类对账", () => {
   it("参与字段逐字段机械遍历：按投影语义扰动 → 签名变化", () => {
     const full = makeFullPayload();
     const base = computeContextStateSignature(full);
-    // 扰动值必须穿透该字段的投影语义：索引型数组（只取长度）用「追加元素」，
-    // 归一化标量（trim/Number/!==false）用归一化后不同的值
     const mutations: Record<string, unknown> = {
       bvid: "BV1other",
       cid: "202",
@@ -445,8 +386,6 @@ describe("createReaderContextPayload 组装映射", () => {
   });
 
   it("无参/空 clip：全字段落到缺省口径", () => {
-    // settings 缺省 → includeTimestampInBody 按 !== false 判 true；url 由调用方
-    // 注入，无参时原样透传 undefined。
     const payload = createReaderContextPayload();
     const expected: Record<string, unknown> = {
       url: undefined,
@@ -477,17 +416,12 @@ describe("createReaderContextPayload 组装映射", () => {
   });
 
   it("归一化分支：pageIndex/pageCount/videoDuration 的 Number 归一与缺省回退", () => {
-    // 用例有意喂「契约外取值」（字符串数字/非法数值）锁定运行时归一化，入参
-    // 只能按 any 标注（Partial<ClipState> 会在编译期拒收这些扰动值）。
     const build = (clip: any) => createReaderContextPayload({ clip, settings: {}, url: "u" });
-    // pageIndex：>0 才收（字符串数字收为 number），否则回退 1
     expect(build({ pageIndex: "3" }).pageIndex).toBe(3);
     expect(build({ pageIndex: 0 }).pageIndex).toBe(1);
     expect(build({ pageIndex: -2 }).pageIndex).toBe(1);
-    // pageCount：>0 才收，否则 0（与 pageIndex 的回退方向不同：0 表「无分 P 信息」）
     expect(build({ pageCount: "5" }).pageCount).toBe(5);
     expect(build({ pageCount: -1 }).pageCount).toBe(0);
-    // videoDuration：Number() 归一，NaN/缺失回退 0
     expect(build({ videoDuration: "180.5" }).videoDuration).toBe(180.5);
     expect(build({ videoDuration: "abc" }).videoDuration).toBe(0);
     expect(build({}).videoDuration).toBe(0);
@@ -495,61 +429,35 @@ describe("createReaderContextPayload 组装映射", () => {
 
   it("归一化分支：noSubtitleReason/chapters/subtitleFetchState 的缺省口径", () => {
     const build = (clip: any) => createReaderContextPayload({ clip, settings: {}, url: "u" });
-    // noSubtitleReason：缺失/空串归一为 null，非空原样透传
     expect(build({}).noSubtitleReason).toBe(null);
     expect(build({ noSubtitleReason: "" }).noSubtitleReason).toBe(null);
     expect(build({ noSubtitleReason: "asr-empty" }).noSubtitleReason).toBe("asr-empty");
-    // chapters：非数组一律归一为空数组（有 Array.isArray 守卫）
     expect(build({ chapters: "x" }).chapters).toEqual([]);
     expect(build({ chapters: [{ title: "开场", from: 0, to: 60 }] }).chapters).toHaveLength(1);
-    // subtitleFetchState：缺失回退 idle
     expect(build({}).subtitleFetchState).toBe("idle");
     expect(build({ subtitleFetchState: "loading" }).subtitleFetchState).toBe("loading");
   });
 
   it("includeTimestampInBody 口径：仅显式 false 关闭，缺失按默认 true", () => {
-    // 同上：0 等 falsy 扰动值是归一化断言对象本身，入参按 any 标注。
     const build = (settings: any) => createReaderContextPayload({ clip: {}, settings, url: "u" });
     expect(build(undefined).includeTimestampInBody).toBe(true);
     expect(build({}).includeTimestampInBody).toBe(true);
     expect(build({ includeTimestampInBody: false }).includeTimestampInBody).toBe(false);
     expect(build({ includeTimestampInBody: true }).includeTimestampInBody).toBe(true);
-    // 仅 `!== false` 判定：0 等其他 falsy 值视为开启（与 offscreen 渲染侧同口径）
     expect(build({ includeTimestampInBody: 0 }).includeTimestampInBody).toBe(true);
   });
 });
 
-// ============================================================
-// 消费方对账锚点（静态扫描）
-//
-// 契约边界（context-payload.js 头注）：对话侧实际持有的快照 =
-//   payload + { signature }（进程内装配链 createInProcessContextFetch 附加）
-//          + { hotComments, isVideoContext }（同上补写）。
-// 这里把对账结论固化为测试：扫描 sidepanel 消费方源码中对快照的属性访问，
-// 逐点断言「扫描结果 == 手写期望集」且「⊆ 允许集」。相等断言防漏报（新增
-// 读取必须显式更新期望），子集断言即对账结论本身。
-// 取舍说明：pages/sidepanel.js 等是 UI 编排层（模块顶层即操作 DOM），无法
-// 在 Node 单测里实例化，故对消费方采用源码静态断言而非行为断言。
-// ============================================================
-
-// 允许 对话侧 读取的快照字段全集 = payload 清单 ∪ 附加层字段 ∪ 两处已记录的兼容项
 const ALLOWED_SNAPSHOT_FIELDS = new Set([
   ...READER_CONTEXT_PAYLOAD_FIELDS,
-  "signature", // 进程内装配链附加（ifSignature 回传来源）
-  "hotComments", // 装配链全量路径整体覆盖
-  "isVideoContext", // 装配链补写（payload 单源不组装）
-  // 兼容回退（已记录，非 payload 字段）：ai/conversation.js 的旧持久化会话
-  // ref 兼容读取——context?.pageIndex 缺失时回落 context?.page
+  "signature",
+  "hotComments",
+  "isVideoContext",
   "page",
-  // 响应信封字段（非快照字段）：context-policy 读 resp.payload.unchanged 判定
-  // 签名短路
   "unchanged"
 ]);
 
-// 读消费方源码（相对本测试文件的路径）；剔除整行注释与块注释，让扫描只看
-// 代码——注释里的字段名举例不应参与对账，也不应因措辞变化造成误报。
 function readSource(relativePath: string) {
-  // TS 渐进迁移期间源文件可能是 .js 或 .ts，缺失时回退到另一扩展名。
   const jsUrl = new URL(relativePath, import.meta.url);
   const url = existsSync(fileURLToPath(jsUrl))
     ? jsUrl
@@ -560,17 +468,11 @@ function readSource(relativePath: string) {
     .replace(/^[ \t]*\/\/.*$/gm, "");
 }
 
-// 扫描源码中 `<receiver>?.field` / `<receiver>.field` 形式的属性访问字段名。
-// lookbehind 防子串误配（如 liveContextData 内含 contextData）；`-` 同样排除
-//——JS 标识符不含连字符，receiver 前出现 `-` 只可能是字符串字面量里的模块
-// 路径（如 "context-payload.js"），不应参与对账。
-// 允许 TS 非空断言 `receiver!.field`（迁移期 .ts 源码常见）。
 function scanFields(source: string, receiver: string) {
   const pattern = new RegExp(`(?<![A-Za-z0-9_$-])${receiver}[?!]*\\.([A-Za-z_$][\\w$]*)`, "g");
   return new Set([...source.matchAll(pattern)].map((match) => match[1]));
 }
 
-// 按函数锚点切出源码块（消费方模块内参数别名只在其函数内有意义）
 function sliceBlock(source: string, startMarker: string, endMarker: string | undefined) {
   const start = source.indexOf(startMarker);
   expect(start, `源码中应存在锚点 ${startMarker}`).toBeGreaterThan(-1);
@@ -579,8 +481,6 @@ function sliceBlock(source: string, startMarker: string, endMarker: string | und
   return source.slice(start, end > start ? end : source.length);
 }
 
-// 单个对账点：扫描结果 == 手写期望集（防漏报），且 ⊆ 允许集（对账结论）。
-// point 为空集时说明锚点漂移（期望集非空必然失败）。
 function assertReconciliation(point: Set<string>, expectedFields: string[], label: string) {
   const expected = new Set(expectedFields);
   expect([...point].sort(), `${label} 扫描到的字段`).toEqual([...expected].sort());

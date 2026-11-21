@@ -103,7 +103,6 @@ describe("expandCoarseEvents：粗粒度块加权线性展平", () => {
   });
 
   it("粗粒度英文块（词数 > 3）按字符长度权重线性拆分为连续词级事件", () => {
-    // 词长权重：we(2) + build(5) + fast(4) + apps(4) = 15，总时长 3000ms（每位 200ms）
     const events = expandCoarseEvents(
       [{ from: 1, to: 4, content: "we build fast apps" }],
       "en"
@@ -208,17 +207,14 @@ describe("验收 2：150 词无标点英文 ASR 巨型段与 80 字无标点中�
 describe("模式 B：breakSubtitlesByStats（MAD + Z-Score 统计分布断句）", () => {
   it("结合停顿 Z-Score、标点与大写/转折加分断句，并遵守最短门限与 7000ms 硬上限", () => {
     const events = [
-      // 句 1：4 词 + >= 500ms + 显著停顿 (800ms vs median 50ms) -> 断句
       { text: "We", startMs: 0, endMs: 180 },
       { text: "start", startMs: 220, endMs: 420 },
       { text: "right", startMs: 470, endMs: 650 },
       { text: "now", startMs: 700, endMs: 900 },
-      // 句 2：逗号(+1.0) + 大写(+0.5) = 1.5 >= 1.2，且满足 >= 4 词 & >= 500ms -> 断句
       { text: "after", startMs: 1700, endMs: 1880 },
       { text: "checking", startMs: 1930, endMs: 2150 },
       { text: "the", startMs: 2200, endMs: 2350 },
       { text: "logs,", startMs: 2400, endMs: 2650 },
-      // 句 3：后半段无标点无长停顿但跨度超过 7000ms -> 触发硬上限断句
       { text: "Finally", startMs: 2700, endMs: 4000 },
       { text: "things", startMs: 4050, endMs: 6500 },
       { text: "stabilized", startMs: 6550, endMs: 9000 },
@@ -331,7 +327,6 @@ describe("验收 3：设置项归一与按轨道类型智能挂载（commit.ts�
       { from: 1.6, to: 2.2, content: "Next line" }
     ]);
 
-    // 切换为 off 模式时不做本地重断句
     state.settings.subtitleSegmentationStrategy = "off";
     const rawAsr = [
       { from: 0, to: 1, content: "Part one" },

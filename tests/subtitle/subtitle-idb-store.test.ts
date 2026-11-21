@@ -1,12 +1,3 @@
-// IndexedDB 分层字幕仓库（biliscript-subtitle-store）单元测试：
-// 1) 验证同一 ${bvid}:${cid} 下：
-//    - 纯中文 ai-zh 仅本地断句（不开启外译）落 rawTracks + segmentedTracks，绝不创建空译文记录；
-//    - 原生 en-US + zh-CN 双人工 CC 轨共存于 rawTracks；
-//    - 基于 en-US 生成 AI 中文精翻仅写 translatedTracks（1500ms 防抖合入、pagehide/visibilitychange 立即 flush），各层互不污染；
-//    - 验证真实 IDBFactory 事务后端与旧版 chrome.storage.local 遗留键平滑迁移；
-// 2) 验证非内容网络/调度参数变更不影响 segmentationSig / translationSig，
-//    以及分 P 条目数（默认 100）与累计估算体积（默认 150 MB）双阈值 LRU 淘汰顺序与命中刷新 lastUsed。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
@@ -553,7 +544,6 @@ describe("抗干扰内容签名与双阈值 LRU 淘汰", () => {
     await countStore.putRawTrack({ bvid: BVID, cid: "p1", trackKey: "id:1", items: EN_US_RAW });
     await countStore.putRawTrack({ bvid: BVID, cid: "p2", trackKey: "id:2", items: EN_US_RAW });
     await countStore.putRawTrack({ bvid: BVID, cid: "p3", trackKey: "id:3", items: EN_US_RAW });
-    // 命中 p1 刷新其 lastUsed，最旧变为 p2
     await countStore.getRawTrack(BVID, "p1", "id:1");
     const p4Result = await countStore.putRawTrack({ bvid: BVID, cid: "p4", trackKey: "id:4", items: EN_US_RAW });
 

@@ -1,20 +1,3 @@
-// background-content-orchestration.js 的编排单测（background 半边注入恢复抽离）。
-//
-// 覆盖 SW 侧「content 注入恢复 + 触发重试」的全部时序/错误分类契约：
-//   - ensureReaderContentReady：probe 首发即命中（零等待）、探针瞬时失败重试、
-//     注入后第 N 轮轮询成功、轮询耗尽 → 整页 reload → 二次成功、二次耗尽 →
-//     最终失败、探针全程无版本跳过 reload、reload 后页面未恢复、
-//     DEFAULT_SETTINGS 哨兵吞掉 / 非哨兵错误上抛、canInject 守卫零副作用；
-//   - triggerReaderModeInTab：12×300ms 重试成功/耗尽、「Receiving end does not
-//     exist」分类（命中才走 ensureReaderContentReady 兜底，兜底失败不中止）、
-//     ok:false 与非哨兵错误不触发兜底；
-//   - triggerReaderModeCloseInTab：ok 短路、URL 二次确认、瞬时错误忽略、耗尽。
-//
-// 断言面向编排决策（调了 probe/inject/reload/兜底几次、间隔多少毫秒），不面向
-// chrome API 细节：副作用全部依赖注入（与 pages/sidepanel-subtitle-wait 同一
-// 手法）。除显式注入 delay spy 的用例外，均走生产默认 sleep（shared/utils.js），
-// 由 vi.useFakeTimers 拦截——同时验证默认延时路径可被假时钟驱动。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -32,8 +15,6 @@ const EXPECTED_VERSION = "2.0.0";
 const STALE_VERSION = "0.9.0";
 const READER_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 
-// deps 全注入的编排器 harness：默认 probe 命中期望版本、各副作用即时成功。
-// delay 用生产默认 sleep（假时钟拦截）；需要断言间隔值的用例用 makeSpyDelayHarness。
 function makeHarness(overrides = {}) {
   const deps = {
     probeOnce: vi.fn(async () => EXPECTED_VERSION),
@@ -53,7 +34,6 @@ function makeSpyDelayHarness(overrides = {}) {
   return makeHarness({ delay: vi.fn((ms) => sleep(ms)), ...overrides });
 }
 
-// delay spy 记录到的毫秒序列（锁定轮询次数与间隔）
 const msSeq = (harness: { deps: BackgroundContentOrchestratorDeps }): number[] =>
   vi.mocked(harness.deps.delay!).mock.calls.map((call) => call[0]);
 
@@ -107,7 +87,6 @@ describe("ensureReaderContentReady", () => {
 
   it("版本偏斜：注入后第 2 轮轮询成功（探针空版本按 3×100ms 内部重试）", async () => {
     const { orch, deps } = makeSpyDelayHarness();
-    // 序列：初次探针读到旧版本 → 注入 → 轮询第 1 轮三发全空 → 第 2 轮首发命中
     deps.probeOnce
       .mockResolvedValueOnce(STALE_VERSION)
       .mockResolvedValueOnce("")
@@ -122,7 +101,6 @@ describe("ensureReaderContentReady", () => {
     expect(deps.injectAssets).toHaveBeenCalledTimes(1);
     expect(deps.reloadTab).not.toHaveBeenCalled();
     expect(deps.probeOnce).toHaveBeenCalledTimes(5);
-    // 第 1 轮探针内部重试 100ms×2 + 轮询间隔 150ms×1
     expect(msSeq({ deps })).toEqual([100, 100, 150]);
   });
 
@@ -142,9 +120,7 @@ describe("ensureReaderContentReady", () => {
     expect(deps.injectAssets).toHaveBeenCalledTimes(2);
     expect(deps.reloadTab).toHaveBeenCalledTimes(1);
     expect(deps.waitForTabComplete).toHaveBeenCalledWith(TAB_ID, { polls: 40 });
-    // 5 轮轮询：首轮不等 + 4×150ms；reload 完成后停顿 120ms
     expect(msSeq({ deps })).toEqual([150, 150, 150, 150, 120]);
-    // 初次探针 + 5 轮轮询 + 二次轮询首发命中
     expect(deps.probeOnce).toHaveBeenCalledTimes(7);
   });
 
@@ -162,7 +138,6 @@ describe("ensureReaderContentReady", () => {
 
     expect(deps.reloadTab).toHaveBeenCalledTimes(1);
     expect(deps.injectAssets).toHaveBeenCalledTimes(2);
-    // 两段 5 轮轮询（4×150）+ 停顿 120ms
     expect(msSeq({ deps })).toEqual([150, 150, 150, 150, 120, 150, 150, 150, 150]);
     expect(deps.probeOnce).toHaveBeenCalledTimes(11);
   });
@@ -182,7 +157,6 @@ describe("ensureReaderContentReady", () => {
     expect(deps.injectAssets).toHaveBeenCalledTimes(1);
     expect(deps.reloadTab).not.toHaveBeenCalled();
     expect(deps.waitForTabComplete).not.toHaveBeenCalled();
-    // 初次探针 + 5 轮轮询各 3 发（空版本内部重试）
     expect(deps.probeOnce).toHaveBeenCalledTimes(18);
   });
 
@@ -281,7 +255,6 @@ describe("triggerReaderModeInTab", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(promise).resolves.toBe(true);
 
-    // 兜底真的跑过（canInject/探针被调），随后重试成功
     expect(deps.canInject).toHaveBeenCalledWith(TAB_ID);
     expect(deps.probeOnce).toHaveBeenCalledTimes(1);
     expect(deps.sendMessageToTab).toHaveBeenCalledTimes(2);
@@ -316,7 +289,6 @@ describe("triggerReaderModeInTab", () => {
     expect(deps.sendMessageToTab).toHaveBeenCalledTimes(12);
     expect(deps.canInject).not.toHaveBeenCalled();
     expect(deps.probeOnce).not.toHaveBeenCalled();
-    // 首轮不等 + 11×300ms
     expect(msSeq({ deps })).toEqual(Array.from({ length: 11 }, () => 300));
   });
 
@@ -329,7 +301,6 @@ describe("triggerReaderModeInTab", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await expect(promise).resolves.toBe(false);
 
-    // 每轮重试都试过兜底，兜底抛错被吞、重试循环继续
     expect(deps.sendMessageToTab).toHaveBeenCalledTimes(12);
     expect(deps.canInject).toHaveBeenCalledTimes(12);
   });

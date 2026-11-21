@@ -1,10 +1,3 @@
-// offscreen 侧概览代发接线（overview-offscreen-transport）：
-// - 端口 provider-http-offscreen 被认领后，请求在 offscreen 里 fetch 并按
-//   「响应头 → 正文分片 → done」分块回吐；
-// - 代发请求在飞期间，ASR 任务终态不得自关文档（概览是分钟级请求，被自关吞掉
-//   的话回吐永远不到）；
-// - 代发结束后，ASR 终态照旧自关（既有行为不被破坏）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
@@ -35,10 +28,6 @@ let host: MinimalChromeHost;
 let onMessageListeners: OnMessageListener[];
 let fetchMock: ReturnType<typeof vi.fn>;
 
-// 本文件原有的 runtime 面是 lastError / onConnect / onMessage / sendMessage：共享宿主
-// 收编按 type 分发的 sendMessage 与 onConnect 登记袋；其余成员宿主不装，仍在宿主装好的
-// 最小面上补回（本文件不驱动广播，但 offscreen.js 顶层的 SW 广播入口要有个登记处），
-// chrome 面与替换前逐字相同。
 function installRuntimeExtras() {
   const runtime = chrome.runtime as unknown as Record<string, unknown>;
   runtime.lastError = null;
@@ -51,9 +40,6 @@ function installRuntimeExtras() {
 
 function stubOffscreenEnv() {
   onMessageListeners = [];
-  // 原桩对任何 type 都回 { ok: true }：逐条登记本文档会发的两条——加载期的
-  // get-debug-log-gate 与 ASR 终态自关的 offscreen-request-close。replyStyle "both"：
-  // 原桩回包只经 callback，宿主两种风格同答（多出的 promise 返回值无人读）。
   host = installMinimalChromeHost({
     onConnect: true,
     replyStyle: "both",
@@ -96,14 +82,12 @@ function makePort(name: string) {
   };
 }
 
-// 原桩把每条发出的消息记进自持数组；改读宿主 sendMessage 的调用记录（同一份、同序）
 function closeRequests() {
   return host.sendMessage.mock.calls
     .map(([message]) => message as { type?: string } & Record<string, unknown>)
     .filter((message) => message?.type === "offscreen-request-close");
 }
 
-// 流式响应体的最小假体：按 chunks 顺序供 reader.read()，供完即 done。
 function bodyStream(chunks: string[]) {
   const parts = chunks.map((chunk) => new TextEncoder().encode(chunk));
   let index = 0;
@@ -115,7 +99,6 @@ function bodyStream(chunks: string[]) {
   };
 }
 
-// ASR 任务到达即回终态（触发自关判定），端口已入集
 function armTerminalEcho() {
   createAsrDecodeHandlerMock.mockImplementation(({ onTaskTerminal }) => {
     return async (_task, port) => {
@@ -147,7 +130,6 @@ describe("offscreen 概览代发端口", () => {
 
     await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledTimes(4));
     expect(session.port.postMessage.mock.calls.map(([message]) => message)).toEqual([
-      // 派发确认先于预检与 fetch（content 侧据它区分「端口已接管」与「没人服务」）
       { ok: true, accepted: true },
       { ok: true, status: 200 },
       { ok: true, status: 200, chunk: "ok" },
@@ -224,7 +206,6 @@ describe("offscreen 概览代发端口", () => {
     relay.fireDisconnect();
 
     expect(seenSignal!.aborted).toBe(true);
-    // 断连后只剩派发确认那一条：挂起请求不留在文档里，也没有 fetch 回吐
     expect(relay.port.postMessage.mock.calls.map(([message]) => message)).toEqual([
       { ok: true, accepted: true }
     ]);

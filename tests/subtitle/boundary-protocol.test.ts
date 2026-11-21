@@ -1,15 +1,3 @@
-// 字幕双通道协议与四重容错闭环单测（subtitle/boundary-protocol.ts & ai/subtitle-translate.ts）。
-//
-// 系统可能的失败方式：
-//   1. 批次切分失控：未到 80%（800 字）软边界提前切碎，或满 800 字遇到句号 / >1000ms 停顿未提前封块，
-//      或无标点长流超出 1000 字硬上限、产生滑动窗口重叠导致重复翻译；
-//   2. 时间戳泄漏：formatBoundaryEvents 向模型暴露 start/end 字段诱发时间戳幻觉，或零/负间隔误带 pauseMs；
-//   3. 截断响应全军覆没：模型输出 ```json 围栏、尾逗号或因 max_tokens 半截截断（含字符串内嵌 `}`）时丢失已译前缀；
-//   4. 跳号串行错位与原文篡改：某组 ids 跳号或越界后未立即截断脏后缀，或直接使用模型篡改后的 text 而非前端切片拼接；
-//   5. 尾部漏译与整块解析失败中断：首轮仅覆盖前缀时未触发最多 1 次 Tail Retry（或偏移还原错误），
-//      重试后仍缺尾部事件时未走 mergeSubtitlesByRule 局部降级，或整块损坏时抛错中断整集字幕；
-//   6. 时间轴浮点漂移：输出 cues 的 from/to 与原始 events 首尾 startMs/endMs 换算值存在非零误差。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   finalizeAiCues,
@@ -59,8 +47,8 @@ const EIGHT_EVENTS: AtomicSubtitleEvent[] = [
 describe("splitEventsIntoAiChunks：80% 软边界无重叠批次切分", () => {
   it("达到 820 字符遇到句号时立即提前封块，低于 800 字符遇句号不提前封块且无重叠", () => {
     const ev0: AtomicSubtitleEvent = { text: "a".repeat(400), startMs: 0, endMs: 1000 };
-    const ev1: AtomicSubtitleEvent = { text: `${"b".repeat(389)}.`, startMs: 1100, endMs: 2000 }; // 累计 790 < 800
-    const ev2: AtomicSubtitleEvent = { text: `${"c".repeat(29)}.`, startMs: 2100, endMs: 3000 }; // 累计 820 >= 800 且句号结尾
+    const ev1: AtomicSubtitleEvent = { text: `${"b".repeat(389)}.`, startMs: 1100, endMs: 2000 };
+    const ev2: AtomicSubtitleEvent = { text: `${"c".repeat(29)}.`, startMs: 2100, endMs: 3000 };
     const ev3: AtomicSubtitleEvent = { text: "d".repeat(120), startMs: 3100, endMs: 4000 };
 
     const chunks = splitEventsIntoAiChunks([ev0, ev1, ev2, ev3], 1000);
@@ -70,8 +58,8 @@ describe("splitEventsIntoAiChunks：80% 软边界无重叠批次切分", () => {
 
   it("达到 820 字符无句末标点但与下一事件停顿 1200ms（>1000ms）时立即提前封块", () => {
     const ev0: AtomicSubtitleEvent = { text: "a".repeat(500), startMs: 0, endMs: 1000 };
-    const ev1: AtomicSubtitleEvent = { text: "b".repeat(320), startMs: 1100, endMs: 2000 }; // 累计 820
-    const ev2: AtomicSubtitleEvent = { text: "c".repeat(150), startMs: 3200, endMs: 4000 }; // 停顿 1200ms
+    const ev1: AtomicSubtitleEvent = { text: "b".repeat(320), startMs: 1100, endMs: 2000 };
+    const ev2: AtomicSubtitleEvent = { text: "c".repeat(150), startMs: 3200, endMs: 4000 };
 
     const chunks = splitEventsIntoAiChunks([ev0, ev1, ev2], 1000);
 
@@ -80,9 +68,9 @@ describe("splitEventsIntoAiChunks：80% 软边界无重叠批次切分", () => {
 
   it("全程无句末标点且停顿 <=1000ms 时，在超出 1000 字符硬上限前封块", () => {
     const ev0: AtomicSubtitleEvent = { text: "a".repeat(500), startMs: 0, endMs: 1000 };
-    const ev1: AtomicSubtitleEvent = { text: "b".repeat(320), startMs: 1500, endMs: 2200 }; // 累计 820，停顿 300ms
-    const ev2: AtomicSubtitleEvent = { text: "c".repeat(150), startMs: 2500, endMs: 3200 }; // 累计 970 <= 1000
-    const ev3: AtomicSubtitleEvent = { text: "d".repeat(60), startMs: 3500, endMs: 4200 }; // 970 + 60 = 1030 > 1000
+    const ev1: AtomicSubtitleEvent = { text: "b".repeat(320), startMs: 1500, endMs: 2200 };
+    const ev2: AtomicSubtitleEvent = { text: "c".repeat(150), startMs: 2500, endMs: 3200 };
+    const ev3: AtomicSubtitleEvent = { text: "d".repeat(60), startMs: 3500, endMs: 4200 };
 
     const chunks = splitEventsIntoAiChunks([ev0, ev1, ev2, ev3], 1000);
 
@@ -94,8 +82,8 @@ describe("formatBoundaryEvents：零时间戳编码", () => {
   it("仅输出字符串 id、text 与正整数 pauseMs，绝不包含任何 start/end 字段", () => {
     const encoded = formatBoundaryEvents([
       { text: "Hello", startMs: 100, endMs: 500 },
-      { text: "world", startMs: 500, endMs: 1000 }, // 间隔 0ms，不带 pauseMs
-      { text: "again", startMs: 1350, endMs: 2000 } // 末项前一项间隔 350ms
+      { text: "world", startMs: 500, endMs: 1000 },
+      { text: "again", startMs: 1350, endMs: 2000 }
     ]);
 
     expect(encoded).toEqual([
@@ -150,7 +138,6 @@ describe("takeContinuousCuePrefix & mapBoundaryGroupsToCues：连续无跳号校
       groups: [
         { ids: ["0", "1", "2"], text: "LLM altered text!", translation: "当我们设计字幕协议时，" },
         { ids: ["3", "4"], text: "every index must stay", translation: "每个索引都必须保持" },
-        // 跳过了 "5"，直接跳到 "6" -> 此项及后续项必须全部丢弃
         { ids: ["6", "7"], text: "Even tail fragments matter.", translation: "脏数据不应保留" }
       ]
     };
@@ -185,7 +172,7 @@ describe("takeContinuousCuePrefix & mapBoundaryGroupsToCues：连续无跳号校
     const prefix = takeContinuousCuePrefix(
       [
         { startIndex: 0, endIndex: 1 },
-        { startIndex: 2, endIndex: 8 } // totalEvents=8，最大合法下标为 7
+        { startIndex: 2, endIndex: 8 }
       ],
       8
     );
@@ -224,7 +211,6 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
     });
 
     expect(mockChatCompletion).toHaveBeenCalledTimes(2);
-    // 验证第 2 次请求（Tail Retry）仅发送原 6..7 切片且重编码为局部索引 "0".."1"
     const retryUserContent = mockChatCompletion.mock.calls[1][0].messages[1].content;
     expect(JSON.parse(retryUserContent)).toEqual([
       { id: "0", text: "Even tail", pauseMs: 60 },
@@ -243,7 +229,6 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
       { from: 6.8, to: 8.915, content: "哪怕尾部碎片也至关重要。" }
     ]);
 
-    // 严格校验生成时间轴与原始 events 首尾时间戳误差为 0
     expect(result.items[0].from - EIGHT_EVENTS[0].startMs / 1000).toBe(0);
     expect(result.items[0].to - EIGHT_EVENTS[2].endMs / 1000).toBe(0);
     expect(result.items[1].from - EIGHT_EVENTS[3].startMs / 1000).toBe(0);
@@ -282,7 +267,6 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
       chatCompletionFn: mockChatCompletion as any
     });
 
-    // 1 次主请求 + 1 次 Tail Retry + 1 次残余规则合并后的轻量补译
     expect(mockChatCompletion).toHaveBeenCalledTimes(3);
     const fallbackUserContent = mockChatCompletion.mock.calls[2][0].messages[1].content;
     expect(JSON.parse(fallbackUserContent)).toEqual([{ id: "0", text: "fragments matter." }]);
@@ -357,7 +341,6 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
       }
     });
 
-    // EIGHT_EVENTS 按句末标点 `.` 在下标 5 与 7 处合并为 2 条完整主句
     expect(finalized.items).toEqual([
       {
         from: 0.125,

@@ -1,11 +1,3 @@
-// 搜索编排 handler 的 SW 接线断言：resolve-search-provider 与 save-settings 两族的
-// handler 本体已工厂化搬进 search / core 域 module（行为分支直测见
-// tests/search/resolve-search-provider-handler.test.ts 与
-// tests/core/save-settings-handler.test.ts），本文件只锁组合根接线——
-//   1. 工厂以预期的读取 primitive 装配（deps 键面）；
-//   2. 路由表登记该消息且派发到的就是工厂产物。
-// chrome stub 手法与 tests/entry/offscreen-request-close.test.ts 同款（真实
-// background 入口 + 路由监听器直调），stub 面只保留 import background 所需的最小集。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -93,8 +85,6 @@ describe("搜索编排 handler 的 SW 接线", () => {
       "getHealth",
       "now"
     ]);
-    // 注入的读取 primitive 确实接在 settings-snapshot 快照上（sync fixture 直读，
-    // 记录经 store 归一：给全必填面）
     const deps = wiring.resolveDeps as { getSearchStore: () => Promise<{ providers: unknown[]; keys: unknown }> };
     vi.mocked(chrome.storage.sync.get).mockResolvedValue({
       searchProviders: [{ id: "p1", presetId: "tavily", name: "T", type: "tavily", baseUrl: "https://api.tavily.com", enabled: true }]

@@ -1,10 +1,3 @@
-// tests/entry/design-tokens-audit.test.ts
-// 全系统 Design Tokens 架构审计与视觉回归静态收网契约测试：
-// 1. 验证三层 Token 架构（Primitive -> Semantic + Component -> 业务样式）与加载时序
-// 2. 审计全量样式表硬编码字号、圆角及裸色值基本清零
-// 3. 验证全局字号缩放（--biliscript-reader-font-scale）完整联动所有界面组件
-// 4. 验证 4 象限主题（Flyme / Editorial x Light / Dark）无任何悬空令牌引用
-
 import { describe, expect, it } from "vitest";
 import { readStyleFile, stripCssComments, stripCssCommentsKeepLines } from "./css-token-test-utils.js";
 
@@ -12,9 +5,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
   describe("1. 三层 Token 架构与加载时序完整性", () => {
     it("tokens-primitive.css 作为 Primitive 层仅声明基础调色板与度量阶梯，无上层业务选择器", () => {
       const primitiveCss = stripCssComments(readStyleFile("extension/entry/styles/tokens-primitive.css"));
-      // 必须声明在 :root
       expect(primitiveCss).toMatch(/:root\s*\{/);
-      // 必须包含核心调色板与度量阶梯
       expect(primitiveCss).toContain("--biliscript-primitive-color-blue-500:");
       expect(primitiveCss).toContain("--biliscript-primitive-color-terracotta-500:");
       expect(primitiveCss).toContain("--biliscript-primitive-font-size-base:");
@@ -22,18 +13,15 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(primitiveCss).toContain("--biliscript-primitive-corner-shape-continuous: superellipse(1.25);");
       expect(primitiveCss).toContain("--biliscript-primitive-space-12:");
 
-      // Primitive 层不得依赖业务选择器
       expect(primitiveCss).not.toContain("#biliscript-reading-view");
       expect(primitiveCss).not.toContain(".biliscript-");
     });
 
     it("reader-gate.css 作为中枢层统一定义 4 象限 Semantic 语义与 Component 组件层 Token", () => {
       const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
-      // 语义字阶与圆角
       expect(gateCss).toContain("--biliscript-font-size-base:");
       expect(gateCss).toContain("--biliscript-radius-panel:");
       expect(gateCss).toContain("--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-continuous);");
-      // 组件层 Token
       expect(gateCss).toContain("--btn-radius:");
       expect(gateCss).toContain("--chip-radius:");
       expect(gateCss).toContain("--pill-radius:");
@@ -53,7 +41,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(paths[1]).toBe("entry/styles/reader.css");
       expect(paths[2]).toBe("entry/styles/reader-gate.css");
 
-      // 对话三件套级联顺序
       const chatMatch = injectorCode.match(/const READER_CHAT_STYLE_PATHS = \[([\s\S]*?)\];/);
       expect(chatMatch).not.toBeNull();
       const chatPaths = [...chatMatch![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
@@ -66,7 +53,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
   });
 
   describe("2. 全量业务样式表静态审计：零散落硬编码数值", () => {
-    // 审计所有迁移样式表
     const AUDITED_STYLES = [
       "reader-gate.css",
       "reader.css",
@@ -110,7 +96,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
 
         lines.forEach((line, idx) => {
           const lineNum = idx + 1;
-          // gate 表前 50 行是重置/门控
           if (fileName === "reader-gate.css" && lineNum < 50) return;
 
           if (/^\s*border-radius\s*:/.test(line)) {
@@ -135,9 +120,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
     it("所有非胶囊、非正圆、非直角的 border-radius 规则块均同步声明连续圆角或 inherit", () => {
       const violations: string[] = [];
       const cornerAuditedStyles = [...AUDITED_STYLES, "github-markdown.css"];
-      // 连续圆角统一经语义令牌声明，兜底值与令牌同值（superellipse(1.25)）；
-      // 裸写同款曲线也算合规。squircle（≡ superellipse(2)）比令牌更扁、观感上
-      // 圆角变小，不得作为兜底值出现。
       const CONTINUOUS_SHAPE = /^var\(--biliscript-corner-shape(?:,\s*superellipse\(1\.25\))?\)$|^superellipse\(1\.25\)$/;
       const INHERIT_SHAPE = /^(?:inherit|superellipse\(1\.25\))$/;
 
@@ -169,7 +151,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
               );
 
             if (isExempt) {
-              // 胶囊与正圆必须是正圆弧：超椭圆会把半圆端头压成方肩。
               if (shapeVal && shapeVal !== "round") {
                 violations.push(`${fileName}:${lineNum}: 胶囊/正圆块声明了 corner-shape: ${shapeVal}，应为 round`);
               }
@@ -199,11 +180,11 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
         "inherit",
         "0.95em",
         "100%",
-        "32px", // 历史金句水印引号装饰尺寸
-        "8.333cqi", // 金句分享卡引号装饰（随卡宽等比）
-        "var(--quote-fit-size", // 金句分享卡正文字号（JS 按共享布局落值）
-        "2.696cqi", // 金句分享卡时间戳 pill
-        "2.567cqi" // 金句分享卡品牌角标
+        "32px",
+        "8.333cqi",
+        "var(--quote-fit-size",
+        "2.696cqi",
+        "2.567cqi"
       ];
 
       for (const fileName of AUDITED_STYLES) {
@@ -213,7 +194,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
 
         lines.forEach((line, idx) => {
           const lineNum = idx + 1;
-          // reader-gate.css 前 200 行包含字阶 token 的变量自身声明（calc(...) * scale）
           if (fileName === "reader-gate.css" && lineNum < 200) return;
 
           if (/^\s*font-size\s*:/.test(line)) {
@@ -249,16 +229,12 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           const trimmed = line.trim();
           if (!trimmed) return;
 
-          // 放行 reader-gate.css 前 580 行的主题 token 定义块
           if (fileName === "reader-gate.css" && lineNum < 580) return;
 
-          // 放行 CSS mask-image 中纯黑 alpha 标记（如 #000 10px）
           if (trimmed.includes("mask-image:") && /#000(?:000)?\b/.test(trimmed)) return;
 
-          // 放行 reader-chat.css 中思考极值彩虹渐变（.chat-thinking-ultra-gradient，特化视觉资产）
           if (fileName === "reader-chat.css" && lineNum >= 240 && lineNum <= 265) return;
 
-          // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
           if (fileName === "reader.css" && isReaderQuoteCardPresetLine(line)) return;
 
           const hexMatch = trimmed.match(/#[0-9a-fA-F]{3,8}\b/g);
@@ -285,19 +261,14 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           const trimmed = line.trim();
           if (!trimmed) return;
 
-          // 放行 reader-gate.css 前 580 行的主题与材质定义
           if (fileName === "reader-gate.css" && lineNum < 580) return;
 
-          // 放行流动星点粒子层径向渐变粒子
           if (fileName === "reader-chat.css" && trimmed.includes("radial-gradient(circle at")) return;
 
-          // 放行 CSS mask-image 中的 alpha 遮罩
           if (trimmed.includes("mask-image:")) return;
 
-          // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
           if (fileName === "reader.css" && isReaderQuoteCardPresetLine(line)) return;
 
-          // 匹配裸写数字的 rgba(0, 0, 0, ...) 与现代空格语法 rgb(0 0 0 / 22%)
           const rawRgbMatch = trimmed.match(/rgba?\(\s*\d+(?:\s*,\s*|\s+)\d+(?:\s*,\s*|\s+)\d+/g);
           if (rawRgbMatch) {
             violations.push(`${fileName}:${lineNum}: ${trimmed}`);
@@ -387,7 +358,6 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(editorialLight.length, "必须找到 Editorial Light 主题块").toBeGreaterThan(0);
       expect(editorialDark.length, "必须找到 Editorial Dark 主题块").toBeGreaterThan(0);
 
-      // 核心 8 大基础色彩必须在 4 象限下均有覆写或继承
       const coreTokens = [
         "--biliscript-reader-surface",
         "--biliscript-reader-surface-2",

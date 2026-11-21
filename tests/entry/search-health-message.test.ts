@@ -1,16 +1,3 @@
-// search-health 记账消息族的**消费面**测试（spec §12.4 第 5–8 条 / §12.5 第 10–11 行、
-// §10 第 66–67、73 行、票 15 §4）：本文件只留「记账经消息落到 SW 之后，resolve 路由与
-// 健康度快照位如何消费它」的整合用例——这些用例跨 handler 族（search-health 记账 +
-// 组合根的 resolve-search-provider），必须起真 background 入口：
-//   ① 冷却消费：连败触发后 resolve 路由跳过该引擎（inline 失效保证写后读）、
-//      到期回链、全部冷却 → chain 缺省 + chainEmptyReason:'cooldown'（专属文案，
-//      不误报未配置，spec §12.7 第 6 条翻案）、单选不拦但账照记；
-//   ② 快照位：健康度读命中零重复读、写 handler 落盘后 inline 失效（下一次 resolve
-//      重读）；脏存储 / 读失败按无冷却（不拦任何链）。
-// 记账族自身的 handler 面（落盘单键 / SW 侧盖时间戳 / 脏载荷）由本文件的真入口
-// 记账消费与 tests/search/search-health.test.ts 的健康度核心覆盖。
-// chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款
-//（真实 background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_HEALTH_KEY } from "../../extension/search/search-health.js";
@@ -63,7 +50,6 @@ const FIRECRAWL_CANDIDATE = {
   apiKey: ""
 };
 
-// content / 页内来源（解释卡链与工具循环同走此消息族，不得被 offscreen-only 名单拒）
 const TAB_SENDER: MessageSender = { tab: { id: 7 }, url: "https://www.bilibili.com/video/BV1/" };
 
 let syncFixture: Record<string, unknown>;
@@ -150,14 +136,12 @@ function resolveProvider(listener: Listener): Promise<ResolveSearchProviderRespo
   return callHandler(listener, { type: "resolve-search-provider" }) as Promise<ResolveSearchProviderResponse>;
 }
 
-// 健康度快照位的 storage.local.get 次数（键面命中计数）。
 function healthReads(): number {
   return vi.mocked(chrome.storage.local.get).mock.calls.filter(([keys]) =>
     asKeys(keys).includes(SEARCH_HEALTH_KEY)
   ).length;
 }
 
-// 冷却中的引擎账（预设表无关的纯数据）。
 function cooled(presetId: string, cooldownUntil: number, cooldownLevel = 1) {
   return {
     [presetId]: {
@@ -205,7 +189,6 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
     const response = await resolveProvider(listener);
 
     expect(response.chain).toEqual([TAVILY_CANDIDATE, FIRECRAWL_CANDIDATE]);
-    // 到期即回链：链非空 → 无空链归因（恢复正常，不残留冷却文案）
     expect(response.chainEmptyReason).toBeUndefined();
   });
 
@@ -293,11 +276,9 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
     await resolveProvider(listener);
     expect(healthReads()).toBe(1);
 
-    // 记账 handler 自身读-改-写读一次（第 2 次），落盘后 inline 失效健康度快照
     await recordHealth(listener, { type: "search-health", op: "record", presetId: "tavily", ok: true, latencyMs: 3 });
     expect(healthReads()).toBe(2);
 
-    // inline 失效后 resolve 重读一次（若缺失效则是缓存命中，仍为 2）
     await resolveProvider(listener);
     expect(healthReads()).toBe(3);
   });

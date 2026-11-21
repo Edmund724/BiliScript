@@ -1,23 +1,3 @@
-// 双语配对算法（票 bilingual-subtitles/04 的裁定，06 号票落地）。
-//
-// 口径（04 号票，不复述理由，只落断言）：
-//   - 一条规则两个方向共用：「副行 = 与主轨段**重叠时长 > 0** 的全部副轨段，按
-//     `from` 升序、**空格**拼接」；
-//   - 半开区间 + 重叠时长**严格 > 0**：相邻段共享端点不互相污染；**不留容差窗口**；
-//   - 无重叠 ⇒ 折叠（`null`，该行不出副行节点）；
-//   - 配对**只读**两轨已排序的 body（接受事务已保证 `from` 升序），**不做任何再排序**；
-//   - 双语关 / 副轨未就绪 ⇒ `null`（算法完全不参与，零行为差）。
-//
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   1. 把「2 主段 ↔ 1 副段」的合并段只挂给其中一行（另一行该段时间里屏幕上没有译文）；
-//   2. 把「1 主段 ↔ 2 副段」只取重叠最长的一条（丢掉另一句译文）；
-//   3. 端点相接被判成重叠（相邻两行的副行互相串台）；
-//   4. 反向：主轨段两端与相邻副轨段只有零测度交集时被粘上；
-//   5. 空/纯空白副轨段参与拼接（副行出现多余空格或整行空白）；
-//   6. 双语关 / 副轨 loading / error 时仍给出正文（列表在没译文时显示译文）；
-//   7. 拼接顺序与输入顺序不一致（副行把后一句排到前一句前面）；
-//   8. 结果不确定（同一输入两次调用给出不同字符串）。
-
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { clipState, state } from "../../extension/core/state.js";
@@ -28,13 +8,10 @@ function seg(from: number, to: number, content: string): SubtitleBodyItem {
   return { from, to, content };
 }
 
-// 纯函数入口：**建一次索引、查询多行**（渲染/导出走同款；测试逐例重建是因为每例
-// 的副轨语料不同）。每行重建索引在生产里是 1500×1500 的平方级开销，不要模仿。
 function pair(main: { from: number; to: number }, secondary: SubtitleBodyItem[]) {
   return buildSecondaryAlignment(secondary).query(main);
 }
 
-// 03 号票探针样本的合并形状（缩比）：zh 两段共享一条 en 译文。
 const ZH_PAIR = [seg(0, 5, "第一句"), seg(5, 9, "第二句")];
 const EN_MERGED = [seg(0, 9, "First and second")];
 

@@ -1,6 +1,3 @@
-// permission-grant 扩展授权页行为测试 + SW host 权限消息族接线校验。
-// 四条 SW 权限消息的完整分支直测位于 tests/core/host-permission-handlers.test.ts；
-// 本文件仅锁 SW 组合根的四键接线与 permission-grant.html / permission-grant.ts 页面行为。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -175,7 +172,6 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
     const allowBtn = document.getElementById("permissionGrantAllowBtn") as HTMLButtonElement;
     allowBtn.click();
 
-    // 同步手势内直调 chrome.permissions.request，且立即展示等待确认提示
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(requestMock).toHaveBeenCalledWith({
       origins: ["http://localhost/*", "https://api.example.com/*"]
@@ -301,7 +297,6 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
     initPermissionGrantPage(`?reqId=req-keepalive&origins=${encodeURIComponent(JSON.stringify(["http://localhost/*"]))}`);
 
     expect(connectMock).toHaveBeenCalledWith({ name: PERMISSION_GRANT_KEEPALIVE_PORT_NAME });
-    // 超过 Firefox Event Page 30s 空闲休眠阈值期间，保活端口持续在线
     await vi.advanceTimersByTimeAsync(60_000);
     expect(portDisconnect).not.toHaveBeenCalled();
 

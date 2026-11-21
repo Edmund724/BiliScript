@@ -1,21 +1,3 @@
-// 工单 03：offscreen 文档自关闭的 SW 代执行回归测试。
-//
-// 旧形状：offscreen.ts 任务终态后直调 chrome.offscreen.closeDocument——但
-// offscreen 文档根本没有 chrome.offscreen 命名空间（平台只开放 chrome.runtime），
-// 自关闭在线上恒走不到。新形状：offscreen 经 "offscreen-request-close" 消息
-// 委托 SW 执行，SW 校验发送者确为 offscreen 文档（sender.url 精确等于文档 URL
-// 且无 sender.tab）后调 closeDocument，并明确回 { ok:true } / { ok:false, error }。
-//
-// 本文件三段验证：
-//   1. 执行器半边（handleOffscreenRequestClose）：来源校验、成功/失败回包；
-//   2. 入口半边（background onMessage → 路由 → 守卫）：offscreen 来源放行、
-//      其他来源拒绝且 closeDocument 不被触碰；
-//   3. SW 重启（模块重载 = 新 SW 实例）：执行器在新实例上照常工作，文档跨
-//      SW 存活时终态自关不失效。
-//
-// 附带：ensure-offscreen-chat 的创建失败不再吞掉（工单 03）——ok:false 带
-// ensureChatOffscreenDocument 的原始错误。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
@@ -63,9 +45,7 @@ function stubSwEnv({
   return { closeDocument, tabsQuery, onRemovedAddListener, sendMessage };
 }
 
-// offscreen 文档自身的 sender 形状（无 sender.tab、url 为文档 URL）
 const offscreenSender: MessageSender = { url: OFFSCREEN_URL };
-// 非法来源：content script（有 tab）与 URL 不符的扩展上下文
 const tabSender: MessageSender = { tab: { id: 7 }, url: "https://www.bilibili.com/video/BV1/" };
 const extensionPageSender: MessageSender = { url: "chrome-extension://test/entry/background.html" };
 
@@ -158,8 +138,6 @@ describe("handleOffscreenRequestClose 执行器", () => {
   });
 });
 
-// ===== 入口半边：background onMessage 路由 + 守卫 =====
-
 describe("background 消息入口：offscreen-request-close 的来源守卫", () => {
   async function freshEntry() {
     const { closeDocument } = stubSwEnv();
@@ -220,8 +198,6 @@ describe("background 消息入口：offscreen-request-close 的来源守卫", ()
     );
   });
 });
-
-// ===== 附带：ensure-offscreen-chat 创建失败不再吞掉（工单 03） =====
 
 describe("ensure-offscreen-chat：创建失败沿消息通道上抛为 ok:false", () => {
   it("createDocument 真实失败 → { ok:false, error } 带原始错误", async () => {

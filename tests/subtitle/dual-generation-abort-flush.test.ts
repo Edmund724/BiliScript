@@ -1,10 +1,3 @@
-// SPA 切集（bvid / cid 变更）与多语言菜单中途切换源字幕轨时的双代数令牌 + 级联 AbortController 原子清理测试：
-// 1) 在途流式翻译未达 1500ms 防抖阈值时切换视频分 P，必须立即 flush 已完成流式句至 IndexedDB，
-//    递增 acquisitionVersion + processingVersion，级联 abort 在途翻译 / chunkScheduler / Offscreen ASR 任务并断开端口，
-//    清空播放器叠层字幕，并屏蔽切集后延迟到达的旧回调；
-// 2) 原生多语言视频（en-US / ja-JP）中途切换源字幕轨时，同样先立即 flush en-US 流式分块进 IndexedDB，
-//    递增双代数令牌、级联 abort 旧轨在途翻译、清空叠层字幕并阻止旧轨脏数据写回新轨上下文。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost } from "../helpers/chrome-host.js";
@@ -182,14 +175,12 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
     expect(capture.onCueReady).toBeDefined();
     expect(setSubtitle).toHaveBeenCalledWith("", "第一句流式译文");
 
-    // 切分 P 前（仅 200ms < 1500ms）直接探测底层 IDB 仓库：尚未落盘
     const pageBeforeFlush = await idbStore.getPageRecord("BV1switch001", "101");
     expect(pageBeforeFlush?.translatedTracks ?? {}).toEqual({});
 
     setSubtitle.mockClear();
     clearSubtitles.mockClear();
 
-    // 模拟 SPA 切集（cid 101 -> 102）：同步触发 boundary flush + 双版本递增 + 级联中止
     await triggerSubtitleSessionBoundary("clip-switch");
     clipState.setCid("102");
     clipState.setSubtitleBody([]);
@@ -219,7 +210,6 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
       })
     ).resolves.toEqual([{ from: 0, to: 5, content: "第一句流式译文" }]);
 
-    // 迟到的旧流式回调与 ASR 结果不得污染 cid=102 或新会话叠层
     setSubtitle.mockClear();
     capture.onCueReady?.({
       startIndex: 1,
@@ -315,7 +305,6 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
     setSubtitle.mockClear();
     clearSubtitles.mockClear();
 
-    // 用户中途从 en-US 切换源字幕轨到 ja-JP
     await loadSubtitle("https://sub.test/ja.json", "日语", clipState.fetchRunId, "cc-ja");
 
     expect(clipState.acquisitionVersion).toBe(versionsBefore.acquisitionVersion + 1);
@@ -343,7 +332,6 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
       })
     ).resolves.toEqual([{ from: 0, to: 4, content: "英文第一句精翻" }]);
 
-    // 迟到的旧 en-US 回调不得写入 ja-JP 译文槽
     const jaSourceKey = buildSubtitleSourceKey("cc-ja", "https://sub.test/ja.json", "日语");
     capture.onCueReady?.({
       startIndex: 1,
