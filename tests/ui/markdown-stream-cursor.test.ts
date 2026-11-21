@@ -1,12 +1,3 @@
-// 流式增量游标（ThinkStripCursor / MarkdownTailCursor）与全量纯函数
-// （stripThinkBlocks / splitMarkdownTail）的逐字节对拍测试。
-//
-// 对拍断言（每个 delta 切分的每一帧）：
-//   - 游标行视图 join("\n") + trimEnd === stripThinkBlocks(累计原文)（逐字节）
-//   - 游标 cut/stableText/tailText === splitMarkdownTail(剥除后全文)（逐字节）
-// 覆盖不变量 2/3 的增量侧：切点判定规则一个比特不变；剥除先于切分；
-// 部分标签/未闭合块/核尾空白等「未定居尾」角落的跨帧行为与全量一致。
-
 import { describe, expect, it } from "vitest";
 import {
   createMarkdownTailCursor,
@@ -45,8 +36,6 @@ const CORPUS = [
   "keep</thin\n\n下一段"
 ];
 
-// 跨帧「未定居尾」角落序列：部分标签补全、未闭合块闭合、核尾空白被正则 4
-// 吃掉、剥除后仍全空白、块内容丢弃后闭合等——增量实现最易与全量分叉的地方。
 const SEQUENCES = [
   ["pre<think>sec", "ret</think>tail"],
   ["a<think", ">\n\n段二"],
@@ -72,11 +61,8 @@ const SEQUENCES = [
 
 function splitsOf(text: string) {
   const result = [];
-  // 整段一次推入
   result.push([text]);
-  // 逐字符
   result.push([...text]);
-  // 每 3 字符
   const by3 = [];
   for (let i = 0; i < text.length; i += 3) by3.push(text.slice(i, i + 3));
   result.push(by3);
@@ -93,16 +79,13 @@ function assertCursorEqualsFull(deltas: string[]) {
     const lines = strip.lines;
     tail.update(lines);
     const cleaned = stripThinkBlocks(full);
-    // 行视图：与全量剥除逐字节一致（仅尾部空白由 trimEnd 还原）
     expect(lines.join("\n").trimEnd()).toBe(cleaned);
-    // 切分：cut / stable / tail 与全量版逐字节一致
     const expected = splitMarkdownTail(cleaned);
     const cut = tail.cut;
     const stableText = cut < 0 ? "" : lines.slice(0, cut).join("\n");
     const tailText = (cut < 0 ? lines.join("\n") : lines.slice(cut).join("\n")).trimEnd();
     expect(stableText).toBe(expected.stableText);
     expect(tailText).toBe(expected.tailText);
-    // 堆叠渲染等价（双保险）
     expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(cleaned));
   }
 }
@@ -119,7 +102,6 @@ describe("ThinkStripCursor + MarkdownTailCursor 对拍全量纯函数", () => {
   for (const [i, seq] of SEQUENCES.entries()) {
     it(`未定居尾序列 #${i}：${JSON.stringify(seq.join("")).slice(0, 48)}`, () => {
       assertCursorEqualsFull(seq);
-      // 同一序列换字符级细切分再对拍一遍
       assertCursorEqualsFull([...seq.join("")]);
     });
   }
@@ -138,8 +120,6 @@ describe("增量游标的长流压力对拍", () => {
     const deltas = [];
     for (let para = 0; para < 120; para += 1) {
       deltas.push(`第${para}段 内容${Math.floor(next() * 1000)} 继续`);
-      // 段落间要么空行、要么单换行（单换行并段，两种边界都要覆盖）；
-      // 围栏/think 只在行首开启——行中开启和占位符泄漏已修复，语料覆盖该路径。
       deltas.push(next() < 0.3 ? "\n\n" : "\n");
       if (next() < 0.15) {
         deltas.push("<think>思");

@@ -70,19 +70,16 @@ describe("math-render MathML 水合", () => {
 
     hydrateMathPlaceholders(container);
 
-    // 水合完成后标记状态为 done
     const hydrated = container.querySelectorAll(MATH_BLOCK_SELECTOR);
     expect(hydrated[0].getAttribute("data-biliscript-math-status")).toBe("done");
     expect(hydrated[1].getAttribute("data-biliscript-math-status")).toBe("done");
     expect(hydrated[2].getAttribute("data-biliscript-math-status")).toBe("done");
 
-    // 检查生成的 MathML 标签（块级含等号公式会按词项拆分为多个独立 <math display="block">）
     expect(hydrated[0].querySelector("math")?.getAttribute("display")).toBe("block");
     expect(hydrated[1].querySelector("math")?.getAttribute("display")).toBe("block");
     expect(hydrated[2].querySelector("math")?.getAttribute("display")).toBeNull();
     expect(container.innerHTML).toContain("<annotation encoding=\"application/x-tex\">");
 
-    // 检查等号左右对齐结构
     const aligned = container.querySelector(".biliscript-math-aligned");
     expect(aligned).not.toBeNull();
     expect(container.querySelector(".biliscript-math-lhs")?.textContent).toContain("Agent");

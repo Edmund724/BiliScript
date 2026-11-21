@@ -1,12 +1,3 @@
-// timestamp-nav 对话时间戳跳转测试（arch-slim-2/08）：
-// parseTimestampToSeconds 已归一到 shared/clock-text.ts 的 parseClock（容错单源），
-// 哨兵语义保留在本模块——解不出返回 0（与章节目录的 -1 哨兵不同）。本文件断言
-// 两条哨兵/容错路径的端到端行为：非法时刻「99:99」按 0 秒跳转（原实现会换算成
-// 6039 秒，归一后拒绝），合法「1:02」按 62 秒跳转。
-// 跳转经注入的窄接口 deps.seek 进程内直调（content script 无 tab 消息链，
-// reader/chat-tab.ts 的 getTimestampNavDeps 直接包 seekReadingTarget），
-// seek 返回 null（未绑定到视频）时降级为失败 notice。
-
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { findSubtitlePreviewAtTime, linkifyAssistantTimestamps } from "../../extension/ui/timestamp-nav.js";
 
@@ -122,7 +113,6 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
 
     expect(uniqueCount).toBe(2);
     expect(buttons.map((btn) => btn.textContent)).toEqual(["[04:12]", "[04:12]", "[08:30]"]);
-    // 吸收外围括号后不产生 [[04:12]]
     expect(container.textContent).toBe("开场见 [04:12]，补充见 [04:12] 与 [08:30]。");
     container.remove();
   });
@@ -157,18 +147,15 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
     expect(tooltip.querySelector(".chat-timestamp-tooltip-time")?.textContent).toBe("4:10");
     expect(tooltip.querySelector(".chat-timestamp-tooltip-text")?.textContent).toContain("流式渲染防抖");
 
-    // 鼠标移出胶囊但移入 Tooltip 自身：保持显示（WCAG 1.4.13 Hoverable）
     btn.dispatchEvent(new window.Event("mouseleave"));
     tooltip.dispatchEvent(new window.Event("mouseenter"));
     vi.advanceTimersByTime(300);
     expect(host.querySelector("[data-chat-timestamp-tooltip]")).toBe(tooltip);
 
-    // Esc 立即收起且清除 aria-describedby
     host.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(host.querySelector("[data-chat-timestamp-tooltip]")).toBeNull();
     expect(btn.getAttribute("aria-describedby")).toBeNull();
 
-    // 点击直接跳转播放
     btn.click();
     expect(deps.seek).toHaveBeenCalledWith(252);
 

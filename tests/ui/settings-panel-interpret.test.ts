@@ -160,7 +160,6 @@ describe("设置面板字幕翻译", () => {
     expect(modelSelect.value).toBe("bilibili-index-translate\u0001Index-Translate-35B-A3B");
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("Index-Translate-35B-A3B");
 
-    // 切换模型档位到 9B
     modelSelect.value = "bilibili-index-translate\u0001Index-Translate-9B";
     modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() =>
@@ -168,7 +167,6 @@ describe("设置面板字幕翻译", () => {
     );
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("Index-Translate-9B");
 
-    // 切回自定义 AI 平台
     sourceSelect.value = "custom";
     sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() =>
@@ -177,7 +175,6 @@ describe("设置面板字幕翻译", () => {
     expect(modelSelect.value).toBe("provider-1\u0001deepseek-chat");
     expect(modelSelect.querySelectorAll("optgroup")).toHaveLength(1);
 
-    // 切回内置 Index-Translate
     sourceSelect.value = "bilibili-index-translate";
     sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() =>

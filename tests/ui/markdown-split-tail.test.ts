@@ -1,6 +1,3 @@
-// ui/markdown splitMarkdownTail 单测：流式"稳定前缀 + 末块"增量渲染的切分
-// 纯函数边界行为（最后一个空行边界 + 围栏闭合约束 + 安全退化）。
-
 import { describe, expect, it } from "vitest";
 import { renderMarkdown, renderMarkdownStripped, splitMarkdownTail } from "../../extension/ui/markdown.js";
 
@@ -79,7 +76,6 @@ describe("splitMarkdownTail", () => {
     const text = "第一段\n";
     expect(splitMarkdownTail(text)).toEqual({ stableText: "", tailText: text });
     const grown = "第一段\n\n第二段";
-    // 追加正文后同一边界重新可用，且 stable 取值不含尾随空行
     expect(splitMarkdownTail(grown)).toEqual({ stableText: "第一段", tailText: "\n第二段" });
   });
 
@@ -111,11 +107,6 @@ describe("splitMarkdownTail", () => {
     expect(splitMarkdownTail(null)).toEqual({ stableText: "", tailText: "" });
   });
 
-  // M13（长回复屏外段落跳过渲染）：chat/解释卡样式对 renderMarkdown 块级输出
-  // 逐块应用 content-visibility: auto（reader-chat.css / reader.css），CSS 侧
-  // 规则清单只覆盖 p/h3-h6/ul/ol/pre/table/blockquote/hr 十一种块容器。此测试
-  // 钉住输出标签清单——renderInline 只产行内标签，块级标签只出自 renderMarkdown
-  // 顶层分支，若未来新增块级标签，这里先红，提醒同步补 CSS 规则。
   it("renderMarkdown 输出标签清单固定：块级容器仅为 c-v:auto 目标集", () => {
     const html = renderMarkdown(
       "# 一\n## 二\n### 三\n#### 四\n##### 五\n\n段落 **加粗** *斜体* `代码` [链接](https://example.com/a) ~~删除~~\n\n- 甲\n- 乙\n\n1. 丙\n2. 丁\n\n- [x] 任务\n\n> 引用\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```js\nconst x = 1;\n```\n"
@@ -125,10 +116,10 @@ describe("splitMarkdownTail", () => {
     );
     expect([...tags].sort()).toEqual(
       [
-        "a", "code", "del", "em", "strong", // 行内
-        "input", // 任务列表勾框
-        "li", "thead", "tbody", "tr", "th", "td", // 块内结构
-        "p", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "table", "blockquote", "hr" // c-v:auto 块级目标集
+        "a", "code", "del", "em", "strong",
+        "input",
+        "li", "thead", "tbody", "tr", "th", "td",
+        "p", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "table", "blockquote", "hr"
       ].sort()
     );
   });

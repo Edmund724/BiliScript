@@ -29,7 +29,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(inlineKey).toContain("inline");
       expect(inlineKey).toContain(tex);
 
-      // 分别水合相同源码的块级与行内公式
       const container = document.createElement("div");
       container.innerHTML = `
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${tex}">$$${tex}$$</div>
@@ -42,7 +41,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(blockEl.getAttribute("data-biliscript-math-status")).toBe("done");
       expect(inlineEl.getAttribute("data-biliscript-math-status")).toBe("done");
 
-      // 块级公式 MathML 拥有 display="block"，行内公式没有
       const blockMath = blockEl.querySelector("math");
       const inlineMath = inlineEl.querySelector("math");
       expect(blockMath?.getAttribute("display")).toBe("block");
@@ -55,10 +53,8 @@ describe("math-render LRU 缓存与水合测试", () => {
       const cache = new MathRenderLruCache(3);
       expect(cache.size).toBe(0);
 
-      // 未命中
       expect(cache.get("k1")).toBeUndefined();
 
-      // 写入与命中
       cache.set("k1", "v1");
       expect(cache.size).toBe(1);
       expect(cache.get("k1")).toBe("v1");
@@ -71,13 +67,11 @@ describe("math-render LRU 缓存与水合测试", () => {
       cache.set("k3", "v3");
       expect(cache.size).toBe(3);
 
-      // 访问 k1，使得 k1 成为最近使用的，顺序变为 k2 (最旧), k3, k1 (最新)
       expect(cache.get("k1")).toBe("v1");
 
-      // 插入 k4，应该淘汰 k2
       cache.set("k4", "v4");
       expect(cache.size).toBe(3);
-      expect(cache.get("k2")).toBeUndefined(); // 被淘汰
+      expect(cache.get("k2")).toBeUndefined();
       expect(cache.get("k1")).toBe("v1");
       expect(cache.get("k3")).toBe("v3");
       expect(cache.get("k4")).toBe("v4");
@@ -88,10 +82,8 @@ describe("math-render LRU 缓存与水合测试", () => {
       cache.set("k1", "v1");
       cache.set("k2", "v2");
 
-      // 更新 k1
       cache.set("k1", "v1-updated");
 
-      // 插入 k3，应该淘汰 k2（因为 k1 刚被更新提升为最新）
       cache.set("k3", "v3");
       expect(cache.get("k2")).toBeUndefined();
       expect(cache.get("k1")).toBe("v1-updated");
@@ -108,13 +100,11 @@ describe("math-render LRU 缓存与水合测试", () => {
         return div;
       };
 
-      // 渲染公式 1 和 2
       hydrateMathPlaceholders(createEl("f1"), smallCache);
       hydrateMathPlaceholders(createEl("f2"), smallCache);
       expect(renderSpy).toHaveBeenCalledTimes(2);
       expect(smallCache.size).toBe(2);
 
-      // 渲染公式 3 -> f1 应该被淘汰
       hydrateMathPlaceholders(createEl("f3"), smallCache);
       expect(renderSpy).toHaveBeenCalledTimes(3);
       expect(smallCache.size).toBe(2);
@@ -122,11 +112,9 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(smallCache.has(buildMathCacheKey("f2", true))).toBe(true);
       expect(smallCache.has(buildMathCacheKey("f3", true))).toBe(true);
 
-      // 再次渲染 f2 -> 命中缓存，不增加调用次数
       hydrateMathPlaceholders(createEl("f2"), smallCache);
       expect(renderSpy).toHaveBeenCalledTimes(3);
 
-      // 再次渲染已淘汰的 f1 -> 未命中，重新计算
       hydrateMathPlaceholders(createEl("f1"), smallCache);
       expect(renderSpy).toHaveBeenCalledTimes(4);
     });
@@ -166,7 +154,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(el1?.getAttribute("data-biliscript-math-status")).toBe("done");
       expect(el1?.innerHTML).toContain("katex-error");
 
-      // 第二次命中缓存
       const container2 = document.createElement("div");
       container2.innerHTML = `<span class="biliscript-md-math biliscript-md-math-inline" ${MATH_BLOCK_ATTR}="inline" data-tex="${invalidTex}"></span>`;
       hydrateMathPlaceholders(container2);
@@ -209,7 +196,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(lhs1).not.toBeNull();
       expect(rhs1).not.toBeNull();
 
-      // 第二次从缓存水合新的容器
       const c2 = document.createElement("div");
       c2.innerHTML = `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${eqTex}"></div>`;
       hydrateMathPlaceholders(c2);
@@ -222,7 +208,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(lhs2).not.toBeNull();
       expect(rhs2).not.toBeNull();
 
-      // 验证是新 DOM 树上的独立节点，非同一实例浅拷贝
       expect(aligned1).not.toBe(aligned2);
       expect(lhs1).not.toBe(lhs2);
       expect(rhs1).not.toBe(rhs2);
@@ -247,7 +232,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(aligned?.getAttribute("aria-label")).toBe(eqTex);
       expect(lhs?.namespaceURI).toBe(HTML_NS);
       expect(rhs?.namespaceURI).toBe(HTML_NS);
-      // 括号内减号不拆项（含 )^2 封装在 <msup> 内的闭括号）：RHS 应为 3 个完整词项
       expect(terms.length).toBe(3);
       const lhsMath = lhs?.querySelector("math");
       expect(lhsMath?.namespaceURI).toBe(MATHML_NS);
@@ -278,7 +262,6 @@ describe("math-render LRU 缓存与水合测试", () => {
 
       const stableEl = document.createElement("div");
 
-      // 阶段 1：稳定区包含公式 A
       stableEl.innerHTML = `
         <p>段落 1</p>
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaA}"></div>
@@ -286,7 +269,6 @@ describe("math-render LRU 缓存与水合测试", () => {
       hydrateMathPlaceholders(stableEl);
       expect(renderSpy).toHaveBeenCalledTimes(1);
 
-      // 阶段 2：新块到达，stableEl 整体被重新赋值 innerHTML（模拟 renderMarkdownStripped），包含公式 A 与 B
       stableEl.innerHTML = `
         <p>段落 1</p>
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaA}"></div>
@@ -294,10 +276,8 @@ describe("math-render LRU 缓存与水合测试", () => {
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaB}"></div>
       `;
       hydrateMathPlaceholders(stableEl);
-      // 公式 A 命中缓存不重复执行，只计算公式 B -> 累计调用 2 次
       expect(renderSpy).toHaveBeenCalledTimes(2);
 
-      // 阶段 3：再次增加块，包含 A, B, C
       stableEl.innerHTML = `
         <p>段落 1</p>
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaA}"></div>
@@ -307,10 +287,8 @@ describe("math-render LRU 缓存与水合测试", () => {
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaC}"></div>
       `;
       hydrateMathPlaceholders(stableEl);
-      // 公式 A, B 均命中缓存，只计算新公式 C -> 累计调用 3 次
       expect(renderSpy).toHaveBeenCalledTimes(3);
 
-      // 阶段 4：尾部再次重入（无新公式），调用次数不变
       stableEl.innerHTML = `
         <p>段落 1</p>
         <div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${formulaA}"></div>

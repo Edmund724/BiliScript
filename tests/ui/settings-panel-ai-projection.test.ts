@@ -1,8 +1,3 @@
-// ui/settings-panel.ts 独立模型选择器直测：
-// - 设置页移除所有「默认」按钮、行内模型副行与跟随提示；
-// - #aiDefaultModel（概览与解释）与 #subtitleTranslateModel（字幕翻译）各自独立选择、不含「跟随 AI 默认平台」；
-// - 跨端 storage.onChanged 同步刷新两个下拉框，且对话 tab 本地选择不影响设置页。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage } from "../helpers/settings-panel-bus.js";

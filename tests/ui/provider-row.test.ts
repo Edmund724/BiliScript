@@ -1,21 +1,3 @@
-// tests/ui/provider-row.test.ts
-// createProviderRow 工厂与两个真实族声明（provider-family.ts 的 AI / ASR 族，
-// 候选 3 片 1 自 options-rows / options-asr-rows 收敛）的行为契约
-//（provider-master-detail/02 紧凑形态）。行是纯展示 + 入口，本文件守住：
-// - 行结构渲染：主行（Key 状态点两态 / 名称回落 /（ASR）选用 radio / 编辑 /
-//   删除）+ 模型名副行（空则不渲染），行内零输入字段（编辑职责在
-//   ui/provider-editor.js 的 Modal，其契约见 provider-editor.test.js）；
-// - 行 dataset 四键（providerId / hasSavedKey / currentPresetId / baseUrl——
-//   删除回收 host 权限的钩子要从行上拿 baseUrl）；
-// - 删除接线：面板内二次确认弹层（ui/confirm-dialog.js；原生 confirm 弹窗绘制
-//   在浏览器窗口中央，面板停靠右侧时可能看不到）→ onBeforeDelete（权限回收
-//   钩子，带行 dataset 的 baseUrl）→ 后台删除消息 → onDelete（ASR 清选用态）；
-//   取消确认则不动；
-// - ASR 选用 radio：change 即时持久化 activeAsrProviderId 并同步选中态；
-// - 「编辑」按钮回调转发 providerId（经工厂 deps 注入的 onRowEdit）。
-// shared/messaging.js（sendRuntimeMessage）被整体 mock，避免拖入 content
-// script 依赖图。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { TRASH_ICON_PATHS } from "../../extension/ui/provider-row.js";
@@ -54,7 +36,6 @@ const ASR_PRESETS = [
   { id: "custom", name: "自定义", type: "openai-transcriptions", baseUrl: "", model: "", supportsTimestamps: true }
 ];
 
-// 共享垃圾桶 path：固定属性行 / 笔记段落行 / 平台行共用同一份定义
 const TRASH_PATHS = [
   "M4 7h16",
   "M9 3h6",
@@ -64,8 +45,6 @@ const TRASH_PATHS = [
 ];
 
 function makeContainer() {
-  // 删除二次确认弹层挂在 #biliscript-reading-view 直下（confirm-dialog 契约），
-  // 列表容器须放进视图里
   document.body.innerHTML = '<div id="biliscript-reading-view"><section id="biliscript-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
@@ -73,8 +52,6 @@ function makeContainer() {
   return { listNode, emptyNode };
 }
 
-// setup.ts 给 HTMLElement.prototype.click 打的补丁会派发两次事件（原生 click + 手动
-// dispatch），这里改为单次显式派发，模拟真实用户的一次点击。
 function fireClick(el: Element) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
@@ -83,15 +60,12 @@ function readTrashPaths(row: Element) {
   return Array.from(row.querySelectorAll(".provider-row-remove svg path")).map((p) => p.getAttribute("d"));
 }
 
-// 纯微任务冲刷：等待行事件处理器里 await confirmDialog / sendRuntimeMessage /
-// 回调链走完
 async function flushMicrotasks() {
   for (let i = 0; i < 20; i++) {
     await Promise.resolve();
   }
 }
 
-// 面板内确认弹层的单发点击（结构契约见 tests/ui/confirm-dialog.test.ts）
 function confirmDelete() {
   const button = document.querySelector(".confirm-dialog-confirm");
   expect(button, "删除确认弹层应已打开").not.toBeNull();
@@ -110,8 +84,6 @@ beforeEach(() => {
   sendRuntimeMessageMock.mockImplementation(async () => ({ ok: true }));
 });
 
-// 组合点工厂创建三族行绑定（候选 3 片 1）：onRowEdit 经 deps 注入，
-// 删除/回收回调经 controller 方法注入——原模块级 setter 单例已退役。
 async function createRows(onEdit: (providerId: string) => void = () => {}) {
   const { createProviderFamilyRows } = await import("../../extension/ui/provider-family.js");
   return createProviderFamilyRows({ onRowEdit: (_kind, providerId) => onEdit(providerId) });
@@ -133,13 +105,11 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(emptyNode.hidden).toBe(true);
 
     const row = allRows[0];
-    // dataset 四键：baseUrl 供删除回收 host 权限的钩子读取
     expect(row.dataset.providerId).toBe("p1");
     expect(row.dataset.hasSavedKey).toBe("0");
     expect(row.dataset.currentPresetId).toBe("openai_compat");
     expect(row.dataset.baseUrl).toBe("https://api.openai.com/v1");
 
-    // 主行：状态点（未存 Key=missing）+ 名称（自定义名优先）+ 编辑/删除
     const line = row.querySelector(".provider-row-line")!;
     expect(line).not.toBeNull();
     expect(line.querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("missing");
@@ -147,19 +117,14 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(line.querySelector("button.provider-row-edit")!.textContent).toBe("编辑");
     expect(line.querySelector("button.provider-row-remove")).not.toBeNull();
 
-    // 副行：AI 平台按需求不显示模型名
     expect(row.querySelector(".provider-row-model")).toBeNull();
 
-    // 紧凑行内零输入字段（编辑职责在 provider-editor Modal）
     expect(row.querySelectorAll("input")).toHaveLength(0);
     expect(row.querySelectorAll("select")).toHaveLength(0);
-    // AI 行没有选用 radio
     expect(row.querySelector(".asr-provider-active-radio")).toBeNull();
-    // 垃圾桶 path 与固定属性行共用同一份定义
     expect(TRASH_ICON_PATHS).toContain('d="M4 7h16"');
     expect(readTrashPaths(row)).toEqual(TRASH_PATHS);
 
-    // 第二行：hasSavedKey=1 → 绿点
     expect(allRows[1].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("saved");
   });
 
@@ -172,11 +137,9 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     ], { presets: AI_PRESETS });
 
     const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
-    // 名称 = 预设名（历史数据 name=预设名，拍板 Q7 的回落语义）
     expect(allRows[0].querySelector(".provider-row-name")!.textContent).toBe("OpenAI 兼容");
     expect(allRows[0].querySelector(".provider-row-model")).toBeNull();
 
-    // 显式空模型同样不渲染副行
     expect(allRows[1].querySelector(".provider-row-model")).toBeNull();
   });
 
@@ -192,7 +155,6 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
     expect(allRows[0].querySelector(".provider-row-model")).toBeNull();
     expect(allRows[1].querySelector(".provider-row-model")).toBeNull();
-    // 历史单模型记录（无 models）回落 model 字段
     expect(allRows[2].querySelector(".provider-row-model")).toBeNull();
   });
 
@@ -224,14 +186,12 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
     const row = listNode.querySelector(".ai-provider-row")!;
 
-    // 弹层点「取消」：钩子与删除消息都不触发
     fireClick(row.querySelector(".provider-row-remove")!);
     cancelDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).not.toHaveBeenCalled();
     expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
 
-    // 弹层点「删除」：确认链走通
     fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
@@ -281,20 +241,16 @@ describe("createProviderRow：ASR 平台行（provider-family.js 的 ASR 族声�
     const row = allRows[0];
     expect(row.dataset.currentPresetId).toBe("siliconflow");
     expect(row.dataset.baseUrl).toBe("https://api.siliconflow.cn/v1");
-    // 名称取列表项实值；模型名取已保存 model
     expect(row.querySelector(".provider-row-name")!.textContent).toBe("我的 ASR");
     expect(row.querySelector(".provider-row-model")!.textContent).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
-    // whisper 预设行：无 name 字段回落预设名，模型名回落预设 model
     expect(allRows[1].querySelector(".provider-row-name")!.textContent).toBe("本地 Whisper 服务");
     expect(allRows[1].querySelector(".provider-row-model")!.textContent).toBe("whisper-large-v3");
-    // 选用 radio：activeId 命中 asr2；状态点 asr2 已存 Key
     const radios = listNode.querySelectorAll<HTMLInputElement>(".asr-provider-active-radio");
     expect(radios[0].checked).toBe(false);
     expect(radios[1].checked).toBe(true);
     expect(radios[0].closest("label")!.title).toBe("选用该平台自动生成字幕");
     expect(allRows[0].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("missing");
     expect(allRows[1].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("saved");
-    // 删除按钮统一 provider-row-remove（历史耦合 ai-provider-remove 已收口）
     expect(row.querySelector("button.provider-row-remove")).not.toBeNull();
     expect(row.querySelector(".ai-provider-remove")).toBeNull();
     expect(readTrashPaths(row)).toEqual(TRASH_PATHS);

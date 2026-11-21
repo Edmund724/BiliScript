@@ -42,7 +42,6 @@ describe("Markdown 表格横滑容器", () => {
     enhanceMarkdownTables(root);
     const originalTable = root.querySelector("table");
 
-    // 重置 activeTable，强制走 container.lastElementChild 的 .biliscript-md-table 匹配分支
     cursor.reset();
     cursor.commit(renderMarkdown(tableMarkdown(["| C | D |"])), root);
 

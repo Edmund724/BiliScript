@@ -1,8 +1,3 @@
-// ui/lazy-mermaid 可见性门控单测：mock 掉 mermaid-render（真渲染跑不了 jsdom），
-// 钉住门控契约——屏外占位不装载（IntersectionObserver 滚入才水合）、视口内
-// 占位立即水合（零感知）、force 与环境守卫（无 IntersectionObserver）绕过门控。
-// 模块级 observer 状态经 resetModules + 动态导入隔离，每条用例拿干净实例。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const renderMock = vi.hoisted(() => ({

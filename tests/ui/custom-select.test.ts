@@ -1,20 +1,7 @@
-// tests/ui/custom-select.test.ts
-// ui/custom-select.ts（ADR-0007：设置页下拉统一到本组件）最小行为测试
-//（settings-ui-coherence/04）。笔记导出删除后段落位置下拉随之退役，落点改为
-// 仍在场的 #downloadFormat（导出区下载格式，settings-panel 的 initCustomSelect
-// 消费点）——组件本身保留，键盘语义断言原样搬迁。
-//
-// listbox 键盘语义：trigger Enter 展开 → ↓ 漫游 → Enter 选中——原生 select.value
-// 写回且派生一次 bubbling change（收集链零改的根基），aria-expanded /
-// aria-selected / 焦点归位同步断言。驱动真实模块，挂载与消息总线沿用
-// settings-panel-save.test.ts 同款（renderReaderSettingsPanel 唯一公开入口 +
-// 按 type 分发的 sendMessage stub + fireClick 单发点击）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
 function installMessageBus(overrides: Record<string, BusResponder> = {}): BusMessage[] {
   return installSettingsPanelBus<BusMessage>({ ...overrides }).sent;
 }
@@ -26,8 +13,6 @@ async function mountPanel() {
   return document.getElementById("biliscript-reading-settings-host")!;
 }
 
-// 自定义下拉的挂载点在 loadSettings（fire-and-forget）末端，按初始化标记等待，
-// 比等异步消息更贴真实就绪时刻。
 async function waitForCustomSelect(host: HTMLElement, selectId: string): Promise<HTMLSelectElement> {
   let select: HTMLSelectElement | null = null;
   await vi.waitFor(() => {
@@ -37,8 +22,6 @@ async function waitForCustomSelect(host: HTMLElement, selectId: string): Promise
   return select!;
 }
 
-// 单发 click（settings-panel-save.test.ts 同款：jsdom 原生 click 已派发事件，
-// 手动补派发会双触发）
 function fireClick(node: Element) {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
@@ -63,7 +46,6 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
 
     expect(options.map((option) => option.textContent)).toEqual(["SRT", "TXT", "VTT", "VTT（仅副轨）"]);
 
-    // ARIA 接线：trigger ↔ listbox 关联、角色与选中态
     expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
     expect(trigger.getAttribute("aria-controls")).toBe(dropdown.id);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
@@ -79,10 +61,10 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
     fireClick(trigger);
     expect(dropdown.hidden).toBe(false);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(options[0]); // 焦点给当前选中项
+    expect(document.activeElement).toBe(options[0]);
 
     keydown(options[0], "ArrowDown");
-    expect(document.activeElement).toBe(options[1]); // 漫游不移出列表
+    expect(document.activeElement).toBe(options[1]);
 
     keydown(options[1], "Enter");
     expect(select.value).toBe("txt");
@@ -90,7 +72,7 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
     expect(changeEvents[0].bubbles).toBe(true);
     expect(dropdown.hidden).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger); // 焦点归位
+    expect(document.activeElement).toBe(trigger);
     expect(trigger.textContent).toContain("TXT");
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     expect(options[0].getAttribute("aria-selected")).toBe("false");
@@ -118,8 +100,6 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
   });
 });
 
-// aria-labelledby 的名字拼接：浏览器把引用节点的文本按空格连起来
-// （逐节点 trim）。jsdom 无平台无障碍树，只能按同一口径自行拼。
 function labelledbyText(node: Element): string {
   const ids = (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
   expect(ids.length, `${node.className} 缺 aria-labelledby`).toBeGreaterThan(0);
@@ -132,9 +112,6 @@ function labelledbyText(node: Element): string {
     .join(" ");
 }
 
-// ADR-0007 重开条件（读屏念得出当前值与角色、纯键盘能改值）的结构核验：
-// jsdom 既无无障碍树也无 Tab 序，故核验被读屏与 Tab 序消费的那几项结构——
-// 隐藏 select 是否退出、名字是否带字段标签、Tab 离开时焦点是否交还 trigger。
 describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验）", () => {
   it("隐藏的原生 select 退出 Tab 序与无障碍树，值源不变", async () => {
     installMessageBus();
@@ -144,13 +121,10 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
       select.closest<HTMLElement>(".custom-select-wrapper")!.querySelectorAll<HTMLElement>(".custom-select-option")
     );
 
-    // display:none 让 select 天然退出无障碍树与 Tab 序，无需再摘 Tab 序、加 aria-hidden；
-    // 隐藏走内联样式，宿主里那些原生 select 外观规则的优先级压不回它
     expect(select.style.display).toBe("none");
     expect(select.getAttribute("tabindex")).toBeNull();
     expect(select.getAttribute("aria-hidden")).toBeNull();
 
-    // 值源与收集链零改：组件写回原生 select
     fireClick(options[1]);
     expect(select.value).toBe("txt");
   });
@@ -164,12 +138,9 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
     const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
 
-    // 只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」；字段名必须进名字
     expect(labelledbyText(trigger)).toBe("下载格式 SRT");
-    // 有真 label：名字仍走 aria-labelledby，未被 aria-label 分支改写（逐字不变）
     expect(trigger.getAttribute("aria-label")).toBeNull();
     expect(labelledbyText(dropdown)).toBe("下载格式");
-    // 标签的 for 也得指向用户碰得到的控件：不然点标签把焦点送进已 display:none 隐藏的 select
     const fieldLabel = document.getElementById(trigger.getAttribute("aria-labelledby")!.split(" ")[0])!;
     expect(fieldLabel.tagName).toBe("LABEL");
     expect(fieldLabel.getAttribute("for")).toBe(trigger.id);
@@ -201,13 +172,10 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
     const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
 
-    // 名字 = 「字段名 + 当前值」：只念「中文，按钮」等于丢了「这是哪个设置」
-    expect(trigger.getAttribute("aria-labelledby")).toBeNull(); // 无字段 label：走 aria-label 路径
+    expect(trigger.getAttribute("aria-labelledby")).toBeNull();
     expect(trigger.getAttribute("aria-label")).toBe("字幕语言 中文");
-    // dropdown 仍是纯字段名（既有口径不变）
     expect(dropdown.getAttribute("aria-label")).toBe("字幕语言");
 
-    // 名字随值重算
     fireClick(options[1]);
     expect(trigger.getAttribute("aria-label")).toBe("字幕语言 English");
   });
@@ -225,8 +193,6 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     fireClick(trigger);
     expect(document.activeElement).toBe(options[0]);
 
-    // 焦点在 li 上时收拢列表会让焦点掉回 body，默认 Tab 会从 body 重新起算
-    // （跳到文档第一个控件）；必须先把焦点交还 trigger，再放行默认动作
     const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     options[0].dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
@@ -236,11 +202,6 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
   });
 });
 
-// 外部写值的收口（ADR-0007 修订）：组件此前只在选项被点时同步显示，外部直接写
-// select.value 不回流 trigger——真机现象是 Modal 预设切到 DeepSeek（协议默认
-// Anthropic），协议下拉的 trigger 仍写着「OpenAI Chat Completions」。修法是组件
-// 导出 setCustomSelectValue 作为外部写值唯一入口，与 chooseOption 共用同一条
-// 「写值 + 同步显示」路径，「显示 = 现值」由此成为组件内部不变式。
 describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   const bareMarkup =
     '<label for="downloadFormat">下载格式</label>' +
@@ -268,7 +229,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
 
     expect(select.value).toBe("txt");
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("TXT");
-    // 可访问名 = 字段标签 + 当前值：值文本更新后名字自动重算
     expect(labelledbyText(trigger)).toBe("下载格式 TXT");
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     expect(options[0].getAttribute("aria-selected")).toBe("false");
@@ -313,18 +273,13 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
 
     expect(() => setCustomSelectValue(select, "nope")).not.toThrow();
 
-    // 原生语义：赋不存在的值后实际 value 为 ""、selectedIndex 为 -1
     expect(select.value).toBe("");
     expect(select.selectedIndex).toBe(-1);
-    // 显示从写入后的实际值派生（与 init 同款：无选中项时文本回落首项、无选中态）
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("SRT");
     expect(options.every((option) => option.getAttribute("aria-selected") === "false")).toBe(true);
   });
 });
 
-// 哨兵选项（10 号票第 3 条）：选轨控件的空态 / 转写中态靠消费者塞一条哨兵项
-// （旧实现 `<option value="">暂无字幕</option>` 同款）表达，组件必须能显示它、
-// 选中态正确、setCustomSelectValue(select, "") 命中它。消费侧由 08 号票落地。
 describe("哨兵选项（空态 / 转写态的载体，10 号票）", () => {
   const sentinelMarkup = '<select id="trackSelect" aria-label="字幕语言"><option value="">暂无字幕</option></select>';
 
@@ -367,11 +322,6 @@ describe("哨兵选项（空态 / 转写态的载体，10 号票）", () => {
   });
 });
 
-// 选项集在初始化之后变化（10 号票第 5 条 / 08 号票的硬前置）：initCustomSelect
-// 把 select.options 快照一次，dataset.customSelectInitialized 又让重复 init 直接
-// return——选轨控件每轮抓取/转写收尾都要换整批选项，故需要 rebuildCustomSelectOptions：
-// 重读 select.options、重建 listbox 项、按写入后的实际值重派生显示，
-// **壳（trigger 元素 / id / aria-* 关系 / 焦点）一律不重建**。
 describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
   const baseMarkup =
     '<label for="trackSelect">字幕语言</label>' +
@@ -427,10 +377,9 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     const { select, trigger, options } = await mountInitialized();
     const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
-    select.value = "ai-en"; // 等价水合：外部已写值
+    select.value = "ai-en";
     select.innerHTML =
       '<option value="ai-zh">中文</option><option value="ai-en">English</option><option value="ai-ar">العربية</option>';
-    // innerHTML 重建后原生选中态回到首项，故按「写入后的实际值」重派生——这里显式再写一次
     select.value = "ai-en";
     rebuildCustomSelectOptions(select);
 
@@ -445,7 +394,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     select.innerHTML = '<option value="ai-ja">日本語</option>';
     rebuildCustomSelectOptions(select);
 
-    // 原生语义：旧值只在 innerHTML 重建后失效，浏览器的实际 value 是「重建后的选中项」
     expect(select.value).toBe("ai-ja");
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("日本語");
   });
@@ -454,17 +402,15 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     const { select, trigger, options } = await mountInitialized();
     const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
-    // 原生没有「有选项但全不选中」的形态（去掉 selected 属性后浏览器仍按序选中首项），
-    // 唯一能落到 else 分支的是「现值空 + 无匹配项」——按原生写值语义造这个态。
     select.innerHTML = '<option value="ai-ja">日本語</option><option value="ai-ar">العربية</option>';
     expect(select.value).toBe("ai-ja");
     Array.from(select.options).forEach((option) => option.removeAttribute("selected"));
     select.value = "";
-    expect(select.value).toBe(""); // 无 value="" 的项 → 实际值确为 ""
+    expect(select.value).toBe("");
 
     rebuildCustomSelectOptions(select);
 
-    expect(options()).toHaveLength(2); // 项集照旧重建（不是被跳过）
+    expect(options()).toHaveLength(2);
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("日本語");
     expect(options().map((option) => option.getAttribute("aria-selected"))).toEqual(["false", "false"]);
   });
@@ -486,12 +432,10 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ja">日本語</option>';
     rebuildCustomSelectOptions(select);
 
-    // 同一批节点（不是「等价的新节点」）
     expect(select.closest(".custom-select-wrapper")).toBe(wrapper);
     expect(wrapper.querySelector(".custom-select-trigger")).toBe(trigger);
     expect(wrapper.querySelector(".custom-select-dropdown")).toBe(dropdown);
     expect(trigger.querySelector(".custom-select-value")).not.toBeNull();
-    // id 与 ARIA 关系逐项不变
     expect(select.id).toBe(selectIdBefore);
     expect(trigger.id).toBe(triggerIdBefore);
     expect(dropdown.id).toBe(dropdownIdBefore);
@@ -499,7 +443,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     expect(trigger.getAttribute("aria-controls")).toBe(controlsBefore);
     expect(document.querySelector("label[for]")!.getAttribute("for")).toBe(labelForBefore);
     expect(labelledbyText(trigger)).toBe("字幕语言 中文");
-    // 消费者写在 trigger 上的状态不被换选项抹掉
     expect(trigger.disabled).toBe(true);
     expect(trigger.getAttribute("aria-busy")).toBe("true");
     expect(document.activeElement).toBe(trigger);
@@ -549,7 +492,7 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
     select.value = "ai-ja";
     rebuildCustomSelectOptions(select);
 
-    expect(dropdown.hidden).toBe(false); // 打开态不因换项集被收起
+    expect(dropdown.hidden).toBe(false);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const rebuilt = options();
     expect(rebuilt[1].getAttribute("aria-selected")).toBe("true");
@@ -557,9 +500,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
   });
 });
 
-// 组件状态入口（10 号票第 6 条 / 票 03 的状态机）：消费者不该 poke 组件内部的
-// trigger，禁用与忙碌都由 setCustomSelectState 写。disabled 是**真守卫**（点击与
-// 键盘都不得展开列表），busy 与 disabled 相互独立（03 号票切轨期间同时置两者）。
 describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
   const markup =
     '<label for="trackSelect">字幕语言</label>' +
@@ -587,7 +527,7 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
     expect(trigger.disabled).toBe(true);
     expect(select.disabled).toBe(true);
-    expect(select.value).toBe("ai-zh"); // 值源语义不变：collect* 照读 .value
+    expect(select.value).toBe("ai-zh");
   });
 
   it("busy 写 aria-busy；两者可同时置，复位各自独立（省略的键保持现态）", async () => {
@@ -598,13 +538,11 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
     expect(trigger.disabled).toBe(true);
     expect(trigger.getAttribute("aria-busy")).toBe("true");
 
-    // 只动 busy：disabled 不被顺手复位
     setCustomSelectState(select, { busy: false });
     expect(trigger.disabled).toBe(true);
     expect(select.disabled).toBe(true);
     expect(trigger.getAttribute("aria-busy")).toBe("false");
 
-    // 只动 disabled：busy 也不被顺手复位
     setCustomSelectState(select, { busy: true });
     setCustomSelectState(select, { disabled: false });
     expect(trigger.disabled).toBe(false);
@@ -643,7 +581,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
     expect(dropdown.hidden).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
-    // 万一列表在场（例如消费者在打开后才发现要禁用），漫游/选中也一律挡住
     dropdown.hidden = false;
     keydown(options()[1], "Enter");
     expect(select.value).toBe("ai-zh");
@@ -657,16 +594,13 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
     expect(document.activeElement).toBe(options()[0]);
 
     setCustomSelectState(select, { busy: true });
-    expect(dropdown.hidden).toBe(false); // busy 不是「不可用」，列表留在场上
+    expect(dropdown.hidden).toBe(false);
     expect(document.activeElement).toBe(options()[0]);
 
     setCustomSelectState(select, { disabled: true });
 
     expect(dropdown.hidden).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    // 焦点不能留在已收起的选项上。组件调的是 closeList(true)（归焦 trigger），但
-    // disabled 的按钮在浏览器与 jsdom 里都接不住焦点（原生行为），故这里的判据是
-    // 「已离开列表项」而不是「等于 trigger」——不为了满足断言去违反原生语义。
     expect(options().includes(document.activeElement as HTMLElement)).toBe(false);
   });
 
@@ -695,7 +629,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
     expect(select.disabled).toBe(true);
     expect(trigger.getAttribute("aria-busy")).toBe("true");
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("中文");
-    // 可访问名也按现值重派生（「显示 = 现值」不变式在 rebuild 后同样成立）
     expect(labelledbyText(trigger)).toBe("字幕语言 中文");
   });
 
@@ -712,18 +645,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
   });
 });
 
-// 浮层槽位（第四条外部入口，2026-10 深化）：调用方声明「浮层里除选项行外还要挂什么」
-//（选项行落点 / 常驻节点 / trigger 插位），组件换整批选项时按声明保留/重挂。
-//
-// 先列失败方式，再据此写断言：
-//   S1 换项摘掉调用方的节点：旧实现是 dropdown.replaceChildren()，挂在浮层里的卡片、
-//      挂在 trigger 上的徽标一起被摘（真机上子树脱离文档 ⇒ 布局盒销毁、scrollTop 归零，
-//      这就是 2026-10-06 run13「选完副语言整列跳回顶部」）。故必须断言换项期间槽位节点
-//      **不脱离**浮层（jsdom 不复现 scrollTop 归零，只能用「脱离」这条替身判据）。
-//   S2 声明换了落点不生效：optionsHost 变了但选项行还留在旧父节点。
-//   S3 trigger 插位夺走组件自己的节点：徽标插错位置（值区里 / 箭头后）或与箭头抢位。
-//   S4 其余调用点被改坏：没声明槽位的 select 行为必须逐字不变（选项行仍直接铺在
-//      浮层本体下）——五个既有调用点零改动是硬约束。
 describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () => {
   const markup =
     '<label for="trackSelect">字幕语言</label>' +
@@ -767,12 +688,9 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
 
     mod.setCustomSelectSlots(select, { extras: [extra], optionsHost: host, triggerExtra: badge });
 
-    // 声明当次即生效（不必等下一次重铺）
     expect(dropdown.contains(extra)).toBe(true);
     expect(options().map((option) => option.textContent)).toEqual(["中文", "English"]);
     options().forEach((option) => expect(option.parentElement).toBe(host));
-    // trigger 插位：值区之后、箭头之前；带 id 时接上 aria-describedby（值 + 徽标贴
-    // start 端、箭头仍贴 end 端，且不覆盖组件自己的值区）
     expect(trigger.children[0].className).toBe("custom-select-value");
     expect(trigger.children[1]).toBe(badge);
     expect(trigger.children[2]).toBe(arrow);
@@ -791,8 +709,6 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
     mod.setCustomSelectSlots(select, { extras: [extra], optionsHost: host, triggerExtra: badge });
     scroller.scrollTop = 24;
 
-    // 真机语义：节点一脱离文档，布局盒销毁、子树的 scrollTop 归零（jsdom 不复现这条），
-    // 故把「脱离」本身当判据——重铺期间槽位被摘一次即红。
     const observer = new MutationObserver(() => {});
     observer.observe(dropdown, { childList: true });
 
@@ -806,7 +722,6 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
     expect(scroller.scrollTop).toBe(24);
     expect(options().map((option) => option.textContent)).toEqual(["中文", "日本語"]);
     options().forEach((option) => expect(option.parentElement).toBe(host));
-    // trigger 插位同样不进换项实现：还在原位、还是一枚
     expect(trigger.contains(badge)).toBe(true);
     expect(trigger.querySelectorAll(".test-badge")).toHaveLength(1);
     expect(trigger.getAttribute("aria-describedby")).toBe("test-badge");
@@ -839,10 +754,6 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
   });
 });
 
-// 组件表随组件走（2026-10：规则从设置三件套抽成 entry/styles/custom-select.css）：
-// 设置抽屉与阅读面板两侧共用本组件，只看字幕、没开过设置抽屉时也必须有样式——
-// 故组件模块求值即挂 link（settings-panel.ts 顶挂载同款先例），不再依赖
-// settings-panel chunk 的装载时机。
 describe("组件表随组件挂载（extension/entry/styles/custom-select.css）", () => {
   it("导入组件模块即挂组件表 link，不依赖设置抽屉的装载时机", async () => {
     document.head.innerHTML = "";
@@ -853,7 +764,6 @@ describe("组件表随组件挂载（extension/entry/styles/custom-select.css）
       'link[rel="stylesheet"][href$="entry/styles/custom-select.css"]'
     );
     expect(link, "组件表 link 未挂").not.toBeNull();
-    // 设置三件套不在场（未开设置抽屉的形态）
     expect(document.head.querySelector('link[href$="reader-settings-rows.css"]')).toBeNull();
     expect(document.head.querySelector('link[href$="reader-settings-shell.css"]')).toBeNull();
     expect(document.head.querySelector('link[href$="reader-settings-providers.css"]')).toBeNull();

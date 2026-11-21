@@ -15,7 +15,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
 
     const session = createMarkdownStreamSession(stableEl, tailEl);
 
-    // 帧 1：单个段落，无空行边界 → 全 tail
     session.flush("第一段正文", { cursor });
     expect(stableEl.children).toHaveLength(0);
     expect(tailEl.textContent).toContain("第一段正文");
@@ -23,7 +22,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(session.stableText).toBe("");
     expect(session.tailText).toBe("第一段正文");
 
-    // 帧 2：空行出现，第一段落定到 stable，第二段在 tail
     session.flush("\n\n第二段开头", { cursor });
     expect(stableEl.children).toHaveLength(1);
     expect(stableEl.querySelector("p")?.textContent).toBe("第一段正文");
@@ -40,7 +38,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     });
     observer.observe(tailEl, { childList: true });
 
-    // 帧 3：第二段继续增长，第一段 DOM 节点保持 === 引用，光标不脱离 DOM 树（保持 CSS 动画不重置）
     session.flush("，继续增长", { cursor });
     expect(stableEl.querySelector("p")).toBe(firstParagraph);
     expect(tailEl.textContent).toContain("第二段开头，继续增长");
@@ -48,7 +45,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(removedFromTail.includes(cursor)).toBe(false);
     observer.disconnect();
 
-    // 帧 4：再次出现空行，第二段落定
     session.flush("\n\n第三段", { cursor });
     expect(stableEl.children).toHaveLength(2);
     expect(stableEl.querySelector("p")).toBe(firstParagraph);
@@ -77,12 +73,10 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     const tailEl = document.createElement("div");
     const session = createMarkdownStreamSession(stableEl, tailEl);
 
-    // 帧 1：推送前言与表格第一行，切点在「前言」后
     session.flush("前言\n\n| 编号 | 项目 |\n| --- | --- |\n| 1 | 苹果 |\n\n");
     expect(stableEl.textContent).toContain("前言");
     expect(tailEl.querySelectorAll("table")).toHaveLength(1);
 
-    // 帧 2：推送第二行与结尾，表格第一行提交到 stable 并包裹为 .biliscript-md-table，第二行紧随追加进原表
     session.flush("| 2 | 香蕉 |\n\n结尾");
     expect(stableEl.querySelectorAll("table")).toHaveLength(1);
     expect(stableEl.querySelectorAll("tbody tr")).toHaveLength(2);
@@ -99,7 +93,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
       yieldCount++;
     });
 
-    // 模拟让出并在恢复后检测 stale
     let isStale = false;
     const res = session.flush("段落一\n\n段落二", {
       shouldYield: () => true,
@@ -112,7 +105,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(yieldToMain).toHaveBeenCalled();
     expect(stableEl.textContent).toContain("段落一");
 
-    // 若让出点处于 stale 状态，放弃后续提交
     isStale = true;
     yieldToMain.mockClear();
     await session.flush("\n\n段落三\n\n段落四", {
@@ -142,7 +134,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(session.stableCut).toBe(-2);
     expect(session.committedCut).toBe(0);
 
-    // 重置后可重新独立使用
     session.flush("全新内容\n\n第二段");
     expect(stableEl.textContent).toBe("全新内容");
     expect(session.rawText).toBe("全新内容\n\n第二段");
@@ -162,10 +153,8 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(pre?.getAttribute("data-lang")).toBe("ts");
     expect(pre?.getAttribute("data-streaming-open")).toBe("true");
     expect(pre?.textContent).toContain("const a = 1;");
-    // 绝不降级成包含裸 ``` 的段落
     expect(tailEl.querySelector("p")).toBeNull();
 
-    // 闭合后进入 stable，不再带 streaming 标记
     session.flush("```\n\n后续段落");
     expect(stableEl.querySelector(".biliscript-md-code pre")?.getAttribute("data-streaming-open")).toBeNull();
     expect(tailEl.textContent).toContain("后续段落");
@@ -196,7 +185,6 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
     expect(mathEl?.textContent).toContain("a = 1");
     expect(mathEl?.textContent).toContain("b = 2");
 
-    // 闭合后整块公式落定到 stable 且移除 streaming 标记
     session.flush("\n$$\n\n结论");
     const stableMath = stableEl.querySelector<HTMLElement>(`[${MATH_BLOCK_ATTR}="block"]`);
     expect(stableMath).toBeTruthy();

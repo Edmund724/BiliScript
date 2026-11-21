@@ -1,14 +1,3 @@
-// ui/settings-panel.ts 保存链与跨端同步直测
-//
-// 走真实模块 + DOM 仿真（script-button.test.js 同款）：经公开入口
-// renderReaderSettingsPanel 挂载面板后驱动——
-// - 保存链：单字段即时落盘(save-settings)；平台相关的
-//   request-provider-origins / ai-providers-save / asr-providers-save 消息
-//   不再出自本链；
-// - 跨端同步：chrome.storage.onChanged 单键部分变更时只更新对应控件，不因其他监听键
-//   缺席而抛错；
-// - 模板口径：笔记导出的三个区块与三个导出选项行已删除，导出的保留项在场。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -17,7 +6,6 @@ import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 
-// AI 探针 mock：测试连接按钮直调 provider-test（不经 SW 消息），固定成功
 vi.mock("../../extension/ai/provider-test.js", () => ({
   testAiProviderConnection: vi.fn(async () => ({ ok: true }))
 }));
@@ -26,8 +14,6 @@ type SentMessage = { type: string; settings?: Record<string, unknown>; [key: str
 type MessageResponder = (message: SentMessage) => Record<string, unknown>;
 type SendMessageMock = Mock<(message: SentMessage, callback?: (response?: unknown) => void) => undefined>;
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（回包表 + 已发消息清单）；
-// chrome.runtime.sendMessage 的命名空间声明是重载函数，故 mock 本体另存模块变量供用例读 calls。
 let sendMessageMock: SendMessageMock | null = null;
 
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
@@ -60,7 +46,6 @@ function lastStatus(host: HTMLElement): HTMLElement {
   return host.querySelector<HTMLElement>("#biliscriptSettingsStatus")!;
 }
 
-// 单发 click（见文件头说明）
 function fireClick(node: Element): void {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
@@ -69,7 +54,6 @@ beforeEach(() => {
   resetModuleState();
 });
 
-// ===== M15 INP：设置分区渲染隔离与下拉自持捕获期外点收起 =====
 describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
   it("自定义下拉展开时按需挂载 document capture click 监听，外点收起下拉并立即卸载监听", async () => {
     installMessageBus();
@@ -110,10 +94,6 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     });
   });
 
-  // 源码级守卫（jsdom 不计算绘制堆叠，与 reader-settings-css-split.test.js 同
-  // 口径）：contain: layout 会让分区自建堆叠上下文，把分区内 .custom-select-dropdown
-  // 的 z-index: 30 囚在区内——被 DOM 序在后的兄弟分区整段盖住（主题下拉叠印在
-  // 「AI 模型平台」区下、点击穿透）。配对手段：分区内存在展开中的下拉时整区抬升。
   it("分区含展开中的下拉时整区抬升（:has 配对 layout containment 的堆叠上下文）", () => {
     const css = readFileSync(
       join(process.cwd(), "extension/entry/styles/reader-settings-rows.css"),
@@ -147,7 +127,6 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     ).toBeNull();
     expect(addSpy.mock.calls.filter(([type]) => type === "click")).toHaveLength(0);
 
-    // 模拟 Modal 宿主在 bubble 阶段无条件 stopPropagation，下拉仍在 capture 阶段自持收起
     host.addEventListener("click", (e) => e.stopPropagation());
     const wrapper = host.querySelector("#downloadFormat")!.closest<HTMLElement>(".custom-select-wrapper")!;
     const trigger = wrapper.querySelector(".custom-select-trigger")!;
@@ -168,7 +147,6 @@ describe("设置项即时保存与生效", () => {
 
     expect(host.querySelector("#biliscriptSettingsSaveBtn")).toBeNull();
 
-    // 改表单值：布尔值切换触发 change
     const debugLogsInput = host.querySelector<HTMLInputElement>("#enableDebugLogs")!;
     debugLogsInput.checked = true;
     debugLogsInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -188,7 +166,6 @@ describe("设置项即时保存与生效", () => {
       enableDebugLogs: true
     });
 
-    // 状态条提示已保存
     const status = lastStatus(host);
     expect(status.textContent).toBe("已保存");
     expect(status.dataset.error).toBe("false");
@@ -242,7 +219,6 @@ describe("设置项即时保存与生效", () => {
     expect(asrToggle.checked).toBe(true);
     expect(paidToggle.checked).toBe(false);
 
-    // 仅变更 allowPaidSearchProviders 与 webSearchMaxToolCalls（changes 不含 asrAutoFallback）
     expect(() => {
       for (const listener of addListenerCalls) {
         listener(
@@ -261,9 +237,6 @@ describe("设置项即时保存与生效", () => {
   });
 });
 
-// 笔记导出删除后的模板口径（要求 5）：三个区块（笔记属性 / 自定义属性 /
-// 正文附加段落）与三个导出选项行（默认标签 / 热门评论 / 播放器嵌入）不再渲染，
-// 字幕导出的保留项在场。
 describe("设置抽屉模板：笔记导出区块已删除", () => {
   it("不含三个笔记属性区块，对应的 id 与行控点全部消失", async () => {
     installMessageBus();
@@ -403,9 +376,6 @@ describe("对话与伴看偏好同源读写", () => {
   });
 });
 
-// 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层（不用原生 confirm）：
-// 弹层宿主挂在 #biliscript-reading-view 直下，mountPanel 需包上阅读视图；结算方式是
-// 点击弹层内的确认/取消按钮。
 describe("恢复默认偏好按钮", () => {
   async function openResetDialog() {
     const button = await vi.waitFor(() => {
@@ -441,7 +411,6 @@ describe("恢复默认偏好按钮", () => {
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
     const confirmBtn = await openResetDialog();
-    // 警示着色（danger）：与删除平台的确认同源的红色确认键
     expect(document.querySelector(".confirm-dialog-confirm-danger")).toBeTruthy();
     fireClick(confirmBtn);
 
@@ -456,7 +425,6 @@ describe("恢复默认偏好按钮", () => {
       .map((message) => message.settings);
     const resetPayload = payloads.find((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)!;
     expect(resetPayload).toBeDefined();
-    // 偏好键面：aiSystemPrompt/playerAiQuickPrompt 落当前默认文本，快捷提示词/开关也在载荷里
     expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(resetPayload.enablePlayerAiQuickAction).toBe(DEFAULT_SETTINGS.enablePlayerAiQuickAction);
     for (const key of preferenceKeys) {
@@ -464,14 +432,12 @@ describe("恢复默认偏好按钮", () => {
     }
     expect(resetPayload.readerTheme).toBe(DEFAULT_SETTINGS.readerTheme);
     expect(resetPayload).not.toHaveProperty("liveLowBandwidth");
-    // 平台域配置（模型选择 / ASR 标量）与迁移旗标不参与重置
     expect(resetPayload).not.toHaveProperty("defaultModel");
     expect(resetPayload).not.toHaveProperty("activeAsrProviderId");
     expect(resetPayload).not.toHaveProperty("asrAutoFallback");
     expect(resetPayload).not.toHaveProperty("liveGeminiNativeSearch");
     expect(resetPayload).not.toHaveProperty("asrLanguage");
     expect(resetPayload).not.toHaveProperty("aiBtnDefaultOnMigrated");
-    // 笔记导出字段已退出偏好键面：重置载荷不再携带
     for (const key of [
       "tags",
       "includeHotCommentsInNote",
@@ -490,8 +456,6 @@ describe("恢复默认偏好按钮", () => {
     }
   });
 
-  // 对账（C5）：重置载荷同样必须落在 settings 键面内。readerTheme 是唯一不来自
-  // 表单控件的重置键（它在键面内，合法）；键面外的键由白名单静默丢弃。
   it("重置载荷键面 ⊆ DEFAULT_SETTINGS 键面（readerTheme 在内）", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
@@ -532,11 +496,6 @@ describe("恢复默认偏好按钮", () => {
   });
 });
 
-// ===== 保存行贴底（2026-10 用户决议）=====
-// 抽屉滚到最低时操作行必须是内容末行：状态提示原本是保存行之后的独立
-// 网格行（min-height 16px + 14px 网格间距），滚到底还会多滑出一段空白，按钮
-// 悬在末行之上。状态提示并入保存行后 DOM 末节点即该行，且提示与按钮同排
-//（DOM 顺序 = flex 行内顺序：提示在左、动作按钮在右）。
 describe("设置抽屉保存行：末行贴底 + 状态提示同排", () => {
   it("保存行是 host 内最后一个内容块，其下不得再有节点", async () => {
     installMessageBus();

@@ -1,50 +1,16 @@
-// tests/ui/provider-editor.test.ts
-// ui/provider-editor.ts 平台编辑 Modal 的行为契约（provider-master-detail/01）。
-// 与 settings-panel-save.test.js 同款手法：真实模块 + DOM 仿真，经
-// renderReaderSettingsPanel 挂载面板后从「+ 添加平台」/行「编辑」按钮驱动。
-//
-// 覆盖：
-// - 新增保存链（拍板 Q2/Q4）：权限代申请 → 现查权威列表 → upsert 追加 →
-//   整列表落盘（协议零改动）→ Modal 关闭 + 列表重渲；
-// - 编辑预填（拍板 Q3）：按 id 现查列表项，Key 占位「已保存」，模型目录全量
-//   预填为行；保存按原 id 替换非追加；
-// - 模型目录（multi-model-catalog 阶段2，拍板 Q3/Q7/Q9/Q10/Q13）：行增删只改
-//   草稿（加行即脏），收集 trim/去空行/去重，空目录合法有空态提示；
-// - 行级连通测试（拍板 Q4/Q12）：行内 spinner→✓/✕，多行并发、同行重复点击
-//   忽略前一个，测试不落盘（绝无保存消息）；行级与 ASR 平台级测试一样在点击手势
-//   同步链上先代申请域名权限再发探针（拒绝则不探针，提示可原地重试），草稿有未
-//   保存改动时成功结果带「未保存」短标（探针校验的正是当前表单配置）；
-// - 「获取可用模型」弹窗（拍板 Q5/Q11）：地址/Key 前置校验、权限在点击同步
-//   链（先于模型请求）、搜索/全选、已添加置灰、失败原位重试、Esc 逐层退出；
-// - dirty 保护（拍板 Q6）：有改动弹面板内确认（ui/confirm-dialog.js），无改
-//   动直接关；Esc / 点遮罩同走此保护；弹层打开期间 Esc 只关弹层不关编辑器；
-// - 面板外点击 capture 拦截：只关 Modal，bubble 委托（抽屉外点关闭）收不到；
-// - 删除二次确认：面板内弹层（ui/confirm-dialog.js）叠在编辑器之上，确认才
-//   发删除消息，取消不删且编辑器不关；弹层打开期间编辑器的文档级监听让位；
-// - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不弹确认）。
-//
-// chrome.runtime.sendMessage 换装按 type 分发的消息总线；探针、AI/ASR 模型列表
-// 模块整体 mock，隔离 fetch。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import type { TestAiConnectionResult } from "../../extension/ai/provider-test.js";
 
-// 出向消息载荷：字段形状各用例自定（测试内不做协议校验），只锁 type 分发。
 type SentMessage = { type: string } & Record<string, any>;
 type MessageResponder = (message: SentMessage) => unknown;
 type SendMessageStub = ReturnType<typeof vi.fn>;
 
-// 消息总线换装点：仓库无 @types/chrome，runtime.sendMessage 按 vi.fn 取用
-//（同 tests/reader/chat-tab.test.ts 的 cast 手法）。
 function chromeStub(): { runtime: { sendMessage: SendMessageStub } } {
   return chrome as unknown as { runtime: { sendMessage: SendMessageStub } };
 }
 
-// AI 模型列表壳（ai/provider-models.js）换装点：弹窗已直调 content 壳，不再经
-// ai-providers-models 消息；壳的默认回包 { ok: true }，逐条用例经 installMessageBus
-// 的 "ai-providers-models" override 改写（override 键沿用旧消息名，表意「模型拉取」）。
 const aiModelsState = vi.hoisted(() => ({
   responder: undefined as undefined | ((message: SentMessage) => unknown)
 }));
@@ -71,9 +37,6 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
-// "ai-providers-models" override 不再进消息总线——改挂到 AI 模型列表壳的换装点上
-//（弹窗直调 content 壳，壳的传输层整体 mock）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
   const { "ai-providers-models": modelsResponder, ...busOverrides } = overrides;
   aiModelsState.responder = modelsResponder;
@@ -86,9 +49,6 @@ function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
   return host.sent;
 }
 
-// 面板 + 编辑 Modal 的挂载环境：Modal 宿主挂 #biliscript-reading-view 直下
-//（provider-editor.ensureHost），设置抽屉 hidden 联动监听挂在
-// #biliscript-reading-settings-panel 上，两者都须在 DOM 里。
 async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
@@ -120,19 +80,15 @@ function editorGone() {
   return document.querySelector(".provider-editor-host") === null;
 }
 
-// 单发 click（tests/setup.ts 的 click 补丁会双发事件，见 settings-panel-save.test.js 文件头）
 function fireClick(node: Element | null) {
   node!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-// 片 3 起 Modal 以 draft 为真源、DOM 为投影：模拟用户输入必须走 input 事件；
-// 裸写 .value 不进 draft（draft 投影语义 describe 有专门用例锁这条）
 function setFieldValue(input: HTMLInputElement, value: string) {
   input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-// 纯微任务冲刷：等待事件处理器里 await 消息链走完
 async function flushMicrotasks() {
   for (let i = 0; i < 12; i++) {
     await Promise.resolve();
@@ -150,9 +106,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // 部分用例故意断言「取消不删/不关」后半段，编辑器在用例结束时仍开着——
-  // 其文档级 capture 监听（Esc/外点）不随 innerHTML 清场摘除，会抢先拦截
-  // 后续用例的同名事件。统一强制收尾（幂等，已关的直接返回）。
   const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
   closeProviderEditor(true);
 });
@@ -166,14 +119,12 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    // 新增默认「自定义」预设（与平铺行空白行一致）：baseUrl 空、Key 必填占位
     expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("custom");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
@@ -183,15 +134,12 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
       expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
     });
 
-    // 手势同步链：权限代申请先于落盘（零先行 await，见 options-save-gesture 断言）。
-    // 用 lastIndexOf：装载阶段（mountPanel）已各发过一次 list 消息，取保存链那趟。
     const types = messageTypes(sent);
     expect(types).toContain("request-provider-origins");
     expect(types.indexOf("request-provider-origins")).toBeLessThan(types.lastIndexOf("ai-providers-list"));
     expect(types.lastIndexOf("ai-providers-list")).toBeLessThan(types.indexOf("ai-providers-save"));
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://api.example.com/v1"]);
 
-    // 整列表落盘（协议零改动）：权威列表（空）+ upsert 追加，id 由 p_ 前缀生成
     const saveMessage = sent.find((message) => message.type === "ai-providers-save")!;
     expect(saveMessage.providers).toHaveLength(1);
     expect(saveMessage.providers[0]).toMatchObject({
@@ -205,7 +153,6 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     });
     expect(saveMessage.providers[0].id).toMatch(/^p_/);
 
-    // 保存成功：Modal 关闭 + 用响应列表（含 hasSavedKey）重渲
     expect(editorGone()).toBe(true);
     expect(host.querySelectorAll("#aiProvidersList .ai-provider-row")).toHaveLength(1);
     expect(host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!.dataset.hasSavedKey).toBe("1");
@@ -242,7 +189,6 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     expect(newId).toMatch(/^asr_/);
     expect(editorGone()).toBe(true);
     expect(host.querySelectorAll("#asrProvidersList .asr-provider-row")).toHaveLength(1);
-    // 首个 ASR 平台保存后自动选中并持久化 activeAsrProviderId
     expect(
       host.querySelector<HTMLInputElement>("#asrProvidersList .asr-provider-active-radio")?.checked
     ).toBe(true);
@@ -278,7 +224,6 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
@@ -299,7 +244,6 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
@@ -325,7 +269,6 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     const row = host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!;
     const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit")!);
 
-    // 预填：presetId/baseUrl 来自列表项；模型目录全部预填为行；Key 不回传（占位「已保存」）
     expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("custom");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("https://api.example.com/v1");
     expect(
@@ -333,7 +276,6 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     ).toEqual(["gpt-4o-mini", "gpt-4o"]);
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value).toBe("");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("已保存");
-    // AI 自定义名称（≠预设名）回填实值
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.value).toBe("我的端点");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4");
@@ -355,7 +297,6 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    // 留空 → 预设名「自定义」
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
@@ -378,7 +319,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
     expect(protocolSelect, "AI Modal 应渲染协议下拉").not.toBeNull();
     expect(protocolSelect.value).toBe("openai");
-    // openai 的 capabilities.unsupported 为空：限制点小字不露出
     expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(true);
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
@@ -427,7 +367,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(notes.hidden).toBe(true);
     expect(notes.textContent).toBe("");
 
-    // 切回 openai：小字仍收起（两个协议都没有限制点文案）
     protocolSelect.value = "openai";
     protocolSelect.dispatchEvent(new Event("change"));
     expect(notes.hidden).toBe(true);
@@ -445,15 +384,12 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
 
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
-    // 新增默认 custom 预设：协议回落该预设默认归属（缺省 openai）
     expect(protocolSelect.value).toBe("openai");
 
-    // 当前值仍是上一预设默认 → 跟随 proxied 的默认 anthropic
     presetSelect.value = "proxied";
     presetSelect.dispatchEvent(new Event("change"));
     expect(protocolSelect.value).toBe("anthropic");
 
-    // 用户手动改成 openai → 切预设不覆盖用户选择
     protocolSelect.value = "openai";
     protocolSelect.dispatchEvent(new Event("change"));
     presetSelect.value = "custom";
@@ -486,7 +422,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     presetSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
 
-    // 切 Anthropic：默认值跟随登记端点；切回 OpenAI：跟随默认 baseUrl
     protocolSelect.value = "anthropic";
     protocolSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
@@ -494,16 +429,13 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     protocolSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
 
-    // 用户手改过 baseUrl：切协议不再覆盖
     setFieldValue(baseUrlInput, "https://my-proxy.example.com/v1");
     protocolSelect.value = "anthropic";
     protocolSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
   });
 
-
   it("内置 DeepSeek 预设默认 Anthropic：新增选该预设即填 /anthropic，切回 openai 联动 /v1", async () => {
-    // 总线 ai-presets-list 返回失败 → settings-panel 回落内置 PRESETS（core/presets）
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
@@ -521,12 +453,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
   });
 
-
-  // 真机 bug 复现路径：预设下拉走自定义壳（点击选项经 chooseOption 写值 + 派发
-  // change），change 处理器联动改的是 select.value——协议下拉的 trigger 显示滞留
-  // 旧值「OpenAI Chat Completions」，用户看到 A 而实际落盘 B。
   it("经自定义下拉切到协议为 Anthropic 的预设：协议 trigger 显示与落盘值一致", async () => {
-    // 预设列表回落内置 PRESETS：deepseek 预设的协议默认 Anthropic
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
@@ -537,7 +464,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     const protocolShown = () => protocolWrapper.querySelector(".custom-select-value")!.textContent;
     expect(protocolShown()).toBe("OpenAI Chat Completions");
 
-    // 用户路径：点开预设下拉 → 点 DeepSeek 选项
     fireClick(presetWrapper.querySelector<HTMLElement>(".custom-select-trigger")!);
     fireClick(presetWrapper.querySelector<HTMLElement>('.custom-select-option[data-value="deepseek"]')!);
 
@@ -545,7 +471,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(protocolSelect.value, "切预设应联动 draft.protocol").toBe("anthropic");
     expect(protocolShown(), "协议 trigger 显示滞留旧协议").toBe("Anthropic Messages");
 
-    // 落盘值取表单下拉当前值：显示与落盘必须同源
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
@@ -553,7 +478,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     });
     expect(sent.find((message) => message.type === "ai-providers-save")!.providers[0].protocol).toBe("anthropic");
   });
-
 
   it("编辑 DeepSeek 记录（protocol=anthropic，baseUrl /anthropic）→ 切回 openai 联动 /v1（该预设协议端点）", async () => {
     const presets = [
@@ -578,7 +502,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     protocolSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
   });
-
 
   it("切协议即脏：取消先弹 dirty 确认弹层", async () => {
     const { host } = await mountPanel();
@@ -613,8 +536,6 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
     expect(deleteBtn).not.toBeNull();
     expect(deleteBtn.textContent).toBe("删除");
 
-    // 二次确认走面板内弹层（ui/confirm-dialog.js）：弹层叠在编辑器之上
-    //（z-index 50 > 40），点「取消」不删除、编辑器不关
     fireClick(deleteBtn);
     const confirmButton = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
     expect(confirmButton, "删除二次确认弹层应已打开").not.toBeNull();
@@ -626,23 +547,18 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
     expect(sent.some((message) => message.type === "ai-providers-delete")).toBe(false);
     expect(editorGone()).toBe(false);
 
-    // 点「删除」：确认链走通（编辑器的文档级 Esc/外点监听在弹层打开期间让位）
     fireClick(deleteBtn);
     fireClick(document.querySelector(".confirm-dialog-confirm"));
 
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "ai-providers-delete")).toBe(true);
     });
-    // 回收 orphan origin 需现查两组存活列表（AI 一组在打开时已查，ASR 一组在删除时查）
     expect(sent.some((message) => message.type === "asr-providers-list")).toBe(true);
     expect(sent.find((message) => message.type === "ai-providers-delete")!.providerId).toBe("p1");
     expect(editorGone()).toBe(true);
   });
 
   it("删除回收 orphan origin 用已存列表项的 baseUrl：未保存的输入改动不混入回收目标", async () => {
-    // deleteActive 的回收目标应锚定打开时的权威列表项，而非 DOM 现值——
-    // 用户在 baseUrl 输入框里改了又删，回收判定若拿到未保存的新地址，
-    // 会漏收旧 origin / 误收一个从未授予过的 origin
     document.body.innerHTML = `
       <div id="biliscript-reading-view">
         <section id="biliscript-reading-settings-panel"></section>
@@ -659,7 +575,6 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
     });
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
 
-    // 未保存的输入改动：baseUrl 被改成一个从未配置/授权的地址
     const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
     setFieldValue(baseUrlInput, "https://never-configured.example.com/v1");
     baseUrlInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -688,7 +603,6 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
 
-    // 取消按钮：dirty 确认弹层（ui/confirm-dialog.js，与删除二次确认同源）
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     let confirmBtn = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
     expect(confirmBtn, "dirty 确认弹层应已打开").not.toBeNull();
@@ -698,13 +612,11 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorGone()).toBe(false);
 
-    // 弹层再开时按 Esc：编辑器文档级监听让位，Esc 只关弹层不关编辑器
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorGone()).toBe(false);
 
-    // 放弃更改：确认后关
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     confirmBtn = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
     fireClick(confirmBtn);
@@ -727,7 +639,6 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(editorGone()).toBe(true);
 
-    // 遮罩是 host 直下的 dialog 兄弟节点，从 document 查
     await openEditor(host, "#addAiProviderBtn");
     fireClick(document.querySelector(".provider-editor-mask"));
     expect(editorGone()).toBe(true);
@@ -748,13 +659,11 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
   });
 });
 
-// 拍板 Q10 推论：目录行增删只改草稿——加一行即脏，取消先 confirm
 describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", () => {
   it("「+ 添加模型」加空白行、行内删除即移除，全部只改草稿", async () => {
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    // 新增态 0 行：空态提示可见（Q13）
     const empty = dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")!;
     expect(empty.hidden).toBe(false);
 
@@ -762,7 +671,6 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
     expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(1);
     expect(dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")!.hidden).toBe(true);
 
-    // 加行即脏：取消先弹面板内确认（草稿语义只改 DOM，无任何消息）
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe("未保存的更改将丢失，确定关闭？");
     fireClick(document.querySelector(".confirm-dialog-cancel"));
@@ -774,7 +682,6 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
     expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(0);
     expect(dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")!.hidden).toBe(false);
 
-    // 删回 0 行后与快照一致：取消直接关
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     expect(editorGone()).toBe(true);
   });
@@ -787,7 +694,6 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 三行：带空白、重复 ID、纯空行
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     fireClick(dialog.querySelector(".provider-editor-model-add"));
@@ -821,11 +727,6 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
   });
 });
 
-// 行级连通测试（拍板 Q4/Q12）：每行用该行输入框当前的模型 ID 发 ping（复用
-// testAiProviderConnection 探针路径），行内原地反馈（spinner → ✓/✕，失败原因
-// 在 title）；多行并发、同行重复点击忽略前一个；测试不落盘（8a5f249 语义保持：
-// 绝无保存消息）；权限代申请与 ASR 平台级测试同款落在点击手势同步链上（拒绝则
-// 不发探针、按钮可再点）。平台级测试按钮已被行级替代（AI 侧不渲染）。
 describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通性不落盘）", () => {
   function addModelRowWithValue(dialog: HTMLElement, value: string) {
     fireClick(dialog.querySelector(".provider-editor-model-add"));
@@ -836,7 +737,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
   it("AI 不渲染平台级测试按钮；行级测试成功：spinner→✓、权限代申请先于探针、不落盘", async () => {
     const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
-    // 顺序账本：权限代申请 → 探针，二者都落地才算「先申请权限再真发请求」
     const order: string[] = [];
     vi.mocked(testAiProviderConnection).mockImplementationOnce(async () => {
       order.push("probe");
@@ -857,15 +757,10 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
-    // 手势同步链：权限代申请必须在点击当拍出站（垫任何先行 await 即红——
-    // 等价于原 options-save-gesture 对 runModelTest 的源码扫描）
     expect(order, "权限代申请必须在点击同步链上（零先行 await）").toEqual(["permission"]);
-    // 在飞：loading 态 + 按钮禁用（权限弹窗挂着时已是在飞态，按钮不可重复点）
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("loading");
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(true);
 
-    // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带），模型取行内值，
-    // 协议取表单下拉当前值（multi-protocol-ai）
     await vi.waitFor(() => {
       expect(testAiProviderConnection).toHaveBeenCalledWith({
         providerId: "",
@@ -879,10 +774,8 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     await vi.waitFor(() => {
       expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("ok");
     });
-    // 手势同步链：权限代申请先于探针（未授权时探针根本发不出去，先补齐前置）
     expect(order).toEqual(["permission", "probe"]);
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://api.example.com/v1"]);
-    // 测试成功不写设置：绝无保存消息，Modal 不关
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
     expect(editorGone()).toBe(false);
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(false);
@@ -916,7 +809,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const result = row.querySelector<HTMLElement>(".provider-editor-model-result")!;
     expect(result.title).toContain("操作已中止");
     expect(result.dataset.unsaved).toBeUndefined();
-    // 拒绝不等于失败态：按钮必须可再点（用户改完权限可原地重试）
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(false);
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://api.example.com/v1"]);
   });
@@ -934,9 +826,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     await vi.waitFor(() => {
       expect(result.dataset.state).toBe("ok");
     });
-    // 探针校验的是当前表单配置，而它还没落盘：行内显式提示，避免「测试过、真跑失败」。
-    // 可见短标由 CSS 从 data-unsaved 渲染（与 ✓/✕/spinner 同款：JS 只置状态属性），
-    // 完整说明在 title。
     expect(result.dataset.unsaved).toBe("true");
     expect(result.title).toBe("连接成功（当前表单未保存）");
   });
@@ -1074,7 +963,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     fireClick(rowA.querySelector(".provider-editor-model-test"));
     fireClick(rowB.querySelector(".provider-editor-model-test"));
 
-    // B 后点先到终点：多行并发，A 的在飞不阻塞 B
     await vi.waitFor(() => {
       expect(rowB.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("ok");
     });
@@ -1100,15 +988,12 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
-    // 在飞中重复点击：发第二次探针（行内当前值），前一个结果随后被忽略
     setFieldValue(row.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o");
     fireClick(row.querySelector(".provider-editor-model-test"));
-    // 代申请先于探针，探针不再同步被调：这里等两趟消息链落地
     await vi.waitFor(() => {
       expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
     });
 
-    // 第一次探针慢返回成功，但已被忽略；行内落定的是第二次的 ✕
     resolveFirst!({ ok: true });
     await vi.waitFor(() => {
       expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("error");
@@ -1118,7 +1003,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
   it("ASR 保留平台级测试按钮：权限代申请先于探针，成功回「连接成功」", async () => {
     const { testAsrConnection } = await import("../../extension/asr/provider-test.js");
-    // 顺序账本：权限代申请 → 探针，二者都落地才算「先申请权限再真发请求」
     const order: string[] = [];
     vi.mocked(testAsrConnection).mockImplementationOnce(async () => {
       order.push("probe");
@@ -1140,8 +1024,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
     fireClick(dialog.querySelector(".provider-editor-test"));
 
-    // 手势同步链：权限代申请必须在点击当拍出站（垫任何先行 await 即红——
-    // 等价于原 options-save-gesture 对 runTest 的源码扫描）
     expect(order, "权限代申请必须在点击同步链上（零先行 await）").toEqual(["permission"]);
     await vi.waitFor(() => {
       expect(dialog.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("连接成功");
@@ -1173,7 +1055,6 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const status = dialog.querySelector<HTMLElement>(".provider-editor-status")!;
     expect(status.textContent).toContain("操作已中止");
     expect(testAsrConnection).not.toHaveBeenCalled();
-    // 拒绝不等于失败态：按钮必须可再点（用户改完权限可原地重试）
     expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-test")!.disabled).toBe(false);
   });
 });
@@ -1186,7 +1067,6 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const bubbleSpy = vi.fn();
     document.addEventListener("click", bubbleSpy);
     try {
-      // 派发到 body（#biliscript-reading-view 之外）→ Modal 的 capture 监听 stopPropagation
       document.body.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       expect(bubbleSpy).not.toHaveBeenCalled();
       expect(editorGone()).toBe(true);
@@ -1202,8 +1082,6 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const bubbleSpy = vi.fn();
     document.addEventListener("click", bubbleSpy);
     try {
-      // 模拟 ui-renderer 的抽屉外点关闭委托（document bubble）：Modal 宿主在
-      // settingsPanel 判定域之外，放行会把抽屉一起收掉（回归：实施首版正败于此）
       dialog.querySelector(".provider-editor-body")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       expect(bubbleSpy).not.toHaveBeenCalled();
       expect(editorGone()).toBe(false);
@@ -1218,7 +1096,6 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起（外部直接写 hidden 由 MutationObserver 微任务同步）
     const dropdown = dialog.querySelector<HTMLElement>(".ai-provider-model-dropdown")!;
     dropdown.hidden = false;
     await flushMicrotasks();
@@ -1254,14 +1131,12 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
     expect(baseUrlInput.value).toBe("http://localhost:11434/v1");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key（可选）");
 
-    // 用户改过 baseUrl → 不覆盖
     setFieldValue(baseUrlInput, "https://my-proxy.example.com/v1");
     select.value = "deepseek";
     select.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
 
     await flushMicrotasks();
-    // 拍板 Q5 推论：Modal 内切预设不代申请，权限在保存时统一收口
     expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
   });
 
@@ -1282,10 +1157,6 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
   });
 });
 
-// 未保存的新平台没有模型名就存不下去，而没授权时模型列表请求只会 CORS 失败：
-// 「获取可用模型」的「先看看有哪些模型」是打破死锁的手势——权限申请落在这次
-// 点击上（multi-model-catalog 阶段2，AI 侧弹窗取代了下拉箭头；ASR 仍走
-// model-picker 箭头）。
 describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", () => {
   it("地址/Key 未填：目录区行内红字提示，不申请权限、不发模型请求", async () => {
     const { sent, host } = await mountPanel();
@@ -1310,14 +1181,11 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
 
     fireClick(dialog.querySelector(".provider-editor-fetch"));
 
-    // 手势同步链等价判据（原 options-save-gesture 的 openFetchDialog 源码扫描）：
-    // 点击当拍权限消息必须已出站；垫任何先行 await 这里就还是 0 条。
     expect(messageTypes(sent).filter((type) => type === "request-provider-origins")).toHaveLength(1);
   });
 
   it("拉取成功：权限先于模型请求；搜索过滤；全选；勾选追加为目录行（草稿，不落盘）", async () => {
     const { sent, host } = await mountPanel({
-      // 权限先于模型拉取（点击手势同步链）：壳被调用时权限消息必须已出站
       "ai-providers-models": () => {
         expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "request-provider-origins")).toBe(true);
         return { ok: true, models: ["gpt-4o-mini", "gpt-4o", "o1-mini"] };
@@ -1335,7 +1203,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://token.sensenova.cn/v1"]);
 
-    // 搜索过滤
     const search = document.querySelector<HTMLInputElement>(".provider-editor-fetch-search")!;
     search.value = "gpt";
     search.dispatchEvent(new Event("input"));
@@ -1344,7 +1211,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     search.dispatchEvent(new Event("input"));
     expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(3);
 
-    // 全选 → 计数同步 → 确认追加（草稿态：绝无保存消息）
     fireClick(document.querySelector(".provider-editor-fetch-all"));
     const confirmBtn = document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!;
     expect(confirmBtn.textContent).toBe("添加所选 (3)");
@@ -1365,7 +1231,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     presetSelect.value = "deepseek";
     presetSelect.dispatchEvent(new Event("change"));
-    // 预设默认 Anthropic：baseUrl 联动为登记的 Messages 端点
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("https://api.deepseek.com/anthropic");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
@@ -1374,7 +1239,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
     });
-    // 模型探测走 OpenAI 兼容端点；权限申请同时覆盖两个端点
     const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
     expect(vi.mocked(fetchProviderModels).mock.calls[0][0].baseUrl).toBe("https://api.deepseek.com/v1");
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual([
@@ -1401,7 +1265,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(addedCheck.disabled).toBe(true);
     expect(addedCheck.closest(".provider-editor-fetch-item")!.textContent).toContain("已添加");
 
-    // 全选不覆盖置灰项：只剩目录外 1 个可勾
     fireClick(document.querySelector(".provider-editor-fetch-all"));
     expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(1);
     fireClick(document.querySelector(".provider-editor-fetch-confirm"));
@@ -1450,7 +1313,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
     expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
-    // 取消关弹窗不关 Modal
     fireClick(document.querySelector(".provider-editor-fetch-cancel"));
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(editorGone()).toBe(false);
@@ -1473,7 +1335,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(editorGone()).toBe(false);
 
-    // baseUrl/Key 已填（dirty）：第二下 Esc 不直关，弹面板内 dirty 确认
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(editorGone()).toBe(false);
     expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe("未保存的更改将丢失，确定关闭？");
@@ -1483,8 +1344,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
   });
 });
 
-// 票 09「模型拉取内联与选择保留」：子视图无第二张遮罩、选择集跨过滤保留、
-// 全选三态只作用可见未添加项、确认计数含隐藏已选并说明、重复确认不造重复行。
 describe("provider-editor：「获取可用模型」内联子视图与选择保留（票 09）", () => {
   async function openFetchSubview(host: HTMLElement) {
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
@@ -1516,7 +1375,6 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     expect(subview).toBeTruthy();
     expect(subview.closest(".provider-editor-dialog")).toBe(dialog);
     expect(document.querySelector(".provider-editor-fetch-mask")).toBeNull();
-    // 子视图动作齐备：返回（头部）、取消与「添加所选」（底部）
     expect(subview.querySelector(".provider-editor-fetch-back")!.textContent).toContain("返回");
     expect(subview.querySelector(".provider-editor-fetch-cancel")).toBeTruthy();
     expect(subview.querySelector(".provider-editor-fetch-confirm")).toBeTruthy();
@@ -1528,9 +1386,7 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     });
     const { dialog } = await openFetchSubview(host);
 
-    // 焦点进入当前层（子视图返回键），不留在下层编辑器
     expect(document.activeElement).toBe(document.querySelector(".provider-editor-fetch-back"));
-    // 子视图在 Dialog 内：编辑器的焦点陷阱仍约束整个层
     expect(document.querySelector(".provider-editor-fetch-dialog")!.closest(".provider-editor-dialog")).toBe(dialog);
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
@@ -1545,15 +1401,12 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     });
     const { dialog } = await openFetchSubview(host);
 
-    // 先选 A
     fireClick(checkOf("model-a"));
     expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (1)");
-    // 过滤到只剩 B，勾选 B——A 的选择在过滤与重渲后保留
     setSearch("model-b");
     expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
     fireClick(checkOf("model-b"));
     expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (2)");
-    // 清掉过滤：A、B 均回填勾选
     setSearch("");
     expect(checkOf("model-a").checked).toBe(true);
     expect(checkOf("model-b").checked).toBe(true);
@@ -1572,19 +1425,16 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     await openFetchSubview(host);
     const all = document.querySelector<HTMLInputElement>(".provider-editor-fetch-all")!;
 
-    // 过滤到 2 项，勾选 1 项：全选为半选态
     setSearch("gpt");
     fireClick(checkOf("gpt-4o"));
     expect(all.indeterminate).toBe(true);
     expect(all.checked).toBe(false);
 
-    // 点全选：只勾当前可见 2 项（隐藏的 o1-mini 不受影响）
     fireClick(all);
     expect(all.checked).toBe(true);
     expect(all.indeterminate).toBe(false);
     expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(2);
 
-    // 再点全选：可见项整体去勾
     fireClick(all);
     expect(all.checked).toBe(false);
     expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(0);
@@ -1606,7 +1456,6 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     expect(note.textContent).toBe("另有 1 项已选不在当前筛选结果中");
     expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (2)");
 
-    // 过滤词扩大可见面：不可见数量归零，说明隐藏
     setSearch("model-");
     expect(document.querySelector<HTMLElement>(".provider-editor-fetch-note")!.hidden).toBe(true);
   });
@@ -1617,12 +1466,10 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     });
     const { dialog } = await openFetchSubview(host);
 
-    // 第一次确认：全选 → 追加 2 行
     fireClick(document.querySelector(".provider-editor-fetch-all"));
     fireClick(document.querySelector(".provider-editor-fetch-confirm"));
     expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(2);
 
-    // 重开子视图：已添加项禁用标注「已添加」，确认钮不数它们
     fireClick(dialog.querySelector(".provider-editor-fetch"));
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
@@ -1632,7 +1479,6 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     expect(addedCheck.closest(".provider-editor-fetch-item")!.textContent).toContain("已添加");
     expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.disabled).toBe(true);
 
-    // 勾目录外项再确认：已添加项不会被重复追加
     fireClick(checkOf("gpt-4o"));
     fireClick(document.querySelector(".provider-editor-fetch-confirm"));
     expect(
@@ -1646,14 +1492,12 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     });
     const { dialog } = await openFetchSubview(host);
 
-    // 头部「返回」：子视图消失、编辑器仍在、草稿字段原样
     fireClick(document.querySelector(".provider-editor-fetch-back"));
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(editorGone()).toBe(false);
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("https://token.sensenova.cn/v1");
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
 
-    // 底部「取消」同款语义
     fireClick(dialog.querySelector(".provider-editor-fetch"));
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
@@ -1683,12 +1527,6 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
   });
 });
 
-// M9 校验态现代化：字段级错误态不再走手写 input-error 类，改为原生约束
-//（required / pattern）+ reader-settings-providers.css 的 :user-invalid/:user-valid
-// CSS 校验态；提交后的字段错误定位（aria-invalid + 字段文案 + 聚焦首个无效字段）
-// 收在 provider-editor-validation（tests/ui/provider-editor-form.test.ts 覆盖）。
-// 这里锁定原生约束属性面：保存链报文语义与校验口径零改动（JS validators 仍是
-// 权威，上方用例覆盖）。
 describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验态的属性面）", () => {
   it("新增 AI（custom 预设）：baseUrl required+pattern、Key required；模型目录行无原生必填（空目录合法 Q13）", async () => {
     const { host } = await mountPanel();
@@ -1742,22 +1580,17 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
     const baseUrl = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
 
-    // 有效值 input + blur：未提交校验，不产生字段错误属性
     baseUrl.value = "https://api.example.com/v1";
     baseUrl.dispatchEvent(new Event("input", { bubbles: true }));
     baseUrl.dispatchEvent(new FocusEvent("blur"));
     expect(baseUrl.getAttribute("aria-invalid")).toBeNull();
 
-    // 非输入控件（dialog 本身、按钮）不参与字段错误
     expect(() => dialog.dispatchEvent(new FocusEvent("blur"))).not.toThrow();
     expect(() => dialog.querySelector(".provider-editor-save")!.dispatchEvent(new Event("input", { bubbles: true }))).not.toThrow();
     expect(dialog.querySelector(".provider-editor-save")!.getAttribute("aria-invalid")).toBeNull();
   });
 });
 
-// ADR-0007（设置页下拉统一下拉组件）覆盖 AI 与 ASR 两侧：AI 侧曾漏接，
-// 原生 select 在三方站点上由浏览器绘制弹层（直角 + 系统高亮），与 Modal 内
-// 其余 8px 框割裂——用户报告的正是这一处。
 describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", () => {
   it.each([
     ["AI", "#addAiProviderBtn", "ollama", "http://localhost:11434/v1"],
@@ -1770,7 +1603,6 @@ describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", (
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     expect(wrapper).toBeTruthy();
     expect(select.dataset.customSelectInitialized).toBe("1");
-    // 接管即隐藏：内联 display:none（不再是 CSS 类），Modal 的 select 外观规则压不回
     expect(select.style.display).toBe("none");
     expect(select.getAttribute("tabindex")).toBeNull();
     expect(select.getAttribute("aria-hidden")).toBeNull();
@@ -1784,13 +1616,10 @@ describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", (
     fireClick(option);
     expect(select.value).toBe(optionValue);
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe(option.textContent);
-    // change 由组件派生：预设切换的既有接线（baseUrl/名称/Key 跟随）照常生效
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe(expectedBaseUrl);
   });
 });
 
-// 候选 4 片 3：draft model——DOM 退化为投影，draft 是唯一真源。用户输入路径
-// （input/change 事件）之外的裸 DOM 写入不得影响保存/脏判定。
 describe("provider-editor：draft 投影语义（候选 4 片 3）", () => {
   it("裸写 DOM 不进保存：落盘的是经 input 事件写入 draft 的值", async () => {
     const { sent, host } = await mountPanel({
@@ -1802,7 +1631,6 @@ describe("provider-editor：draft 投影语义（候选 4 片 3）", () => {
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
-    // 投影被裸改（无 input 事件）：真源不变，保存链不受影响
     dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://tampered.example.com/v1";
 
     fireClick(dialog.querySelector(".provider-editor-save"));

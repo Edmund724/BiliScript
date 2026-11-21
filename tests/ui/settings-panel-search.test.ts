@@ -1,20 +1,3 @@
-// tests/ui/settings-panel-search.test.ts
-// 设置抽屉搜索节的免 Key 文案、悬空链首提示与智能模式 / 拖拽排序 UI：
-// - spec §6.9 / §10：说明行承载 opt-in 常驻版（同一套词）、空态改六预设；
-// - spec §6.8 / §12.1：activeSearchProviderId 指向不存在记录时出现条件提示行
-//   「原选用平台已不可用，当前按默认链搜索」，用户改选即消失、不新增存储位；
-//   **哨兵 / 空串不算悬空**（§10 第 82 行）；
-// - spec §6.10 / §12.5 第 12/15/16 行（验收第 77–80 行）：「智能」虚拟条目
-//   （固定置顶、无把手、选中写哨兵）、搜索平台列表按 searchProviderOrder 归一序
-//   渲染（未入组记录按内置默认序排其后）、拖拽落库 = DOM 记录行 id 顺序、
-//   「恢复默认顺序」= 删 storage 键（不写 []）；
-// - 票 06：折叠触发器为原生 button（键盘原生可达）、摘要按模式准确显示
-//   「智能搜索 · 失败自动回退 / 仅使用 X · 失败不回退」（含付费段）、悬空旧 id
-//   按智能行为显示、智能模式才显示有序回退说明 / 拖拽 / 恢复默认 / 付费准入、
-//   单轮搜索次数上限两种模式均可见且生效、模式切换保留排序与付费偏好。
-//
-// 文案断言可直接构建模板；列表 / 提示行需要真实挂载（loadSettings 的搜索节渲染）。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -31,7 +14,6 @@ function syncStorage(): SyncStorageMock {
 
 const SMART_ID = "__smart__";
 
-// 六预设成员各一条记录（输入序刻意 = 预设表序 ≠ 内置默认链序，证明列表按链序渲染）
 const SEARCH_ITEMS = [
   { id: "search_firecrawl", presetId: "firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev", enabled: true, hasSavedKey: false },
   { id: "search_tavily", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", enabled: true, hasSavedKey: false },
@@ -41,7 +23,6 @@ const SEARCH_ITEMS = [
   { id: "search_exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", enabled: true, hasSavedKey: false }
 ];
 
-// 内置默认链序（spec §12.2 / DEFAULT_SEARCH_PROVIDER_ORDER）
 const DEFAULT_ORDER_IDS = [
   "search_exa",
   "search_doubao",
@@ -55,7 +36,6 @@ function searchList(host: HTMLElement): HTMLElement {
   return host.querySelector<HTMLElement>("#searchProvidersList")!;
 }
 
-// 记录行 = 自带拖拽把手的行（虚拟「智能」行无把手，spec §6.10）
 function recordRows(host: HTMLElement): HTMLElement[] {
   return Array.from(searchList(host).querySelectorAll<HTMLElement>(".search-provider-row")).filter(
     (row) => row.querySelector(".provider-row-drag-handle") !== null
@@ -73,7 +53,6 @@ function smartRadio(host: HTMLElement): HTMLInputElement {
   return smartRow(host)!.querySelector<HTMLInputElement>(".search-provider-active-radio")!;
 }
 
-// jsdom 无布局：按当前 DOM 序给每行 40px 的矩形带（中线 = index * 40 + 20）
 function installRowRects(list: HTMLElement): void {
   list.querySelectorAll<HTMLElement>(".search-provider-row").forEach((row) => {
     row.getBoundingClientRect = () => {
@@ -114,7 +93,6 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
   return installSettingsPanelBus<SentMessage>({ ...overrides }).sent;
 }
@@ -140,7 +118,6 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
-  // searchProviderOrder 直读 sync（§12.3 读 / 写同侧）：默认键缺席 = 无自定义顺序
   const sync = syncStorage();
   sync.get.mockReset();
   sync.get.mockResolvedValue({});
@@ -246,14 +223,11 @@ describe("设置页搜索节：「智能」虚拟条目（spec §6.10 / §10 第
     expect(model.textContent).toContain("按顺序回退");
     expect(model.textContent).toContain("跳过");
 
-    // 不可拖：无把手；也不是记录行（不进 searchProviderOrder 的前提）
     expect(first.querySelector(".provider-row-drag-handle")).toBeNull();
-    // 虚拟条目不是平台：无编辑 / 删除入口、无状态点与徽章
     expect(first.querySelector(".provider-row-edit")).toBeNull();
     expect(first.querySelector(".provider-row-remove")).toBeNull();
     expect(first.querySelector(".provider-row-dot")).toBeNull();
     expect(first.querySelector(".provider-row-badge")).toBeNull();
-    // 同组同 class 的 radio（复用既有 activeRadio 单源）
     expect(first.querySelector(".search-provider-active-radio")).toBeTruthy();
   });
 
@@ -342,9 +316,6 @@ describe("设置页搜索节：列表渲染顺序（spec §12.2 / 票 15 §6 第
 });
 
 describe("设置页搜索节：列表集合语义（管理面列出全部记录，链成员资格是另一层）", () => {
-  // 票 15 后的实况：设置列表 = 管理面（按记录展示，用户要能看见 / 编辑 / 删除），
-  // 链成员资格 = resolveSearchChain 的 qualify 判据（enabled / access / presetId
-  // 去重）。两层语义正当分化，本组用例把分化钉住：列表侧**不过滤、不去重**。
   it("停用记录（enabled:false）仍渲染行——停用只影响链成员资格，不是从列表消失", async () => {
     const { host } = await mountPanel({
       "search-providers-list": () => ({
@@ -365,7 +336,6 @@ describe("设置页搜索节：列表集合语义（管理面列出全部记录�
     });
     await waitForSearchRows(host, 1);
     expect(recordRowIds(host)).toEqual(["search_doubao"]);
-    // 无 Key 状态照实渲染；「无 Key 不进链」是链侧判据，不迁移到列表侧
     expect(recordRows(host)[0].querySelector(".provider-row-dot")!.getAttribute("data-state")).toBe(
       "missing"
     );
@@ -382,7 +352,6 @@ describe("设置页搜索节：列表集合语义（管理面列出全部记录�
       "search-providers-list": () => ({ ok: true, providers: [...SEARCH_ITEMS.slice(0, 1), picked, ...SEARCH_ITEMS.slice(1)] })
     });
     await waitForSearchRows(host, 7);
-    // 同 presetId 两条键相同 → 稳定排序保持输入序（链侧在此只取排序最靠前一条）
     expect(recordRowIds(host)).toEqual([
       "search_exa",
       "search_doubao",
@@ -405,7 +374,7 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
 
     const handle = handleOf(host, "search_exa");
     handle.dispatchEvent(dragPointer("pointerdown", 60));
-    handle.dispatchEvent(dragPointer("pointermove", 130)); // 越过 tavily 中线 → 插到它之前
+    handle.dispatchEvent(dragPointer("pointermove", 130));
     handle.dispatchEvent(dragPointer("pointerup", 130));
 
     const expected = [
@@ -571,10 +540,8 @@ describe("搜索平台列表平铺展示与模式控件切换", () => {
     expect(footerBar(host).hidden).toBe(true);
     expect(paidToggleRow(host).hidden).toBe(true);
     expect(searchList(host).classList.contains("search-chain-single-mode")).toBe(true);
-    // 把手仍在 DOM（CSS 类隐藏，reader-settings-rows.css），不重建行
     expect(recordRows(host).every((row) => row.querySelector(".provider-row-drag-handle") !== null)).toBe(true);
 
-    // 切回智能：提示隐藏，控件全部恢复
     smartRadio(host).checked = true;
     smartRadio(host).dispatchEvent(new Event("change", { bubbles: true }));
     expect(modeNote(host).hidden).toBe(true);
@@ -636,7 +603,6 @@ describe("票 06：模式切换保留原排序与付费偏好", () => {
     });
     await waitForSearchRows(host, 6);
 
-    // 初始：自定义顺序在位、付费准入开
     expect(recordRowIds(host)).toEqual([
       "search_tavily",
       "search_firecrawl",
@@ -647,7 +613,6 @@ describe("票 06：模式切换保留原排序与付费偏好", () => {
     ]);
     expect(host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!.checked).toBe(true);
 
-    // 切到智能：只写 activeSearchProviderId 哨兵
     const radio = smartRadio(host);
     radio.checked = true;
     radio.dispatchEvent(new Event("change", { bubbles: true }));
@@ -655,7 +620,6 @@ describe("票 06：模式切换保留原排序与付费偏好", () => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { activeSearchProviderId: SMART_ID } });
     });
 
-    // 排序与付费偏好原样保留（无 order 写库、无 remove、无 allowPaid 写库、顺序不变）
     expect(syncStorage().set).not.toHaveBeenCalled();
     expect(syncStorage().remove).not.toHaveBeenCalled();
     expect(recordRowIds(host)[0]).toBe("search_tavily");
@@ -670,7 +634,6 @@ describe("票 06：模式切换保留原排序与付费偏好", () => {
       )
     ).toBe(false);
 
-    // 切回单平台：顺序与付费偏好仍不变
     const tavilyRadio = searchList(host).querySelector<HTMLInputElement>(
       '[data-provider-id="search_tavily"] .search-provider-active-radio'
     )!;

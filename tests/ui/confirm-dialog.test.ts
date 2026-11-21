@@ -1,17 +1,3 @@
-// tests/ui/confirm-dialog.test.ts
-// ui/confirm-dialog.ts 面板内二次确认弹层的行为契约。动机（用户报告）：删除
-// AI 平台的二次确认原走浏览器原生 confirm()，弹窗绘制在浏览器窗口正中央，
-// 扩展面板停靠窗口右侧时弹窗可能落在面板可视区外。本模块把确认画进扩展
-// 自己的界面（宿主挂 #biliscript-reading-view 直下），本文件守住：
-// - 打开即渲染：宿主挂 view 直下、mask + role=dialog + aria-modal、报文转义、
-//   danger 警示键类名；
-// - 结算路径：确认键 → true；取消键 / 遮罩 / Esc / 抽屉收起 → false，且每种
-//   结算后 DOM 与监听都清场（重复结算幂等）；
-// - 重复打开：前一个未决弹层按取消结算，新弹层接管；
-// - 阅读视图不在：无界面可弹，按取消结算（Promise.resolve(false)）；
-// - 面板外点击 capture 拦截：事件不外泄（被 ui-renderer 的抽屉外点关闭
-//   委托收到会把抽屉收掉）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -58,7 +44,6 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const dialog = host.querySelector(".confirm-dialog")!;
     expect(dialog.getAttribute("role")).toBe("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    // 可见标题与说明经 aria-labelledby / aria-describedby 关联到对话框
     const title = host.querySelector<HTMLElement>(".confirm-dialog-title")!;
     const message = host.querySelector<HTMLElement>(".confirm-dialog-message")!;
     expect(title.textContent).toBe("删除平台");
@@ -69,7 +54,6 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     expect(host.querySelector(".confirm-dialog-confirm")!.classList.contains("confirm-dialog-confirm-danger")).toBe(true);
     expect(host.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
 
-    // 报文 HTML 转义（防注入）
     fireClick(host.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
   });
@@ -123,19 +107,16 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     mountView();
     const { confirmDialog, isConfirmDialogOpen } = await loadDialog();
 
-    // 取消键
     let pending = confirmDialog({ message: "m1" });
     fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
 
-    // 遮罩（host 直下 dialog 的兄弟，从 document 查）
     pending = confirmDialog({ message: "m2" });
     fireClick(document.querySelector(".confirm-dialog-mask")!);
     await expect(pending).resolves.toBe(false);
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
 
-    // Esc（document capture）
     pending = confirmDialog({ message: "m3" });
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     await expect(pending).resolves.toBe(false);
@@ -213,15 +194,12 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
 
     const cancel = document.querySelector<HTMLElement>(".confirm-dialog-cancel")!;
     const confirm = document.querySelector<HTMLElement>(".confirm-dialog-confirm")!;
-    // 破坏性确认不以「删除」为默认动作
     expect(document.activeElement).toBe(cancel);
 
-    // 焦点在最后一个控件时 Tab 回到第一个
     confirm.focus();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(cancel);
 
-    // 焦点在第一个控件时 Shift+Tab 回到最后一个
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })
     );

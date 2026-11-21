@@ -1,18 +1,3 @@
-// tests/ui/provider-delete-origin-union.test.ts
-// orphan origin 存活并集「只从分派表推导」的行为契约。
-//
-// 原断言是三段源码文本切片（deleteFromEditor / revokeOriginOnDelete 的
-// functionBody 是否点 ai/asr 名）。owner 3 把回收并集收进 provider-transaction
-// 的 loadOriginSharingProviders(families) 之后，等价判据可以经接口驱动：
-//   1. 并集的成员由 family.optionalHostPermission 决定——翻转标志即翻转行为
-//      （等价于「不得按族名硬写、不得取反」）；
-//   2. 并集 = 各族现查结果拼接；
-//   3. 设置面板行删除路径确实经该并集（optional 族被现查、静态 host 权限的
-//      搜索族不被拉进来）。
-//
-// 失败方式：并集按族名点名单（新增族静默漏回收）、取反（把搜索族拉进回收，
-// 错收用户仍需要的搜索域权限）、或行删除路径绕过并集。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -45,7 +30,6 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
   return installSettingsPanelBus<SentMessage>({
     "ai-providers-list": () => ({ ok: true, providers: [AI_ITEM] }),
@@ -165,9 +149,6 @@ describe("行删除路径：回收并集只含 optional 族", () => {
       expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
       expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);
     });
-    // 回收并集在删除消息之前结算：此前的搜索族读取数 = 原基线（静态 host 权限，
-    // 不参与回收）；删除后的那一次是引用行同事务刷新（票 08：AI 删除后搜索行
-    // 与伴看行一起按新 AI 快照重渲）。
     const deleteIndex = sent.findIndex((message) => message.type === "ai-providers-delete");
     expect(countOf(sent.slice(0, deleteIndex), "search-providers-list")).toBe(searchBefore);
     expect(countOf(sent, "search-providers-list")).toBe(searchBefore + 1);

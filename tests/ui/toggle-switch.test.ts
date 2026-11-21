@@ -1,22 +1,9 @@
-// ui/toggle-switch.test.ts — 设置抽屉自绘开关（ADR-0019）的结构与手势测试。
-//
-// 覆盖：模板壳结构契约（input 与 track 相邻兄弟次序 = CSS 配色选择器契约）、
-// init 幂等与值源语义（原生 input 不被替换/隐藏方式不是 display:none）、
-// 弹簧动画的退化口径（prefers-reduced-motion 下瞬时吸附）、拖拽三态（过半
-// 翻转 + 派发 change / 未过半回弹不派发 / 拖拽松手后 click 被抑制）、以及
-// 设置面板集成（所有开关都被接线、水合后滑块吸附现值）。
-//
-// 真弹簧的过冲回弹与跟手手感是 RAF 时序行为，jsdom 锁的是退化口径与决策
-// 逻辑；真机手感走 browser-harness 目检。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
 import { initToggleSwitch, syncToggleSwitch } from "../../extension/ui/toggle-switch.js";
 
-// 持久布尔开关的 id（与 SETTINGS_PANEL_DOM_IDS 中布尔键一致；
-// allowPaidSearchProviders = 付费平台准入，GLOSSARY「付费平台」）
 const TOGGLE_IDS = [
   "asrAutoFallback",
   "allowPaidSearchProviders",
@@ -52,7 +39,6 @@ function mountToggle(checked = false): { root: HTMLElement; input: HTMLInputElem
   return { root, input, track, thumb, text };
 }
 
-// jsdom 无 PointerEvent 构造器也能跑的合成指针事件（事件类型 + clientX/pointerId）
 function pointerEvent(type: string, clientX: number): Event {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clientX", { value: clientX });
@@ -64,7 +50,6 @@ function fireClick(node: Element): void {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-// matchMedia 打成 reduced-motion：弹簧退化为瞬时吸附，断言无需等 RAF。
 function stubReducedMotion(): void {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: true,
@@ -81,7 +66,6 @@ function stubReducedMotion(): void {
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
-  // 缺省非 reduced-motion（jsdom 无 matchMedia 实现）；个别用例再打成 true。
   window.matchMedia = ((query: string) => ({
     matches: false,
     media: query,
@@ -112,7 +96,6 @@ describe("模板壳结构契约", () => {
       expect(thumb!.parentElement).toBe(track);
       expect(text?.textContent?.trim(), "文字列非空").toBeTruthy();
       expect(row.querySelector(".biliscript-toggle-switch"), "开关本体外壳").toBeTruthy();
-      // CSS :checked ~ .biliscript-toggle-track 与 JS nextElementSibling 双契约
       expect(input!.nextElementSibling).toBe(track);
       expect(input!.checked).toBe(false);
     });
@@ -307,23 +290,18 @@ describe("拖拽：位置过半 + 松手速度决定吸附侧", () => {
     initToggleSwitch(input);
     const initialCalls = rectCalls;
 
-    // 拖拽开始
     track.dispatchEvent(pointerEvent("pointerdown", 0));
     const downCalls = rectCalls;
 
-    // 连续 5 次 pointermove
     for (let x = 4; x <= 8; x++) {
       track.dispatchEvent(pointerEvent("pointermove", x));
     }
-    // move 期间不重复查询几何（调用次数不增加）
     expect(rectCalls - downCalls).toBe(0);
 
-    // 拖拽中发生真实几何变化（如窗口 resize）
     const beforeResizeCalls = rectCalls;
     window.dispatchEvent(new Event("resize"));
     expect(rectCalls).toBeGreaterThan(beforeResizeCalls);
 
-    // 拖拽结束
     track.dispatchEvent(pointerEvent("pointerup", 8));
   });
 
@@ -354,7 +332,6 @@ describe("设置面板集成：接线与水合", () => {
     installSettingsPanelBus({
       "get-settings": () => ({ ok: true, settings: { includeDateInFilename: true, asrAutoFallback: true } })
     });
-    // 记录装载链收尾（asr-providers-list 发出即水合跑完）
     const origSendMessage = chrome.runtime.sendMessage;
     chrome.runtime.sendMessage = ((message: { type: string }, callback?: (response?: unknown) => void) => {
       sent.push({ type: message.type });
@@ -371,7 +348,6 @@ describe("设置面板集成：接线与水合", () => {
       const input = host.querySelector<HTMLInputElement>(`#${id}`)!;
       expect(input.dataset.toggleSwitchInitialized, `${id} 已被 initToggleSwitch 接线`).toBe("1");
     });
-    // 水合值：includeDateInFilename / asrAutoFallback 缺省 true → 滑块在开侧
     const onThumb = host.querySelector<HTMLElement>("#includeDateInFilename ~ .biliscript-toggle-track .biliscript-toggle-thumb")!;
     expect(onThumb.style.transform).toBe("translateX(16px)");
     const offThumb = host.querySelector<HTMLElement>("#enableDebugLogs ~ .biliscript-toggle-track .biliscript-toggle-thumb")!;

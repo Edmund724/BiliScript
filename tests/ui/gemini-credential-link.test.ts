@@ -1,16 +1,3 @@
-// 伴看 Gemini Live 凭据同层往返（票 provider-onboarding-consistency/07）：
-// - 伴看 Gemini 编辑器内联凭据行区分四态（无记录 / 缺 Key / 非官方地址 / 可用）
-//   并给对应动作；可用态只读无按钮；
-// - 动作同层切到 AI 族编辑器（复用同一宿主，不增加可见 Modal 层）：缺 Key 编辑
-//   实际引用记录并聚焦 Key，无记录 / 非官方地址新建独立官方记录（不改写中转）；
-// - 保存成功或取消都会话结束后恢复原伴看草稿（未保存改动与 dirty 基线都在），
-//   保存成功提示仍需显式保存伴看记录；Esc / 外点的 dirty 拦截走既有 confirmDialog；
-// - 抽屉收起的强制关闭路径不恢复（草稿随既有规则丢弃）；
-// - 存储边界：Key 只随 ai-providers-save 落 AI 族，伴看保存载荷不含 Key。
-//
-// 手法：真实 settings-panel + provider-editor，消息走 installSettingsPanelBus 总线
-// （同 tests/ui/settings-panel-gemini-live.test.ts）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -80,7 +67,6 @@ async function mountPanel(overrides: Record<string, BusResponder<BusMessage>> = 
   return { host, sent: bus.sent };
 }
 
-// 打开伴看 Gemini 行编辑器（内联凭据行的宿主）
 async function openLiveGeminiEditor(host: HTMLElement): Promise<HTMLElement> {
   click(host.querySelector("#liveProvidersList .provider-row-edit"));
   await vi.waitFor(() => expect(dialog()).not.toBeNull());
@@ -93,8 +79,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // 强制关闭前先收起抽屉：往返恢复路径（onSessionEnd → 恢复伴看草稿）在抽屉
-  // 隐藏时让位，避免 afterEach 里又重开编辑器、把文档级监听泄漏到下一个用例
   const panel = document.getElementById("biliscript-reading-settings-panel");
   if (panel) panel.hidden = true;
   const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
@@ -185,8 +169,6 @@ describe("凭据动作同层进入 AI 族编辑器", () => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑AI 平台");
     });
     const aiDialog = dialog()!;
-    // AI 名称 = 预设名时留空 + 占位（拍板 Q7 语义）：编辑目标指向实际引用记录
-    // （标题「编辑」+ 地址预填引用值）
     expect(aiDialog.querySelector<HTMLInputElement>(".provider-editor-name")!.placeholder).toBe("Gemini");
     expect(aiDialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value)
       .toBe("https://generativelanguage.googleapis.com");
@@ -210,7 +192,6 @@ describe("凭据动作同层进入 AI 族编辑器", () => {
     expect(aiDialog.querySelector<HTMLInputElement>(".provider-editor-name")!.value).toBe("");
     expect(aiDialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value)
       .toBe("https://generativelanguage.googleapis.com");
-    // 往返全程不触碰中转记录（无编辑落盘）
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
   });
 });
@@ -219,21 +200,18 @@ describe("往返：恢复伴看草稿与保存提示", () => {
   it("取消后恢复原伴看草稿（未保存改动与 dirty 基线都在）", async () => {
     const { host } = await mountPanel({ "ai-providers-list": () => ({ ok: true, providers: [] }) });
     const editor = await openLiveGeminiEditor(host);
-    // 伴看草稿留一个未保存改动（dirty）
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
     await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-cancel"));
 
-    // 取消后伴看编辑器按原草稿恢复：未保存改动还在，dirty 基线保留
     await vi.waitFor(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     const restored = dialog()!;
     expect(restored.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
     expect(restored.querySelector(".provider-editor-status")!.textContent).not.toContain("请继续保存伴看平台记录");
-    // dirty 仍在：Esc 触发逐层退出的确认框（既有 confirmDialog 规则）
     pressEsc();
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
   });
@@ -260,7 +238,6 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-roundtrip");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    // 保存成功后：伴看草稿恢复 + Modal 内状态行提示仍需显式保存伴看记录 + 行状态刷新
     await vi.waitFor(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
@@ -274,7 +251,6 @@ describe("往返：恢复伴看草稿与保存提示", () => {
         .toContain("已复用 AI 平台 Key");
     });
 
-    // 存储边界：Key 只随 AI 族落盘；伴看编辑器自身保存的载荷不含 Key
     const aiSave = sent.find((message) => message.type === "ai-providers-save") as {
       providers?: Array<{ apiKey?: string; presetId?: string }>;
     };
@@ -298,7 +274,6 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
     await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
 
-    // AI 编辑器里改了 Key 再 Esc：dirty 拦截弹既有确认框，不直关
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-typed");
     pressEsc();
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
@@ -306,7 +281,6 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel"));
     expect(document.querySelector(".confirm-dialog")).toBeNull();
 
-    // 再点「返回伴看平台」：dirty 仍拦，确认放弃后才关并恢复伴看草稿
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-cancel"));
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm"));
@@ -323,7 +297,6 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
     await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
 
-    // 外层命令收起抽屉：AI 编辑器被强制关闭（既有联动），恢复路径让位
     document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
     await vi.waitFor(() => expect(dialog()).toBeNull());
     expect(dialog()).toBeNull();

@@ -1,17 +1,3 @@
-// tests/ui/provider-editor-save.test.ts
-// Modal 保存/测试动作「每族知识走族声明」的行为契约（owner 3 的 Modal 侧边界）。
-//
-// 替换的两条源码文本断言（原 provider-family-module.test.ts 的 functionBody 切片）：
-//   1.「collectUpsert 不再按 kind 分支：字段直收、序列化委派族声明」——等价行为
-//     判据 = 三族各走一次真实保存链，报文里出现本族特有字段（AI 的
-//     models/requiresKey/protocol、ASR 的 type/model、搜索的 type），说明序列化
-//     由族声明产出而不是在 Modal 里按 kind 拼；
-//   2.「kind 门收敛为能力位（supportsPlatformTest）」——等价行为判据 = 三族
-//     Modal 的平台级测试按钮在场性由能力位决定（AI 无、ASR/搜索有）。
-//
-// 失败方式：某族序列化漏写本族字段、或平台级测试按钮按 kind 名硬写分支而漂移，
-// 本文件即红。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
@@ -35,7 +21,6 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
   const host = installSettingsPanelBus<SentMessage>({
     "ai-providers-save": () => ({ ok: true, providers: [] }),

@@ -1,6 +1,3 @@
-// tests/ui/custom-select-search.test.ts
-// ui/custom-select.ts 搜索过滤功能测试
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -95,12 +92,10 @@ describe("custom-select 搜索交互与键盘漫游", () => {
     const searchInput = wrapper.querySelector<HTMLInputElement>(".custom-select-search-input")!;
     const options = Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"));
 
-    // 点击展开
     trigger.click();
     expect(dropdown.hidden).toBe(false);
     expect(document.activeElement).toBe(searchInput);
 
-    // 过滤 "open"
     searchInput.value = "open";
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -142,16 +137,13 @@ describe("custom-select 搜索交互与键盘漫游", () => {
     trigger.click();
     expect(document.activeElement).toBe(searchInput);
 
-    // 过滤出 "kimi"
     searchInput.value = "kimi";
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     const kimiOption = options.find((o) => o.textContent === "Kimi")!;
 
-    // ArrowDown 聚焦可见项
     searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     expect(document.activeElement).toBe(kimiOption);
 
-    // ArrowUp 回退到搜索框
     kimiOption.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
     expect(document.activeElement).toBe(searchInput);
   });
@@ -210,7 +202,6 @@ describe("custom-select 搜索交互与键盘漫游", () => {
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     expect(wrapper.querySelector(".custom-select-search-input")).toBeNull();
 
-    // 动态扩充选项至 9 项
     for (let i = 3; i <= 9; i++) {
       const opt = document.createElement("option");
       opt.value = `val_${i}`;

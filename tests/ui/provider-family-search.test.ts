@@ -1,21 +1,3 @@
-// provider-family.js 搜索族行声明契约（候选 3 片 1 自 options-search-rows.js
-// 收敛）：行渲染（Key 状态点三态 / 名称 / 额度形态徽章 / 预设 note 副行 /
-// 选用 radio / 编辑 / 删除）、radio change 即时持久化 activeSearchProviderId、
-// 删除报文 search-providers-delete。shared/messaging.js 整体 mock，避免拖入
-// content script 依赖图。
-//
-// 免 Key（spec §6.1/§6.2/§6.3）：
-// - 状态点第三态 keyless（判据 = f(preset.access, hasSavedKey)），free-quota
-//   无 Key 恒 missing；
-// - 徽章「免 Key」×4 / 「免费额度」×2 挂在行内名字之后，free-quota 有 Key 时
-//   徽章不消失；副行仍只放 preset.note；
-// - CSS 复用既有变量，不新增颜色。
-//
-// 智能模式与拖拽（spec §6.10 / §10 第 80–81 行，2026-10-01 增补）：
-// - 搜索族渲染置顶的「智能」虚拟行（class 与记录行同族、dataset.providerId =
-//   哨兵），归入 .search-provider-row；**记录行** = 带拖拽把手的行；
-// - 只有记录行渲染 .provider-row-drag-handle。
-
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -32,8 +14,6 @@ vi.mock("../../extension/shared/messaging.js", () => ({
   sendRuntimeMessage: sendRuntimeMessageMock
 }));
 
-// 组合点工厂创建行绑定（与 settings-panel 同款接线）；搜索族的编辑回调
-// 转发由 provider-row.test.ts 的 AI/ASR 用例守住同一工厂路径
 const bindings = createProviderFamilyRows({ onRowEdit: () => {} });
 
 function makeContainer() {
@@ -48,7 +28,6 @@ function fireChange(el: Element) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-// 六预设成员各一行（table order = 回退链顺序），hasSavedKey 默认 false
 const ITEMS = [
   { id: "search_firecrawl", presetId: "firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev", hasSavedKey: false },
   { id: "search_tavily", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", hasSavedKey: false },
@@ -58,7 +37,6 @@ const ITEMS = [
   { id: "search_exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", hasSavedKey: false }
 ];
 
-// 记录行 = 带拖拽把手的行（置顶的「智能」虚拟行无把手，spec §6.10）
 function recordRows(listNode: HTMLElement): HTMLElement[] {
   return Array.from(listNode.querySelectorAll<HTMLElement>(".search-provider-row")).filter(
     (row) => row.querySelector(".provider-row-drag-handle") !== null
@@ -163,12 +141,11 @@ describe("搜索平台行：额度形态徽章（spec §6.2）", () => {
   it("徽章与「选用 / 编辑」同排（行内），不新开一行；副行仍只放 preset.note", () => {
     const { listNode, emptyNode } = makeContainer();
     const rows = renderPresets(listNode, emptyNode, ITEMS);
-    const row = rows[5]; // Exa：有 note，free-quota
+    const row = rows[5];
     const line = row.querySelector(".provider-row-line")!;
     expect(line.querySelector(".provider-row-badge")!.textContent).toBe("免费额度");
     expect(line.querySelector(".search-provider-active-radio")).toBeTruthy();
     expect(line.querySelector(".provider-row-edit")).toBeTruthy();
-    // 徽章在 radio 与编辑按钮之前（紧随名字）
     const badgeOrder = Array.from(line.children).indexOf(line.querySelector<HTMLElement>(".provider-row-badge")!);
     expect(badgeOrder).toBeGreaterThan(Array.from(line.children).indexOf(line.querySelector<HTMLElement>(".provider-row-name")!));
     expect(line.nextElementSibling!.classList.contains("provider-row-model")).toBe(true);
@@ -234,7 +211,6 @@ describe("搜索平台行：拖拽把手渲染与样式（spec §6.10 / §10 第
       const line = row.querySelector<HTMLElement>(".provider-row-line")!;
       const handle = line.querySelector<HTMLElement>(".provider-row-drag-handle")!;
       expect(handle, "记录行缺拖拽把手").toBeTruthy();
-      // 位置：行内最后一个元素（删除按钮之后）
       expect(line.lastElementChild).toBe(handle);
     });
     const smart = listNode.querySelector<HTMLElement>(`.search-provider-row[data-provider-id="${SMART_ID}"]`)!;

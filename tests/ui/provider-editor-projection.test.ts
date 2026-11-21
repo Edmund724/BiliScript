@@ -1,23 +1,3 @@
-// tests/ui/provider-editor-projection.test.ts
-// owner 1「唯一投影点」的行为契约：模板（projectionBlocks）与两类联动
-//（预设切换 / 协议切换）共用 renderProjection，每个字段的 DOM 形态与
-// 目标态规则各一份。
-//
-// 先列失败方式，再据此写断言：
-//   F1 投影漏字段：某字段的 apply 缺失/选择器写错 → 重投影后 DOM 与
-//      projectEditorFields 的目标态不一致（逐字段往返核验，字段表新增一行
-//      即自动纳入）；
-//   F2 模板与投影分叉：模板片段不读投影产物（自写死值）→ projectionBlocks
-//      的字段片段与 projectEditorFields 的目标态不一致；
-//   F3 dirty 静默失效：draftsEqual 漏比某个 EditorDraft 字段 → 改该字段不判脏
-//      （按 EditorDraft 全键穷举）；
-//   F4 联动只改 DOM 不改 draft：预设/协议切换后重投影回到旧值；
-//   F5 输入回写漏字段：某文本字段的 input 事件不写 draft → 其 DOM 值不进保存
-//      且不判脏。
-//
-// 断言只认接口产物（projectEditorFields / readProjection / draftsEqual /
-// isDirty），不扫源码文本。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
@@ -60,7 +40,6 @@ afterEach(async () => {
   endEditorSession();
 });
 
-// 最小 Modal DOM：投影表消费的全部字段节点各一份（AI 形态 + ASR 的模型输入）。
 async function mountProjectionSession(draft: EditorDraft, kind: "ai" | "asr" = "ai") {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
@@ -100,8 +79,6 @@ function context(kind: "ai" | "asr" = "ai") {
   return { kind, presets: PRESETS, hasSavedKey: false };
 }
 
-// 逐字段往返：重投影后 DOM 的可观察目标态必须等于 projectEditorFields 的产物
-//（只比对 project 声明了的属性——AI 的 Key 输入不回填 value 是有意为之）。
 function expectProjectionMatches(
   projection: { projectEditorFields: Function; readProjection: Function },
   draft: EditorDraft,
@@ -131,7 +108,6 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
     projection.renderProjection(initial, context());
     expectProjectionMatches(projection, initial, context());
 
-    // 第二趟换成反向值：任一字段的 apply 漏写/写错选择器都会留旧值而红
     const next = draftOf({
       presetId: "ollama",
       name: "",
@@ -170,7 +146,6 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
     expect(blocks.baseUrl).toContain(`value="${fields.baseUrl.value}"`);
     expect(blocks.apiKey).toContain(`placeholder="${fields.apiKey.placeholder}"`);
     expect(blocks.preset).toContain(`value="${fields.preset.value}" selected`);
-    // 限制点文案已删（capabilities.unsupported 空表）：两个协议的 text 都为空、块恒 hidden。
     expect(fields.protocolNotes.text).toBe("");
     expect(blocks.protocolNotes).toContain("hidden");
     expect(blocks.catalogEmpty).toContain("hidden");
@@ -181,7 +156,6 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
     const { projection, dialog, state } = await mountProjectionSession(draft);
     const { presetProtocol, presetBaseUrlForProtocol } = projection;
 
-    // 模拟预设切换联动（与 wireDialog 同一写入路径：先改 draft 再重投影）
     const next = PRESETS[1];
     state.editDraft((current) => {
       current.presetId = next.id;
@@ -201,7 +175,6 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
       "https://api.deepseek.com/anthropic"
     );
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.placeholder).toBe("DeepSeek");
-    // 限制点文案已删：anthropic 也不露出小字。
     expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(true);
   });
 });
@@ -226,11 +199,8 @@ describe("draft 真源与 dirty（F3/F5）", () => {
   });
 });
 
-// ===== 真实设置面板路径：input 回写（F5）与联动写 draft（F4） =====
-
 type MessageResponder = (message: { type: string } & Record<string, any>) => unknown;
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
   const host = installSettingsPanelBus<{ type: string } & Record<string, any>>({
     "ai-providers-save": () => ({ ok: true, providers: [] }),

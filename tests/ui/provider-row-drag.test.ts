@@ -1,19 +1,3 @@
-// tests/ui/provider-row-drag.test.ts
-// 搜索平台列表的指针拖拽排序（spec §6.10「拖拽把手与交互」/ §12.5 第 14 行 /
-// 票 15 §3；验收 §10 第 78–79 行）：
-// - 只认行右侧把手：pointerdown 落在行体 / 名字 / 按钮上不进入拖拽（F1）；
-// - 只认左键（event.button === 0，F2）；
-// - 位移 ≥ 4px 才进入拖拽态：点一下把手不写库、不改顺序（F3）；
-// - 跨行落定 pointerup → 提交「列表内记录行 id 顺序」（F4）；
-// - 顺序未变（拖回原位）→ 不调 onCommit（F5）；
-// - pointercancel / Esc → 回滚按下时顺序且不写库（F6）；
-// - onCommit 同步抛错 / reject → 静默（顺序是偏好不是数据，§12.3 写，F7）；
-// - 虚拟「智能」行无把手、不进提交数组（F8）。
-//
-// jsdom 无布局：getBoundingClientRect 按当前 DOM 序给每行 40px 的矩形带
-// （中线 = index * 40 + 20），拖拽目标判定（指针在某行中线之上 → 插到该行前）
-// 由此可测。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { wireProviderRowDrag } from "../../extension/ui/provider-row-drag.js";
@@ -40,7 +24,6 @@ function pointer(type: string, y: number, init: PointerEventInit = {}): PointerE
   });
 }
 
-// 列表 = 可选的置顶虚拟「智能」行 + 若干记录行（只有记录行带把手）
 function makeHarness(options: { withSmartRow?: boolean; order?: string[] } = {}): Harness {
   const order = options.order ?? ["a", "b", "c"];
   document.body.innerHTML = '<div id="list"></div>';
@@ -68,7 +51,6 @@ function makeHarness(options: { withSmartRow?: boolean; order?: string[] } = {})
     handles[id] = row.querySelector<HTMLElement>(".provider-row-drag-handle")!;
   });
 
-  // 矩形带按「调用时刻」的 DOM 序计算（拖拽移动后中线随之更新）
   list.querySelectorAll<HTMLElement>(".search-provider-row").forEach((row) => {
     row.getBoundingClientRect = () => {
       const index = Array.from(list.querySelectorAll(".search-provider-row")).indexOf(row);
@@ -149,7 +131,7 @@ describe("wireProviderRowDrag：落定提交（spec §6.10 / §12.5 第 14 行�
     const harness = makeHarness();
 
     harness.handles.a.dispatchEvent(pointer("pointerdown", 20));
-    harness.handles.a.dispatchEvent(pointer("pointermove", 70)); // 越过 b 的中线 → 插到 c 前
+    harness.handles.a.dispatchEvent(pointer("pointermove", 70));
     expect(harness.dragging()).toBe(true);
     harness.handles.a.dispatchEvent(pointer("pointerup", 70));
 
@@ -163,7 +145,7 @@ describe("wireProviderRowDrag：落定提交（spec §6.10 / §12.5 第 14 行�
     const harness = makeHarness();
 
     harness.handles.b.dispatchEvent(pointer("pointerdown", 60));
-    harness.handles.b.dispatchEvent(pointer("pointermove", 65)); // 仍插在 c 前，顺序不变
+    harness.handles.b.dispatchEvent(pointer("pointermove", 65));
     harness.handles.b.dispatchEvent(pointer("pointerup", 65));
 
     expect(harness.ids()).toEqual(["search_a", "search_b", "search_c"]);
@@ -174,7 +156,7 @@ describe("wireProviderRowDrag：落定提交（spec §6.10 / §12.5 第 14 行�
     const harness = makeHarness({ withSmartRow: true });
 
     harness.handles.a.dispatchEvent(pointer("pointerdown", 60));
-    harness.handles.a.dispatchEvent(pointer("pointermove", 110)); // 越过 b 的中线 → 插到 c 前
+    harness.handles.a.dispatchEvent(pointer("pointermove", 110));
     harness.handles.a.dispatchEvent(pointer("pointerup", 110));
 
     expect(harness.onCommit).toHaveBeenCalledWith(["search_b", "search_a", "search_c"]);

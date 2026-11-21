@@ -1,14 +1,3 @@
-// tests/ui/model-catalog-meta.test.ts
-// 平台编辑 Modal 的只读模型元数据（model-catalog/04）：
-// - 短格式（1000000→"1M" / 524288→"524K"）与徽标条件（思考 / 图片）；
-// - 查不到整栏静默隐藏（无占位符、无 title）；
-// - 只跟着 (presetId, baseUrl) + 模型 id 重算（含输入事件接线）；
-// - 「获取可用模型」勾选弹窗同一套短格式；
-// - 目录模块懒加载：加载前不渲染，加载完成后补齐（不清掉勾选态）。
-//
-// 手法：不经整套设置面板，直接搭最小 Modal DOM + 状态袋 + 真实 wireDialog，
-// 目录模块用真实产物（103KB 解析 + 02 别名表，vitest 无压力）——格式化与查表都是真链路。
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UPSTREAM_CATALOG_SOURCE } from "../../extension/ai/catalog/models-dev-catalog.generated.js";
 import { resetModuleState } from "../setup.js";
@@ -16,8 +5,6 @@ import { resetModuleState } from "../setup.js";
 const MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
-// 结构子集（ProviderRowPreset）：Modal 只读 id/name/baseUrl/requiresKey。
-// custom = 无身份（host 兜底）、ollama = 有身份但无目录数据（NO_CATALOG_PRESETS）。
 const PRESET_SUBSET = [
   { id: "custom", name: "自定义", baseUrl: "" },
   { id: "ollama", name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1" },
@@ -42,8 +29,6 @@ async function mountDialog(options: { presetId: string; baseUrl: string; models:
       </div>
     </div>`;
   const { beginEditorSession } = await import("../../extension/ui/provider-editor-state.js");
-  // 会话走状态片的意图级原语（state 的控制字段对外只读）：手工挂载同样先建初稿
-  //（addModelRow 与输入事件都写 draft），行 DOM 是它的投影
   beginEditorSession({
     kind: "ai",
     host: document.querySelector<HTMLElement>(".provider-editor-host")!,
@@ -104,7 +89,6 @@ describe("元数据短格式（spec §展示）", () => {
     expect(formatContextWindow(384_000)).toBe("384K");
     expect(formatContextWindow(8_192)).toBe("8K");
     expect(formatContextWindow(1_500_000)).toBe("1.5M");
-    // 非法值不产出假文案（调用方据此省略这一段）
     expect(formatContextWindow(0)).toBe("");
     expect(formatContextWindow(Number.NaN)).toBe("");
   });
@@ -118,7 +102,7 @@ describe("模型行元数据", () => {
       models: ["mimo-v2.5"]
     });
     const lazy = await import("../../extension/ui/lazy-model-catalog.js");
-    expect(lazy.loadedModelCatalog()).toBeNull(); // 加载前：没有可渲染的数据
+    expect(lazy.loadedModelCatalog()).toBeNull();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
     await lazy.loadModelCatalog();
@@ -130,7 +114,6 @@ describe("模型行元数据", () => {
     expect(slot.querySelectorAll(".provider-editor-model-badge")).toHaveLength(2);
     expect(slot.title).toContain("MiMo-V2.5");
     expect(slot.title).toContain("输出上限 131K");
-    // 数据版本 = 上游来源 URL + 01 产物的 contentHash（不带时间戳，产物幂等）
     expect(slot.title).toContain(
       `目录 ${UPSTREAM_CATALOG_SOURCE.source} ${UPSTREAM_CATALOG_SOURCE.contentHash}`
     );
@@ -198,21 +181,18 @@ describe("模型行元数据", () => {
     wireDialog();
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     catalog.refreshModelCatalogMeta();
-    expect(metaSlot(dialog, 0).hidden).toBe(true); // 无身份来源：查不到
+    expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    // 改 API 地址（custom 的身份来源）→ 输入事件即重算
     const baseUrl = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
     baseUrl.value = MIMO_BASE_URL;
     fireInput(baseUrl);
     expect(metaSlot(dialog, 0).textContent).toBe("1M思考图片");
 
-    // 改模型 id → 委托在目录列表上的 input 事件重算
     const input = modelInput(dialog, 0);
     input.value = "no-such-model";
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    // 改回已知 id，再切预设（presetId 优先于 host）：ollama 有身份但没有目录数据 → 整栏隐藏
     input.value = "mimo-v2.5";
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(false);
@@ -221,7 +201,6 @@ describe("模型行元数据", () => {
     presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    // 关 Modal 后过期回执不再写 DOM（会话结束即代际作废）
     state.endEditorSession();
     catalog.refreshModelCatalogMeta();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
@@ -261,7 +240,7 @@ describe("「获取可用模型」勾选弹窗（spec §展示：同一套短格
       "../../extension/ui/provider-editor-fetch-dialog.js"
     );
     renderFetchSkeleton();
-    renderFetchList(["deepseek-v4-pro"]); // 加载前：留空
+    renderFetchList(["deepseek-v4-pro"]);
     const item = hostElement().querySelector<HTMLElement>(".provider-editor-fetch-item")!;
     expect(item.querySelector<HTMLElement>("[data-model-meta]")!.hidden).toBe(true);
 

@@ -330,7 +330,6 @@ describe("本地 Agent 设置", () => {
     expect(linuxCustom).toContain("BILISCRIPT_BRIDGE_PORT=19000 sh");
     expect(linuxCustom.length).toBeLessThan(300);
 
-    // 弹窗实际打开时也按当前宿主系统生成对应指令
     await mountPanel({
       "get-settings": () => ({ ok: true, settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } }),
       "agent-bridge-connect": () => ({ ok: true, connected: false })

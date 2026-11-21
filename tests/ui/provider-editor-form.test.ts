@@ -1,17 +1,3 @@
-// tests/ui/provider-editor-form.test.ts
-// 票 10：编辑器表单、焦点与权限恢复的行为契约（jsdom 能表达的部分）。
-//
-// 失败方式（每条对应下面一组用例）：
-//   F1 提交不是语义化表单：保存键点击 / Enter 隐式提交不是同一条链；
-//   F2 字段错误只有状态行、不定位控件：错误无 aria-invalid/描述、焦点不在首个
-//      无效字段；
-//   F3 输入修正清掉未解决错误：改 API 地址把 Key 错误一起清掉，或普通状态行被
-//      输入误清；
-//   F4 合法提交可重复落盘：双击 / 连发表单触发两次保存；
-//   F5 焦点逃出当前层或关闭后不归还仍有效的触发控件；
-//   F6 权限拒绝与普通失败混在一起：测试 / 拉取 / 保存不可区分且无重新授权路径；
-//   F7 权限申请拆成多次：多 origin 平台一条消息之外再发一条（或手势链断裂）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { ASR_PROVIDER_PRESETS, PRESETS } from "../../extension/core/presets.js";
@@ -128,7 +114,6 @@ describe("语义化表单提交", () => {
 
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // Enter 隐式提交走 form 的 submit（不点保存键）
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => {
@@ -169,14 +154,12 @@ describe("字段级校验与焦点定位", () => {
     expect(fieldError("provider-editor-error-apikey").textContent).toContain("需要填写 API Key");
     expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("请填写 API 地址");
 
-    // 只修正 API 地址：地址错误清掉，Key 错误仍在，汇总行换成剩余项
     setFieldValue(baseUrl, "https://api.example.com/v1");
     expect(baseUrl.getAttribute("aria-invalid")).toBeNull();
     expect(fieldError("provider-editor-error-baseurl").hidden).toBe(true);
     expect(fieldError("provider-editor-error-apikey").hidden).toBe(false);
     expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toContain("需要填写 API Key");
 
-    // 修正 Key：全部字段错误与校验汇总清空
     setFieldValue(apiKey, "sk-test");
     expect(fieldError("provider-editor-error-apikey").hidden).toBe(true);
     expect(apiKey.getAttribute("aria-invalid")).toBeNull();
@@ -202,7 +185,6 @@ describe("字段级校验与焦点定位", () => {
     const editor = await openEditor({ kind: "asr", onSave });
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 预设自带模型名：清空以触发单模型字段错误
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "");
 
     fireClick(editor.querySelector(".provider-editor-save"));
@@ -227,7 +209,6 @@ describe("字段级校验与焦点定位", () => {
     expect(fieldError("provider-editor-error-models").textContent).toBe("请至少添加一个模型后再保存");
     expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toContain("请至少添加一个模型");
 
-    // 仅添加空白模型行：仍无有效模型，错误保持且再次提交聚焦首个空模型 ID 输入框
     fireClick(editor.querySelector(".provider-editor-model-add"));
     expect(fieldError("provider-editor-error-models").hidden).toBe(false);
     fireClick(editor.querySelector(".provider-editor-save"));
@@ -235,7 +216,6 @@ describe("字段级校验与焦点定位", () => {
     expect(document.activeElement).toBe(modelInput);
     expect(modelInput.getAttribute("aria-invalid")).toBe("true");
 
-    // 输入非空模型 ID：实时重校验清掉错误与汇总状态
     setFieldValue(modelInput, "gpt-4o-mini");
     expect(fieldError("provider-editor-error-models").hidden).toBe(true);
     expect(modelInput.getAttribute("aria-invalid")).toBeNull();
@@ -253,7 +233,6 @@ describe("字段级校验与焦点定位", () => {
       expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("sync 配额不足");
     });
 
-    // 修正一个已合法的字段不得清掉与它无关的落盘失败
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api2.example.com/v1");
     expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("sync 配额不足");
   });
@@ -333,14 +312,11 @@ describe("焦点约束与归还", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     const confirm = document.querySelector<HTMLElement>(".confirm-dialog")!;
     expect(confirm).toBeTruthy();
-    // 安全默认焦点在取消键；编辑器让位，焦点不留在下层
     expect(document.activeElement).toBe(confirm.querySelector(".confirm-dialog-cancel"));
 
-    // Tab 被约束在确认层（下层编辑器的 Tab 陷阱不得抢先结算）
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
     expect(confirm.contains(document.activeElement)).toBe(true);
 
-    // 一次 Esc 只关确认框，编辑器仍在；焦点归还编辑器层
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(document.querySelector(".confirm-dialog")).toBeNull();
     expect(dialog()).toBe(editor);
@@ -380,7 +356,6 @@ describe("权限失败区分与重新授权", () => {
     expect(status.textContent).toContain("重新授权");
     expect(editor.querySelector<HTMLButtonElement>(".provider-editor-save")!.disabled).toBe(false);
 
-    // 重新点击即重新申请（装配方重新走权限链），不是一次性死状态
     fireClick(editor.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
       expect(onSave).toHaveBeenCalledTimes(2);
@@ -432,14 +407,12 @@ describe("权限失败区分与重新授权", () => {
     const editor = await openEditor({ kind: "live" });
     const baseUrl = editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
     const model = editor.querySelector<HTMLInputElement>(".provider-editor-model")!;
-    // 未保存草稿：测试必须用当前输入，而不是已存记录 / 预设默认值
     setFieldValue(baseUrl, "https://draft.mosi.cn");
     setFieldValue(model, "moss-live-draft");
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
     fireClick(editor.querySelector(".provider-editor-test"));
 
-    // 点击当拍权限消息即出站（零先行 await），且两个 origin 合成一条请求
     const requests = sent.filter((message) => message.type === "request-provider-origins");
     expect(requests).toHaveLength(1);
     expect(requests[0].baseUrls).toEqual([
@@ -453,7 +426,6 @@ describe("权限失败区分与重新授权", () => {
       baseUrl: "https://draft.mosi.cn",
       model: "moss-live-draft"
     });
-    // 测试成功不写设置（只有保存动作落盘）
     expect(sent.some((message) => message.type === "live-providers-save")).toBe(false);
   });
 });

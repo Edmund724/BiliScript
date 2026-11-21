@@ -1,10 +1,3 @@
-// ui/mermaid-render 水合单测：mock 掉 mermaid 本体（真渲染需要布局引擎，jsdom
-// 里跑不了），只钉住本模块自己的契约——状态机（pending → done / error /
-// unsupported）、源码保留、插入时换新 id、缓存命中不重渲染、主题切换才重渲染。
-//
-// 模块内（svgCache / pendingRenders / idSeq / configuredTheme）是模块级状态，
-// 每条用例 resetModules 后重新动态导入，拿到干净实例。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mermaidMock = vi.hoisted(() => {
@@ -13,7 +6,6 @@ const mermaidMock = vi.hoisted(() => {
     initialize: vi.fn(),
     render,
     detectType: vi.fn(),
-    // mermaid.render(id, source) 的实际入参（断言换新 id / 源码透传用）
     calls: [] as Array<{ id: string; source: string }>
   };
 });
@@ -40,7 +32,6 @@ function mountBlock(source: string): Element {
   return document.querySelector(".biliscript-md-mermaid")!;
 }
 
-// mermaid 的 SVG 以根 id 作内部 id 前缀（<style> 选择器与 url(#…) 引用）
 function svgFor(id: string): string {
   return `<svg id="${id}"><style>#${id} .node{fill:#fff}</style><rect fill="url(#${id})"></rect></svg>`;
 }
@@ -157,7 +148,6 @@ describe("hydrateMermaidPlaceholders", () => {
     mountBlock("graph TD\nA --> B");
     await hydrateMermaidPlaceholders(document.body);
 
-    // 整体重建：新节点、pending 状态、同样源码
     mountBlock("graph TD\nA --> B");
     await hydrateMermaidPlaceholders(document.body);
 
@@ -171,10 +161,6 @@ describe("hydrateMermaidPlaceholders", () => {
 
     await hydrateMermaidPlaceholders(document.body, { theme: "light" });
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
-    // mermaid 12 起 look/layout 获得按图表类型的默认值（neo / elk）且 look 不吃
-    // 全局 initialize 值（上游 release notes 写的全局 look 实测无效），必须钉住
-    // layout:"dagre" 与按 flowchart/sequence 分节的 look:"classic"——防止有人把
-    // 配置「简化」回只设 theme，而那个坑恰恰是上游文档自己给的。
     expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({
       theme: "default",
       layout: "dagre",
@@ -182,12 +168,9 @@ describe("hydrateMermaidPlaceholders", () => {
       sequence: { look: "classic" }
     }));
 
-    // 同主题 force：块记录的渲染主题一致 → 跳过（applyReadingViewPresentation
-    // 在进入阅读模式等路径上会重复调用，不能白闪一次）
     await hydrateMermaidPlaceholders(document.body, { theme: "light", force: true });
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
 
-    // 异主题 force：重渲染
     await hydrateMermaidPlaceholders(document.body, { theme: "dark", force: true });
     expect(mermaidMock.render).toHaveBeenCalledTimes(2);
     expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({

@@ -198,13 +198,11 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
 
-    // 弹出标准 opt-in 确认对话框（不绕过）
     await vi.waitFor(() => {
       expect(document.querySelector(".confirm-dialog")).not.toBeNull();
     });
     expect(store.getSettings().searchOptInNoticeAcknowledged).toBe(false);
 
-    // 1) 点「关闭联网搜索」→ 关闭开关并保持未确认
     (document.querySelector(".confirm-dialog-cancel") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       expect(toggle.checked).toBe(false);
@@ -212,7 +210,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     expect(store.getSettings().webSearchEnabled).toBe(false);
     expect(store.getSettings().searchOptInNoticeAcknowledged).toBe(false);
 
-    // 2) 重新打开并点「允许并继续」→ 置位 searchOptInNoticeAcknowledged
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => {
@@ -258,7 +255,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
-    // 默认 ModelScope 与 SiliconFlow 均要求 API Key，留空触发全部 5 个操作应直接拦截
     (document.getElementById("aiFetchModelsBtn") as HTMLButtonElement).click();
     (document.getElementById("aiTestBtn") as HTMLButtonElement).click();
     (document.getElementById("onboardingAiForm") as HTMLFormElement).dispatchEvent(
@@ -290,14 +286,12 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     const apiKeyInput = document.getElementById("aiApiKeyInput") as HTMLInputElement;
     const fetchBtn = document.getElementById("aiFetchModelsBtn") as HTMLButtonElement;
 
-    // 1) 未拉取前点下拉箭头展示预设推荐模型
     toggle.click();
     expect(dropdown.hidden).toBe(false);
     expect(dropdown.querySelectorAll(".model-picker-option").length).toBeGreaterThanOrEqual(3);
     toggle.click();
     expect(dropdown.hidden).toBe(true);
 
-    // 2) 拉取远端模型后，组合框可搜索过滤并回填主输入框
     apiKeyInput.value = "ms-test-key";
     fetchBtn.click();
     await vi.waitFor(() => {
@@ -383,7 +377,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
       expect(arrowPath).toBe(modelArrowPath);
     }
 
-    // 通过 custom-select 切换平台预设（支持搜索）后同步更新地址与默认模型
     const presetWrapper = document.getElementById("aiPresetSelect")!.closest(".custom-select-wrapper")!;
     const presetTrigger = presetWrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!;
     const presetDropdown = presetWrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;

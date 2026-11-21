@@ -1,11 +1,3 @@
-// tests/ui/provider-editor-fixes.test.ts
-// M2 平台编辑器弹窗、模型拉取子视图与交互锁的回归测试：
-// 1. inert 隔离与嵌套焦点圈禁（子视图 / confirmDialog / editorHost 逐层隔离与恢复）；
-// 2. deleteInFlight / testInFlight / openFetchDialog / model-picker 防重入锁与 setBusy 全控件禁用；
-// 3. 动态 resolveLinkedCredential、setupContextBanner 与 initialStatus；
-// 4. 非 AI 预设切换保护用户名称与 Key 草稿；编辑态跨预设/跨 origin 禁止沿用旧 Key；
-// 5. 模型拉取子视图四态显隐、前置字段精准聚焦、Enter / ArrowDown 快捷键。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { ASR_PROVIDER_PRESETS, PRESETS, SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
@@ -158,7 +150,6 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     expect(main.inert).toBe(true);
     expect(Boolean(editorHost.inert)).toBe(false);
 
-    // 打开内联拉取子视图：隔离 .provider-editor-head 与 .provider-editor-form
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     mocks.fetchProviderModels.mockResolvedValueOnce({ ok: true, models: ["gpt-4o-mini"] });
@@ -175,7 +166,6 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     expect(form.inert).toBe(true);
     expect(form.getAttribute("aria-hidden")).toBe("true");
 
-    // Tab 在子视图内循环，绝不穿透到底层表单
     const confirmBtn = subview.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!;
     confirmBtn.disabled = false;
     confirmBtn.focus();
@@ -183,7 +173,6 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     expect(subview.contains(document.activeElement)).toBe(true);
     expect(form.contains(document.activeElement)).toBe(false);
 
-    // 关闭子视图：恢复底层 head/form，并将焦点归还给「获取可用模型」按钮
     fireClick(subview.querySelector(".provider-editor-fetch-back"));
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(head.inert).toBe(false);
@@ -192,20 +181,17 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     expect(form.hasAttribute("aria-hidden")).toBe(false);
     expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-fetch"));
 
-    // 在脏编辑器之上打开 confirmDialog：只 inert editorHost，保持 settingsPanel/main 仍 inert
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     expect(document.querySelector(".confirm-dialog-host")).toBeTruthy();
     expect(editorHost.inert).toBe(true);
     expect(settingsPanel.inert).toBe(true);
 
-    // 取消确认框：恢复 editorHost.inert=false，底层 settingsPanel/main 仍保持 inert
     fireClick(document.querySelector(".confirm-dialog-cancel"));
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorHost.inert).toBe(false);
     expect(settingsPanel.inert).toBe(true);
     expect(main.inert).toBe(true);
 
-    // 强制关闭编辑器：彻底恢复 settingsPanel/main inert 并归还焦点
     closeProviderEditor(true);
     expect(settingsPanel.inert).toBe(false);
     expect(main.inert).toBe(false);
@@ -248,7 +234,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(true);
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.disabled).toBe(true);
     expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-save")!.disabled).toBe(true);
-    // 取消键保持可点，用户可中止等待
     expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-cancel")!.disabled).toBe(false);
 
     dialog.querySelector<HTMLFormElement>(".provider-editor-form")!.dispatchEvent(
@@ -263,7 +248,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     await flushMicrotasks();
     expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-delete")!.disabled).toBe(false);
 
-    // 消费族删除期间同样禁用跨族凭据引用按钮
     closeProviderEditor(true);
     let resolveSearchDelete: ((res: { ok: boolean }) => void) | undefined;
     openProviderEditor({
@@ -293,7 +277,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
   it("runTest 与 runSearchTest：在 await 前同步上锁并 setBusy，双击只发一次请求", async () => {
     const { openProviderEditor, closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
 
-    // 1) ASR：权限在飞期间同步上锁并禁用控件
     deferPermission = true;
     openProviderEditor({ kind: "asr", presets: ASR_PROVIDER_PRESETS, onSave: async () => ({ ok: true }) });
     let dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
@@ -311,7 +294,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     await flushMicrotasks();
     expect(asrTestBtn.disabled).toBe(false);
 
-    // 2) Search：getKey 在飞期间同步上锁并禁用控件，双击只查一次 Key / 只搜一次
     closeProviderEditor(true);
     let resolveKey: ((key: string) => void) | undefined;
     mocks.searchGetKey.mockImplementationOnce(() => new Promise((r) => { resolveKey = r; }));
@@ -344,7 +326,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     const { openProviderEditor, closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
     const { buildModelPickerField, wireModelPicker } = await import("../../extension/ui/model-picker.js");
 
-    // 1) openFetchDialog 防重入
     let resolveFetch: ((res: { ok: boolean; models?: string[]; error?: string }) => void) | undefined;
     mocks.fetchProviderModels.mockImplementationOnce(() => new Promise((r) => { resolveFetch = r; }));
     openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
@@ -359,7 +340,6 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     await flushMicrotasks();
     closeProviderEditor(true);
 
-    // 2) model-picker：在飞防重入、断连/收起丢弃过期结果、onClose 同步 aria-expanded="false"
     const row = document.createElement("div") as unknown as ProviderRowElement;
     row.dataset.providerId = "asr_1";
     row.innerHTML = `
@@ -384,11 +364,9 @@ describe("2. 异步防重入锁与 setBusy 禁用覆盖", () => {
     toggle.click();
     await flushMicrotasks();
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    // 收起下拉（触发 outside click / closeAllModelDropdowns）→ 同步 aria-expanded="false"
     document.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(dropdown.hidden).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    // 过期回执不得写回已关闭的下拉
     resolvePicker!({ ok: true, models: ["stale-model"] });
     await flushMicrotasks();
     expect(dropdown.hidden).toBe(true);
@@ -427,10 +405,8 @@ describe("4. 动态 resolveLinkedCredential、setupContextBanner 与 initialStat
     expect(banner.textContent).toContain("首次联网搜索配置");
     expect(status.hidden).toBe(false);
     expect(status.textContent).toContain("请点击「保存」落盘");
-    // 默认 tavily 无凭据引用
     expect(linked.hidden).toBe(true);
 
-    // 切到 deepseek：立即可见引用卡片与动作按钮
     switchPreset(dialog, "deepseek");
     expect(linked.hidden).toBe(false);
     expect(linked.textContent).toContain("缺少官方 DeepSeek Key");
@@ -439,12 +415,10 @@ describe("4. 动态 resolveLinkedCredential、setupContextBanner 与 initialStat
     fireClick(btn);
     expect(onAction).toHaveBeenCalledTimes(1);
 
-    // 改 baseUrl：实时重算引用卡片
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://custom-proxy.example.com");
     expect(linked.textContent).toContain("当前为自定义中转地址");
     expect(linked.querySelector(".provider-editor-linked-credential-btn")!.textContent).toBe("新建独立官方记录");
 
-    // 切回 tavily：立即隐藏引用卡片
     switchPreset(dialog, "tavily");
     expect(linked.hidden).toBe(true);
   });
@@ -466,7 +440,6 @@ describe("5. 非 AI 预设切换保护 & 编辑态换预设/改 origin 禁发旧
     setFieldValue(nameInput, "我的高速转写");
     setFieldValue(keyInput, "sk-user-draft");
 
-    // 切到需要 Key 的另一预设：保留手改名称和手填 Key
     const keyPreset = ASR_PROVIDER_PRESETS.find((p) => p.requiresKey !== false && p.id !== ASR_PROVIDER_PRESETS[0].id);
     if (keyPreset) {
       switchPreset(dialog, keyPreset.id);
@@ -474,7 +447,6 @@ describe("5. 非 AI 预设切换保护 & 编辑态换预设/改 origin 禁发旧
       expect(keyInput.value).toBe("sk-user-draft");
     }
 
-    // 切到免 Key 预设（local-whisper）：清掉 Key，仍保留手改名称
     switchPreset(dialog, "local-whisper");
     expect(nameInput.value).toBe("我的高速转写");
     expect(keyInput.value).toBe("");
@@ -501,17 +473,14 @@ describe("5. 非 AI 预设切换保护 & 编辑态换预设/改 origin 禁发旧
     expect(keyInput.required).toBe(true);
     expect(keyInput.placeholder).toContain("重新确认");
 
-    // 行级测试不得发往 evil.example.com
     fireClick(dialog.querySelector(".provider-editor-model-test"));
     expect(mocks.testAiProviderConnection).not.toHaveBeenCalled();
     expect(dialog.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("error");
 
-    // 保存也不得带着 hasSavedKey: true 通过
     fireClick(dialog.querySelector(".provider-editor-save"));
     expect(onSave).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(keyInput);
 
-    // 补填新 Key 后可正常放行，传入新密钥而非仅靠 hasSavedKey 复用旧密钥
     setFieldValue(keyInput, "sk-new-confirmed");
     fireClick(dialog.querySelector(".provider-editor-save"));
     await flushMicrotasks();
@@ -519,7 +488,6 @@ describe("5. 非 AI 预设切换保护 & 编辑态换预设/改 origin 禁发旧
     const saved = onSave.mock.calls[0]?.[1];
     expect(saved?.apiKey).toBe("sk-new-confirmed");
 
-    // 若切到免 Key 预设（ollama）且未填新 Key：保存不得带着旧 hasSavedKey: true
     openProviderEditor({ kind: "ai", presets: PRESETS, item, onSave });
     const dialog2 = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     switchPreset(dialog2, "ollama");
@@ -568,7 +536,6 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     const emptyServer = subview.querySelector<HTMLElement>(".provider-editor-fetch-empty-server")!;
     const error = subview.querySelector<HTMLElement>(".provider-editor-fetch-error")!;
 
-    // 1) loading 态
     expect(subview.dataset.fetchState).toBe("loading");
     expect(loading.hidden).toBe(false);
     expect(search.hidden).toBe(true);
@@ -577,7 +544,6 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     expect(emptyServer.hidden).toBe(true);
     expect(error.hidden).toBe(true);
 
-    // 2) error 态
     resolveFirst!({ ok: false, error: "HTTP 401：API Key 无效或未授权" });
     await flushMicrotasks();
     expect(subview.dataset.fetchState).toBe("error");
@@ -589,7 +555,6 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     expect(error.hidden).toBe(false);
     expect(error.querySelector(".provider-editor-fetch-retry")).toBeTruthy();
 
-    // 3) empty-server 态（点击重试后子视图会重建，需重新查询）
     mocks.fetchProviderModels.mockResolvedValueOnce({ ok: true, models: [] });
     fireClick(error.querySelector(".provider-editor-fetch-retry"));
     await flushMicrotasks();
@@ -604,7 +569,6 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     expect(retriedEmpty.hidden).toBe(false);
     expect(retriedEmpty.textContent).toContain("该平台未返回可用模型");
 
-    // 4) ready 态 + Enter / ArrowDown 快捷键
     fireClick(retriedSubview.querySelector(".provider-editor-fetch-back"));
     mocks.fetchProviderModels.mockResolvedValueOnce({ ok: true, models: ["gpt-4o", "o3-mini"] });
     fireClick(dialog.querySelector(".provider-editor-fetch"));
@@ -618,13 +582,11 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     expect(subview2.querySelector<HTMLElement>(".provider-editor-fetch-all-row")!.hidden).toBe(false);
     expect(subview2.querySelector<HTMLElement>(".provider-editor-fetch-list")!.hidden).toBe(false);
 
-    // 过滤后按 Enter 直接切换首个可见未添加项勾选
     search2.value = "o3";
     search2.dispatchEvent(new Event("input"));
     search2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     expect(subview2.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (1)");
 
-    // ArrowDown 移入复选框列表
     search2.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(subview2.querySelector(".provider-editor-fetch-check"));
   });

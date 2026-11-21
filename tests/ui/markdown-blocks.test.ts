@@ -1,10 +1,3 @@
-// ui/markdown 块级语法单测：引用块（>）、任务列表（- [ ]）、分割线（---）、
-// 行内删除线（~~ ~~）。四者均为 AI 摘要常见输出而旧 parser 不支持（引用块/
-// 分割线/删除线落进普通段落，任务列表渲染成字面 "[ ]" 文本）。样式契约对齐
-// github-markdown-css 基线：任务列表产 GitHub 的 contains-task-list /
-// task-list-item / task-list-item-checkbox 类名，由基线与 reader-chat.css 覆盖
-// 层共同负责外观（本测试只钉 parser 产出）。
-
 import { describe, expect, it } from "vitest";
 import { renderMarkdown, splitMarkdownTail } from "../../extension/ui/markdown.js";
 
@@ -151,7 +144,6 @@ describe("splitMarkdownTail 与新增块型兼容", () => {
   it("引用块/分割线/任务列表参与流式切分：空行边界切点不变，堆叠渲染与全文一致", () => {
     const text = "> 引用首段\n> 引用续行\n\n---\n\n- [x] 任务甲\n- [ ] 任务乙\n\n正文尾段";
     const { stableText, tailText } = splitMarkdownTail(text);
-    // 最后一个空行边界在「任务乙」与「正文尾段」之间
     expect(stableText).toContain("任务乙");
     expect(tailText.trim()).toBe("正文尾段");
     expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(text));

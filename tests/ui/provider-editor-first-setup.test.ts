@@ -1,14 +1,3 @@
-// 首配模式的平台编辑 Modal（票 provider-onboarding-consistency/01）：
-// - 保存钮文案「保存并继续」（普通编辑仍「保存」）；
-// - 首个 AI 平台至少一个模型才可保存（普通编辑仍允许空目录，multi-model Q13）；
-// - 保存成功后先 onAfterSave（装配方消费续跑意图/退出设置）再关 Modal；
-// - 保存失败：不关 Modal、状态行报错、onAfterSave 不触发；
-// - 取消（未改动直关）：onSessionEnd 结算（装配方作废未消费意图）；
-// - 重复保存：两次落盘同一 upsert，回调不炸（续跑一次性由意图叶消费保证）。
-//
-// 手法：真实 provider-editor 模块 + DOM 仿真，openProviderEditor 直开
-// （不经设置面板），字段驱动同 tests/ui/provider-editor-save.test.ts。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { PRESETS } from "../../extension/core/presets.js";
@@ -57,7 +46,6 @@ function setFieldValue(selector: string, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-// 填齐首配必填：地址 + Key + 一个模型行
 function fillRequiredFields(model = "test-model") {
   setFieldValue(".provider-editor-baseurl", "https://api.test/v1");
   setFieldValue(".provider-editor-apikey", "sk-test");
@@ -182,7 +170,6 @@ describe("首配会话回调", () => {
     await vi.waitFor(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
-    // 首次保存收掉 Modal 与回调槽——装配方出口（消费续跑意图）绝不重复触发
     expect(onAfterSave).toHaveBeenCalledTimes(1);
     expect(dialog()).toBeNull();
   });

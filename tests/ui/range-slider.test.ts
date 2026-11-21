@@ -73,7 +73,6 @@ describe("range-slider", () => {
     expect(onPreview).not.toHaveBeenCalled();
     expect(onCommit).not.toHaveBeenCalled();
 
-    // input 事件：归一化、刷新进度/徽标/重置态，触发 onPreview
     input.value = "130";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     expect(input.style.getPropertyValue("--range-progress")).toBe("100%");
@@ -83,12 +82,10 @@ describe("range-slider", () => {
     expect(onPreview).toHaveBeenLastCalledWith(130);
     expect(onCommit).not.toHaveBeenCalled();
 
-    // change 事件：触发 onCommit
     input.dispatchEvent(new Event("change", { bubbles: true }));
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenLastCalledWith(130);
 
-    // 点击重置：恢复默认值、同步 --range-progress、置灰重置键，并同时触发 onPreview 与 onCommit
     resetBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(input.value).toBe("100");
     expect(input.style.getPropertyValue("--range-progress")).toBe("50%");
@@ -99,7 +96,6 @@ describe("range-slider", () => {
     expect(onCommit).toHaveBeenCalledTimes(2);
     expect(onCommit).toHaveBeenLastCalledWith(100);
 
-    // 外部 setValue / setResettableRangeValue：只更新 UI，不触发回调
     controller.setValue(85);
     expect(input.value).toBe("85");
     expect(input.style.getPropertyValue("--range-progress")).toBe("25%");

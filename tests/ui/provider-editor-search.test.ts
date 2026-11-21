@@ -1,15 +1,3 @@
-// tests/ui/provider-editor-search.test.ts
-// 搜索平台编辑 Modal 的两处免 Key 契约：
-// - spec §6.3 / §10 第 31 行：Key 输入三态（占位符 + required）与预设 access 同源
-//   —— keyless 无 Key「API Key（可选）」+ required=false；keyless 有 Key「已保存」
-//   不 required；free-quota 无 Key「API Key」+ required；切预设 sync 与初始模板同源；
-// - spec §6.6 / §10 第 32 行：搜索测试动作五态 + 前置本地校验 + 三条硬约束
-//   （不走也不写查询缓存、探针词是设置页常量、不落盘）。
-//
-// 与 provider-editor.test.ts 同款手法：真实模块 + DOM 仿真，经
-// renderReaderSettingsPanel 挂载面板后从「+ 添加平台」驱动；搜索执行器整体 mock
-// （五态只测 Modal 的映射与约束，不测真实网络）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -44,7 +32,6 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
   return installSettingsPanelBus<SentMessage>({
     "search-providers-save": () => ({ ok: true, providers: [] }),
@@ -135,7 +122,6 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("tavily");
     expect(key.placeholder).toBe("API Key（可选）");
     expect(key.required).toBe(false);
-    // §6.6：复用测试行形状；状态行固定在表单底栏上方，避免长表单滚动裁切
     const testrow = dialog.querySelector<HTMLElement>(".provider-editor-testrow")!;
     expect(testrow.querySelector(".provider-editor-test")).toBeTruthy();
     const status = dialog.querySelector<HTMLElement>(".provider-editor-status")!;
@@ -145,7 +131,6 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(testrow.querySelector<HTMLButtonElement>(".provider-editor-test")!.title).toBe(
       "会真实发起一次搜索，占用一次平台额度"
     );
-    // 票 10：真实调用与可能消耗是常驻可见说明，不只藏在 title 里
     const testButton = testrow.querySelector<HTMLButtonElement>(".provider-editor-test")!;
     const hint = testrow.querySelector<HTMLElement>(".provider-editor-test-hint")!;
     expect(hint.hidden).toBe(false);
@@ -194,18 +179,15 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(key.placeholder).toBe("已保存");
     expect(key.required).toBe(false);
 
-    // 切到需要 Key 的其他预设（且不同端点）：禁止沿用旧平台已存 Key，标记需重新确认
     switchPreset(dialog, "doubao");
     expect(key.placeholder).toBe("已切换平台或地址，请重新确认 API Key");
     expect(key.required).toBe(true);
     expect(statusNode(dialog).textContent).toContain("重新确认");
 
-    // 切到免 Key 预设：无需 Key 也不 required
     switchPreset(dialog, "tavily");
     expect(key.placeholder).toBe("API Key（可选）");
     expect(key.required).toBe(false);
 
-    // 切回原预设与原端点：恢复「已保存」且清掉重确认提示
     switchPreset(dialog, "firecrawl");
     expect(key.placeholder).toBe("已保存");
     expect(key.required).toBe(false);
@@ -332,7 +314,6 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       searchProviderKeys: { search_exa: "sk-stored" }
     });
-    // 未保存草稿：同源路径改动仍沿用已存 Key，测试必须用草稿值而不是已存记录
     fillBaseUrl(dialog, "https://api.exa.ai/draft");
     executeWebSearchMock.mockResolvedValueOnce({ results: [results[0]], platform: "Exa" });
 
@@ -382,7 +363,6 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     const { host } = await mountPanel();
     const dialog = await openSearchEditor(host);
 
-    // 搜索预设自带 baseUrl（新增即预填），用户清空后才触发地址校验
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "");
     await clickTest(dialog);
     expect(statusNode(dialog).textContent).toBe("请填写 API 地址");
@@ -434,14 +414,10 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
 
     await clickTest(dialog);
 
-    // ② 探针词是设置页常量（不是用户问题）
     expect(executeWebSearchMock).toHaveBeenCalledTimes(1);
     expect(executeWebSearchMock.mock.calls[0][1]).toBe("联网搜索测试");
-    // ① 测试不走也不写查询缓存（缓存族消息零出站）
     expect(sentTypes(sent).filter((type) => type.includes("search-cache"))).toEqual([]);
-    // ①' 测试动作不走回退链 → 零健康度记账（探针不得扰动运行时状态，spec §12.4 第 2 条）
     expect(sentTypes(sent).filter((type) => type === "search-health")).toEqual([]);
-    // ③ 不落盘：只有「保存」写设置——测试动作无 save-settings / 平台保存消息
     expect(sentTypes(sent)).not.toContain("save-settings");
     expect(sentTypes(sent).filter((type) => type.endsWith("-providers-save"))).toEqual([]);
     expect((chrome.storage.local.set as ReturnType<typeof vi.fn>).mock.calls.length).toBe(localSetBefore);

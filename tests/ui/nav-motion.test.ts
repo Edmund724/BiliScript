@@ -102,7 +102,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
     const unregister = registerReaderSettingsCloseListener(onClose);
 
     try {
-      // 1. 打开设置（Push：旧内容左退，设置页右进）
       openReaderSettingsMode();
       expect(settingsPanel.hidden).toBe(false);
       expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBe("opening");
@@ -116,7 +115,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(settingsEnter?.keyframes[0]?.transform).toBe("translate3d(22px, 0, 0)");
       expect(settingsEnter?.keyframes[1]?.transform).toBe("translate3d(0, 0, 0)");
 
-      // 重复投影不打断正在播放的进场动画
       const countBeforeSecondProject = records.length;
       const { projectReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
       projectReaderSettingsMode();
@@ -127,7 +125,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBeNull();
       settingsEnter!.finish();
 
-      // 2. 关闭设置（Pop：设置页右退，主内容左进；关闭回调等到设置页退场完再执行）
       records.length = 0;
       closeReaderSettingsMode();
       expect(settingsPanel.hidden).toBe(true);
@@ -143,7 +140,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(tabsEnter?.keyframes[0]?.transform).toBe("translate3d(-14px, 0, 0)");
       expect(bodyEnter?.keyframes[0]?.transform).toBe("translate3d(-14px, 0, 0)");
 
-      // 离场完成 → 去掉 leaving 标记并执行子页复位
       settingsExit!.finish();
       expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBeNull();
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -181,7 +177,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBe("1");
       expect(onClose).not.toHaveBeenCalled();
 
-      // 未等退出动画播完直接重开
       openReaderSettingsMode();
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBeNull();
@@ -214,7 +209,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     const backBtn = host.querySelector<HTMLButtonElement>("#biliscript-reading-settings-back-btn")!;
 
-    // 总览 → 本地 Agent（前进 forward）
     records.length = 0;
     host.querySelector<HTMLButtonElement>("#openAgentSettingsBtn")!.click();
 
@@ -235,14 +229,12 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
     agentIn!.finish();
     titleForward!.finish();
 
-    // 本地 Agent → 连接地址（三级 forward）
     records.length = 0;
     host.querySelector<HTMLButtonElement>("#agentBridgeAddressBtn")!.click();
     expect(agentView.getAttribute("data-settings-view-leaving")).toBe("forward");
     expect(records.find((r) => r.target === addressView)?.keyframes[0]?.transform).toBe("translate3d(20px, 0, 0)");
     records.forEach((r) => r.finish());
 
-    // 连接地址 → 本地 Agent（返回 backward）
     records.length = 0;
     backBtn.click();
     expect(addressView.getAttribute("data-settings-view-leaving")).toBe("backward");

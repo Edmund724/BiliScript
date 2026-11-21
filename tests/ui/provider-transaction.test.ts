@@ -1,20 +1,3 @@
-// tests/ui/provider-transaction.test.ts
-// owner 3「单点事务」的行为契约：upsertProvider / deleteProvider 一处持有
-// 权限申请 → 现查-按 id 合并/追加-落盘-重渲，以及删除侧的 orphan 回收 +
-// 双口径文案。
-//
-// 先列失败方式（每条对应下面的用例）：
-//   T1 合并口径漂移：按 id 替换变成追加（或反之）→ 整列表被覆盖/重复；
-//   T2 权限申请被挪到先行 await 之后（手势丢失）：权限调用不再落在调用同步链上；
-//   T3 权限被拒仍落盘 / 仍重渲；
-//   T4 落盘失败仍重渲（用失败响应当成功列表）；
-//   T5 静态 host 权限的族被拉进 optional 申请（搜索族多弹一次权限框）；
-//   T6 orphan 回收失败静默：删了吗、文案有没有、删除是否被阻断；
-//   T7 回收成功仍报错（文案假阳性）；
-//   T8 静态 host 权限的族被拉进回收并集（错收搜索域权限）。
-//
-// 事务不碰 DOM（重渲与抽屉状态条都经 deps 注入），因此本文件无需挂载设置面板。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ProviderRowItem } from "../../extension/ui/provider-row.js";
@@ -165,7 +148,6 @@ describe("upsertProvider：单点保存事务", () => {
       ok: false,
       error: "落盘炸了"
     });
-    // 现查失败按空列表兜底（与整表语义一致）：save 仍被调用
     expect(families.ai.save).not.toHaveBeenCalled();
   });
 
@@ -217,7 +199,6 @@ describe("upsertProvider：单点保存事务", () => {
       }
     );
 
-    // 同步手势链：requestOrigins 必须在首个 await（family.list）之前同步发起
     expect(requestOrigins).toHaveBeenCalledTimes(1);
     expect(requestOrigins).toHaveBeenCalledWith(["https://api-inference.modelscope.cn/v1"]);
     expect(aiList).not.toHaveBeenCalled();
@@ -274,7 +255,6 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
   it("参与回收的族现查存活并集；回收失败不阻断删除，文案走抽屉口径", async () => {
     const { tx, deps, families } = await makeTransactions();
-    // 存活并集不含被删 origin → 回收失败（jsdom 无 chrome.permissions）
     families.ai.loadProviders.mockResolvedValueOnce([{ id: "p2", baseUrl: "https://other.example.com/v1" }]);
     families.asr.loadProviders.mockResolvedValueOnce([]);
     families.ai.remove.mockResolvedValueOnce({ ok: true, providers: [{ id: "p2" }] });

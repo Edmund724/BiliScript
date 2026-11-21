@@ -31,10 +31,8 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       expect(normalizeCustomPanelWidth(520)).toBe(520);
       expect(normalizeCustomPanelWidth(450)).toBe(450);
       expect(normalizeCustomPanelWidth("420")).toBe(420);
-      // 范围钳制在 400 到 650
       expect(normalizeCustomPanelWidth(200)).toBe(400);
       expect(normalizeCustomPanelWidth(800)).toBe(650);
-      // 非法值回落默认 540
       expect(normalizeCustomPanelWidth("invalid")).toBe(540);
       expect(normalizeCustomPanelWidth(null)).toBe(540);
     });
@@ -65,7 +63,6 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       });
 
       relayoutScriptHost();
-      // 不抛异常且正常调度合帧重算
       expect(state.settings.customPanelWidth).toBe(500);
     });
 
@@ -94,7 +91,6 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       } as DOMRect);
 
       const { openScriptHost, closeScriptHost } = await import("../../extension/reader/script-host.js");
-      // enabled=false（未自定义）+ 非默认宽度：贴栏仍按默认 540px。
       state.patchSettings({ customPanelWidthEnabled: false, customPanelWidth: 460 });
       openScriptHost();
       expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("540px");
@@ -129,26 +125,21 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       const { openScriptHost, closeScriptHost } = await import("../../extension/reader/script-host.js");
       openScriptHost();
 
-      // 默认 540px：实际面板宽应为 540px，left = 1920 - 540 = 1380px
       expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("540px");
       expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1380px");
 
-      // 显式自定义标记置位后，调整宽度即时生效。
       state.patchSettings({ customPanelWidthEnabled: true });
 
-      // 调整到 400px：面板宽应为 400px
       state.patchSettings({ customPanelWidth: 400 });
       relayoutScriptHost();
       expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("400px");
       expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1520px");
 
-      // 调整到 450px：面板宽应为 450px
       state.patchSettings({ customPanelWidth: 450 });
       relayoutScriptHost();
       expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("450px");
       expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1470px");
 
-      // 调整到 650px：面板宽应为 650px
       state.patchSettings({ customPanelWidth: 650 });
       relayoutScriptHost();
       expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("650px");

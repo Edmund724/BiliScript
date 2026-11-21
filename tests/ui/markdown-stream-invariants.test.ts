@@ -1,23 +1,6 @@
-// 流式渲染不变量回归测试（纯函数层）：钉住 stripThinkBlocks / splitMarkdownTail /
-// renderMarkdown 三者为 chat-runtime 流式双容器渲染提供的组合契约。
-//
-// 覆盖的渲染不变量（与 chat-runtime 流式渲染 11 条不变量对应）：
-//   - 不变量 2：stable + tail 堆叠渲染与全文渲染逐字节等价；切分只在「空行段起点
-//     且切点前围栏已闭合」处；stable 随流式追加只增不减（含尾随空行不构成切点）；
-//     找不到切点安全退化为全 tail。
-//   - 不变量 3：剥 think 先于切分——未闭合 ``` 或 <think> 不横跨切点
-//     （本文件以「全文先剥再切」的组合语义锁定，跨帧剥除变化见下方序列测试）。
-//   - 不变量 5 的纯函数侧：stripThinkBlocks 幂等，终态整渲染可重放。
-//
-// 注意：chat-runtime 实际渲染路径是 renderMarkdown(split(strip(全文))) 的堆叠，
-// renderMarkdown 内部会再剥一次 think（幂等冗余），因此等价断言用
-// renderMarkdown(stable) + renderMarkdown(tail) 与 renderMarkdown(strip(全文)) 对比。
-
 import { describe, expect, it } from "vitest";
 import { renderMarkdown, splitMarkdownTail, stripThinkBlocks } from "../../extension/ui/markdown.js";
 
-// 流式渲染等价性语料：多段落、代码块跨边界、列表、嵌套围栏、think 块各种形态、
-// 尾随空行、mermaid 占位、退化（全文无空行 / 全空行 / 只有围栏）等。
 const EQUIVALENCE_CORPUS = [
   "第一段\n\n第二段开头，仍在增长\n\n第三段",
   "# 标题\n\n- 项目一\n- 项目二\n\n```js\nconst a = 1;\n```\n\n结尾段落",
@@ -65,14 +48,11 @@ describe("不变量 2：切点判定规则锁定", () => {
       const cleaned = stripThinkBlocks(text);
       const { stableText, tailText } = splitMarkdownTail(cleaned);
       if (!stableText) {
-        continue; // 退化全 tail：无切点可验
+        continue;
       }
       expect(cleaned.startsWith(stableText)).toBe(true);
-      // 切点行本身留在 tail 侧：cleaned = stableText + "\n" + tailText（cut ≥ 0）
       expect(cleaned).toBe(stableText + "\n" + tailText);
-      // tail 首行即切点行，必为空白行
       expect(tailText.split("\n")[0].trim()).toBe("");
-      // stable 末尾不得是空行（切点是空行段起点，stable 不含切点行）
       expect(stableText.split("\n").pop()!.trim()).not.toBe("");
     }
   });
@@ -87,11 +67,6 @@ describe("不变量 2：切点判定规则锁定", () => {
 });
 
 describe("不变量 2：stable 只增不减（逐帧前缀序列）", () => {
-  // 语义切分序列：stable 只增不减 + 每帧堆叠渲染等价全文渲染。
-  // 注意：单调性只在「部分 think 标签不跨帧完成」的序列下成立——部分标签
-  // （a </thin）跨帧补全为杂散闭合标签时，剥除结果会回溯变化（见下方
-  // 「剥除输出的跨帧变化」测试），当前实现逐帧全文重算、stable 在该角落
-  // 允许缩短。因此字符级细切分（可能切断标签）只断言逐帧渲染等价，不断言单调。
   const SEQUENCES = [
     ["第一段\n\n", "第二段", "，仍在增长", "\n\n第三段", "\n\n", "第四段"],
     ["# 标题\n", "\n- 项目一\n", "- 项目二\n\n", "```js\nconst a = 1;\n", "```\n\n结尾"],
@@ -119,15 +94,12 @@ describe("不变量 2：stable 只增不减（逐帧前缀序列）", () => {
       cumulative += token;
       const cleaned = stripThinkBlocks(cumulative);
       const { stableText, tailText } = splitMarkdownTail(cleaned);
-      // stable 只增不减：新一帧 stable 以旧 stable 为前缀（内容级，非长度巧合）
       expect(stableText.startsWith(prevStable)).toBe(true);
       expect(stableText.length).toBeGreaterThanOrEqual(prevStable.length);
       prevStable = stableText;
-      // cut（以行数度量）只增不减
       const cutLines = stableText ? stableText.split("\n").length : -1;
       expect(cutLines).toBeGreaterThanOrEqual(prevCutLineCount);
       prevCutLineCount = cutLines;
-      // 每帧堆叠渲染逐字节等价全文渲染
       expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(cleaned));
     }
   }
@@ -153,8 +125,6 @@ describe("不变量 2：stable 只增不减（逐帧前缀序列）", () => {
 });
 
 describe("不变量 3/5：剥 think 的跨帧边界行为锁定", () => {
-  // 剥除在「未闭合 <think>」处随新文本到达而改变结果：锁定现状行为，
-  // 增量剥除（跳过已剥前缀）必须在这些序列下与全文剥除逐字节一致。
   it("未闭合 think 随流闭合：剥除结果从「吞到流尾」变为「成对剥除」", () => {
     expect(stripThinkBlocks("pre<think>secret")).toBe("pre");
     expect(stripThinkBlocks("pre<think>secret</think>tail")).toBe("pretail");
@@ -205,10 +175,6 @@ describe("不变量 3/5：剥 think 的跨帧边界行为锁定", () => {
   });
 
   it("剥除输出的跨帧变化（非前缀稳定角落）：部分标签补全 / 未闭合块闭合", () => {
-    // 增量剥除（跳过已剥前缀）在这些序列下必须与全文剥除逐字节一致。
-    // 注意剥除结果并非前缀稳定：部分标签（a </thin）补全为杂散闭合标签后，
-    // 旧帧保留的字面标签在新帧被剥掉——「已剥前缀可跳过」的依据是
-    // 「未定居尾」概念（部分标签/未闭合块留在未定居区），不是朴素的输出拼接。
     const seqs = [
       { pieces: ["pre<think>sec", "ret</think>tail"], expected: ["pre", "pretail"] },
       { pieces: ["a<think", ">\n\n段二"], expected: ["a<think", "a"] },

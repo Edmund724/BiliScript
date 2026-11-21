@@ -1,12 +1,8 @@
-// tests/ui/model-picker-search.test.ts
-// ui/model-picker.ts 搜索过滤功能测试
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { wireModelPicker, buildModelPickerField, createModelCombobox, type ModelComboboxClasses } from "../../extension/ui/model-picker.js";
 import type { ProviderRowElement } from "../../extension/ui/provider-row.js";
 
-// Mock requestProviderOriginsViaBackground to succeed immediately
 vi.mock("../../extension/core/host-permissions.js", () => ({
   requestProviderOriginsViaBackground: vi.fn().mockResolvedValue({ ok: true })
 }));
@@ -54,7 +50,6 @@ describe("model-picker 搜索过滤功能", () => {
     const toggle = row.querySelector<HTMLButtonElement>(".ai-provider-model-toggle")!;
     toggle.click();
 
-    // 等待异步拉取完成
     await vi.waitFor(() => {
       const options = row.querySelectorAll(".ai-provider-model-option");
       expect(options.length).toBe(3);
@@ -102,7 +97,6 @@ describe("model-picker 搜索过滤功能", () => {
     const count = row.querySelector<HTMLElement>(".ai-provider-model-count")!;
     expect(count.textContent).toBe("已加载 8 个模型");
 
-    // 输入 "deep" 过滤
     searchInput!.value = "deep";
     searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -308,7 +302,6 @@ describe("createModelCombobox：可搜索模型组合框", () => {
     ]);
     expect(document.activeElement).toBe(options[1]);
 
-    // End 跳末项、Home 跳首项、Space 选中并归焦输入框
     dropdown.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     expect(document.activeElement).toBe(options[2]);
     dropdown.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
@@ -320,14 +313,12 @@ describe("createModelCombobox：可搜索模型组合框", () => {
     expect(combobox.isOpen()).toBe(false);
     expect(document.activeElement).toBe(input);
 
-    // 再次展开后按 Esc 收起并归焦 toggle
     toggle.click();
     expect(combobox.isOpen()).toBe(true);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(combobox.isOpen()).toBe(false);
     expect(document.activeElement).toBe(toggle);
 
-    // 再次展开后点外部收起
     toggle.click();
     expect(combobox.isOpen()).toBe(true);
     document.body.click();
@@ -347,11 +338,9 @@ describe("createModelCombobox：可搜索模型组合框", () => {
       emptyMessage: "暂无推荐模型"
     });
 
-    // 空列表展示空态消息
     combobox.open();
     expect(dropdown.querySelector(".combo-message")?.textContent).toBe("暂无推荐模型");
 
-    // 加载 8+ 模型后自动启用搜索并实时更新计数
     combobox.setOptions(Array.from({ length: 10 }, (_, i) => `vendor/model-${i + 1}`));
     const searchInput = dropdown.querySelector<HTMLInputElement>(".combo-search-input")!;
     expect(searchInput).not.toBeNull();
@@ -361,16 +350,13 @@ describe("createModelCombobox：可搜索模型组合框", () => {
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     expect(dropdown.querySelector(".combo-count")?.textContent).toBe("匹配 1 / 10 个模型");
 
-    // Tab 从搜索框离开时收起下拉
     searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     expect(combobox.isOpen()).toBe(false);
 
-    // renderMessage 支持 error / loading 形态
     combobox.renderMessage("拉取失败", "error");
     expect(combobox.isOpen()).toBe(true);
     expect(dropdown.querySelector(".combo-error")?.textContent).toBe("拉取失败");
 
-    // dispose 收起下拉、断开 MutationObserver 并移除节点监听
     combobox.dispose();
     expect(combobox.isOpen()).toBe(false);
     expect(disconnectSpy).toHaveBeenCalled();

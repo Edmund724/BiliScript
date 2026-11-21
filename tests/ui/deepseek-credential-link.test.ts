@@ -1,17 +1,3 @@
-// DeepSeek Search 同层凭据闭环（票 provider-onboarding-consistency/08）：
-// - 搜索 DeepSeek 编辑器内联凭据行与列表行覆盖四态（无记录 / 缺 Key / 非官方地址 /
-//   可用）及对应动作；列表 Key 指示点由结构化凭据状态驱动，不把消费族 hasSavedKey
-//   当成应有自有 Key；
-// - 非官方地址不静默改写：新建独立官方 DeepSeek 记录；「可用」态展示实际命中的
-//   来源，多条官方候选时不会误标成另一条；
-// - 动作暂存搜索草稿同层进入 AI 族编辑器，保存成功或取消都恢复原草稿；保存成功
-//   后重查引用、提示仍需显式保存搜索记录；
-// - AI 新增 / 编辑 / 删除后，实时伴看与搜索两类引用行同事务刷新；
-// - 存储边界：Key 只随 ai-providers-save 落 AI 族，搜索保存载荷不含 Key。
-//
-// 手法：真实 settings-panel + provider-editor，消息走 installSettingsPanelBus 总线
-// （同 tests/ui/gemini-credential-link.test.ts）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
@@ -139,8 +125,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // 先收起抽屉：往返恢复路径（onSessionEnd → 恢复消费族草稿）在抽屉隐藏时让位，
-  // 避免 afterEach 里又重开编辑器、把文档级监听泄漏到下一个用例
   const panel = document.getElementById("biliscript-reading-settings-panel");
   if (panel) panel.hidden = true;
   const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
@@ -246,7 +230,6 @@ describe("非官方地址同层新建官方记录", () => {
       .toBe("保存并返回搜索平台");
     expect(aiDialog.querySelector<HTMLButtonElement>(".provider-editor-cancel")!.textContent)
       .toBe("返回搜索平台");
-    // 全程不触碰中转记录：未发生任何 AI 落盘
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
   });
 });
@@ -268,7 +251,6 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value)
       .toBe("https://search.example.com");
-    // dirty 仍在：Esc 触发逐层退出的确认框（既有 confirmDialog 规则）
     pressEsc();
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel"));
@@ -287,7 +269,6 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     expect(rowSubtitle(host)).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
 
     const editor = await openDeepseekEditor(host);
-    // DeepSeek 搜索没有自有 Key 输入框（Key 经凭据引用取 AI 族）
     expect(
       editor.querySelector<HTMLElement>(".provider-editor-field .provider-editor-apikey")!
         .closest<HTMLElement>(".provider-editor-field")!.hidden
@@ -301,7 +282,6 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-deepseek");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    // 保存成功后：搜索草稿恢复 + 提示 + 行状态按新引用刷新
     await vi.waitFor(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑搜索平台");
     });
@@ -314,10 +294,8 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     await vi.waitFor(() => {
       expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方");
     });
-    // 引用可用后，恢复的编辑器内联行不再给动作
     expect(linkedButton()).toBeNull();
 
-    // 存储边界：Key 只随 AI 族落盘；搜索编辑器保存载荷不含 Key
     const aiSave = sent.find((message) => message.type === "ai-providers-save") as {
       providers?: Array<{ apiKey?: string; presetId?: string }>;
     };
@@ -419,7 +397,6 @@ describe("AI 族变更联动两类引用行", () => {
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
     expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方");
 
-    // 删除命中的 DeepSeek 官方 A：搜索行改指下一条官方记录，伴看行同批重渲
     click(host.querySelector('#aiProvidersList .ai-provider-row[data-provider-id="p_deepseek"] .provider-row-remove'));
     click(document.querySelector(".confirm-dialog-confirm"));
     await vi.waitFor(() => {
@@ -427,7 +404,6 @@ describe("AI 族变更联动两类引用行", () => {
     });
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
 
-    // 删除 Gemini AI 记录：搜索行保持可用，伴看行降级为缺记录
     click(host.querySelector('#aiProvidersList .ai-provider-row[data-provider-id="p_gemini"] .provider-row-remove'));
     click(document.querySelector(".confirm-dialog-confirm"));
     await vi.waitFor(() => {

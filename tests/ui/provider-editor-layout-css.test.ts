@@ -1,13 +1,3 @@
-// tests/ui/provider-editor-layout-css.test.ts
-// 票 10：矮容器滚动与 400px 窄面板的操作可达（结构性判据）。
-//
-// jsdom 没有布局几何，真机宽度 / 溢出判据留在票 12/13 的浏览器验收；这里锁住
-// 支撑那两条结论的 CSS 契约：字段区独立滚动且底部动作常驻、模型行动作在窄面板
-// 折行而不溢出、确认框在矮容器里可滚动、字段错误有不占位的隐藏态。
-//
-// 失败方式：任一规则被改回「整张 Dialog 滚动 / 模型行不折行 / 确认框无高度上限」，
-// 真机上短视口或 400px 面板就会再次出现动作被裁掉。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

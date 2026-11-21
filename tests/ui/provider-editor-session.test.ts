@@ -1,19 +1,3 @@
-// tests/ui/provider-editor-session.test.ts
-// owner 2「结算原语」的行为契约：一次编辑会话的代际 + open + 存活判据由
-// captureSession / runIfCurrent 自持，过期回执静默丢弃。
-//
-// 先列失败方式（每条对应下面一个用例）：
-//   S1 保存中途关 Modal：回执落定时会话已关 → 不得写状态行、不得重开；
-//   S2 关旧开新：旧会话的过期回执不得覆盖新一轮编辑的状态行（漏比代际即红）；
-//   S3 探针在飞时关旧开新：ASR 探针回执同样不得写新会话状态行；
-//   S4 行级测试在飞时删行：行已脱离文档 → 回执不得写已删行（存活判据）；
-//   S5 「获取可用模型」权限在飞时关 Modal：权限回执不得触发模型请求
-//      （弹窗存活判据）；
-//   S6 runWithOriginPreflight 权限在飞时关 Modal：丢弃回执与后续工作；
-//   S7 runWithOriginPreflight 权限被拒且会话当前：触发 denied 分支。
-//
-// 驱动方式：直接 openProviderEditor + 受控 Promise，不经设置面板。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ProviderRowPreset } from "../../extension/ui/provider-row.js";
@@ -30,7 +14,6 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
-// 「获取可用模型」直调 content 壳（ai/provider-models.js），隔离传输层并保留纯函数 resolveAiModelListTarget。
 vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/ai/provider-models.js")>();
   return {
@@ -315,7 +298,6 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
-    // 第一次打开：拉取 A 在飞；取消关子视图后重开：拉取 B 在飞
     fireClick(dialog.querySelector(".provider-editor-fetch"));
     await flushMicrotasks();
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeTruthy();
@@ -327,12 +309,10 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeTruthy();
     expect(vi.mocked(fetchProviderModels), "重开的子视图应发起新拉取").toHaveBeenCalledTimes(2);
 
-    // 旧回执（代次不匹配）落定：不得渲染进新子视图
     resolveA!({ ok: true, models: ["stale-model"] });
     await flushMicrotasks();
     expect(document.querySelector('.provider-editor-fetch-check[value="stale-model"]')).toBeNull();
 
-    // 新回执落定：正常渲染
     resolveB!({ ok: true, models: ["fresh-model"] });
     await flushMicrotasks();
     expect(document.querySelector('.provider-editor-fetch-check[value="fresh-model"]')).toBeTruthy();
@@ -390,7 +370,6 @@ describe("provider-editor 对外窄接口（initialFocusField / stashProviderEdi
       baseline: { name: "Tavily" }
     });
 
-    // 外部修改暂存副本不得污染编辑器当前草稿
     stash.draft.name = "外部篡改";
     expect(editor.stashProviderEditorDraft("search")?.draft.name).toBe("自定义搜索");
 
