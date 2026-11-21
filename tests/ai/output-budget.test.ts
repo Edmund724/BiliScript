@@ -1,22 +1,13 @@
-// tests/ai/output-budget.test.ts
-// 输出兜底预算（ai/output-budget.ts）：默认上限/保守上限的取值关系，以及
-// 「平台按 max_tokens 超上限拒绝」的判定。判定必须与上下文溢出文案互斥——两者
-// 都走 HTTP 400，误判会把「预算给大了」（换个更小的值就能成）当成「输入太长」
-// （该转 Map-Reduce），指错方向。
-
 import { describe, expect, it } from "vitest";
 import {
     DEFAULT_MAX_TOKENS,
   isOutputBudgetTooLarge
 } from "../../extension/ai/output-budget.js";
-// 估算函数住在 analysis-prompts.ts，但封顶值是本模块的政策——两条断言放在一起，
-// 「估算上限」与「协议兜底」是不是同源一眼可见。
 import { estimateOutputTokens } from "../../extension/ai/analysis-prompts.js";
 
 
 describe("estimateOutputTokens 的封顶与兜底同源", () => {
   it("按正文估算的输出预算不再被砍到 8192（5 万字段 25k、超长素材封顶在兜底值）", () => {
-    // ratio 0.5（概览是摘要，产出远小于原文）+ floor 2048 是调用方口径。
     expect(estimateOutputTokens(50000, { ratio: 0.5, floor: 2048 })).toBe(25512);
     expect(estimateOutputTokens(200000, { ratio: 0.5, floor: 2048 })).toBe(DEFAULT_MAX_TOKENS);
     expect(estimateOutputTokens(0, { ratio: 0.5, floor: 2048 })).toBe(2048);
@@ -30,7 +21,6 @@ describe("estimateOutputTokens 的封顶与兜底同源", () => {
 describe("isOutputBudgetTooLarge 判定", () => {
   it("典型「输出上限过大」文案 → true", () => {
     const messages = [
-      // Anthropic 官方形状：比较式 + 最大输出 token 说明。
       "max_tokens: 32768 > 8192, which is the maximum allowed number of output tokens for claude-3-haiku-20240307",
       "Invalid max_tokens value: the valid range of max_tokens is [1, 8192]",
       "max_tokens is too large",
@@ -57,7 +47,6 @@ describe("isOutputBudgetTooLarge 判定", () => {
   });
 
   it("既有溢出样本不被抢走（无比较式/无区间式措辞 → false）", () => {
-    // 这些是 completion.test 溢出对照表里的样本，语义是输入超长。
     const messages = [
       "max_tokens limit reached",
       "max tokens exceeded",

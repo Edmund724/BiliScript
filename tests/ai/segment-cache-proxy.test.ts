@@ -1,8 +1,3 @@
-// ai/segment-cache-proxy.js 出站点测试：
-// - segmentCacheProxy 直通消息到 SW，载荷 context 收窄为键位字段投影
-//   （subtitleBody / chapters / title 等无关大字段不过线）；
-// - 读失败 / 无回执按未命中（null / []），saveSummary 写失败回 { ok: false, error }，全程不抛。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEGMENT_CACHE_KEY_FIELDS } from "../../extension/ai/segment-cache-key-fields.js";

@@ -1,8 +1,3 @@
-// tests/ai/learned-budget.test.ts
-// 会话内存级的「平台学到的输出上限」（ai/learned-budget.ts）：作用域键的口径、
-// 只夹低不抬高、以及 canRaiseBudget 的判定——它的唯一用途是让「加倍重跑」在
-// 平台上限已到顶时不要发出一个与前一次完全相同的请求。
-
 import { describe, expect, it } from "vitest";
 import {
   budgetScopeKey,
@@ -35,7 +30,6 @@ describe("夹取与记忆", () => {
     noteLearnedMaxTokens(SCOPE, 8192);
     expect(clampToLearnedMaxTokens(32768, SCOPE)).toBe(8192);
     expect(clampToLearnedMaxTokens(4096, SCOPE)).toBe(4096);
-    // null 不被学到的值「变出」字段：openai 协议不发明文的现状不因本模块改变。
     expect(clampToLearnedMaxTokens(null, SCOPE)).toBeNull();
   });
 

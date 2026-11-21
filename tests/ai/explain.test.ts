@@ -1,13 +1,8 @@
-// ai/explain.ts 选区解释的单测：上下文窗口截取、提示词组装、请求口径与空回复判定。
-// chatCompletion 以 vi.mock 替身（协议层自身有 completion.test.js 覆盖）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ToolStatusPayload } from "../../extension/ai/tool-loop.js";
 import { SEARCH_QUOTA_MESSAGE } from "../../extension/search/search-chain.js";
 
-// chatCompletion 替身：非流式返回文本，工具轮返回 tool_calls 结果对象
-// （返回类型放宽到 any——mockResolvedValueOnce 两种形态都要能塞进去）。
 const completionMock = vi.hoisted(() => ({
   chatCompletion: vi.fn(async (_args?: any): Promise<any> => "  解释文本  ")
 }));
@@ -75,7 +70,7 @@ describe("buildExplainMessages", () => {
     const user = messages[1].content;
     expect(user).toContain("视频标题：语言与权力");
     expect(user).toContain("选中内容：「传递信息的工具」");
-    expect(user).toContain("所在字幕句（0:10）：「我们习惯将其视为传递信息的工具」"); // arch-slim-2/08 拍板 Q1：不补零
+    expect(user).toContain("所在字幕句（0:10）：「我们习惯将其视为传递信息的工具」");
     expect(user).toContain("字幕上下文");
     expect(user).toContain("我们习惯把语言视为空气");
   });
@@ -114,9 +109,6 @@ describe("explainSelection", () => {
     expect(args.messages[1].content).toContain("传递信息的工具");
   });
 
-  // 解释在 content script 里发起：直连 fetch 服从网页 CORS，平台网关不支持
-  // 浏览器预检时必然「Failed to fetch」。传输层必须走 SW 代发（与探针同路），
-  // 请求构造仍留在 completion 链。
   it("传输层注入 providerFetchViaBackground（经 SW 代发，绕开网页 CORS）", async () => {
     const { providerFetchViaBackground } = await import("../../extension/core/provider-http.js");
 
@@ -202,24 +194,19 @@ describe("explainSelection", () => {
     });
 
     expect(text).toBe("最终解释");
-    // 非流式 + off 档位 + 320 输出上限（解释口径不因联网改变）
     const first = completionMock.chatCompletion.mock.calls[0][0];
     expect(first.stream).toBe(false);
     expect(first.thinkingLevel).toBe("off");
     expect(first.maxTokens).toBe(320);
-    // 重试能力与非联网链一致（chatCompletion 非流式默认 0，解释链钉 1）
     expect(first.retries).toBe(1);
-    // 工具注入 + 联网变体系统提示词（允许 web_search）；[n] 引用要求不进解释链
     expect(first.tools).toHaveLength(1);
     expect(first.tools[0].function.name).toBe("web_search");
     expect(first.tools[0].function.description).not.toContain("[n]");
     expect(first.messages[0].content).toContain("web_search");
-    // 二次调用带 tool 结果消息
     const second = completionMock.chatCompletion.mock.calls[1][0];
     expect(second.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: JSON.stringify([{ title: "t", url: "u", snippet: "s" }]) })
     ]));
-    // 搜索状态透传，无失败 notice
     expect(statuses.map((p) => p.status)).toEqual(["searching", "done"]);
     expect(notices).toEqual([]);
   });
@@ -243,8 +230,6 @@ describe("explainSelection", () => {
       webSearch: {
         maxToolCalls: 2,
         executeSearch: async () => {
-          // 夹具用其余类（HTTP 503）——429 已归额度类（spec §6.4 第 ① 行），
-          // 本用例锁的是「解释链与工具链 notice 同形」这条不变量。
           throw new Error("HTTP 503");
         }
       },
@@ -279,8 +264,6 @@ describe("explainSelection", () => {
       from: 0,
       webSearch: {
         maxToolCalls: 2,
-        // 回退链整链无果且额度类在列时的错误形状（search/search-chain.ts）：message
-        // 已是终态额度句，searchFailureClass === "quota"。
         executeSearch: async () => {
           throw Object.assign(new Error(SEARCH_QUOTA_MESSAGE), { searchFailureClass: "quota" });
         }
@@ -295,12 +278,10 @@ describe("explainSelection", () => {
       expect.objectContaining({
         role: "tool",
         tool_call_id: "call_1",
-        // tool 内容维持「搜索失败：<reason>」形态（§10 第 48 行）
         content: `搜索失败：${SEARCH_QUOTA_MESSAGE}`
       })
     ]));
     expect(statuses.at(-1)!.status).toBe("failed");
-    // notice 原文即额度句，不套「联网搜索失败：」前缀
     expect(notices).toEqual([SEARCH_QUOTA_MESSAGE]);
   });
 
@@ -314,7 +295,6 @@ describe("explainSelection", () => {
     });
     expect(messages[0].content).toContain("可调用 web_search 工具联网核实");
     expect(messages[0].content).toContain("不要臆造");
-    // 无联网时提示词不变（不出现工具措辞）
     const plain = explain.buildExplainMessages({ videoTitle: "T", selection: "词", line: "句", from: 0 });
     expect(plain[0].content).not.toContain("web_search");
   });

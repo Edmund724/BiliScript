@@ -315,7 +315,6 @@ describe("<think>...</think> 兜底清洗", () => {
       { from: 2, to: 4, content: "Good night" }
     ];
 
-    // 1. 流式 SSE 分片含跨 chunk 的 <think>...</think>
     const sseFetch = vi.fn(async () =>
       createSseResponse([
         'data: {"choices":[{"delta":{"content":"<th"}}]}\n\n',
@@ -343,7 +342,6 @@ describe("<think>...</think> 兜底清洗", () => {
       { from: 2, to: 4, content: "晚安" }
     ]);
 
-    // 2. 非流式响应含 <think>...</think>
     const nonStreamFetch = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -413,7 +411,6 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     expect(peakActive).toBeLessThanOrEqual(2);
     expect(sleepLog.some((ms) => ms > 0)).toBe(true);
 
-    // 验证任意 1000ms 滑动窗口内发起的请求数不超过 3
     for (let i = 0; i < startTimes.length; i += 1) {
       const countInWindow = startTimes.filter(
         (t) => t >= startTimes[i] && t < startTimes[i] + 1000
@@ -500,7 +497,6 @@ describe("并发节流、429 与网络抖动退避重试", () => {
   });
 
   it("遇到网络抖动时退避重试并恢复；429 重试耗尽时抛出清晰中文错误", async () => {
-    // 1. 网络抖动恢复
     let netAttempts = 0;
     const jitterSleep: number[] = [];
     const recovered = await runWithIndexTranslateRetry(
@@ -525,7 +521,6 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     expect(netAttempts).toBe(2);
     expect(jitterSleep).toEqual([200]);
 
-    // 2. 429 耗尽重试 -> 清晰错误提示且保留 status=429
     const always429Fetch = vi.fn(async () => new Response("rate limit", { status: 429 }));
     let caughtError: (Error & { status?: number }) | null = null;
     try {
@@ -551,7 +546,7 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     expect(caughtError?.status).toBe(429);
     expect(caughtError?.message).toContain("429");
     expect(caughtError?.message).toContain("限流");
-    expect(always429Fetch).toHaveBeenCalledTimes(3); // 首次 + 2 次退避重试，不再额外重复撞流降级
+    expect(always429Fetch).toHaveBeenCalledTimes(3);
   });
 
   it("遇到 HTTP 412 风控拦截时不重试且直接给出清晰提示", async () => {

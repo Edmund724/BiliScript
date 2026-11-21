@@ -157,7 +157,6 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
       expect(prompt.length).toBeGreaterThan(100);
       expect(prompt.length).toBeLessThanOrEqual(1200);
       expect(estimateCompactPromptTokens(prompt)).toBeLessThanOrEqual(1200);
-      // 必须仍覆盖视频开头与接近结尾的时间轴，不能简单截断尾部
       expect(prompt).toContain("0:00:00");
       expect(prompt).toContain("5:00:00");
     });
@@ -206,25 +205,21 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
       const saveResult = await store.save(key, record);
       expect(saveResult.ok).toBe(true);
 
-      // 严格遵循 PRIVACY.md：绝不写 chrome.storage.sync，持久化落 IDB ai_artifacts
       expect(host.syncMap.size).toBe(0);
       expect(host.local.set).not.toHaveBeenCalled();
 
-      // 内存热命中免查底层存储
       const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
       const getArtifactSpy = vi.spyOn(defaultSubtitleIdbStore, "getAiArtifact");
       const memHit = await store.load(key);
       expect(memHit).toEqual(record);
       expect(getArtifactSpy).not.toHaveBeenCalled();
 
-      // 清空内存后从 IDB 恢复
       store.clearMemory();
       const persistedHit = await store.load(key);
       expect(persistedHit).toEqual(record);
       expect(getArtifactSpy).toHaveBeenCalledWith(key);
       getArtifactSpy.mockRestore();
 
-      // remove 同时清理内存与 IDB
       await store.remove(key);
       expect(store.getMemory(key)).toBeNull();
       expect(await defaultSubtitleIdbStore.getAiArtifact(key)).toBeNull();
@@ -259,7 +254,6 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
 
       store.setMemory("k1", r1);
       store.setMemory("k2", r2);
-      // 访问 k1 使其成为最近使用，再插入 k3 应淘汰 k2
       expect(store.getMemory("k1")).toEqual(r1);
       store.setMemory("k3", r3);
 
@@ -358,18 +352,15 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
       expect(host.syncMap.size).toBe(0);
       expect(await loadAnalysisFinal(identity.finalKey)).toEqual(analysis);
 
-      // 模拟旧 storage.local 遗留 l1Key：冷读取单趟批量读 IDB 并懒迁移旧 l1Key，回填内存 LRU
       await host.local.set({ [identity.l1Key]: { index: l1Record, timestamp: Date.now() } });
       host.local.get.mockClear();
 
       const firstArtifacts = await readCachedClipOverviewArtifacts(clipInput);
       expect(firstArtifacts).toEqual({ analysisFinal: analysis, l1Index: l1Record });
-      // analysisFinal 已命中 IDB，仅对未命中的 [l1Key] 回查旧 storage.local 并先写后删完成迁移
       expect(host.local.get).toHaveBeenCalledTimes(1);
       expect(host.local.get).toHaveBeenCalledWith([identity.l1Key]);
       expect(host.hasEntry(identity.l1Key)).toBe(false);
 
-      // 热读取：readCachedClipL1Index 命中内存 LRU 零底层读；artifacts 命中 IDB 零 storage.local 读
       host.local.get.mockClear();
       expect(await readCachedClipL1Index(clipInput)).toEqual(l1Record);
       expect(host.local.get).not.toHaveBeenCalled();
@@ -378,7 +369,6 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
       expect(secondArtifacts).toEqual({ analysisFinal: analysis, l1Index: l1Record });
       expect(host.local.get).not.toHaveBeenCalled();
 
-      // 缺少身份时静默返回空产物而不查 storage
       host.local.get.mockClear();
       expect(await readCachedClipOverviewArtifacts({ bvid: "", cid: "77", subtitleBody: [] })).toEqual({
         analysisFinal: null,

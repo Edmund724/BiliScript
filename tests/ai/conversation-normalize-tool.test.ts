@@ -1,9 +1,3 @@
-// ai/conversation.js normalizeConversations 的联网搜索 tool 字段透传测试（spec §2.5）：
-// 读取会话（storage 原始值 → NormalizedConversation）时，tool 轮消息不得被剥掉
-// tool_calls / tool_call_id / role:"tool"——回放重建（collectHistorySearchTurns）
-// 依赖这三个字段聚合搜索回合；同时保持既有裁剪语义（非法消息丢弃、空会话丢弃）。
-// 图片字段（image-input 路线 B）走同一透传：images 保留、非法项丢弃、缺失不上线。
-
 import { describe, expect, it } from "vitest";
 import { normalizeConversations } from "../../extension/ai/conversation.js";
 

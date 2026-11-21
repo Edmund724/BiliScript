@@ -1,6 +1,3 @@
-// ai/followup-context.js 编排侧测试：追问路由——超预算视频成稿后追问组装纯压缩上下文；
-// 首轮 / 尚未成稿 / ≤200k → 返回 null（交给完整 Map-Reduce）。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   lastAssistantContent,
@@ -9,7 +6,6 @@ import {
 } from "../../extension/ai/followup-context.js";
 import { buildBudgetPlan } from "../../extension/ai/budgeter.js";
 
-// 构造 >200k 的 map-reduce plan（5 段）
 const body = Array.from({ length: 210 }, (_, i) => ({
   from: i * 5,
   to: i * 5 + 5,

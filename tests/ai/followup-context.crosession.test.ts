@@ -1,8 +1,3 @@
-// ai/followup-context.js 跨会话与会话内读取路径测试：
-// - plan.segments 为空时：直接经 load-stored-summaries 枚举存储中的分段小结，组装纯压缩摘要；
-// - plan.segments 存在时：优先走 load-summaries 批量按段序加载，不触发存储枚举；
-// - 小结或键位缺失时返回 null 交回完整 Map-Reduce。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost } from "../helpers/chrome-host.js";

@@ -1,32 +1,3 @@
-// tests/ai/thinking-upstream-facts.test.ts
-// 票据 04（upstream-model-facts/04）+ 12（残留清单裁决落地）+ 18（删平台 override）：有上游
-// 平台的模型结论改由 02 号票的指派表驱动，手写表退为「产品语义 + 上游未覆盖兜底」。
-//
-// 交互方式（12 号票，用户 2026-10-04 裁决「冻结的都按上游，复审以后发现以前的确实都是
-// 错的」）：02 指派表命中 + 档位投影 → 手写表（EXCEPTIONS >> TAXONOMY（整串 / 剥 org
-// 前缀）>> unknownClass）→ UNKNOWN 哨兵。04 号票的行为冻结表 PENDING_DIVERGENCES（31 行）连同
-// 其查表 / 校验 / 导出一并删除；31 行逐行按上游（对照表 artifacts/12-adjudication-log.md，
-// 矩阵逐字节证据 artifacts/12-adjudication-matrix.diff.txt）。点名翻转的三处原手写专条
-// **留在原表但已降级**：它们只服务「指派表不认识的 id」（用户自填 / 上游新变体）。真删会让
-// 这些无界 id 的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
-// 18 号票（2026-10-05 用户裁定「4 家的平台声明必须压过上游词表这件事取消」）删掉
-// openrouter / amd / sensenova / opencodego 的平台级 override 声明：识别层不再有短路，
-// 这四家与本文件里其它有上游平台走同一条链（副作用清单见
-// artifacts/18-platform-override-removal.txt 与 18-report.md）。
-//
-// 先列系统可能失败的方式（每条都有对应用例）：
-//   1. 三处翻转没翻到 / 翻错方向：指派表被手写专条抢答（或反过来翻多了）；
-//   2. 降级兜底其实是删掉的：指派表不认识的 id 不再逐字节沿用旧手写结论；
-//   3. 三档投影规则漂移：off 关不掉时臆造参数、none 被当档位、low/high 取错词、
-//      budget-only 的模型被塞参数；
-//   4. 平台方言丢失：值集 toggle 落到没登记开关形状的平台上被发明出字段；
-//   5. **静默的第二事实源**（本票核心风险）：某行既有上游事实、手写侧也有
-//      结论，两者不同却没进残留清单的 31 行 → 请求体被悄悄改了，没人知道；
-//   6. 裁决不彻底：清单里某一行的旧手写结论仍能抢答（残留冻结语义）；
-//   7. 目录外 id 被波及：B1 三条专条被删或降级链断掉；
-//   8. 18 号票：四家托管平台的目录内模型掉进 unknown / 档位没按上游词表收窄
-//      （见文件末尾「18 号票」describe 的 9 条）。
-
 import { describe, expect, it } from "vitest";
 import { ASSIGNMENTS, MODEL_ID_ALIASES, VALUESETS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import {
@@ -59,14 +30,10 @@ const LEVELS: readonly ThinkingLevel[] = ["off", "low", "high"];
 const ALL_LEVELS = AI_THINKING_LEVELS;
 const STREAM = false;
 
-// 上游 provider id → preset id（桥接表的反向，用于拿 preset baseUrl / 手写 unknownClass）。
 const PRESET_BY_UPSTREAM: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(UPSTREAM_PROVIDER_BY_PRESET).map(([presetId, upstreamId]) => [upstreamId, presetId])
 );
 
-// 18 号票前叫「override 型平台」；本票删掉平台级声明后它们与其它上游平台同构。这里
-// 保留一个集合名，只用于**分区**：04/12 的历史审计线（31 行裁决清单）不含这四家，
-// 它们 18 号票后的分歧集在文件末尾单独钉（口径：手写侧有具体 class 且与投影不同档）。
 const HOSTED_PRESETS_18 = new Set(["openrouter", "amd", "sensenova", "opencodego"]);
 
 function baseUrlOf(presetId: string): string {
@@ -75,8 +42,6 @@ function baseUrlOf(presetId: string): string {
   return preset.baseUrl;
 }
 
-// 手写侧结论入口（与 resolver 的兜底分支同口径：例外表（整串）>> 模式表（整串 /
-// 剥 org 前缀）>> unknownClass）。
 function handClassOf(presetId: string, model: string): string | undefined {
   const normalized = model.trim().toLowerCase();
   const slash = normalized.lastIndexOf("/");
@@ -101,8 +66,6 @@ function handRuleOf(presetId: string, model: string): ClassRule | undefined {
   return className ? CLASSES[className] : undefined;
 }
 
-// 本文件对账的是「档位补丁形状」（词汇 + 实发档 + off 旗标），不含偏好回显：
-// requestedLevel 是装配边消费的「用户要什么」，单独在 tests/ai/plan-thinking.test.ts 钉住。
 function patchShape(resolution: object): string {
   const { requestedLevel, ...patch } = resolution as Record<string, unknown>;
   void requestedLevel;
@@ -126,20 +89,13 @@ function resolveViaRuntime(presetId: string, model: string, level: ThinkingLevel
   return patchShape(resolveThinkingProfile({ presetId, baseUrl: baseUrlOf(presetId), model, level, stream: STREAM }));
 }
 
-// 用户裁定 2 点名翻转的三处（上游 provider id / 上游模型 id，小写）。
 const FLIPPED = ["zhipuai/glm-5.2", "zhipuai/glm-5.3", "kimi-code-plan-cn/k3"];
 
-// 04 之前这三处靠手写专条决定；降级兜底后专条仍在（B1）。
-// 19 号票收尾裁定后只剩两条：`kimi-k3*` 专条已删（见下方 describe 的钉数），
-// 因为它是三条里唯一删掉不改变 fail-closed 方向的一条（另两条删了会让
-// `glm-5.3-air` 从「不发参」翻成发 thinking:{type:"enabled"}，是 fail-open）。
 const DOWNGRADED_HAND_ENTRIES: Array<{ upstreamId: string; presetId: string; pattern: string; className: string }> = [
   { upstreamId: "zhipuai", presetId: "zhipu", pattern: "glm-5.2", className: "glm-hybrid-effort" },
   { upstreamId: "zhipuai", presetId: "zhipu", pattern: "glm-5.3", className: "glm-always" }
 ];
 
-// ===== 残留清单 31 行（04-prune-matrix.residual.md §2；model = 矩阵行口径的模型 id）=====
-// 决策 #8 后续裁决：31 行按上游，2026-10-04 用户裁定「冻结的都按上游」。
 const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldHand: string | null }[] = [
   { presetId: "qwen", model: "deepseek-v4-flash", key: "alibaba-cn/deepseek-v4-flash", oldHand: "deepseek-hybrid-effort" },
   { presetId: "qwen", model: "deepseek-v4-pro", key: "alibaba-cn/deepseek-v4-pro", oldHand: "deepseek-hybrid-effort" },
@@ -174,25 +130,8 @@ const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldH
   { presetId: "modelscope", model: "GLM-4.6", key: "modelscope/glm-4.6", oldHand: "glm-hybrid-switch" }
 ];
 
-// 31 行里**曾经**唯一行为不变的那一行：minimax-cn/minimax-m3（2026-10-04 的 hand-wins 裁定——
-// 当时厂商文档记「思考不可关闭」，故那条上游 toggle 不可采信、不投 wire，fail-closed 与厂商
-// 口径一致）。**2026-10-05 用户裁定推翻了该口径**：只有 M2.x 与 M3.1-Flash-Preview 关不了，
-// `MiniMax-M3` 关得掉；据此登记了平台开关形状（`UPSTREAM_TOGGLE_SHAPES.minimax`）→ 该行
-// 现在是**分歧行**（上游投影 = hybrid + off/on 写点；旧手写 `minimax-always` 无写点）。
-// 逐字节证据见票 toggle-shape-registration 01 的 before/after 工件。
-
-// 残留清单里两行 modelscope 的键是**本仓口径裸 id**（调用方传 GLM-4.5/GLM-4.6）——
-// 它们的矩阵行确实按上游翻转（thinking:{type} → enable_thinking）。指派表里的上游写法
-// ZhipuAI/GLM-4.x 那行 2026-10-06 起也进分歧集：手写侧剥 org 前缀同样命中 TAXONOMY
-// glm-4.x（thinking:{type}），与平台开关投影（enable_thinking）不同；运行期命中指派表，
-// 逐档仍 = 投影（行为不变，见下方 modelscope 用例）。
 const MODELSCOPE_UPSTREAM_ID_ROWS = ["modelscope/glm-4.5", "modelscope/glm-4.6"];
 
-// 指派行的「上游投影 vs 手写结论」分歧键集（指定档位口径下计算）。
-// 默认排除四家托管平台（HOSTED_PRESETS_18）——04/12 的历史审计线不含它们，它们的分歧集
-// 在文件末尾单独钉。传 `presets` 时只算该集合；`handOnly` 只算「手写侧有具体 class」的行
-// （2026-10-06 起手写侧会剥 org 前缀匹配模式表，故带命名空间前缀的缺口行多数也有结论了；
-// 手写侧无结论的行仍是覆盖缺口而不是分歧）。
 function divergentKeys(
   levels: readonly ThinkingLevel[],
   options: { presets?: ReadonlySet<string>; handOnly?: boolean } = {}
@@ -222,9 +161,6 @@ function divergentKeys(
 
 describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3）", () => {
   it("zhipuai/glm-5.2：D1=A2 本仓补声明补上 toggle → off 可用（落 thinking 开关），档位仍是 high/max", () => {
-    // 04 号票时这一行的上游事实是 effort[high,max]（无 toggle）→ off 关不掉、级联 high；
-    // D1=A2 之后本仓给这一行补了 off 能力（见 OFF_CAPABILITY_DECLARATIONS），zhipu 已登记
-    // 开关形状 → off 有写点：off 与档外的 minimal/low/medium 都落 off 写点，high/xhigh → high。
     for (const level of ["off", "minimal", "low", "medium"] as const) {
       expect(resolveViaRuntime("zhipu", "glm-5.2", level), level).toBe(
         JSON.stringify({
@@ -262,37 +198,28 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
   });
 
   it("kimi-code-plan-cn/k3：13 号票 canonical 优先 → 词表 low-high-max（off 关不掉、级联落 low）", () => {
-    // 12 号票的翻转（direct 的 toggle → off 可用）被 13 号票的 canonical 优先覆盖：
-    // canonical（moonshotai/kimi-k3）没有 toggle → off 只走级联落最低可用档。
     expect(resolveViaRuntime("moonshot", "kimi-k3", "off")).toBe(
       JSON.stringify({ vocabulary: reasoningEffort("low"), effectiveLevel: "low", offUnavailable: true, offFallback: "low", thinkingClass: "always" })
     );
     expect(resolveViaRuntime("moonshot", "kimi-k3", "high")).toBe(
       JSON.stringify({ vocabulary: reasoningEffort("high"), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "always" })
     );
-    // 上游 id 写法（k3）与别名写法（kimi-k3）同源同结论。
     expect(resolveViaRuntime("moonshot", "k3", "off")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "off"));
     expect(resolveViaRuntime("moonshot", "k3", "high")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "high"));
   });
 
   it("两条照翻，尽管手写专条还在且结论相反（12 号票后专条只兜指派表不认识的 id）", () => {
-    // 手写专条仍在（B1 降级而非删除；19 号票收尾只删了第三条 kimi-k3*）……
     for (const entry of DOWNGRADED_HAND_ENTRIES) {
       const table = entry.className === "glm-hybrid-effort" ? TAXONOMY : EXCEPTIONS;
       expect(table.some((row) => row.class === entry.className && row.patterns.includes(entry.pattern)), `${entry.pattern} 专条应在表里`).toBe(true);
       expect(handClassOf(entry.presetId, entry.pattern)).toBe(entry.className);
     }
-    // 但原生模型照上游翻转（上三个用例），即手写专条对「指派表命中的模型」不再参与。
     expect(handRuleOf("zhipu", "glm-5.2")).toBe(CLASSES["glm-hybrid-effort"]);
     expect(resolveViaRuntime("zhipu", "glm-5.2", "low")).not.toBe(outcomeOf(CLASSES["glm-hybrid-effort"], "low"));
   });
 });
 
 describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手写结论", () => {
-  // 这些 id 不在 02 指派表里（用户自填 / 上游新变体）：
-  // 它们必须仍然走手写专条 —— 真删专条就会改变它们的请求体（12 号票非目标）。
-  // 19 号票删了 kimi-k3* 那条，两条 kimi-k3 的目录外 id 随之改落别处（UNKNOWN 哨兵 /
-  // 平台 unknownClass），已在本 describe 之后的「新」块里逐条钉住，不再列为「沿用专条」。
   const CASES: Array<[string, string]> = [
     ["zhipu", "glm-5.2-air"],
     ["qwen", "glm-5.3-air"],
@@ -308,8 +235,6 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
     });
   }
 
-  // 非上游平台（无 preset，靠 host 推断）上恰为这三个 id 的极端情形：真删专条会连它们一起改
-  // （如 api.siliconflow.cn/glm-5.2 从 effort 档变成 thinking:{type}，方言反而更不对）。
   const HOST_CASES: Array<[string, string, string]> = [
     ["siliconflow", "https://api.siliconflow.cn/v1", "glm-5.2"],
     ["siliconflow", "https://api.siliconflow.cn/v1", "glm-5.3-air"]
@@ -327,18 +252,9 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
   });
 
 describe("19 号票：删 EXCEPTIONS kimi-k3* 专条（另两条保留）", () => {
-  // 裁定依据（12 号票明写「真删 + 替代兜底是开放问题」，2026-10-05 收尾裁 B）：
-  // 目录内 359 行模型零个靠这三条兜底（实测 artifacts/20-b1-fallback.ts），
-  // 它们唯一的服务对象是目录外 id。逐条删的后果方向不同：
-  //   - EXCEPTIONS glm-5.3* 删了 → glm-5.3-air 落到 TAXONOMY 的 glm-5 → hybrid-switch
-  //     → 对「传 disabled 硬报错」的永不思考族改发 thinking:{type:"enabled"} = fail-open。故留。
-  //   - TAXONOMY glm-5.2 前置删了 → 方言从 effort 词表变 thinking 开关（不报错，形状变）。故留。
-  //   - EXCEPTIONS kimi-k3* 删了 → 不匹配任何模式 → UNKNOWN 哨兵 → 一个字段都不发
-  //     = fail-closed，方向正确，是三条里唯一删了不亏的。故删。
   it("专条与随之孤儿化的 class 都不在了", () => {
     expect(EXCEPTIONS.some((row) => row.patterns.includes("kimi-k3"))).toBe(false);
     expect(CLASSES["kimi-k3-effort"]).toBeUndefined();
-    // 另两条原样保留。
     expect(EXCEPTIONS.some((row) => row.class === "glm-always" && row.patterns.includes("glm-5.3"))).toBe(true);
     expect(TAXONOMY.some((row) => row.class === "glm-hybrid-effort" && row.patterns.includes("glm-5.2"))).toBe(true);
   });
@@ -369,7 +285,6 @@ describe("19 号票：删 EXCEPTIONS kimi-k3* 专条（另两条保留）", () =
   });
 
   it("host 推断 api.openai.com + kimi-k3：UNKNOWN 哨兵（该 host 无平台可兜）", () => {
-    // resolveThinkingProfile 不回传 source，改用 adjustment 入口钉 source。
     expect(lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET["moonshot"] ?? "", "kimi-k3-air")).toBeNull();
     for (const level of ALL_LEVELS) {
       const actual = resolveThinkingAdjustment({
@@ -464,15 +379,6 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
 
   it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 29 行 + modelscope 上游写法两行 + 点名三处 + clamp 分歧", () => {
     const divergent = divergentKeys(LEVELS);
-    // 期望 = 残留清单 31 行里的 29 行（另 2 行的裸 id 键逐条见 MODELSCOPE_UPSTREAM_ID_ROWS；
-    //   原第 3 行 minimax-cn/minimax-m3 2026-10-05 起也分歧——平台开关形状登记后 A′ 不再为空）
-    //   + modelscope 两行的上游写法（ZhipuAI/GLM-4.x）：2026-10-06 起手写侧剥 org 前缀命中
-    //     GLM 血统（thinking:{type}），与平台开关投影（enable_thinking）分歧（见下一用例）
-    //   + 用户裁定 2 点名的三处（04 号票起就按上游）
-    //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）
-    //   + alibaba-cn/kimi-k3：**19 号票删掉 kimi-k3* 专条后的口径变化**——它原先是
-    //     「7 档才分歧」（手写 kimi-k3-effort 缺 max 写点），手写侧现无结论（qwen 无
-    //     unknownClass → UNKNOWN）故任何档位都与上游投影不同。行本身走指派表，运行时不变。
     const expected = [
       ...ADJUDICATED.map((row) => row.key).filter((key) => !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
       "modelscope/zhipuai/glm-4.5",
@@ -488,11 +394,6 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
   });
 
   it("7 档口径下多出的 4 行：旧手写 class 缺 05 号票新增档位写点（清单外的「分歧」与新档位无关）", () => {
-    // 05 号票把词表扩到 7 档后，下面 4 行的上游值集带 max 档而旧手写 class 没有 max 写点
-    // （偏好 max 在手写侧被 clamp 到 high）——它们从未进过 04 冻结表（04 口径只比 off/low/high），
-    // 也不构成「静默第二事实源」：命中指派表的行一律走上游投影（见下一个 describe）。
-    // 原第 5 行 alibaba-cn/kimi-k3 已移出：成因从「手写 kimi-k3-effort 缺 max 写点」变成
-    // 「19 号票删掉该专条后手写侧无结论」，不再是「档位差异」，已并入上一用例的 3 档集合。
     const EXTRA_TIERS: Record<string, string> = {
       "deepseek/deepseek-v4-flash": "上游 toggle+low-high-max；手写 deepseek-hybrid-effort 无 max 写点",
       "deepseek/deepseek-v4-flash-vision-exp": "同上（同族变体）",
@@ -508,13 +409,11 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     const KEY = "minimax-cn/minimax-m3";
     const row = ADJUDICATED.find((candidate) => candidate.key === KEY)!;
     const projected = ruleFromUpstreamFact(lookupThinkingFact("minimax-cn", row.model)!, row.presetId);
-    // 上游投影：值集 toggle + 已登记形状 → hybrid（off 与 on 两个写点都在）。
     expect(projected).toEqual({
       thinkingClass: "hybrid",
       off: { vocabulary: thinkingType("disabled") },
       on: { vocabulary: thinkingType("adaptive") }
     });
-    // 该行现在与旧手写结论（minimax-always：无写点）**分歧**，运行时逐档 = 上游投影。
     for (const level of ALL_LEVELS) {
       expect(resolveViaRuntime(row.presetId, row.model, level), `${KEY} · ${level}`).toBe(outcomeOf(projected, level));
       expect(resolveViaRuntime(row.presetId, row.model, level), `${KEY} · ${level}`).not.toBe(
@@ -524,11 +423,6 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
   });
 
   it("modelscope 两行：清单键 = 本仓口径裸 id（矩阵行），该行确实翻转；上游写法剥前缀落 GLM 血统（手写侧分歧，运行期仍按上游）", () => {
-    // 残留清单的键 `modelscope/glm-4.5|4.6` 是**调用方传入的本仓口径裸 id**；指派表/别名表里的
-    // 上游写法是 ZhipuAI/GLM-4.x。裸 id 行：手写 TAXONOMY glm-4.x → thinking:{type}，投影按
-    // modelscope preset 方言 → enable_thinking（翻转，矩阵与 golden 逐字节钉住）；
-    // 上游写法行：2026-10-06 起手写剥 org 前缀也命中 TAXONOMY glm-4.x（手写侧与平台开关投影
-    // 分歧），但运行期命中指派表 → 逐档 = 投影（行为不变）。
     for (const key of MODELSCOPE_UPSTREAM_ID_ROWS) {
       const row = ADJUDICATED.find((candidate) => candidate.key === key)!;
       expect(handClassOf(row.presetId, row.model)).toBe(row.oldHand);
@@ -543,8 +437,6 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
           thinkingClass: "hybrid"
         })
       );
-      // 上游 id 写法（ZhipuAI/GLM-4.x）：手写侧剥前缀命中 GLM 血统，与投影分歧；
-      // 运行期同样逐档 = 投影。
       const upstreamIdModel = `ZhipuAI/${row.model}`;
       const projected = ruleFromUpstreamFact(lookupThinkingFact(row.presetId, upstreamIdModel)!, row.presetId);
       expect(handClassOf(row.presetId, upstreamIdModel)).toBe("glm-hybrid-switch");
@@ -576,13 +468,10 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
         }
       }
     }
-    // 口径自检：指派表规模没被误读（02 产物 359+ 条指派；18 号票删 override 后不再有例外，
-    // 逐条都进断言）。
     expect(total).toBeGreaterThanOrEqual(359);
   });
 
   it("18 号票：四家托管平台的目录内模型也逐格按上游词表（不再是平台声明口径）", () => {
-    // 18 号票前这四家整域走平台声明；现在逐模型按自己的值集。
     for (const presetId of HOSTED_PRESETS_18) {
       const upstreamId = UPSTREAM_PROVIDER_BY_PRESET[presetId];
       for (const modelId of Object.keys(ASSIGNMENTS[upstreamId] ?? {})) {
@@ -592,8 +481,6 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
         ).toBe("upstream");
       }
     }
-    // 裁定点名的边界格：opencodego/hy4-preview（上游 none-high，平台未登记开关形状）
-    // → A' = {off, high}；偏好 low 向下取 off（发 effort none），不是平台声明的一刀切 effort。
     const low = resolveThinkingProfile({ presetId: "opencodego", model: "hy4-preview", level: "low", stream: STREAM });
     expect(openaiVocabularyFields(low.vocabulary)).toEqual({ reasoning_effort: "none" });
     expect(openaiVocabularyFields(resolveThinkingProfile({ presetId: "opencodego", model: "hy4-preview", level: "high", stream: STREAM }).vocabulary)).toEqual({
@@ -602,13 +489,9 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
   });
 
   it("上游未覆盖的兜底职责仍在：用户自填 id 走手写表，有事实的模型由指派表决定", () => {
-    // 用户自填 id（指派表查不到）仍命中手写前缀模式。
     expect(resolveViaRuntime("qwen", "qwen3.5-my-finetune", "high")).toBe(
       JSON.stringify({ vocabulary: enableThinking(true), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
-    // 同一平台上「有事实」的模型：runtime 结论 = 指派表投影，不再等于手写侧结论。
-    // 05 号票（决策 #8 + 裁定 A）：qwen3.8-max 词表 low/medium/xhigh 无 high →
-    // 偏好 high 由 clamp 向下取到 medium（实发即 medium）。
     expect(handClassOf("qwen", "qwen3.8-max")).toBe("qwen-hybrid-effort");
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       JSON.stringify({ vocabulary: reasoningEffort("medium"), effectiveLevel: "medium", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
@@ -616,14 +499,10 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       outcomeOf(ruleFromUpstreamFact(lookupThinkingFact("alibaba-cn", "qwen3.8-max")!, "qwen"), "high")
     );
-    // 裁决行同样按上游：托管 alibaba-cn/glm-5.2 与原生 zhipuai/glm-5.2 同值集
-    // （D1=A2 后是 toggle+high-max）——qwen 方言的 off 写点 = enable_thinking:false。
     expect(handClassOf("qwen", "glm-5.2")).toBe("glm-hybrid-effort");
     expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(
       JSON.stringify({ vocabulary: enableThinking(false), effectiveLevel: "off", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
-    // 两条路径的 off 出口是各自的平台方言（zhipu = thinking.type、qwen = enable_thinking），
-    // 不再逐字节相同——补声明保证的是「都关得掉」这个语义，跨平台形状由 UPSTREAM_TOGGLE_SHAPES 定。
     const zhipuOff = JSON.parse(resolveViaRuntime("zhipu", "glm-5.2", "off"));
     const qwenOff = JSON.parse(resolveViaRuntime("qwen", "glm-5.2", "off"));
     expect(qwenOff.offUnavailable).toBe(false);
@@ -649,34 +528,20 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
   });
 });
 
-// ===== 13 号票：canonical 优先 + canonical 重定向表 =====
-// 失败方式（每条一个用例）：
-//   1. canonical 悬空时没回落 direct（行变成「未知词表」不发参）；
-//   2. canonical 优先没生效（direct 的窄词表仍当主人，如 opencode-go/kimi-k3 只剩 max）；
-//   3. 重定向表没生效（7 行借不到 deepseek-flash）；
-//   4. 单点裁决删除后 opencodego 的 max 被平台声明裁掉（kimi-k3 的 A' 少了 max）；
-//   5. 丢 off 的行没按新上游事实丢（还发 reasoning_effort:none）；
-//   6. A' = ∅ 的行不再 fail-closed（照平台声明发参）；
-//   7. minimax 的形状登记被 canonical 优先波及（登记与 canonical 无关：M3 仍按登记方言发 off/on）；
-//   8. 18 号票删平台 override 时把 13 号票的对齐结果带偏（canonical 词表/重定向语义被改）。
 describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定）", () => {
   const adjustmentOf = (presetId: string, model: string, level = "high") =>
     resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level, stream: STREAM });
   const levelsOf = (presetId: string, model: string): readonly ThinkingLevel[] => adjustmentOf(presetId, model).availableLevels;
 
   it("canonical 优先：direct 非空的行也按 canonical 的词表服务（opencode-go/kimi-k3 拿到 low-high-max）", () => {
-    // direct 只有 effort[max]；canonical（moonshotai/kimi-k3）是 low-high-max。
     const fact = lookupThinkingFact("opencode-go", "kimi-k3");
     expect(fact?.valuesetId).toBe("low-high-max");
     expect(fact?.effort).toEqual(["low", "high", "max"]);
-    // 13 号票时平台声明补了 max → A' = {low, high, max}；18 号票删声明后 A' 仍是
-    // 上游词表自己的 {low, high, max}（无 off：opencodego 未登记开关形状）。
     expect(levelsOf("opencodego", "kimi-k3")).toEqual(["low", "high", "max"]);
     expect(adjustmentOf("opencodego", "kimi-k3").source).toBe("upstream");
   });
 
   it("canonical 悬空回落 direct（不变成未知词表）：deepseek-v4-pro 的指针指向不存在的 id", () => {
-    // canonical = deepseek/deepseek-v4-pro-0813，上游没有这个 id → 回落 direct。
     const fact = lookupThinkingFact("deepseek", "deepseek-v4-pro");
     expect(fact?.valuesetId).toBe("toggle+low-high-max");
     expect(fact?.off).toBe("toggle");
@@ -688,9 +553,6 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
   });
 
   it("重定向表：7 行 canonical 指向 deepseek/deepseek-v4.1-flash 的行，档位集合逐一等于裁定表", () => {
-    // 18 号票：四家托管平台未在 UPSTREAM_TOGGLE_SHAPES 登记开关形状，值集里的 toggle
-    // 不产生 off 写点，故 openrouter / amd 两行的 A' 从 13 号票的 {off,low,high} 变成
-    // 上游 effort 词表自己的 {low,high,max}。
     const expected: Array<[presetId: string, upstreamId: string, model: string, levels: readonly ThinkingLevel[]]> = [
       ["deepseek", "deepseek", "deepseek-v4-flash-vision-exp", ["off", "low", "high", "max"]],
       ["deepseek", "deepseek", "deepseek-flash", ["off", "low", "high", "max"]],
@@ -706,8 +568,6 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
       expect(lookupThinkingFact(upstreamId, model)?.valuesetId, `${upstreamId}/${model}`).toBe(target?.valuesetId);
       expect(levelsOf(presetId, model), `${presetId}/${model}`).toEqual([...levels]);
     }
-    // amd 从 direct 的 effort[none,…,max] 换成重定向目标的 toggle+low-high-max：值集带 toggle，
-    // 但 amd 未登记开关形状 → off 不物化（18 号票前是平台 override 的 off 写点在兜）。
     const amd = lookupThinkingFact("amd", "DeepSeek-V4.1-Flash");
     expect(amd?.toggle).toBe(true);
     expect(amd?.effort).toEqual(["low", "high", "max"]);
@@ -716,10 +576,6 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
   });
 
   it("丢 off 的行按新上游事实失去 off（16 行 openrouter + moonshot/k3；glm-5.2 已由 D1=A2 补回；gemini-3.1-flash-image-preview 上游重新带 off）", () => {
-    // D1=A2 前本清单还含 openrouter/z-ai/glm-5.2 与 sensenova/glm-5.2（13 号票 canonical 优先把
-    // 它们的 direct off 抹掉）；本仓补声明给 zhipuai/glm-5.2 补上 toggle 后，这两行的**模型侧**
-    // 事实重新带 off，故移出本清单——它们仍未关得掉，但原因换成了「平台形状未登记」（见紧随的
-    // 「D1=A2 不变性」用例）。
     const lost: Array<[presetId: string, upstreamId: string, model: string]> = [
       ["openrouter", "openrouter", "anthropic/claude-opus-4.5"],
       ["openrouter", "openrouter", "anthropic/claude-opus-4.6"],
@@ -743,10 +599,8 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     for (const [presetId, upstreamId, model] of lost) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
-      // 模型侧事实：off 不再可得（无 toggle、effort 不含 none）。
       expect(fact?.off, `${upstreamId}/${model} 不该再有 off`).toBeNull();
       expect(upstreamVocabularyOf(fact!), `${upstreamId}/${model} 的词表不该含 off`).not.toContain("off");
-      // 档位层：off 不在 chip 集合里，请求 off 不发 none（级联落最低可用档）。
       expect(levelsOf(presetId, model), `${presetId}/${model}`).not.toContain("off");
       const off = resolveThinkingProfile({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: STREAM });
       expect(JSON.stringify(openaiVocabularyFields(off.vocabulary)), `${presetId}/${model} 偏好 off`).not.toContain('"none"');
@@ -757,12 +611,9 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     for (const model of ["anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4.5"]) {
       const adj = adjustmentOf("openrouter", model);
       expect(adj.availableLevels, model).toEqual([]);
-      // 2026-10-05 default 档：没有可表达的强度档 → 实发 default（线上一律不发字段，语义同旧口径）。
       expect(adj.effectiveLevel, model).toBe("default");
       expect(adj.source, model).toBe("upstream");
       for (const level of ALL_LEVELS) {
-        // 模型侧词表是 budget-only（无 toggle、无 effort）→ A' = ∅、thinkingClass always：
-        // off 走级联（无档可落 → offUnavailable 标记），非 off 档不发任何字段。
         expect(resolveViaRuntime("openrouter", model, level), `${model} · ${level}`).toBe(
           JSON.stringify({
             vocabulary: NO_FIELDS,
@@ -778,17 +629,13 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
 
   it("minimax/MiniMax-M3：canonical 优先碰不到它；形状登记后按登记方言发参（2026-10-05）", () => {
     const upstream = "minimax-cn";
-    // 上游仍是 [toggle]（2026-10-05 用户裁定后它是**可采信**的：M3 关得掉）；preset → 上游桥接不变。
     expect(lookupThinkingFact(upstream, "MiniMax-M3")?.valuesetId).toBe("toggle");
     expect(UPSTREAM_PROVIDER_BY_PRESET.minimax).toBe(upstream);
-    // 13 号票的 canonical 优先没有给这一行加指针；PROVIDERS.minimax 仍是空记录
-    // （形状登记走 UPSTREAM_TOGGLE_SHAPES，不是平台 override 机制）。
     expect(PROVIDERS.minimax).toEqual({});
     expect(UPSTREAM_TOGGLE_SHAPES.minimax).toEqual({
       off: thinkingType("disabled"),
       on: thinkingType("adaptive")
     });
-    // 登记后逐档：off 发 disabled、非 off 档发平台开词 adaptive（不再是「一个字段都不发」）。
     expect(levelsOf("minimax", "MiniMax-M3")).toEqual([...AI_THINKING_LEVELS]);
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
       JSON.stringify({
@@ -817,21 +664,6 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
   });
 });
 
-// ===== 18 号票：删 4 家平台 override，四家全面回归上游词表投影 =====
-// 用户 2026-10-05 裁定：「4 家的平台声明必须压过上游词表这件事取消，删除平台声明，
-// 直接用上游词表」。落地验证器（可复跑，exit 0）见 artifacts/18-platform-override-removal.ts。
-//
-// 先列这次改造可能失败的方式（每条一个用例）：
-//   1. 某家模型查不到上游词表 → 静默落 unknown / fail-closed（287 行零缺口钉「零」）；
-//   2. 平台声明删了却仍能凭空多发档位（该降级的没降级、该消失的档位没消失）；
-//   3. 13 号票刚对齐的行被这次删除带偏（opencodego/kimi-k3 逐字节哨兵）；
-//   4. thinkingClass 没有整体翻转 / off 级联没生效（177 / 223 两个口径都钉）；
-//   5. 零档行不再 fail-closed（budget-only 被塞进任何字段）；
-//   6. UPSTREAM_TOGGLE_SHAPES 被顺手加了四家登记（无平台文档支撑，裁定 3）；
-//   7. minimax 的形状登记被这次删除带偏（登记与 override 无关：M3 仍按登记方言发 off/on、
-//      M2.x 仍走手写兜底不发参）；
-//   8. 四家目录内行仍报告 source: "override"（机制残留）；
-//   9. 四家「手写侧有结论」的行没被识别为新分歧（本票新增的审计面）。
 describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", () => {
   const levelsOf = (presetId: string, model: string): readonly ThinkingLevel[] =>
     resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "high", stream: STREAM }).availableLevels;
@@ -843,7 +675,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     return modelId;
   };
 
-  // 目录内模型 = 02 指派表键 ∪ 指向该 provider 的别名（与 scripts/artifacts/gen-request-matrix.ts / 06 工件同源）。
   const modelsOf = (presetId: string): string[] => {
     const upstreamId = UPSTREAM_PROVIDER_BY_PRESET[presetId];
     const models = new Set<string>();
@@ -875,7 +706,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
   });
 
   it("上游词表更窄的行：档位被静默改写（amd/Qwen3.8-27B 的 high → medium）", () => {
-    // 值集 low-medium：18 号票前 override 凭空多发 high（平台声明），删掉后 high 发不出去。
     const adjustment = resolveThinkingAdjustment({ presetId: "amd", model: "Qwen3.8-27B", level: "high", stream: true });
     expect(adjustment.availableLevels).toEqual(["low", "medium"]);
     expect(adjustment.effectiveLevel).toBe("medium");
@@ -886,10 +716,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
   });
 
   it("上游词表更窄的行：chip 就是上游那两档，low 偏好被裁到 high（sensenova/glm-5.2）", () => {
-    // 口径提醒：low 档**不是 18 号票删掉的**——06 号票的 A'= 上游 ∩ 平台声明 已经把它裁了。
-    // 本例钉的是删后的稳态，不是「消失」事件。
-    // （原另一例 opencodego/deepseek-v4-pro 已被 19 号票的值集覆盖表改写：low 拿回，
-    //  另由下面的 19 号票用例承载。）
     expect(levelsOf("sensenova", "glm-5.2")).toEqual(["high", "max"]);
     expect(openaiVocabularyFields(resolveThinkingProfile({ presetId: "sensenova", model: "glm-5.2", level: "low", stream: true }).vocabulary)).toEqual({
       reasoning_effort: "high"
@@ -897,10 +723,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
   });
 
   it("19 号票：值集覆盖 / canonical 重定向后的三行逐档钉住", () => {
-    // opencodego/deepseek-v4-pro：覆盖表借 deepseek/deepseek-v4-pro 的 toggle+[low,high,max]
-    //   → opencodego 未登记开关形状，toggle 不产 off 写点，chip = [low, high, max]。
     expect(levelsOf("opencodego", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
-    // sensenova/deepseek-v4-pro：-0813 重定向拿回 low（off 仍关不掉 → 级联 low）。
     expect(levelsOf("sensenova", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
     expect(resolveThinkingProfile({ presetId: "sensenova", model: "deepseek-v4-pro", level: "off", stream: true })).toEqual({
       vocabulary: reasoningEffort("low"),
@@ -910,7 +733,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       offFallback: "low",
       thinkingClass: "always"
     });
-    // amd/DeepSeek-V4-Flash：7 档收窄到 3 档，minimal/medium/xhigh 消失、off 关不掉。
     expect(levelsOf("amd", "DeepSeek-V4-Flash")).toEqual(["low", "high", "max"]);
     expect(openaiVocabularyFields(resolveThinkingProfile({ presetId: "amd", model: "DeepSeek-V4-Flash", level: "minimal", stream: true }).vocabulary)).toEqual({
       reasoning_effort: "low"
@@ -936,9 +758,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
   });
 
   it("off 级联：票面「上游词表含 off」的口径 177 行（146/5/5/21），逐平台钉数", () => {
-    // 口径 = 上游词表含 off（toggle 或 effort none）的目录内行数。当前实测
-    // 152 / 3 / 5 / 17 = 177（2026-10-17 上游快照漂移后更新：opencode-go 删 8 增 2、
-    // openrouter 增 9 删 2、sensenova 增 1，见 03-catalog-check §1）。
     const hasOff = (presetId: string): number =>
       modelsOf(presetId).filter((model) => {
         const fact = lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET[presetId], model);
@@ -961,15 +780,12 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       });
     const counts = {
       openrouter: cascade("openrouter").length,
-      // amd 4 → 5：19 号票后 DeepSeek-V4-Flash 收窄到 toggle+[low,high,max]，amd 未登记开关
-      // 形状 → off 关不掉（此前它靠 effort none 关得上，是这五行里唯一新增的）。
       amd: cascade("amd").length,
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
     expect(counts).toEqual({ openrouter: 185, amd: 8, sensenova: 5, opencodego: 33 });
     expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(231);
-    // 级联目标 = 可用集里最小的非 off 档：glm-5.2（A={high,max}）偏好 off → high。
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(glm.effectiveLevel).toBe("high");
     expect(glm.resolution.offFallback).toBe("low");
@@ -1002,7 +818,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
 
   it("minimax/MiniMax-M3：形状登记与 override 删除互不干扰（登记后逐字节）", () => {
     expect(lookupThinkingFact("minimax-cn", "MiniMax-M3")?.valuesetId).toBe("toggle");
-    // 18 号票删的是 PROVIDERS 的平台声明；形状登记走 UPSTREAM_TOGGLE_SHAPES，两者不同层。
     expect(PROVIDERS.minimax).toEqual({});
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
       JSON.stringify({
@@ -1023,19 +838,10 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       })
     );
     expect(levelsOf("minimax", "MiniMax-M3")).toEqual([...AI_THINKING_LEVELS]);
-    // 目录外的 M2.x 仍落手写 minimax-always：一个字段都不发（厂商文档：收下但忽略）。
     expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
   it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 109 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
-    // 25 行 = 18 号票当时四家的分歧集；2026-10-06「手写侧剥 org 前缀」放开后扩到百家以上
-    //（全部是上游 id 带命名空间前缀的缺口行：openrouter 的 openai/*、qwen/*、z-ai/*、
-    // deepseek/* —— 剥前缀后手写侧才认出血统方言）。运行期这些行仍先命中上游目录，
-    // 只有目录缺口行会真正落到手写侧。当前 102 行（amd 5 / opencode-go 12 /
-    // openrouter 81 / sensenova 4）：2026-10-17 上游快照漂移，opencode-go 退 5 行
-    //（deepseek-v4-flash / deepseek-v4-flash-vision-exp / kimi-k2.6 / qwen3.6-plus /
-    // qwen3.7-max 移除）、进 2 行（openrouter/deepseek-v4.1-flash-1017、
-    // sensenova/deepseek-v4.1-flash 新增），见 03-catalog-check §1。
     const divergent = divergentKeys(LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent.sort()).toEqual([
       "amd/deepseek-v4-flash",
@@ -1149,28 +955,15 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "sensenova/deepseek-v4.1-flash",
       "sensenova/glm-5.2"
     ]);
-    // 7 档口径比 3 档多出的行 = 上游词表带 max、而手写 class 没有 max 写点的行。
-    // 19 号票删掉 kimi-k3* 专条后，opencode-go / sensenova 的 kimi-k3 手写侧已无结论，
-    // `handOnly` 口径直接跳过；2026-10-06 起多一行 openrouter 的 stepfun/step-3.7-flash：
-    // 剥 org 前缀命中手写 step37-effort（low/high，无 max）→ 只在 7 档口径下分歧。
-    // **运行期这一行仍按上游**（指派表命中，值集含 max；见「13 号票刚对齐的行逐字节不变」用例）。
     const divergent7 = divergentKeys(ALL_LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual(["openrouter/stepfun/step-3.7-flash"]);
   });
 });
 
-// ===== D1=A2：本仓补声明（2026-10-05 用户裁定；交接单 handoff-glm52-toggle §4）=====
-// 失败方式（每条一个用例）：
-//   1. 少开 off：zhipu / qwen 的 glm-5.2 没拿到 off 写点（补声明没生效 / 平台形状没接上）；
-//   2. 误开 off：未登记开关形状的三家（openrouter / sensenova / opencodego）冒出 Off；
-//   3. 补声明越界：家族里别的行被一起改（用「家族 N 行也有 toggle」当依据的后果）；
-//   4. 同一模型两条路径不一致：目录内 glm-5.2 与目录外 glm-5.2-air 的 off 出口不同；
-//   5. 值集孤儿：high-max 没被自然淘汰 / toggle+high-max 没登记。
 describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
   const levelsOf = (presetId: string, model: string): readonly ThinkingLevel[] =>
     resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "high", stream: STREAM }).availableLevels;
 
-  // 事实 5 行（canonical 全部指向 zhipuai/glm-5.2）+ 行为 2 行的平台。
   const FIVE_ROWS: ReadonlyArray<[provider: string, model: string]> = [
     ["zhipuai", "glm-5.2"],
     ["alibaba-cn", "glm-5.2"],
@@ -1197,10 +990,8 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
       expect(fact?.valuesetId, `${provider}/${model}`).toBe("toggle+high-max");
       expect(fact?.toggle, `${provider}/${model}`).toBe(true);
       expect(fact?.off, `${provider}/${model}`).toBe("toggle");
-      // 补声明只补 off 能力，不动档位词表（上游 effort[high,max] 原样）。
       expect(fact?.effort, `${provider}/${model}`).toEqual(["high", "max"]);
     }
-    // 值集表：high-max 的 5 个用户全迁走后自然消失（不靠孤儿剪枝），toggle+high-max 补位。
     expect(VALUESETS["high-max"]).toBeUndefined();
     expect(VALUESETS["toggle+high-max"]?.effort).toEqual(["high", "max"]);
   });
@@ -1238,13 +1029,10 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
     ]);
     for (const [presetId, provider, model] of THREE_UNREGISTERED) {
       expect(presetId in UPSTREAM_TOGGLE_SHAPES, presetId).toBe(false);
-      // 模型侧事实有 toggle，但平台形状没登记 → 一个 off 写点都不产（D3）。
       const fact = lookupThinkingFact(provider, model);
       expect(fact?.off, `${provider}/${model}`).toBe("toggle");
       expect(ruleFromUpstreamFact(fact!, presetId).off, `${provider}/${model}`).toBeUndefined();
       expect(levelsOf(presetId, model), `${presetId}/${model}`).toEqual(["high", "max"]);
-      // 逐字节与补声明前相同：off 级联 high、offUnavailable 仍 true（D1=A2 的 before/after
-      // 工件 02-before-after.tsv 里这三行两侧同值）。
       expect(resolveThinkingProfile({ presetId, model, level: "off", stream: STREAM }), `${presetId}/${model}`).toEqual({
         vocabulary: reasoningEffort("high"),
         requestedLevel: "off",
@@ -1257,15 +1045,12 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
   });
 
   it("同一模型两条路径：目录内 zhipu/glm-5.2 与目录外 zhipu/glm-5.2-air 的 off 出口同为 thinking:{type:\"disabled\"}", () => {
-    // 档位词表本来就不同（兜底类 glm-hybrid-effort 只有 low/high，属历史遗留，本票不动档位），
-    // 本用例只钉「本仓第一次能力补声明消掉了那个自相矛盾」：两条路径关思考的出口必须一致。
     expect(lookupThinkingFact("zhipuai", "glm-5.2-air"), "glm-5.2-air 不该在指派表里").toBeNull();
     const inCatalog = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: STREAM });
     const outOfCatalog = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2-air", level: "off", stream: STREAM });
     expect(openaiVocabularyFields(inCatalog.vocabulary)).toEqual({ thinking: { type: "disabled" } });
     expect(openaiVocabularyFields(outOfCatalog.vocabulary)).toEqual({ thinking: { type: "disabled" } });
     expect(outOfCatalog).toEqual(inCatalog);
-    // 两条路径的档位词表确实不同（钉住「本次没顺手改兜底档位」）。
     expect(levelsOf("zhipu", "glm-5.2")).toEqual(["off", "high", "max"]);
     expect(levelsOf("zhipu", "glm-5.2-air")).toEqual(["off", "low", "high"]);
   });

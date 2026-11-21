@@ -1,7 +1,3 @@
-// ai/segment-cache.js 段缓存测试：
-// 覆盖分段小结落盘读写（命中/未命中/批量枚举 loadStoredSegmentSummaries）、
-// 换轨不串、键含 bvid+cid+段、预算代隔离与读写容错。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
@@ -76,12 +72,10 @@ describe("loadStoredSegmentSummaries：直接枚举分段小结", () => {
     expect(storage.local.getKeys).toHaveBeenCalled();
     expect(storage.local.get).toHaveBeenCalledWith([key]);
     expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
-    // 懒迁移成功后旧键应已清理
     expect(storage.map.has(key)).toBe(false);
 
     expect(await mod.loadStoredSegmentSummaries({ bvid: "", cid: "1" })).toEqual([]);
 
-    // 未迁入视频在 storage.local.getKeys 抛错时仍安全返回 []
     storage.local.getKeys.mockRejectedValue(new Error("boom"));
     expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1unmigrated", cid: "1", subtitleId: "sub-1" })).toEqual([]);
   });

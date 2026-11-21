@@ -1,6 +1,3 @@
-// tests/ai/error-text-norms.test.ts
-// HTTP 400 错误文本规一化与判据族（ai/error-text-norms.ts）真值表测试。
-
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_PARAM_RE,
@@ -148,7 +145,6 @@ describe("上下文溢出判据族（直接子串 + 主语/超限双正则）", 
       expect(CONTEXT_OVERFLOW_RE.test(ov), ov).toBe(true);
     }
 
-    // 组合样本
     const combined = "model context window is full and exceeded";
     expect(CONTEXT_OVERFLOW_SUBJECT_RE.test(combined)).toBe(true);
     expect(CONTEXT_OVERFLOW_RE.test(combined)).toBe(true);

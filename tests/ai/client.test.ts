@@ -1,9 +1,3 @@
-// ai/client.js streamChat port 协议测试（候选 03 后：client 退为流式 port 适配器）。
-// 验证适配层把 completion 接缝的完成值/类型化错误映射回 offscreen port 协议，
-// 事件序列与旧 streamChat 保持一致：token/reasoning → notice → done/stopped/error；
-// 仅溢出以带 .overflow 标记的错误上抛（ladder catch 查标记分流）。
-// （原「streamChat 溢出兜底哨兵」用例自 tests/ai/map-reduce.test.ts 迁入并按新语义改断言。）
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { streamChat, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
@@ -19,7 +13,6 @@ afterEach(() => {
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
-// 假 port 收集到的消息形状（用例按 type 过滤后读 data / error / reason / messages）
 interface PortMessage {
   type: string;
   data?: unknown;
@@ -99,7 +92,6 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
       { type: "token", data: "正文" },
       { type: "done" }
     ]);
-    // 每个流式事件重挂空闲超时
     expect(onActivity).toHaveBeenCalledTimes(2);
   });
 
@@ -133,7 +125,6 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
     const errors = port.messages.filter((m) => m.type === "error");
     expect(errors).toHaveLength(1);
     expect(errors[0].error).toBe("HTTP 401: [openai] Unauthorized");
-    // 重试提示（对齐旧文案），错误只发一条
     const notices = port.messages.filter((m) => m.type === "notice");
     expect(notices).toHaveLength(2);
     expect(notices[0].data).toBe("HTTP 401: [openai] Unauthorized，正在重试...");
@@ -207,10 +198,9 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
     expect(result).toEqual({ done: true });
     const batches = port.messages.filter((m) => m.type === "token-batch");
     const singles = port.messages.filter((m) => m.type === "token");
-    // 1000 条逐 token 消息 → 常数级批次（maxPending=32 → 32 批）
     expect(batches.length + singles.length).toBeLessThanOrEqual(34);
     expect(batches.length + singles.length).toBeLessThan(1000 * 0.1);
-    expect(batches.flatMap((b) => b.data)).toEqual(tokens); // 逐字节一致
+    expect(batches.flatMap((b) => b.data)).toEqual(tokens);
     expect(port.messages.at(-1)).toEqual({ type: "done" });
   });
 
@@ -228,7 +218,6 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
       port
     });
 
-    // 两个 token 同窗口 → 一条 token-batch；收尾 flush 不含空批
     expect(port.messages).toEqual([
       { type: "token-batch", data: ["唯", "一"] },
       { type: "done" }
@@ -255,7 +244,7 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
     });
 
     expect(port.messages).toEqual([
-      { type: "token", data: "正文一" }, // 单 token 批次回落 token 事件
+      { type: "token", data: "正文一" },
       { type: "reasoning", data: "思路" },
       { type: "token", data: "正文二" },
       { type: "done" }
@@ -263,7 +252,6 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
   });
 
   it("stream-reset 前先 flush 旧流尾巴（不丢 token），reset 仍先于重试流", async () => {
-    // 第一段流：两个 token 后 read 抛错触发读流重试
     let readCount = 0;
     const flakyBody = {
       getReader() {
@@ -298,9 +286,7 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
     const types = port.messages.map((m) => m.type);
     const resetIdx = types.indexOf("stream-reset");
     expect(resetIdx).toBeGreaterThan(0);
-    // 旧流尾巴在 reset 之前 flush（一条合帧消息，不丢 token）
     expect(port.messages[resetIdx - 1]).toEqual({ type: "token-batch", data: ["旧一", "旧二"] });
-    // reset 先于重试流 token
     expect(resetIdx).toBeLessThan(types.indexOf("token"));
     expect(port.messages.at(-1)).toEqual({ type: "done" });
   });
@@ -372,7 +358,6 @@ describe("streamChat 读流中断重试：stream-reset 代际重置信号", () =
     });
 
     expect(result).toEqual({ done: true });
-    // reset 恰一条且先于重试流 token（渲染层先清缓冲再收新流）
     const resetIdx = port.messages.findIndex((m) => m.type === "stream-reset");
     const tokenIdx = port.messages.findIndex((m) => m.type === "token");
     expect(resetIdx).toBeGreaterThanOrEqual(0);
@@ -433,13 +418,11 @@ describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
 
     expect(result).toEqual({ done: true });
     const types = port.messages.map((m) => m.type);
-    // 顺序：searching → done（搜索前 flush，无 token 积压）
     expect(types).toEqual(["tool-status", "tool-status", "tool-turn", "token", "done"]);
     expect(port.messages[0]).toMatchObject({ type: "tool-status", status: "searching", query: "x" });
     expect(port.messages[1]).toMatchObject({ type: "tool-status", status: "done", query: "x", resultCount: 1, platform: "Tavily" });
     expect(port.messages[2].type).toBe("tool-turn");
     expect(port.messages[2].messages!.map((m) => m.role)).toEqual(["assistant", "tool"]);
-    // 两次调用：第一次带 tools，tool 消息已回填
     const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(firstBody.tools).toEqual([expect.anything()]);
     const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
@@ -503,7 +486,6 @@ describe("输出上限截断（finish_reason=length）", () => {
     return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
   }
 
-  // Anthropic 形状事件（同一条读流路径的另一种线格式）。
   function anthropicSseData(event: Record<string, unknown>) {
     return `data: ${JSON.stringify(event)}\n\n`;
   }
@@ -521,7 +503,6 @@ describe("输出上限截断（finish_reason=length）", () => {
       { type: "notice", data: TRUNCATED_NOTICE, code: "truncated" },
       { type: "done" }
     ]);
-    // 有正文只是被截尾：不重跑（重跑会白花一次额度且回答未必一致）。
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -536,7 +517,6 @@ describe("输出上限截断（finish_reason=length）", () => {
 
     expect(result).toEqual({ done: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    // 首发维持「不显式传预算、由平台默认决定」现状；只有重试才显式加倍。
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBeUndefined();
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(65536);
     expect(port.messages).toEqual([
@@ -563,7 +543,6 @@ describe("输出上限截断（finish_reason=length）", () => {
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(32768);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(65536);
-    // 第一代的思考已回吐，随即被 stream-reset 作废（宿主清空本条缓冲整体重放）。
     expect(port.messages).toEqual([
       { type: "reasoning", data: "想" },
       { type: "stream-reset" },
@@ -682,7 +661,6 @@ describe("输出上限截断（finish_reason=length）", () => {
     expect(result).toEqual({ done: true });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(32768);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(8192);
-    // 退回是自动降级（不报 onRetry 语义的 notice，也不是 error）：界面只收到正常回答。
     expect(port.messages).toEqual([{ type: "token", data: "正文" }, { type: "done" }]);
   });
 

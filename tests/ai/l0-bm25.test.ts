@@ -26,7 +26,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       expect(tokens).toContain("4o");
       expect(tokens).toContain("qwen2.5");
       expect(tokens).toContain("bv1xx411c7md");
-      // 停用词与标点应被过滤
       expect(tokens).not.toContain("我们");
       expect(tokens).not.toContain("与");
       expect(tokens).not.toContain("和");
@@ -72,7 +71,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       });
 
       expect(result.hits.length).toBe(3);
-      // 第 4 行出现两次 WebAssembly + 吞吐 + 提升；第 2 行出现 WebAssembly + 解码
       expect([2, 4]).toContain(result.hits[0].line.lineNumber);
       expect(result.hits[0].score).toBeGreaterThan(result.hits[2].score);
       expect(result.hits[0].matchedTerms).toContain("webassembly");
@@ -91,7 +89,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
 
       expect(scoped.hits.length).toBe(1);
       expect(scoped.hits[0].line.lineNumber).toBe(4);
-      // 区间 [15, 26] 与第 3(14..19)、4(19..25)、5(25..30) 三行相交
       expect(scoped.totalLinesScanned).toBe(3);
     });
 
@@ -135,8 +132,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
         { windowRadiusLines: 1 }
       );
 
-      // 命中 2 扩为 [1..3]，命中 4 扩为 [3..5] -> 合并为 [1..5]（主锚点取高分 4）
-      // 命中 7 扩为 [6..8] -> 独立第二块
       expect(windows).toHaveLength(2);
       expect(windows[0]).toMatchObject({
         anchorLineNumber: 4,
@@ -164,7 +159,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       });
 
       expect(windows).toHaveLength(1);
-      // line[0] 为 [0, 3]，向后 +7s 到 10s，覆盖 line[0](0..3), line[1](3..6), line[2](6..10)
       expect(windows[0].startLineNumber).toBe(0);
       expect(windows[0].endLineNumber).toBe(2);
       expect(windows[0].from).toBe(0);

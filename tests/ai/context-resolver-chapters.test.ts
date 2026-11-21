@@ -1,10 +1,3 @@
-// ai/context-resolver.js 的 chapters 断供修复回归测试：
-// resolveAiConversationContext 内部早已拿到 subtitleBundle.chapters 用于渲染
-// markdown 的「## 章节」分节，但返回值此前不透传 chapters——侧边栏恢复历史
-// 会话（resolvedContext / contextRef）后章节对齐切段与追问章节名检索双双失明。
-// 修复后返回值带 chapters（与渲染 markdown 同一来源），此测试锁定透传行为。
-// 单纪元：不使用 vi.resetModules，vi.mock 工厂闭包全程有效。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../extension/bilibili/video-api.js", async (importOriginal) => {

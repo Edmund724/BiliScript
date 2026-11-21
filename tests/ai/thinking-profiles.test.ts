@@ -1,11 +1,3 @@
-// ai/thinking-profiles.js 思考参数表 + resolver 测试：
-// 识别优先级（例外表 >> 模式表 >> provider.unknownClass >> UNKNOWN 哨兵）、
-// off 级联（never 静默 / always·被阻断的 hybrid 落 low + offUnavailable / 无 low 不发）、
-// offFallback 显式级联去向（03 号票 UI 长短版文案区分）、streamOnly 非流式阻断、
-// baseUrl host 推断、presetId 参数位（02 票穿线预留）、tokenParam 随表返回
-//（04 票消费）以及表校验器（Q2B）每条规则的正反用例。
-// 平台×档位×代表模型→精确请求体的 golden 用例在 thinking-golden.test.js。
-
 import { describe, expect, it } from "vitest";
 import {
   CLASSES,
@@ -20,7 +12,6 @@ import {
 } from "../../extension/ai/thinking-profiles.js";
 import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 
-// 与 core/presets.ts 的 AI preset baseUrl 一致（host 推断的输入形状）。
 const OPENAI_URL = "https://api.openai.com/v1";
 const DEEPSEEK_URL = "https://api.deepseek.com/v1";
 const QWEN_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -38,7 +29,6 @@ const resolve = (overrides: Partial<ResolveThinkingInput>) => resolveThinkingPro
 
 describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", () => {
   it("例外表压过模式表：qwen3.8-max 走上游值集（effort 档，偏好 high 由 clamp 向下取到 medium），qwen3.8- 前缀其余模型走模式表开关", () => {
-    // 05 号票：决策 #8 clamp 落线，2026-10-04 用户裁定 A —— 上游词表 low/medium/xhigh 无 high。
     expect(openaiVocabularyFields(resolve({ baseUrl: QWEN_URL, model: "qwen3.8-max", level: "high" }).vocabulary)).toEqual({
       reasoning_effort: "medium"
     });
@@ -48,8 +38,6 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
   });
 
   it("模式表数组序=优先级：step-3.7 条目先于 step-3 前缀命中（effort 而非无档位）", () => {
-    // 刻意用无上游平台的 host：本用例只钉手写正则表的数组序（有上游平台的
-    // stepfun-step-plan 会先被指派表接走，属另一条路径）。
     expect(openaiVocabularyFields(resolve({ baseUrl: "https://api.example.com/v1", model: "step-3.7-flash", level: "high" }).vocabulary)).toEqual({
       reasoning_effort: "high"
     });
@@ -83,8 +71,6 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
   });
 
   it("剥 org 前缀只用于模式表：命名空间 id 命中血统方言（modelscope + deepseek-ai/DeepSeek-V4.1-Flash 不再塌成开关）", () => {
-    // 指派表没有 modelscope 的 DeepSeek 行 → 走手写兜底；整串带前缀不命中，剥前缀后
-    // 命中模式表的 deepseek-v4（血统 effort 档）。
     const model = "deepseek-ai/DeepSeek-V4.1-Flash";
     expect(resolve({ baseUrl: MODELSCOPE_URL, model, level: "off" }).thinkingClass).toBe("hybrid");
     expect(openaiVocabularyFields(resolve({ baseUrl: MODELSCOPE_URL, model, level: "off" }).vocabulary)).toEqual({
@@ -96,8 +82,6 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
   });
 
   it("剥 org 前缀不动例外表：百炼的 streamOnly 平台事实不随命名空间 id 搬到 ModelScope（Qwen/Qwen3-32B 非流式 off 照发平台开关）", () => {
-    // 例外表的 qwen3-32b 只按整串匹配 → 不命中 → 平台 unknownClass（qwen-hybrid-switch）；
-    // 若这里改成命中，非流式 off 会被 streamOnly 阻断并级联成 enable_thinking:true。
     const r = resolve({ baseUrl: MODELSCOPE_URL, model: "Qwen/Qwen3-32B", level: "off" });
     expect(r.thinkingClass).toBe("hybrid");
     expect(r.offUnavailable).toBe(false);
@@ -203,9 +187,6 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
 });
 
 describe("streamOnly（Q14A：流式限制规则遇非流式按无事实处理）", () => {
-  // 12 号票（残留清单裁决，2026-10-04 用户裁定：31 行按上游）：qwen3-32b 是裁决行
-  // （上游 alibaba-cn/qwen3-32b = toggle+b:-38912），off 走上游开关、streamOnly 产品语义
-  // 不再参与；streamOnly（Q14A）仍由「指派表不认识的 id」承担（如用户自填 qwen3-32b-air）。
   it("裁决行 qwen3-32b：off 走上游 toggle，流式与非流式同结论（不再有 streamOnly 阻断）", () => {
     for (const stream of [true, false]) {
       const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream });
@@ -244,8 +225,6 @@ describe("baseUrl host 推断（本票生效的 provider 识别路径）", () =>
   });
 
   it("SiliconFlow 无 AI preset（仅 ASR 登记同域名）→ host 别名命中 enable_thinking 词汇", () => {
-    // 夹具刻意取带命名空间前缀、但模式表没有血统规则的 id（DeepSeek-V3 无档位专条）：
-    // 血统规则（deepseek-v4 等）会压过平台开关词，本用例只钉 host 推断这条路。
     const r = resolve({ baseUrl: SILICONFLOW_URL, model: "deepseek-ai/DeepSeek-V3", level: "off" });
     expect(openaiVocabularyFields(r.vocabulary)).toEqual({ enable_thinking: false });
     expect(r.thinkingClass).toBe("hybrid");
@@ -301,11 +280,9 @@ describe("18 号票：OpenRouter 走上游词表投影（平台 override 已删�
   });
 
   it("上游目录外 id 回落手写表；手写侧也无结论 → UNKNOWN 哨兵（不再有平台声明兜底）", () => {
-    // deepseek-v4-pro 不是 openrouter 的上游 id（上游是 deepseek/deepseek-v4-pro）→ 手写专条。
     expect(openaiVocabularyFields(resolve({ baseUrl: OPENROUTER_URL, model: "deepseek-v4-pro", level: "off" }).vocabulary)).toEqual({
       thinking: { type: "disabled" }
     });
-    // vendor/some-future-model 两边都没结论 → 三档不发参（fail-closed）。
     const unknown = resolve({ baseUrl: OPENROUTER_URL, model: "vendor/some-future-model", level: "low" });
     expect(openaiVocabularyFields(unknown.vocabulary)).toEqual({});
     expect(unknown.thinkingClass).toBe("unknown");
@@ -327,10 +304,6 @@ describe("18 号票：AMD Radeon Cloud 走上游词表投影", () => {
   });
 
   it("19 号票：三个 DeepSeek 兄弟同形 —— DeepSeek-V4-Flash 跟另外两个一样收窄到 low/high/max", () => {
-    // 上游给 amd 的这一行写的是 effort[none,minimal,low,medium,high,xhigh,max]（7 档），但
-    // canonical 指向 deepseek/deepseek-v4-flash-0731（上游没这个 id）→ 19 号票重定向到
-    // deepseek/deepseek-v4-flash 的 toggle+[low,high,max]，与 13 号票已收窄的另两个兄弟对齐。
-    // amd 未在 UPSTREAM_TOGGLE_SHAPES 登记开关形状 → toggle 不产 off 写点 → 关不掉、级联 low。
     for (const model of ["DeepSeek-V4.1-Flash", "DeepSeek-V4-Flash", "DeepSeek-V4-Flash-Vision-Exp"]) {
       const r = resolve({ presetId: "amd", model, level: "off" });
       expect(openaiVocabularyFields(r.vocabulary), model).toEqual({ reasoning_effort: "low" });
@@ -362,9 +335,6 @@ describe("18 号票：SenseNova 商汤走上游词表投影", () => {
 
 describe("18 号票：Opencode Go 走上游词表投影", () => {
   it("19 号票值集覆盖：deepseek-v4-pro 借 deepseek/deepseek-v4-pro 的词表，low 拿回", () => {
-    // 上游 opencode-go 这行直挂 effort[high,max] 且无 canonical 指针（重定向表救不了它）；
-    // 19 号票用值集覆盖表把它指向 deepseek/deepseek-v4-pro 的 toggle+[low,high,max]。
-    // opencodego 未登记开关形状 → toggle 不产 off 写点 → 仍关不掉，但 off 级联落到 low 而非 high。
     expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "off" })).toEqual({
       vocabulary: reasoningEffort("low"),
       requestedLevel: "off",
@@ -417,13 +387,6 @@ describe("tokenParam 随表返回（04 票消费；本票请求体仍用 max_tok
     expect(resolve({ baseUrl: "https://api.example.com/v1", model: "m", level: "low" }).tokenParam).toBeUndefined();
   });
 
-  // 登记项 ② 收口（2026-10-05 用户裁定）：钉的是**有意裁定**，不是覆盖漏洞。
-  // tokenParam 只在 CLASSES 的 2 个 openai-reasoning 类上有写点，而那两类只由手写兜底
-  // 命中（custom + 自填 api.openai.com/azure，本仓无 openai preset）。上游命中的 OpenAI
-  // 血统模型住在 openrouter / opencode-go 的托管行里（上游 12 家里没有 openai provider），
-  // 这些行自 18 号票起按上游词表投影、上游投影不产 tokenParam → 恒 max_tokens。
-  // 不改的理由：这些网关收 max_tokens，改发 max_completion_tokens 会把 reasoning token
-  // 计入预算 → 同数值下正文可见长度变短，是用户可见的行为变更。
   it("上游命中的 OpenAI 血统托管行恒 max_tokens（fields 仍照发，避免落 UNKNOWN 空跑）", () => {
     const viaOpenRouter = resolve({ baseUrl: OPENROUTER_URL, model: "openai/gpt-5.4", level: "low" });
     expect(openaiVocabularyFields(viaOpenRouter.vocabulary)).toEqual({ reasoning_effort: "low" });
@@ -435,9 +398,6 @@ describe("tokenParam 随表返回（04 票消费；本票请求体仍用 max_tok
   });
 });
 
-// ===== 表校验器（Q2B：omp「编译器」角色的移植；工单 AC 第 6 条逐条用例）=====
-
-// 深拷贝真实表供逐条注入违规（表数据全是 JSON 可序列化的纯结构）。
 function tablesWith() {
   return {
     classes: JSON.parse(JSON.stringify(CLASSES)),
@@ -460,14 +420,12 @@ describe("表校验器（工单 AC 第 6 条）", () => {
     expect(errors[0]).toContain("temperature");
     expect(errors[0]).toContain("白名单");
 
-    // 哨兵是另一类违规：patch 不写 vocabulary 就代表「无写点」，写哨兵是误用。
     const sentinel = tablesWith();
     sentinel.classes["deepseek-hybrid-effort"].off.vocabulary = { kind: "noFields" };
     const sentinelErrors = validateThinkingTables(sentinel);
     expect(sentinelErrors).toHaveLength(1);
     expect(sentinelErrors[0]).toContain("哨兵");
 
-    // 载荷 kind 放行：判别键换成联合里合法的另一个成员，不再有字段名可写错。
     const ok = tablesWith();
     ok.classes["deepseek-hybrid-effort"].off.vocabulary = { kind: "thinkingType", type: "disabled" };
     expect(validateThinkingTables(ok)).toEqual([]);

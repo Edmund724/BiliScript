@@ -1,13 +1,3 @@
-// ai-usage-telemetry T2a 单测：completion.ts 的采样接线（零用户可见变化）。
-// 锁三件事：
-// 1. 一次带 usage 的成功响应（流式 / 非流式各一）→ 样本进了正确的 (baseUrl, model) 桶；
-// 2. 响应无 usage（或平台拒收）→ 不产生样本；
-// 3. payloadChars 口径 = 本次请求 messages[].content 字符合计——用可断言的输入
-//    （system 5 字 + user 10 字 = 15）与一份超长 tools 定义锁死：若误用整份 JSON
-//    body 长度，比值会与 15/inputTokens 差一个数量级。
-// 失败方式先行：非流式路径忘了记、流式路径另写一份导致口径漂移、无 usage 却记了 0、
-// 用 body 长度当分子被 tools/JSON 语法污染、scope 拼错（两处各自拼键）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { chatCompletion } from "../../extension/ai/completion.js";
 import { learnedCharsPerToken, resetUsageStatsForTests } from "../../extension/ai/usage-stats.js";
@@ -18,13 +8,11 @@ import type { ChatMessage } from "../../extension/ai/types.js";
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 const OTHER = { baseUrl: "https://api.other.com/v1", model: "test-model", apiKey: "sk-test" };
 
-// 可断言的输入：payloadChars = 5 + 10 = 15。
 const MESSAGES: ChatMessage[] = [
   { role: "system", content: "12345" },
   { role: "user", content: "1234567890" }
 ];
 
-// 一份明显大于 15 字符的 tools 定义：整份 body 长度会远大于 payloadChars。
 const TOOLS: ChatToolDefinition[] = [
   {
     type: "function",
@@ -139,7 +127,6 @@ describe("completion 采样接线", () => {
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
     const bodyChars = init.body.length;
-    // 前提：整份 body 确实远大于 15（tools 定义注入成功），否则这条用例锁不住错口径。
     expect(bodyChars).toBeGreaterThan(300);
     expect(learnedCharsPerToken(PROVIDER)).toBeCloseTo(1.5);
     expect(learnedCharsPerToken(PROVIDER)).not.toBeCloseTo(bodyChars / 10, 1);
@@ -182,7 +169,6 @@ describe("completion 采样接线", () => {
     );
     await chatCompletion({ provider: PROVIDER, messages: MESSAGES, fetchImpl: second as unknown as typeof fetch });
 
-    // 样本 1.5 与 3 → 中位数 2.25
     expect(learnedCharsPerToken(PROVIDER)).toBeCloseTo(2.25);
   });
 });

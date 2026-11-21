@@ -1,11 +1,3 @@
-// ai/completion.js 纯协议接缝测试（候选 03）：
-// 假 fetch 全覆盖——请求构造对照表（尾斜杠归一 / Bearer 有无 / 思考档位经
-// thinking-profiles 查表：平台×模型→字段、无事实不发 / stream 真假 / max_tokens 探针 /
-// 额外头合并）、SSE 解析（多事件 / [DONE] /
-// 半行 buffer）、溢出判定（子串+正则样本，自 budget-single-shot 迁移）、
-// 重试 policy（流式默认 2 次 + onRetry 时序、非流式默认 0 次、溢出/abort 不重试）、
-// abort 传播、fetchImpl 注入。不 import port/DOM，走返回/throw 错误模型。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   chatCompletion,
@@ -21,8 +13,6 @@ import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
-// buildChatRequestBody 的思考线格式产出在生产上由唯一 fetch 点（completion.ts）经思考
-// 装配边注入；直接驱动请求构造的用例按同一口径先跑装配边，再把产出交给请求构造。
 type OpenAiBodyFacts = Omit<Parameters<typeof buildChatRequestBody>[0], "thinkingWire"> & {
   baseUrl?: string;
   presetId?: string;
@@ -45,22 +35,16 @@ function buildOpenAiChatBody({ baseUrl, presetId, thinkingLevel, ...request }: O
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-// 假 fetch 工厂：显式声明签名，mock.calls 才带 [url, init] 元组类型；返回值只
-// 消费 Response 的少数字段，形状断言在这里统一收口（同 tests/search 惯例）。
 function mockFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<unknown>) {
   return vi.fn<FetchImpl>(impl as FetchImpl);
 }
 
-// init 形状：测试按记录/字符串取 body 与 headers（HeadersInit 联合的断言侧收口）。
 type InitLike = { body: string; headers: Record<string, string>; method?: string };
 
-// onRetry 载荷（completion 的 RetryPayload 未导出，按结构标注）。
 type RetryInfo = { attempt: number; maxRetries: number; kind: "fetch" | "http" | "stream"; error: Error };
 
 beforeEach(() => {
   vi.useRealTimers();
-  // 「平台学到的输出上限」是模块级会话状态：用例之间清零，否则前一条的退回结果
-  // 会让后一条的首发预算直接变小（顺序相关的假红）。
   resetLearnedBudgetsForTests();
 });
 
@@ -69,7 +53,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// 假 Response：只实现测试消费的字段，形状断言收口在返回处。
 function jsonResponse(payload: unknown, ok = true, status = 200): Response {
   return {
     ok,
@@ -79,12 +62,10 @@ function jsonResponse(payload: unknown, ok = true, status = 200): Response {
   } as unknown as Response;
 }
 
-// 非流式纯文本响应（探针 !ok / HTTP 错误路径用）。
 function textResponse(text: string, ok = false, status = 400): Response {
   return { ok, status, text: vi.fn(async () => text), json: vi.fn() } as unknown as Response;
 }
 
-// SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
@@ -106,7 +87,6 @@ function sseResponse(chunks: string[]): Response {
   } as unknown as Response;
 }
 
-// 组装一条 OpenAI 兼容 SSE data: 行。
 function sseData(delta: unknown) {
   return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
 }
@@ -139,14 +119,12 @@ describe("请求构造对照表（url / body / headers）", () => {
     const withKey = fetchMock.mock.calls[0][1] as InitLike;
     expect(withKey.headers.Authorization).toBe("Bearer sk-1");
     expect(withKey.method).toBe("POST");
-    // 无 apiKey 时不带 Authorization，Content-Type 固定 JSON
     const noKey = fetchMock.mock.calls[2][1] as InitLike;
     expect(noKey.headers.Authorization).toBeUndefined();
     expect(noKey.headers["Content-Type"]).toBe("application/json");
   });
 
   it("思考档位经 thinking-profiles 查表：OpenAI gpt-5.1 off→effort none、low/high→effort；未知平台×模型三档不发", async () => {
-    // 按请求体 stream 动态回响应：流式给 SSE 响应（可读体），非流式给 JSON 响应。
     const fetchMock = mockFetch(async (_url, init) =>
       JSON.parse(init!.body as string).stream
         ? sseResponse([])
@@ -164,12 +142,10 @@ describe("请求构造对照表（url / body / headers）", () => {
     await run(openai, { stream: false, thinkingLevel: "off" });
     await run(openai, { stream: true, thinkingLevel: "low" });
     await run(openai, { stream: true, thinkingLevel: "high" });
-    // 未知平台 × 未知模型（UNKNOWN 哨兵）：off 与省略档位都无任何思考字段
     await run(PROVIDER, { stream: true, thinkingLevel: "off" });
     await run(PROVIDER, { stream: true });
 
     const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse((init as InitLike).body));
-    // OpenAI：off（例外表）映射 effort none——不再发会让严格 400 的未知字段族
     expect(bodies[0]).toMatchObject({ reasoning_effort: "none" });
     expect(bodies[0]).not.toHaveProperty("thinking");
     expect(bodies[0]).not.toHaveProperty("enable_thinking");
@@ -197,10 +173,6 @@ describe("请求构造对照表（url / body / headers）", () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`https://api.example.com/v1${OPENAI_CHAT_PATH}`);
-    // 探针省略档位 ⇒ 请求侧归一为 default（不干预）⇒ 不发任何思考字段
-    // （2026-10-05 裁定，见 docs/adr/0015 的修订块；此前归 off）；未知平台×模型本就
-    // 无事实（UNKNOWN 哨兵）→ 同样不发。旧实现霰弹枪双发 thinking+enable_thinking
-    // 会让 OpenAI 严格校验的探针必 400；查表后字段跟着平台走（见下一条用例）。
     expect(JSON.parse((init as InitLike).body)).toEqual({
       model: "test-model",
       messages: [{ role: "user", content: "ping" }],
@@ -231,18 +203,12 @@ describe("请求构造对照表（url / body / headers）", () => {
     const headers = fetchMock.mock.calls.map(([, init]) => (init as InitLike).headers);
     const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     expect(headers[0]["x-opencode-session"]).toMatch(UUID_V4);
-    // 同一会话的两条请求（工具循环/重试即这种形状）共用同一个会话 id
     expect(headers[1]["x-opencode-session"]).toBe(headers[0]["x-opencode-session"]);
     expect(headers[2]["x-opencode-session"]).not.toBe(headers[0]["x-opencode-session"]);
-    // 会话头是 Opencode Go 专属：其余平台不补
     expect(headers[3]["x-opencode-session"]).toBeUndefined();
   });
 
   it("Opencode Go 的 off 落 effort low（解释/概览钉的 off 在这平台真发出最低档；不臆造关思考字段）", async () => {
-    // 18 号票：删平台声明后按上游词表投影——代表模型用 deepseek-v4.1-flash（同值集
-    // toggle+low-high-max；原 deepseek-v4-flash 已在 2026-10-17 上游快照中移除，见
-    // 03-catalog-check §1），平台未登记开关形状 → off 级联到最小档 low。
-    // （目录外的自填 id（如 glm-5.1）回落手写表，会改发原生 thinking 开关，见 18-report 复核项。）
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
 
     await chatCompletion({
@@ -254,7 +220,6 @@ describe("请求构造对照表（url / body / headers）", () => {
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body.reasoning_effort).toBe("low");
-    // 网关未文档化关思考参数：不发 thinking / enable_thinking 开关
     expect(body.thinking).toBeUndefined();
     expect(body.enable_thinking).toBeUndefined();
   });
@@ -309,17 +274,11 @@ describe("请求构造对照表（url / body / headers）", () => {
   });
 });
 
-// presetId 穿线（02 号票）：provider 记录的 presetId 经 chatCompletion 抵达思考装配边
-//（planThinkingWire，唯一调用点即该 fetch 点），识别主路径优先于 baseUrl host 推断；
-// 旧记录（无 presetId 字段 / normalize 落 "custom"）回落 host/模型名，与 01
-// 落地行为一致（上面的请求构造对照表即 01 golden，继续锁定）。
 describe("presetId 穿线（chatCompletion → 思考装配边）", () => {
   it("provider.presetId 与 host 推断冲突时 presetId 赢：host 命中 Mimo 但记录是 ollama → effort 词汇", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
-      // baseUrl 指向 Mimo 官方域（host 推断 → enable_thinking 族）；presetId
-      // 主路径生效则整体改按 ollama 规则——字段族切换是「谁赢」的可观测判据
       provider: { baseUrl: "https://api.xiaomimimo.com/v1", apiKey: "sk-1", model: "llama3.2", presetId: "ollama" },
       messages: [{ role: "user", content: "hi" }],
       thinkingLevel: "off",
@@ -371,10 +330,6 @@ describe("presetId 穿线（chatCompletion → 思考装配边）", () => {
   });
 });
 
-// token 参数名映射（04 号票）：chatCompletion 的非空 maxTokens 经
-// buildChatRequestBody 随装配边出参 tokenParam 换名——openai-reasoning 系写
-// max_completion_tokens 且不得再出现 max_tokens；其余类维持 max_tokens 现状。
-// 概览/分析的估算预算（含空正文加倍重试）与探针（maxTokens 默认 1）走同一接缝。
 describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => {
   it("OpenAI reasoning 模型（gpt-5.1）+ maxTokens → 请求体 max_completion_tokens，无 max_tokens", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
@@ -505,7 +460,6 @@ describe("images 线格式（image-input 路线 B：openai chat 的 content 翻�
           { type: "image_url", image_url: { url: "data:image/png;base64,REVG" } }
         ]
       },
-      // 同一请求里的纯文本消息维持字符串 content（只有带图消息换形状）。
       { role: "assistant", content: "是截图" }
     ]);
   });
@@ -691,9 +645,6 @@ describe("溢出端到端：抛 .overflow 标记错误且不重试", () => {
   });
 });
 
-// 输出上限过大：协议兜底（anthropic 的 max_tokens）给新模型放的宽值会被上限低的
-// 模型拒绝——退回保守值重发一次即可，不能整轮失败，也不能当成上下文溢出（不转
-// Map-Reduce、不报「上下文过长」）。
 describe("输出上限过大 → 退回保守值重发一次", () => {
   const ANTHROPIC = {
     baseUrl: "https://api.anthropic.com",
@@ -825,7 +776,6 @@ describe("输出上限过大 → 退回保守值重发一次", () => {
     fetchMock.mockClear();
     await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock }).catch(() => {});
 
-    // 仍先试兜底 32768（再退回 8192），不是直接按学到的值发。
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body).max_tokens).toBe(32768);
   });
@@ -871,7 +821,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
 
     expect(error.message).toBe("网络错误：Failed to fetch");
     expect(error.cause).toBeInstanceOf(Error);
-    expect(error.retryable).toBe(true); // 消息启发：failed to fetch
+    expect(error.retryable).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -904,7 +854,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
       fetchImpl: unauthorized
     }).catch((e) => e);
     expect(error401.status).toBe(401);
-    expect(error401.retryable).toBe(false); // 408/429/≥500 才可重试
+    expect(error401.retryable).toBe(false);
     expect(unauthorized).toHaveBeenCalledTimes(3);
   });
 
@@ -1075,8 +1025,6 @@ describe("溢出 / abort 不重试", () => {
     ).rejects.toMatchObject({ aborted: true });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    // 对齐旧 drainSseStream 行为：abort 发生在 read 内时，已返回块的 token 先处理，
-    // 随后循环顶部检查 aborted 才收束。
     expect(events).toEqual([
       { type: "token", data: "partial" },
       { type: "token", data: "more" }
@@ -1154,12 +1102,10 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     });
 
     expect(resets).toEqual(["reset"]);
-    // reset 先于新流事件（渲染层必须先清缓冲再收新 token）
     expect(events).toEqual([{ type: "token", data: "二代正文" }]);
   });
 
   it("fetch / http 阶段失败重试不触发 onStreamReset（未吐过任何事件）", async () => {
-    // fetch 抛错（kind=fetch）
     const fetchFail = vi.fn()
       .mockRejectedValueOnce(new Error("connection reset"))
       .mockResolvedValueOnce(sseResponse([sseData({ content: "ok" })]));
@@ -1176,7 +1122,6 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     });
     expect(resetsFetch).toEqual([]);
 
-    // HTTP 500（kind=http）
     const httpFail = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 500, text: async () => "server error" })
       .mockResolvedValueOnce(sseResponse([sseData({ content: "ok" })]));
@@ -1225,7 +1170,6 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     });
     expect(resets).toEqual([1, 1]);
 
-    // 非流式：读流中断概念不存在，即便重试也不触发
     const nonStreamFetch = vi.fn()
       .mockRejectedValueOnce(new Error("connection reset"))
       .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
@@ -1234,7 +1178,7 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
       provider: PROVIDER,
       messages: [],
       stream: false,
-      retries: 1, // 非流式默认 0，显式开重试才能到达「重试不触发 reset」的断言
+      retries: 1,
       retryDelayMs: 0,
       fetchImpl: nonStreamFetch,
       onRetry: () => {},
@@ -1245,7 +1189,6 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
 });
 
 describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）", () => {
-  // SSE chunk：delta 载荷 + choice 级 finish_reason。
   function sseData(delta: unknown, finishReason?: string) {
     return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
   }
@@ -1294,11 +1237,9 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
       assistantContent: "先想",
       toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }]
     });
-    // tool-call 事件聚合后发出（query 从 arguments JSON 解析）
     expect(events.filter((e) => e.type === "tool-call")).toEqual([
       { type: "tool-call", name: "web_search", args: { query: "x" } }
     ]);
-    // 请求体确实带 tools
     const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body.tools).toEqual([WEB_SEARCH_TOOL]);
     expect(body.tool_choice).toBe("auto");

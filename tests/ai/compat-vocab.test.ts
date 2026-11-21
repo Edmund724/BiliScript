@@ -1,14 +1,3 @@
-// ai/compat-vocab.ts 词表单测（compat-vocab 票）：
-// 词表是平台怪癖命名与语义的单源（借 pi-ai compat 的词表设计，见 ADR-0009
-// 「借」清单；不借其数据，产物不带 compat）。三件事在此钉死：
-// 1. 词表叶：零运行时 import，只 type-import 词表叶 AiProtocol；
-// 2. 二次校验层（票第 4 条）：词表声明的适用协议 ⟺ 该协议 adapter 接纳的
-//    怪癖键集，两侧对账；违规表副本注入后校验器必须报错；
-// 3. 平台声明表：每个平台声明的怪癖键必须在词表里，且被至少一个 adapter 接纳
-//    ——「一处声明」不会声明出没人消费的死键。
-// 行为零变化由既有 adapter/preset-headers 测试钉住，本文件只加两条派生用例：
-// anthropic 的 effort 词汇平台与 preset-headers 的会话头均改从词表派生。
-
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { AI_PROTOCOLS, type AiProtocol } from "../../extension/ai/protocol-vocab.js";
@@ -25,7 +14,6 @@ import { PROTOCOL_ADAPTERS } from "../../extension/ai/protocol-adapter.js";
 import { PRESETS } from "../../extension/core/presets.js";
 import { presetRequestHeaders, sessionIdFor } from "../../extension/ai/preset-headers.js";
 
-// adapter 侧的自陈「我接纳这些怪癖」，与词表声明的适用协议对账用。
 function adapterConsumes(): Record<AiProtocol, readonly CompatQuirk[]> {
   return {
     openai: PROTOCOL_ADAPTERS.openai.consumes,
@@ -34,11 +22,8 @@ function adapterConsumes(): Record<AiProtocol, readonly CompatQuirk[]> {
   };
 }
 
-// 协议缺省就是 openai（resolveAdapter 兜底），它的端点恒为 preset.baseUrl；
-// 其余协议须由 protocolBaseUrls 登记了端点，才算该平台真能服务这条通道。
 const DEFAULT_PROTOCOL: AiProtocol = "openai";
 
-// 每个平台实际登记了端点的协议（由 core/presets.ts 推导，词表叶保持零 import）。
 function presetProtocols(): Record<string, AiProtocol[]> {
   const out: Record<string, AiProtocol[]> = {};
   for (const preset of PRESETS) {
@@ -80,7 +65,6 @@ describe("二次校验层（声明与接纳对账）", () => {
   });
 
   it("平台声明的怪癖键必须存在，且必须被至少一个 adapter 接纳（不声明死键）", () => {
-    // 拼错的键 → 不在词表中
     expect(
       validateCompatVocab({
         consumes: adapterConsumes(),
@@ -88,7 +72,6 @@ describe("二次校验层（声明与接纳对账）", () => {
       })
     ).toContain('PLATFORM_QUIRKS.broken: 怪癖键 "unknownQuirk" 不在词表 COMPAT_QUIRKS 中');
 
-    // 词表里有、但没有 adapter 接纳的键 → 死声明
     expect(
       validateCompatVocab({
         consumes: { openai: [], anthropic: [], gemini: [] },
@@ -108,10 +91,6 @@ describe("二次校验层（声明与接纳对账）", () => {
   });
 
   it("怪癖绑定的协议该平台没登记端点 → 构造性死声明（合成：只登记 openai 端点的平台）", () => {
-    // 判据演示用注入的端点面合成「没登记 anthropic 端点」的平台（2026-10-05
-    // ollama 补登记 protocolBaseUrls.anthropic 后，真实表里已无这种样本，别再拿
-    // 真实预设当反例）：UI 里选 anthropic 会回落 baseUrl 拼出错端点，那条声明
-    // 永远走不到——但"某 adapter 接纳"这道查不出来。
     expect(
       validateCompatVocab({
         consumes: adapterConsumes(),
@@ -124,9 +103,6 @@ describe("二次校验层（声明与接纳对账）", () => {
   });
 
   it("跨协议声明不算违规：判据是端点存不存在，不是记录当前选了哪个协议", () => {
-    // stepfun 两种端点都登记了：effortVocabMessages 绑 anthropic，而该平台的
-    // openai 通道是主通道——设置 UI 的协议下拉对任何预设都无条件渲染两种协议，
-    // 怪癖绑在平台登记过的任一协议上即算有效，与该记录当前选了哪个协议无关。
     expect([...presetProtocols().stepfun].sort()).toEqual(["anthropic", "openai"]);
     expect(
       validateCompatVocab({
@@ -142,11 +118,7 @@ describe("平台声明派生（词表是唯一主人，adapter/preset-headers �
   it("hasPlatformQuirk：effort 词汇平台 = stepfun / amd（anthropic Messages 通道）", () => {
     expect(hasPlatformQuirk("stepfun", "effortVocabMessages")).toBe(true);
     expect(hasPlatformQuirk("amd", "effortVocabMessages")).toBe(true);
-    // stepfun 只声明 anthropic 通道这一条：openai 通道的 effort 词汇由 taxonomy
-    // 的 step-* 族兑现（step37-effort 发 reasoning_effort、step-always 不发），
-    // 补平台声明反而会让 step-3 的 off 误发 reasoning_effort:"none"。
     expect(PLATFORM_QUIRKS.stepfun).toEqual(["effortVocabMessages"]);
-    // 未知/缺省平台不开任何怪癖（软失败优于硬 400）
     expect(hasPlatformQuirk("openrouter", "effortVocabMessages")).toBe(false);
     expect(hasPlatformQuirk("", "effortVocabMessages")).toBe(false);
     expect(hasPlatformQuirk(undefined, "effortVocabMessages")).toBe(false);
@@ -164,11 +136,6 @@ describe("平台声明派生（词表是唯一主人，adapter/preset-headers �
   });
 });
 
-// 查表口径单点（识别器在 ai/platform-quirk-id.ts，词表叶外）：
-// presetId 主路径 + baseUrl host 兜底，键空间 = PLATFORM_QUIRKS。
-// 为什么不能复用 resolveThinkingProviderId：那个函数的键空间是 thinking 的 PROVIDERS
-// 表（PROVIDERS ⊋ PLATFORM_QUIRKS，如 siliconflow 有思考档位但没有怪癖声明），
-// 拿它当词表识别口径会把非词表平台也认成词表成员。
 describe("resolvePlatformQuirkId（词表查表的唯一识别口径）", () => {
   it("presetId 直中：词表成员原样返回（trim 后判定）", () => {
     expect(resolvePlatformQuirkId("opencodego")).toBe("opencodego");
@@ -184,13 +151,10 @@ describe("resolvePlatformQuirkId（词表查表的唯一识别口径）", () => 
     expect(resolvePlatformQuirkId("custom")).toBeUndefined();
     expect(resolvePlatformQuirkId("custom", "not a url")).toBeUndefined();
     expect(resolvePlatformQuirkId("custom", "https://unknown.example.com/v1")).toBeUndefined();
-    // api.deepseek.com 在 host 索引里（→ deepseek），但 deepseek 没声明任何怪癖
     expect(resolvePlatformQuirkId("custom", "https://api.deepseek.com/v1")).toBeUndefined();
   });
 
   it("键空间是 PLATFORM_QUIRKS 而非 PROVIDERS：siliconflow 有思考档位但无怪癖 → undefined", () => {
-    // 钉住口径：resolveThinkingProviderId 会把 siliconflow 认出来（PROVIDERS 成员），
-    // 词表识别口径必须拒绝它——否则 anthropic 的 effort 词汇查表会按错误的键空间判。
     expect(resolvePlatformQuirkId("siliconflow", "https://api.siliconflow.cn/v1")).toBeUndefined();
     expect(resolvePlatformQuirkId("deepseek", "https://api.deepseek.com/v1")).toBeUndefined();
   });

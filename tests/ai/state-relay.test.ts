@@ -51,7 +51,6 @@ function emitTokens(input: Pick<ChatCompletionInput, "onEvent">, text: string, s
   }
 }
 
-/** 构造真实感的长视频逐句字幕（每条间隔 stepSec 秒，总时长 durationSec 秒）。 */
 function buildTimedSubtitleBody(durationSec: number, stepSec = 15, prefix = "第"): Array<{ from: number; to: number; content: string }> {
   const out: Array<{ from: number; to: number; content: string }> = [];
   for (let t = 0, idx = 0; t < durationSec; t += stepSec, idx += 1) {
@@ -66,12 +65,12 @@ function buildTimedSubtitleBody(durationSec: number, stepSec = 15, prefix = "第
 
 describe("分流阈值与 10～15 分钟平滑窗口切分（对齐 5 分钟转写边界）", () => {
   it("30 分钟以内且 <=200k 字符走单次直通；60 分钟常规语速视频按 15 分钟对齐 300s 边界切窗", () => {
-    const shortBody = buildTimedSubtitleBody(1200, 15); // 20 分钟
+    const shortBody = buildTimedSubtitleBody(1200, 15);
     const shortDecision = relayMod.decideOverviewRelaySplit(shortBody);
     expect(shortDecision.shouldRelay).toBe(false);
     expect(shortDecision.windows).toEqual([]);
 
-    const hourBody = buildTimedSubtitleBody(3600, 15); // 60 分钟，约 1.2 万字符
+    const hourBody = buildTimedSubtitleBody(3600, 15);
     const longDecision = relayMod.decideOverviewRelaySplit(hourBody);
     expect(longDecision.shouldRelay).toBe(true);
     expect(longDecision.windows).toHaveLength(4);
@@ -81,7 +80,6 @@ describe("分流阈值与 10～15 分钟平滑窗口切分（对齐 5 分钟转�
       [1800, 2699],
       [2700, 3599]
     ]);
-    // 每条切分边界均为 5 分钟（300s）整数倍，且第二窗起携带前情只读行
     for (let i = 1; i < longDecision.windows.length; i += 1) {
       expect(longDecision.windows[i].fromSeconds % 300).toBe(0);
       expect(longDecision.windows[i].overlapLines.length).toBeGreaterThan(0);
@@ -92,7 +90,6 @@ describe("分流阈值与 10～15 分钟平滑窗口切分（对齐 5 分钟转�
     const body40m = buildTimedSubtitleBody(2400, 20);
     const decision = relayMod.decideOverviewRelaySplit(body40m);
     expect(decision.shouldRelay).toBe(true);
-    // 0-15m(900s), 15-25m(600s), 25-40m(900s) -> 全部在 10~15m 内且边界均为 300s 整数倍
     expect(decision.windows.map((w) => [w.fromSeconds, w.toSeconds])).toEqual([
       [0, 899],
       [900, 1499],
@@ -163,9 +160,7 @@ describe("短视频单次直通与 L1 缓存顺带固化", () => {
 
 describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇总", () => {
   it("串行接力传递约 100 Token 状态卡，金句按行号从 L0 精确回填原文，收尾仅消费 L1 与状态卡并固化 L1 缓存", async () => {
-    // 构造 40 分钟字幕（~120 条，约 4500 字符 -> 按时长阈值分 3 个窗口：0-15m, 15-25m, 25-40m）
     const body = buildTimedSubtitleBody(2400, 20);
-    // 植入两句极具辨识度的金句原文，用来验证绝不被模型改写覆盖
     body[10] = { from: 200, to: 215, content: "工具是人手的延伸，而状态卡是长程记忆的脊梁。" };
     body[60] = { from: 1200, to: 1215, content: "没有行号锚定的金句回填，迟早会在二次改写里走样。" };
     body[100] = { from: 2000, to: 2010, content: "第一句拼合测试，" };
@@ -178,7 +173,6 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
       const user = input.messages.at(-1)?.content ?? "";
 
       if (system.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")) {
-        // 断言收尾 prompt 绝不包含逐行原始字幕正文
         expect(user).not.toContain("#0 [0:00]");
         expect(user).toContain("全片 L1 章节目录：");
         expect(user).toContain("最终状态卡摘要：");
@@ -196,7 +190,6 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
               { title: "长视频瓶颈", timestampSeconds: 0, summary: "剖析切点断裂问题", keyEntities: ["状态卡", "KV-Cache"] }
             ],
             keyQuotes: [
-              // 故意传入模型改写版 hint，验证回填后必须为 L0 逐字原文
               { startLine: 10, endLine: 10, hint: "工具是延伸状态卡是脊梁（模型改写版）" }
             ],
             nextStateCard: {
@@ -218,7 +211,6 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
               { title: "L0 行号锚定", timestampSeconds: 1200, summary: "提出行号回填机制", keyEntities: ["L0", "BM25"] }
             ],
             keyQuotes: [
-              // 模型输出行号轻微偏移（写成了 58，实际原话在第 60 行），验证本地相似度容错对齐！
               { startLine: 58, endLine: 58, hint: "没有行号锚定的金句回填，迟早会在改写里走样" }
             ],
             nextStateCard: {
@@ -237,7 +229,6 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
               { title: "L1 索引固化", timestampSeconds: 1800, summary: "直接由 L1 节点提炼全局脉络", keyEntities: ["L1索引"] }
             ],
             keyQuotes: [
-              // 跨两行区间 [100, 101] 拼合
               { startLine: 100, endLine: 101 }
             ],
             nextStateCard: {
@@ -256,21 +247,19 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
       { chatCompletion }
     );
 
-    expect(chatCompletion).toHaveBeenCalledTimes(4); // 3 窗口接力 + 1 次轻量收尾
+    expect(chatCompletion).toHaveBeenCalledTimes(4);
     expect(result.summary).toBe("全片围绕状态卡接力与 L0/L1 混合检索展开，实现高保真长视频概览。");
     expect(result.chapters).toEqual([
       { from: 0, to: 1200, title: "长视频瓶颈", summary: "剖析切点断裂问题" },
       { from: 1200, to: 1800, title: "L0 行号锚定", summary: "提出行号回填机制" },
       { from: 1800, to: 2400, title: "L1 索引固化", summary: "直接由 L1 节点提炼全局脉络" }
     ]);
-    // 验证金句严格来自 L0 原文，未受模型改写 hint 污染，且兼容 UI 形状 { from, content }
     expect(result.quotes).toEqual([
       { from: 200, content: "工具是人手的延伸，而状态卡是长程记忆的脊梁。" },
       { from: 1200, content: "没有行号锚定的金句回填，迟早会在二次改写里走样。" },
       { from: 2000, content: "第一句拼合测试，第二句接续形成完整金句。" }
     ]);
 
-    // 校验已固化的 L1 缓存内容完整（含 keyEntities / coreThesis / lineNumber / quoteLineNumbers）
     const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
     const l1Keys = (await defaultSubtitleIdbStore.listAllAiArtifacts())
       .filter((a) => a.family === "biliscript_lvs_l1_index_")
@@ -409,18 +398,16 @@ describe("ModelScope / 小参数模型容错解析与降级兜底", () => {
       lineNumber: 1,
       content: "先跑通端到端再做局部微调"
     });
-    // 未返回 stateCard 时延续前序关键实体与悬念
     expect(parsed.nextStateCard.confirmedEntities).toContain("架构演进");
     expect(parsed.nextStateCard.openThreads).toEqual(["微调策略"]);
   });
 
   it("接力过程中某窗口网络报错或收尾返回非 JSON 纯文本，整体仍稳健产出一份完整概览", async () => {
-    const body = buildTimedSubtitleBody(2400, 20); // 3 窗口：0-900, 900-1500, 1500-2400
+    const body = buildTimedSubtitleBody(2400, 20);
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       const system = input.messages[0]?.content ?? "";
       const user = input.messages.at(-1)?.content ?? "";
       if (system.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")) {
-        // 小模型忘了输出 JSON，直接输出了一段纯文本总结
         emitTokens(input, "这是一份小模型直接以纯文本返回的整片脉络总结。");
         return { done: true } as const;
       }
@@ -437,7 +424,6 @@ describe("ModelScope / 小参数模型容错解析与降级兜底", () => {
           })
         );
       } else {
-        // 第 3 窗应依然收到第 1 窗传递过来的状态卡
         expect(user).toContain("首窗主线");
         expect(user).toContain("核心词");
         emitTokens(

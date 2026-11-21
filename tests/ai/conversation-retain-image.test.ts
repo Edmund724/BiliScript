@@ -1,9 +1,3 @@
-// ai/conversation.ts retainLatestImage 的落盘保留策略（image-input 04 号票）：
-// 一个会话最多留最近一张图（最后一条带图消息的最后一张），其余整条摘掉——
-// 最坏体积被压到每会话 ≤1MB。合法性判定复用 normalizeImageParts（同一份单源）。
-// 占位替换不在这里（那是请求组装期 ai/context 的事）：摘掉的图片不写回 content，
-// 否则历史消息在界面上会多出一句占位文本。
-
 import { describe, expect, it } from "vitest";
 import { retainLatestImage } from "../../extension/ai/conversation.js";
 

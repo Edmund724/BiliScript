@@ -1,14 +1,3 @@
-// ai/provider-models.js（AI 平台模型列表拉取的 content 侧薄壳）的行为契约：
-//   - 端点回落：resolveAiModelListTarget 在双协议预设处于 anthropic 协议且 baseUrl 未被
-//     手改时，将探测地址回落至同预设的 openai 端点，并把原地址与探测地址一并收入权限源集合；
-//   - Key 回落：表单 apiKey 优先，为空且带 providerId 时按 providerId 代查已存 Key；
-//   - adapter 分派（协议知识归 adapter 的 listModels）：openai/anthropic → OpenAI 兼容
-//     `${baseUrl}/v1/models` + Bearer；gemini → 原生 `/v1beta/models` + x-goog-api-key；
-//   - 错误文案分流：HTTP 错误回 `HTTP <status>: <body 截断>`；代发通道抛出的 Error
-//     （未授权提示 / 超时）原样透传；响应体 JSON 解析失败回「无法解析模型列表」。
-// 传输层 providerFetchViaBackground 与 aiProviderStore.loadKeys 整体 mock，
-// fetchImpl 以 canned 响应直注（壳的 fetchImpl 固定注入代发，这里代发即桩）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PRESETS } from "../../extension/core/presets.js";
 import { resetModuleState } from "../setup.js";
@@ -39,7 +28,6 @@ vi.mock("../../extension/core/ai-provider-store.js", () => ({
   }
 }));
 
-// 最小响应对象（adapter 只消费 ok / status / text / json）。
 function jsonResponse(status: number, body: unknown) {
   return {
     ok: status >= 200 && status < 300,

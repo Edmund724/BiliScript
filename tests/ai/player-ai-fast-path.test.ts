@@ -1,24 +1,12 @@
-// 候选3 常驻瘦身：AI 按钮快路径不等待 UI 壳 / reader 呈现层装载。
-//
-// content.js 的 storage.sync 快路径（enablePlayerAiQuickAction）与
-// startPlayerAiQuickActionLazy 链路必须在 getSettings 回包前启动 player-ai，
-// 且不能触发 ensureUiReady / hydrateReaderStateFromSettings /
-// applyReadingViewPresentation 的惰性装载。本测试把这三个惰性装载器 mock
-// 为永不 resolve 的 promise，验证 player-ai 仍能在普通页正常启动。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../extension/core/defaults.js";
-// playerAiState 须按用例动态获取：beforeEach 的 vi.resetModules() 会换模块
-// 纪元，静态 import 拿到的实例与生产代码（动态 import 加载）不是同一对象。
 let playerAiState: (typeof import("../../extension/ai/player-ai-state.js"))["playerAiState"];
 async function getPlayerAiState() {
   playerAiState = (await import("../../extension/ai/player-ai-state.js")).playerAiState;
   return playerAiState;
 }
 
-// 候选03：把惰性 UI 壳与 reader 呈现层 mock 为永不 resolve。若 AI 快路径依赖
-// 它们，player-ai 启动就会挂死。
 vi.mock("../../extension/ui/lazy-ui.js", () => ({
   ensureUiReady: vi.fn(() => new Promise(() => {}))
 }));
@@ -106,7 +94,6 @@ describe("player-ai 快路径与惰性装载解耦", () => {
     expect(playerAiState.playerAiQuickActionObserver).not.toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(true);
 
-    // 红线：AI 按钮快路径不等待 ui-renderer / reader 呈现层。
     expect(ensureUiReady).not.toHaveBeenCalled();
     expect(hydrateReaderStateFromSettings).not.toHaveBeenCalled();
     expect(applyReadingViewPresentation).not.toHaveBeenCalled();
@@ -120,10 +107,6 @@ describe("player-ai 快路径与惰性装载解耦", () => {
     const { loadPlayerAi } = await import("../../extension/ai/lazy-player-ai.js");
     await flushMicrotasks();
 
-    // content.js 的三处 storage 监听（debug-log-gate / bindSettingsWatcher /
-    // bindPlayerAiSettingsWatcher）经 shared/watch-storage-keys seam 收口为
-    // 单条真实 chrome.storage.onChanged 监听（calls[0]），seam 派发器按各订阅
-    // 者的区/键清单过滤分发；enablePlayerAiQuickAction 由播放器 AI 开关门消费。
     const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
     activeSettingsRef.current = { ...activeSettingsRef.current, enablePlayerAiQuickAction: true };
     listener({ enablePlayerAiQuickAction: { newValue: true } }, "sync");

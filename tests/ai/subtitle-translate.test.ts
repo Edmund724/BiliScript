@@ -130,7 +130,6 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
   });
 
   it("专属自定义平台已被删除或禁用时，平滑回落至内置免 Key Index-Translate 默认模型", () => {
-    // 目标平台已禁用
     const resDisabled = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
@@ -144,7 +143,6 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(resDisabled.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
     expect(resDisabled.apiKey).toBe("");
 
-    // 目标平台不存在
     const resNonExistent = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
@@ -184,7 +182,7 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(() =>
       resolveSubtitleTranslateProviderConfig(
         sampleProviders,
-        {}, // 缺 Key
+        {},
         { subtitleTranslateProviderId: "deepseek" }
       )
     ).toThrow("该平台 API Key 未配置");
@@ -232,17 +230,14 @@ describe("字幕翻译请求装配与思考关闭 buildSubtitleTranslateRequest"
         { role: "user", content: "1. Hello world" }
       ],
       stream: false,
-      // 故意传入高思考档位测试
       thinkingLevel: "high"
     });
 
-    // 必须强制设为 off，且默认走 offscreen 代发传输
     expect(request.thinkingLevel).toBe("off");
     expect(request.fetchImpl).toBe(providerFetchViaOffscreen);
     expect(request.messages).toHaveLength(2);
     expect(request.provider.model).toBe("deepseek-chat");
 
-    // 验证 planThinkingWire 与适配器线格式：思考字段关闭生效
     const wireGlm = planThinkingWire({
       protocol: "openai",
       model: "glm-4.5",

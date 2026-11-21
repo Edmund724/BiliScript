@@ -1,21 +1,3 @@
-// tests/ai/thinking-vocabulary.test.ts
-// 思考线「事实层 → 写法层」seam 的**封闭词汇**（判别联合 ThinkingVocabulary）对账。
-//
-// 先列这个改造可能失败的方式（每条在此有对应判据）：
-//   ① 联合漏 kind / 新增 kind 不表态：kind 全集穷尽（`Record<ThinkingVocabularyKind, true>`
-//      是编译期检查——联合加成员而这里没跟，tsc 红），且表里出现的 kind 都在全集内；
-//   ② 载荷成员串味：level / on / type 三种载荷不许互相串（串了就是两个成员被折成一个）；
-//   ③ 哨兵被 falsy 默认吞掉：noFields（有结论但不发言）与 unknown（无结论）是同一线上的
-//      两个显式状态，判别键不同，且都**不带载荷**（进了 patch 就是误用，校验器报错）；
-//   ④ 白名单派生漏词 / 派生为恒真：校验器对哨兵与联合外的脏 kind 报错、对载荷 kind 放行；
-//   ⑤ 出口漏 kind：解析结果的 vocabulary 恒在，且五个 kind 都能从真实的表/解析路径到达；
-//   ⑥ 写法层漏 switch 分支：每个 kind 在**两个通道**上的落线逐条钉住（off / effort 词 /
-//      开档 / 不发四态）——这是替代「扫 adapter 源码文本抓词汇发散」的行为判据。
-//
-// 词汇字面量「只出现在写法层」这条不变式由本联合的封闭性 + seam 类型兜住（tsc），
-// 不再靠扫 adapter / 血统表源码文本对账；写法层逐平台逐出口表的用例在
-// tests/ai/thinking-wire-map.test.ts。
-
 import { describe, expect, it } from "vitest";
 import { VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import {
@@ -36,7 +18,6 @@ import {
 } from "../../extension/ai/thinking-profiles.js";
 import { THINKING_WIRE_MAPS, openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 
-// 联合的 kind 全集（穷尽由 tsc 兜住：联合新增成员而这里不表态 → 编译期红）。
 const ALL_KINDS: Readonly<Record<ThinkingVocabularyKind, true>> = {
   reasoningEffort: true,
   enableThinking: true,
@@ -45,10 +26,8 @@ const ALL_KINDS: Readonly<Record<ThinkingVocabularyKind, true>> = {
   unknown: true
 };
 const KIND_NAMES = Object.keys(ALL_KINDS).sort();
-// 带线格式载荷的 kind（哨兵不含）——与 thinking-profiles 的白名单派生同源口径。
 const PAYLOAD_KINDS = ["enableThinking", "reasoningEffort", "thinkingType"];
 
-// class 规则上的写点键（off / on + 7 档投影里的非 off 档）。
 const PATCH_KEYS = ["off", "on", ...AI_THINKING_LEVELS.filter((level) => level !== "off")] as const;
 
 function collectPatches(): ThinkingVocabulary[] {
@@ -96,7 +75,6 @@ describe("封闭词汇（事实层 → 写法层的中转词汇）", () => {
     expect(NO_FIELDS.kind).not.toBe(UNKNOWN_VOCABULARY.kind);
     expect(KIND_NAMES).toContain(NO_FIELDS.kind);
     expect(KIND_NAMES).toContain(UNKNOWN_VOCABULARY.kind);
-    // 哨兵不进表：它是解析期的「没有/不发」，写进 patch 就是误用（下一条用例）。
     expect(PAYLOAD_KINDS).not.toContain(NO_FIELDS.kind);
     expect(PAYLOAD_KINDS).not.toContain(UNKNOWN_VOCABULARY.kind);
   });
@@ -112,10 +90,6 @@ describe("封闭词汇（事实层 → 写法层的中转词汇）", () => {
   });
 
   it("载荷词非空：表与 02 值集里的档位词 / 枚举词都是非空串，开关是布尔（写法层「有词」判据的结构前提）", () => {
-    // 失败方式 ⑦：词汇载荷若是空串，写法层「effort 词存在 → 发档位词」与改造前
-    // `if (bloodLineEffort)`（truthy）的落支就会不同（空词会掉进裸开档那一支）。
-    // 表内所有词汇都由构造子登记，这里把「没有空词」钉成不变量，防止新登记 / 上游再生
-    // （ai/catalog/models-dev-thinking.generated.ts 由构建期生成）悄悄引入空词。
     for (const vocabulary of collectPatches()) {
       if (vocabulary.kind === "reasoningEffort") {
         expect(vocabulary.level.length > 0, `档位词为空（${JSON.stringify(vocabulary)}）`).toBe(true);
@@ -134,12 +108,9 @@ describe("封闭词汇（事实层 → 写法层的中转词汇）", () => {
         expect(word.length > 0, `${signature} 值集里的档位词为空`).toBe(true);
       }
     }
-    // 口径自检：值集扫描不许空转（去重后的 02 值集签名里登记着百量级的档位词）。
     expect(valuesetWords).toBeGreaterThan(100);
   });
 });
-
-// ===== seam 出口与写法层落线（按 kind 断行为）=====
 
 describe("事实层出口：解析结果的 vocabulary", () => {
   it("出口恒在：五个 kind 都能从真实的表 / 解析路径到达（无死成员，也无漏成员）", () => {
@@ -170,9 +141,7 @@ describe("事实层出口：解析结果的 vocabulary", () => {
 describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）", () => {
   interface VocabularyCase {
     readonly vocabulary: ThinkingVocabulary;
-    /** openai 通道（= OpenAI 词汇原样并入）的期望字段。 */
     readonly openai: Record<string, unknown>;
-    /** anthropic 通道上这一词汇的写法类别；none = 一个字段都不发。 */
     readonly anthropic: "off" | "effort" | "on" | "none";
     readonly word?: string;
   }

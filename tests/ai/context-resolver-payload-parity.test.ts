@@ -1,14 +1,3 @@
-// 两路径装配对拍：网络路径（ai/context-resolver 的取数 + core/context-payload
-// 的 createFetchedContextPayload）与进程内路径（clip 直喂同一工厂的
-// createReaderContextPayload）在同一份视频事实下必须产出同一份 payload。
-//
-// 这一对拍就是「装配链单源」的验收接缝：字段清单/key 序/逐字段缺省/三个数组
-// 字段的守卫（subtitleBody / subtitleOptions / chapters）只存在于工厂一处，
-// 取数路径不再自带一套缺省；两条路径的签名因此必然相等。
-//
-// 单纪元：不使用 vi.resetModules，vi.mock 工厂闭包全程有效（同
-// tests/ai/context-resolver-chapters.test.ts 的手法）。
-
 import { describe, expect, it, vi } from "vitest";
 
 const { VIDEO_FACTS } = vi.hoisted(() => ({
@@ -49,7 +38,6 @@ vi.mock("../../extension/bilibili/video-api.js", async (importOriginal) => {
   };
 });
 
-// gateway 拆叶（arch-slim-2/04）：context-resolver 经 gateway-core 消费传输叶。
 vi.mock("../../extension/bilibili/gateway-core.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/gateway-core.js")>();
   return {
@@ -79,12 +67,6 @@ import { createInProcessContextFetch } from "../../extension/core/context-assemb
 import type { ChatSessionContextSnapshot } from "../../extension/chat/chat-state.js";
 import type { ClipState } from "../../extension/core/state.js";
 
-// 同一份视频事实的两种形状：网络路径吃取数事实，进程内路径吃 clip 快照。
-// 两者的字段名映射（payload.subtitleLang ← clip.selectedSubtitleLang、
-// payload.subtitleOptions ← clip.subtitles）由工厂的同一投影承担。
-// clip.subtitles 与网络路径的轨清单同源同形（生产写入点
-// subtitle/fetcher.setSubtitles(normalizeSubtitleTracks(...))），故两条路径
-// 引用同一份轨条目。
 const TRACK_OPTIONS = VIDEO_FACTS.tracks;
 
 const CLIP_FACTS: Partial<ClipState> = {
@@ -109,8 +91,6 @@ const CLIP_FACTS: Partial<ClipState> = {
 };
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1parity0000/";
-// 入口 ref 的元信息与真实元信息不同：两路径都必须以取数/快照事实为准，
-// 不被 ref 的陈旧值带偏（ref 只作取不到事实时的回落）。
 const CONTEXT_REF = {
   title: "入口标题",
   url: VIDEO_URL,
@@ -121,7 +101,6 @@ const CONTEXT_REF = {
   pageTitle: "入口分P"
 };
 
-// 进程内路径的入口：state.clip 直喂 createReaderContextPayload。
 function readerPayload(clip: Partial<ClipState> = CLIP_FACTS): ReaderContextPayload {
   return createReaderContextPayload({
     clip,
@@ -151,10 +130,8 @@ describe("AiContext 装配链单源：两路径对拍", () => {
 
     expect(network.pageCount).toBe(VIDEO_FACTS.meta.pages.length);
     expect(network.pageIndex).toBe(1);
-    // 取数路径只在正文非空时交付（空正文在取数侧失败抛出），快照因此恒 ready
     expect(network.subtitleFetchState).toBe("ready");
     expect(network.noSubtitleReason).toBe(null);
-    // 轨身份三元组来自选中的轨（ref 偏好 id 命中），与进程内路径同源同形
     expect(network.subtitleLang).toBe("中文");
     expect(network.selectedSubtitleId).toBe("sub-1");
     expect(network.subtitleOptions).toEqual(TRACK_OPTIONS);
@@ -162,9 +139,7 @@ describe("AiContext 装配链单源：两路径对拍", () => {
 
   it("装配链照旧补 hotComments / isVideoContext / signature（取数构造器只给热评空占位）", async () => {
     const network = await resolveAiConversationContext(CONTEXT_REF);
-    // 取数构造器不拉热评（字段齐全的空占位；网络热评另票接通）
     expect(network.hotComments).toEqual([]);
-    // isVideoContext 不在 payload 单源内，由装配链补写
     expect(Object.keys(readerPayload())).not.toContain("isVideoContext");
 
     const HOT_COMMENTS = [{ uname: "热评君", message: "前方高能" }];
@@ -180,16 +155,13 @@ describe("AiContext 装配链单源：两路径对拍", () => {
     const snapshot = (outcome as { payload: ChatSessionContextSnapshot }).payload;
     expect(snapshot.hotComments).toEqual(HOT_COMMENTS);
     expect(snapshot.isVideoContext).toBe(true);
-    // 签名由装配链从同一工厂产物算出（与把同事实交给纯签名单函数同值）
     expect(snapshot.signature).toBe(computeContextStateSignature(readerPayload()));
-    // 装配链补写之后，除热评（网络路径恒空）与签名（现算）外与网络路径逐字段相等
     const { hotComments: _hot, signature: _signature, ...snapshotRest } = snapshot;
     const { hotComments: _networkHot, ...networkRest } = network;
     expect(snapshotRest).toEqual(networkRest);
   });
 
   it("数组守卫与缺省只保留一份：脏值输入在两条入口按同一口径收口", () => {
-    // 进程内入口（clip 形状）：非数组的数组型字段一律折算为空数组
     const dirtyClip = readerPayload({
       ...CLIP_FACTS,
       subtitles: undefined,
@@ -198,7 +170,6 @@ describe("AiContext 装配链单源：两路径对拍", () => {
     expect(dirtyClip.subtitleOptions).toEqual([]);
     expect(dirtyClip.chapters).toEqual([]);
 
-    // 取数入口（事实形状）：同一份工厂投影，同一套守卫
     const dirtyFetched = createFetchedContextPayload({
       bvid: "BV1parity0000",
       cid: "101",
@@ -221,7 +192,6 @@ describe("AiContext 装配链单源：两路径对拍", () => {
     expect(dirtyFetched.subtitleBody).toEqual([]);
     expect(dirtyFetched.subtitleOptions).toEqual([]);
     expect(dirtyFetched.chapters).toEqual([]);
-    // 同一取数口径：无正文 ⇒ idle（正文非空才是 ready）
     expect(dirtyFetched.subtitleFetchState).toBe("idle");
   });
 });

@@ -1,11 +1,3 @@
-// tests/ai/chat-hybrid-retrieval.test.ts
-// 长视频多轮 AI 对话两阶段单跳混合召回与免路由直通单元测试（ADR-0027）：
-// 1. 免路由直通（Fast Path）：划词解释 / 显式时间戳 / 当前播放进度指代；
-// 2. 两阶段单跳混合召回：简单寒暄免路由 / 宏观直答 / 细节路由 1~2 区间 + 双路字幕去重合并；
-// 3. 频控限流（429）/ 路由超时 / 非预期格式静默降级为「L1 目录 + 本地 BM25 Top 扩窗」；
-// 4. runLadderChat 联动关键帧采样（复用核心时间戳）、思考强度透传、联网搜索正交兼容；
-// 5. chat-runtime + explain-intent 端到端透传 interactionAnchor 与 playbackCursorSeconds。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   buildFastPathContext,
@@ -26,7 +18,6 @@ import type { L0ContextWindow, L1VideoIndexCacheRecord } from "../../extension/a
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 
 function buildLongVideoFixture() {
-  // 构造 45 分钟（2700 秒）三章节长视频字幕体
   const rawBody: Array<{ from: number; to: number; content: string }> = [];
   for (let i = 0; i < 90; i += 1) {
     const from = i * 30;
@@ -245,7 +236,6 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     });
 
     expect(merged.windows).toHaveLength(2);
-    // 重叠窗口 A(16..20) 与 B(18..22) 合并为连续窗口 16..22，且排在 C(40..44) 之前
     expect(merged.windows[0].startLineNumber).toBe(16);
     expect(merged.windows[0].endLineNumber).toBe(22);
     expect(merged.windows[0].lines.map((l) => l.lineNumber)).toEqual([16, 17, 18, 19, 20, 21, 22]);
@@ -344,7 +334,6 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     expect(routeSpy).toHaveBeenCalledTimes(1);
     expect(result.mode).toBe("hybrid-single-hop");
     expect(result.degraded).toBe(false);
-    // 第 5 行（Softmax，BM25 命中）与第 42 行（SIMD，章节+BM25 双命中）均存在且无重复行号
     const lineNumbers = result.windows.flatMap((w) => w.lines.map((l) => l.lineNumber));
     expect(lineNumbers).toContain(5);
     expect(lineNumbers).toContain(42);
@@ -517,13 +506,10 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
       }
     );
 
-    // 1. 复用了召回命中的核心时间戳 540s 触发截帧
     expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
     expect(captureCurrentVideoFrame.mock.calls[0][0]).toBe(540);
-    // 2. port 收到视频画面 tool-status（searching → done）
     const frameStatuses = portMessages.filter((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time");
     expect(frameStatuses.map((m) => m.status)).toEqual(["searching", "done"]);
-    // 3. streamChat 收到合并图片、frameContextNote、透传 thinkingLevel="high" 与 webSearch，且未重复注入 captureCurrentVideoFrame
     expect(streamCalls).toHaveLength(1);
     expect(streamCalls[0].thinkingLevel).toBe("high");
     expect(streamCalls[0].webSearch).toBe(webSearch);
@@ -540,7 +526,6 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
   });
 
   it("超预算视频（>200k）走 Fast Path（划词/时间戳）时跳过成本护栏与 Map-Reduce，直接流式生成", async () => {
-    // 构造 >200k 字符但含明确时间戳的视频
     const hugeBody = Array.from({ length: 210 }, (_, i) => ({
       from: i * 15,
       to: i * 15 + 14,

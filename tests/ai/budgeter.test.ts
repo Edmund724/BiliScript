@@ -1,7 +1,3 @@
-// ai/budgeter.js 预算器纯函数测试：
-// 覆盖估 token、章节对齐、无章节回退、200k / 210k / 500k / 501k 各档、
-// 空输入、缺 content、非字符串 estimateTokens。
-
 import { describe, expect, it } from "vitest";
 import { makeSubtitleBody } from "../setup.js";
 import {
@@ -83,7 +79,7 @@ describe("buildBudgetPlan 判模式与各档位", () => {
     expect(plan.mode).toBe("map-reduce");
     expect(plan.segments).toHaveLength(10);
     expect(plan.needsReduce).toBe(false);
-    expect(plan.estimatedCalls).toBe(11); // 段数 + 成稿，无归并层
+    expect(plan.estimatedCalls).toBe(11);
   });
 
   it("501k（>500k）→ 11 段 + 归并调用，调用数超过段数+1", () => {
@@ -92,7 +88,7 @@ describe("buildBudgetPlan 判模式与各档位", () => {
     expect(plan.segments).toHaveLength(11);
     expect(plan.needsReduce).toBe(true);
     expect(plan.estimatedCalls).toBeGreaterThan(plan.segments.length + 1);
-    expect(plan.estimatedCalls).toBe(15); // 11 段 + 1 成稿 + 3 次归并（2 组 + 1 组）
+    expect(plan.estimatedCalls).toBe(15);
   });
 
   it("estimatedCalls 随长度增长而增大（501k < 1000k）", () => {
@@ -107,18 +103,17 @@ describe("buildBudgetPlan 分段边界", () => {
     const plan = buildBudgetPlan({ body: makeSubtitleBody(210000) });
     expect(plan.mode).toBe("map-reduce");
     expect(plan.segments[0].from).toBe(0);
-    expect(plan.segments[0].to).toBe(250); // 第 50 项（from 245）的 to
+    expect(plan.segments[0].to).toBe(250);
     expect(plan.segments[0].chars).toBe(50000);
     expect(plan.segments[0].items).toHaveLength(50);
     expect(plan.segments[4].items).toHaveLength(10);
   });
 
   it("命中章节 from：在章节起点切断对齐（段尾停在上一章结尾）", () => {
-    const body = makeSubtitleBody(220000); // 220 项，逐项 from = i*5
+    const body = makeSubtitleBody(220000);
     const chapters = [{ from: 100, to: 200, title: "第二章" }];
     const plan = buildBudgetPlan({ body, chapters });
     expect(plan.mode).toBe("map-reduce");
-    // 未命中章节时首段会累积 50 项（from 0..245）；命中 from=100 后，第 20 项（to=100）收段。
     expect(plan.segments).toHaveLength(5);
     expect(plan.segments[0].from).toBe(0);
     expect(plan.segments[0].to).toBe(100);
@@ -129,11 +124,10 @@ describe("buildBudgetPlan 分段边界", () => {
   });
 
   it("章节 from 落在两条字幕之间（非逐秒相等）也按边界对齐", () => {
-    const body = makeSubtitleBody(220000); // 220 项，逐项 from = i*5
+    const body = makeSubtitleBody(220000);
     const chapters = [{ from: 102, to: 200, title: "第二章" }];
     const plan = buildBudgetPlan({ body, chapters });
     expect(plan.mode).toBe("map-reduce");
-    // 第 21 项（from=105）跨入章节，前一条 from=100 处收段（无需字幕与章节时间戳逐秒相等）。
     expect(plan.segments[0].from).toBe(0);
     expect(plan.segments[0].to).toBe(105);
     expect(plan.segments[0].items).toHaveLength(21);
@@ -142,22 +136,22 @@ describe("buildBudgetPlan 分段边界", () => {
 
   it("空 content 项跳过计入，且 from/to 映回段内首末非空项", () => {
     const body = makeSubtitleBody(230000);
-    body[50].content = ""; // 第 51 项（from 250）为空，被跳过
+    body[50].content = "";
     const plan = buildBudgetPlan({ body });
     expect(plan.totalChars).toBe(230000 - 1000);
     expect(plan.mode).toBe("map-reduce");
     expect(plan.segments).toHaveLength(5);
     expect(plan.segments[0].items).toHaveLength(50);
     expect(plan.segments[0].from).toBe(0);
-    expect(plan.segments[0].to).toBe(250); // 停在空项之前的第 50 项（to=250）
-    expect(plan.segments[1].from).toBe(255); // 跳过空项后从第 52 项继续
+    expect(plan.segments[0].to).toBe(250);
+    expect(plan.segments[1].from).toBe(255);
   });
 
   it("body 项缺 content / trim 后为空 → 不计入、跳过", () => {
     const body = [
       { from: 0, to: 2, content: "hello" },
-      { from: 2, to: 4 }, // 缺 content
-      { from: 4, to: 6, content: "   " }, // trim 后为空
+      { from: 2, to: 4 },
+      { from: 4, to: 6, content: "   " },
       { from: 6, to: 8, content: "world" }
     ];
     const plan = buildBudgetPlan({ body });
@@ -171,7 +165,6 @@ describe("buildBudgetPlan 分段边界", () => {
 
 describe("buildBudgetPlan options：入口侧预算参数化（溢出放宽预算重跑用）", () => {
   it("segmentInputChars 减半 → 段数翻倍；mode / needsReduce 不受影响", () => {
-    // 600k 字符：默认 50k 收段 → 12 段；25k 收段 → 24 段。
     const body = makeSubtitleBody(600000);
     const normal = buildBudgetPlan({ body });
     expect(normal.segments).toHaveLength(12);
@@ -179,7 +172,6 @@ describe("buildBudgetPlan options：入口侧预算参数化（溢出放宽预�
 
     const tight = buildBudgetPlan({ body }, { segmentInputChars: 25000, reduceGroupInputChars: 50000 });
     expect(tight.segments).toHaveLength(24);
-    // 模式判定（200k 线）与归并触发线（500k 线）是出口侧材料体量语义，不随入口预算变。
     expect(tight.mode).toBe("map-reduce");
     expect(tight.needsReduce).toBe(true);
   });
@@ -188,12 +180,10 @@ describe("buildBudgetPlan options：入口侧预算参数化（溢出放宽预�
     const body = makeSubtitleBody(600000);
     const normal = buildBudgetPlan({ body });
     expect(normal.reduceGroupInputChars).toBe(REDUCE_GROUP_INPUT_CHARS);
-    // 12 段：归并层 ceil(12/10)=2 组 + ceil(2/10)=1 组 = 3 次 → 12+1+3。
     expect(normal.estimatedCalls).toBe(16);
 
     const tight = buildBudgetPlan({ body }, { segmentInputChars: 25000, reduceGroupInputChars: 50000 });
     expect(tight.reduceGroupInputChars).toBe(50000);
-    // 24 段、每组 5 条（50k/10k）：ceil(24/5)=5 + ceil(5/5)=1 = 6 次 → 24+1+6。
     expect(tight.estimatedCalls).toBe(31);
   });
 

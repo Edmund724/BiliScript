@@ -1,9 +1,3 @@
-// ai/reduce.js 归并层测试（07 票）：
-// 覆盖阈值判定（>500k / needsReduce 触发，≤500k 沿用 03 直接成稿）、贪心分组
-// （每组 ≤100k、单条超预算自成一组、空数组返回 []）、多层归并收敛
-// （levels>0、终态合计 ≤100k、每组恰好调用一次）、进度文案（「正在归并第 L 层 a/b 组」）、
-// prompt 措辞对齐蓝本 _merge_prompt，以及归并期间中止抛 aborted 标记错误。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   shouldReduce,
@@ -15,12 +9,10 @@ import {
 import { REDUCE_GROUP_INPUT_CHARS } from "../../extension/ai/budgeter.js";
 import type { BudgetPlan } from "../../extension/ai/types.js";
 
-// 生成 n 条各 chars 字符的小结（首字符序号区分，便于断言顺序保持）。
 function makeSummaries(count: number, chars: number) {
   return Array.from({ length: count }, (_, i) => `s${i}`.padEnd(chars, "x"));
 }
 
-// 一组字符合计。
 function groupChars(group: string[]): number {
   return group.reduce((acc, s) => acc + s.length, 0);
 }
@@ -50,7 +42,6 @@ describe("shouldReduce 阈值判定", () => {
 
 describe("buildReduceGroups 贪心分组", () => {
   it("按输入顺序贪心累积，每组合计 ≤100k，顺序保持", () => {
-    // 12 条 × 20k = 240k → 5+5+2 三组（每组恰 100k）
     const input = makeSummaries(12, 20000);
     const groups = buildReduceGroups(input);
     expect(groups).toHaveLength(3);
@@ -112,7 +103,6 @@ describe("buildReducePrompt 措辞对齐蓝本 _merge_prompt", () => {
 
 describe("reduceSummaries 多层归并收敛", () => {
   it("短串产出一次收敛：调用次数 = 组数，终态合计 ≤100k", async () => {
-    // 11 条 × 10k = 110k → 10+1 两组，一层归并后骤降到 10 字符
     const summaries = makeSummaries(11, 10000);
     const runPrompts = vi.fn(async () => "组合并结果");
     const onProgress = vi.fn();
@@ -128,7 +118,6 @@ describe("reduceSummaries 多层归并收敛", () => {
     expect(runPrompts).toHaveBeenCalledTimes(2);
     expect(result.merged).toEqual(["组合并结果", "组合并结果"]);
     expect(groupChars(result.merged)).toBeLessThanOrEqual(REDUCE_GROUP_INPUT_CHARS);
-    // 进度文案：每组一条「正在归并第 L 层 a/b 组」
     expect(onProgress).toHaveBeenCalledTimes(2);
     for (const notice of onProgress.mock.calls.map((c) => c[0])) {
       expect(notice).toMatch(/^正在归并第 \d+ 层 \d+\/\d+ 组$/);
@@ -136,8 +125,6 @@ describe("reduceSummaries 多层归并收敛", () => {
   });
 
   it("多层归并直到合计 ≤100k：levels=2、每层每组恰好调用一次", async () => {
-    // 30 条 × 10k = 300k：第 1 层 10/组 → 3 组；每条产出 40k → 3×40k=120k 仍超
-    // → 第 2 层 40k+40k=80k 一组、40k 一组 → 2 组 → 2×40k=80k 收敛。
     const summaries = makeSummaries(30, 10000);
     const onProgress = vi.fn();
     const runPrompts = vi.fn(async (_input: { prompt?: string; messages?: unknown[] }) => "x".repeat(40000));
@@ -152,7 +139,6 @@ describe("reduceSummaries 多层归并收敛", () => {
     expect(result.levels).toBe(2);
     expect(result.merged).toHaveLength(2);
     expect(groupChars(result.merged)).toBeLessThanOrEqual(REDUCE_GROUP_INPUT_CHARS);
-    // 3 + 2 次调用，每个归并 prompt 带对应批次序号
     expect(runPrompts).toHaveBeenCalledTimes(5);
     const prompts = runPrompts.mock.calls.map((c) => c[0].prompt);
     expect(prompts[0]).toContain("这是长视频合并材料的第 1/3 批。");
@@ -162,7 +148,6 @@ describe("reduceSummaries 多层归并收敛", () => {
     for (const prompt of prompts) {
       expect(prompt).toContain("视频标题：测试视频");
     }
-    // 进度文案 5 条，格式统一
     expect(onProgress).toHaveBeenCalledTimes(5);
     for (const notice of onProgress.mock.calls.map((c) => c[0])) {
       expect(notice).toMatch(/^正在归并第 \d+ 层 \d+\/\d+ 组$/);
@@ -187,7 +172,6 @@ describe("reduceSummaries 多层归并收敛", () => {
 
 describe("reduceSummaries 归并层并发（06 票）", () => {
   it("组间并发有上界：在飞 runPrompts 数不超过 REDUCE_CONCURRENCY，且确实并发（>1）", async () => {
-    // 30 条 × 10k = 300k → 第一层 3 组；组内 runPrompts 挂起时统计在飞数。
     const summaries = makeSummaries(30, 10000);
     let inFlight = 0;
     let maxInFlight = 0;
@@ -207,7 +191,6 @@ describe("reduceSummaries 归并层并发（06 票）", () => {
   });
 
   it("进度回吐按完成序（不按提交序），merged 仍按原始组序", async () => {
-    // 30 条 × 10k → 3 组；组 2 最快、组 3 次之、组 1 最慢（提交序 1→2→3）。
     const summaries = makeSummaries(30, 10000);
     const delays = [30, 1, 10];
     const runPrompts = vi.fn(async ({ prompt }) => {
@@ -229,7 +212,6 @@ describe("reduceSummaries 归并层并发（06 票）", () => {
       "正在归并第 1 层 3/3 组",
       "正在归并第 1 层 1/3 组"
     ]);
-    // 结果写回位置按原始下标，不按完成序
     expect(result.merged).toEqual(["结果1", "结果2", "结果3"]);
   });
 
@@ -275,7 +257,6 @@ describe("reduceSummaries 中止", () => {
         signal: controller.signal
       })
     ).rejects.toMatchObject({ aborted: true, message: "已停止生成" });
-    // 第 2 组调用前被中止，只发出 1 次归并调用
     expect(runPrompts).toHaveBeenCalledTimes(1);
   });
 
@@ -302,7 +283,7 @@ describe("reduceSummaries groupInputChars 参数化（溢出放宽预算重跑�
   }
 
   it("合计不超默认组输入 → 不归并；收紧 groupInputChars 后同批内容触发归并", async () => {
-    const summaries = makeSummaries(3, 20000); // 合计 60k
+    const summaries = makeSummaries(3, 20000);
     const runPrompts = vi.fn(async ({ prompt }) => `m(${prompt.length})`);
 
     const normal = await reduceSummaries({ summaries, title: "t", runPrompts });
@@ -310,14 +291,13 @@ describe("reduceSummaries groupInputChars 参数化（溢出放宽预算重跑�
     expect(runPrompts).not.toHaveBeenCalled();
 
     const tight = await reduceSummaries({ summaries, title: "t", runPrompts, groupInputChars: 50000 });
-    // 60k > 50k → 分组 [s0,s1]（40k）+ [s2] → 2 组归并 → 40k ≤ 50k 收敛。
     expect(tight.levels).toBe(1);
     expect(runPrompts).toHaveBeenCalledTimes(2);
   });
 
   it("归并产出 clamp 到收紧后的组输入（而不是全局常量）", async () => {
     const summaries = makeSummaries(3, 20000);
-    const runPrompts = vi.fn(async () => "z".repeat(80000)); // 单条产出 80k
+    const runPrompts = vi.fn(async () => "z".repeat(80000));
     const result = await reduceSummaries({
       summaries,
       title: "t",
@@ -330,7 +310,7 @@ describe("reduceSummaries groupInputChars 参数化（溢出放宽预算重跑�
   });
 
   it("非法 groupInputChars（0 / 非数）回落全局常量", async () => {
-    const summaries = makeSummaries(3, 40000); // 合计 120k > 100k 默认组输入
+    const summaries = makeSummaries(3, 40000);
     const runPrompts = vi.fn(async ({ prompt }) => `m(${prompt.length})`);
     const result = await reduceSummaries({ summaries, title: "t", runPrompts, groupInputChars: 0 });
     expect(runPrompts).toHaveBeenCalled();

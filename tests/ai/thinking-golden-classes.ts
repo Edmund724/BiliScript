@@ -1,18 +1,3 @@
-// tests/ai/thinking-golden-classes.ts
-// 按类 golden 用例的**纯数据件**：产物枚举、出口形态命名、三条通道的调用缝。
-// 刻意不 import vitest/expect——同一份枚举与调用缝要同时服务 golden 用例与同步脚本
-// （scripts/sync-thinking-golden.ts）；断言注册在 thinking-golden-defenses.ts。
-//
-// 口径：
-// - 平台 = UPSTREAM_PROVIDER_BY_PRESET 的 12 家（preset → 上游 provider）；
-// - 模型 = 02 指派表 ASSIGNMENTS 的 (provider, modelId)，有别名时换成本仓口径 localId
-//   （MODEL_ID_ALIASES）；
-// - 类 = 值集 id（02 产物 VALUESETS 的键）；
-// - 「实现」= (类, 平台) 对，每对取排序首个模型做代表——用例只按类 × 出口形态写，
-//   每个实现的行为由归纳完整性防线扫（见 thinking-golden-defenses.ts 的 F2）。
-// - gemini 通道只承载 `protocol: "gemini"` 的预设（目前只有 gemini 一家）：其它平台
-//   不会用这条协议发请求，跨协议组合不是产品路径。
-
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { geminiAdapter } from "../../extension/ai/adapters/gemini.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
@@ -23,35 +8,25 @@ import { DEFAULT_MAX_TOKENS } from "../../extension/ai/output-budget.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 import { PRESETS } from "../../extension/core/presets.js";
 
-/** 三条通道共用的请求消息常量（与既有 golden 逐字一致）。 */
 const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];
 
 export type Channel = "openai" | "anthropic" | "gemini";
 
-/**
- * 按类 golden 用例 = 类（值集 id）× 出口形态（该实现真实落线的线格式）→ 7 档请求字段。
- * 一个用例承载一个 (类, 出口形态) 组合；同组合的其它平台/模型由 F2 防线扫。
- */
 export interface ByClassCase {
   readonly valuesetId: string;
   readonly presetId: string;
   readonly model: string;
-  /** 该实现（代表模型）的可用集 A'，档位序；空 = 无档可落（不发思考参数）。 */
   readonly available: readonly ThinkingLevel[];
-  /** 7 档逐字节期望的思考字段片段，序 = AI_THINKING_LEVELS；{} = 不发任何字段。 */
   readonly fields: readonly Record<string, unknown>[];
 }
 
-/** 产物里一个 (类, 平台) 实现（代表模型 = 排序首个，确定性）。 */
 export interface Realization {
   readonly valuesetId: string;
   readonly presetId: string;
   readonly upstreamId: string;
-  /** 本仓/矩阵口径的模型 id（别名折叠后）。 */
   readonly model: string;
 }
 
-/** 上游 (provider, modelId) → 本仓口径 localId（别名折叠，同 gen-request-matrix.ts）。 */
 function localIdOf(upstreamId: string, modelId: string): string {
   for (const alias of MODEL_ID_ALIASES) {
     if (alias.upstream === `${upstreamId}/${modelId}`) return alias.localId;
@@ -59,7 +34,6 @@ function localIdOf(upstreamId: string, modelId: string): string {
   return modelId;
 }
 
-/** 该 (平台, 模型) 命中的值集 id（指派表精确 → 折叠大小写 → 别名表，与 runtime 同序）。 */
 export function valuesetOf(upstreamId: string, model: string): string | undefined {
   const table = ASSIGNMENTS[upstreamId] ?? {};
   const exact = table[model];
@@ -74,10 +48,6 @@ export function valuesetOf(upstreamId: string, model: string): string | undefine
   return undefined;
 }
 
-/**
- * 产物里的全部 (类, 平台) 实现：指派表 + 别名表指向的 localId，按 (preset, model) 排序后
- * 每个 (类, 平台) 对取首个模型。这是「哪些行为被 golden 按类承载」的枚举底座。
- */
 export function productRealizations(): Realization[] {
   const first = new Map<string, Realization>();
   for (const [presetId, upstreamId] of Object.entries(UPSTREAM_PROVIDER_BY_PRESET)) {
@@ -85,7 +55,6 @@ export function productRealizations(): Realization[] {
     if (!table) continue;
     const models = new Set<string>();
     for (const modelId of Object.keys(table)) models.add(localIdOf(upstreamId, modelId));
-    // 只有别名、没有直接指派的模型（如 moonshot 的 kimi-k2.6）也要进枚举。
     for (const alias of MODEL_ID_ALIASES) {
       if (alias.provider === upstreamId) models.add(alias.localId);
     }
@@ -101,7 +70,6 @@ export function productRealizations(): Realization[] {
   );
 }
 
-/** 通道能承载的实现：gemini 协议只由 `protocol: "gemini"` 的预设发出。 */
 export function productRealizationsFor(channel: Channel): Realization[] {
   if (channel !== "gemini") return productRealizations();
   return productRealizations().filter(
@@ -109,20 +77,17 @@ export function productRealizationsFor(channel: Channel): Realization[] {
   );
 }
 
-/** 该通道的落地值集集合（F1 覆盖防线的右侧）：gemini 只看自家预设的实现。 */
 export function channelValuesetIds(channel: Channel): string[] {
   if (channel !== "gemini") return allValuesetIds();
   return [...new Set(productRealizationsFor(channel).map((realization) => realization.valuesetId))].sort();
 }
 
-/** 通道的 baseUrl 口径：anthropic 取 protocolBaseUrls.anthropic（缺省回落 baseUrl）。 */
 export function baseUrlFor(channel: Channel, presetId: string): string {
   const preset = PRESETS.find((p) => p.id === presetId);
   if (!preset) throw new Error(`PRESETS 未登记预设：${presetId}`);
   return channel === "anthropic" ? (preset.protocolBaseUrls?.anthropic ?? preset.baseUrl) : preset.baseUrl;
 }
 
-/** 通道调用缝的入参（presetId 主路径；baseUrl 驱动的无 preset 平台如 openai/siliconflow/doubao）。 */
 export interface BodyRequest {
   readonly presetId?: string;
   readonly baseUrl?: string;
@@ -130,16 +95,9 @@ export interface BodyRequest {
   readonly level: ThinkingLevel;
   readonly stream?: boolean;
   readonly maxTokens?: number;
-  /** 探针变体：只有 anthropic 缝消费（Messages 行的 probeOmitsThinking 早退）。 */
   readonly probe?: boolean;
 }
 
-/**
- * 通道缝：各通道自己的 adapter 调用形状。bodyAt 是**唯一**的运行期入口——golden 断言、
- * 防线、塌陷判据都从它取片段，口径不会分叉。expectedBody 是同一形状的期望包装（该通道的
- * 常量键 + 片段），供用例逐字节整 body 比对（不做包含式）。fragmentOf 从整 body 里取出
- * **思考字段片段**（gemini 的思考字段嵌在 generationConfig 里，不能按顶层键剥）。
- */
 export interface ChannelHarness {
   readonly channel: Channel;
   bodyAt: (request: BodyRequest) => Record<string, unknown>;
@@ -151,11 +109,6 @@ export function channelHarness(channel: Channel): ChannelHarness {
   if (channel === "openai") {
     return {
       channel,
-      // 思考线格式产出由装配边（planThinkingWire）按生产同一口径先算好再注入请求构造
-      //（生产唯一调用点是 completion.ts 的 fetch 点）。openai 行不读 probe：本缝
-      //「探针不发思考字段」靠请求侧归一（探针不传档位 → default 不干预 → 空 patch，
-      // 2026-10-05 裁定见 docs/adr/0015 修订块）；probeOmitsThinking 是 Messages 侧事实
-      //（装配边 anthropic 行的探针早退）。
       bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) => {
         const resolvedBaseUrl = baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined);
         return buildChatRequestBody({
@@ -183,8 +136,6 @@ export function channelHarness(channel: Channel): ChannelHarness {
           ...(maxTokens != null ? { maxTokens } : {})
         }) as Record<string, unknown>;
       },
-      // contents 由 MESSAGES 的 user 单条转换而来（与 adapter 的角色转换无关的常量键）；
-      // 思考字段落 generationConfig.thinkingConfig，无字段时整块 generationConfig 不发射。
       expectedBody: (model, fields) => {
         const thinkingConfig = fields.thinkingConfig;
         return {
@@ -207,7 +158,6 @@ export function channelHarness(channel: Channel): ChannelHarness {
         messages: MESSAGES,
         stream,
         thinkingWire: planThinkingWire({ protocol: "anthropic", model, presetId, baseUrl: resolvedBaseUrl, level, stream, probe }),
-        // adapter 默认 max_tokens 走 DEFAULT_MAX_TOKENS（32768）——用例字面钉住该值。
         ...(maxTokens != null ? { maxTokens } : {})
       }) as Record<string, unknown>;
     },
@@ -216,11 +166,6 @@ export function channelHarness(channel: Channel): ChannelHarness {
   };
 }
 
-/**
- * 出口形态命名（票面六种出口的机械写法）：由**实际发出去的字段组合**命名，不手抄。
- * 例：`thinking:enabled+output_config.effort:medium` / `enable_thinking:true` / `none`。
- * gemini 的关思考靠 includeThoughts:false 表达，单独进名字，避免与开档同形。
- */
 export function exitFormOf(fields: Record<string, unknown>): string {
   const parts: string[] = [];
   const thinking = fields.thinking as { type?: unknown } | undefined;
@@ -237,7 +182,6 @@ export function exitFormOf(fields: Record<string, unknown>): string {
   return parts.length > 0 ? parts.join("+") : "none";
 }
 
-/** 请求体里与思考无关的包装键（去掉后才是思考片段）。 */
 const BODY_WRAPPER_KEYS = ["model", "messages", "stream", "max_tokens", "max_completion_tokens"];
 
 export function thinkingFragment(body: Record<string, unknown>): Record<string, unknown> {
@@ -249,12 +193,10 @@ export function thinkingFragment(body: Record<string, unknown>): Record<string, 
   return out;
 }
 
-/** 值集表全部键（覆盖防线 F1 的右侧）。 */
 export function allValuesetIds(): string[] {
   return Object.keys(VALUESETS).sort();
 }
 
-/** 指派表实际用到的值集 id 集合（产物自洽判据：值集表不该有孤儿）。 */
 export function assignedValuesetIds(): string[] {
   const used = new Set<string>();
   for (const table of Object.values(ASSIGNMENTS)) {
@@ -263,12 +205,10 @@ export function assignedValuesetIds(): string[] {
   return [...used].sort();
 }
 
-/** 用例表里覆盖到的值集 id 集合。 */
 export function coveredValuesetIds(cases: readonly ByClassCase[]): string[] {
   return [...new Set(cases.map((c) => c.valuesetId))].sort();
 }
 
-/** 用例的 7 档片段签名（同签名 = 同一出口形态组合，用于归纳完整性对账 F2）。 */
 export function fieldsSignature(fields: readonly Record<string, unknown>[]): string {
   return JSON.stringify(fields);
 }

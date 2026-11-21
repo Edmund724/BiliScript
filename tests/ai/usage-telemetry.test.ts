@@ -1,17 +1,8 @@
-// ai-usage-telemetry T1 单测：响应 usage 采集管道（零行为变更）。
-// 三面：
-// 1. 各 adapter 自陈解析（core 不认协议形状）：openai 非流式 / openai 流式末块 /
-//    anthropic message_start + message_delta 跨事件累积 / anthropic 非流式响应体；
-// 2. 形状不符 / 缺字段 / null / 非有限数 → 对应字段缺省：不抛错、不降级、不改控制流；
-// 3. 请求体零新增字段（一期不发 stream_options）：断言整个 body（两协议 × 流式/非流式）。
-// 消费方（usage-stats / 成本护栏）属 T2，本文件不涉及。
-
 import { describe, expect, it, vi } from "vitest";
 import { openaiAdapter } from "../../extension/ai/adapters/openai.js";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
 
-// SSE 流式响应：chunks 按 read() 顺序返回（与 adapter-anthropic.test 同型）。
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
@@ -56,7 +47,6 @@ describe("openai 非流式 parseResponse（json.usage 映射）", () => {
       }
     });
     expect(result.usage).toEqual({ inputTokens: 1234, outputTokens: 567, reasoningTokens: 89 });
-    // 既有字段逐字节不变（零行为变更）。
     expect(result.content).toBe("ok");
     expect(result.toolCalls).toEqual([]);
     expect(result.finishReason).toBe("stop");
@@ -354,10 +344,6 @@ describe("请求体不含 stream_options（一期零新增字段：两协议 × 
     expect(body).not.toHaveProperty("stream_options");
   });
 
-  // Object.assign(body, wire.fields)（openai adapter buildBody）是表驱动注键进
-  // body 的唯一通道：上面四条都是空事实，锁不住它。本用例用非空词汇（deepseek
-  // 血统 × high → reasoningEffort("high") → reasoning_effort）证明该通道真注了键
-  // （不是空事实的假绿），并同时锁整份 body 无 stream_options。
   it("openai 流式 + 非空 thinking patch：注入 reasoning_effort，整份 body 仍无 stream_options", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse([openaiData({ choices: [{ delta: { content: "甲" } }] }), "data: [DONE]\n\n"])

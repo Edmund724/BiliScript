@@ -1,9 +1,3 @@
-// ai/adapters/anthropic.js 单测（multi-protocol-ai 第二部分）：线格式映射逐条对照
-// research/anthropic-wire-mapping.md——请求构造（system 剥出 / max_tokens 兜底 /
-// 思考线格式产出并入 / tool 双向翻译）、SSE 事件流（text/thinking/tool_use 聚合 / 流内
-// error / 未知事件宽容）、非流式解析、错误 detail 提取。能力声明对照 spec
-// 「被有意不支持的能力」。
-
 import { describe, expect, it, vi } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
@@ -12,8 +6,6 @@ import type { ChatRequest } from "../../extension/ai/protocol-adapter.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
 
-// 生产上 thinkingWire 由唯一 fetch 点（completion.ts）经思考装配边装配注入；本文件直接
-// 驱动 buildBody 的用例按同一口径先跑装配边（planThinkingWire），再驱动请求构造。
 type AnthropicBodyFacts = Omit<ChatRequest, "thinkingWire"> & {
   baseUrl?: string;
   presetId?: string;
@@ -35,7 +27,6 @@ function anthropicBody({ baseUrl, presetId, thinkingLevel, probe, ...request }: 
   });
 }
 
-// SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
@@ -107,11 +98,8 @@ describe("buildBody（请求映射，research §2/§4）", () => {
 
   it("max_tokens 必填兜底 32768（与 adapter 声明的 defaultMaxTokens 同源）；显式值透传", () => {
     expect(anthropicBody({ ...base, messages: [] }).max_tokens).toBe(32768);
-    // core 以 defaultMaxTokens 为「本轮实际发出的上限」，退回保守值时据此判断——
-    // 两处取值必须同源，否则退回逻辑算错。
     expect(anthropicAdapter.defaultMaxTokens).toBe(32768);
     expect(anthropicBody({ ...base, messages: [], maxTokens: 4096 }).max_tokens).toBe(4096);
-    // 探针由 core 代劳传 1：直接透传不兜底。
     expect(anthropicBody({ ...base, messages: [], maxTokens: 1 }).max_tokens).toBe(1);
   });
 
@@ -135,7 +123,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       ]
     });
     expect(body.tools).toEqual([{ name: "web_search", description: "客户端", input_schema: { type: "object" } }]);
-    // 全部被过滤则不出现 tools/tool_choice（对齐无 tools 请求形状）。
     const onlyNative = anthropicBody({
       ...base,
       messages: [],
@@ -163,7 +150,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
         { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "not-json" } },
         { type: "tool_use", id: "tu_2", name: "web_search", input: { query: "abc" } }
       ] },
-      // 连续 tool 消息合并进同一条 user 消息的多个 tool_result 块（research §4）。
       { role: "user", content: [
         { type: "tool_result", tool_use_id: "tu_1", content: "r1" },
         { type: "tool_result", tool_use_id: "tu_2", content: "r2" }
@@ -172,11 +158,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("思考档位分档：effort 血统按平台档位词发 output_config.effort（限制点 11；02 号票修塌陷）", () => {
-    // deepseek-v3.2 = hybrid-effort：high → 血统 reasoning_effort "high" → Messages 通道按
-    // deepseek 官方登记的档位词汇落线（api-docs.deepseek.com：只支持 thinking 与
-    // output_config.effort），并显式带开思考开关。
-    // 旧期望值（thinking:{type:"enabled",budget_tokens:2048}，low 与 high 同值）是把缺陷
-    // 固化的断言，不是契约——塌陷锚点已由 02 号票翻转，预算通路已整条删除。
     const body = anthropicBody({
       ...base,
       presetId: "deepseek",
@@ -186,7 +167,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.thinking).toEqual({ type: "enabled" });
     expect(body.output_config).toEqual({ effort: "high" });
-    // 兜底上限只由 max_tokens 事实决定（本扩展不再下发思考预算，也不按预算推算上限）。
     expect(body.max_tokens).toBe(32768);
   });
 
@@ -207,12 +187,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("关思考三种词汇殊途同归：翻译成 thinking:{type:disabled} 发出", () => {
-    // 查表给出 off 声明 = 该平台此模型可关思考：必须显式发 disabled。
-    // 「不发字段依赖服务端默认」在默认开思考的网关上是错的——ModelScope 实测
-    // （2026-09，deepseek-ai/DeepSeek-V4.1-Flash）：Messages 端点默认开思考、
-    // enable_thinking:false 被忽略、思考计入 max_tokens 会把正文挤成空串，
-    // 只有 thinking:{type:"disabled"} 能真正关掉。
-    // ModelScope + 带组织前缀的模型名（落 unknownClass qwen-hybrid-switch）。
     const off = anthropicBody({
       ...base,
       presetId: "modelscope",
@@ -221,7 +195,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: []
     });
     expect(off.thinking).toEqual({ type: "disabled" });
-    // 已是 Anthropic 形状的关思考词汇（thinking:{type:"disabled"}）同样落成 disabled。
     const native = anthropicBody({
       ...base,
       presetId: "deepseek",
@@ -230,8 +203,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: []
     });
     expect(native.thinking).toEqual({ type: "disabled" });
-    // 13 号票 canonical 优先：kimi-k3 的模型侧词表是 low-high-max（无 toggle）→ off 关不掉，
-    // 级联落最低档 low；该端点档位字段仍是顶层 reasoning_effort。
     const offCascade = anthropicBody({
       ...base,
       presetId: "moonshot",
@@ -241,7 +212,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(offCascade.thinking).toBeUndefined();
     expect(offCascade.reasoning_effort).toBe("low");
-    // 档位仍按该端点登记的顶层 reasoning_effort 落线（仅流式无关）。
     const tiered = anthropicBody({
       ...base,
       presetId: "moonshot",
@@ -253,9 +223,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("13 号票 canonical 优先：opencodego/kimi-k3 走平台 A'（off 关不掉 → 级联落 low）", () => {
-    // 12 号票的单点裁决（ADJUDICATED_MODEL_RULES）随 13 号票删除：canonical 优先后
-    // kimi-k3 的模型侧词表是 low/high/max，平台声明补 max → A' = {low, high, max}，
-    // off 不在 A' 里 → 级联落最低档 low（原裁决行的 off = thinking:disabled 已不存在）。
     const off = anthropicBody({
       ...base,
       presetId: "opencodego",
@@ -265,9 +232,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(off.thinking).toBeUndefined();
     expect(off.output_config).toEqual({ effort: "low" });
-    // 档位走**本平台已登记的 Messages 出口**（opencodego = 裸 output_config.effort，见
-    // ai/thinking-wire-map.ts 的平台表）；openai 通道的档位才是顶层 reasoning_effort
-    // （tests/ai/thinking-chips.test.ts 的 canonical 优先用例）。
     const tiered = anthropicBody({
       ...base,
       presetId: "opencodego",
@@ -317,8 +281,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.thinking).toBeUndefined();
   });
 
-  // stepfun / amd 的 Messages 通道只认 output_config.effort：stepfun 官方字段表未列
-  // thinking；amd 对 thinking 形状明确 400。
   it("effort 词汇平台（stepfun）：发 output_config.effort，不发 thinking", () => {
     const high = anthropicBody({
       ...base,
@@ -357,8 +319,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("effort 词汇平台：off（reasoning_effort none）与探针一律不发 output_config", () => {
-    // 19 号票后 amd 三个 DeepSeek 行都收窄到 toggle+[low,high,max]（amd 未登记开关形状 →
-    // off 关不掉、级联 low，会发 output_config），所以这条改用仍是 none 词表的 sensenova 行。
     const off = anthropicBody({
       ...base,
       baseUrl: "https://token.sensenova.cn/v1",
@@ -398,7 +358,6 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("openrouter：档位走 output_config.effort，不发 thinking（其 thinking.enabled 必带预算）", () => {
-    // 18 号票删平台声明后按上游词表：anthropic/claude-opus-4.5 的值集含 high → 直传 effort。
     const body = anthropicBody({
       ...base,
       baseUrl: "https://openrouter.ai/api",
@@ -484,7 +443,6 @@ describe("drainStream（SSE 事件映射，research §3）", () => {
     const result = await anthropicAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
 
     expect(result.content).toBe("你好世界");
-    // stop_reason 映射回 OpenAI 词表：tool_use → "tool_calls"（tool-loop 精确匹配）。
     expect(result.finishReason).toBe("tool_calls");
     expect(result.toolCalls).toEqual([
       { id: "tu_9", type: "function", function: { name: "web_search", arguments: "{\"query\":\"x\"}" } }
@@ -523,7 +481,6 @@ describe("parseResponse（非流式，research §5）", () => {
       stop_reason: "end_turn"
     });
     expect(result).toEqual({ content: "甲乙", toolCalls: [], finishReason: "stop" });
-    // 词表映射全表：tool_use/max_tokens/stop_sequence/refusal。
     for (const [raw, mapped] of [["tool_use", "tool_calls"], ["max_tokens", "length"], ["stop_sequence", "stop"], ["refusal", "stop"]]) {
       expect(anthropicAdapter.parseResponse({ content: [], stop_reason: raw }).finishReason).toBe(mapped);
     }

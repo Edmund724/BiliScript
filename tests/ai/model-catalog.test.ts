@@ -1,19 +1,3 @@
-// tests/ai/model-catalog.test.ts
-// 模型目录（upstream-model-facts/10 起数据源 = models.dev 上游目录）：
-//   - 产物形状与叶子纪律（零 import、只准懒加载、SW 静态图禁区）；
-//   - preset → catalogProvider 的覆盖/反向对账（单源 = core/presets.ts）；
-//   - 查表语义：键 = (上游 provider, modelId)，protocol 不参与；精确 → 折叠大小写
-//     → 别名表（唯一一份在 02 产物里）；
-//   - 切源带来的**集合变化**按 09 §7.1 的裁定被接受（用户 2026-10-04）：11 号票删掉
-//     pi-ai 快照后，逐格比较不再可执行（重算需要已删的 pi 表），守卫改写成
-//     「后果冻结」——只钉与 pi 数据无关的现状事实（zhipu → zhipuai 的登记值、
-//     提示面消失的 8 条在新目录里有意缺席），完整历史数字见 commit e255e64 与 ADR-0013。
-//
-// 叶子不变式与"只准懒加载"两条在这里静态把关（对齐
-// tests/ai/protocol-vocab.test.ts 的读源码手法 + tests/layer-deps.test.ts 的
-// 相对 import 扫描手法）：产物零 import，且静态 import 产物的只有
-// ai/model-catalog.ts、静态 import ai/model-catalog 的一个都没有。
-
 import { readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,13 +11,10 @@ import {
 } from "../../extension/ai/catalog/models-dev-catalog.generated.js";
 import { MODEL_ID_ALIASES } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 
-// 静态引用形状里的路径口径 = 相对 extension/（walk 的口径）
 const CATALOG_CONSUMER = "ai/model-catalog.ts";
 const UPSTREAM_GENERATED_MODULE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 const THINKING_GENERATED_MODULE = "extension/ai/catalog/models-dev-thinking.generated.ts";
 
-// spec §preset → 上游 provider（10 号票落地口径）：12 家按 `api` 与 preset baseUrl
-// 逐字相同，minimax 是人工裁定。多一个少一个都要显式复核。
 const EXPECTED_CATALOG_PROVIDERS: ReadonlyArray<readonly [string, string]> = [
   ["deepseek", "deepseek"],
   ["qwen", "alibaba-cn"],
@@ -49,15 +30,6 @@ const EXPECTED_CATALOG_PROVIDERS: ReadonlyArray<readonly [string, string]> = [
   ["sensenova", "sensenova"],
   ["gemini", "google"]
 ];
-
-// pi-ai ↔ 上游的 7 家逐家映射（旧 PI_TO_UPSTREAM 常量）随 11 号票删除 pi-ai 快照一并
-// 删除：逐格比较需要 pi 表才可执行，而本 effort 的方向正是「不内置上游数据」。留下的
-// 「后果冻结」用例只断言与 pi 数据无关的现状事实；完整历史数字（共有 355 / 只 pi
-// 80(图 72) / 只上游 109(图 47)；贴图提示面 消失 8 / 新增 62，差额 100% 出自 zhipu
-// 一行）见 commit e255e64 的 tests/ai/model-catalog.test.ts 与 ADR-0013「后果」。
-
-// 静态边扫描的单源见 tests/helpers/static-imports.ts（与
-// tests/ai/preset-registration-view.test.ts 共用）。
 
 function extensionFilesReferencing(pattern: RegExp): string[] {
   return walkExtensionFiles("extension")
@@ -181,7 +153,6 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
   it("未命中：未知 provider / 未知 model / 跨 provider 的 id 都返回 null", () => {
     expect(lookupCatalogMeta("no-such-preset", "", "glm-5.3")).toBeNull();
     expect(lookupCatalogMeta("deepseek", "", "no-such-model")).toBeNull();
-    // glm-5.3 属于 zhipuai 目录，拿 deepseek 查应当落空（键含 provider）
     expect(lookupCatalogMeta("deepseek", "", "glm-5.3")).toBeNull();
   });
 
@@ -190,10 +161,8 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
     expect(exact?.id).toBe("ZhipuAI/GLM-4.6");
     expect(exact?.contextWindow).toBe(202752);
     expect(lookupCatalogMeta("modelscope", "", "zhipuai/glm-4.6")).toEqual(exact);
-    // zhipu preset（上游 zhipuai）的裸 id 同样吃折叠：GLM-4.6 → 上游登记的 glm-4.6
     expect(lookupCatalogMeta("zhipu", "", "glm-4.6")?.id).toBe("glm-4.6");
     expect(lookupCatalogMeta("zhipu", "", "GLM-4.6")).toEqual(lookupCatalogMeta("zhipu", "", "glm-4.6"));
-    // 大写 id 的另一家：minimax-cn 的 MiniMax-M2
     expect(lookupCatalogMeta("minimax", "", "minimax-m2")?.id).toBe("MiniMax-M2");
   });
 
@@ -201,9 +170,7 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
     const upstream = lookupCatalogMeta("moonshot", "", "k3");
     expect(upstream?.id).toBe("k3");
     expect(lookupCatalogMeta("moonshot", "", "kimi-k3")).toEqual(upstream);
-    // modelscope 的 ZhipuAI/ 前缀别名：裸 id 也命中
     expect(lookupCatalogMeta("modelscope", "", "GLM-4.6")?.id).toBe("ZhipuAI/GLM-4.6");
-    // 别名指向 12 家之外（moonshotai/kimi-k2.6）→ 查不到即 null，不回落猜测值
     expect(lookupCatalogMeta("moonshot", "", "kimi-k2.6")).toBeNull();
   });
 
@@ -217,19 +184,14 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
     ]);
     const consumer = readFileSync("extension/ai/model-catalog.ts", "utf8");
     expect(consumer).toMatch(/import \{ MODEL_ID_ALIASES \} from "\.\/catalog\/models-dev-thinking\.generated\.js"/);
-    // 消费方不得自带一份别名条目（别名形状 = localId + upstream）
     expect(consumer).not.toMatch(/localId\s*:/);
-    // 唯一一份表内条目按 (provider, localId) 唯一（同名 localId 可挂在多家网关下）
     const keys = MODEL_ID_ALIASES.map((alias) => `${alias.provider}\u0000${alias.localId}`);
     expect(new Set(keys).size).toBe(MODEL_ID_ALIASES.length);
   });
 
   it("presetId 优先于 host：已知预设不因 baseUrl 漂移；protocol 字段完全不参与", () => {
-    // ollama 是已知预设但不在目录数据里 → 不得被 mimo 的 host 兜底命中
     expect(resolveCatalogProvider("ollama", "https://api.xiaomimimo.com/v1")).toBeNull();
-    // 已知预设命中显式映射，即使 baseUrl 被填成别家；deepseek 的 protocol=anthropic 不影响
     expect(resolveCatalogProvider("deepseek", "https://api.openai.com/v1")).toBe("deepseek");
-    // 同 preset 记录无论 protocol 配成什么都走同一条识别（签名里根本没有 protocol 入参）
     expect(lookupCatalogMeta("minimax", "https://api.minimaxi.com/anthropic", "MiniMax-M2")).toEqual(
       lookupCatalogMeta("minimax", "https://api.minimaxi.com/v1", "MiniMax-M2")
     );
@@ -238,7 +200,6 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
   it("host 兜底：custom / 未知 presetId 按 baseUrl 推断", () => {
     expect(resolveCatalogProvider("custom", "https://api.xiaomimimo.com/v1")).toBe("xiaomi");
     expect(resolveCatalogProvider("no-such-preset", "https://openrouter.ai/api/v1")).toBe("openrouter");
-    // host 匹配只看域名不看路径：minimax 的 anthropic 专端点也按 host 落回预设
     expect(resolveCatalogProvider("custom", "https://api.minimaxi.com/anthropic")).toBe("minimax-cn");
   });
 
@@ -251,15 +212,6 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
   });
 });
 
-// 09 §7.1 后果冻结（用户 2026-10-04 裁定接受，不做 deprecated 保留标记）：pi-ai 快照
-// 已在 11 号票删除，逐格比较不再可执行（重算需要已删的 pi 表，而本 effort 的方向正是
-// 不内置上游数据）。这里只钉**与 pi 数据无关**的现状事实与裁决本身，防后人误修：
-//   - 2026-10-05 裁定：`zhipu` 登记 `zhipuai`（spec §preset → 上游 provider），**不改**
-//     `zhipuai-coding-plan`——那是 09 号票做 pi-ai 对账时用的兄弟家 id，不是本仓登记值；
-//   - 09 §7.1 的「提示面消失 8 条」按 id 逐个断言在新目录查不到（= 有意缺席，不是缺口）。
-// 完整集合差（共有 355 / 只 pi 80(图 72) / 只上游 109(图 47)；提示面 消失 8 / 新增 62，
-// 差额 100% 出自 zhipu 一行）见 commit e255e64 的 tests/ai/model-catalog.test.ts 与
-// 10 号票工件 10-catalog-coverage.tsv / 10-report.md；本条不再持有 pi 侧数据。
 describe("09 §7.1 后果冻结（用户裁定接受的后果，不是 bug）", () => {
   it("zhipu 的上游 identity = zhipuai（不是 09 对账用的兄弟家 zhipuai-coding-plan）", () => {
     const preset = PRESETS.find((item) => item.id === "zhipu")!;
@@ -269,7 +221,6 @@ describe("09 §7.1 后果冻结（用户裁定接受的后果，不是 bug）", 
   });
 
   it("提示面消失的 8 条：新目录查不到（有意缺席，不回落猜测值）", () => {
-    // [本仓 presetId, 模型 id, 历史出处：pi-ai 口径的 (provider, modelId)]
     const deliberatelyAbsent: ReadonlyArray<readonly [string, string, string]> = [
       ["opencodego", "glm-5.1", "opencode-go/glm-5.1"],
       ["openrouter", "inclusionai/ling-3.0-flash-fin:free", "openrouter/inclusionai/ling-3.0-flash-fin:free"],
@@ -286,7 +237,6 @@ describe("09 §7.1 后果冻结（用户裁定接受的后果，不是 bug）", 
   });
 
   it("模态列口径（09 §6）：只看该 provider 条目的 input 是否含 image，pdf/video/audio 不进判定", () => {
-    // 上游这些条目带 image 以外的模态，展示层只取 image 布尔；不借用别家模态
     expect(lookupCatalogMeta("zhipu", "", "glm-5v-turbo")?.input).toEqual(["text", "image", "video", "pdf"]);
     expect(lookupCatalogMeta("zhipu", "", "glm-5v-turbo")?.input.includes("image")).toBe(true);
     expect(lookupCatalogMeta("deepseek", "", "deepseek-v4-pro")?.input).toEqual(["text"]);

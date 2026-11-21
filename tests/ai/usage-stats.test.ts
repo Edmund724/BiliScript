@@ -1,10 +1,3 @@
-// ai-usage-telemetry T2a 单测：ai/usage-stats.ts（响应 usage 的实测 chars→token 比学习）。
-// 三面：比例学习（首样本即可用 / 丢弃规则 / 中位数抗单点异常 / 只留最近 8 个 / per-scope
-// 隔离）、estimateTokensFromChars（无样本回落 CHAR_PER_TOKEN、有样本用实测比）。
-// 纯内存模块：用例间经 resetUsageStatsForTests 清桶（与 learned-budget 同纪律）。
-// 失败方式先行：首样本被当噪声丢掉、越界样本污染中位数、窗口不生效（旧样本不淘汰）、
-// 作用域不隔离导致跨平台混样、换算回落错系数。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   estimateTokensFromChars,
@@ -18,7 +11,6 @@ const SCOPE = { baseUrl: "https://api.example.com/v1", model: "test-model" };
 const OTHER_MODEL = { baseUrl: SCOPE.baseUrl, model: "other-model" };
 const OTHER_HOST = { baseUrl: "https://api.other.com/v1", model: SCOPE.model };
 
-// 记一个 payloadChars / inputTokens = ratio 的样本（inputTokens 固定 100，便于心算）。
 function noteRatio(ratio: number): void {
   noteUsageSample(SCOPE, { payloadChars: ratio * 100, inputTokens: 100 });
 }
@@ -76,7 +68,6 @@ describe("learnedCharsPerToken：比例学习", () => {
     noteRatio(2);
     noteRatio(3);
     noteRatio(20);
-    // 中位数 (2+3)/2 = 2.5；算术均值 6.5 才是被离群点带偏的那个。
     expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(2.5);
   });
 
@@ -87,7 +78,6 @@ describe("learnedCharsPerToken：比例学习", () => {
     for (let i = 0; i < 8; i += 1) {
       noteRatio(10);
     }
-    // 最近 8 个全是 10；若旧样本还在，16 个样本的中位数会是 5.5。
     expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(10);
 
     resetUsageStatsForTests();
@@ -95,7 +85,6 @@ describe("learnedCharsPerToken：比例学习", () => {
       noteRatio(1);
     }
     noteRatio(10);
-    // 窗口没满：8 个样本 [1×7, 10] 的中位数仍是 1。
     expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(1);
   });
 
@@ -108,9 +97,8 @@ describe("learnedCharsPerToken：比例学习", () => {
     expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(2);
     expect(learnedCharsPerToken(OTHER_MODEL)).toBeCloseTo(3);
 
-    // 尾斜杠归一（budgetScopeKey 口径）：同一平台写法不同不另开桶。
     noteUsageSample({ baseUrl: `${SCOPE.baseUrl}/`, model: SCOPE.model }, { payloadChars: 400, inputTokens: 100 });
-    expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(3); // [2, 4] 的中位数
+    expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(3);
   });
 });
 

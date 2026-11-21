@@ -1,42 +1,3 @@
-// tests/ai/thinking-golden-messages.test.ts
-// 思考参数 golden（Anthropic Messages 通道）——07 号票改成**按类断言**：
-//   `(valuesetId = 02 值集 id, 档位) → 请求体`，逐字节整 body（不做包含式）。
-//
-// 用例数据的来源（不手抄）：类与代表平台/模型来自 02 号票产物（ASSIGNMENTS / VALUESETS /
-// MODEL_ID_ALIASES），字面片段由 scripts/sync-thinking-golden.ts（pnpm catalog:sync:golden）
-// 生成回写。baseUrl 一律走 PRESETS（protocolBaseUrls.anthropic，缺省回落 baseUrl），
-// 不在本文件手抄 URL；`max_tokens` 走 adapter 默认 DEFAULT_MAX_TOKENS = 32768，由
-// expectedBody 钉住字面值。
-//
-// 逐平台逐档的旧形状压成「类 × 出口形态」：本文件 66 个类实现（51 个值集全覆盖；18 号票
-// 删平台 override 后，原先按平台声明分叉的同值集实现收敛成同一签名，用例数随之下降）。
-// 同类的其它平台/模型由 F2 归纳完整性防线扫（产物里每个 (类, 平台) 实现的 7 档行为
-// 必须有同签名用例承载）——旧 Messages golden（含 12 号票的 31 行裁决矩阵）的覆盖一行不丢：
-// `low-high-max` 的代表实现是 opencodego/deepseek-v4-flash（13 号票 canonical 优先后
-// kimi-k3 走同一值集），`toggle+low-medium-xhigh+b:0-262144` 的代表实现是
-// opencodego/qwen3.8-max（05 号票的 clamp 分歧值集）。
-//
-// 先列系统可能失败的方式（每条都有对应防线，注册在 thinking-golden-defenses.ts）：
-//   F1 覆盖防线：02 产物新增值集而 golden 没加用例 → 红；
-//   F2 归纳完整性：某 (类, 平台) 实现的行为没有用例承载 → 红；
-//   F5 表自洽：用例声明的 valuesetId / A' 与实际解析不符 → 红；
-//   F6 塌陷：effort 血统 low==high（缺陷），或开关型/budget-only 的正当塌陷被改 → 红。
-//
-// 出口形态以矩阵为准（Messages 通道实际出现六种，均有用例）：
-//   `thinking:{type:"disabled"}` 单独（关思考出口）/ 裸 `thinking:{type:"enabled"}`（开关型开档）/
-//   `thinking:{type:"enabled"}` + `output_config.effort`（平台登记了开思考开关的档位出口）/
-//   裸 `output_config.effort` / 顶层 `reasoning_effort` / 不发任何字段。
-//   **矩阵里没有任何 budget_tokens**（文件头硬规则：本通道任何一格都不发预算）——
-//   票面列的「按档 budget_tokens」形态不存在，故无回归钉。
-//
-// 手工可读用例（票面非目标：不删，转成每方言一条）在本文件压到 7 条：
-// deepseek（关思考）/ qwen3-max（开关型开档）/ qwen3.8-max（开关+档位）/
-// opencodego（裸档位）/ moonshot（顶层 reasoning_effort）/ budget-only（不发字段）/
-// opencodego/kimi-k3（13 号票 canonical 词表 + opencodego 出口，off 级联落 low）。
-// openai 与 Gemini 通道各有独立文件（thinking-golden.test.ts /
-// thinking-golden-gemini.test.ts），三者共用同一套按类断言与防线。
-// probe（probeOmitsThinking）与 ModelScope streamOnly（Q14A）语义不是方言钉，原样保留。
-
 import { describe, expect, it } from "vitest";
 import { channelHarness, type BodyRequest, type ByClassCase } from "./thinking-golden-classes.js";
 import { registerByClassDefenses, registerByClassGolden } from "./thinking-golden-defenses.js";
@@ -44,14 +5,6 @@ import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT } from "../../extension/ai/thinki
 
 const HARNESS = channelHarness("anthropic");
 
-// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm catalog:sync:golden）=====
-// 字段序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max）；{} = 不发任何字段。
-// 注意两格带票面注记语义：
-//   `low-high-max · opencodego/deepseek-v4-flash` = 13 号票 canonical 优先 + 18 号票删平台
-//     override：模型侧词表就是上游的 low/high/max（平台不再补档），off 关不掉、级联落 low；
-//   `toggle+low-medium-xhigh+b:0-262144 · opencodego/qwen3.8-max` = 05 号票 CLAMP_DIVERGENT：
-//     上游词表 low/medium/xhigh 无 high，偏好 high 向下取 medium（实发即 medium）；
-//     18 号票后 opencodego 未登记开关形状，值集里的 toggle 不产生 on 写点。
 const CASES: readonly ByClassCase[] = [
   { valuesetId: "b", presetId: "qwen", model: "kimi-k2-thinking", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "b:1024-", presetId: "openrouter", model: "anthropic/claude-haiku-4.5", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
@@ -128,7 +81,6 @@ const CASES: readonly ByClassCase[] = [
 registerByClassGolden(HARNESS, CASES);
 registerByClassDefenses(HARNESS, CASES);
 
-// ===== 每方言一条逐平台精确 body（真实平台回归钉）=====
 describe("golden：每方言一条精确 body（Messages 通道）", () => {
   it("(1) deepseek/deepseek-v4-pro：关思考出口 thinking:{type:disabled}", () => {
     expect(HARNESS.bodyAt({ presetId: "deepseek", model: "deepseek-v4-pro", level: "off" })).toEqual(
@@ -137,9 +89,6 @@ describe("golden：每方言一条精确 body（Messages 通道）", () => {
   });
 
   it("(2) qwen/qwen3-max：开关型开档 = 裸 thinking:{type:enabled}（上游 toggle+budget，无 effort → low==high）", () => {
-    // 上游 qwen3-max 的 reasoning_options 是 [toggle, budget_tokens max 81920]：**没有 effort
-    // 词表**，所以本通道没有档位词可发，low 与 high 只能是同一个裸开档——塌陷是上游唯一
-    // 支持的形状，不是缺陷（08 号票：归一化层只做折叠与出口，不凭空造档位词）。
     const low = HARNESS.bodyAt({ presetId: "qwen", model: "qwen3-max", level: "low" });
     const high = HARNESS.bodyAt({ presetId: "qwen", model: "qwen3-max", level: "high" });
     expect(low).toEqual(HARNESS.expectedBody("qwen3-max", { thinking: { type: "enabled" } }));
@@ -182,16 +131,12 @@ describe("golden：每方言一条精确 body（Messages 通道）", () => {
     expect(HARNESS.bodyAt({ presetId: "opencodego", model: "kimi-k3", level: "high" })).toEqual(
       HARNESS.expectedBody("kimi-k3", { output_config: { effort: "high" } })
     );
-    // 12 号票的单点裁决（off = thinking:disabled）已删除：canonical 的词表没有 toggle →
-    // off 关不掉，级联落最低可用档 low（出口仍是本平台的裸 output_config.effort）。
     expect(HARNESS.bodyAt({ presetId: "opencodego", model: "kimi-k3", level: "off" })).toEqual(
       HARNESS.expectedBody("kimi-k3", { output_config: { effort: "low" } })
     );
   });
 });
 
-// 探针变体（怪癖 probeOmitsThinking）：探针只测连通，一律不发思考字段——deepseek
-// （有档位可发）与 stepfun（严格 effort 词汇）两条路都要钉住。
 describe("golden：探针变体（probe 不发思考字段）", () => {
   it("deepseek + deepseek-v4-pro + probe + maxTokens:1 + high → 无 thinking", () => {
     expect(HARNESS.bodyAt({ presetId: "deepseek", model: "deepseek-v4-pro", level: "high", probe: true, maxTokens: 1 })).toEqual({
@@ -212,8 +157,6 @@ describe("golden：探针变体（probe 不发思考字段）", () => {
   });
 });
 
-// ModelScope + qwen3-32b（裸 id 命中模式表，血统声明关思考仅流式）：off 在非流式被
-// streamOnly 阻断 → 级联落开档，只有流式才真发 thinking:disabled。
 describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", () => {
   it("stream:true + off → thinking:disabled", () => {
     expect(HARNESS.bodyAt({ presetId: "modelscope", model: "qwen3-32b", level: "off", stream: true })).toEqual({
@@ -236,14 +179,8 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
   });
 });
 
-// 塌陷正当性（票面第 4 条）：开关型血统与 budget-only 模型的 low==high 是**上游事实**
-// （上游没有 effort 词表可发），不是缺陷；effort 血统的塌陷只有「上游词表里没有该档、
-// clamp 向下取到同一档」这一种正当来源（glm-5.2 上游 effort[high,max]：xhigh 折 high；
-// D1=A2 补声明后该行 off 可用，low 改折 off，不再是塌陷）。F6 防线在产物全量上机械扫这两侧。
 describe("golden：塌陷正当性（上游事实 vs 缺陷）", () => {
   it("zhipu/glm-5.2：上游 effort[high,max] 无 low/xhigh → low 折 off、xhigh 折 high", () => {
-    // D1=A2 前该行没有 off 写点，low 只能折 high；补声明后 A' = {off, high, max}，
-    // 「档外偏好向下取最近档」这条 clamp 让 low 落 off、xhigh 落 high。
     const low = HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "low" });
     expect(low).toEqual(HARNESS.expectedBody("glm-5.2", { thinking: { type: "disabled" } }));
     const xhigh = HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "xhigh" });
@@ -266,15 +203,6 @@ describe("golden：塌陷正当性（上游事实 vs 缺陷）", () => {
   });
 });
 
-// ===== thinking-wire-protocol-split 02 号票：Messages off 出口逐格 golden（表键全覆盖）=====
-// 表（ai/thinking-wire-map.ts 的 MESSAGES_OFF_EXIT）逐格钉「off 档实发」：键 = PROVIDERS 键空间，
-// 每键配一个**真实可达**的 (presetId, model) 代表——目录内带 off 写点的行，或手写兜底行
-// （stepfun / amd 的静默格、ollama / siliconflow 的 unknownClass 格）。02 号票的失败方式 ④
-// （只覆盖目录内行、漏掉手写表兜底行）由 stepfun / amd 两格承载：它们在目录内没有 off 写点
-// （形状未登记 → Off 走级联），静默格只能由自填 id 走到。
-// 2026-10-05（票 toggle-shape-registration 01）：minimax 登记了开关形状（`MiniMax-M3` 的 toggle
-// 从此产生 off/on 写点），本表那一格改由**目录行本身**承载端到端 off 路径；目录外的 minimax id
-// （M2.x / M3.1）仍无写点，见下面那条专项用例。
 const OFF_CELL_REPRESENTATIVES: Readonly<
   Record<string, { presetId: string; baseUrl?: string; model: string; expect: Record<string, unknown>; note: string }>
 > = {
@@ -320,9 +248,6 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
   }
 
   it("minimax 目录外 id（M2.x / M3.1，形状是平台级门）：一个思考字段都不发", () => {
-    // 2026-10-05 登记形状后，目录内的 MiniMax-M3 有端到端 off 路径（上面的逐格 loop）；
-    // 目录外的 M2.x / M3.1-Flash-Preview 没有上游词表 → 手写 minimax-always → 无写点。
-    // 于是这里既不会给 M2.x 发「被忽略」的 disabled，也不会给 M3.1 发「直接 400」的 disabled。
     for (const model of ["MiniMax-M2", "MiniMax-M2.7", "MiniMax-M3.1-Flash-Preview"]) {
       expect(HARNESS.bodyAt({ presetId: "minimax", model, level: "off" }), model).toEqual(HARNESS.expectedBody(model, {}));
     }
@@ -335,16 +260,6 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
   });
 });
 
-// ===== thinking-wire-protocol-split 01 号票：Messages 档位出口逐格 golden（表键全覆盖）=====
-// 表（ai/thinking-wire-map.ts 的 MESSAGES_TIER_EXIT）逐格钉「解析层给出 effort 档位词时的实发」：
-// 键 = PROVIDERS 键空间，每键配一个**真实可达**的 (presetId, model, 档位) 代表——目录内有 effort
-// 档位的行，或手写兜底行。代表入参与实发值来自工件 artifacts/01-tier-matrix.tsv（同命令重跑逐字节
-// 一致），不手抄；档位一律取「原样发出、未被 clamp 改写」的那一档，好读也好核。
-// 五格（minimax / mimo / modelscope / ollama / siliconflow）的代表是**手写兜底自填 id**：它们的
-// 目录行是 toggle 型（无 effort 词表），档位出口只能由 EXCEPTIONS / TAXONOMY 兜底的行走到——
-// 与 02 号票的 stepfun / amd 静默格同一条路（01 号票的失败方式 ④：只覆盖目录内行）。
-// minimax 自 2026-10-05 起档位出口声明为 "effort"（带显式开思考开关），但目录内仍无 effort
-// 档位行，故代表仍是手写兜底行——实发因此多带一个平台自有开词 adaptive。
 const TIER_CELL_REPRESENTATIVES: Readonly<
   Record<
     string,
@@ -352,7 +267,6 @@ const TIER_CELL_REPRESENTATIVES: Readonly<
       presetId: string;
       baseUrl?: string;
       model: string;
-      /** 档位取值即 harness 的入参档位类型（`ThinkingLevel`），不另立字符串口径。 */
       level: BodyRequest["level"];
       expect: Record<string, unknown>;
       note: string;
@@ -487,15 +401,12 @@ describe("档位出口逐格 golden（thinking-wire-protocol-split 01）：表�
   });
 
   it("同一平台的 off 与档位落在两处不同的写法（两表各自表态；01 号票点名的 moonshot 擦边格）", () => {
-    // moonshot：档位走顶层 reasoning_effort，off 却发原生 thinking:{type:"disabled"}——
-    // 01 号票开工时第一格核的就是它（同通道内 off 与档位不同形）。
     expect(HARNESS.bodyAt({ presetId: "moonshot", model: "kimi-for-coding", level: "off" })).toEqual(
       HARNESS.expectedBody("kimi-for-coding", { thinking: { type: "disabled" } })
     );
     expect(HARNESS.bodyAt({ presetId: "moonshot", model: "kimi-for-coding", level: "low" })).toEqual(
       HARNESS.expectedBody("kimi-for-coding", { reasoning_effort: "low" })
     );
-    // deepseek / qwen / zhipu / sensenova：off 与档位都在 output_config/thinking 这一组形状里。
     expect(HARNESS.bodyAt({ presetId: "deepseek", model: "deepseek-flash", level: "off" })).toEqual(
       HARNESS.expectedBody("deepseek-flash", { thinking: { type: "disabled" } })
     );

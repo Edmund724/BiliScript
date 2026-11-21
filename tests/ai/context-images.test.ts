@@ -1,10 +1,3 @@
-// ai/context.ts buildMessages 的图片挂载与历史重发策略（image-input 路线 B，01 号票
-// 形状 + 04 号票策略）。
-// 本轮用户消息的图片（宿主粘贴 → content 侧压缩成 WebP 的 ImagePart）挂在本函数
-// 现造的末条 user 消息上；无图时不带字段——无图消息的请求体逐字节不变是 01 号票
-// 的回归护栏，这里锁现行行为。
-// 历史重发只保留最近一条用户消息的图片，更早的图片在请求组装时摘掉、换成文本
-// 占位（content 仍是 string，路线 B）——重复支付图片 token 的正是这些早期图片。
 import { describe, expect, it } from "vitest";
 import { buildMessages } from "../../extension/ai/context.js";
 
@@ -56,10 +49,8 @@ describe("buildMessages images", () => {
       ]
     });
 
-    // 更早的一条：图片字段摘掉、content 尾部追加占位
     expect(messages[1]).toEqual({ role: "user", content: "第一张图\n\n[用户曾发送一张图片]" });
     expect("images" in messages[1]).toBe(false);
-    // 最近一条带图用户消息：原样重发
     expect(messages[3]).toEqual({ role: "user", content: "第二张图", images: [other] });
   });
 

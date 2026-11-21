@@ -1,8 +1,3 @@
-// tests/ai/adapter-gemini.test.ts
-// Gemini 原生 generateContent 协议适配器单测（ADR-0018 / issues/02）。
-// 覆盖：端点拼接、鉴权头、请求体组装、错误提取与 429 分类、finishReason 全映射、
-// 流式 SSE 解析（文本块/usage块/无finishReason报错/中止）、非流式解析。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   geminiAdapter,
@@ -17,8 +12,6 @@ import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { isAbortedMarkerError } from "../../extension/shared/error-helpers.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
 
-// 生产上 thinkingWire 由唯一 fetch 点（completion.ts）经思考装配边装配注入；本文件直接
-// 驱动 buildBody 的用例按同一口径先跑装配边（planThinkingWire），再驱动请求构造。
 type GeminiBodyFacts = Omit<ChatRequest, "thinkingWire"> & {
   baseUrl?: string;
   presetId?: string;
@@ -404,7 +397,6 @@ describe("geminiAdapter: thinking 档位 × 模型家族表驱动用例", () => 
     level: string | undefined;
     expectedConfig?: Record<string, unknown>;
   }> = [
-    // --- gemini-3 系（离散 thinkingLevel；02 值集 minimal-low-medium-high） ---
     { model: "gemini-3-flash-preview", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
     { model: "gemini-3-flash-preview", level: "minimal", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: true } },
     { model: "gemini-3-flash-preview", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
@@ -415,7 +407,6 @@ describe("geminiAdapter: thinking 档位 × 模型家族表驱动用例", () => 
     { model: "gemini-3-flash-preview", level: "default", expectedConfig: undefined },
     { model: "gemini-3-flash-preview", level: undefined, expectedConfig: undefined },
 
-    // --- gemini-flash-latest / lite / 3.8-flash 系列（离散 thinkingLevel） ---
     { model: "gemini-flash-latest", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
     { model: "gemini-flash-latest", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
     { model: "gemini-3.8-flash", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
@@ -424,13 +415,9 @@ describe("geminiAdapter: thinking 档位 × 模型家族表驱动用例", () => 
     { model: "gemini-flash-lite-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
     { model: "gemini-flash-lite-latest", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
 
-    // --- 无可表达写点的模型：fail-closed，一个字段都不发 ---
-    // 目录外 id（无任何档位事实）：不按偏好补发 thinkingLevel。
     { model: "gemini-3-flash", level: "high", expectedConfig: undefined },
     { model: "gemma-4-27b-it", level: "medium", expectedConfig: undefined },
-    // 上游 toggle 值集，但 gemini 未登记开关形状：没有写点。
     { model: "gemma-4-31b-it", level: "high", expectedConfig: undefined },
-    // 2.5 系上游只给区间、没有逐档数值：不发明预算，落平台默认（不干预）。
     { model: "gemini-2.5-pro", level: "off", expectedConfig: undefined },
     { model: "gemini-2.5-pro", level: "high", expectedConfig: undefined },
     { model: "gemini-2.5-flash", level: "medium", expectedConfig: undefined },
@@ -545,7 +532,7 @@ describe("geminiAdapter: thought 块与 thoughtSignature 保留与回放", () =>
           content: "",
           parts: [
             { text: "", thought: true, thoughtSignature: "sig_empty_thought" },
-            { text: "" }, // 空 text 且无 signature -> 丢弃
+            { text: "" },
             { text: "non-empty part" }
           ]
         },

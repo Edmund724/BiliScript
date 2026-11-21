@@ -1,13 +1,3 @@
-// tests/ai/thinking-default-level.test.ts
-// 2026-10-05 用户裁定：新增「不干预」档 `default` —— 所有模型都可选、都可发；落线 = 不发任何
-// 思考字段（与 off「显式发关思考字段」不同：off 可能被平台忽略 / 400）。
-// 本文件钉住四件事（对应票面 .scratch/tickets/thinking-default-level/spec.md 的设计要点）：
-//   1. 词表分层：default **不进**强度阶梯 AI_THINKING_LEVELS——那个数组同时是 clamp 的档位序，
-//      混进去会把它当成最小强度档参与级联，把「关不掉 → 落最小思考档」的裁定悄悄推翻；
-//   2. 落线：偏好 default → 空 patch（chat 与 Messages 两条通道都如此），02 指派表逐行验证 + 工件；
-//   3. 级联目标不变：off / 强度档落不下来时仍落阶梯里的最小可用档，**不被 default 抢走**；
-//      只有「没有可表达的强度档」（A' = ∅）才落到 default；
-//   4. 出厂/重置默认偏好 = default（core/defaults 与 chat-state 同源，只影响新装/重置）。
 import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -25,7 +15,6 @@ import {
 } from "../../extension/ai/thinking-profiles.js";
 import { THINKING_WIRE_MAPS, openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 
-// 指派表 provider → 本仓 preset（与 tests/ai/thinking-wire-map.test.ts 同一处桥接）。
 const PRESET_BY_UPSTREAM: Record<string, string> = Object.fromEntries(
   Object.entries(UPSTREAM_PROVIDER_BY_PRESET).map(([presetId, upstreamId]) => [upstreamId, presetId])
 );
@@ -36,8 +25,6 @@ describe("default 词表分层（不进强度阶梯）", () => {
     expect((AI_THINKING_LEVELS as readonly string[]).includes("default")).toBe(false);
   });
 
-  // 归一化口径（2026-10-05 两轮裁定）：缺省 / 脏值回落 default——请求侧与存储 / 面板侧
-  // 同一条口径（见 docs/adr/0015 的修订块与 tests/ai/thinking-default-fallback.test.ts 的 F6）。
   it("归一化：8 个可选值原样；缺省 / 脏值回落 default（不干预）", () => {
     expect(normalizeThinkingLevel("default")).toBe("default");
     for (const level of AI_THINKING_LEVELS) {
@@ -70,9 +57,6 @@ describe("级联目标不被 default 抢走（用户早前裁定：关不掉 →
     expect(cascade.effectiveLevel).toBe("high");
     expect(openaiVocabularyFields(cascade.resolution.vocabulary)).toEqual({ reasoning_effort: "high" });
 
-    // A' = ∅（budget-only 的零档行，如 openrouter/anthropic/claude-haiku-4.5）：没有强度档可落
-    // → default（不发字段）。**不再拿 minimax/MiniMax-M3 当范例**：2026-10-05 登记开关形状
-    // 之后它有 off/on 写点，是开关型、不是零档行。
     const noTiers = resolveThinkingAdjustment({
       presetId: "openrouter",
       model: "anthropic/claude-haiku-4.5",
@@ -128,7 +112,6 @@ describe("default 落线 = 空 patch（02 指派表逐行 + 两条通道）", ()
         lines.push([presetId, model, "{}", "{}"].join("\t"));
       }
     }
-    // 口径自检：循环不许空转（02 产物 359 条指派）。
     expect(rows).toBeGreaterThanOrEqual(359);
     expect(lines.length).toBe(rows + 4);
 

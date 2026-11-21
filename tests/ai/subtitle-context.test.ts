@@ -305,7 +305,6 @@ describe("术语表解析容错、保留原词模式与按分块原文过滤", (
       "Ray Tracing = 光线追踪"
     ].join("\n");
 
-    // wait 含 ai、first 含 ir，但不应命中 AI / IR
     const matched = filterGlossaryForText(
       glossary,
       "Wait for the first frame: cuda uses warp scheduler and tensor cores."
@@ -476,7 +475,6 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
     expect(fallbackSummary).toContain("全片系统梳理 GPU 执行模型与多卡互联。");
     expect(fallbackSummary).toContain("Warp 调度原理：双发射与记分牌机制掩盖延迟");
 
-    // 边界 [0, 60) 不应误命中第二章
     const ch0Ctx = resolveL1ChapterTranslateContext({
       l1Index: loadedIndex,
       chunkFromSec: 0,
@@ -487,7 +485,6 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
       referenceEntities: ["CUDA", "SM"]
     });
 
-    // 用户显式术语表覆盖的实体（忽略大小写）从 referenceEntities 中排除
     const ch1Ctx = resolveL1ChapterTranslateContext({
       l1Index: loadedIndex,
       chunkFromSec: 60,
@@ -499,7 +496,6 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
       referenceEntities: ["Tensor Core", "Scoreboard"]
     });
 
-    // 跨章分块合并涉及章节且实体大小写去重
     const overlapCtx = resolveL1ChapterTranslateContext({
       l1Index: loadedIndex,
       chunkFromSec: 50,
@@ -635,7 +631,6 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
     expect(chunk2Sys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：Tensor Core");
     expect(chunk2Sys).toContain("- Warp Scheduler -> 线程束调度器");
 
-    // 确认 L1 动态上下文不影响缓存签名
     const sigAfter = buildTranslationSignature({
       model: PROVIDER_RESOLUTION.model,
       protocolVersion: "cc-json",

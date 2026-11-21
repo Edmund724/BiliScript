@@ -1,10 +1,3 @@
-// ai/conversation.js 的 AI 上下文 ref 统一构造器测试：
-// buildAiContextRef 是原三份手写字段挑选清单（context-resolver 入参归一化 /
-// buildConversationContextRef / buildContextPlaceholder）的单一事实来源，
-// 15 字段 = 14 个视频身份/字幕轨字段 + chapters。覆盖字段表、bvid 从 url 回落、
-// chapters 透传与缺省 undefined、非对象输入兜底，以及 buildContextPlaceholder
-// 在构造器结果上补 placeholder 专用字段。
-
 import { describe, expect, it } from "vitest";
 import {
   buildAiContextRef,
@@ -27,7 +20,6 @@ const FULL_INPUT = {
   selectedSubtitleUrl: "https://s.example.com/1.json",
   chapters: [{ title: "开场", from: 0, to: 60 }],
   isVideoContext: true,
-  // 挑选清单之外的负载应被丢弃
   subtitleBody: [{ from: 0, to: 5, content: "x" }],
   hotComments: []
 };

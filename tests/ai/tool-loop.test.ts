@@ -1,12 +1,3 @@
-// ai/tool-loop.ts 联网搜索与视频截帧工具循环测试（spec §2.3）。
-// 假 fetch 全覆盖（completion.test 同款 sseResponse），覆盖：
-// 1. 单轮 tool_calls → 搜索/截帧 → 二次调用续跑（tool 消息回填 / tool-status /
-//    tool-turn 副本 / 图片消息线格式）；
-// 2. 配额用尽：摘除 tools + system 额度提示注入 + 后续轮不再带 tools；
-// 3. 搜索/截帧失败降级：tool 错误消息 + notice，回答不中断；
-// 4. 平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次；
-// 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断；
-// 6. 当前帧与历史帧共享每轮一次的截帧预算，无联网搜索时也可独立使用。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   runToolLoop,
@@ -30,13 +21,10 @@ const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", a
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-// 假 fetch 工厂：显式声明签名，mock.calls 才带 [url, init] 元组类型；返回值只
-// 消费 Response 的少数字段，形状断言在这里统一收口（同 tests/search 惯例）。
 function mockFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<unknown>) {
   return vi.fn<FetchImpl>(impl as FetchImpl);
 }
 
-// makeCapture 捕获的请求体形状（adapter 组装后的 OpenAI 兼容 body）。
 interface CapturedRequest {
   tools?: ChatToolDefinition[];
   tool_choice?: string;
@@ -57,7 +45,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// 假 Response：只实现测试消费的字段，形状断言收口在返回处。
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
@@ -79,19 +66,16 @@ function sseResponse(chunks: string[]): Response {
   } as unknown as Response;
 }
 
-// SSE chunk：delta 载荷 + choice 级 finish_reason（缺省时序列化即省略该键）。
 function sseData(delta: unknown, finishReason?: string) {
   return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
 }
 
-// 第一轮 SSE：一条 web_search tool call（id/name/arguments 跨 chunk 分片）。
 const TOOL_ROUND_CHUNKS = [
   sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"que' } }] }),
   sseData({ tool_calls: [{ index: 0, function: { arguments: 'ry":"bilibili ai"}' } }] }),
   sseData({}, "tool_calls")
 ];
 
-// 第二轮 SSE：纯文本 + stop。
 const FINAL_ROUND_CHUNKS = [sseData({ content: "回答" }), sseData({}, "stop")];
 
 function makeCapture(): Capture {
@@ -109,7 +93,6 @@ function makeCapture(): Capture {
     })
   };
 }
-// 前置声明（fetchImpl 闭包引用 capture 自身）。
 let capture: Capture;
 
 interface MakeInputOptions extends Partial<Omit<RunToolLoopInput, "requestProfile">> {
@@ -148,7 +131,6 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.calls.length).toBe(2);
     expect(capture.calls[0].tools).toEqual([{ type: "function", function: expect.objectContaining({ name: "web_search" }) }]);
     expect(capture.calls[0].tool_choice).toBe("auto");
-    // 二次调用：assistant(tool_calls) + tool 结果已追加，本轮仍带 tools（配额未满）
     const followup = capture.calls[1].messages;
     expect(followup).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "assistant", content: "", tool_calls: [expect.objectContaining({ id: "call_1" })] }),
@@ -160,7 +142,6 @@ describe("runToolLoop 工具调用循环", () => {
       { status: "done", query: "bilibili ai", callId: "call_1", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
     ]);
     expect(capture.notices).toEqual([]);
-    // 持久化副本：assistant + tool 两条
     expect(capture.toolTurns.length).toBe(1);
     expect(capture.toolTurns[0][0]).toMatchObject({ role: "assistant", tool_calls: [{ id: "call_1" }] });
     expect(capture.toolTurns[0][1]).toMatchObject({ role: "tool", tool_call_id: "call_1" });
@@ -174,13 +155,11 @@ describe("runToolLoop 工具调用循环", () => {
 
   it("本轮次数达上限：摘除 tools + system 次数提示注入，不向用户发 notice，后续轮无工具", async () => {
     capture = makeCapture();
-    // maxToolCalls=1：首轮搜索后计数达上限，第二轮不带 tools 出最终回答。
     await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
 
     expect(capture.calls.length).toBe(2);
     expect(capture.calls[1].tools).toBeUndefined();
     const followup = capture.calls[1].messages;
-    // 同名收口（§6.4）：本条只讲「本轮的搜索次数」，平台额度另有文案
     expect(followup.some((m) => m.role === "system" && m.content === "本轮的搜索次数已达上限（1 次），请基于已有搜索结果作答。")).toBe(true);
     expect(capture.notices).toEqual([]);
   });
@@ -203,13 +182,11 @@ describe("runToolLoop 工具调用循环", () => {
       { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
     expect(capture.notices).toContain("联网搜索失败：HTTP 503");
-    // 失败不计入配额语义本轮仍继续：二次调用照常带 tools
     expect(capture.calls[1].tools).toEqual([expect.anything()]);
   });
 
   it("平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次", async () => {
     capture = makeCapture();
-    // stream 默认重试 2 次（共 3 次 400），第 4 次为 tool-loop 摘除后的重发。
     capture.fetchImpl.mockImplementation(async (_url, init) => {
       capture.calls.push(JSON.parse(init!.body as string));
       return capture.calls.length <= 3
@@ -221,7 +198,6 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.notices).toContain("当前平台不支持工具调用，本轮未联网");
     expect(capture.calls.length).toBe(4);
     expect(capture.calls[3].tools).toBeUndefined();
-    // 消息数组未被 tool 轮污染
     expect(capture.calls[3].messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
@@ -252,9 +228,7 @@ describe("runToolLoop 工具调用循环", () => {
     expect(searchCalls.map((s) => s.query)).toEqual(["甲", "乙"]);
     const toolMsgs = capture.calls[1].messages.filter((m) => m.role === "tool");
     expect(toolMsgs.length).toBe(2);
-    // 注入：单次最多 8 条（超出丢弃）
     expect(JSON.parse(toolMsgs[0].content).length).toBe(8);
-    // 配额计数：2 条 tool call 计 2，未达 5，第三轮仍带 tools
     expect(capture.calls[1].tools).toEqual([expect.anything()]);
   });
 
@@ -275,16 +249,11 @@ describe("runToolLoop 工具调用循环", () => {
     }));
 
     const toolMsg = capture.calls[1].messages.find((m) => m.role === "tool");
-    // 注入总量 ≤ 4,000（先裁条数，单条仍超限才硬截字符串）
     expect(toolMsg!.content.length).toBeLessThanOrEqual(4000);
-    // 持久化副本截 2,000
     const persistedTool = capture.toolTurns[0].find((m) => m.role === "tool");
     expect(persistedTool!.content.length).toBe(TOOL_MESSAGE_MAX_CHARS);
   });
 
-  // §8 验收断言三条（§10 第 52、54、55 行的缺口部分）：500 档 5×500 全保 5 条、
-  // 条数按算术递减、极端长正文硬截；序列化真裁条时来源 chip 仍取全量；产物不含
-  // truncated 标注。
   it("结果正文预算：500 档 5×500 全保 5 条，条数按算术递减（§10 第 52 行）", async () => {
     const cases = [
       { snippet: 500, kept: 5 },
@@ -315,7 +284,6 @@ describe("runToolLoop 工具调用循环", () => {
     }));
 
     const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
-    // 单条 JSON 结构开销 + 4546 已超总预算，裁到仅剩 1 条后仍超限 → 硬截字符串
     expect(content.length).toBe(TOOL_CONTENT_MAX_CHARS);
     expect(() => JSON.parse(content)).toThrow();
   });
@@ -328,7 +296,6 @@ describe("runToolLoop 工具调用循环", () => {
       executeSearch: async () => ({ results, platform: "Exa" })
     }));
 
-    // 序列化确实裁了（先裁 8 条上限，再按总量裁到 1 条），用户侧仍是全部 10 条
     const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
     expect(JSON.parse(content)).toHaveLength(1);
     const done = capture.statuses.find((s) => s.status === "done")!;
@@ -341,7 +308,6 @@ describe("runToolLoop 工具调用循环", () => {
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({
-        // 2000 字正文 5 条 → 序列化真裁条，正是最容易被加标注的路径
         results: Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(2000) })),
         platform: "Tavily"
       })
@@ -419,10 +385,6 @@ describe("runToolLoop 工具调用循环", () => {
   });
 });
 
-// ===== 回退链 × 工具链接缝（spec §4 / §6.4 / §10 第 42–44 行）=====
-// 正式 executeSearchChain 作为 executeSearch 注入工具循环：链内失败静默（第 42
-// 行）、整链无果恰好一条终态 notice（第 43 行）、额度类与其余类两条文案（第 44 行）
-// 都在既有 onNotice / onToolStatus 通道上断言，不改动第 47/48 行的既有用例。
 const CHAIN_FIRECRAWL: SearchChainCandidate = {
   provider: {
     id: "search_firecrawl",
@@ -490,8 +452,6 @@ describe("回退链 × 工具链接缝", () => {
     }));
 
     expect(capture.notices).toEqual(["联网搜索失败：HTTP 500"]);
-    // 其余类（含鉴权）与额度类的分界：这里不带 searchFailureClass，notice 仍是
-    // 「联网搜索失败：<原因>」形态，不落到额度终态句。
     expect(capture.notices[0]).not.toBe(SEARCH_QUOTA_MESSAGE);
     expect(capture.statuses).toEqual([
       { status: "searching", query: "bilibili ai", callId: "call_1" },
@@ -526,9 +486,7 @@ describe("回退链 × 工具链接缝", () => {
         })
     }));
 
-    // 额度句已是终态文案：不再套「联网搜索失败：」前缀（全等原文）。
     expect(capture.notices).toEqual([SEARCH_QUOTA_MESSAGE]);
-    // tool 内容维持「搜索失败：<reason>」既有形状（§10 第 47/48 行），reason 即额度句。
     const toolMessage = capture.calls[1].messages.find((m) => m.role === "tool")!;
     expect(toolMessage.content).toBe(`搜索失败：${SEARCH_QUOTA_MESSAGE}`);
     expect(capture.statuses).toEqual([
@@ -537,7 +495,6 @@ describe("回退链 × 工具链接缝", () => {
     ]);
   });
 
-  // §6.5 模型侧引擎注记（§10 第 50 行）：只在降级时附一行，链首成功不附。
   it("链首成功：tool 内容为纯结果 JSON，不附引擎注记（§6.5 / §10 第 50 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
@@ -569,7 +526,6 @@ describe("回退链 × 工具链接缝", () => {
     const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
     const notes = content.split("\n").filter((line) => line.startsWith("注："));
     expect(notes).toEqual(["注：首选 Firecrawl 未成功，以下结果来自 Tavily。"]);
-    // 注记之外结果本体照常进内容
     expect(content).toContain(JSON.stringify([CHAIN_RESULT]));
   });
 });
@@ -887,7 +843,6 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
       callIdx++;
 
       if (callIdx === 1) {
-        // 第一轮：Gemini 返回 functionCall 块
         return sseResponse([
           `data: ${JSON.stringify({
             candidates: [
@@ -911,7 +866,6 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
         ]);
       }
 
-      // 第二轮：Gemini 收到回注的工具结果，返回最终回答
       return sseResponse([
         `data: ${JSON.stringify({
           candidates: [
@@ -954,11 +908,9 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
     expect(tokens.join("")).toBe("Based on search, Vitest works with Gemini.");
     expect(rawBodies).toHaveLength(2);
 
-    // 第一轮请求体：包含 tools 和 toolConfig
     expect(rawBodies[0].tools[0].functionDeclarations[0].name).toBe("web_search");
     expect(rawBodies[0].toolConfig.functionCallingConfig.mode).toBe("AUTO");
 
-    // 第二轮请求体：包含 model 的 functionCall 和 user 的 functionResponse
     const r2Contents = rawBodies[1].contents;
     expect(r2Contents).toHaveLength(3);
     expect(r2Contents[0].role).toBe("user");

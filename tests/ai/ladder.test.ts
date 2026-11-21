@@ -1,16 +1,8 @@
-// ai/ladder.js 阶梯分派策略测试：
-// 用 fake deps + 收集 postMessage 的 fake port 覆盖五个分支——
-// ① 预算内单次流式；② map-reduce 下追问压缩命中；③ 未命中 + 成本护栏
-// （确认走 Map-Reduce / 取消回 stopped）；④ 单次溢出转 Map-Reduce 重试一次；
-// ⑤ 追问压缩后仍溢出 → 追问溢出错误。
-// 溢出语义（候选 03 起）：fake streamChat 抛带 .overflow 标记的错误（旧返回哨兵已废）。
-
 import { describe, expect, it, vi } from "vitest";
 import { runLadderChat, type ChatMsg, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { makeOverflowError } from "../../extension/ai/completion.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 
-// 假 port 收发的消息形状（用例只断言 notice / stopped / error 三类的字段）
 interface PortMessage {
   type?: string;
   data?: unknown;
@@ -18,7 +10,6 @@ interface PortMessage {
   error?: string;
 }
 
-// 收集 postMessage 消息的 fake port
 function makePort() {
   const messages: PortMessage[] = [];
   return {
@@ -29,7 +20,6 @@ function makePort() {
   };
 }
 
-// 依测试需要覆盖的 fake deps 工厂：默认全部可观察的最小实现
 function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
   const calls = { streamChat: [] as any[], mapReduce: [] as any[], followup: [] as any[], guard: [] as any[] };
   const deps = {
@@ -101,7 +91,6 @@ describe("runLadderChat 分派", () => {
     expect(followupFn).toHaveBeenCalledTimes(1);
     expect(deps.trimRecentTurns).toHaveBeenCalledWith(history);
     expect(calls.streamChat).toHaveLength(1);
-    // 历史经 trimRecentTurns 封顶（fake: 保留最近 2 轮）
     expect(calls.streamChat[0].history).toEqual(history.slice(-2));
     expect(calls.streamChat[0].context).toMatchObject({
       kind: "followup",
@@ -158,7 +147,6 @@ describe("runLadderChat 分派", () => {
 
     expect(deps.streamChat).toHaveBeenCalledTimes(1);
     expect(calls.mapReduce).toHaveLength(1);
-    // 不注入 single 档的空 plan（segments 为空会直接产出空草稿），由 map-reduce 重算。
     expect(calls.mapReduce[0].plan).toBeNull();
   });
 
@@ -374,8 +362,6 @@ describe("图片输入透传（image-input 路线 B）", () => {
     );
     expect(calls.streamChat[0].userImages).toEqual([VALID]);
 
-    // 单次溢出转 Map-Reduce：归约/分段编排的 args 里没有图片字段（04 号票：
-    // map-reduce 主路径不进 history，图片只在单次/追问两条路径生效）。
     const overflowPort = makePort();
     const overflowDeps = makeDeps({
       buildBudgetPlan: () => ({ mode: "single" }),
@@ -394,12 +380,6 @@ describe("图片输入透传（image-input 路线 B）", () => {
 });
 
 describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归一施加点只在解析入口）", () => {
-  // 端口载荷里的档位值是**未归一的外部值**（合法档位 / 缺省 / 脏值都可能到），链上任何
-  // 一处都不许改写它：改写 = 链内二次归一，解析入口「未归一外部值」的声明随之失真
-  //（见 ai/thinking-levels.ts 的 ThinkingLevelInput、ai/thinking-profiles.ts 的两个解析
-  // 入口与 docs/adr/0015 的 2026-10-05 修订块）。判据 = 到达下游的值逐字相同：链路任一环
-  // 提前归一（脏值 → default）这里立刻红。编译期同一条分层的断言见
-  // tests/ai/thinking-level-boundary.types.ts。
   const DIRTY: unknown[] = ["none", "", 7, null, { weird: true }];
 
   it("单次路径：端口脏值（含非字符串）逐字到达 streamChat，不判、不归、不拒", async () => {
@@ -430,7 +410,6 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     const dirty = { weird: true };
     const msg = { ...makeMsg(), thinkingLevel: dirty };
 
-    // 追问压缩路径（压缩摘要 + 单次流式）
     const followup = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
@@ -441,7 +420,6 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     );
     expect(followup.calls.streamChat[0].thinkingLevel).toBe(dirty);
 
-    // Map-Reduce 主路径（逐段小结 / 成稿共用同一个值）
     const main = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => null)
@@ -452,7 +430,6 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     );
     expect(main.calls.mapReduce[0].thinkingLevel).toBe(dirty);
 
-    // 单次路径溢出 → 转 Map-Reduce 重试一次
     const overflow = makeDeps({
       buildBudgetPlan: () => ({ mode: "single" }),
       streamChat: vi.fn(async () => {

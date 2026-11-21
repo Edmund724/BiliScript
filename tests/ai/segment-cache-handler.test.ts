@@ -1,6 +1,3 @@
-// ai/segment-cache-handler.js SW 端消息 handler 测试：
-// 覆盖 save-summary / load-summary / load-summaries / load-stored-summaries / load-l1-index。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";

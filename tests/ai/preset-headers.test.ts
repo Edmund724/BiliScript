@@ -1,7 +1,3 @@
-// ai/preset-headers.ts：平台预设额外请求头的查表与会话 id 取值。
-// Opencode Go 要求每个对话带一个稳定的 x-opencode-session（官方文档「Where can
-// I use it?」），取值由会话身份确定性派生——同一会话跨轮/跨重载恒同值。
-
 import { describe, expect, it } from "vitest";
 import { presetRequestHeaders, sessionIdFor } from "../../extension/ai/preset-headers.js";
 
@@ -22,8 +18,6 @@ describe("presetRequestHeaders", () => {
   });
 
   it("custom 平台直填 Opencode Go 域（host 兜底）：同样补 x-opencode-session", () => {
-    // presetId="custom" 的用户直填 baseUrl 是常见路径；platform 身份只看 presetId 会
-    // 静默漏头（平台要求该头，缺失则请求不被接受），故识别口径须带 host 兜底。
     const headers = presetRequestHeaders({
       presetId: "custom",
       baseUrl: "https://opencode.ai/zen/go/v1",
@@ -31,7 +25,6 @@ describe("presetRequestHeaders", () => {
     });
     expect(Object.keys(headers)).toEqual(["x-opencode-session"]);
     expect(headers["x-opencode-session"]).toBe(sessionIdFor("conv_a1"));
-    // 兜底不得过触发：非会话头平台（deepseek 域）不补任何头。
     expect(presetRequestHeaders({ presetId: "custom", baseUrl: "https://api.deepseek.com/v1" })).toEqual({});
   });
 

@@ -1,7 +1,3 @@
-// ai/followup-context.js 追问上下文压缩测试：
-// 覆盖 hasFinalNote 判定、buildCompressedSummary 组装与边界（分段小结独立上限、maxChars 截断尾部、
-// verbatim 保留）、trimRecentTurns 近 N 轮封顶，以及 resolveFollowupContext 组装纯压缩摘要。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   RECENT_TURNS_DEFAULT,

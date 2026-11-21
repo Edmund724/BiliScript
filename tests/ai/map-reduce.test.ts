@@ -1,8 +1,3 @@
-// ai/map-reduce.js 编排测试（03 票）：
-// 覆盖切片→小结→成稿编排（进度序号与百分比、token/done 回吐）、中止、
-// 进度纯函数，以及单次路径 plan 判定。
-// streamChat 的 port 协议测试已迁至 tests/ai/client.test.ts。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
 import { installChromeHost } from "../helpers/chrome-host.js";
@@ -10,10 +5,6 @@ import { installChromeHost } from "../helpers/chrome-host.js";
 let mod: typeof import("../../extension/ai/map-reduce.js");
 let segmentCacheLoop: Awaited<ReturnType<typeof installSegmentCacheLoop>>;
 
-// 段缓存 SW 回路（arch-review-2026-09/05）：段缓存宿主迁 SW，orchestrateMapReduce
-// 的缺省 segmentCache 是消息代理——测试环境把 chrome.runtime.sendMessage 路由到
-// 真实 SW handler（createSegmentCacheHandler → segment-cache 单源 → 共享宿主内存面），
-// 读写全链路走真实消息与真实键位装配。
 async function installSegmentCacheLoop() {
   const handler = (await import("../../extension/ai/segment-cache-handler.js")).createSegmentCacheHandler();
   const sendMessage = vi.fn((message) => {
@@ -61,7 +52,6 @@ function makePort() {
   return { postMessage: vi.fn() };
 }
 
-// 组装非流式 JSON 响应。
 function jsonResponse(payload: unknown, ok = true, status = 200) {
   return {
     ok,
@@ -71,7 +61,6 @@ function jsonResponse(payload: unknown, ok = true, status = 200) {
   };
 }
 
-// 依 messages[user].content 里的「第 i/N 个连续片段」返回小结；成稿调用返回笔记。
 function buildSequencedMock() {
   const summaryTexts: Record<number, string> = {
     1: "小结一：事实A。",
@@ -104,7 +93,6 @@ describe("buildProgressNotice 进度序号与百分比", () => {
   it("边界与非法入参：total 为 0/负/非数时回落到 1；index 越界收敛到 [1, total]", () => {
     expect(mod.buildProgressNotice(0, 3)).toBe("正在整理第 1/3 段（33%）");
     expect(mod.buildProgressNotice(5, 3)).toBe("正在整理第 3/3 段（100%）");
-    // total 退化时回落到 1，index 收敛到 [1, total]
     expect(mod.buildProgressNotice(2, 0)).toBe("正在整理第 1/1 段（100%）");
     expect(mod.buildProgressNotice(2, -4)).toBe("正在整理第 1/1 段（100%）");
     expect(mod.buildProgressNotice(2, "x")).toBe("正在整理第 1/1 段（100%）");
@@ -139,7 +127,6 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
 
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
     const notices = postMessages.filter((m) => m.type === "notice");
-    // 完成序不固定（08 起并发小结），断言进度文案集合而非顺序。
     expect(notices.map((n) => n.data).sort()).toEqual([
       "正在整理第 1/5 段（20%）",
       "正在整理第 2/5 段（40%）",
@@ -152,15 +139,12 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
     expect(tokens).toHaveLength(1);
     expect(tokens[0].data).toBe("# 视频笔记：《测试视频》\n完整笔记正文。");
     expect(postMessages.some((m) => m.type === "done")).toBe(true);
-    // done 出现在 token 之后
     const tokenIdx = postMessages.findIndex((m) => m.type === "token");
     const doneIdx = postMessages.findIndex((m) => m.type === "done");
     expect(doneIdx).toBeGreaterThan(tokenIdx);
 
-    // 小结调用 5 次 + 成稿 1 次，共 6 次模型调用
     expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    // 仅落盘分段小结到 IDB ai_artifacts，不再向 chrome.storage.local 写入 biliscript_lvs_raw_* / biliscript_lvs_summary_*
     const storageKeys = [...segmentCacheLoop.storage.map.keys()];
     expect(storageKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"))).toHaveLength(0);
     const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
@@ -187,7 +171,6 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
     expect(segmentPrompt).toContain("请把这个片段忠实压缩到原文的约五分之一");
     expect(segmentPrompt).toContain("保留重要事实、例子、论证关系和原有时间点");
     expect(segmentPrompt).toContain("不做评价，不补充外部知识");
-    // 时间戳以 [起点-终点] 拼入
     expect(segmentPrompt).toMatch(/\[0:00-0:05\]/);
   });
 
@@ -279,7 +262,6 @@ describe("orchestrateMapReduce 中止", () => {
       chapters: []
     });
 
-    // 第二段小结完成后中止
     let callCount = 0;
     fetchMock.mockImplementation(async (_url, init) => {
       const body = JSON.parse(init.body);
@@ -307,7 +289,6 @@ describe("orchestrateMapReduce 中止", () => {
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
     expect(postMessages.some((m) => m.type === "done")).toBe(false);
     expect(postMessages.some((m) => m.type === "token")).toBe(false);
-    // 已完成的段进度正常回吐且不重复（完成序不固定，只断言无重复且都是合法进度文案）
     const notices = postMessages.filter((m) => m.type === "notice").map((n) => n.data);
     expect(new Set(notices).size).toBe(notices.length);
     for (const notice of notices) {
@@ -351,7 +332,6 @@ describe("orchestrateMapReduce 中止", () => {
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
     expect(postMessages.some((m) => m.type === "error")).toBe(false);
     expect(postMessages.some((m) => m.type === "done")).toBe(false);
-    // 中止收束：回吐 stopped（对齐 streamChat 的停止 UX），不串数据
     expect(postMessages.some((m) => m.type === "stopped")).toBe(true);
   });
 
@@ -378,7 +358,6 @@ describe("orchestrateMapReduce 中止", () => {
     expect(result.aborted).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
-    // 中止收束：至多一条 stopped，绝无 done/token/error
     expect(postMessages.filter((m) => m.type === "stopped").length).toBeLessThanOrEqual(1);
     expect(postMessages.some((m) => m.type === "done")).toBe(false);
     expect(postMessages.some((m) => m.type === "token")).toBe(false);
@@ -408,14 +387,12 @@ describe("plan.mode==='map-reduce' 才编排（不归并/超预算判定）", ()
     expect(big.needsReduce).toBe(false);
   });
 
-  // shouldReduce / 归并层行为由 07 票在 tests/ai/reduce.test.ts 覆盖；此处不再锁定空壳语义。
 });
 
 describe("缓存写入最终失败的上浮（LRU 淘汰后重试仍失败）", () => {
   it("存储写持续失败 → 经 port notice 上浮一次，编排不中断、照常成稿回吐", async () => {
     const { fetchMock } = buildSequencedMock();
     vi.stubGlobal("fetch", fetchMock);
-    // IDB 写入持续失败（模拟容量不足）
     const { setSubtitleCacheWriteInterceptorForTests } = await import("../../extension/subtitle/store-client.js");
     setSubtitleCacheWriteInterceptorForTests(() => {
       throw new Error("quota");
@@ -434,25 +411,20 @@ describe("缓存写入最终失败的上浮（LRU 淘汰后重试仍失败）", 
     expect(result.aborted).toBe(false);
     expect(result.draft).toBe("# 视频笔记：《测试视频》\n完整笔记正文。");
 
-    // 上浮恰好一次：notice 通道（与进度 notice 同型），其余只 logError
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
     const cacheNotices = postMessages.filter(
       (m) => m.type === "notice" && String(m.data || "").includes("缓存写入失败")
     );
     expect(cacheNotices).toHaveLength(1);
-    // 编排本体不受影响：token + done 照常回吐
     expect(postMessages.some((m) => m.type === "done")).toBe(true);
   });
 });
 
 describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）", () => {
-  // 溢出响应：HTTP 400 + context-length 文案（completion.js 判定 → makeOverflowError）。
   function overflowResponse() {
     return { ok: false, status: 400, text: async () => "maximum context length exceeded" };
   }
 
-  // 依调用序分段/成稿 mock：segmentCalls 前 N 次溢出（模拟常态预算超模型窗口），
-  // noteCalls 前 M 次溢出；其余按序返回小结/笔记。
   function buildOverflowSequencedMock({ overflowSegments = 0, overflowNotes = 0 } = {}) {
     let segmentCalls = 0;
     let noteCalls = 0;
@@ -477,8 +449,6 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
   }
 
   it("段小结溢出 → notice 告知 → 按 0.5 倍预算重切段整轮重跑 → 成功回吐一次", async () => {
-    // 210k 字符：常态 50k 段 = 5 段；收紧 25k 段 = 9 段。溢出计数跨轮共享：
-    // 首轮首波 3 个并发全溢出即 settle（剩余 2 段不再拉起），重跑 9 段全部成功。
     const { fetchMock } = buildOverflowSequencedMock({ overflowSegments: 3 });
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
@@ -495,13 +465,10 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
     expect(result.draft).toBe("# 视频笔记：《测试视频》\n完整笔记正文。");
 
     const postMessages = port.postMessage.mock.calls.map((c) => c[0]);
-    // 重跑发起的 notice 恰好一条
     expect(postMessages.filter((m) => m.type === "notice" && String(m.data).includes("已自动调低单段素材量并重试"))).toHaveLength(1);
-    // 成功回吐恰一次
     expect(postMessages.filter((m) => m.type === "done")).toHaveLength(1);
     expect(postMessages.filter((m) => m.type === "token")).toHaveLength(1);
 
-    // 首轮首波 3 段（1/5）+ 重跑 9 段（1/9）+ 成稿 1 次 = 13 次调用
     expect(fetchMock).toHaveBeenCalledTimes(13);
     const userContents = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).messages.at(-1).content);
     expect(userContents.some((c) => c.includes("这是第 1/5 个连续片段"))).toBe(true);
@@ -526,8 +493,6 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
     expect(postMessages.some((m) => m.type === "notice" && String(m.data).includes("已自动调低单段素材量并重试"))).toBe(true);
     expect(postMessages.some((m) => m.type === "done")).toBe(false);
     expect(postMessages.some((m) => m.type === "token")).toBe(false);
-    // 首轮 5 段（并发 3：首波 3 个全溢出即 settle，剩余 2 段不再拉起）
-    // + 重跑 9 段首波 3 个（同理）——绝不进入第三轮。
     expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
@@ -550,7 +515,6 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
   });
 
   it("成稿阶段溢出 → 已完成段不浪费判断，整轮重跑后成稿成功", async () => {
-    // 首轮 5 段成功、成稿溢出 → 重跑 9 段（成功）+ 成稿成功 = 5+1+9+1 = 16 次。
     const { fetchMock } = buildOverflowSequencedMock({ overflowNotes: 1 });
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
@@ -596,10 +560,6 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
   });
 });
 
-// presetId 穿线（02 号票，概览 Map-Reduce 链）：provider 记录的 presetId 随
-// provider 对象穿过编排层抵达 chatCompletion → 请求构造单缝。反代 host 无规则
-// + 模式表未列模型（org 限定 id）时，presetId（modelscope unknownClass）是唯一
-// 识别线索——分段/成稿请求体出现 enable_thinking 即穿线判据。
 describe("presetId 穿线（概览 Map-Reduce 链 → 请求体）", () => {
   it("provider 记录的 presetId 抵达分段与成稿请求体：反代 host 无规则也按 modelscope 出 enable_thinking", async () => {
     const { fetchMock } = buildSequencedMock();
@@ -632,15 +592,8 @@ describe("presetId 穿线（概览 Map-Reduce 链 → 请求体）", () => {
   });
 });
 
-// arch-review-2026-09/03：溢出回落的预算档缓存隔离（_b50）编排级直测——
-// segment-cache 单测只锁 key 形状，本用例锁「串档即串内容」的端到端语义：
-// 常态档（scale=1）已落盘的小结绝不被 0.5 档重跑命中复用。
-//（arch-review-2026-09/05：读写经 beforeEach 接线的 segment-cache 消息回路
-// 落内存 storage，与生产同路径。）
 describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
   it("常态档已落盘小结不被 0.5 档重跑命中；两档 key 并存、内容各自", async () => {
-    // 段缓存读写经消息回路落内存 storage（beforeEach 已接线）；本用例另取
-    // segment-cache（SW 侧模块）拼期望键位做断言
     const storage = segmentCacheLoop.storage;
     const mr = mod;
     const sc = await import("../../extension/ai/segment-cache.js");
@@ -653,7 +606,6 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     });
     const firstIndex = plan.segments[0].index;
 
-    // 第 1 轮：常态档 5 段全部成功，小结按无后缀 key 落盘
     const { fetchMock: okFetch } = buildSequencedMock();
     vi.stubGlobal("fetch", okFetch);
     const run1 = await mr.orchestrateMapReduce({ provider, context, plan, port: makePort() });
@@ -662,8 +614,6 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     expect(scale1Key).not.toMatch(/_b\d+$/);
     expect(await sc.loadSegmentSummary(scale1Key)).toBe("小结一：事实A。");
 
-    // 第 2 轮：段小结全命中常态档缓存（合法同档复用，不调模型），成稿溢出 →
-    // 按 0.5 档整轮重跑（9 段）。重跑段若串档会命中常态档缓存、不调模型。
     let noteCalls = 0;
     const overflowFetch = vi.fn(async (_url, init) => {
       const body = JSON.parse(init.body);
@@ -682,15 +632,12 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     const run2 = await mr.orchestrateMapReduce({ provider, context, plan, port: makePort() });
 
     expect(run2.aborted).toBe(false);
-    // 成稿溢出 1 次 + 重跑 9 段全部调模型（未命中常态档缓存）+ 成稿 1 次 = 11。
     expect(overflowFetch).toHaveBeenCalledTimes(11);
 
-    // 两档 key 并存、内容各自：常态档未被覆写，_b50 档是重跑产物
     const b50Key = sc.buildSegmentSummaryCacheKey(context, firstIndex, 0.5);
     expect(b50Key).toMatch(/_b50$/);
     expect(await sc.loadSegmentSummary(scale1Key)).toBe("小结一：事实A。");
     expect(await sc.loadSegmentSummary(b50Key)).toBe("收紧档小结1。");
-    // 成稿材料来自收紧档小结（不串常态档内容）
     expect(run2.draft).toBe("# 视频笔记：《测试视频》\n收紧档正文。");
     expect(run2.segmentSummaries).toContain("收紧档小结1。");
     expect(run2.segmentSummaries).not.toContain("小结一：事实A。");

@@ -1,8 +1,3 @@
-// ai/pool.js 有上界并发池测试（08 票）：
-// 覆盖并发上限（峰值 ≤ DEFAULT_MAP_CONCURRENCY / concurrency=1 串行）、
-// 完成顺序可乱但原始下标正确、signal 中止后不再启动新项、重试语义
-// （先败后成 / 连败超限 rethrow / aborted 标记不重试直接 rethrow）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -42,7 +37,7 @@ describe("并发上限", () => {
 
     expect(peak).toBeLessThanOrEqual(mod.DEFAULT_MAP_CONCURRENCY);
     expect(mod.DEFAULT_MAP_CONCURRENCY).toBe(3);
-    expect(peak).toBe(3); // 8 项 × 5ms 延时下应吃满并发
+    expect(peak).toBe(3);
     expect(results).toEqual([0, 10, 20, 30, 40, 50, 60, 70]);
     expect(worker).toHaveBeenCalledTimes(8);
     expect(done).toHaveLength(8);
@@ -77,7 +72,6 @@ describe("原始下标与完成顺序", () => {
           release.push(resolve);
         })
     );
-    // 用每个 item 独有的 gate：3 个 worker 全部启动后，按逆序放行（完成顺序乱掉）
     const worker = vi.fn(async (item, index) => {
       await gates[index];
       return item.toUpperCase();
@@ -89,9 +83,7 @@ describe("原始下标与完成顺序", () => {
 
     const promise = mod.runMapBounded({ items, worker, onItemDone });
 
-    // 等 3 个 worker 全部进入等待（并发默认 3，全部启动）
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // 逆序放行：index 2 先完成，最后 index 0
     for (let i = 2; i >= 0; i--) {
       release[i]();
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -100,7 +92,6 @@ describe("原始下标与完成顺序", () => {
     const results = await promise;
     expect(results).toEqual(["A", "B", "C"]);
     expect(doneIndexes).toEqual([2, 1, 0]);
-    // onItemDone 收到的 index 与结果内容一一对应
     const byIndex = new Map(onItemDone.mock.calls.map(([result, index]) => [index, result]));
     expect(byIndex.get(0)).toBe("A");
     expect(byIndex.get(2)).toBe("C");
@@ -108,7 +99,6 @@ describe("原始下标与完成顺序", () => {
 
   it("并发完成顺序错乱时 onItemDone 的 index 仍对应该项原始下标", async () => {
     const items = [10, 20, 30];
-    // 完成延迟与 item 值成反比：值越大完成越早，顺序完全乱掉
     const worker = vi.fn(async (item) => {
       await new Promise((resolve) => setTimeout(resolve, 40 - item));
       return item + 1;
@@ -140,14 +130,12 @@ describe("signal 中止", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       return item;
     });
-    // 3 个并发启动后中止
     const promise = mod.runMapBounded({ items, worker, signal: controller.signal });
     await new Promise((resolve) => setTimeout(resolve, 10));
     controller.abort();
 
     const results = await promise;
     expect(startedCount).toBeLessThan(items.length);
-    // 已启动的项全部完成（它们的 index 都在 results 中）
     const finished = results.filter((r) => r != null);
     expect(finished).toHaveLength(started.length);
     for (const index of started) {
@@ -169,7 +157,6 @@ describe("signal 中止", () => {
     controller.abort();
 
     await expect(promise).rejects.toBe(abortError);
-    // aborted 标记错误不重试：每项至多尝试 1 次
     expect(worker).toHaveBeenCalledTimes(3);
   });
 });
@@ -190,7 +177,6 @@ describe("重试语义", () => {
     const results = await mod.runMapBounded({ items, worker });
 
     expect(results).toEqual(["x!", "y!"]);
-    // 每项初始 1 次 + 1 次重试
     expect(calls.get(0)).toBe(2);
     expect(calls.get(1)).toBe(2);
   });
@@ -203,7 +189,6 @@ describe("重试语义", () => {
     });
 
     await expect(mod.runMapBounded({ items, worker })).rejects.toBe(failError);
-    // 初始 1 次 + MAX_MAP_RETRIES(2) 次重试 = 3 次尝试
     expect(worker).toHaveBeenCalledTimes(mod.MAX_MAP_RETRIES + 1);
     expect(mod.MAX_MAP_RETRIES).toBe(2);
   });
@@ -238,13 +223,10 @@ describe("重试语义", () => {
       onItemDone: (result) => doneResults.push(result)
     });
 
-    // 等 3 项全部进入等待
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // 先放行两个 ok 段：它们完成并通过 onItemDone 回吐
     release[0]();
     release[2]();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // 再放行 bad 段：反复失败耗尽重试 → rethrow（ok 段结果已回吐，不丢失）
     release[1]();
 
     await expect(promise).rejects.toBe(badError);
@@ -263,7 +245,6 @@ describe("runCachedMap（缓存短路并发 map，arch-review-2026-09 候选 2 �
     expect(results).toEqual(["cached-a", "computed-b"]);
     expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith("b", 1);
-    // 命中项的 load 也按项调用
     expect(loadCached).toHaveBeenCalledTimes(2);
   });
 
@@ -285,7 +266,6 @@ describe("runCachedMap（缓存短路并发 map，arch-review-2026-09 候选 2 �
     const promise = mod.runCachedMap({
       items: ["only"],
       loadCached: async () => null,
-      // 未命中路径含落盘：run 返回前 await 落盘（各管线 run 闭包的纪律）
       run: async () => {
         await gate;
         return "result";
@@ -351,6 +331,6 @@ describe("溢出错误不重试（同素材重发必然再溢出，交上层放�
     });
 
     await expect(mod.runMapBounded({ items: [1], worker })).rejects.toBeTruthy();
-    expect(calls).toBe(3); // 1 次初始 + 2 次重试
+    expect(calls).toBe(3);
   });
 });

@@ -1,10 +1,3 @@
-// ai/subtitle-prompt.js 单测（候选 3：消息协议删除 subtitleMarkdown 后的
-// 唯一渲染收口）。覆盖：
-// - buildSubtitlePrompt：章节分节、时间戳开关、withHours（videoDuration 判定）、
-//   空 body 返回空串；
-// - 「预算按 body、发送按渲染产物」的一致性锚点：同一份 body 的渲染产物即
-//   buildMessages（extension/ai/context.ts）的实际发送物。
-
 import { describe, expect, it } from "vitest";
 import { buildSubtitlePrompt } from "../../extension/ai/subtitle-prompt.js";
 
@@ -51,7 +44,6 @@ describe("buildSubtitlePrompt", () => {
   it("body 空/缺失 → 空串（由调用方决定「暂无字幕」占位，不虚构内容）", () => {
     expect(buildSubtitlePrompt({ body: [] })).toBe("");
     expect(buildSubtitlePrompt({})).toBe("");
-    // 全空白正文：落到渲染版兜底（与 buildAiConversationMarkdown 一致的「暂无字幕」分节）
     expect(buildSubtitlePrompt({ body: [{ from: 0, to: 5, content: "  " }] })).toBe(
       "## 字幕\n\n（暂无字幕）"
     );

@@ -133,7 +133,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(interpretButton?.textContent).toBe("字幕");
     expect(interpretButton?.title).toBe("字幕");
     expect(interpretButton?.getAttribute("aria-label")).toBe("字幕");
-    // 初始轻量挂载不触发 player-interpret 懒加载同步
     expect(mockSyncInterpretQuickAction).not.toHaveBeenCalled();
 
     stopPlayerAiQuickAction();
@@ -166,13 +165,11 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(menu?.querySelector('[data-lang="ja"] .biliscript-interpret-menu-item-label')?.textContent).toBe("日本語");
     expect(menu?.querySelector(".biliscript-interpret-menu-bilingual-label")?.textContent).toBe("双语字幕");
 
-    // 菜单内点语言 → 经 applyChoice 走会话侧；不启动伴看
     (menu?.querySelector('[data-lang="en"]') as HTMLButtonElement).click();
     await vi.advanceTimersByTimeAsync(20);
     expect(mockApplyInterpretChoice).toHaveBeenCalledWith({ kind: "translation", targetLang: "en" });
     expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
 
-    // 再点按钮收起菜单
     interpretButton.click();
     await vi.advanceTimersByTimeAsync(20);
     expect(document.getElementById("biliscript-interpret-menu")).toBeNull();
@@ -214,7 +211,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
   });
 
   it("全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {
-    // 模拟 B 站网页全屏
     playerContainer.setAttribute("data-screen", "web");
 
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
@@ -248,14 +244,12 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(liveButton.getAttribute("aria-pressed")).toBe("false");
     expect(liveButton.getAttribute("aria-label")).toBe("实时伴看");
 
-    // 开启伴看
     syncPlayerLiveQuickActionState(true);
     expect(liveButton.classList.contains("is-active")).toBe(true);
     expect(liveWrap.classList.contains("is-active")).toBe(true);
     expect(liveButton.getAttribute("aria-pressed")).toBe("true");
     expect(liveButton.getAttribute("aria-label")).toBe("实时伴看 (已开启)");
 
-    // 关闭伴看
     syncPlayerLiveQuickActionState(false);
     expect(liveButton.classList.contains("is-active")).toBe(false);
     expect(liveWrap.classList.contains("is-active")).toBe(false);
@@ -273,11 +267,9 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     const liveButton = document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement;
     expect(liveButton).not.toBeNull();
 
-    // 模拟伴看已开启
     syncPlayerLiveQuickActionState(true);
     expect(liveButton.classList.contains("is-active")).toBe(true);
 
-    // 再次点击
     liveButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
@@ -315,21 +307,18 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     const aiButton = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
     const liveButton = document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement;
 
-    // AI 按钮提交中，不应锁住伴看按钮
     aiButton.click();
     await Promise.resolve();
     await Promise.resolve();
     expect(aiButton.disabled).toBe(true);
     expect(liveButton.disabled).toBe(false);
 
-    // 伴看按钮 250ms 内连点仅触发一次 start，且连接中按钮保持可点
     liveButton.click();
     liveButton.click();
     await vi.advanceTimersByTimeAsync(0);
     expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
     expect(liveButton.disabled).toBe(false);
 
-    // 超过 250ms 后在 connecting 态再次点击可一键取消
     await vi.advanceTimersByTimeAsync(260);
     liveButton.click();
     await vi.advanceTimersByTimeAsync(0);
@@ -414,7 +403,6 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     const stopSpy = vi.spyOn(controller, "stop");
     const disposeSpy = vi.spyOn(controller, "dispose");
 
-    // 1. 面板未打开时直接启动伴看：展开播放器内连接卡，不创建文摘面板或对话 DOM
     expect(await session.startLiveCompanion()).toBe(true);
     expect(startSpy).toHaveBeenCalledTimes(1);
     const overlay = session.getFullscreenLiveOverlay();
@@ -424,7 +412,6 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     expect(document.getElementById("biliscript-reading-view")).toBeNull();
     expect(document.getElementById("biliscript-chat-messages")).toBeNull();
 
-    // 2. 打开文摘面板并初始化对话 tab：消费同一个独立伴看控制器与浮窗，关闭对话会话不中断伴看
     const uiRenderer = await import("../../extension/ui/ui-renderer.js");
     uiRenderer.ensureUiReady({ forceRecreate: true });
     const chat = await import("../../extension/reader/chat-tab.js");
@@ -437,7 +424,6 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     expect(stopSpy).not.toHaveBeenCalled();
     expect(overlay?.isVisible()).toBe(true);
 
-    // 2.5 即使 AI 对话未加载或已关闭，跨标签页接管仍可停止独立伴看，并在播放器宿主提示
     stopSpy.mockImplementation(async () => {
       capturedControllerDeps?.onStateChange?.("idle");
     });
@@ -450,14 +436,12 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     });
     expect(overlay?.isVisible()).toBe(false);
 
-    // 普通显式结束不附加接管提示
     document.querySelector(".biliscript-interpret-notice")?.remove();
     session.stopLiveCompanion();
     await vi.waitFor(() => expect(stopSpy).toHaveBeenCalledTimes(2));
     await Promise.resolve();
     expect(document.querySelector(".biliscript-interpret-notice")).toBeNull();
 
-    // 3. 页面关闭（pagehide）：清理伴看连接、移除浮窗 DOM 并取消遗留工具任务
     window.dispatchEvent(new Event("pagehide"));
     expect(disposeSpy).toHaveBeenCalledTimes(1);
     expect(document.getElementById("biliscript-fullscreen-live-overlay")).toBeNull();
