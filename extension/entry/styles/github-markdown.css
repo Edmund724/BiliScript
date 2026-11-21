@@ -1,23 +1,4 @@
-/* Vendored from github-markdown-css v5.9.0 (Sindre Sorhus, MIT)，按
- * extension/ui/markdown.ts 实际产出面裁剪（体积裁剪 2026-09）：只保留
- * parser 产出的标签与类——p / ul / ol / li / h3–h6（正文标题整体下移两档，
- * h1/h2 规则随面板占用 h1/h2 一并裁去）/ pre>code（无代码高亮，.pl-* 高亮
- * span 整段裁去）/ table / blockquote / hr / strong / del / a / 任务列表
- * 三件套（.contains-task-list / .task-list-item / .task-list-item-checkbox）/
- * mermaid 占位（源码 <pre> 就是普通代码块）。未产出元素（img/kbd/samp/abbr/
- * sub/sup/mark/dfn/details/figure/summary/footnotes/g-emoji/anchor/octicon/
- * span.frame 族/csv-data/alerts/[!NOTE] 段）与其焦点/RTL/剪贴板/prettylights
- * 段全部裁去。
- *
- * 原文件 node_modules/github-markdown-css/github-markdown.css（light-only 版），
- * npm 包仅作版本来源（devDependency）。为什么不构建期 @import：dev 直载
- * extension/ 源文件，@import 指向 extension/ 外的 node_modules 在 unpacked
- * load 下不可达，vendor 后 dev/release 完全一致。
- * 颜色变量不直接用文件内置值——由 github-markdown-theme.css 桥接映射到
- * --biliscript-reader-*（含 data-theme="dark" 暗色档）；原文件的
- * prefers-color-scheme 明暗变量段整段裁去（桥接层 #biliscript-reading-view
- * .markdown-body 特异性 1-1-0 完全接管配色，OS 级媒体查询不影响，
- * 未映射的 prettylights/告警色只被已裁段消费）。 */
+/* @license MIT - github-markdown-css v5.9.0 */
 .markdown-body {
   --base-size-16: 1rem;
   --base-size-24: 1.5rem;

@@ -1,16 +1,5 @@
-/**
- * tokens-primitive.css
- * 01 PRIMITIVE（原始值层）：OKLCH 感知均匀调色板、4 层表面原语与基础度量阶梯。
- * 纯数值单点声明，不赋予任何业务含义，不含主题切换逻辑。
- * 作为全站 Semantic（语义层）与 Component（组件层）的底层基座。
- */
-
 :root {
-  /* ==========================================================================
-     1. 度量阶梯（METRIC SCALES）
-     ========================================================================== */
 
-  /* 基础字阶（Font Size Scale: 7 档核心字阶 10 / 11 / 12 / 14 / 16 / 18 / 20px） */
   --biliscript-primitive-font-size-10: 10px;
   --biliscript-primitive-font-size-11: 11px;
   --biliscript-primitive-font-size-12: 12px;
@@ -20,7 +9,6 @@
   --biliscript-primitive-font-size-20: 20px;
   --biliscript-primitive-font-size-base: var(--biliscript-primitive-font-size-14);
 
-  /* 基础圆角（Radius Scale: 核心阶梯 4px, 8px, 14px, 20px, 28px, 999px, 50% 及辅助档） */
   --biliscript-primitive-radius-2: 2px;
   --biliscript-primitive-radius-4: 4px;
   --biliscript-primitive-radius-6: 6px;
@@ -37,7 +25,6 @@
   --biliscript-primitive-radius-circle: 50%;
   --biliscript-primitive-corner-shape-continuous: superellipse(1.25);
 
-  /* 基础间距（Spacing Scale: 核心 4px 阶梯 4–32px + 紧凑微调 6/10/14px） */
   --biliscript-primitive-space-4: 4px;
   --biliscript-primitive-space-6: 6px;
   --biliscript-primitive-space-8: 8px;
@@ -50,47 +37,31 @@
   --biliscript-primitive-space-28: 28px;
   --biliscript-primitive-space-32: 32px;
 
-  /* ==========================================================================
-     2. OKLCH 4 层表面原语（BG / PANEL / ELEVATED / BORDER）
-     严格落在 sRGB 色域内，感知明度等距递进；描边统一用低透明度细线叠加各层。
-     ========================================================================== */
-
-  /* --- 中性冷灰 4 层（浅色） --- */
   --biliscript-primitive-surface-bg-light: oklch(0.968 0.004 255);
   --biliscript-primitive-surface-panel-light: oklch(0.946 0.005 255);
   --biliscript-primitive-surface-elevated-light: oklch(0.992 0.002 255 / 0.96);
   --biliscript-primitive-surface-border-light: oklch(0.205 0.010 255 / 0.11);
 
-  /* --- 中性冷灰 4 层（深色） --- */
   --biliscript-primitive-surface-bg-dark: oklch(0.180 0.008 255);
   --biliscript-primitive-surface-panel-dark: oklch(0.222 0.009 255);
   --biliscript-primitive-surface-elevated-dark: oklch(0.256 0.010 255 / 0.96);
   --biliscript-primitive-surface-border-dark: oklch(0.942 0.005 255 / 0.12);
 
-  /* --- 数字刊物暖纸 4 层（浅色） --- */
   --biliscript-primitive-surface-paper-bg: oklch(0.974 0.009 78);
   --biliscript-primitive-surface-paper-panel: oklch(0.946 0.013 78);
   --biliscript-primitive-surface-paper-elevated: oklch(0.992 0.005 78);
   --biliscript-primitive-surface-paper-border: oklch(0.230 0.012 58 / 0.13);
 
-  /* --- 数字刊物暖炭黑 4 层（深色） --- */
   --biliscript-primitive-surface-charcoal-bg: oklch(0.195 0.007 58);
   --biliscript-primitive-surface-charcoal-panel: oklch(0.238 0.008 58);
   --biliscript-primitive-surface-charcoal-elevated: oklch(0.282 0.009 58);
   --biliscript-primitive-surface-charcoal-border: oklch(0.930 0.010 72 / 0.13);
 
-  /* ==========================================================================
-     3. OKLCH 调色板（COLOR PALETTES）
-     -rgb 通道变量与 OKLCH 值同步，向下兼容下游样式表 rgba(var(--...-rgb), a)。
-     ========================================================================== */
-
-  /* --- 基础黑白与透明 --- */
   --biliscript-primitive-color-white: oklch(1 0 0);
   --biliscript-primitive-color-white-rgb: 255, 255, 255;
   --biliscript-primitive-color-black: oklch(0 0 0);
   --biliscript-primitive-color-black-rgb: 0, 0, 0;
 
-  /* --- 主强调色：Flyme 亮蓝族（浅/深色主强调与浅色时间戳标注色） --- */
   --biliscript-primitive-color-blue-500: oklch(0.6406 0.1974 252.97);
   --biliscript-primitive-color-blue-500-rgb: 0, 140, 255;
   --biliscript-primitive-color-blue-400: oklch(0.6824 0.1717 252.91);
@@ -110,7 +81,6 @@
   --biliscript-primitive-color-blue-mist-top-dark: oklch(0.228 0.020 255);
   --biliscript-primitive-color-blue-mist-top-dark-rgb: 22, 28, 38;
 
-  /* Flyme 光雾气泡色 */
   --biliscript-primitive-color-blue-blob-l1-rgb: 140, 200, 255;
   --biliscript-primitive-color-blue-blob-l2-rgb: 187, 228, 253;
   --biliscript-primitive-color-blue-blob-l3-rgb: 165, 205, 255;
@@ -120,7 +90,6 @@
   --biliscript-primitive-color-blue-blob-d3-rgb: 79, 140, 255;
   --biliscript-primitive-color-blue-blob-d4-rgb: 56, 189, 248;
 
-  /* --- 中性灰阶（浅色，OKLCH 感知均匀步进） --- */
   --biliscript-primitive-color-gray-50: var(--biliscript-primitive-surface-bg-light);
   --biliscript-primitive-color-gray-50-rgb: 243, 245, 247;
   --biliscript-primitive-color-gray-100: var(--biliscript-primitive-surface-panel-light);
@@ -136,7 +105,6 @@
   --biliscript-primitive-color-gray-950: oklch(0.205 0.010 255);
   --biliscript-primitive-color-gray-950-rgb: 20, 23, 28;
 
-  /* --- 中性暗色灰阶（深色，OKLCH 感知均匀步进） --- */
   --biliscript-primitive-color-dark-gray-100: oklch(0.942 0.005 255);
   --biliscript-primitive-color-dark-gray-100-rgb: 234, 236, 239;
   --biliscript-primitive-color-dark-gray-400: oklch(0.755 0.010 255);
@@ -151,10 +119,8 @@
   --biliscript-primitive-color-dark-gray-950: var(--biliscript-primitive-surface-bg-dark);
   --biliscript-primitive-color-dark-gray-950-rgb: 15, 18, 21;
 
-  /* 阴影与微光 Slate 基础通道 */
   --biliscript-primitive-color-slate-900-rgb: 15, 23, 42;
 
-  /* --- Editorial 暖纸族（浅色，OKLCH 感知均匀 4 层） --- */
   --biliscript-primitive-color-paper-50: var(--biliscript-primitive-surface-paper-bg);
   --biliscript-primitive-color-paper-50-rgb: 250, 246, 240;
   --biliscript-primitive-color-paper-100: var(--biliscript-primitive-surface-paper-panel);
@@ -174,7 +140,6 @@
   --biliscript-primitive-color-paper-hover-rgb: 60, 42, 24;
   --biliscript-primitive-color-paper-shadow-rgb: 60, 45, 30;
 
-  /* --- Editorial 赤陶族（OKLCH 对比度校准） --- */
   --biliscript-primitive-color-terracotta-500: oklch(0.505 0.122 38);
   --biliscript-primitive-color-terracotta-500-rgb: 157, 71, 44;
   --biliscript-primitive-color-terracotta-600: oklch(0.460 0.115 38);
@@ -186,7 +151,6 @@
   --biliscript-primitive-color-sage-400: oklch(0.715 0.055 150);
   --biliscript-primitive-color-sage-400-rgb: 143, 174, 148;
 
-  /* --- Editorial 暖炭黑族（深色，OKLCH 感知均匀 4 层） --- */
   --biliscript-primitive-color-charcoal-100: oklch(0.930 0.010 72);
   --biliscript-primitive-color-charcoal-100-rgb: 236, 231, 225;
   --biliscript-primitive-color-charcoal-400: oklch(0.750 0.015 68);
@@ -205,7 +169,6 @@
   --biliscript-primitive-color-charcoal-950-rgb: 23, 20, 18;
   --biliscript-primitive-color-charcoal-hover-rgb: 255, 246, 236;
 
-  /* --- 功能状态色（绿/红/黄/遮罩，OKLCH） --- */
   --biliscript-primitive-color-green-500: oklch(0.540 0.135 148);
   --biliscript-primitive-color-green-500-rgb: 39, 131, 62;
   --biliscript-primitive-color-green-400: oklch(0.720 0.140 148);
@@ -220,11 +183,9 @@
   --biliscript-primitive-color-amber-600-rgb: 204, 150, 38;
   --biliscript-primitive-color-mask-rgb: 20, 16, 12;
 
-  /* --- 分享卡底栏双段标记 --- */
   --biliscript-primitive-color-rose-500: oklch(0.605 0.185 8);
   --biliscript-primitive-color-rose-500-rgb: 224, 74, 117;
 
-  /* --- Gemini 虹彩流光族 --- */
   --biliscript-primitive-color-gemini-blue-light: oklch(0.625 0.175 258);
   --biliscript-primitive-color-gemini-blue-light-rgb: 66, 133, 244;
   --biliscript-primitive-color-gemini-purple-light: oklch(0.610 0.145 302);

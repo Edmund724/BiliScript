@@ -1,19 +1,11 @@
-/* ============================================================================
-   BiliScript Docs & Landing Stylesheet
-   基于 extension/entry/styles/tokens-primitive.css（构建时自动前置内联）。
-   双轴设计体系：明暗（color-scheme: light | dark）× 色板（flyme | editorial）。
-   ============================================================================ */
-
 :root {
   color-scheme: light dark;
 
-  /* 字体栈（镜像 extension/entry/styles/reader-gate.css） */
   --bs-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --bs-font-sans-medium: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "HarmonyOS_Medium", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --bs-font-serif: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif;
   --bs-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
-  /* 连续圆角与扩展同款缓动 */
   --bs-radius-sm: var(--biliscript-primitive-radius-8);
   --bs-radius-md: var(--biliscript-primitive-radius-12);
   --bs-radius-lg: var(--biliscript-primitive-radius-16);
@@ -24,7 +16,6 @@
   --bs-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   --bs-ease-out: cubic-bezier(0, 0, 0.2, 1);
 
-  /* 默认色板：Flyme 蓝雾（仅 <color> 值用 light-dark()，gradient 将其置于色标内） */
   --bs-surface: light-dark(var(--biliscript-primitive-color-gray-50), var(--biliscript-primitive-color-dark-gray-950));
   --bs-surface-2: light-dark(var(--biliscript-primitive-color-gray-100), var(--biliscript-primitive-color-dark-gray-900));
   --bs-surface-3: light-dark(var(--biliscript-primitive-color-gray-200), var(--biliscript-primitive-color-dark-gray-800));
@@ -147,7 +138,6 @@
   --bs-pill-indicator-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.38);
 }
 
-/* ===== Editorial 数字刊物色板（暖纸 / 暖炭黑 + 赤陶 + 衬线标题与引文） ===== */
 :root[data-palette="editorial"] {
   --bs-surface: light-dark(var(--biliscript-primitive-color-paper-50), var(--biliscript-primitive-color-charcoal-950));
   --bs-surface-2: light-dark(var(--biliscript-primitive-color-paper-100), var(--biliscript-primitive-color-charcoal-900));
@@ -198,10 +188,6 @@
   --bs-pill-indicator-shadow: none;
   --bs-frame-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
-
-/* ============================================================================
-   Base & Backdrop
-   ============================================================================ */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -267,10 +253,6 @@ body {
   outline: 2px solid var(--bs-accent);
   outline-offset: 2px;
 }
-
-/* ============================================================================
-   Top Navigation Bar (onboarding.html 磨砂顶栏美学)
-   ============================================================================ */
 
 .site-header {
   position: sticky;
@@ -363,7 +345,6 @@ body {
   flex: 0 0 auto;
 }
 
-/* 扩展同款分段开关（蓝雾 / 刊物） */
 .palette-switch {
   display: inline-grid;
   grid-auto-flow: column;
@@ -399,7 +380,6 @@ body {
   box-shadow: var(--bs-pill-indicator-shadow);
 }
 
-/* 无框幽灵图标键（镜像 .biliscript-reading-icon-btn） */
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -424,7 +404,6 @@ body {
   transform: scale(0.95);
 }
 
-/* 太阳 / 月亮线性图标显隐跟随实际生效明暗 */
 .theme-icon-sun { display: none; }
 .theme-icon-moon { display: block; }
 
@@ -441,10 +420,6 @@ body {
 .nav-menu-btn {
   display: none;
 }
-
-/* ============================================================================
-   Mobile Drawer (<dialog> 顶层抽屉)
-   ============================================================================ */
 
 .mobile-drawer {
   inset: 0;
@@ -543,10 +518,6 @@ body {
   color: var(--bs-accent);
 }
 
-/* ============================================================================
-   Shared Card & Button Primitives (复用扩展液态玻璃与连续圆角)
-   ============================================================================ */
-
 .bs-card {
   background: var(--bs-card-bg);
   border: var(--bs-card-border);
@@ -612,10 +583,6 @@ body {
 .btn-ghost:active {
   transform: scale(0.97);
 }
-
-/* ============================================================================
-   Landing Page (index.html)
-   ============================================================================ */
 
 .landing-main {
   max-width: 1120px;
@@ -697,7 +664,6 @@ body {
   gap: 6px;
 }
 
-/* Hero 右侧：真实扩展面板交互预览 */
 .hero-showcase {
   display: grid;
   gap: 14px;
@@ -779,7 +745,6 @@ body {
   text-align: center;
 }
 
-/* 能力展示区 */
 .section-header {
   display: grid;
   gap: 8px;
@@ -919,7 +884,6 @@ body {
   align-content: start;
 }
 
-/* 3 步快速上手 */
 .steps-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -966,7 +930,6 @@ body {
   text-underline-offset: 2px;
 }
 
-/* 命令行选项卡（macOS/Linux | Windows） */
 .cmd-switcher {
   display: grid;
   gap: 10px;
@@ -1022,7 +985,6 @@ body {
   line-height: 1.6;
 }
 
-/* 灯箱模态框 */
 .lightbox-dialog {
   padding: 12px;
   border: 0;
@@ -1060,10 +1022,6 @@ body {
   height: auto;
   border-radius: var(--bs-radius-xl);
 }
-
-/* ============================================================================
-   Document Pages (居中单栏正文 + 宽屏右侧无框浮动目录)
-   ============================================================================ */
 
 .doc-shell {
   max-width: 1120px;
@@ -1174,7 +1132,6 @@ body {
   border-radius: 6px;
 }
 
-/* 代码块：凹陷表面 + 流式顶条/右操作列（永不遮挡代码正文） */
 .code-block {
   margin: 1rem 0 1.35rem;
   border-radius: var(--bs-radius-xl);
@@ -1297,7 +1254,6 @@ body {
   font-size: inherit;
 }
 
-/* 引用与提示卡（去掉 4px 粗左竖条，改扩展同款圆角柔和卡片） */
 .markdown-body blockquote {
   padding: 14px 18px;
   border-radius: var(--bs-radius-lg);
@@ -1405,7 +1361,6 @@ body {
   margin: 2rem 0;
 }
 
-/* 浮动无框目录（Chrome 140+ 原生 scroll-target-group + IntersectionObserver fallback） */
 .toc-rail {
   position: sticky;
   top: 86px;
@@ -1457,7 +1412,6 @@ body {
   font-size: 12.5px;
 }
 
-/* 极简文本上下篇导航（去掉方框翻页卡） */
 .doc-pager {
   margin-top: 44px;
   padding-top: 20px;
@@ -1483,7 +1437,6 @@ body {
   color: var(--bs-accent);
 }
 
-/* 全站共享简洁页脚 */
 .site-footer {
   max-width: 1120px;
   margin: 0 auto;
@@ -1516,10 +1469,6 @@ body {
 .site-footer a:hover {
   color: var(--bs-accent);
 }
-
-/* ============================================================================
-   Responsive Breakpoints
-   ============================================================================ */
 
 @media (max-width: 1120px) {
   .doc-shell {

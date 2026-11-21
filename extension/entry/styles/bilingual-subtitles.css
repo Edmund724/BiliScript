@@ -1,57 +1,3 @@
-/* ===== 双语字幕表（票 bilingual-subtitles/01 形态 + 06 落地）=====
- * 两个消费者共用一份表（三处登记：shared/style-injector.ts + scripts/build.js 的
- * cssEntries + manifest 的 WAR 通配 entry/styles/*）：
- *   1. 字幕工具条选轨控件（reader/subtitle-tab-ui.ts）的双语弹层——组件浮层
- *      （.custom-select-dropdown）里装配出来的「主/副两列 + 页脚开关 + trigger 徽标」；
- *   2. 字幕列表每段的副行（reader/batched-render.ts 的
- *      .biliscript-reading-subtext，宿主为 .biliscript-reading-text）。
- *
- * 弹层结构（reader/subtitle-tab-ui.ts 的 buildBilingualCard 是唯一产地；骨架是节点
- * 身份不变量，组件整批重写选项行时按引用搬回原位，不重建）：
- *   ul.custom-select-dropdown                        ← 组件的浮层本体（收起态由它的
- *                                                      hidden 属性管，本表不另造开关）
- *     li.biliscript-bilingual-popover                ← 卡片根（display: contents，只做
- *                                                      结构容器，不产生盒子）
- *       div.biliscript-bilingual-main                ← 主区：只裁剪，自己**不滚**（把高度
- *                                                        交给两列）
- *         div.biliscript-bilingual-cols
- *           div.biliscript-bilingual-col[data-col="main"]  ← 主列（+ 单轨态说明行）
- *           div.biliscript-bilingual-col[data-col="sub"]   ← 副列（双语态才有）
- *           （两列各自是滚动盒 ⇒ 各自一条滚动条；2026-10-06 用户裁决）
- *       div.biliscript-bilingual-footer               ← 固定页脚：双语字幕 + 状态提示 + 开关
- *
- * 度量全部照抄 01 号票原型（prototypes/README.md §4/§7/§8、prototype.css `[4]` 段）
- * 的 A 变体实测值：卡片 300.22×315（两列各 140.11 = 最长语言名 120.1 + 行内边距 20）、
- * 上限高 320、选项行 38px（组件表自带）、trigger 定宽 120px（reader.css，不动）。
- * 类名 proto-* 属原型命名，此处按仓内口径改写为 biliscript-bilingual-*；
- * 色值一律走 --biliscript-reader-* 令牌（reader-gate.css 四档主题定义），不写字面色。
- *
- * 作用域：#biliscript-reading-view 前缀（与 custom-select.css / reader.css 同族）。
- *
- * 挂载：本表由 subtitle-tab-ui.ts 模块顶层 ensure（ensureCustomSelectStyles 同款
- * 先例），而该模块静态 import ui/custom-select.ts ⇒ 组件表随该叶子一同在场。
- * 级联与两张 link 的挂载先后无关，判据全在特异性：卡片度量靠
- * `:has(> .biliscript-bilingual-popover)`（(1,2,0)）压过组件表的
- * `.custom-select-dropdown`（(1,1,0)）；唯一同分的是收起态——卡片规则声明的
- * display 与组件表 `.custom-select-dropdown[hidden] { display: none }` 同为
- * (1,2,0)，故本表必须同步重述 [hidden]（下面那条 (1,3,0)），漏掉就是「列表常开」。 */
-
-/* ---------------------------------------------------------------------------
- * 一、弹层（组件浮层 = 卡片容器，两列 + 固定页脚）
- * ------------------------------------------------------------------------- */
-
-/* 卡片容器：右锚 + flex 列（硬约束 §5.1/§5.2）。
- * - right: 0 右锚：trigger 在工具条行尾，组件表默认的左锚（left: 0）会让卡片向右长
- *   300px，@380 越出面板内缘 150.22px、@536 越出 24.22px，被面板的 overflow: hidden
- *   裁掉；右锚让它往工具条内侧长，三档都在面板内。
- * - overflow 从卡片挪到两列：8 条轨时卡片内容已 315px（距上限 320 只剩 5px），
- *   第 9 条轨就会把页脚开关滚出视野。卡片只留 overflow: hidden 做裁剪。
- * - max-width 是硬约束 §5.3 的结构性落地：异常/空态文案（以及病态长的语言名）不许
- *   把卡片顶出面板——上限 = 面板内容宽 − 20px 余量（内容宽 = 面板宽 − 58，380 档
- *   实测卡片 300.22 时余量 21.8px）。
- * `:has(> .biliscript-bilingual-popover)` 把本组规则限定在双语卡片在场的那一枚浮层上
- * （仓内同款先例：reader-settings-rows.css 的 `:has(.custom-select-dropdown:not([hidden]))`），
- * 其余组件浮层度量一字不动。 */
 #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover) {
   left: auto;
   right: 0;
@@ -67,10 +13,6 @@
   overflow: hidden;
 }
 
-/* 收起态正确性规则必须在本表重述：组件表的
- * `… .custom-select-dropdown[hidden] { display: none }` 与上面的 display: flex
- * 同分（1,2,0），本表缺这条时收起态就由两张 link 的挂载先后决定（组件表先挂则
- * 仍是 flex = 列表常开）。 */
 #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden] {
   display: none;
   opacity: 0;
@@ -80,14 +22,10 @@
               display 120ms allow-discrete;
 }
 
-/* 卡片根不产生盒子：主区与页脚直接成为浮层的 flex 项——页脚因此固定在主区之外
- *（硬约束 §5.2：第 9 条轨也不把开关滚出视野）。 */
 #biliscript-reading-view .biliscript-bilingual-popover {
   display: contents;
 }
 
-/* 主区：卡片 flex 列里唯一可收缩/可撑高的一项。它自己**不滚**——只做裁剪，并把
- * 高度交给两列（2026-10-06 用户裁决：两列不能共用一条滚动条，要分开两条）。 */
 #biliscript-reading-view .biliscript-bilingual-main {
   display: flex;
   flex: 1 1 auto;
@@ -103,12 +41,6 @@
   min-height: 0;
 }
 
-/* 列 = 滚动盒（各自一条滚动条）：列高由卡片上限（max-height 320）反向约束，内容超出
- * 就在**本列**滚。交叉轴是默认的 stretch——`align-items: flex-start` 会把列收缩到
- * 内容高，滚动盒没有高度可滚，两列就只能退回共用一个滚动区。
- * min-width/min-height: 0 让超长语言名走选项行自己的省略号，而不是把卡片顶宽（§5.3）。
- * 本规则**不声明 display**：副列收起走 hidden 属性，声明 display 会把 [hidden] 压过去
- *（本表同款教训见上面那条收起态规则）。 */
 #biliscript-reading-view .biliscript-bilingual-col {
   min-width: 0;
   min-height: 0;
@@ -116,13 +48,6 @@
   overflow-x: hidden;
 }
 
-/* 列滚动条与面板三处滚动容器（字幕列表 / 概览 / AI 对话）同一套细滚动条：
- * 只走 ::-webkit-scrollbar 定制（Chrome 121+ 设标准 scrollbar-color/width 会跳过
- * webkit 定制、回退 Windows 原生粗灰条带三角箭头，两套只能取其一），颜色吃
- * --biliscript-reader-* 令牌，四档主题自动跟随。列宽是 max-content（最长语言名
- * 120.1 + 行进边距 20 = 140.11），真机 427 档实测卡片上限 349：两列 140.11
- * + 两条 8px 滚动条槽 + gap 6 + padding 12 + border 2 = 316.22，仍在限内
- *（语言名不截断）。 */
 #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar {
   width: 8px;
 }
@@ -174,9 +99,6 @@
   list-style: none;
 }
 
-/* 副列里那枚组件浮层退回「列内一段普通列表」：定位/边框/阴影/自滚动全部取消
- *（卡片自己那层度量在这里不重复出现）。选择器只命中副列里的浮层——卡片容器那枚
- * 浮层不在任何 .biliscript-bilingual-col 内。 */
 #biliscript-reading-view .biliscript-bilingual-col[data-col="sub"] .custom-select-dropdown {
   position: static;
   min-width: 0;
@@ -191,18 +113,10 @@
   box-shadow: none;
 }
 
-/* 副列的组件浮层在双语态恒为「展开」：hidden 属性让位给列内流排布。
- * !important 不是为了压本表其它规则，而是压**页面**的全局重置：B 站自己的样式表
- * （`video.*.css`）里有 `[hidden] { display: none !important }`，本选择器特异性再高、
- * 顺序再后也拦不住 !important —— 真机走查实测：不带 !important 时副列那 8 行
- * 全部 rect 0×0、列宽塌到 56px（只剩表头），用户根本换不了副语言。
- * 仓内同款先例：reader-chat.css 的 `display: none !important`（压的也是页面规则）。 */
 #biliscript-reading-view .biliscript-bilingual-col[data-col="sub"] .custom-select-dropdown[hidden] {
   display: block !important;
 }
 
-/* 副列组件壳的宿主：壳常驻副列，宿主无盒（select 与浮层直接成为列的流内容）；
- * 本列走占位/收起态时宿主整块让位（hidden 属性 + 这条 display 覆盖，二者缺一不可）。 */
 #biliscript-reading-view .biliscript-bilingual-secondary {
   display: contents;
 }
@@ -211,8 +125,6 @@
   display: none;
 }
 
-/* 壳本身也无盒：可见 affordance 只有列里的选项行——工具条那枚 120px trigger 仍是
- * 一行里唯一的控件外观（Q3/Q10：面板里只有一族 affordance），故壳自带的 trigger 收起。 */
 #biliscript-reading-view .biliscript-bilingual-secondary-picker {
   display: contents;
 }
@@ -221,9 +133,6 @@
   display: none;
 }
 
-/* 空态说明行（未选 / 本视频无该语言 / 主副同轨）：列首一行，语言列表照常排在它下面
- *（2026-10-06 图外回访：说明行顶掉列表等于把用户锁死在这一态）。不参与列宽
- *（硬约束 §5.3），超长文案就地省略。 */
 #biliscript-reading-view .biliscript-bilingual-empty {
   box-sizing: border-box;
   min-height: 38px;
@@ -237,8 +146,6 @@
   text-overflow: ellipsis;
 }
 
-/* 单轨禁用态的说明行（硬约束 §5.4 + 01 号票派生收尾）：说明文字进列表区、
- * 页脚只留 label + 开关——页脚是全局开关的固定位，文案长度不可控。 */
 #biliscript-reading-view .biliscript-bilingual-hint {
   box-sizing: border-box;
   padding: 4px 10px;
@@ -250,7 +157,6 @@
   text-overflow: ellipsis;
 }
 
-/* 失败重试入口（02 号票 Q6）：只在副列里、accent 色、可点；不做自动重试。 */
 #biliscript-reading-view .biliscript-bilingual-retry,
 #biliscript-reading-view .biliscript-bilingual-ai-refine {
   width: 100%;
@@ -282,9 +188,6 @@
   display: none;
 }
 
-/* 页脚：固定的一行「双语字幕 + 状态提示 + 开关」（不进设置抽屉、不随列表滚）。
- * 状态提示位（③ 主副同轨）紧挨 label：label 不再吃掉空余宽度，靠开关的 margin-left:auto
- * 把开关钉在最右。 */
 #biliscript-reading-view .biliscript-bilingual-footer {
   display: flex;
   flex: 0 0 auto;
@@ -303,8 +206,6 @@
   white-space: nowrap;
 }
 
-/* 页脚状态提示：吃完剩余宽度（因此开关恒在最右），文字从 label 右边起排；过长就地省略，
- * 不把开关挤出卡片（硬约束 §5.3/§5.4）。 */
 #biliscript-reading-view .biliscript-bilingual-footer-note {
   flex: 1 1 auto;
   min-width: 0;
@@ -320,10 +221,6 @@
   display: none;
 }
 
-/* 开关：34×20 胶囊 + 16px 圆钮，用真 <button role="switch"> 给齐键盘可达性。
- * 色彩与阴影对齐设置抽屉 toggle-switch 规范：关态轨道底色为 surface-3，
- * 开态切 accent；滑块采用纯白底色配合双层微阴影（3px 模糊软环 + 1px 细环），
- * 位移与变色走 --biliscript-reader-ease-spring 缓动。 */
 #biliscript-reading-view .biliscript-bilingual-switch {
   flex: 0 0 auto;
   margin-left: auto;
@@ -365,13 +262,11 @@
   transform: translateX(14px);
 }
 
-/* 单轨禁用态（Q7）：开关仍在场、只是不可用（说明在列表区）。 */
 #biliscript-reading-view .biliscript-bilingual-switch:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-/* 减少动态：轨道颜色与滑块位移过渡关停。 */
 @media (prefers-reduced-motion: reduce) {
   #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover),
   #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden] {
@@ -385,10 +280,6 @@
   }
 }
 
-/* trigger 的双语徽标（双语态 = 主轨名 + 徽标，trigger 定宽 120px 不动）：
- * 它是 trigger 的直接子节点（不在 .custom-select-value 里——组件的值投影每次都整块
- * 重写那个 span，徽标放里面会被抹掉）；margin-right: auto 让值 + 徽标靠 start 端、
- * 箭头仍贴 end 端。 */
 #biliscript-reading-view .biliscript-reading-track-picker .biliscript-bilingual-badge {
   flex: 0 0 auto;
   margin-right: auto;
@@ -400,12 +291,6 @@
   font-size: var(--biliscript-font-size-sm);
   line-height: 16px;
 }
-
-/* ---------------------------------------------------------------------------
- * 二、字幕列表的副行（DOM 形态由 reader/batched-render.ts 定死）
- *   <span class="biliscript-reading-text">主文<span class="biliscript-reading-subtext"
- *     data-state="ready|loading|fail">副文</span></span>
- * ------------------------------------------------------------------------- */
 
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext {
   display: block;
@@ -420,7 +305,6 @@
   margin-bottom: 1px;
 }
 
-/* 占位文案（加载中 / 失败）斜体且禁止划词：与正文区分，说明这一行还不是译文。 */
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="loading"],
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="error"],
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="fail"] {
@@ -429,8 +313,6 @@
   -webkit-user-select: none;
 }
 
-/* 失败行 accent 色但**不可点**：重试入口唯一在弹层副列（02 号票的「入口唯一」），
- * 这里没有 click 处理器，光标也保持默认（不给出可点的暗示）。 */
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="fail"] {
   color: var(--biliscript-reader-accent);
   cursor: default;

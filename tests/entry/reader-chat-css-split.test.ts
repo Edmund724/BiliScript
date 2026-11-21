@@ -128,8 +128,12 @@ describe("对话域分割线样式", () => {
 describe("历史内容模式投影", () => {
   it("同一 hidden 隐藏标签行和对话内容，直接切换而无透明叠字", () => {
     const css = read(CHAT_CSS);
-    const start = css.indexOf("/* 历史是对话区的内容模式");
-    const end = css.indexOf("/* 整页头部", start);
+    const start = css.indexOf(
+      "#biliscript-reading-view .biliscript-reading-script-panel:has(#biliscript-reading-tab-body-chat.is-active):has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row"
+    );
+    const end = css.indexOf(".biliscript-reading-chat .chat-history-popover-head", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
     const block = css.slice(start, end);
     expect(block).toContain(":has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row");
     expect(block).toContain(".chat-history-popover:not([hidden]) ~ .chat-live-status");

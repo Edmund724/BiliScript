@@ -1,9 +1,3 @@
-/* 统一 文摘面板内部布局（#biliscript-reading-view 基础布局）——随阅读模式挂载的
- * 非门控段（S3 分层）：页面无 data-biliscript-reader-mode 时视图 display:none 静默，
- * 挂载后任何时刻建节点都不会闪现。#biliscript-reading-view 的唯一内容是
- * 文摘面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
- * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
-
 #biliscript-reading-view {
   position: fixed;
   left: 16px;
@@ -16,19 +10,11 @@
   box-sizing: border-box;
   background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
   border: 1px solid var(--biliscript-reader-border, var(--biliscript-primitive-color-gray-300));
-  /* 面板族圆角 28px、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
-   * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-shadow);
   font-family: var(--biliscript-reader-font-sans);
-  /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
-   * ——贴栏档宽度由 script-host 写 var（与视口宽度脱钩）、浮层档由 left+right
-   * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
-   * 都不依赖内容横向尺寸（height: auto 的窄窗浮层只涉纵向，不受容纳约束）。 */
   container-type: inline-size;
-  /* 贴栏态以右缘为锚：translate 与 scale 同节奏开合，均不过冲。
-   * 基态不挂过渡；退出期间由 .closing 保持渲染，避免样式重挂或关闭后滞留 block。 */
   transform-origin: right center;
   translate: 100% 0;
   scale: 0.98;
@@ -81,15 +67,6 @@
   pointer-events: none;
 }
 
-/* ===== 宿主页 reset 的标题/链接颜色压回 =====
- * 阅读视图住在宿主页文档里（无 shadow DOM），bilibili 的全局 reset
- *（s1.hdslb.com/.../jinkela/video/css/video.*.css）带两条无作用域元素选择器：
- * `h1,h2,h3,h4,h5,h6{color:rgba(0,0,0,.85)}` 与 `a{color:#222}`。它们特异性
- * 高于继承，永远压掉本视图从 token 继承来的颜色——深色主题下 markdown 标题
- * 与链接因此变成深色底上的黑字（正文无匹配声明，继承正常，故只有标题/链接
- * 中招）。用 `#id :where()` 提权压回：(1,0,0) 稳胜宿主 (0,0,1)，:where()
- * 贡献 0 特异性、不改视图内既有规则的相对次序，选择器带 #id 作用域，
- * 不外泄到宿主页其他元素。 */
 #biliscript-reading-view :where(h1, h2, h3, h4, h5, h6) {
   color: var(--biliscript-reader-text);
 }
@@ -124,24 +101,10 @@
   color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-gray-600));
 }
 
-/* meta 行多行结构（2026-10-04 用户决议）：`UP主：…` 与 `P{n}：…` 各占一行，
- * 由 reader/lifecycle 的 buildReadingMetaLine 落 `\n`，这里只负责让换行可见
- *（长分P标题不再从中间折断）。 */
 .biliscript-reading-meta {
   white-space: pre-line;
 }
 
-/* header 动作行：负 margin 把三个图标键往面板右上角收（用户决议，见
- * .biliscript-reading-script-panel .biliscript-reading-header 的 padding
- * 14px 16px 10px）——那段内边距是三键与左侧文案、下方标签槽共用的，收它会把整行
- * 一起挪走，故由本行单独承担。负值不越出面板：14/16 的 padding 大于 6/6，且面板
- * 的 overflow:hidden 只裁面板外的溢出。
- * align-self: flex-start（2026-10-04 用户决议）：header 的交叉轴对齐是 center
- *（面板作用域覆写，单行文案时把文案块在三键行里居中），左侧文案一变多，三键就跟
- * 着飘到整块的中线。三键自取 flex-start 钉在右上角、只随 header 顶部走；配合上面
- * -6px 的负 margin，单行文案下三键中线仍落在首行中线上（现状观感不变）。
- * 本容器只装图标键（主题/设置/退出），键自身的框形、底色与状态一律由
- * .biliscript-reading-icon-btn 及其伪类单点定义，此处不写任何 button 后代规则。 */
 .biliscript-reading-actions {
   display: flex;
   align-items: center;
@@ -154,13 +117,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* 面板开合对减少动态用户关停，直接就位。 */
   #biliscript-reading-view {
     transition: none !important;
   }
 
-  /* 按压缩放与 tab 内容进场动画（transform 类）对减少动态用户关停；颜色/
-   * 背景类短过渡保留 */
   .biliscript-reading-icon-btn:active,
   .biliscript-reading-tab:active,
   .biliscript-reading-item:active,
@@ -181,17 +141,12 @@
     animation: none;
   }
 
-  /* 换轨进场动画同样关停（与 tab 体进场同族） */
   .biliscript-reading-subtitle.is-track-switching,
   .biliscript-reading-explain-card-skeleton-line {
     animation: none;
   }
 }
 
-/* 图标键母题（header 三键：主题/设置/退出；标签行对话工具键：历史对话/开启
- * 新会话；字幕工具条复制/导出）：无框幽灵键（用户决议）——静止态透明无底色
- * （实色填充落在 tab 体的 card 白卡上会显出一片灰），存在感只由悬停/焦点底
- * （fill-hover）与点按缩放反馈承担。 */
 .biliscript-reading-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -250,67 +205,26 @@
   background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
 }
 
-/* 键盘焦点与悬停同底：focus-visible 只落在键盘导航（鼠标点击不触发），
- * 与 hover 共用 fill-hover 令牌，不另立反馈档。 */
 .biliscript-reading-icon-btn:focus-visible {
   background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
 }
 
-/* 主题切换按钮点按反馈（ui-renderer 300ms 即摘）：accent-soft 软底 + accent 字，
- * 深浅两主题同源 token */
 .biliscript-reading-icon-btn.is-active {
   background: var(--biliscript-reader-accent-soft, rgba(var(--biliscript-primitive-color-blue-500-rgb), 0.1));
   color: var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-500));
 }
 
-/* .biliscript-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
- * padding/overflow），此处不留空壳。 */
-/* 字幕工具条「字幕语言」下拉的 .biliscript-reading-select/-sm 框形态已随该控件
- * 删除（2026-10 用户决议，见 reader/subtitle-tab-ui.ts 头注）。 */
-/* 选轨控件（票 subtitle-track-picker/08，02 号票裁定变体 A「一行内插入」）：
- * 控件壳是 ui/custom-select 的 wrapper（组件表给它 `display: flex`，内含 trigger
- * `width: 100%`），插在搜索框与「复制」之间，一行内。
- * 只管**在工具条里的排布**这一件事，组件自身度量一律留给
- * entry/styles/custom-select.css（Q3/05/10：组件侧不再改）：故这里只写本票自己的
- * wrapper 类，不碰组件内部类名——tests/entry/reader-settings-css-split 有回流守卫
- * （reader.css 出现组件类名即红）。
- *   - wrapper `flex: 0 0 auto`：不吃搜索框（flex: 1 1 150px）的空间——宽度只由
- *     下面那条定宽决定，断行预算因此是个常数（prototypes/README §5/§6）；
- *   - wrapper 定宽 120px（02 号票裁定的宽度策略）：trigger 是 width:100% 的子项、
- *     随之 120px，行数与选中语言无关（自适应方案的行数阈值会随语言在
- *     403.0–472.4 之间跳，460 档最长名会多出一行）。 */
 #biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-track-picker {
   flex: 0 0 auto;
   width: 120px;
 }
 
-/* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
- * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
- * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，槽与项同档 12px 圆角）→
- * tab-body。色值全部走
- * --biliscript-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
 .biliscript-reading-script-panel {
   min-height: 0;
-  /* 三行网格（header / tabs / tab-body）替代原 flex 列：设置抽屉与
-   * 标签区同占第 2–3 行（抽屉 span 两行），抽屉退出时两者重叠而非同时在流内
-   * 把 tab-body 挤扁再弹回（详见 reader-settings-shell.css 开合过渡注释）。
-   * 原 flex 属性对网格项无效，行尺寸由 grid-template-rows 接管；三个
-   * tab-body 同占第 3 行（同一时刻只有一个 is-active 在显示）。 */
   display: grid;
   grid-template-rows: auto auto 1fr;
-  /* 显式单列：不写的话自动放置会把标签区排到第 2 列去避让跨行的抽屉
-   *（网格项不重叠），重叠语义随之失效。
-   * 列宽必须写 minmax(0, 1fr) 而不是 1fr：1fr 隐含的 auto 下限 = min-content，
-   * tab 内容里任何 white-space:nowrap 的超长单行（自带的 min-width:0 + ellipsis 也
-   * 拦不住 min-content）都会把整列撑出面板宽——历史上对话 tab 的上下文标题 chip
-   * 就是这样把整列撑到 700px+（该 chip 已于 2026-10 删除，规则作为防御保留），
-   * 面板宽度是定死的 → 整列内容向右溢出后被 overflow:hidden 裁掉
-   *（tab 栏、模型选择行、输入框右缘一起被切）。minmax(0, …) 抹掉这个下限，
-   * 列宽严格等于面板宽，各元素自己的 ellipsis/收缩规则才生效。 */
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-  /* content-box 下 width:100% + 1px 边框两侧各溢 1px，贴栏态固定定位的
-   * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -325,15 +239,8 @@
   align-items: center;
   padding: 14px 16px 10px;
   gap: 10px;
-  /* 2026-12 配色定稿：不再有独立底色与毛玻璃——原 header-bg 是 surface 加
-   * alpha 的 rgba，叠在不透明的 surface 面板壳上恒等于 surface（纯冗余），
-   * 而近白的观感在 flyme 浅色下与 tab 区的页面灰形成断层（用户报「很割裂」）。
-   * header 直接落在面板页面灰上，与 tab 区连成同一层。 */
 }
 
-/* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
- * 对话工具键（更多操作）脱流绝对定位在行右侧，不占据弹性流，
- * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
 .biliscript-reading-tabs-row {
   position: relative;
   grid-row: 2;
@@ -355,17 +262,11 @@
   z-index: 20;
 }
 
-/* 对话工具键只在 AI 对话 tab 激活时出现（键语义属对话域；:has 与
- * reader-chat.css 的对话面板覆写同代，Chrome 120 起可用）。
- * 非对话 tab 下完全隐藏且不阻挡指针事件。 */
 .biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
   display: none;
   pointer-events: none;
 }
 
-/* 分段控件母题：凹槽与卡片项同档 12px 圆角，与 tab 内容卡 / 字幕活动卡 /
- * 章节 / 金句卡同一半径语言（gate 段不再覆写为胶囊）。
- * 三标签胶囊组作为整体居中，各项等宽居中，概览标签对齐水平中轴线。 */
 .biliscript-reading-tabs {
   --biliscript-tab-gap: 4px;
   --biliscript-tab-pad-x: 4px;
@@ -386,7 +287,6 @@
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
-/* 滑动气泡指示器：从源位置到新位置平滑过渡（类似 Gemini 网页端分段胶囊动效） */
 .biliscript-reading-tabs::before {
   content: "";
   position: absolute;
@@ -469,25 +369,19 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* 内容区套 card 白卡：四周 margin 环透出页面灰作页面层，
-   * 圆角 28px 与 tab 槽同档。 */
   margin: 10px 14px 14px;
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  /* Follow 悬浮按钮、选区「解释」浮层与解释卡片的定位上下文 */
   position: relative;
 }
 
-/* tab 显隐双通道：class（is-active）与 hidden 属性都收敛为不显示——
- * 作者 display:flex 会盖过 hidden 的 UA 样式，两条都写防漂移。 */
 .biliscript-reading-tab-body:not(.is-active),
 .biliscript-reading-tab-body[hidden] {
   display: none;
 }
 
-/* tab 切换内容进场（motion token：spring 0.3s）——显隐翻转的瞬间播放一次 */
 .biliscript-reading-tab-body.is-active {
   animation: biliscript-tab-body-in var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
@@ -503,15 +397,10 @@
   }
 }
 
-/* 换轨进场：用户主动换轨（主列选轨 / 副列改选）后的列表整表重建播一次，
- * 复用 tab 体同款关键帧与 spring 令牌（2026-10 用户决议）。触发类由
- * reader/lifecycle 的列表投影按 reader/track-switch-animation.ts 的标记
- * 挂摘——初始加载、抓取对账等常规重投影不带此类，不播。 */
 .biliscript-reading-subtitle.is-track-switching {
   animation: biliscript-tab-body-in var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
 
-/* 概览 / AI 对话 tab 的占位卡 */
 .biliscript-reading-placeholder,
 .biliscript-reading-ov-empty-card {
   margin: auto 0;
@@ -539,9 +428,6 @@
   margin: 0;
 }
 
-/* 生成中的占位卡没有标题（标题行曾与状态条重复同一句「正在生成概览」）：说明
- * 文字就是这张卡的正文，按概览 tab 正文档 16px 排；带标题的占位卡里那行仍是
- * 附注，维持 14px（同转写横幅 title 16 / copy 14 的约定）。 */
 .biliscript-reading-placeholder.is-generating .biliscript-reading-placeholder-copy {
   font-size: var(--biliscript-font-size-md);
 }
@@ -557,10 +443,6 @@
 
 .biliscript-reading-subtitle {
   width: 100%;
-  /* 必须 border-box：默认 content-box 下 width:100% 再叠左右 padding 会比
-   * .biliscript-reading-main（overflow:hidden）宽 16px，右缘连同滚动条一起被裁掉，
-   * 表现为「滚动条不可见」（18dba67 误删滚动条定制也没救回来，真正的根因
-   * 在这里）。概览/chat 两个滚动容器没设 width:100%，所以幸免。 */
   box-sizing: border-box;
   flex: 1;
   min-height: 0;
@@ -569,18 +451,10 @@
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
-  /* 滚动区顶底渐隐遮罩（08 号票）：8px–10px 线性羽化过渡，
-   * 消除滚动时字幕行在上下边缘硬切截断观感；纯 mask 无色值，暗色主题自动跟随。 */
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 
-/* 面板滚动容器共用同一套细滚动条（字幕列表 / 概览 / AI 对话消息区 / 解释卡
- * 内容区）。只用 ::-webkit-scrollbar 定制，不设标准 scrollbar-color/scrollbar-width：Chrome 121+
- * 上标准属性一旦非 auto 就整组跳过 ::-webkit-scrollbar，回退成 Windows 原生粗灰条
- *（带上下三角箭头按钮），两套机制只能取其一。8px 槽内 2px 透明描边 + content-box
- * 裁出 4px 圆角细条，与面板卡片圆角语言一致。thumb 常态 faint（浅底上够可见）、
- * hover 加深 muted，直接吃 --biliscript-reader-* 主题 token，深浅两主题自动跟随。 */
 .biliscript-reading-subtitle::-webkit-scrollbar,
 .biliscript-reading-overview::-webkit-scrollbar,
 .biliscript-reading-chat .chat-messages::-webkit-scrollbar,
@@ -622,8 +496,6 @@
   background-clip: content-box;
 }
 
-/* 显式藏掉滚动条两端按钮：Windows 原生滚动条在槽顶/底各渲染一个上下三角箭头，
- * 不压掉就会出现在定制槽里。 */
 .biliscript-reading-subtitle::-webkit-scrollbar-button,
 .biliscript-reading-overview::-webkit-scrollbar-button,
 .biliscript-reading-chat .chat-messages::-webkit-scrollbar-button,
@@ -668,15 +540,6 @@
               box-shadow 0.24s cubic-bezier(0.2, 0, 0, 1),
               border-color 0.24s cubic-bezier(0.2, 0, 0, 1),
               transform 100ms ease-out;
-  /* 视口外条目跳过布局（defer-rendering-heavy-content 指南模式）：占位高度
-   * 取 --biliscript-reader-item-estimate（首屏批上屏后由 batched-render 按
-   * 视口内条目的真实均值校准写入列表元素），未校准时回退默认字号单行 44px
-   *（内边距 10px×2 + 文本列 16px×1.5=24px；时间戳列清掉 pill 内边距后
-   * 14px×1.5=21px 恒矮于正文列，行高由正文列决定）。
-   * 估计若持续小于真实值（双语副行/折行/调大字号），首次往下拖动滚动条时
-   * scrollHeight 边滚边涨、滑块被顶回，表现为拖动不跟手——校准即消此偏差。
-   * auto 让浏览器记住首次绘制后的实际尺寸；宽度不占位（none：条目宽由容器
-   * 拉伸决定，与内容无关）。 */
   content-visibility: auto;
   contain-intrinsic-size: auto none auto var(--biliscript-reader-item-estimate, 44px);
 }
@@ -685,15 +548,6 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* 活动行的裸类名规则已删（2026-10-06）：它声明的 background: transparent 在面板内
- * 恒被下方 #biliscript-reading-view … .is-active 的实底覆盖——字幕列表只存在于
- * #biliscript-reading-view 里（挂 .biliscript-reading-main 之下）；box-shadow: none
- * 又等于默认值。整条规则没有任何效果，属死声明。 */
-
-/* 时间戳 pill：贯穿章节 / 金句 / AI 引用的视觉母题
- *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
- * 母题自称 pill，形状就是 pill（999px，与同底的 .biliscript-reading-ov-badge 同款）。
- * 字幕列表内的实例被下方减噪规则覆盖（清底 + 次级色，仅活动/悬停回主色）。 */
 .biliscript-reading-time {
   font-family: var(--biliscript-reader-font-mono);
   font-variant-numeric: tabular-nums;
@@ -712,11 +566,6 @@
   transition: background 0.24s cubic-bezier(0.2, 0, 0, 1),
               color 0.24s cubic-bezier(0.2, 0, 0, 1);
 }
-
-/* 活动行的 2px 绿下划线已整条删除（2026-10-06 用户决议，字幕 tab 截图）：它与活动行
- * 底色同读 sync 的同一个 is-active，是同一状态的两套颜色语言；且 text-decoration 按
- * 行盒铺开——字幕多为 2–3 行，长句实际是每行一条绿线（底色始终是一整块）。
- * success 绿在本表随之失去唯一消费方，reader-gate.css 语义注释同步摘掉「朗读高亮」。 */
 
 .biliscript-reading-text {
   font-size: var(--biliscript-font-size-base);
@@ -749,10 +598,6 @@
   gap: 8px;
 }
 
-/* 视口媒体查询只留壳定位（浮层档的边距/贴顶）：排版窄档已上移到下方
- * @container——面板贴栏宽度由 script-host 写 var，与视口宽度脱钩，且旧
- * 媒体查询里的排版规则（item 列宽/正文字号/标题字号）早被同表后段的
- * #biliscript-reading-view 前缀覆盖规则压成死代码，一并删除。 */
 @media (max-width: 1100px) {
   #biliscript-reading-view {
     left: 12px;
@@ -769,9 +614,6 @@
   }
 }
 
-/* 主题 token 属阅读表：引用方（gate 段）随表同挂同摘，无跨表串色。
- * 上方基础段的同名规则也吃同一批 token（回退值已随令牌收敛剥除），此处只保留
- * 基础段覆盖不到的排版修正。 */
 #biliscript-reading-view,
 #biliscript-reading-view .biliscript-reading-meta,
 #biliscript-reading-view .biliscript-reading-item,
@@ -783,9 +625,6 @@
   font-size: var(--biliscript-font-size-md);
   color: var(--biliscript-reader-muted);
 }
-
-/* 字幕 tab 工具条内的语言下拉（三开关退役后自设置面板移入，2026-09；2026-10
- * 用户决议整条删除）的专属规则已随控件一并摘去，不再留空壳。 */
 
 #biliscript-reading-view .biliscript-reading-panel {
   border-radius: var(--biliscript-radius-panel);
@@ -802,14 +641,6 @@
   background: transparent;
 }
 
-/* 字幕列表时间戳减噪：非活动行的 pill 底清成透明、字色降为次级 muted、
- * tabular-nums 等宽数字——多行短句同屏时左列不再是成串蓝药丸。作用域收在
- * .biliscript-reading-item 内且显式 :not(.is-active)：特异性 (1,3,0) 压过 gate
- * 浅色档全 pill 规则 (1,2,0)（gate 在本表之后装载，打平即输），深浅两档都
- * 退去；活动行时间戳的胶囊由下方 is-active 规则自给。章节卡/金句卡/AI 对话
- * 引用的 pill 母题不受影响。
- * 悬停行只把时间戳回主色（reader.css 强调档，浅色档由 gate time-color token
- * 按色板覆写），不做整行高亮——实心胶囊专属活动行。 */
 #biliscript-reading-view .biliscript-reading-item:not(.is-active) .biliscript-reading-time {
   background: transparent;
   padding: 0;
@@ -821,18 +652,6 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 活动行 = 整颗白卡：行容器切 inline-grid、宽度随内容自适应包裹（max-width 100% 兜底长句折行），
- * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，随字号缩放且宽窄档同样对齐）；
- * 白卡同时包住时间戳与文字，右缘随文字结束，确保正文左边缘与未激活行严格垂直对齐；
- * 内边距沿用基础行（10px 12px），激活切换不改行高。
- * 圆角 12px，与分段控件槽/项、tab 内容卡、章节/金句卡同一半径语言
- *（多行内容卡不能用 999px 胶囊：折行后半径钳到半高，首尾行左缘文字会被
- * 裁进弧线里）。
- * 白卡底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
- * 软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
- * 卡内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
- * padding 1px 7px 随内容收紧、圆角 999px 全胶囊形、列内左对齐；
- * 正文深色加粗 600、min-width:0 允许在长句时收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
   display: inline-grid;
   width: auto;
@@ -869,12 +688,6 @@
   transition: color 0.24s cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* 长总结内容区容器查询窄档（size-aware-styling 指南）：随面板实际内容宽
- * 分档（须排在上方 #biliscript-reading-view 前缀规则之后，同特异性靠源序取胜）。
- * 窄容器（贴栏下限 300px 一带）收紧字幕行几何，给正文列让宽；字幕
- * 正文字号不在此强设——--biliscript-reader-subtitle-font-size 是用户可调档，窄档
- * 覆盖会与设置项打架。不支持容器查询的引擎无窄档（与既有宽档行为一致），
- * 属安全降级。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-item {
     gap: 10px;
@@ -882,7 +695,6 @@
   }
 }
 
-/* 设置面板在未加载分区表时的网格兜底（避免首次冷开挤动标签区） */
 #biliscript-reading-view .biliscript-reading-settings-panel {
   grid-row: 2 / 4;
   grid-column: 1;
@@ -893,16 +705,11 @@
   display: none;
 }
 
-/* 设置面板分组（窄容器适配） */
 #biliscript-reading-view .biliscript-reading-settings-group {
   display: grid;
   gap: 7px;
 }
 
-/* ===== PR3 字幕 tab：搜索工具条 / 转写横幅 / 跟随按钮 / 句上解释浮层 / 意图卡
- * 色值全部走 --biliscript-reader-* token（reader-gate.css 两主题定义），暗色自动跟随。
- * 视觉基准：prototype/unified-panel.html + final-字幕-解释.jpg / final-转写中.jpg */
-/* 窄容器（面板 300–460px）：放不下时按钮折到搜索框下一行 */
 .biliscript-reading-sub-toolbar {
   flex: 0 0 auto;
   display: flex;
@@ -1062,7 +869,6 @@
   outline-offset: 2px;
 }
 
-/* 命中高亮：mark + 当前命中（search-current 为 JS/CSS 契约名） */
 .biliscript-reading-subtitle mark.biliscript-reading-search-hit {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
@@ -1085,7 +891,6 @@
   box-shadow: 0 0 0 1.5px var(--biliscript-reader-accent);
 }
 
-/* 字幕区就地失败提示（reader/subtitle-notice.ts）：[hidden] 直通 UA 默认，不占位 */
 .biliscript-reading-subtitle-notice {
   flex: 0 0 auto;
   margin: 0 0 10px;
@@ -1094,7 +899,6 @@
   color: var(--biliscript-reader-danger);
 }
 
-/* 转写中间态：横幅（highlight 底）+ 不确定进度动画 + 列表淡出禁用 */
 .biliscript-reading-asr-banner {
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
@@ -1120,8 +924,6 @@
   margin: 0 0 10px;
 }
 
-/* 不确定进度轨：与概览状态条轨（.biliscript-reading-ov-track）同一档粗细 4px、同一
- * 条 biliscript-asr-pulse 动画——同一面板的两个 loading 指示器不该两个粗细。 */
 .biliscript-reading-asr-track {
   height: 4px;
   background: var(--biliscript-reader-track);
@@ -1173,12 +975,6 @@
   display: none;
 }
 
-/* Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow 驱动——
- * auto（跟随中）隐藏；manual（手动滚动暂停）时显示，
- * 点击由 resumeReaderFollowPlayback 拉回 auto 并跳回当前句。
- * 形态与选区「解释」按钮（.biliscript-reading-explain-btn）同族：两者都是浮在
- * tab body 上的临时 affordance，同为 card 底描边药丸、同档阴影、同一按压通道，
- * 改动时两边一起对齐。 */
 #biliscript-reading-view .biliscript-reading-follow-btn {
   display: none;
   position: absolute;
@@ -1221,7 +1017,6 @@
   outline-offset: 2px;
 }
 
-/* 基态 transform 被 translateX(-50%) 占用，按压缩放追加在同一 transform 之后 */
 .biliscript-reading-follow-btn:active,
 #biliscript-reading-view .biliscript-reading-follow-btn:active {
   transform: translateX(-50%) scale(var(--biliscript-reader-press-scale, 1));
@@ -1255,8 +1050,6 @@
   display: none !important;
 }
 
-/* 划词悬浮胶囊：绝对定位在文摘面板内（覆盖字幕与概览两 tab，不进滚动容器）；
- * 4 动作紧凑胶囊，默认置于选区上方并按面板/视口边界自动翻转与钳制 */
 .biliscript-reading-explain-pop {
   position: absolute;
   z-index: 8;
@@ -1319,7 +1112,6 @@
   outline-offset: 1px;
 }
 
-/* 字幕原位高亮存笔记标示（轻量：左侧高亮底 + 可点击撤销的紧凑「笔记」徽标） */
 .biliscript-reading-item.is-note-highlighted {
   background: var(--biliscript-reader-highlight);
 }
@@ -1349,7 +1141,6 @@
   outline-offset: 2px;
 }
 
-/* ===== 侧边栏内 ⌘K / Ctrl+K 命令面板（原生 <dialog closedby="any">） ===== */
 dialog.biliscript-cmd-palette {
   padding: 0;
   margin: auto;
@@ -1577,9 +1368,6 @@ dialog.biliscript-cmd-palette::backdrop {
   gap: 4px;
 }
 
-/* 选区「解释」卡片：面板内弹层（遮罩 + 居中对话框），整块内容由
- * reader/explain-card.js 按 loading/ready/error 三态重建。视觉基准
- * prototype/final-字幕-解释.jpg：accent 标题 + 选中原文软底条 + 正文解释。 */
 .biliscript-reading-explain-card {
   position: absolute;
   inset: 0;
@@ -1694,9 +1482,6 @@ dialog.biliscript-cmd-palette::backdrop {
   word-break: break-word;
 }
 
-/* 答案区带 .markdown-body（github-markdown-css 基线，随对话分区表挂载、
- * 晚于本表加载）：.markdown-body p 与这里的特异性同级（0-1-1）但靠后胜出，
- * 挂上 .markdown-body 抬到 0-2-1 保住紧凑 8px 档。 */
 .biliscript-reading-explain-card-answer.markdown-body {
   font-family: var(--biliscript-reader-font-sans);
   font-size-adjust: from-font;
@@ -1710,13 +1495,6 @@ dialog.biliscript-cmd-palette::backdrop {
   margin-bottom: 0;
 }
 
-/* 长解释屏外段落跳过渲染（M13，同 reader-chat 对话区的 c-v:auto 块级方案，
- * defer-rendering-heavy-content 指南）：renderMarkdown 的块级输出逐块
- * content-visibility: auto，只跳过滚动容器 .biliscript-reading-explain-card-content
- * 视口外的块。占位按 15.5px × 1.75 行高单行 27px 估，标题/列表/表格/代码块
- * 按浏览器默认排版的近似值；auto 让浏览器记住实际尺寸，回滚零跳动；宽度
- * 不占位（块宽由容器拉伸决定）。不支持的引擎忽略整组声明（c-v:auto 无需
- * fallback）；跳过的块仍可页内查找、可聚焦，无需 hidden="until-found"。 */
 .biliscript-reading-explain-card-answer p {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 27px;
@@ -1817,7 +1595,6 @@ dialog.biliscript-cmd-palette::backdrop {
   }
 }
 
-/* 工具循环提示（搜索失败原因 / 额度用尽）：注脚档灰字，留在卡片里随答案呈现 */
 .biliscript-reading-explain-card-notice {
   padding-top: 10px;
   font-size: var(--biliscript-font-size-base);
@@ -1825,7 +1602,6 @@ dialog.biliscript-cmd-palette::backdrop {
   color: var(--biliscript-reader-muted);
 }
 
-/* loading 转圈：与概览/转写横幅同族的细环动画 */
 .biliscript-reading-explain-card-dot {
   width: 12px;
   height: 12px;
@@ -1849,12 +1625,6 @@ dialog.biliscript-cmd-palette::backdrop {
   padding: 0 14px 14px;
 }
 
-/* ===== markdown mermaid 图表块（ui/markdown 产出占位，ui/mermaid-render 水合） =====
- * 规则收在 reader 基表而非分区表：图块同时出现在选区解释卡
- *（.biliscript-reading-explain-card-answer）与对话消息（.chat-msg-assistant-body，样式在
- * 按需挂载的 reader-chat.css），两处共用同一套 .biliscript-md-mermaid* 类名；reader 基表
- * 在阅读视图内恒在场，故只此一份。渲染前/失败时的源码 <pre> 外观由各自分区的 pre
- * 规则负责，这里只补「渲染成功后隐藏源码」、SVG 容器与失败提示。 */
 .biliscript-md-mermaid[data-biliscript-mermaid="done"] .biliscript-md-mermaid-src {
   display: none;
 }
@@ -1864,8 +1634,6 @@ dialog.biliscript-cmd-palette::backdrop {
   overflow-x: auto;
 }
 
-/* mermaid 默认 useMaxWidth：渲染出的 SVG 自带 width=100% + 内联 max-width + viewBox。
- * 这里只兜「随面板宽度缩放、按 viewBox 比例保持高度、窄面板横向滚动」。 */
 .biliscript-md-mermaid-svg svg {
   display: block;
   max-width: 100%;
@@ -1879,8 +1647,6 @@ dialog.biliscript-cmd-palette::backdrop {
   color: var(--biliscript-reader-faint);
 }
 
-/* AI 对话 tab 的待解释意图引用卡（PR3 引入，PR5 起由对话组合根渲染/消费）：
- * 时间戳 pill 母题（.biliscript-reading-time）+ 引用句 + 取消按钮；发送成功即隐藏。 */
 .biliscript-reading-chat-intent {
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
@@ -1958,9 +1724,6 @@ dialog.biliscript-cmd-palette::backdrop {
   word-break: break-word;
 }
 
-/* ===== 概览 tab：简介 / 章节 / 金句 =====
- * 色值全部走 --biliscript-reader-* token，暗色主题自动跟随；
- * 时间戳 pill 复用 .biliscript-reading-time 母题。 */
 .biliscript-reading-overview {
   flex: 1;
   min-height: 0;
@@ -1969,8 +1732,6 @@ dialog.biliscript-cmd-palette::backdrop {
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
-  /* 滚动区顶底渐隐遮罩（08 号票）：8px–10px 线性羽化过渡，
-   * 消除滚动时章节卡与金句卡在上下边缘硬切截断观感；纯 mask 无色值，暗色主题自动跟随。 */
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
@@ -1991,7 +1752,6 @@ dialog.biliscript-cmd-palette::backdrop {
   margin-bottom: 9px;
 }
 
-/* 「AI 生成 / AI 精选」小标注：accent 软底 pill，仅在 AI 分章/金句标头出现 */
 .biliscript-reading-ov-badge {
   font-size: var(--chip-font-size, var(--biliscript-font-size-base));
   font-family: var(--biliscript-reader-font-sans-medium);
@@ -2090,8 +1850,6 @@ dialog.biliscript-cmd-palette::backdrop {
   word-break: break-word;
 }
 
-/* editorial 数字刊物色板衬线体系：概览分区标题、概览单章标题、Markdown h1~h3、
- * 选区解释卡引文与对话待解释引文纳入衬线字型栈，按 700 / 600 / 400 三级拉开字重。 */
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title,
 #biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h1, h2, h3),
@@ -2118,17 +1876,11 @@ dialog.biliscript-cmd-palette::backdrop {
   font-style: normal;
 }
 
-/* 缺概括占位（manuscript 缺章打标，见 ai/chapter-plan.ts）：斜体 + faint 档，
- * 与正文概括（muted 档）拉开，读作「这里没有内容」而非一段概括。 */
 .biliscript-reading-ov-chapter-desc.is-missing {
   font-style: italic;
   color: var(--biliscript-reader-faint);
 }
 
-/* 金句卡（暖底淡卡）：surface-2 底 + 12px 圆角分组（与 tab 槽 / 章节卡同档），无边框、无左侧 accent
- * 边条；右上角 ::after 完整衬线引号水印；正文伪元素包「」直角引号、底行左侧
- * 播放三角 + 时间戳 pill（跳播）+ 右侧复制图标钮——「」+ 播放键 + 水印是与
- * 章节卡拉开区分的出版物书摘特征。色值走 token，四色板自动跟随。 */
 .biliscript-reading-ov-quote {
   position: relative;
   overflow: hidden;
@@ -2160,11 +1912,6 @@ dialog.biliscript-cmd-palette::backdrop {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* 右上角装饰水印引号：完整衬线后引号字形（U+201D，负偏移裁切会让卡角
- * 只剩半个引号——完整落进右上角内侧、贴近角落、与卡片留白协调；字号
- * 收到 32px 档，不压正文），色取 --quote-mark token（正文主色 9% 档），
- * 浅色/深色各一份、自动跟随；pointer-events: none 不拦截文本选择与
- * 点击跳播。 */
 .biliscript-reading-ov-quote::after {
   content: "\201D";
   position: absolute;
@@ -2195,7 +1942,6 @@ dialog.biliscript-cmd-palette::backdrop {
   -webkit-user-select: text;
 }
 
-/* 金句正文前后「」直角引号：伪元素注入，复制文本不含括号，字形随正文。 */
 .biliscript-reading-ov-quote-text::before {
   content: "「";
 }
@@ -2214,9 +1960,6 @@ dialog.biliscript-cmd-palette::backdrop {
   margin-top: 4px;
 }
 
-/* 底行左侧跳播组：播放三角 + 时间戳 pill 作为一个整体与右侧复制钮
- * space-between 分列（gate 表覆写 foot 为 space-between）。三角是跳播
- * affordance，accent 操作档；点击落在卡片委托上，与时间戳同行为。 */
 .biliscript-reading-ov-quote-seek {
   display: inline-flex;
   align-items: center;
@@ -2233,9 +1976,6 @@ dialog.biliscript-cmd-palette::backdrop {
   height: 14px;
 }
 
-/* 金句卡右下角复制图标钮（span[role=button]）：嵌在跳播 <button> 卡内不能用
- * <button>，语义由 role + data-overview-action 委托分流补齐；图标与 AI 对话
- * tab 的复制键同款（reader-chat.css 的 chat-msg-copy-btn） */
 .biliscript-reading-ov-quote-actions {
   display: inline-flex;
   align-items: center;
@@ -2288,7 +2028,6 @@ dialog.biliscript-cmd-palette::backdrop {
   stroke-linejoin: round;
 }
 
-/* 状态条（生成中 / 部分失败 / 失败）+ 不确定进度细条 */
 .biliscript-reading-ov-strip {
   display: flex;
   flex-wrap: wrap;
@@ -2305,8 +2044,6 @@ dialog.biliscript-cmd-palette::backdrop {
 .biliscript-reading-ov-strip.is-generating {
   border-color: transparent;
   background: var(--biliscript-reader-accent-soft);
-  /* 生成中状态条：左进度文案、右取消键（生成中唯一的面板内出口）——与
-   * partial/error 条的「左说事、右给按钮」同排法，故不再居中。 */
 }
 
 .biliscript-reading-ov-strip.is-partial {
@@ -2322,9 +2059,6 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-reading-ov-strip-text {
-  /* 状态条那句话是当下最重要的信息（生成中/部分失败/失败），按概览 tab 的正文
-   * 档 16px 排——转写横幅的同角色（.biliscript-reading-asr-title）同档；
-   * 14px 是占位说明/badge/Copy 钮的注脚档。 */
   flex: 1 1 180px;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -2356,24 +2090,13 @@ dialog.biliscript-cmd-palette::backdrop {
   }
 }
 
-/* ===== 面板内二次确认弹层（confirm-dialog）：替代浏览器原生 confirm——原生
- * 弹窗绘制在浏览器窗口正中央，扩展面板停靠窗口右侧时可能落在面板可视区外
- * （删除平台时看不到确认的用户报告）。消费方横跨设置域（删除平台 / dirty
- * 关闭）与对话域（清空历史 / 成本护栏），故样式落在本常驻表而非按需的
- * reader-settings-* / reader-chat 表——宿主挂法/层级同编辑器 Modal 宿主
- *（z-index 50 略高于编辑器 40：确认可从编辑器 Modal 上叠开）；卡片与按钮
- * 度量沿用 settings-ui-coherence（32 高 / 999 圆角 / 15 字号）。 */
 #biliscript-reading-view .confirm-dialog-host {
   position: absolute;
   inset: 0;
   z-index: 50;
-  /* 贴栏态（reader-gate.css）整个 view 对鼠标穿透，同编辑器 Modal 宿主
-   * 单点恢复 auto 的既有补丁 */
   pointer-events: auto;
 }
 
-/* 各分区表的 box-sizing 通配保护盖不到本宿主（编辑器 Modal 宿主同款
- * 黑洞防护） */
 #biliscript-reading-view .confirm-dialog-host,
 #biliscript-reading-view .confirm-dialog-host * {
   box-sizing: border-box;
@@ -2406,7 +2129,6 @@ dialog.biliscript-cmd-palette::backdrop {
   outline: none;
 }
 
-/* 可见标题与说明：标题经 aria-labelledby、说明经 aria-describedby 与对话框关联 */
 #biliscript-reading-view .confirm-dialog-title {
   margin: 0;
   padding: 16px 16px 0;
@@ -2471,14 +2193,10 @@ dialog.biliscript-cmd-palette::backdrop {
   filter: brightness(1.05);
 }
 
-/* 破坏性确认（删除平台 / 清空历史 / 放弃更改）：警示红底，token 与编辑器
- * 删除按钮同源 */
 #biliscript-reading-view .confirm-dialog-confirm-danger {
   background: var(--biliscript-reader-danger);
 }
 
-
-/* LaTeX 数学公式排版：对齐学术论文与 ChatGPT/Gemini 规范 */
 .biliscript-md-math {
   max-width: 100%;
   overflow-x: auto;
@@ -2502,7 +2220,6 @@ dialog.biliscript-cmd-palette::backdrop {
   }
 }
 
-/* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-md-math-block {
   display: flex !important;
   justify-content: safe center !important;
@@ -2531,13 +2248,11 @@ dialog.biliscript-cmd-palette::backdrop {
   margin: 0 auto;
 }
 
-/* 行内嵌入公式（$...$）：行内自然流动，基线对齐 */
 .biliscript-md-math-inline {
   display: inline-block;
   vertical-align: baseline;
 }
 
-/* MathML 排版规范：继承无衬线正文字体体系，中英文统一，杜绝宋体/Times 突兀混杂 */
 math {
   font-size: 0.95em;
   font-family: inherit;
@@ -2548,12 +2263,10 @@ math mtext {
   font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
 }
 
-/* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
 math mo {
   margin: 0 0.28em;
 }
 
-/* 论文式公式对齐结构：外层 HTML flex 居中并承担换行，内层各词项保持原生 MathML 排版（Gecko/Blink 一致） */
 .biliscript-math-aligned {
   display: inline-flex;
   align-items: baseline;
@@ -2590,7 +2303,6 @@ math mo {
   margin: 0;
 }
 
-/* 兜底自然折行：无等号公式的顶层 flex wrap */
 .biliscript-md-math-block .katex > math,
 .biliscript-md-math-block .katex > math > semantics,
 .biliscript-md-math-block .katex > math > semantics > mrow,
@@ -2603,11 +2315,6 @@ math mo {
   box-sizing: border-box;
 }
 
-
-/* ============================================================
- * 金句分享卡片预览模态弹窗与多层渐变噪点卡片
- * ============================================================ */
-
 #biliscript-reading-view .biliscript-quote-share-host,
 .biliscript-quote-share-host {
   position: absolute;
@@ -2617,9 +2324,6 @@ math mo {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  /* 贴栏态下 #biliscript-reading-view 整体为 pointer-events: none，
-   * 挂在 view 直下的弹窗宿主必须显式声明 pointer-events: auto，
-   * 否则弹窗整体穿透，导致无法点击选择配色/纹样且穿透触发底层面板。 */
   pointer-events: auto;
   transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
@@ -2723,7 +2427,6 @@ math mo {
   flex: 0 0 auto;
 }
 
-/* 主题预设选择器栏 */
 .biliscript-quote-share-presets {
   width: 100%;
   display: flex;
@@ -2779,7 +2482,6 @@ math mo {
   box-shadow: 0 0 2px rgba(var(--biliscript-primitive-color-black-rgb), 0.3);
 }
 
-/* 纹样选择器栏 */
 .biliscript-quote-share-patterns {
   width: 100%;
   display: flex;
@@ -2827,7 +2529,6 @@ math mo {
   font-weight: 600;
 }
 
-/* 主卡片预览区：容器查询基准（cqi = 相纸宽，相纸宽 = 预览区宽） */
 .biliscript-quote-share-preview {
   width: 100%;
   display: flex;
@@ -2837,7 +2538,6 @@ math mo {
   container-type: inline-size;
 }
 
-/* 金句卡片相纸：纯白满版，左右/上 2.4%、底栏 8%（承载品牌角标） */
 .biliscript-quote-card-sheet {
   position: relative;
   width: 100%;
@@ -2846,7 +2546,6 @@ math mo {
   box-shadow: inset 0 0 0 1px rgba(var(--biliscript-primitive-color-black-rgb), 0.06), 0 12px 30px rgba(var(--biliscript-primitive-color-black-rgb), 0.16);
 }
 
-/* 金句卡片主体：16:9，20px 圆角，0.5px 精细描边；字号与内边距以卡宽为基准 */
 .biliscript-quote-card,
 .biliscript-quote-share-card {
   position: relative;
@@ -2860,7 +2559,6 @@ math mo {
   container-type: inline-size;
 }
 
-/* 品牌角标：相纸底栏右侧，近黑 600 字重，像印刷签名 */
 .biliscript-quote-card-brand {
   height: 8cqi;
   display: flex;
@@ -2875,7 +2573,6 @@ math mo {
   user-select: none;
 }
 
-/* 底栏双段标记：短玫红 + 长灰，与品牌角标同处底栏、垂直居中，左缘对齐内卡 */
 .biliscript-quote-card-motif {
   position: absolute;
   left: 2.4cqi;
@@ -2902,7 +2599,6 @@ math mo {
   background: var(--biliscript-primitive-color-gray-200);
 }
 
-/* 卡片背景与色团层 */
 .biliscript-quote-card-bg {
   position: absolute;
   inset: 0;
@@ -2941,7 +2637,6 @@ math mo {
   animation: biliscript-quote-drift 24s ease-in-out infinite alternate;
 }
 
-/* 细线几何纹样层（线宽统一 0.8px，默认透明度 0.38，径向遮罩中心留白，反向微视差） */
 .biliscript-quote-card-pattern {
   display: var(--biliscript-quote-deco-display, block);
   position: absolute;
@@ -2959,7 +2654,6 @@ math mo {
   transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, ease-out);
 }
 
-/* 悬停光标微弱柔光跟随层 */
 .biliscript-quote-card-glow {
   display: var(--biliscript-quote-deco-display, block);
   position: absolute;
@@ -2998,7 +2692,6 @@ math mo {
   display: none;
 }
 
-/* 物理像素级灰度噪点平铺层 */
 .biliscript-quote-card-noise {
   display: var(--biliscript-quote-deco-display, block);
   position: absolute;
@@ -3010,7 +2703,6 @@ math mo {
   pointer-events: none;
 }
 
-/* 中性暗罩：与导出同参数，压住浅段渐变让白字在浅配色上也可读 */
 .biliscript-quote-card-scrim {
   position: absolute;
   inset: 0;
@@ -3019,7 +2711,6 @@ math mo {
   background: rgba(var(--biliscript-primitive-color-black-rgb), 0.16);
 }
 
-/* 正文占满卡片；引号、正文与时间戳各自绝对定位，互不参与对方的偏移 */
 .biliscript-quote-card-content {
   position: absolute;
   inset: 0;
@@ -3038,7 +2729,6 @@ math mo {
   user-select: none;
 }
 
-/* 正文区：上下等距 8.3cqi；文字块按最宽行左右居中，行内左对齐 */
 .biliscript-quote-card-text {
   position: absolute;
   top: 8.3cqi;
@@ -3062,7 +2752,6 @@ math mo {
   white-space: nowrap;
 }
 
-/* 导出与复制操作按钮区 */
 .biliscript-quote-share-actions {
   width: 100%;
   flex-shrink: 0;
@@ -3143,9 +2832,6 @@ math mo {
   display: block;
 }
 
-/* 6 组色环相邻渐变配色 */
-
-/* 1. 紫粉到橙金 (purple-gold) */
 .biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #b4bed6 0%, #9d8daa 45%, #b85e46 100%));
 }
@@ -3157,7 +2843,6 @@ math mo {
     radial-gradient(circle at 82% 80%, rgba(250, 180, 71, 0.88) 0%, transparent 50%);
 }
 
-/* 2. 灰蓝到深棕 (slate-brown) */
 .biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #aebdc5 0%, #66727a 45%, #32201b 100%));
 }
@@ -3169,7 +2854,6 @@ math mo {
     radial-gradient(circle at 82% 80%, rgba(212, 123, 67, 0.9) 0%, transparent 50%);
 }
 
-/* 3. 雾蓝到深海蓝 (mist-deep-sea) */
 .biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #c6d6df 0%, #4b8393 45%, #0b3544 100%));
 }
@@ -3181,7 +2865,6 @@ math mo {
     radial-gradient(circle at 82% 80%, rgba(16, 63, 81, 0.86) 0%, transparent 50%);
 }
 
-/* 4. 雾蓝到墨绿 (mist-forest-green) */
 .biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #bcccd4 0%, #68816e 45%, #183522 100%));
 }
@@ -3193,7 +2876,6 @@ math mo {
     radial-gradient(circle at 82% 80%, rgba(36, 75, 44, 0.85) 0%, transparent 50%);
 }
 
-/* 5. 薰衣草到深夜紫 (lavender-midnight) */
 .biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #b7c6da 0%, #b088bd 45%, #1b1035 100%));
 }
@@ -3205,7 +2887,6 @@ math mo {
     radial-gradient(circle at 82% 80%, rgba(57, 32, 82, 0.85) 0%, transparent 50%);
 }
 
-/* 6. 天灰到锈红 (ash-rust) */
 .biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-bg {
   background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #c2cbd3 0%, #dda185 45%, #6e2b26 100%));
 }

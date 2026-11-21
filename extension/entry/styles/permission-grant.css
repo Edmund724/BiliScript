@@ -1,5 +1,3 @@
-/* BiliScript 域名访问授权页样式 — 复用 reader-gate.css 与 tokens-primitive.css 主题令牌 */
-
 :root[data-biliscript-onboarding="1"] {
   color-scheme: light dark;
   accent-color: var(--biliscript-reader-accent);

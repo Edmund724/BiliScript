@@ -1,43 +1,4 @@
-/* ===== 抽屉壳层与通用控件（arch-slim-4/04，2026-09 拆分第一份） =====
- * 原 reader-settings.css 单表按分区拆为三份（本表 + reader-settings-rows.css +
- * reader-settings-providers.css），级联顺序 = 拆分前文件内规则顺序，列表顺序
- * 即挂载顺序：shell → rows → providers（shared/style-injector 的
- * READER_SETTINGS_STYLE_PATHS）。自 reader.css 设置分区拆出（原 options 页
- * 设置项 + provider-editor Modal + custom-select 组），随 ui/settings-panel
- * chunk 按需装载（ensureReaderSettingsStyles，settings-panel.ts 模块顶层挂载
- * + onload 门控，ready 门控等全部三表 load 完成）。
- * 本表：抽屉壳层（#biliscript-reading-settings-panel 两态 + 展开态接管）与通用控件族
- *（biliscript-set-* 输入/下拉/复选/保存/状态，焦点/校验态单源）。
- * 颜色/边框走 --biliscript-reader-* token（reader-gate.css 两主题定义），深色自动
- * 跟随；容器：#biliscript-reading-settings-panel 内嵌 #biliscript-reading-settings-host
- * （ui/ui-renderer 模板），规则全部以 #biliscript-reading-settings-panel 为前置，
- * 避免与宿主页面类名冲突。custom-select-* 为文档级裸类（custom-select.ts
- * 生成），2026-10 起随组件住 styles/custom-select.css（本表不再声明其规则）。
- *
- * ===== 控件规格速查（settings-ui-coherence 终局规格，01/02/03 定档） =====
- * 圆角四档 14/12/10/8：14 面板与 Modal → 12 弹层 → 10 卡片 → 8 框（输入/
- * 下拉/图标按钮/弹层选项）。形状语言：pill = 文字动作按钮；8px = 一切「框」。
- * 字号三档：16-700 分区标题 | 15px 控件与按钮文字（含行内、Modal、下拉选项、
- * 复选与单选标签）| 14px 次级文字（提示/字段名/状态/空状态/错误/附属信息）。
- * 控件高 32 一律（嵌在框内的图标 toggle 保持 24）；图标两档：行删 16 /
- * chevron 8（24 视框 stroke 3 折 1px 视觉）；列表与分块间距四档 6 / 8 / 12 / 14
- * （标签与控件的贴身 gap、微型行内布局除外）。
- * 焦点态、弹层卡片、选项行、输入框 box 各只此一份声明，改一处即改全部。
- * 按控件族组织，不按区块组织；新增控件先归族再落规则。 */
-
-/* ===== 侧边栏设置面板（script-only-ui）：原独立 options 页的设置项 =====
- * 原 pages/options.css 随 options 页删除，其全部设置项样式按「宿主容器 +
- * 行级构建器类」迁入本表。所有颜色/边框改走 --biliscript-reader-* token（gate 段
- * 两主题定义），深色自动跟随；数字/字符统一改用当前排版基准 14px 或
- * 控件内 13px。容器：#biliscript-reading-settings-panel 内嵌
- * #biliscript-reading-settings-host（ui/ui-renderer 模板），其滚动链与右侧概览 tab
- * 相同（max-height: calc(100vh - 150px) + overflow-y:auto），规则全部以
- * #biliscript-reading-settings-panel 为前置，避免与宿主页面类名冲突。 */
 #biliscript-reading-view .biliscript-reading-settings-panel {
-  /* 面板壳网格里的固定落位（第 2–3 行 = 标签条 + tab body，单列），直接按
-   * 展开独占形态声明几何（无边框、无圆角、统一内边距），避免关闭离场帧发生
-   * padding/border 跳动；水平滑入滑出由 ui/nav-motion 的 WAAPI 合成层动画驱动，
-   * 跨 Chromium/Firefox 一致且可随时中断。 */
   grid-row: 2 / 4;
   grid-column: 1;
   max-height: none;
@@ -64,12 +25,6 @@
   pointer-events: none;
 }
 
-/* 设置域滚动容器共用一套细滚动条（设置抽屉 / 模型下拉 / 提供商编辑对话框 /
- * 拉取列表 / 自定义下拉弹层 / 提示词 textarea——选择器跨 settings 三表与
- * custom-select 组件表，统一收在本表）：与 reader.css 面板容器同一语言，只走
- * ::-webkit-scrollbar，不设标准 scrollbar-color/width（Chrome 121+ 会因此跳过
- * webkit 定制、回退 Windows 原生粗灰条带上下三角箭头）；thumb 吃
- * --biliscript-reader-* 令牌，主题自动跟随。 */
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar,
@@ -135,10 +90,6 @@
   }
 }
 
-/* ===== 设置展开态接管面板 =====
- * 设置抽屉展开即独占第 2–3 行，隐藏底部标签条与三个 tab body；
- * 开合水平过渡期间由 data-biliscript-settings-motion 协调前后两层退让与进场，
- * 并压住 tab-body 默认的垂直进场关键帧，避免关闭时出现透明重影与上下弹跳。 */
 #biliscript-reading-view .biliscript-reading-script-panel[data-biliscript-settings-open="1"] .biliscript-reading-header {
   opacity: 0.65;
 }
@@ -187,7 +138,6 @@
   position: relative;
   display: grid;
   gap: var(--biliscript-space-2xl);
-  /* 底部只留一节间距：按视口预留空白会让滚到底整屏空，末尾分区贴住下沿即可。 */
   padding-bottom: var(--biliscript-space-2xl);
 }
 
@@ -195,7 +145,6 @@
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部返回与标题栏（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化） */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar {
   position: sticky;
   top: -12px;
@@ -323,9 +272,6 @@
   cursor: not-allowed;
 }
 
-/* 行内左列（标签 + 跟随目标副行）：字幕翻译在「跟随 AI 默认平台」时用它交代
- * 实际生效的平台与模型。副行随内容折行，不挤占右侧控件宽度——同级下拉不参与
- * 收缩（控件值截断比副行折行更难读）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy {
   display: flex;
   flex-direction: column;
@@ -334,8 +280,6 @@
   min-width: 0;
 }
 
-/* 左列之后的控件不参与收缩（选择控件由组件表接管，设置表不引用其类名）：
- * 副行按自己的可用宽度折行，控件值不截断。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy ~ * {
   flex: 0 0 auto;
 }
@@ -344,11 +288,9 @@
   font-size: var(--biliscript-font-size-xs);
   color: var(--biliscript-reader-muted);
   overflow-wrap: anywhere;
-  /* 折行时不留单词孤行（Chromium 117+）：长模型 ID 与错误原因常占两行 */
   text-wrap: pretty;
 }
 
-/* 回落 / 不可用：文案自己说清状态，圆点只做同色系提示（三级灰之上不引入新字色）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="fallback"]::before,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="unavailable"]::before {
   content: "";
@@ -401,8 +343,6 @@
 }
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row {
-  /* 原生 button 复位：行外观与原来 div 一致（票 06：可键盘聚焦的原生按钮语义）。
-     内边距由 .biliscript-set-card > .biliscript-set-row 规则提供，此处不复写。 */
   width: 100%;
   border: none;
   background: none;
@@ -511,7 +451,6 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 生效投影摘要组（票 05）：缺省摘要与对话另选提示上下相邻时的间距 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-hint + .biliscript-set-hint {
   margin-top: var(--biliscript-space-xs);
 }
@@ -527,7 +466,6 @@
   color: var(--biliscript-reader-text);
 }
 
-/* 输入框 box 全表唯一一份：.biliscript-set-quick-prompts input 同度量并入本条。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts input {
   width: 100%;
@@ -542,9 +480,6 @@
   font-size: var(--biliscript-font-size-base);
 }
 
-/* 焦点态设置表内唯一一份：outline 关掉默认环，accent 描边 + 2px soft 光环。
- * 所有控件都收在阅读视图作用域内，新控件焦点态并入本组。custom-select 的
- * trigger:focus 同规格、随组件住 styles/custom-select.css（2026-10 抽出）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input:focus,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select:focus,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea:focus,
@@ -557,7 +492,6 @@
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
-/* 原生 select 回退（自定义下拉未接管前的基础盒模型样式；实际渲染由 initCustomSelect 隐藏并接管为统一 14px chevron）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select {
   width: 100%;
   height: 32px;
@@ -586,17 +520,14 @@
   resize: vertical;
 }
 
-/* 系统提示词是长文案（多段结构化提示），默认 66px 两三行的高度不够用。 */
 #biliscript-reading-view .biliscript-reading-settings-host #aiSystemPrompt {
   min-height: 200px;
 }
 
-/* AI 按钮的快捷提示词同样按多行文案对待。 */
 #biliscript-reading-view .biliscript-reading-settings-host #playerAiQuickPrompt {
   min-height: 132px;
 }
 
-/* 字幕翻译术语对照表按多行输入对待。 */
 #biliscript-reading-view .biliscript-reading-settings-host #subtitleTranslateGlossary {
   min-height: 96px;
 }
@@ -605,11 +536,6 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 复选行统一：.biliscript-set-check 的标签度量（字号/行高/文字色/cursor）。
- * 消费方现状（ADR-0019 自绘控件边界）：设置抽屉的 5 个持久布尔开关是本类的
- * biliscript-toggle-row 形态——文字左列 + 自绘开关右列，行布局与轨道/滑块
- * 样式在组件表 styles/toggle-switch.css（随 ui/toggle-switch.ts 挂载）；provider
- * 行等操作型复选框/单选保持原生，accent 色由下方统一规则给出。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check {
   display: flex;
   align-items: flex-start;
@@ -621,10 +547,6 @@
   cursor: pointer;
 }
 
-/* 原生控件主题色统一（brand-consistent-forms）：checkbox / radio / range 一律
- * accent 色，单条声明覆盖全表。消费方是保持原生的操作型控件（provider 行复选/
- * 单选、radio）；自绘开关（toggle-switch 组件）的原生 input 已视觉隐藏留在 DOM
- * 作值源与键盘/读屏目标，本条对它无可见效果。 */
 #biliscript-reading-view .biliscript-reading-settings-host input[type="checkbox"],
 #biliscript-reading-view .biliscript-reading-settings-host input[type="radio"],
 #biliscript-reading-view .biliscript-reading-settings-host input[type="range"] {
@@ -642,8 +564,6 @@
   gap: var(--biliscript-space-sm);
 }
 
-/* 操作行 = 抽屉内容末行：状态提示与动作按钮同排（提示在左、按钮在右，DOM 顺序即 flex 行内顺序）。
- * 按钮 flex: 0 0 auto：长错误文案下状态提示先收缩，动作按钮不被挤压换行。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-actions {
   display: flex;
   align-items: center;
@@ -688,7 +608,6 @@
   cursor: default;
 }
 
-/* 状态提示：操作行内的左侧占位（auto 右边距把按钮推到行尾），与按钮同排居中。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-status {
   margin: 0 auto 0 0;
   min-height: 16px;

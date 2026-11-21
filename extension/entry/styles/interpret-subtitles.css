@@ -113,8 +113,6 @@
   }
 }
 
-/* 仅当用户在播放器内主动开启 BiliScript 双语/译文叠层时，无损静音 B 站原生单语字幕 DOM；
- * 绝不点击原生菜单或改写 B 站存储，关闭叠层或切回单轨观看时立即移除属性恢复原生排版与防挡弹幕。 */
 [data-biliscript-subtitle-takeover="true"] .bpx-player-subtitle-wrap,
 [data-biliscript-subtitle-takeover="true"] .bpx-player-subtitle-panel-wrap,
 [data-biliscript-subtitle-takeover="true"] .bilibili-player-video-subtitle {
