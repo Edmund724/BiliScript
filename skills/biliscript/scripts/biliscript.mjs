@@ -311,10 +311,6 @@ function selectRole(request, socket, token) {
   return null;
 }
 
-/**
- * @param {string} command
- * @param {{ port?: number, timeoutMs?: number, options?: Record<string, unknown> }} [config]
- */
 export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000, options } = {}) {
   const token = ensureToken(port);
   const peer = await connectWebSocket({
@@ -369,7 +365,6 @@ function extractTargetBvid(value) {
     const queryBvid = String(new URL(input).searchParams.get("bvid") || "").trim();
     if (/^BV[0-9A-Za-z]+$/.test(queryBvid)) return queryBvid;
   } catch {
-    // ignore invalid URL
   }
   return "";
 }
@@ -482,7 +477,6 @@ export async function startDaemon({
     }
 
     const deferred = [];
-    // Pass 1: preserve existing tabId mappings for active sessions
     for (const entry of entries) {
       if (!Number.isInteger(entry.rawTabId) || entry.rawTabId <= 0) continue;
       const existingPublicId = entry.session.rawToPublic.get(entry.rawTabId);
@@ -496,7 +490,6 @@ export async function startDaemon({
       disconnectedTabIds.delete(existingPublicId);
     }
 
-    // Pass 2: claim uncontested raw tabIds directly before allocating aliases
     for (const entry of entries) {
       if (!Number.isInteger(entry.rawTabId) || entry.rawTabId <= 0) continue;
       if (entry.session.rawToPublic.has(entry.rawTabId)) continue;
@@ -509,7 +502,6 @@ export async function startDaemon({
       }
     }
 
-    // Pass 3: assign non-conflicting numeric aliases for colliding raw tabIds
     for (const entry of deferred) {
       if (entry.session.rawToPublic.has(entry.rawTabId)) continue;
       while (tabRoutes.has(nextAliasTabId) || disconnectedTabIds.has(nextAliasTabId)) {
@@ -906,7 +898,6 @@ function writeFrameFiles(result, out) {
   return { ...result, frames: written };
 }
 
-// 与 extension/shared/clock-text.ts 的 formatClock（不补零）及 extension/notes/render.ts 的 buildTxt 保持同口径
 export function formatSubtitleClock(seconds, withHours = false) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0));
   const second = total % 60;

@@ -284,7 +284,7 @@ try {
     "cache-hit",
     results.cacheHit.ok === true &&
       results.cacheHit.coverage === "complete" &&
-      results.cacheHitCalls === 1, // 调用计数依然为 1，说明未发起二次生成
+      results.cacheHitCalls === 1,
     { cacheHit: results.cacheHit, calls: results.cacheHitCalls }
   );
 
@@ -304,7 +304,6 @@ try {
     results.cancelled
   );
 
-  // 5. MOSS-LIVE 真机 WebSocket 会话全双工端到端验证
   await page.cdp.evaluate(`(() => {
     setDeclineCostGuard(false);
     setOverviewState({ phase: 'idle', analysis: null, errorText: '' });
@@ -332,7 +331,6 @@ try {
     client.connect();
   })()`);
 
-  // 等待 WebSocket 连接并附着
   const getConnected = () => page.cdp.evaluate("window.mossClient.getState() === 'connected'");
   for (let i = 0; i < 40; i++) {
     if (await getConnected()) break;
@@ -341,7 +339,6 @@ try {
   const isConnected = await getConnected();
   check("moss-live-ws-connected", isConnected, { wsUrl: mockServer.wsUrl });
 
-  // 由服务端下发 summarize_video 工具调用
   const socket = [...mockServer.state.activeSockets][0];
   sendWsJson(socket, {
     action: "tool.call",
@@ -352,7 +349,6 @@ try {
     }
   });
 
-  // 等待服务端收到 tool.result
   const waitForResult = () => mockServer.state.receivedResults.find((r) => r.call_id === "moss-ws-call-1");
   for (let i = 0; i < 60; i++) {
     if (waitForResult()) break;

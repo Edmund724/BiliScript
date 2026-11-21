@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// T2 档位 Firefox 153+ 真机冒烟脚本（ADR-0028 / 工单 05）：
-// 零重型框架依赖，基于 Firefox 原生 Marionette 协议拉起隔离临时 Profile，
-// 临时加载 dist-firefox/ 扩展并验证 5 项跨端分叉核心断言：
-//   1) Event Page 后台正常启动，storage.local / storage.sync 读写往返正常；
-//   2) 触发 ensure-offscreen-chat 后，后台成功挂载 #biliscript-offscreen-iframe 且 offscreen 端口握手连通；
-//   3) declarativeNetRequest.updateSessionRules 能成功写入并清理 B 站媒体防盗链会话规则；
-//   4) 官方预设域名（https://api.siliconflow.cn/v1）经 check-provider-origin 返回 granted: true；
-//   5) 未授权自定义域名（http://localhost:11434/v1）在无手势消息下平稳触发弹窗回退分支而不崩溃。
-//
-// 退出码约定：
-//   0 = 全部 5 项断言通过
-//   1 = 构建缺失 / 运行失败 / 任一断言失败
-//   2 = 本机未检测到 Firefox 可执行文件（打印跳过指引）
-//
-// 用法：
-//   pnpm smoke:firefox
-//   pnpm smoke:firefox -- --headed
-//   FIREFOX_BIN=/path/to/firefox pnpm smoke:firefox
 
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -263,7 +245,7 @@ class MarionetteClient {
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
     while (true) {
-      const colonIdx = this.buffer.indexOf(0x3a); // ':'
+      const colonIdx = this.buffer.indexOf(0x3a);
       if (colonIdx === -1) break;
       const lengthStr = this.buffer.subarray(0, colonIdx).toString("ascii");
       const byteLength = Number.parseInt(lengthStr, 10);
@@ -415,9 +397,6 @@ async function waitForChromeExtensionReady(client, extensionId) {
 async function runExtensionChecksInContent(client, expectedVersion) {
   await client.setContext("content");
 
-  // Checks 1-4 run directly inside the moz-extension:// onboarding page content
-  // process so they work cleanly under Firefox 153+ OOP WebExtensions
-  // without relying on parent-process selectedBrowser.contentWindow.
   const coreSuite = await client.executeAsync(
     `
     const expectedVersion = arguments[0];
@@ -605,7 +584,6 @@ async function runExtensionChecksInContent(client, expectedVersion) {
     return coreSuite;
   }
 
-  // Check 5: unauthorized custom domain without user gesture triggers popup fallback cleanly
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const currentHandleRes = await client.send("WebDriver:GetWindowHandle", {});
   const originHandle = typeof currentHandleRes === "string" ? currentHandleRes : currentHandleRes?.value;
@@ -650,7 +628,6 @@ async function runExtensionChecksInContent(client, expectedVersion) {
           break;
         }
       } catch {
-        // Ignore transient window handles still initializing.
       }
     }
     if (!popupHandle) {
@@ -734,7 +711,6 @@ async function killFirefoxAndCleanup(child, profileDir) {
         child.kill("SIGKILL");
       }
     } catch {
-      // Ignore cleanup kill errors.
     }
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -868,7 +844,6 @@ async function main() {
     try {
       await client.send("WebDriver:DeleteSession", {}, 5000);
     } catch {
-      // Ignore delete session errors during teardown.
     }
     client.close();
     await killFirefoxAndCleanup(child, profileDir);

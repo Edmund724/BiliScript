@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// 内置免 Key Index-Translate 真机验证场景 —— `pnpm harness:scenario index-translate`。
-//
-// 判据（jsdom 够不着的真实 Chromium MV3 + 真网边界）：
-//   1. 新装零 API Key 环境（无 aiProviders / 无 aiProviderKeys / 无 asrProviderKeys）：
-//      - 设置页默认投影为 `Index-Translate（免 Key）` + `Index-Translate-35B-A3B`，与通用 AI 解耦；
-//      - 打开真实 B 站视频页，触发字幕双语翻译；
-//   2. 真实 MV3 offscreen + DNR 会话规则（ruleId 9003）链路实际打通
-//      `https://index-translate.bilibili.com/v1/chat/completions`（HTTP 200，无 412 WAF 拦截）；
-//   3. 列表真实渲染双语译文（`.biliscript-reading-subtext[data-state="ready"]`），内容为中文译文、
-//      无 `<think>` / `</think>` 标签残留，且页面 / SW / offscreen 无 CORS 或 CSP 报错。
-//
-// 用法：
-//   pnpm harness:scenario index-translate
-//   pnpm harness:scenario index-translate -- --headed
 
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -205,7 +191,6 @@ try {
   if (!workerUp) throw new Error("SW 未连接");
   cdps.push(worker.handle.cdp);
 
-  // 确认零 API Key 与默认配置状态，以及 DNR 规则 9003 已就位（等待 onInstalled 初始化落盘）
   const initProbe = await waitFor(
     "onInstalled 默认设置与 DNR 9003 就绪",
     async () =>
@@ -256,7 +241,6 @@ try {
     initProbe?.dnrRule9003
   );
 
-  // 1. 打开真实 B 站视频页
   await page.cdp.send("Page.navigate", { url: SAMPLE.url });
   await waitFor(
     "文摘触发按钮注入",
@@ -269,7 +253,6 @@ try {
   );
   await page.cdp.evaluate(`[...document.querySelectorAll("video,audio")].forEach(n => { try { n.pause(); } catch {} })`);
 
-  // 读取真实视频的 cid 与时长，用于构造该视频的本地主字幕缓存（免 ASR 外部 Key，仅字幕翻译走真网）
   const videoIdentity = await page.cdp.evaluate(`(() => {
     const init = window.__INITIAL_STATE__ || {};
     const vd = init.videoData || {};
@@ -280,7 +263,6 @@ try {
   evidence.videoIdentity = videoIdentity;
   check("video-identity-resolved", Boolean(videoIdentity?.bvid && videoIdentity?.cid), videoIdentity);
 
-  // 写入 ASR 缓存主字幕（无任何 API Key），使匿名页上的阅读器直接拥有英文待译主轨
   const dur = Math.max(30, Math.floor(Number(videoIdentity.duration) || 120));
   const lastStart = Math.max(15, Math.ceil(dur * 0.24));
   const primaryBody = [
@@ -313,7 +295,6 @@ try {
     15000
   );
 
-  // 刷新页面让缓存主字幕自然加载进入阅读器，并保持零 AI Key 状态
   await page.cdp.send("Page.navigate", { url: SAMPLE.url });
   await waitFor(
     "文摘按钮就绪且有几何",
@@ -328,7 +309,6 @@ try {
   );
   await page.cdp.evaluate(`[...document.querySelectorAll("video,audio")].forEach(n => { try { n.pause(); } catch {} })`);
 
-  // 打开文摘阅读面板
   await clickElement(page.cdp, "open-reader-panel", `document.getElementById("biliscript-script-button")`);
   await waitFor(
     "阅读面板主字幕渲染",
@@ -342,7 +322,6 @@ try {
   );
   await page.cdp.evaluate(`[...document.querySelectorAll("video,audio")].forEach(n => { try { n.pause(); } catch {} })`);
 
-  // 2. 验证设置页：打开设置 → 字幕翻译与导出，校验默认来源与 3 档模型且通用 AI 仍未配置
   await clickElement(
     page.cdp,
     "open-settings-drawer",
@@ -395,7 +374,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "01-settings-subtitle-translate.png"));
 
-  // 关闭设置抽屉回到字幕 Tab
   await clickElement(
     page.cdp,
     "close-settings-drawer",
@@ -403,7 +381,6 @@ try {
   );
   await sleep(250);
 
-  // 3. 挂载 offscreen target 监听（若 offscreen 尚未启动，则周期性扫描 /json/list 捕获新出现的 offscreen.html target）
   let offscreenCdp = null;
   const offscreenTimer = setInterval(() => {
     if (offscreenCdp) return;
@@ -425,7 +402,6 @@ try {
     })();
   }, 150);
 
-  // 提前唤醒 offscreen 文档以便 Network.enable 在请求发出前已附着
   await worker.evaluate(
     `(async () => {
       if (chrome.offscreen?.createDocument) {
@@ -448,7 +424,6 @@ try {
   await waitFor("offscreen-target-attached", async () => Boolean(offscreenCdp), { timeoutMs: 10000, intervalMs: 100 });
   clearInterval(offscreenTimer);
 
-  // 4. 在真实 B 站视频页阅读面板打开选轨浮层，真实点击「双语字幕」开关触发翻译
   await clickElement(
     page.cdp,
     "open-track-picker",
@@ -471,7 +446,6 @@ try {
     `document.querySelector(".biliscript-reading-track-picker .biliscript-bilingual-switch")`
   );
 
-  // 5. 等待真实 Index-Translate HTTP 200 与双语副行就绪
   let lastRows = null;
   let renderedBilingual = null;
   try {
@@ -505,7 +479,6 @@ try {
   } finally {
     evidence.lastRows = lastRows;
   }
-  // 点击收起选轨弹层以便截图清晰展示双语字幕列表
   await clickElement(
     page.cdp,
     "close-track-picker",
@@ -546,7 +519,6 @@ try {
     ...evidence.network.offscreen.errors,
     ...evidence.network.page.errors
   ];
-  // 过滤掉 B 站自身页面无关日志，聚焦扩展 / CORS / CSP / index-translate 错误
   const relevantErrors = allErrors.filter((e) => {
     const txt = JSON.stringify(e);
     return /cors|csp|content security policy|index-translate|biliscript|chrome-extension/i.test(txt);
@@ -563,7 +535,6 @@ try {
     try {
       const pages = await listJsonTargets(browser.port).catch(() => []);
       if (pages.length > 0) {
-        // 确保卸载前暂停页内媒体
         const pageCdp = cdps[0];
         await pageCdp?.evaluate?.(`[...document.querySelectorAll("video,audio")].forEach(n => { try { n.pause(); } catch {} })`).catch(() => {});
       }

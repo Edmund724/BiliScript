@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-// 双语字幕真机场景 —— `pnpm harness:scenario bilingual-subtitles`。
-//
-// 来源：票 bilingual-subtitles 的走查驱动器（.scratch/tickets/bilingual-subtitles/walkthrough/
-// drive.mjs）。那份脚本把管道 + fixture + 场景焊在一起，是那次验收的记录；本文件只保留
-// 场景层，管道全部 import 自 ../harness.mjs。
-//
-// 判据（为什么在真机上跑）：见 ../README.md「什么时候用它」。本场景钉住的都是 jsdom 够不着的
-// 东西——真实 B 站页面上的样式级联（页面表 `[hidden]{display:none!important}` 压扩展的
-// 副列浮层）、弹层两列各自的滚动位置、真实 listbox 的点击/焦点路径、MV3 SW 里的 fetch 补丁、
-// 跨视频 SPA 换轨时的全局偏好。
-//
-// 两个模式：
-//   node scenarios/bilingual-subtitles.mjs --fixture-only
-//       不起浏览器：只自检 tests/fixtures/bilibili/bilingual-walkthrough/ 的形状不变量，
-//       并按被测实现同一条配对规则独立复算搜索期望（秒级）。
-//   node scenarios/bilingual-subtitles.mjs [--headed]
-//       真机全流程（约 90–120s，需要能访问 bilibili.com）：
-//       PHASE 1 真网真页面（扩展注入 / 阅读模式 / 匿名轨数三路证据）
-//       PHASE 2 打 fixture 补丁（只换两个网络应答，其余走真实渲染路径）后跑 S1–S10
-//
-// 诚实口径：S1–S10 的读数全部建立在 fixture 的两个网络应答上（除 PHASE 1 那一格）。
-// 本机匿名（无登录 cookie）时 `x/player/wbi/v2` 对任何视频都返回 0 轨，8 轨样本只能来自
-// fixture；矩阵因此**总是**跑 fixture 补丁后的路径（不随真网轨数漂移），PHASE 1 的轨数只
-// 作为环境事实记录。标注为「fixture 数据 + 真实渲染路径」，绝不冒充真网结果。
-//
-// 硬约束：只杀自己 spawn 的进程（harness 的 teardown）；工件落
-// `.scratch/browser-harness/scenarios/bilingual-subtitles/`；不读 `.scratch/` 里的任何东西
-// ——fixture 是可提交数据（tests/fixtures/）。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -54,12 +26,11 @@ const FIXTURE_URL_RE = /walkthrough-fixture\/([A-Za-z0-9-]+)\.json/;
 
 const SAMPLE = { bvid: "BV1mAam6tEL8", url: "https://www.bilibili.com/video/BV1mAam6tEL8/" };
 const SINGLE = { bvid: "BV1FyHn6JE86", url: "https://www.bilibili.com/video/BV1FyHn6JE86/" };
-const SECONDARY_TARGET_LANG = "ja"; // S4「换副轨」切到 日本語
+const SECONDARY_TARGET_LANG = "ja";
 const VIEWPORT = DEFAULT_VIEWPORT;
 const headed = process.argv.includes("--headed");
 const fixtureOnly = process.argv.includes("--fixture-only");
 
-// ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
   { id: "S1", slug: "01-bilingual-off-picker", title: "双语关：弹层形态 / 选项 / 列表单轨 / 搜索零行为差" },
   { id: "S2", slug: "02-bilingual-on-dual-list", title: "双语开：副列可点 / 双行渲染 / 合并段 / 双轨搜索" },
@@ -74,7 +45,6 @@ const SCENARIOS = [
   { id: "S10", slug: "10-collision-and-recover", title: "主副同轨：页脚说明行不顶掉语言列表（点错改得回来）；自动装载不把主轨抓成副轨" }
 ];
 
-// ===== 可提交 fixture（fixture-only 与全流程共用同一批数据）=====
 function readFixture(file) {
   return JSON.parse(readFileSync(path.join(FIXTURE_DIR, file), "utf8"));
 }
@@ -100,7 +70,6 @@ const expectation = (caseId, token) => {
   return hit;
 };
 
-// ===== 断言 =====
 const checks = [];
 function check(name, ok, detail) {
   checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? null : detail });
@@ -111,9 +80,6 @@ function checkEquals(name, actual, expected) {
   return check(name, actual === expected, { actual, expected });
 }
 
-// ===== 页面内测量脚本 =====
-// picker：选轨控件的几何 + 选项 + 副列状态。scrollRegions 是「滚动归属每一列」那条真机裁决
-// 的判据面（两列各一条滚动条；跨两列的 .biliscript-bilingual-main 只做裁剪）。
 const JS = {
   picker: `(() => {
     const wrapper = document.querySelector('.biliscript-reading-track-picker');
@@ -215,7 +181,6 @@ const JS = {
     };
   })()`,
 
-  // 列表形态：条目、副行、时间戳、行高、副行是否折行/截断。
   list: `(() => {
     const list = document.getElementById('biliscript-reading-subtitle');
     if (!list) return { error: 'list-missing' };
@@ -264,7 +229,6 @@ const JS = {
     };
   })()`,
 
-  // 合并段：相邻主行显示同一句译文（主轨 2 段 ↔ 副轨 1 段）。
   mergedGroups: `(() => {
     const list = document.getElementById('biliscript-reading-subtitle');
     if (!list) return { error: 'list-missing' };
@@ -290,7 +254,6 @@ const JS = {
     return { duplicateSubtextPairCountRendered: groups.length, sample: groups.slice(0, 4) };
   })()`,
 
-  // 搜索：写入输入框 → 派发 input → 等防抖 → 读计数与 mark（主行/副行分开数）。
   search: (token) => `(async () => {
     const input = document.getElementById('biliscript-reading-search-input');
     if (!input) return { error: 'input-missing' };
@@ -318,7 +281,6 @@ const JS = {
     return true;
   })()`,
 
-  // 副行与主行逐条比对：「两份一样」就是这一列副行的文本 === 同一段主行文本。
   dupSample: `(() => {
     const list = document.getElementById('biliscript-reading-subtitle');
     if (!list) return { error: 'list-missing' };
@@ -341,7 +303,6 @@ const JS = {
     return { itemsWithSubtext: total, identicalMainSubPairs: same, samples };
   })()`,
 
-  // 弹层（卡片 + 两列）与阅读列表的滚动位置一次读全。
   scrollSample: `(() => {
     const card = document.querySelector('.biliscript-reading-track-picker .custom-select-dropdown');
     const list = document.getElementById('biliscript-reading-subtitle');
@@ -367,12 +328,6 @@ const JS = {
   })()`
 };
 
-// ===== 真机输入：trusted click =====
-// README 的硬约束：`element.click()` 是 isTrusted:false，扩展自己挂的 DOM 能吃，播放器控件 /
-// 剪贴板 / autoplay 不一定。场景因此一律用 Input.dispatchMouseEvent 发真指针事件（按下 +
-// 抬起），并且要求目标当场有几何（0×0 ⇒ 报 not-hittable，不静默点空）——副列浮层的真机
-// 缺陷（页面表 `[hidden]{display:none!important}` 压掉副列 → 8 行 rect 全 0×0）正是靠这一点
-// 变成红色断言，而不是「点了没反应」。
 async function dispatchClick(pageCdp, x, y) {
   const px = Math.round(x);
   const py = Math.round(y);
@@ -382,7 +337,6 @@ async function dispatchClick(pageCdp, x, y) {
   return { x: px, y: py };
 }
 
-// 点击一个「按表达式定位」的元素；可选 clipExpr 给出裁剪盒（滚动列），必要时把它滚进视野。
 async function clickElement(pageCdp, label, locateExpr, { clipExpr = null } = {}) {
   const info = await pageCdp.evaluate(`(() => {
     const el = ${locateExpr};
@@ -423,14 +377,12 @@ async function clickElement(pageCdp, label, locateExpr, { clipExpr = null } = {}
   return { ok: true, label, text: info.text, rect: info.rect, scrolled: info.scrolled };
 }
 
-// 点击必须成功的输入：失败登记一条断言（红），调用方据 ok 决定后续步骤。
 async function mustClick(pageCdp, checkName, label, locateExpr, opts) {
   const result = await clickElement(pageCdp, label, locateExpr, opts);
   check(checkName, result.ok === true, result);
   return result;
 }
 
-// ===== 主流程 =====
 const evidence = {
   meta: {
     startedAt: new Date().toISOString(),
@@ -466,7 +418,6 @@ function scenarioTitle(id) {
   return SCENARIOS.find((s) => s.id === id)?.title ?? id;
 }
 
-// 工件名沿用走查那一份（00–20 共 21 张）：同一批判据的截图可直接对照归档读数。
 async function shot(base, note) {
   try {
     const file = await screenshot(pageCdp, path.join(OUT_DIR, `${base}.png`));
@@ -478,7 +429,6 @@ async function shot(base, note) {
   }
 }
 
-// ---- fixture 自检（--fixture-only 与全流程共用）----
 function recomputeHits(mainKey, secondaryKey, token) {
   const countIn = (text) => {
     if (!text) return 0;
@@ -536,7 +486,6 @@ function selfCheckFixture() {
   const mergePairsAdjacent = META.mergedPairs.every((p) => p.zhIndices[1] - p.zhIndices[0] === 1);
   check("fixture.merged-pairs-adjacent", mergePairsAdjacent, { pairs: META.mergedPairs.map((p) => p.zhIndices) });
 
-  // bundle 形状：8 条 ai-* 真轨 + 单轨视频 1 条；每条轨的 subtitle_url 都能在 bodies 里找到。
   const sampleTracks = BUNDLES[SAMPLE.bvid]?.data?.subtitle?.subtitles ?? [];
   checkEquals("fixture.sample-track-count", sampleTracks.length, 8);
   checkEquals("fixture.single-track-count", (BUNDLES[SINGLE.bvid]?.data?.subtitle?.subtitles ?? []).length, 1);
@@ -567,7 +516,6 @@ function selfCheckFixture() {
   );
   checkEquals("fixture.sample-bundle-identity", `${BUNDLES[SAMPLE.bvid]?.data?.bvid}/${BUNDLES[SAMPLE.bvid]?.data?.aid}/${BUNDLES[SAMPLE.bvid]?.data?.cid}`, `${SAMPLE.bvid}/${META.sampleAid}/${META.sampleCid}`);
 
-  // 搜索期望：独立复算（同一条配对规则的第二份实现）与 committed 值逐项相等。
   const mismatches = [];
   for (const c of SEARCH_EXPECTATIONS) {
     for (const h of c.hits) {
@@ -639,11 +587,8 @@ function fixturePatchExpression() {
   })()`;
 }
 
-// 补丁只在 PHASE 2 生效：PHASE 1 要看的是真接口的真应答，装上补丁就看不到了。
 let fixturePatchEnabled = false;
 
-// 走**裸 evaluate**（不经 session.evaluate 的重连重试）：session 的重试在补丁表达式本身
-// 报错时会「失败 → 重连 → onReconnect → 再装 → 再失败」，把进程拖进无界递归/连接泄漏。
 async function patchOnHandle(handle) {
   return handle.cdp.evaluate(fixturePatchExpression(), { sessionId: handle.sessionId, timeoutMs: 30000 });
 }
@@ -655,8 +600,6 @@ async function installFixturePatch() {
 
 function startFixtureKeepAlive() {
   if (patchKeepAlive) clearInterval(patchKeepAlive);
-  // 轻量看护：补丁只会在 SW 被回收重启后丢；每 1.5s 探一次存活标记，不在才重打整份
-  // （每拍重打会把 SW 压到 Runtime.evaluate 超时，反而制造噪声）。
   patchKeepAlive = setInterval(() => {
     void (async () => {
       try {
@@ -752,7 +695,6 @@ async function waitStorageQuiet(quietMs = 3000, timeoutMs = 20000) {
   return { waitedMs: Date.now() - started, quietMs: quiet, entries: last };
 }
 
-// ---- 页面交互（全部走真指针事件；元素必须先在场且有几何）----
 const SEL = {
   scriptButton: `document.getElementById('biliscript-script-button')`,
   pickerTrigger: `document.querySelector('.biliscript-reading-track-picker .custom-select-trigger')`,
@@ -792,7 +734,6 @@ async function clickOptionRow(pageCdp, checkName, label, column, matchExpr) {
 }
 
 async function toggleBilingual(checkName) {
-  // 真指针点击要求开关在场：重渲可能把弹层重新收起，故每次先确保弹出（幂等）。
   await openPicker();
   const result = await mustClick(pageCdp, checkName, "双语开关", SEL.bilingualSwitch);
   await sleep(300);
@@ -842,8 +783,6 @@ async function assertSearch(id, caseId, token) {
   return res;
 }
 
-// 副列语言行必须真的铺在场上、有几何、能点（真机 run11 的反向发现：页面表
-// `[hidden]{display:none!important}` 会把副列压成 0×0，用户根本换不了副语言）。
 function checkSubColumnHittable(id, picker) {
   const sub = (picker?.cols || []).find((c) => c.col === "sub");
   check(
@@ -853,7 +792,6 @@ function checkSubColumnHittable(id, picker) {
   );
 }
 
-// ===== 主流程 =====
 async function main() {
   evidence.meta.dist = DEFAULT_DIST;
   const fixtureOk = selfCheckFixture();
@@ -891,7 +829,6 @@ async function main() {
   if (workerUp) {
     const suffixOk = worker.handle.url.endsWith(worker.handle.suffix);
     check("sw-target-by-manifest-suffix", suffixOk, { url: worker.handle.url, suffix: worker.handle.suffix });
-    // SW 侧网络观察（PHASE 1：证明扩展自己发的 player/wbi/v2 请求真的发生过）
     try {
       const cdp = worker.handle.cdp;
       const sid = worker.handle.sessionId;
@@ -909,10 +846,8 @@ async function main() {
     }
   }
 
-  // ===== PHASE 1：真网真页面 =====
   log("PHASE 1：真机 + 真扩展 + 真接口（未打 fixture 补丁）");
   await pageCdp.send("Page.navigate", { url: SAMPLE.url });
-  // 注入证据必须在**点按钮之前**读：点下去进阅读模式后那枚按钮就从 DOM 里摘掉了。
   await waitScriptButton("PHASE 1");
   evidence.phase1.injection = await pageCdp.evaluate(`({
     button: !!document.getElementById('biliscript-script-button'),
@@ -975,7 +910,6 @@ async function main() {
   }
   evidence.phase1.workerNetLog = swNetLog.slice(0, 120);
 
-  // ===== PHASE 2：fixture 数据 + 真实渲染路径（矩阵的确定性输入）=====
   log("PHASE 2：重新导航 + fixture 补丁（只换两个网络应答，其余走真实渲染路径）");
   await pageCdp.send("Page.navigate", { url: SAMPLE.url });
   await waitFor("PHASE 2：扩展按钮注入", async () => pageCdp.evaluate(`!!document.getElementById('biliscript-script-button')`), { timeoutMs: 30000, intervalMs: 300 });
@@ -996,7 +930,6 @@ async function main() {
   checkEquals("phase2-list-items", evidence.matrix.tracksReady.items, 197);
 
   try {
-    // ---------- S1 双语关 ----------
     {
       const s1 = {};
       await closePicker();
@@ -1033,7 +966,6 @@ async function main() {
       log(`S1 完成：副行节点=${s1.listBilingualOff.subtextNodeCount}，AI=${s1.searchBothOff.countText}，hallucination=${s1.searchSecondaryOnlyOff.countText}`);
     }
 
-    // ---------- S2 打开双语 ----------
     {
       const s2 = {};
       s2.switchBefore = (await pageCdp.evaluate(JS.picker)).switch;
@@ -1060,8 +992,6 @@ async function main() {
       check("S2.badge-present", s2.pickerBilingualOn.badge?.text === "双语", { badge: s2.pickerBilingualOn.badge });
       check("S2.sub-options-8", s2.pickerBilingualOn.subOptions?.length === 8, { subOptions: s2.pickerBilingualOn.subOptions?.length });
       checkSubColumnHittable("S2", s2.pickerBilingualOn);
-      // CDP CSS 域交叉取证：副列浮层的 computed display（页面表的 !important 重置若压过扩展，
-      // 这里会是 none，行列几何同时塌掉）。
       try {
         await pageCdp.send("DOM.enable");
         await pageCdp.send("CSS.enable");
@@ -1092,9 +1022,6 @@ async function main() {
           important: r.display.map((d) => d.important),
           sheet: sheetUrls.get(r.styleSheetId) || "unknown"
         }));
-        // 副列浮层属于「hidden 属性在、display 由扩展的 !important 覆盖」这一态；页面表的
-        // `[hidden]{display:none!important}` 若赢回来（或扩展那条丢了 !important），这里当场变
-        // none、副列 8 行 rect 全 0×0 —— 与 S2.sub-column-laid-out 是同一条判据的两面。
         check(
           "S2.sub-dropdown-display-block",
           s2.cssProbe.computedDisplay?.[0]?.value === "block" && s2.pickerBilingualOn.subDropdownHiddenAttr !== null,
@@ -1129,7 +1056,6 @@ async function main() {
       log(`S2 完成：副行=${s2.listBilingualOn.subtextNodeCount}（ready=${s2.listBilingualOn.subtextStates.ready || 0}），合并相邻对=${s2.mergedGroups.duplicateSubtextPairCountRendered}`);
     }
 
-    // ---------- S3 切主轨（Español）----------
     {
       const s3 = {};
       await clearHits();
@@ -1171,7 +1097,6 @@ async function main() {
       log(`S3 完成：主轨切到 es；副列选中=${s3.secondaryAfterMainSwitch.text}（切前 ${s3.secondaryBefore.text}）`);
     }
 
-    // ---------- S4 换副轨到 日本語（挂闸，确定性 loading 态）----------
     {
       const s4 = {};
       await clearHits();
@@ -1205,7 +1130,6 @@ async function main() {
       })()`);
       check("S4.only-secondary-disabled", s4.pickerDuringLoading.subTriggerDisabled === true && s4.pickerDuringLoading.subBusy === "true" && s4.pickerDuringLoading.mainTriggerDisabled === false, s4.pickerDuringLoading);
       check("S4.main-column-still-clickable", s4.pickerDuringLoading.mainOptionRowsClickable === 8, { rows: s4.pickerDuringLoading.mainOptionRowsClickable });
-      // 用户裁决（run14）：在飞不改副列语言列表，列表留在原地（不换成一行占位）。
       check("S4.secondary-list-stays-in-place", s4.pickerDuringLoading.subRows === 8 && s4.pickerDuringLoading.subEmptyText === null, {
         subRows: s4.pickerDuringLoading.subRows,
         subEmptyText: s4.pickerDuringLoading.subEmptyText
@@ -1229,7 +1153,6 @@ async function main() {
       log(`S4 完成：副行占位命中=${s4.searchPlaceholder.countText}，副列禁用=${s4.pickerDuringLoading.subTriggerDisabled}，主列禁用=${s4.pickerDuringLoading.mainTriggerDisabled}`);
     }
 
-    // ---------- S5 副轨到站 ----------
     {
       const s5 = {};
       s5.subtextAfterReady = (await pageCdp.evaluate(JS.list)).subtextSample;
@@ -1248,7 +1171,6 @@ async function main() {
       log(`S5 完成：首行副行=${s5.subtextAfterReady?.[0]?.text}`);
     }
 
-    // ---------- S6 关闭双语 ----------
     {
       const s6 = {};
       await openPicker();
@@ -1272,7 +1194,6 @@ async function main() {
       log(`S6 完成：关闭后 500ms 副行节点=${s6.immediatelyAfterOff.list.subtextNodeCount}；1.5s 后=${s6.after1500ms.list.subtextNodeCount}`);
     }
 
-    // ---------- S7 再打开（不重抓、不闪 loading）----------
     {
       const s7 = {};
       await clearHits();
@@ -1309,7 +1230,6 @@ async function main() {
       log(`S7 完成：重开期间出现 loading 占位=${s7.loadingEverSeen}，重抓的 body=${JSON.stringify(s7.refetchedSecondaryBody)}`);
     }
 
-    // ---------- S7b 弹层滚动 ----------
     {
       const s7b = {};
       const scrollSample = () => pageCdp.evaluate(JS.scrollSample);
@@ -1369,7 +1289,6 @@ async function main() {
       s7b.afterReady = await scrollSample();
       await shot("15-picker-after-ready", "副轨到站：弹层与阅读列表的滚动位置都还在原处（选完滚动条不动）");
       const base = s7b.beforeClick.subScrollTop;
-      // 承重读数（三轮修复的共同判据）：选完副语言，副列滚动位置不动。
       checkEquals("S7b-sub-scroll-survives-click", s7b.afterClickSync.card?.sub?.scrollTop, base);
       checkEquals("S7b-sub-scroll-survives-inflight", s7b.inFlight.card?.sub?.scrollTop, base);
       checkEquals("S7b-sub-scroll-survives-ready", s7b.afterReady.card?.sub?.scrollTop, base);
@@ -1377,15 +1296,10 @@ async function main() {
       check("S7b-no-truncated-language-names", (s7b.pickerScrollRegions?.main?.scrollbarWidth || 0) > 0 && (pickerAtBottom.cols || []).every((c) => (c.truncatedRows || []).length === 0), {
         truncated: (pickerAtBottom.cols || []).map((c) => ({ col: c.col, rows: c.truncatedRows }))
       });
-      // 复位副轨到 ja（per-track 缓存命中，瞬时），S8/S9 的偏好读数与走查同口径。
       await clickOptionRow(pageCdp, "S7b-reset-sub-to-ja-hittable", "副列 日本語（复位）", "sub", `(r.dataset.value || '').endsWith('-ja.json')`);
       await sleep(600);
-      // 阅读列表的滚动位置跨一次纯 rerender（只关/开双语开关）。这一格是**受播放位置影响的
-      // bonus 探针**：三轮跑动给出三个值（3000→3000 / 3000→552 / 3000→600），波动与本轮修复
-      // 无关（同一份 dist 已经给出过不同值）。故只记录、不断言。
       await pageCdp.evaluate(`(() => { const l = document.getElementById('biliscript-reading-subtitle'); l.scrollTop = Math.min(3000, l.scrollHeight - l.clientHeight); return l.scrollTop; })()`);
       s7b.listBeforeRerender = await scrollSample();
-      // 真指针点击要求开关在场：上一次改选把列表收起了，按用户真实路径重新展开。
       await openPicker();
       await toggleBilingual("S7b-rerender-off-hittable");
       await sleep(500);
@@ -1411,7 +1325,6 @@ async function main() {
       await pageCdp.evaluate(`(() => { const l = document.getElementById('biliscript-reading-subtitle'); l.scrollTop = 0; return true; })()`);
     }
 
-    // ---------- S8 换视频（SPA 导航到单轨视频）----------
     {
       const s8 = {};
       await closePicker();
@@ -1436,7 +1349,6 @@ async function main() {
       if (!navOk) {
         log("SPA 换视频未在 6s 内重抓到单轨 fixture ⇒ 回退为整页导航（已记录）");
         await pageCdp.send("Page.navigate", { url: SINGLE.url });
-        // 整页导航会重新走抓取：先把补丁确认在位（SW 若被回收，这次调用会重连并重打）。
         await installFixturePatch();
         await enterReadingMode("s8-full-navigation");
       }
@@ -1463,7 +1375,6 @@ async function main() {
       log(`S8 完成：navMode=${s8.navMode}，开关禁用=${s8.pickerSingleTrackVideo.switch?.disabled}，副行节点=${s8.listSingleTrackVideo.subtextNodeCount}`);
     }
 
-    // ---------- S9 解释卡引用只含主行 ----------
     {
       const s9 = {};
       await pageCdp.send("Page.navigate", { url: SAMPLE.url });
@@ -1494,8 +1405,6 @@ async function main() {
         dualReadyAfterManualToggle: s9.dualReadyAfterManualToggle
       });
       s9.preState = await pageCdp.evaluate(JS.list);
-      // 在**副行**文字上建立选区（选区只能程序化构造：真指针拖选需要真实鼠标轨迹，
-      // 这里用的是 Range + selectionchange，与被测实现消费的同一条路径）。
       const selectSubLine = () => pageCdp.evaluate(`(() => {
         const sub = document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item .biliscript-reading-subtext[data-state="ready"]');
         if (!sub) return { error: 'no-ready-subtext' };
@@ -1555,10 +1464,6 @@ async function main() {
           activeTab: document.querySelector('.biliscript-reading-tab.is-active')?.textContent?.trim() ?? null
         };
       })()`);
-      // 判据：引用卡里的**字幕句** = 那次取值收到的 card.line（解释卡的 line），只含主行。
-      // 引用卡把选中片段与字幕句一起渲染（`「选中片段」｜字幕句`，见 chat-tab.ts
-      // renderExplainIntentCard）——片段正是用户在副行上选中的那段译文，故按这个结构逐字比对：
-      // 后半段必须等于主行，且主行本身不等于副行译文。
       const selectedFragment = s9.selectionBeforeClick?.selectedText ?? s9.selection?.selectedText ?? "";
       const mainLine = s9.selectionBeforeClick?.mainLine ?? s9.selection?.mainLine ?? "";
       const subText = s9.selectionBeforeClick?.subText ?? s9.selection?.subText ?? "";
@@ -1573,7 +1478,6 @@ async function main() {
       log(`S9 完成：引用卡=${JSON.stringify(s9.intentCard?.quote)}`);
     }
 
-    // ---------- S10 主副同轨 ----------
     {
       const s10 = {};
       await mustClick(pageCdp, "S10.back-to-subtitle-tab-hittable", "字幕 tab", `document.getElementById('biliscript-reading-tab-subtitle')`);
@@ -1588,7 +1492,6 @@ async function main() {
       s10.beforeCollision = await pageCdp.evaluate(JS.picker);
       s10.listBeforeCollision = await pageCdp.evaluate(JS.list);
       s10.prefBeforeCollision = await storageProbe();
-      // ① 副列点主轨那一条 ⇒ 同轨防呆：清副轨槽、偏好记成主轨语言
       s10.collisionClick = await clickOptionRow(pageCdp, "S10.collision-row-hittable", "副列里的主轨那一条（中文）", "sub",
         `(r.dataset.value || '') === document.getElementById('biliscript-reading-subtitle-select')?.value`);
       await sleep(600);
@@ -1596,7 +1499,6 @@ async function main() {
       s10.listAfterCollision = await pageCdp.evaluate(JS.list);
       s10.dupAfterCollision = await pageCdp.evaluate(JS.dupSample);
       checkEquals("S10.collision-clears-primary-duplicate", s10.dupAfterCollision.itemsWithSubtext, 0);
-      // 用户裁决（第五轮）：同轨提示在**页脚**，副列语言列表照常在列（点错改得回来）。
       check(
         "S10.footer-note-and-list-coexist",
         s10.afterCollision.footerNote?.hidden === false &&
@@ -1618,9 +1520,6 @@ async function main() {
         return true;
       })()`);
       s10.storageQuietBeforeCollision = await waitStorageQuiet();
-      // ② 自动装载路径：主列重选同一条轨 ⇒ subtitle-ready ⇒ 按偏好重匹配。
-      //   修复前：主轨那份被当副轨装进槽 ⇒ 列表出两份一样的正文；修复后：副行仍是 0。
-      //   （真指针点击要求列表在场：上一步的改选把列表收起了，这里按用户真实路径重新展开。）
       await openPicker();
       s10.mainRePick = await clickOptionRow(pageCdp, "S10.main-repick-hittable", "主列重选当前主轨", "main",
         `(r.dataset.value || '') === document.getElementById('biliscript-reading-subtitle-select')?.value`);
@@ -1652,7 +1551,6 @@ async function main() {
       } catch (error) {
         s10.settleWaitError = error.message;
       }
-      // ③ 改选得回来：同轨态点「日本語」⇒ 副轨装载、提示消失、副行换译文
       await openPicker();
       s10.recoveryClick = await clickOptionRow(pageCdp, "S10.recovery-row-hittable", "副列 日本語（改回来）", "sub", `(r.dataset.value || '').endsWith('-ja.json')`);
       try {
@@ -1669,16 +1567,11 @@ async function main() {
       check("S10.recovery-note-hidden", s10.afterRecovery.footerNote?.hidden === true || !s10.afterRecovery.footerNote?.text, { footerNote: s10.afterRecovery.footerNote });
       await shot("19-collision-recovered", "同轨说明态就地改选日语：副行换成日语译文、提示消失");
       s10.swHits = await swHits();
-      // 污染判定：本机的 chrome.storage.sync 整包回放会落在场景中途，把副列按同步来的偏好
-      // 换成别的语言 ⇒ 「主列重选后副行 0」这条读数不再成立。默认 --disable-sync 已从根上
-      // 关掉这条回放，故污染即失败（读数为假的绿色最危险）。
       s10.tainted = [];
       if ((s10.prefAfterMainRepick?.sync?.secondarySubtitleLang ?? null) !== "ai-zh") s10.tainted.push(`prefAfterMainRepick=${s10.prefAfterMainRepick?.sync?.secondarySubtitleLang}`);
       if ((s10.dupAfterMainRepick?.itemsWithSubtext ?? -1) !== 0) s10.tainted.push(`dupAfterMainRepick.itemsWithSubtext=${s10.dupAfterMainRepick?.itemsWithSubtext}`);
       if ((s10.subChangeLog ?? []).length !== 0) s10.tainted.push(`subChangeLog=${(s10.subChangeLog ?? []).length}`);
       checkEquals("S10.not-tainted-by-sync-replay", s10.tainted.length, 0);
-      // 说明行的宽度预算（诊断型 DOM 探针，放在全部读数之后：它会改写那一行的文本）。
-      // 真指针点击把列表收起了，这里重新展开，宽度读数才有几何。
       await openPicker();
       s10.noteWidthBudget = await pageCdp.evaluate(`(() => {
         const card = document.querySelector('.biliscript-reading-track-picker .custom-select-dropdown');
@@ -1696,8 +1589,6 @@ async function main() {
         empty.hidden = keepHidden;
         return { samples };
       })()`);
-      // ② 空态的真机一次：偏好写成 fixture 里没有的语言（ai-ko），让 ② 由真代码路径渲染出来
-      //（走扩展 SW 写 sync ⇒ reader 的跨上下文收敛照写偏好并重渲），量完还原原值。
       const prefKeep = (await storageProbe())?.sync?.secondarySubtitleLang ?? null;
       await setStoredSecondaryLang("ai-ko");
       await sleep(1500);
@@ -1729,7 +1620,6 @@ async function main() {
   evidence.meta.finishedAt = new Date().toISOString();
 }
 
-// ===== 现场诊断 =====
 async function captureDiagnostics() {
   try {
     if (worker) {
@@ -1758,7 +1648,6 @@ async function captureDiagnostics() {
   }
 }
 
-// ===== 入口 =====
 if (fixtureOnly) {
   const ok = (() => {
     selfCheckFixture();

@@ -4,9 +4,6 @@
   const colorMeta = document.querySelector('meta[name="color-scheme"]');
   const root = document.documentElement;
 
-  /* --------------------------------------------------------------------------
-     1. 明暗主题切换（遵循 color-scheme + meta 模型）
-     -------------------------------------------------------------------------- */
   function getEffectiveScheme() {
     const content = colorMeta?.getAttribute("content") || "light dark";
     if (content === "light" || content === "dark") return content;
@@ -37,9 +34,6 @@
     });
   });
 
-  /* --------------------------------------------------------------------------
-     2. 色板双轴切换（flyme | editorial）
-     -------------------------------------------------------------------------- */
   function applyPalette(palette) {
     const next = palette === "editorial" ? "editorial" : "flyme";
     root.setAttribute("data-palette", next);
@@ -68,9 +62,6 @@
     }
   });
 
-  /* --------------------------------------------------------------------------
-     3. 移动端 <dialog> 导航抽屉
-     -------------------------------------------------------------------------- */
   const drawer = document.getElementById("mobile-drawer");
   const drawerOpenBtn = document.querySelector("[data-drawer-open]");
   const drawerCloseBtn = document.querySelector("[data-drawer-close]");
@@ -94,9 +85,6 @@
     });
   }
 
-  /* --------------------------------------------------------------------------
-     4. 首页真实面板截图切换（Tab 控制预览）
-     -------------------------------------------------------------------------- */
   const showcaseImg = document.getElementById("hero-showcase-img");
   const showcaseCaption = document.getElementById("hero-showcase-caption");
   const showcaseZoomBtn = document.getElementById("hero-showcase-zoom");
@@ -124,9 +112,6 @@
     });
   });
 
-  /* --------------------------------------------------------------------------
-     5. 首页安装命令选项卡（macOS/Linux | Windows）
-     -------------------------------------------------------------------------- */
   const cmdCode = document.getElementById("install-cmd-code");
   document.querySelectorAll("[data-cmd-tab]").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -140,9 +125,6 @@
     });
   });
 
-  /* --------------------------------------------------------------------------
-     6. 截图灯箱（原生 <dialog>）
-     -------------------------------------------------------------------------- */
   const lightbox = document.getElementById("shot-lightbox");
   const lightboxImg = document.getElementById("lightbox-img");
   const lightboxCaption = document.getElementById("lightbox-caption");
@@ -168,9 +150,6 @@
     });
   }
 
-  /* --------------------------------------------------------------------------
-     7. 复制按钮（遵循 Invoker Commands + 统一反馈与 fallback）
-     -------------------------------------------------------------------------- */
   const copyTimers = new WeakMap();
   let lastAnnounced = "";
 
@@ -249,9 +228,6 @@
     });
   }
 
-  /* --------------------------------------------------------------------------
-     8. 浮动目录 Scrollspy（原生 scroll-target-group + IntersectionObserver fallback）
-     -------------------------------------------------------------------------- */
   const tocNav = document.querySelector(".toc-nav");
   if (tocNav) {
     const links = Array.from(tocNav.querySelectorAll('a[href^="#"]'));

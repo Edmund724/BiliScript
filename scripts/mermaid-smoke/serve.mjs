@@ -1,8 +1,3 @@
-// mermaid 冒烟静态服务器：为 scripts/mermaid-smoke/harness.html 提供 repo 根目录
-// 的 HTTP 服务。harness 经 ESM import 拉取构建产物（extension/entry/chunks/
-// mermaid-render.mjs 及其相对 chunk），file:// 下 CORS 禁止 ESM，必须走 HTTP；
-// .mjs 需要 text/javascript MIME 才会按模块解析。手动/按需跑（不纳入 pnpm test）：
-//   node scripts/mermaid-smoke/serve.mjs   # 然后经 kimi-webbridge 打开打印的 URL
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";

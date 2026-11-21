@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// 票 provider-onboarding-consistency/12：首配（概览 / AI 对话 / 解释卡 / 语音转写）
-// 的真机验收——未配置 → 保存 → 一次性续跑，以及取消 / 换分P / 保存失败 / 普通编辑
-// 下旧任务意图不复活。
-//
-// 全程离线：B 站文档与接口、AI 完成请求、ASR 音轨与转写请求都是本文件的 fixture
-// 回放（页面 Fetch 与 SW/offscreen Fetch 两处拦截），不使用真实账号、真实 Key 或
-// 任何外部付费服务。
 import path from "node:path";
 import { rm } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
@@ -34,12 +27,9 @@ const AID = 117370433574328;
 const CID = 42393338874;
 const VIDEO_URL = `https://www.bilibili.com/video/${BVID}/?p=1`;
 const VIDEO_URL_P2 = `https://www.bilibili.com/video/${BVID}/?p=2`;
-// 无字幕视频（ASR 链路）：手工构造的合法 BVID，只在本场景的 fixture 里存在。
 const ASR_BVID = "BV1xr4y1c7dE";
 const ASR_CID = 42393349999;
 const ASR_URL = `https://www.bilibili.com/video/${ASR_BVID}/?p=1`;
-// 真实 B 站 DASH 音轨 m4s 片段（tests/asr/fixtures 的可提交数据）：ASR 需要真
-// fMP4 才能解出音帧，切片与转写请求都由此驱动。
 const ASR_AUDIO_BYTES = readFileSync(path.join(REPO_ROOT, "tests/asr/fixtures/fmp4-audio-sample.bin"));
 const ASR_AUDIO_URL = "https://upos-sz-mirrorcos.bilivideo.com/fixture/asr-audio.m4s";
 const AI_BASE_URL = "https://api.bilibili.com";
@@ -57,10 +47,7 @@ const readerStyleGate = { armed: false, pending: new Map(), seen: [] };
 
 const checks = [];
 const results = {};
-const requestLog = []; // SW 侧 AI 完成 / 搜索 / 播放器接口请求（Node 侧记录）
-// createWorkerSession 在 ensureAlive 时会先跑一次 onReconnect，本文件的显式安装会
-// 让同一 CDP 会话上挂两个 Fetch 监听：同一请求因此被暂停两次。按 requestId 去重，
-// 只处理第一次（第二次 fulfill 会拿到 Invalid InterceptionId）。
+const requestLog = [];
 const handledInterceptions = new Set();
 const pageWatchers = [];
 const cdps = [];
@@ -148,8 +135,6 @@ function openAiSse(content) {
   ].join("");
 }
 
-// 概览管线与对话共用一个受控 SSE 出口：系统提示词含「内容助理」即概览结构化
-// JSON，其余是对话回答。
 function completionKind(body) {
   const prompt = JSON.stringify(body?.messages || []);
   if (prompt.includes("内容助理")) return "overview";
@@ -164,7 +149,6 @@ function completionFixture(body, url) {
     : prompt.includes("被观众选中的内容")
       ? "受控解释回答。"
       : "受控对话回答。";
-  // 流式链路（概览 / 对话）吃 SSE；非流式链路（选区解释）吃普通 JSON 回包。
   if (body?.stream === false) {
     return {
       headers: [{ name: "content-type", value: "application/json" }],
@@ -182,8 +166,6 @@ let offscreen;
 let activePage;
 
 async function createHarnessDist() {
-  // 本场景不需要额外 host 权限：AI 平台地址取已在 manifest host_permissions 里的
-  // api.bilibili.com，ASR 音轨走被拦截的伪造 CDN，转写地址同域。故直接用 dist。
   return DEFAULT_DIST;
 }
 
@@ -214,7 +196,6 @@ function installSwFixtures(handle) {
       } else if (url.includes(`walkthrough-fixture/${BVID}-zh.json`)) {
         payload = subtitleBody;
       } else if (url.includes("/chat/completions")) {
-        // 非流式链路（选区解释）在 SW 侧直发 fetch；流式链路走 offscreen。
         let body = {};
         try { body = JSON.parse(params.request.postData || "{}"); } catch {}
         requestLog.push({ kind: "completion", url, model: body?.model || "", promptKind: completionKind(body), hasImageParts: JSON.stringify(body?.messages || []).includes("image_url"), prompt: JSON.stringify(body?.messages || []).slice(0, 240), at: Date.now() });
@@ -245,9 +226,6 @@ function installSwFixtures(handle) {
   });
 }
 
-// AI 完成请求由流式通道在 offscreen 文档发起（SW 只发 provider-http 代发消息），
-// 故 offscreen 的 Fetch 域接管：「/chat/completions」回放受控 SSE，ASR 音轨与转写
-// 请求同样在此回放。
 function installOffscreenFixtures(cdp) {
   return cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }).then(() => {
     cdp.on("Fetch.requestPaused", async (params) => {
@@ -413,7 +391,6 @@ async function readM1ClipSnapshot(page) {
   })()`);
 }
 
-// ===== 真实输入 =====
 async function clickCenter(pageCdp, selector) {
   const point = await waitFor(`真实点击目标 ${selector}`, async () => {
     const value = await pageCdp.evaluate(`(() => {
@@ -501,8 +478,6 @@ async function setM1PanelWidth(pageCdp, width) {
   await waitFor("M1 自定义宽度保存", () => worker.evaluate(`chrome.storage.sync.get(["customPanelWidth", "customPanelWidthEnabled"]).then((value) => value.customPanelWidth === ${width} && value.customPanelWidthEnabled === true)`));
 }
 
-// 选区解释入口：用 Range + selectionchange 构造真实选区（README 说明文本拖选在
-// 这一层够不着，这是产品自己监听的选区通道）。
 async function selectExplainText(pageCdp) {
   const selection = await pageCdp.evaluate(`(() => {
     const item = document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item[data-index="0"]');
@@ -525,9 +500,6 @@ async function selectExplainText(pageCdp) {
   return selection;
 }
 
-// 概览/解释的错误条会随状态机整块重建：探测到几何与真正按下之间节点可能已被
-// 替换，真实点击于是落到相邻的「重试」。给「点一下 → 等目标出现」加重试，
-// 保证判的是点击目标本身而不是一次竞态。
 async function clickExpect(pageCdp, selector, waitFn, label, { attempts = 3 } = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -556,7 +528,6 @@ async function failShot(pageCdp, name) {
   }
 }
 
-// ===== 平台编辑（真实输入）=====
 async function waitProviderEditor(pageCdp, expectLabel = "保存并继续") {
   return waitFor("平台编辑器打开", () => pageCdp.evaluate(`(() => {
     const save = document.querySelector(".provider-editor-save");
@@ -583,8 +554,6 @@ const completions = () => requestLog.filter((entry) => entry.kind === "completio
 const transcriptions = () => requestLog.filter((entry) => entry.kind === "transcription");
 
 async function hoverPlayer(pageCdp) {
-  // AI 快捷动作按光标活动显形（host mousemove → .is-active）：先发一次真实
-  // 鼠标移动进播放器，按钮几何与命中才是真机可达状态。
   const point = await pageCdp.evaluate(`(() => {
     const host = document.querySelector(".bpx-player-container");
     const rect = host.getBoundingClientRect();
@@ -630,7 +599,6 @@ async function waitSettingsClosed(pageCdp) {
   return waitFor("设置抽屉关闭", () => pageCdp.evaluate(`!document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") && !document.querySelector(".provider-editor-dialog")`), { timeoutMs: 20000 });
 }
 
-// ===== 主流程 =====
 try {
   distDir = await createHarnessDist();
   browser = await launchBrowser({
@@ -672,7 +640,6 @@ try {
   offscreen = await attachOffscreen(browser);
   await installOffscreenFixtures(offscreen);
 
-  // M1-A：冷缓存与三张阅读 CSS 被真实网络请求扣住时，URL 直达 / autoOpen 都不得提前翻门控。
   results.m1StyleEntries = [];
   await page.cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   for (const entry of [
@@ -716,9 +683,6 @@ try {
   await page.cdp.send("Network.setCacheDisabled", { cacheDisabled: false });
   await worker.evaluate(`chrome.storage.sync.set({ autoOpenReader: false })`);
 
-  // ============================================================
-  // A1 概览：未配置 → 保存并继续 → 一次性续跑
-  // ============================================================
   await page.cdp.send("Page.navigate", { url: VIDEO_URL });
   await waitFor("视频页扩展按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
@@ -769,13 +733,9 @@ try {
   check("A1.4-续跑后设置关闭且停留概览 tab", !overviewShell.settingsExpanded && !overviewShell.editor && overviewShell.activeTab === true, overviewShell);
   await screenshot(page.cdp, path.join(OUT_DIR, "02-overview-resumed.png"));
 
-  // 一次性消费：同一意图不能二次续跑（保存后再无续跑请求）。
   await sleep(800);
   check("A1.5-续跑只发生一次", completions().length - completionsBeforeOverviewSave === 1, { delta: completions().length - completionsBeforeOverviewSave });
 
-  // ============================================================
-  // A2 普通平台编辑不被首配意图触发任务
-  // ============================================================
   const completionsBeforeNormalEdit = completions().length;
   await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
   await waitFor("设置抽屉打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") && Boolean(document.getElementById("openAiProvidersBtn"))`));
@@ -805,9 +765,6 @@ try {
   await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
   await sleep(300);
 
-  // ============================================================
-  // A3 AI 对话：无平台拦截 + 草稿恢复 + 用户明确发送
-  // ============================================================
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [] })`);
   await activateTab(page.cdp, "biliscript-reading-tab-chat");
   const chatNoProvider = await waitFor("对话无平台状态屏", () => page.cdp.evaluate(`(() => {
@@ -871,9 +828,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "05-chat-sent.png"));
 
-  // ============================================================
-  // A4 解释卡：未配置 → 保存并继续 → 同一卡片续跑
-  // ============================================================
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [], defaultModel: "" })`);
   await activateTab(page.cdp, "biliscript-reading-tab-subtitle");
   await waitFor("字幕列表就绪", () => page.cdp.evaluate(`document.querySelectorAll('#biliscript-reading-subtitle .biliscript-reading-item').length > 0`), { timeoutMs: 45000 });
@@ -922,9 +876,6 @@ try {
   await screenshot(page.cdp, path.join(OUT_DIR, "07-explain-resumed.png"));
   await clickCenter(page.cdp, '#biliscript-reading-explain-card [data-explain-card-action="close"]');
 
-  // ============================================================
-  // A6 旧意图不复活：取消 / 保存失败 / 重复保存 / 换分P
-  // ============================================================
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [], defaultModel: "" })`);
   await page.cdp.send("Page.navigate", { url: VIDEO_URL });
   await waitFor("回到有字幕视频", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
@@ -933,7 +884,6 @@ try {
   await activateTab(page.cdp, "biliscript-reading-tab-overview");
   await waitOverviewError(page.cdp);
 
-  // A6a 取消配置：意图作废，外部补齐平台也不自动续跑
   const completionsBeforeCancel = completions().length;
   await clickCenter(page.cdp, '[data-overview-action="setup"]');
   await waitProviderEditor(page.cdp);
@@ -962,7 +912,6 @@ try {
   }
   await sleep(300);
 
-  // A6b 保存失败 + 重复保存：失败不续跑、重试成功只续跑一次
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [] })`);
   await clickCenter(page.cdp, '[data-overview-action="retry"]');
   await waitOverviewError(page.cdp);
@@ -1018,10 +967,7 @@ try {
   check("A6.3-失败后重试保存成功且只续跑一次", completions().length - completionsBeforeFailure === 1, results.saveRecovered);
   await screenshot(page.cdp, path.join(OUT_DIR, "12-overview-save-recovered.png"));
 
-  // A6c 换分 P：概览身份键失配，保存后不续跑
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [], defaultModel: "" })`);
-  // 上一轮概览已是 ready（同一身份键会去重、不会自动重跑）：刷新页面拿到干净的
-  // 「无平台 → 概览配置类错误」起点，再在配置过程中换分 P。
   await page.cdp.send("Page.reload", { ignoreCache: false });
   await waitFor("刷新后视频页扩展按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
@@ -1059,7 +1005,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "13-overview-part-switch.png"));
 
-  // A6d 解释卡换分P：保存后不回到旧卡
   await worker.evaluate(`chrome.storage.sync.set({ aiProviders: [] })`);
   await activateTab(page.cdp, "biliscript-reading-tab-subtitle");
   await waitFor("P2 字幕就绪", () => page.cdp.evaluate(`document.querySelectorAll('#biliscript-reading-subtitle .biliscript-reading-item').length > 0`), { timeoutMs: 60000 });
@@ -1096,9 +1041,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "14-explain-part-switch.png"));
 
-  // ============================================================
-  // A5 语音转写：无字幕 → 未配置 → 保存并继续 → 续跑字幕链
-  // ============================================================
   await worker.evaluate(`chrome.storage.sync.set({ asrAutoFallback: true, asrProviders: [], activeAsrProviderId: "" })`);
   await page.cdp.send("Page.navigate", { url: ASR_URL });
   await waitFor("无字幕视频页", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
@@ -1156,9 +1098,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "09-asr-transcribed.png"));
 
-  // ============================================================
-  // M1-B：SPA 进入阅读模式复用已抓字幕，离开视频页完整退出
-  // ============================================================
   await worker.evaluate(`chrome.storage.sync.set({
     autoOpenReader: false,
     asrAutoFallback: false,
@@ -1211,9 +1150,6 @@ try {
     spaExit
   );
 
-  // ============================================================
-  // M1-C：键盘进入、关闭焦点恢复与外部点击不抢焦
-  // ============================================================
   await page.cdp.send("Page.navigate", { url: VIDEO_URL });
   await waitFor("M1-C 页内阅读按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-script-button"))`), { timeoutMs: 45000 });
   await page.cdp.evaluate(`(() => {
@@ -1270,9 +1206,6 @@ try {
   results.m1Focus.outsideFocus = outsideFocus;
   check("M1-C4-退出过渡后外部点击不抢焦", outsideFocus.activeId === "m1-outside" && !outsideFocus.readerOpen, outsideFocus);
 
-  // ============================================================
-  // M1-D：AI 快捷入口直接发送且保留文字 / 图片草稿
-  // ============================================================
   await page.cdp.evaluate(`document.getElementById("biliscript-script-button")?.focus()`);
   await pressKey(page.cdp, "Enter", "Enter", 13);
   await waitFor("M1-D 页内按钮打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") === true`), { timeoutMs: 45000 });
@@ -1377,9 +1310,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "19-m1-image-draft-preserved.png"));
 
-  // ============================================================
-  // M1-F：设置退出焦点与真实几何阈值 / 降级
-  // ============================================================
   await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
   await waitFor("M1-F 设置打开", () => page.cdp.evaluate(`Boolean(document.getElementById("customPanelWidth"))`));
   await pressKey(page.cdp, "Escape", "Escape", 27);
@@ -1495,9 +1425,6 @@ try {
   await screenshot(page.cdp, path.join(OUT_DIR, "23-m1-999-float-650.png"));
   await setM1Viewport(page.cdp, 1600);
 
-  // ============================================================
-  // 结果
-  // ============================================================
 } catch (error) {
   if (activePage) {
     results.failureDiagnostics = await activePage.cdp.evaluate(`(() => ({

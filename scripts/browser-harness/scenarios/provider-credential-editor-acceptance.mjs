@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// 票 provider-onboarding-consistency/13：凭据、编辑器与授权真机验收。
-//
-// 真机判据（Chromium/Edge + dist 里的未打包扩展）：
-//   C1 两类凭据引用（Gemini Live / DeepSeek Search → AI 族 Key）四态与同层往返；
-//   C2 Key 只进 AI 族，AI 编辑/删除后两族状态同步，证据不泄露 Key；
-//   C3 模型子视图跨过滤选择、逐层 Esc、dirty 确认、Tab 焦点约束与归还；
-//   C4 权限：浏览器权限库（mic）首次拒绝/授权/重新授权/多 origin +
-//      Live 保存的 http(s)+ws(s) 多 origin 域名权限（chrome.permissions 链路）；
-//   C5 搜索首次授权：同意 / 拒绝后开关同步 / 下一条不重复 / 付费提示 / 主任务继续；
-//   C6 400px 窄面板 + 矮视口下的表单错误、确认框与动作可达；
-//   C7 全程可控 fixture，无真实账号 / 真实 Key / 外部付费服务的真实出网；
-//   C8 证据工件（断言、权限结果、焦点记录、失败截图、日志）与退出码。
-//
-// 边界（README「场景层的已知限制」）：headless 没有浏览器 UI，交互式
-// chrome.permissions.request 的原生弹窗无法结算（实测 request 数秒后仍 pending、
-// 永不 resolve）。
-// 因此本场景对**未常驻 manifest 的 origin** 用 SW 单点替身按「拒绝」结算（其余
-// 链路与真实 API 不变），对**已常驻 origin** 仍走真实 chrome.permissions.request
-// （已授权时 Chrome 直接放行、不弹窗）；「重新授权」用同一临时 dist 第二次装机
-// 把 fixture 域名写进 host_permissions 建立真实授权态，再由 contains() 复核。
-// 浏览器权限库（mic）的首次拒绝/授权/重新授权/多 origin 全部走 CDP
-// Browser.resetPermissions / grantPermissions，是真实浏览器权限 API。
 
 import path from "node:path";
 import os from "node:os";
@@ -52,27 +30,21 @@ const CID = 42393338874;
 const VIDEO_URL = `https://www.bilibili.com/video/${BVID}/?p=1`;
 const LIVE_URL = "https://live.bilibili.com/21452505";
 
-// fixture 宿主：不在 manifest 常驻 host_permissions 里，门禁由「装期授权 + 拒绝替身」
-// 覆盖（见文件头边界）。
 const AI_FIXTURE_BASE = "https://api.fixture-ai.test/v1";
 const AI_FIXTURE_ORIGIN = "https://api.fixture-ai.test/*";
 const LIVE_FIXTURE_BASE = "https://api.fixture-live.test";
 const LIVE_FIXTURE_ORIGINS = ["https://api.fixture-live.test/*", "wss://api.fixture-live.test/*"];
-// 伴看 Gemini Live 与 MOSS 的域名与 ws:// 对应项：投影票同法在临时 dist 里常驻
-// （不改正式构建产物），使真实 chrome.permissions.request 无需弹窗即可放行。
 const LIVE_HOST_PERMANENT = [
   "https://api.mosi.cn/*",
   "wss://api.mosi.cn/*",
   "https://generativelanguage.googleapis.com/*",
   "wss://generativelanguage.googleapis.com/*"
 ];
-// 非同族中转地址（用于两族的「非官方地址」态）
 const DEEPSEEK_RELAY_BASE = "https://api.relay-fixture.test/v1";
 const GEMINI_RELAY_BASE = "https://gemini-relay-fixture.test";
 
 const CASE_PATH = path.join(REPO_ROOT, "tests/fixtures/provider-acceptance/case.json");
 const CASE = JSON.parse(readFileSync(CASE_PATH, "utf8"));
-// fixture 形状自检：缺字段或空数组直接红，而不是让后面的断言各自失配。
 if (!Array.isArray(CASE.aiModels) || CASE.aiModels.length < 3) throw new Error("case.json: aiModels 形状不符");
 if (!CASE.searchAnySearch?.data?.results?.length) throw new Error("case.json: searchAnySearch 形状不符");
 if (!CASE.fakeKeys?.chat || !CASE.fakeKeys?.searchRoundTrip || !CASE.fakeKeys?.liveRoundTrip) {
@@ -110,7 +82,6 @@ function check(name, ok, detail = null) {
   return entry.ok;
 }
 
-// 只记事实，不把假 Key 写进证据：允许清单之外的出网请求单独记下来。
 const EXTERNAL_ALLOWLIST = [
   "https://www.bilibili.com",
   "https://live.bilibili.com",
@@ -136,8 +107,6 @@ function noteExternal(url, where) {
   if (EXTERNAL_ALLOWLIST.includes(host)) return;
   externalRequests.push({ where, url, host, at: Date.now() });
 }
-
-// ===== 页面与接口 fixture =====
 
 function videoHtml() {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>凭据与授权真机验收</title>
@@ -212,8 +181,6 @@ function fulfilled(payload, headers = jsonHeaders(), status = 200) {
   };
 }
 
-// 搜索轮次：每轮用新查询词，避免搜索缓存按词命中后不出网、让「真实发出请求」
-// 这条读数失效。toolCallBudget 由调用方在每次发送/解释前重置为 1。
 let searchRunId = 0;
 let searchRound = 0;
 let toolCallBudget = 0;
@@ -306,8 +273,6 @@ function searchResponseFor(url) {
   }
   return null;
 }
-
-// ===== 真机管道 =====
 
 async function createHarnessDist({ grantedFixtureHosts }) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "biliscript-credential-dist-"));
@@ -409,7 +374,6 @@ function installWorkerFixtures(handle) {
   });
 }
 
-// 对话的流式完成请求在 offscreen 发起；设置/探针等非流式请求走 SW。
 function installOffscreenFixtures(cdp) {
   return cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }).then(() => {
     cdp.on("Fetch.requestPaused", async (params) => {
@@ -493,7 +457,6 @@ async function boot({ grantedFixtureHosts }) {
   offscreen = await attachOffscreen(browser);
   await installOffscreenFixtures(offscreen);
 
-  // 浏览器级 CDP 会话：Browser.grantPermissions / resetPermissions 只在这里可靠。
   const version = await (await fetch(`http://127.0.0.1:${browser.port}/json/version`)).json();
   browserCdp = await CDP.connect(version.webSocketDebuggerUrl);
   cdps.push(browserCdp);
@@ -515,8 +478,6 @@ async function shutdown() {
   page = null; worker = null; offscreen = null; browser = null; distDir = null; browserCdp = null; activePage = null;
   cdps.length = 0; pageWatchers.length = 0;
 }
-
-// ===== 权限探针 =====
 
 async function installPermissionProbe(permanentOrigins) {
   await worker.evaluate(`(async () => {
@@ -551,8 +512,6 @@ async function permissionDenied() {
 async function permissionContains(origins) {
   return worker.evaluate(`chrome.permissions.contains(${JSON.stringify({ origins })})`).catch(() => null);
 }
-
-// ===== 真实输入 =====
 
 async function clickCenter(pageCdp, selector) {
   const point = await waitFor(`真实点击目标 ${selector}`, async () => {
@@ -674,7 +633,6 @@ async function closeEditorIfOpen(pageCdp) {
   const open = await pageCdp.evaluate(`Boolean(document.querySelector(".provider-editor-dialog"))`);
   if (!open) return;
   await clickCenter(pageCdp, ".provider-editor-cancel");
-  // dirty 时会弹「放弃更改」，按确认收掉
   const confirm = await waitFor("放弃更改确认", () => pageCdp.evaluate(`Boolean(document.querySelector(".confirm-dialog"))`), { timeoutMs: 2500 }).catch(() => null);
   if (confirm) {
     await clickCenter(pageCdp, ".confirm-dialog-confirm");
@@ -790,8 +748,6 @@ async function shot(pageCdp, name) {
   screenshots.push(file);
 }
 
-// ===== 存储与行工具 =====
-
 async function readStorage(area, keys) {
   return worker.evaluate(`chrome.storage.${area}.get(${JSON.stringify(keys)})`);
 }
@@ -841,9 +797,6 @@ async function rowState(listId, providerId) {
   })()`);
 }
 
-// ===== 主流程占位 =====
-// ===== 阶段 A：无 fixture 域名常驻权限（拒绝态 / 编辑器 / 搜索授权 / 窄面板）=====
-
 async function phaseA() {
   await boot({ grantedFixtureHosts: false });
   results.permissions = {};
@@ -857,12 +810,8 @@ async function phaseA() {
   await openReader(page.cdp);
   await shot(page.cdp, "01-reader-open.png");
 
-  // ============================================================
-  // C1 两类凭据引用的四态与同层往返
-  // ============================================================
   results.credentialStates = {};
 
-  // C1.1 搜索（DeepSeek）四态
   {
     await seedSync({ aiProviders: [AI_ALPHA] });
     await openSettingsSection(page.cdp, "llm");
@@ -917,7 +866,6 @@ async function phaseA() {
     );
   }
 
-  // C1.2 伴看（Gemini Live）四态
   {
     await seedSync({ aiProviders: [AI_ALPHA] });
     await openSettingsSection(page.cdp, "live");
@@ -964,7 +912,6 @@ async function phaseA() {
     );
   }
 
-  // C1.3 搜索同层往返：消费族草稿 → AI 编辑器 → 返回原草稿
   {
     await seedSync({ aiProviders: [AI_ALPHA, AI_DEEPSEEK], liveProviders: [LIVE_GEMINI] });
     await seedLocal({ aiProviderKeys: { "ai-alpha": FAKE_KEYS.chat } });
@@ -1002,7 +949,6 @@ async function phaseA() {
     );
   }
 
-  // C1.4 伴看同层往返（返回后以 dirty 确认收场，草稿本身已恢复）
   {
     await seedSync({ aiProviders: [AI_ALPHA, AI_DEEPSEEK, AI_GEMINI] });
     await seedLocal({ aiProviderKeys: { "ai-alpha": FAKE_KEYS.chat, "ai-deepseek-official": FAKE_KEYS.searchRoundTrip } });
@@ -1017,7 +963,6 @@ async function phaseA() {
     const restored = await waitEditor(page.cdp, { title: "编辑实时伴看平台", submit: "保存" });
     const after = await readEditor(page.cdp);
     const hint = await page.cdp.evaluate(`document.getElementById("biliscriptSettingsStatus")?.textContent?.trim() || ""`);
-    // 返回的编辑器保留原 dirty 基线：取消走「放弃更改」确认
     await clickCenter(page.cdp, ".provider-editor-cancel");
     const discard = await waitFor("放弃更改确认框", () => page.cdp.evaluate(`(() => {
       const dialog = document.querySelector(".confirm-dialog");
@@ -1039,9 +984,6 @@ async function phaseA() {
     );
   }
 
-  // ============================================================
-  // C2 Key 只进 AI 族；AI 编辑 / 删除后两族状态同步；证据不泄露 Key
-  // ============================================================
   {
     const keys = await readStorage("local", ["aiProviderKeys"]);
     const live = await readStorage("sync", ["liveProviders"]);
@@ -1060,7 +1002,6 @@ async function phaseA() {
       { keyIds: Object.keys(keys.aiProviderKeys || {}), consumerHasOwnKey }
     );
 
-    // 两族行与编辑器在 AI 保存后同步为「可用」
     await openSettingsSection(page.cdp, "llm");
     await openSearchSection();
     const searchRow = await rowState("searchProvidersList", SEARCH_DEEPSEEK.id);
@@ -1078,7 +1019,6 @@ async function phaseA() {
     );
     await shot(page.cdp, "02-credential-rows-synced.png");
 
-    // AI 族删除两条官方记录 → 两族状态回落（DeepSeek 先无记录、Gemini 随后）
     await openSettingsSection(page.cdp, "llm");
     for (const providerId of ["ai-deepseek-official", "ai-gemini-official"]) {
       await clickCenter(page.cdp, `#aiProvidersList [data-provider-id="${providerId}"] .provider-row-remove`);
@@ -1117,9 +1057,6 @@ async function phaseA() {
     );
   }
 
-  // ============================================================
-  // C3 模型子视图：跨过滤选择、逐层 Esc、dirty 确认、Tab 约束与焦点归还
-  // ============================================================
   {
     await seedSync({ aiProviders: [AI_ALPHA], liveProviders: [LIVE_GEMINI], searchProviders: [SEARCH_DEEPSEEK] });
     await seedLocal({ aiProviderKeys: { "ai-alpha": FAKE_KEYS.chat } });
@@ -1182,7 +1119,6 @@ async function phaseA() {
       subviewLog
     );
 
-    // 逐层 Esc：子视图先退，编辑器仍在，焦点归还「获取可用模型」
     await clickCenter(page.cdp, ".provider-editor-fetch");
     await waitFor("模型子视图重开", () => page.cdp.evaluate(`Boolean(document.querySelector(".provider-editor-fetch-dialog"))`), { timeoutMs: 20000 });
     await pressEscape(page.cdp);
@@ -1195,7 +1131,6 @@ async function phaseA() {
       focusAfterEsc
     );
 
-    // Tab 焦点约束：层内环绕（末 → 首，首 → 末），焦点不出编辑器
     const tabTrace = [];
     await page.cdp.evaluate(`(() => {
       const dialog = document.querySelector(".provider-editor-dialog");
@@ -1214,7 +1149,6 @@ async function phaseA() {
     })()`);
     await pressTab(page.cdp, true);
     tabTrace.push(await focusInfo(page.cdp));
-    // 连按 Tab 8 次，焦点始终在编辑器层内
     for (let index = 0; index < 8; index += 1) {
       await pressTab(page.cdp);
       tabTrace.push(await focusInfo(page.cdp));
@@ -1227,7 +1161,6 @@ async function phaseA() {
       { focusableCount, trace: tabTrace.map((item) => item?.className || item?.id) }
     );
 
-    // dirty 确认：Esc 弹「放弃更改」，取消回编辑器，确认关闭并归还触发控件
     await fillField(page.cdp, ".provider-editor-name", "dirty-焦点归还");
     await pressEscape(page.cdp);
     const discard = await waitFor("放弃更改确认框", () => page.cdp.evaluate(`(() => {
@@ -1266,9 +1199,6 @@ async function phaseA() {
     );
   }
 
-  // ============================================================
-  // C6 400px 窄面板 + 矮视口
-  // ============================================================
   {
     await page.cdp.send("Emulation.setDeviceMetricsOverride", { width: 400, height: 360, deviceScaleFactor: 1, mobile: false });
     await sleep(500);
@@ -1316,7 +1246,6 @@ async function phaseA() {
       narrow
     );
 
-    // 确认框：矮容器内动作可达；内容超高时容器内部滚动
     await page.cdp.evaluate(`document.getElementById("addAiProviderBtn")?.scrollIntoView({ block: "center" })`);
     await clickCenter(page.cdp, "#addAiProviderBtn");
     await waitEditor(page.cdp, { submit: "保存" });
@@ -1355,9 +1284,6 @@ async function phaseA() {
     );
   }
 
-  // ============================================================
-  // C4 Live 保存的 http(s)+ws(s) 多 origin 域名权限（拒绝态）
-  // ============================================================
   {
     await installPermissionProbe(permanent);
     await openSettingsSection(page.cdp, "live");
@@ -1392,9 +1318,6 @@ async function phaseA() {
     await waitEditorClosed(page.cdp);
   }
 
-  // ============================================================
-  // C5 搜索首次授权：付费提示 / 拒绝后开关同步 / 不重复询问 / 重新开启 / 同意
-  // ============================================================
   {
     await seedSync({
       aiProviders: [AI_ALPHA, AI_DEEPSEEK],
@@ -1469,7 +1392,6 @@ async function phaseA() {
       results.searchDecline
     );
 
-    // 下一条消息不重复询问
     await fillField(page.cdp, "#biliscript-reading-chat-input", "票13对话授权-第二次");
     await waitFor("发送键可用（第二条）", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-chat-send-btn")?.disabled === false`), { timeoutMs: 15000 });
     await clickCenter(page.cdp, "#biliscript-reading-chat-send-btn");
@@ -1486,7 +1408,6 @@ async function phaseA() {
       results.searchNoRepeat
     );
 
-    // 重新开启联网搜索 → 再次询问；同意 → 写授权位且真实发出搜索请求
     await clickCenter(page.cdp, "#biliscript-reading-chat-web-search-pill");
     await waitFor("联网搜索开关打开", async () => (await readStorage("sync", ["webSearchEnabled"])).webSearchEnabled === true, { timeoutMs: 10000 });
     toolCallBudget = 1;
@@ -1514,7 +1435,6 @@ async function phaseA() {
     );
   }
 
-  // 解释链路：授权与平台可用性分开；拒绝后解释主任务继续且不发搜索请求
   {
     await seedSync({ webSearchEnabled: true, searchOptInNoticeAcknowledged: false, searchProviders: [SEARCH_ANY], allowPaidSearchProviders: false });
     await activateTab(page.cdp, "biliscript-reading-tab-subtitle");
@@ -1558,9 +1478,6 @@ async function phaseA() {
     );
   }
 
-  // ============================================================
-  // C4 浏览器权限 API（mic）：拒绝 / 授权 / 重新授权 / 多 origin
-  // ============================================================
   {
     const queryMic = async () => page.cdp.evaluate(`(async () => {
       try {
@@ -1598,7 +1515,6 @@ async function phaseA() {
     const regrantedState = await queryMic();
     const regrantedMedia = await requestMic();
 
-    // 多 origin：同一浏览器权限库对视频页与直播页两个 origin 分别授权
     await browserCdp.send("Browser.grantPermissions", { permissions: ["audioCapture"], origin: "https://live.bilibili.com" });
     await sleep(200);
     await page.cdp.send("Page.navigate", { url: LIVE_URL });
@@ -1630,11 +1546,8 @@ async function phaseA() {
     );
   }
 
-  // C7 外部出网审计（fixture 之外的真实请求一条都不许有）
   check("C7.1-全程可控 fixture，无白名单外的真实出网请求", externalRequests.length === 0, { externalRequests: externalRequests.slice(0, 10) });
 }
-
-// ===== 阶段 B：装期授权 fixture 域名后的真实权限结算 =====
 
 async function phaseB() {
   await boot({ grantedFixtureHosts: true });
@@ -1655,7 +1568,6 @@ async function phaseB() {
   await openReader(page.cdp);
   await openSettingsSection(page.cdp, "live");
 
-  // Live 保存：真实 chrome.permissions.request 对已授权 origin 直接放行，保存落盘
   const callsBefore = (await permissionCalls()).length;
   await clickCenter(page.cdp, "#addLiveProviderBtn");
   await waitEditor(page.cdp, { submit: "保存" });
@@ -1677,7 +1589,6 @@ async function phaseB() {
     { liveGranted, liveSaved: results.permissions.liveSave.liveSaved, calls }
   );
 
-  // AI 保存到已授权 fixture 宿主
   await openSettingsSection(page.cdp, "llm");
   const aiCallsBefore = (await permissionCalls()).length;
   await clickCenter(page.cdp, "#addAiProviderBtn");
@@ -1701,10 +1612,7 @@ async function phaseB() {
   await shot(page.cdp, "06-granted-saves.png");
 }
 
-// ===== 证据与收场 =====
-
 async function main() {
-  // 上一轮的失败截图 / 证据不与本轮混放：工件目录每次重建。
   await rm(OUT_DIR, { recursive: true, force: true }).catch(() => {});
   try {
     await phaseA();
@@ -1748,9 +1656,6 @@ async function main() {
 try {
   await main();
 } finally {
-  // 证据自检：断言覆盖面、权限结果、焦点记录、截图，以及任何假 Key 不得进证据文件。
-  // C8 的判据就是这个工件自检本身：前七组各至少一条断言，工件带齐权限结果 /
-  // 焦点记录 / 截图 / 日志。
   const sections = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"];
   const covered = sections.filter((prefix) => checks.some((entry) => String(entry.name).startsWith(prefix)));
   const evidencePayload = {
@@ -1786,7 +1691,6 @@ try {
       screenshots.length > 0,
     { covered, checks: checks.length, leakedKeys: leakedKeyNames, focusEntries: focusTrace.length, screenshots: screenshots.length }
   );
-  // C2.4 与 C8.1 合并判据之外，再把「Key 不进证据」单列一条便于失败定位。
   check("C2.4-证据文本不含任何假 Key 明文", leakedKeys.length === 0, { leaked: leakedKeyNames });
 
   await writeEvidence(OUT_DIR, evidencePayload);

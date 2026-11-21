@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// onboarding.mjs — 内置引导页真机回归验收：
-//   1. 首次安装自动打开 onboarding.html 且无 CSP / 控制台报错；
-//   2. 在引导页保存 AI 平台配置并完成联网搜索 opt-in 授权闭环后，打开 B 站视频页，
-//      「文摘面板」立即可读取到新配置；
-//   3. 从「文摘面板 -> 设置」点击「新手引导 / 快速上手」能正常重开 onboarding.html，
-//      且重开页回显已保存的就绪状态。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -166,7 +160,6 @@ const t0 = Date.now();
 try {
   browser = await launchBrowser({ distDir: DEFAULT_DIST, headless: true });
 
-  // 1. 首次安装自动打开 onboarding.html
   const onboardingTarget = await waitFor(
     "首次安装自动打开 onboarding.html",
     async () => {
@@ -244,7 +237,6 @@ try {
 
   await screenshot(onboardingCdp, path.join(OUT_DIR, "01-onboarding-initial.png"));
 
-  // 2. 在引导页保存 DeepSeek（https://api.deepseek.com 在常驻 host_permissions 内，headless 可直过权限弹窗）并完成联网搜索授权闭环
   await onboardingCdp.evaluate(`(() => {
     const preset = document.getElementById("aiPresetSelect");
     preset.value = "deepseek";
@@ -269,7 +261,6 @@ try {
   );
   check("onboarding-ai-saved", Boolean(aiSaved && aiSaved.includes("DeepSeek")), { badge: aiSaved });
 
-  // 点击联网搜索开关并完成 opt-in 确认对话框
   await clickCenter(onboardingCdp, "#webSearchToggle + .biliscript-toggle-track");
   await waitFor(
     "opt-in 确认弹窗出现",
@@ -296,7 +287,6 @@ try {
   });
   await screenshot(onboardingCdp, path.join(OUT_DIR, "02-onboarding-configured.png"));
 
-  // 3. 打开 B 站视频页（离线 fixture），验证文摘面板立即读到新配置
   const videoPage = await attachPage(browser);
   cdps.push(videoPage.cdp);
   const worker = createWorkerSession({
@@ -336,7 +326,6 @@ try {
     { timeoutMs: 15000 }
   );
 
-  // 切到 AI 对话 tab 检查模型与联网开关是否立即同步
   await clickCenter(videoPage.cdp, "#biliscript-reading-tab-chat");
   const chatSync = await waitFor(
     "AI 对话同步新配置",
@@ -354,7 +343,6 @@ try {
   check("reader-panel-synced-onboarding-config", Boolean(chatSync), chatSync);
   await screenshot(videoPage.cdp, path.join(OUT_DIR, "03-reader-panel-synced.png"));
 
-  // 4. 打开设置抽屉并点击「新手引导 / 快速上手」重开 onboarding.html
   await clickCenter(videoPage.cdp, "#biliscript-reading-settings-btn");
   await waitFor(
     "设置抽屉中的新手引导入口渲染",

@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-// 分享金句卡片弹窗真机场景 —— `pnpm harness:scenario reader-quote-share`。
-//
-// 判据（为什么在真机上跑）：弹窗形态是「与阅读面板同一套 token」的产物——
-// 容器 28px 圆角/superellipse(1.25)/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
-// focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
-// 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
-// 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内只有引号与正文、
-// 相纸底栏品牌角标与左侧双段标记、卡面不再出现视频标题与时间戳，字号由共享布局按卡宽落值（非固定 clamp），
-// 导出画布固定 1261×806（不随窗口宽度变化）。四象限（flyme/editorial × light/dark）
-// 下这些值全部来自 --biliscript-reader-* token，computed style、真 hover/:active
-// 伪类、focus-visible、busy 禁用态、真实下载与剪贴板写入全都够不着 jsdom。
-// 柔光/视差/导出的像素逻辑本场景不改不判，只验「弹窗长得和面板一致、交互状态诚实」。
-//
-// 数据口径（诚实标注）：字幕 fixture 与 reader-follow-button 同一份 committed
-// 数据（SW fetch 补丁换两个网络应答）；金句文本直接取 fixture 首句正文，经
-// 扩展内容脚本上下文动态 import dist 的 reader.mjs 调真实 renderReadingOverview 渲染
-// 概览 DOM，再用真指针点 .biliscript-reading-ov-quote-share 走扩展自己的事件
-// 委托打开弹窗——不新增任何生产 debug API。页面本身是真 bilibili.com 视频页。
-//
-// 交互口径：hover/按压/点击走 Input.dispatchMouseEvent；focus-visible 走真
-// Tab 键（真指针先点 preset 落焦，再 Tab 移到下一枚）；Escape 走真键击；
-// 剪贴板与下载先经浏览器级 CDP 授权/指定落盘目录，再验真实写入结果
-// （读回剪贴板 image/png 项 / 落盘 PNG 魔数与体积）。
-//
-// 硬约束：只杀自己 spawn 的进程（harness 的 teardown）；工件落
-// `.scratch/browser-harness/scenarios/reader-quote-share/`；fixture 只读
-// tests/fixtures/（可提交数据），场景代码里不出现 .scratch/ 路径。
 
 import path from "node:path";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -51,14 +24,12 @@ const NAME = "reader-quote-share";
 const OUT_DIR = artifactDir(path.join("scenarios", NAME));
 const FIXTURE_DIR = path.join(REPO_ROOT, "tests", "fixtures", "bilibili", "bilingual-walkthrough");
 
-// 与 reader-follow-button 同一份 committed fixture（8 轨 + 197 句正文）。
 const SAMPLE = { bvid: "BV1mAam6tEL8", url: "https://www.bilibili.com/video/BV1mAam6tEL8/" };
 const VIEWPORT = DEFAULT_VIEWPORT;
 const NARROW_VIEWPORT = { width: 420, height: 800, deviceScaleFactor: 1, mobile: false };
 const headed = process.argv.includes("--headed");
 const fixtureOnly = process.argv.includes("--fixture-only");
 
-// ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
   { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/品牌/双段标记" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
@@ -74,7 +45,6 @@ const SCENARIOS = [
   { id: "Q12", slug: "12-overview-playback", title: "概览：简介 → 章节 → 金句、完整标题、播放高亮与主题 token 一致且不自动滚动" }
 ];
 
-// ===== 可提交 fixture（只读）=====
 let BUNDLES;
 let BODIES;
 let META;
@@ -87,8 +57,6 @@ try {
   process.exit(1);
 }
 
-// 金句数据口径：直接取 committed fixture 的首句（{from, content} 字段自带），
-// 场景不另造文本；渲染进概览后再与弹窗卡片正文独立比对（复算一致）。
 function pickFixtureQuote() {
   const segs = BODIES[`${SAMPLE.bvid}-zh`]?.body ?? [];
   const seg = segs.find((s) => typeof s?.from === "number" && typeof s?.content === "string" && s.content.trim()) || null;
@@ -96,7 +64,6 @@ function pickFixtureQuote() {
 }
 const QUOTE = pickFixtureQuote();
 
-// ===== 断言 =====
 const checks = [];
 function check(name, ok, detail) {
   checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? null : detail });
@@ -107,7 +74,6 @@ function checkEquals(name, actual, expected) {
   return check(name, actual === expected, { actual, expected });
 }
 
-// ===== fixture 自检（--fixture-only 的离线底线）=====
 function selfCheckFixture() {
   const tracks = BUNDLES[SAMPLE.bvid]?.data?.subtitle?.subtitles ?? [];
   checkEquals("fixture.sample-track-count", tracks.length, 8);
@@ -123,11 +89,7 @@ function selfCheckFixture() {
   return checks.every((c) => c.ok);
 }
 
-// ===== 页面内测量脚本 =====
-// 一次 evaluate 取全：弹窗各节点几何 + computed style + 同一棵子树上现求的
-// token 探针。所有「等于当前 token」的断言都与 token 现值比，四象限都成立。
 const JS = {
-  // 基线全契约。corner-shape 引擎可探才断言（探针读不到时记 supported:false）。
   probe: `(() => {
     const host = document.querySelector('.biliscript-quote-share-host');
     if (!host) return { error: 'modal-not-open' };
@@ -257,9 +219,6 @@ const JS = {
   })()`
 };
 
-// 经 reader.mjs 的 renderReadingOverview 渲染一条真实概览（quotes 取 fixture 首句），
-// 并确认分享钮已上屏。overview 宿主 id 是 shared/dom-ids 的契约。READER_URL 在
-// 扩展 ID 推导后于 Node 侧拼好再嵌进表达式（页面全局量经不起 SPA 导航，不用）。
 let READER_URL = null;
 const contentScriptContexts = new Set();
 let readerContextId = null;
@@ -327,7 +286,6 @@ function renderOverviewExpression(quote) {
   })()`;
 }
 
-// ===== SW fetch 补丁（与 reader-follow-button 同口径，只换两个网络应答）=====
 function fixturePatchExpression() {
   return `(() => {
     const FIX = ${JSON.stringify({ bundles: BUNDLES, bodies: BODIES })};
@@ -360,7 +318,6 @@ function fixturePatchExpression() {
   })()`;
 }
 
-// ===== 真机输入 =====
 async function dispatchClick(pageCdp, x, y) {
   const px = Math.round(x);
   const py = Math.round(y);
@@ -374,7 +331,6 @@ async function movePointer(pageCdp, x, y) {
   await pageCdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: Math.round(x), y: Math.round(y), button: "none", clickCount: 0 });
 }
 
-// 命中体检（不点击）：目标当场有几何、在视口内、elementFromPoint 命中本身。
 async function hitTestElement(pageCdp, label, locateExpr, viewport) {
   const vw = viewport?.width ?? VIEWPORT.width;
   const vh = viewport?.height ?? VIEWPORT.height;
@@ -395,7 +351,6 @@ async function hitTestElement(pageCdp, label, locateExpr, viewport) {
   })()`);
 }
 
-// 点击一个「按表达式定位」的元素；点击前先做命中体检，不合格记 FAIL 不点空。
 async function clickElement(pageCdp, label, locateExpr, viewport) {
   const info = await hitTestElement(pageCdp, label, locateExpr, viewport);
   if (!info?.ok) return { ok: false, label, ...info };
@@ -409,8 +364,6 @@ async function mustClick(pageCdp, checkName, label, locateExpr, viewport) {
   return result;
 }
 
-// 按下不抬起期间用 rAF 连续采样某节点的 computed 属性，采完把指针移到 neutral
-// 再抬起（落在非目标点，click 不触发）——用于 :active 读数而不触发真实点击。
 async function sampleWhilePressed(pageCdp, x, y, sampleExpr, durationMs = 200) {
   await movePointer(pageCdp, x, y);
   await pageCdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: Math.round(x), y: Math.round(y), button: "left", buttons: 1, clickCount: 1 });
@@ -436,8 +389,6 @@ async function pressKey(pageCdp, key, code, vk, modifiers = 0) {
   await pageCdp.send("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key, modifiers });
 }
 
-// 弹窗开着就走真 Escape 关闭（顺手也是关闭路径的一致性维护），保持扩展内部
-// modal 状态与 DOM 一致——后续 openQuoteShareModal 的「先关后开」才干净。
 async function closeModalIfOpen(label) {
   if (!(await pageCdp.evaluate(JS.modalOpen))) return;
   await pressKey(pageCdp, "Escape", "Escape", 27);
@@ -452,7 +403,6 @@ async function pausePageMedia() {
   }
 }
 
-// ===== 主流程状态 =====
 const evidence = {
   meta: {
     startedAt: new Date().toISOString(),
@@ -517,10 +467,6 @@ function startFixtureKeepAlive() {
   patchKeepAlive.unref?.();
 }
 
-// 打开弹窗的唯一入口：渲染真实概览（fixture 金句）→ 真指针点分享钮。
-// 概览 tab 被激活后协调器可能自己去跑真实 AI 生成，失败/落位都会整块重渲染
-// 盖掉我们注入的快照——所以渲染与点击之间只隔一瞬，没开成就连渲染带点击重试，
-// 尝试次数如实进 evidence。
 async function openModalViaQuote(label) {
   const attempts = [];
   for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -537,7 +483,6 @@ async function openModalViaQuote(label) {
     } catch {
       continue;
     }
-    // 窄视口下分享钮可能落在概览滚动区可视区外：先滚到中间（等同用户滚动），再体检点击
     await pageCdp.evaluate(`(() => { const el = document.querySelector('#biliscript-reading-overview-body .biliscript-reading-ov-quote-share'); if (el) el.scrollIntoView({ block: 'center' }); })()`);
     const hit = await clickElement(pageCdp, "分享金句卡片", `document.querySelector('#biliscript-reading-overview-body .biliscript-reading-ov-quote-share')`);
     attempts[attempts.length - 1].click = hit;
@@ -546,7 +491,6 @@ async function openModalViaQuote(label) {
       await waitFor(`${label}：弹窗打开`, () => pageCdp.evaluate(JS.modalOpen), { timeoutMs: 3000, intervalMs: 120 });
       return { ok: true, attempts };
     } catch {
-      // 点击没落上（快照被协调器重渲染替换）→ 下一轮重试
     }
   }
   return { ok: false, attempts };
@@ -568,9 +512,7 @@ async function expectModalClosed(label) {
   return closed;
 }
 
-// 主题/色板切换（与 reader-follow-button 同链路：header 主题键真指针 +
-// 设置抽屉色板 select 走真实保存链路）。
-async function switchTheme(label, target /* 'dark' | 'light' */) {
+async function switchTheme(label, target ) {
   const probe = target === "dark" ? JS.isDark : JS.isLight;
   await mustClick(pageCdp, `${label}.theme-toggle-hittable`, "主题切换", `document.getElementById('biliscript-reading-theme-select')`);
   try {
@@ -608,7 +550,6 @@ async function switchPaletteEditorial(label) {
   return true;
 }
 
-// 某一主题档下的弹窗契约探针（token 对齐子集；Q1 已覆盖完整几何档）。
 async function probeThemedModal(label) {
   const p = await pageCdp.evaluate(JS.probe);
   const s = p?.dialog || {};
@@ -630,7 +571,6 @@ async function probeThemedModal(label) {
   return p;
 }
 
-// ===== 主流程 =====
 async function main() {
   evidence.meta.dist = DEFAULT_DIST;
   const fixtureOk = selfCheckFixture();
@@ -644,8 +584,6 @@ async function main() {
   evidence.meta.muted = browser.muted;
   evidence.meta.sync = browser.sync;
 
-  // 浏览器级 CDP 会话（/json/version 的 ws）：剪贴板授权与下载落盘目录。
-  // CDP 客户端类是 harness 的导出，这是复用不是第二份实现。
   try {
     const version = await (await fetch(`http://127.0.0.1:${browser.port}/json/version`)).json();
     browserCdp = await CDP.connect(version.webSocketDebuggerUrl);
@@ -689,14 +627,12 @@ async function main() {
   const workerUp = await worker.ensureAlive();
   check("sw-attach", workerUp, { url: worker.handle?.url });
 
-  // 扩展 ID 从 SW URL 推导（chrome-extension://<id>/entry/background.js）
   const swUrl = worker.handle?.url || "";
   const idMatch = swUrl.match(/chrome-extension:\/\/([a-z]+)\//);
   extensionId = idMatch ? idMatch[1] : null;
   check("extension-id-derived", extensionId !== null, { swUrl });
   READER_URL = `chrome-extension://${extensionId}/entry/chunks/reader.mjs`;
 
-  // ===== 进阅读模式（fixture 数据 + 真实渲染路径）=====
   await pageCdp.send("Page.navigate", { url: SAMPLE.url });
   await waitFor("扩展按钮注入", async () => pageCdp.evaluate(`!!document.getElementById('biliscript-script-button')`), { timeoutMs: 30000, intervalMs: 300 });
   fixturePatchEnabled = true;
@@ -711,7 +647,6 @@ async function main() {
     pageCdp.evaluate(`document.querySelectorAll('#biliscript-reading-subtitle .biliscript-reading-item').length`), { timeoutMs: 45000, intervalMs: 400 });
   await pausePageMedia();
 
-  // 先切到概览 tab 确保分享钮几何可见（真指针点 tab）
   await mustClick(pageCdp, "overview-tab-hittable", "概览 tab", `document.getElementById('biliscript-reading-tab-overview')`);
   try {
     await waitFor("概览 tab 激活", () => pageCdp.evaluate(JS.overviewBodyActive), { timeoutMs: 8000, intervalMs: 150 });
@@ -726,7 +661,6 @@ async function main() {
   check("reader-module-importable", importProbe?.ok === true, importProbe);
 
   try {
-    // ---------- Q12 概览真实渲染与播放高亮 ----------
     {
       const rendered = await evaluateInContentScript(renderOverviewExpression(QUOTE));
       check("Q12.overview-rendered", rendered?.ok === true, rendered);
@@ -815,7 +749,6 @@ async function main() {
       record("Q12", { title: SCENARIOS[11].title, rendered, probe });
     }
 
-    // ---------- Q1 flyme 浅色基线 ----------
     {
       const q1 = {};
       await expectModalOpen("Q1");
@@ -838,13 +771,11 @@ async function main() {
       check("Q1.dialog-shadow-is-token", s.boxShadow === t.shadow, { shadow: s.boxShadow, token: t.shadow });
       check("Q1.mask-is-token", q1.probe?.mask?.backgroundColor === t.maskBg, { mask: q1.probe?.mask?.backgroundColor, token: t.maskBg });
       check("Q1.host-transition-uses-panel-tokens", s.transition === t.hostTransition, { transition: s.transition, token: t.hostTransition });
-      // 关闭键
       check("Q1.close-size-34x34", q1.probe?.close?.width === "34px" && q1.probe?.close?.height === "34px", { w: q1.probe?.close?.width, h: q1.probe?.close?.height });
       checkEquals("Q1.close-svg-18", q1.probe?.close?.svgW, "18px");
       checkEquals("Q1.close-radius-28", q1.probe?.close?.borderRadius, "28px");
       checkEquals("Q1.close-color-is-text-token", q1.probe?.close?.color, t.text);
       check("Q1.close-bg-transparent", q1.probe?.close?.backgroundColor === "rgba(0, 0, 0, 0)", { bg: q1.probe?.close?.backgroundColor });
-      // 操作钮
       checkEquals("Q1.copy-height-32", q1.probe?.copy?.height, "32px");
       checkEquals("Q1.copy-radius-999", q1.probe?.copy?.borderRadius, "999px");
       check("Q1.copy-transparent-secondary", q1.probe?.copy?.backgroundColor === "rgba(0, 0, 0, 0)" && q1.probe?.copy?.color === t.muted, { bg: q1.probe?.copy?.backgroundColor, color: q1.probe?.copy?.color, token: t.muted });
@@ -852,7 +783,6 @@ async function main() {
       checkEquals("Q1.save-radius-999", q1.probe?.save?.borderRadius, "999px");
       check("Q1.save-accent-primary", q1.probe?.save?.backgroundColor === t.accent && q1.probe?.save?.color === t.onFill, { bg: q1.probe?.save?.backgroundColor, color: q1.probe?.save?.color, accent: t.accent, onFill: t.onFill });
       checkEquals("Q1.save-font-weight-600", q1.probe?.save?.fontWeight, "600");
-      // preset / pattern
       checkEquals("Q1.preset-radius-12", q1.probe?.preset?.borderRadius, "12px");
       checkEquals("Q1.preset-count-6", q1.probe?.preset?.count, 6);
       checkEquals("Q1.pattern-radius-12", q1.probe?.pattern?.borderRadius, "12px");
@@ -863,7 +793,6 @@ async function main() {
         checkEquals(`Q1.${kind}-active-font-weight-600`, pill?.fontWeight, "600");
         check(`Q1.${kind}-active-has-no-border-or-shadow`, pill?.borderTopWidth === "0px" && pill?.boxShadow === "none", { borderTopWidth: pill?.borderTopWidth, boxShadow: pill?.boxShadow });
       }
-      // 卡片本体：白边相纸 + 16:9 卡 + 底栏品牌，卡面不带视频标题与时间戳
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
       const cardRect = q1.probe?.rects?.card;
       const sheetRect = q1.probe?.rects?.sheet;
@@ -911,22 +840,18 @@ async function main() {
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
     }
 
-    // ---------- Q2 真指针 hover / active ----------
     {
       const q2 = {};
       const close = await pageCdp.evaluate(`(() => { const el = document.querySelector('.biliscript-quote-share-close'); const r = el.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; })()`);
-      // close hover：底=fill-hover 且字色不变
       await movePointer(pageCdp, close.cx, close.cy);
       await sleep(150);
       q2.closeHover = await pageCdp.evaluate(`(() => { const b = document.querySelector('.biliscript-quote-share-close'); const cs = getComputedStyle(b); return { bg: cs.backgroundColor, color: cs.color }; })()`);
       const tHover = (await pageCdp.evaluate(JS.probe))?.tokens || {};
       check("Q2.close-hover-bg-fill-hover", q2.closeHover?.bg === tHover.fillHover, { bg: q2.closeHover?.bg, token: tHover.fillHover });
       check("Q2.close-hover-color-unchanged", q2.closeHover?.color === tHover.text, { color: q2.closeHover?.color, token: tHover.text });
-      // close active scale(.91)：按下采样，抬在空处（不触发关闭）
       q2.closeActive = await sampleWhilePressed(pageCdp, close.cx, close.cy, `getComputedStyle(document.querySelector('.biliscript-quote-share-close')).transform`, 200);
       check("Q2.close-active-scale-91", (q2.closeActive || []).some((v) => String(v).startsWith("matrix(0.91")), { samples: q2.closeActive });
       check("Q2.modal-stays-open-after-sampled-press", await pageCdp.evaluate(JS.modalOpen), null);
-      // 操作钮 hover
       const centers = await pageCdp.evaluate(`(() => {
         const r = (sel) => { const el = document.querySelector(sel); const b = el.getBoundingClientRect(); return { cx: b.left + b.width / 2, cy: b.top + b.height / 2 }; };
         return { copy: r('.biliscript-quote-copy-btn'), save: r('.biliscript-quote-download-btn') };
@@ -942,7 +867,6 @@ async function main() {
       q2.saveHover = await pageCdp.evaluate(`(() => { const cs = getComputedStyle(document.querySelector('.biliscript-quote-download-btn')); return { filter: cs.filter, color: cs.color }; })()`);
       checkEquals("Q2.save-hover-filter-brightness", q2.saveHover?.filter, "brightness(1.05)");
       checkEquals("Q2.save-hover-color-on-fill", q2.saveHover?.color, tCopy.onFill);
-      // 操作钮 active：次要钮底=surface-2；主钮按压字色仍 on-fill（无破坏性变化）
       q2.copyActive = await sampleWhilePressed(pageCdp, centers.copy.cx, centers.copy.cy, `(() => { const cs = getComputedStyle(document.querySelector('.biliscript-quote-copy-btn')); return cs.backgroundColor; })()`, 160);
       const tActive = (await pageCdp.evaluate(JS.probe))?.tokens || {};
       check("Q2.copy-active-bg-surface-2", (q2.copyActive || []).some((v) => v === tActive.surface2), { samples: q2.copyActive, token: tActive.surface2 });
@@ -954,10 +878,8 @@ async function main() {
       record("Q2", { title: SCENARIOS[1].title, ...q2, note: "按下采样、抬在空处，active 读数不触发真实点击" });
     }
 
-    // ---------- Q3 真键盘 focus-visible ----------
     {
       const q3 = {};
-      // 真指针点 preset（也是 preset 交互本身）：focus 落进弹窗，再真 Tab 走键盘导航
       const presetBefore = await pageCdp.evaluate(`(() => { const c = document.querySelector('.biliscript-quote-card'); return c ? c.dataset.preset : null; })()`);
       const presetHit = await clickElement(pageCdp, "preset 按钮", `document.querySelector('.biliscript-quote-preset-btn:not(.is-active)')`);
       check("Q3.preset-clickable", presetHit.ok === true, presetHit);
@@ -967,7 +889,6 @@ async function main() {
       })()`);
       q3.afterPreset = afterPreset;
       check("Q3.preset-switches-card", typeof afterPreset?.active === "string" && afterPreset.active.length > 0 && afterPreset.active !== afterPreset.before, afterPreset);
-      // Tab 移到下一枚可聚焦元素：必须是键盘焦点（focus-visible）且底=fill-hover
       await pressKey(pageCdp, "Tab", "Tab", 9);
       await sleep(200);
       q3.tabFocus = await pageCdp.evaluate(`(() => {
@@ -981,7 +902,6 @@ async function main() {
       check("Q3.tab-focus-visible-matches", q3.tabFocus?.matchesFocusVisible === true, q3.tabFocus);
       check("Q3.tab-focus-bg-fill-hover", q3.tabFocus?.bg === tQ3.fillHover, { bg: q3.tabFocus?.bg, token: tQ3.fillHover });
       check("Q3.tab-focus-color-text", q3.tabFocus?.color === tQ3.text, { color: q3.tabFocus?.color, token: tQ3.text });
-      // 关闭键（DOM 序在 preset 之前，从 preset 往后 Tab 到不了，用 Shift+Tab 找）
       const closeFocus = await (async () => {
         for (let i = 0; i < 4; i += 1) {
           await pressKey(pageCdp, "Tab", "Tab", 9, 8);
@@ -1008,7 +928,6 @@ async function main() {
       record("Q3", { title: SCENARIOS[2].title, ...q3, note: "真指针点 preset 落焦，真 Tab 键走键盘导航" });
     }
 
-    // ---------- Q4 复制（busy 禁用 + 成功态 + 剪贴板回读）----------
     {
       const q4 = { grant: null };
       if (browserCdp) {
@@ -1025,7 +944,6 @@ async function main() {
 
       const hit = await clickElement(pageCdp, "复制图片", `document.querySelector('.biliscript-quote-copy-btn')`);
       check("Q4.copy-click-hittable", hit.ok === true, hit);
-      // 25ms 粒度盯 busy/成功全程：disabled 相位带 opacity 读数
       const ticks = [];
       const start = Date.now();
       while (Date.now() - start < 8000) {
@@ -1054,7 +972,6 @@ async function main() {
         q4.busySample = busyTicks[0];
         checkEquals("Q4.busy-disabled-opacity-45", busyTicks[0].opacity, "0.45");
       } else {
-        // busy 窗口太短没捕到：受控 DOM 状态补验禁用样式（需求允许的可控态），如实标注
         const controlled = await pageCdp.evaluate(`(() => {
           const b = document.querySelector('.biliscript-quote-copy-btn');
           if (!b) return null;
@@ -1072,10 +989,8 @@ async function main() {
       check("Q4.copy-success-reached", !!successTick, { lastText: ticks.length ? ticks[ticks.length - 1].text : null, grant: q4.grant });
       if (successTick) {
         const tQ4 = (await pageCdp.evaluate(JS.probe))?.tokens || {};
-        // 成功态：字色=accent token（不是绿色），且不铺底（透明背景保留）
         checkEquals("Q4.success-color-is-accent", successTick.color, tQ4.accent);
         check("Q4.success-no-green-fill", successTick.bg === "rgba(0, 0, 0, 0)", { bg: successTick.bg });
-        // 剪贴板真回读：image/png 项（授权已先行；读不到就是诚实红）
         try {
           q4.clipboard = await pageCdp.evaluate(`(async () => {
             const items = await navigator.clipboard.read();
@@ -1087,12 +1002,11 @@ async function main() {
           check("Q4.clipboard-has-image-png", false, q4.clipboard);
         }
       }
-      await sleep(2200); // 等成功态复位（successDuration 2000ms），不干扰后续读数
+      await sleep(2200);
       await shot("04-copy", "复制成功态（accent 字、无铺底）");
       record("Q4", { title: SCENARIOS[3].title, ...q4, note: "CDP 授权 + 真点击；剪贴板 image/png 真回读" });
     }
 
-    // ---------- Q5 保存 PNG（真实下载）----------
     {
       const q5 = { download: null };
       if (browserCdp) {
@@ -1103,16 +1017,13 @@ async function main() {
           q5.download = { ok: false, error: error.message };
         }
       }
-      // 导出成图覆盖纹样层：默认是「无纹样」，先切到「射线」再保存
       const patternHit = await clickElement(pageCdp, "射线纹样", `document.querySelector("[data-pattern='rays']")`);
       check("Q5.pattern-selected-for-export", patternHit.ok === true, patternHit);
       const patternNow = await pageCdp.evaluate(`document.querySelector('.biliscript-quote-card')?.dataset.pattern || null`);
       checkEquals("Q5.pattern-for-export", patternNow, "rays");
       const hit = await clickElement(pageCdp, "保存 PNG", `document.querySelector('.biliscript-quote-download-btn')`);
       check("Q5.save-click-hittable", hit.ok === true, hit);
-      // 目录里可能留着上一次运行的导出图：只认本次点击之后落盘的文件。
       const saveStartedAt = Date.now();
-      // 成功态约 1500ms 即复位，不能先等文件——文件落盘与成功态同一轮询循环里盯：
       const deadline = Date.now() + 20000;
       const dirs = [OUT_DIR, path.join(browser.profileDir, "Downloads")];
       let file = null;
@@ -1164,15 +1075,12 @@ async function main() {
       record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与固定设计尺寸（1261×806）" });
     }
 
-    // ---------- Q6 三条关闭路径，每条后可重开 ----------
     {
       const q6 = {};
       await closeModalIfOpen("Q6.before-close-paths");
-      // 路径 1：关闭键
       await expectModalOpen("Q6.close-btn");
       await mustClick(pageCdp, "Q6.close-btn-click", "关闭键", `document.querySelector('.biliscript-quote-share-close')`);
       await expectModalClosed("Q6.close-btn");
-      // 路径 2：遮罩（点在 dialog 之外的 mask 区域，先体检命中）
       await expectModalOpen("Q6.mask");
       const maskPoint = await pageCdp.evaluate(`(() => {
         const host = document.querySelector('.biliscript-quote-share-host');
@@ -1190,16 +1098,13 @@ async function main() {
         await dispatchClick(pageCdp, maskPoint.x, maskPoint.y);
         await expectModalClosed("Q6.mask");
       }
-      // 路径 3：Escape 真键击
       await expectModalOpen("Q6.escape");
       await pressKey(pageCdp, "Escape", "Escape", 27);
       await expectModalClosed("Q6.escape");
-      // 收尾：确认还能再开（重开性已随每条路径验证，最后再开一次给后续截图态）
       await expectModalOpen("Q6.reopen");
       record("Q6", { title: SCENARIOS[5].title, ...q6, note: "关闭键/遮罩/Escape 三条路径，各自随后重开" });
     }
 
-    // ---------- Q7 flyme 深色 ----------
     {
       await closeModalIfOpen("Q7.before-theme");
       await switchTheme("Q7", "dark");
@@ -1212,7 +1117,6 @@ async function main() {
       record("Q7", { title: SCENARIOS[6].title, probe: p, note: "header 主题键真指针切换" });
     }
 
-    // ---------- Q8 editorial 浅色（设置抽屉真实保存链路）----------
     {
       await closeModalIfOpen("Q8.before-theme");
       await switchTheme("Q8", "light");
@@ -1227,7 +1131,6 @@ async function main() {
       record("Q8", { title: SCENARIOS[7].title, probe: p, note: "色板经设置抽屉 select 真实保存链路切换" });
     }
 
-    // ---------- Q9 editorial 深色 ----------
     {
       await closeModalIfOpen("Q9.before-theme");
       await switchTheme("Q9", "dark");
@@ -1241,7 +1144,6 @@ async function main() {
       record("Q9", { title: SCENARIOS[8].title, probe: p, note: "editorial 深色档" });
     }
 
-    // ---------- Q10 窄视口 ----------
     {
       const q10 = {};
       await closeModalIfOpen("Q10.before-narrow");
@@ -1268,7 +1170,6 @@ async function main() {
       }
       await sleep(300);
       await shot("10-narrow-viewport", "窄视口（420px）：不横向溢出、操作可达");
-      // 关闭键在窄屏也可真点（可操作性收尾），随后恢复视口
       await mustClick(pageCdp, "Q10.close-hittable", "关闭键", `document.querySelector('.biliscript-quote-share-close')`, NARROW_VIEWPORT);
       await expectModalClosed("Q10");
       await pageCdp.send("Emulation.setDeviceMetricsOverride", VIEWPORT);
@@ -1278,7 +1179,6 @@ async function main() {
       record("Q10", { title: SCENARIOS[9].title, ...q10, note: "真实视口调整 → 断言 → 恢复" });
     }
 
-    // ---------- Q11 prefers-reduced-motion ----------
     {
       const q11 = {};
       await closeModalIfOpen("Q11.before-rm");
@@ -1297,7 +1197,6 @@ async function main() {
       checkEquals("Q11.host-transition-none", q11.styles?.hostTransition, "none");
       checkEquals("Q11.close-transition-none", q11.styles?.closeTransition, "none");
       checkEquals("Q11.blobs-animation-none", q11.styles?.blobsAnimation, "none");
-      // close active transform none：按下采样（真 pointer），松手即真关闭
       const close = await pageCdp.evaluate(`(() => { const el = document.querySelector('.biliscript-quote-share-close'); const r = el.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; })()`);
       await movePointer(pageCdp, close.cx, close.cy);
       await pageCdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: Math.round(close.cx), y: Math.round(close.cy), button: "left", buttons: 1, clickCount: 1 });
@@ -1324,7 +1223,6 @@ async function main() {
   }
 }
 
-// ===== 现场诊断 =====
 async function captureDiagnostics() {
   try {
     if (pageCdp) {
@@ -1346,7 +1244,6 @@ async function captureDiagnostics() {
   }
 }
 
-// ===== 入口 =====
 if (fixtureOnly) {
   const ok = (() => {
     selfCheckFixture();

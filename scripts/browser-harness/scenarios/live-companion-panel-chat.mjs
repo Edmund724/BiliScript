@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// 端到端真机场景：伴看与面板对话并行 —— `pnpm harness:scenario live-companion-panel-chat`。
-//
-// 判据（jsdom 够不着的部分）：
-// 1. 首次连接展开，非全屏与全屏下可收起为胶囊，指针/键盘展开、最小化与焦点往返；
-// 2. 胶囊状态与麦克风文本、ARIA、最小目标，以及键盘静音和结束均可操作；
-// 3. 音频弹层的原生/fallback 定位、视口翻转、全屏迁移、Esc/外点回焦、缺音轨提示、音量单次提交与设置入口；
-// 4. 浮窗与胶囊拖拽后按 16px 安全间距就近吸附左右边缘，缩放后位置可达，减少动态下无吸附动画；
-//    进出全屏不遮挡中央 50% 画面，宿主替换保留原节点、展开状态与伴看会话；
-// 5. 伴看进行中，文摘面板发起文本问答可正常发送并收到回复，伴看会话不断开、快速操作按钮保持高亮；
-// 6. 面板对话历史中没有伴看语音转写与回复内容，浮窗中没有面板文本问答内容（两者内容隔离）；
-// 7. 产出可重复运行的验证工件（evidence.json 及四态真机渲染截图）。
 
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
@@ -37,7 +26,6 @@ function check(name, ok, detail) {
   return Boolean(ok);
 }
 
-// 载入构建后的扩展真实生产样式，确保 CSS 变量、圆角、绝对定位与毛玻璃镜头真实参与 Chromium 几何排版
 const cssFiles = [
   "tokens-primitive.css",
   "reader-gate.css",
@@ -49,7 +37,6 @@ const css = cssFiles
   .map((file) => readFileSync(path.join(DEFAULT_DIST, "entry", "styles", file), "utf8"))
   .join("\n");
 
-// 打包伴看浮窗与绑定运行时
 const bundledOverlay = await build({
   entryPoints: [path.join(REPO_ROOT, "extension/live/live-overlay-binding.ts")],
   bundle: true,
@@ -223,7 +210,6 @@ try {
   });
   await page.cdp.evaluate(liveOverlaySource);
 
-  // 初始化伴看绑定器与面板对话事件监听
   await page.cdp.evaluate(`(() => {
     let liveState = "idle";
     let muted = false;
@@ -311,7 +297,6 @@ try {
     });
   })()`);
 
-  // CDP 真实指针与键盘输入辅助
   async function getElementMetrics(selector) {
     return page.cdp.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -362,9 +347,6 @@ try {
     await new Promise((r) => setTimeout(r, 120));
   }
 
-  // =========================================================================
-  // 1. 非全屏首次连接展开，最小化后可用键盘展开
-  // =========================================================================
   await clickCenter("#biliscript-player-live-quick-action");
   await waitFor("非全屏首次浮窗展开", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
@@ -651,9 +633,6 @@ try {
     settingsEntryState
   );
 
-  // =========================================================================
-  // 2. 拖动浮窗：就近吸附左右边缘，缩放后保持可达，进出全屏不遮挡中央画面
-  // =========================================================================
   const headerInfo = await getElementMetrics(".live-overlay-header");
   const dragStartX = Math.round(headerInfo.cx);
   const dragStartY = Math.round(headerInfo.cy);
@@ -662,7 +641,6 @@ try {
   const dragEndX = dragStartX + dragDeltaX;
   const dragEndY = dragStartY + dragDeltaY;
 
-  // 通过 CDP dispatchMouseEvent 模拟真指针拖拽
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: dragStartX, y: dragStartY, button: "none", clickCount: 0 });
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: dragStartX, y: dragStartY, button: "left", buttons: 1, clickCount: 1 });
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: dragEndX, y: dragEndY, button: "left", buttons: 1, clickCount: 1 });
@@ -751,7 +729,6 @@ try {
   await page.cdp.evaluate(`document.getElementById('player-container').style.width = '1000px'`);
   await new Promise((r) => setTimeout(r, 200));
 
-  // 进全屏模式（模拟 1920x1080 浏览器全屏或网页全屏）
   await page.cdp.evaluate(`(() => {
     const container = document.getElementById('player-container');
     container.classList.add('is-fullscreen');
@@ -811,7 +788,6 @@ try {
   const shot3 = path.join(OUT_DIR, "03-dragged-fullscreen-snapped.png");
   await screenshot(page.cdp, shot3);
 
-  // 全屏下用键盘最小化回胶囊，再用指针展开
   await pressKey(".live-overlay-min-btn", "Enter", "Enter", 13);
   await waitFor("全屏胶囊显形", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('.biliscript-fullscreen-live-mini-capsule:not(.is-hidden):not([hidden])'))")
@@ -868,13 +844,11 @@ try {
     capsuleDragState
   );
 
-  // 点击全屏胶囊重新展开
   await clickCenter(".biliscript-fullscreen-live-mini-capsule");
   await waitFor("全屏胶囊展开", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
   );
 
-  // 退回非全屏模式
   await page.cdp.evaluate(`(() => {
     const container = document.getElementById('player-container');
     container.classList.remove('is-fullscreen');
@@ -920,14 +894,10 @@ try {
     migratedState
   );
 
-  // =========================================================================
-  // 3. 伴看进行中，文摘面板发起文本问答：两者互不冲突，会话不断开
-  // =========================================================================
   const chatPrompt = "伴看进行中发起文本问答：请简述视频关键论点";
   await page.cdp.evaluate(`window.__sendPanelChat(${JSON.stringify(chatPrompt)})`);
   await new Promise((r) => setTimeout(r, 150));
 
-  // 伴看流式注入语音转写与回复
   await page.cdp.evaluate(`(() => {
     window.__callbacks.onTranscript({
       kind: "input.done",
@@ -973,9 +943,6 @@ try {
     { panelText: concurrencyState.panelText }
   );
 
-  // =========================================================================
-  // 4. 内容隔离：面板历史没有伴看内容，浮窗没有面板问答内容
-  // =========================================================================
   check(
     "C7-panel-history-has-no-companion-content",
     !concurrencyState.panelText.includes("伴看语音提问") && !concurrencyState.panelText.includes("伴看实时语音解答"),

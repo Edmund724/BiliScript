@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// Gemini 原生协议端到端真机验证场景 —— `pnpm harness:scenario gemini-e2e`。
-//
-// 判据（jsdom 够不着的部分）：
-//   G1: 扩展 SW 就位，MV3 service worker 与页面通信链路正常；
-//   G2: 预设事实检查：SW 中 gemini 预设正确定位原生 gemini 协议，catalogProvider 为 google，提供 openai 后路端点；
-//   G3: 消息路由与设置切换：通过 SW 消息管道保存 gemini provider，将 activeAiProviderId 切换为 gemini，
-//       经 resolve-ai-provider 单趟消息解析出完整 gemini provider 运行时与 Key；
-//   G4: 鉴权与协议端点契约验证；
-//   G5: 验收口径记录：有 key 时发起真实请求探针，无 key 时记录降级验收口径（以 78 条单元/golden/工具循环单测为验收主体）。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -111,7 +102,6 @@ try {
   });
 
   await phase("G2-preset-registered", async () => {
-    // 从 SW 读取 ai-presets-list
     const presetsRes = await pageCdp.evaluate(sendExpr('{ type: "ai-presets-list" }'));
     check("ai-presets-list-ok", presetsRes?.value?.ok === true);
     
@@ -127,7 +117,6 @@ try {
   });
 
   await phase("G3-resolve-ai-provider", async () => {
-    // 保存一个 gemini 平台条目
     const saveProviderRes = await pageCdp.evaluate(sendExpr(JSON.stringify({
       type: "ai-providers-save",
       providers: [
@@ -142,11 +131,9 @@ try {
     })));
     check("save-gemini-provider-ok", saveProviderRes?.value?.ok === true, saveProviderRes?.value);
 
-    // 切换 activeAiProviderId 为 gemini
     const saveSettingsRes = await pageCdp.evaluate(sendExpr('{ type: "save-settings", settings: { activeAiProviderId: "gemini" } }'));
     check("save-settings-active-gemini-ok", saveSettingsRes?.value?.ok === true);
 
-    // 单趟消息解析当前激活的平台
     const resolveRes = await pageCdp.evaluate(sendExpr('{ type: "resolve-ai-provider", providerId: "gemini" }'));
     evidence.g3Resolve = resolveRes;
     const provider = resolveRes?.value?.provider;

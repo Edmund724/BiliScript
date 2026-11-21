@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// 真机场景分发器：`pnpm harness:scenario <name> [-- <场景自己的参数>]`。
-//
-// 场景是一个个独立的 .mjs（scripts/browser-harness/scenarios/<name>.mjs），自己起浏览器、
-// 自己断言、自己收摊；本文件只做「名字 → 文件」的映射与退出码透传，不 import 任何场景
-// （每个场景的进程边界因此是干净的：argv、退出码、Ctrl-C 都直通）。
-//
-//   pnpm harness:scenario --list
-//   pnpm harness:scenario bilingual-subtitles -- --fixture-only
-//   pnpm harness:scenario bilingual-subtitles -- --headed
-//
-// `--` 之后的参数原样交给场景；退出码原样返回（非零 = 有 FAIL 断言）。
 
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";

@@ -140,9 +140,6 @@ async function installSubtitleFixtures(worker) {
   });
 }
 
-// 内容脚本侧的 pinned 补水走直连 fetch（bgFetchJson 在 MV3 内容脚本里不是后台
-// 转发），不经过 SW 的 fixture 拦截：必须同样把「原视频」的轨列表与字幕正文
-// 换成 fixture，否则真实视频的「无字幕」会让跨视频重生成在补水阶段就被拦下。
 async function installPageSubtitleFixtures(cdp) {
   await cdp.send("Fetch.enable", {
     patterns: [
@@ -157,7 +154,6 @@ async function installPageSubtitleFixtures(cdp) {
     let payload = null;
     if (method === "GET" && /x\/player\/(?:wbi\/)?v2/.test(requestUrl)) {
       const bvid = new URL(requestUrl).searchParams.get("bvid") || "";
-      // 只替换原视频的轨列表；当前页自己的播放器请求照常走真网。
       if (bvid === sample.bvid) payload = bundles[bvid];
     } else if (method === "GET") {
       const match = /walkthrough-fixture\/([A-Za-z0-9-]+)\.json$/.exec(requestUrl);
@@ -165,7 +161,6 @@ async function installPageSubtitleFixtures(cdp) {
     }
     try {
       if (payload) {
-        // 内容脚本的 fetch 仍受页面 CORS 约束（带凭据时不接受通配源）。
         const origin = String(params.request?.headers?.Origin || "https://www.bilibili.com");
         await cdp.send("Fetch.fulfillRequest", {
           requestId: params.requestId,
@@ -215,7 +210,6 @@ async function installModelChannel(cdp) {
     const isToolConversation = body.tools || messages.some((message) => message.role === "tool");
     const hasToolResult = messages.some((message, index) => message.role === "tool" && index > lastTextUserIndex);
     const behavior = await cdp.evaluate("globalThis.__historicalFrameBehavior");
-    // 重生成验收只验上下文与请求形状，模型直接给纯文本，不再自主发起截帧。
     const regenerationMode = behavior.mode === "regeneration";
     const content = regenerationMode
       ? "跨视频重生成完成"
@@ -402,21 +396,17 @@ async function runStubQuestion(page, offscreen, targetTime, mode = "success") {
 async function runRegenerationContextAcceptance(page, offscreen) {
   await openChatPage(page, `https://www.bilibili.com/video/${longSample.bvid}/?p=1`);
   await installPageSubtitleFixtures(page.cdp);
-  // 换视频不会自动恢复别处的会话（restoreLatest 只认当前上下文匹配），
-  // 跨视频重生成的真实入口是历史列表：applyById 把原会话连同原上下文 pin 回来。
   await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-more-btn').click()");
   await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-history-btn').click()");
   await waitFor("历史对话列表", () => page.cdp.evaluate("document.querySelectorAll('.chat-history-open').length > 0"), { timeoutMs: 20000, intervalMs: 200 });
   const historyCount = await page.cdp.evaluate("document.querySelectorAll('.chat-history-open').length");
   check("历史列表可回到原视频会话", historyCount === 1, { historyCount });
   await page.cdp.evaluate("document.querySelector('.chat-history-open').click()");
-  // 上下文补水完成才点重生成：占位上下文期间按钮会走「原上下文不可用」拦截。
   await waitFor("跨视频恢复原回答", () => page.cdp.evaluate(`(() => {
     const messages = document.getElementById("biliscript-reading-chat-messages");
     const pending = Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("正在加载原视频上下文"));
     return messages?.textContent.includes("已结合字幕与历史画面作答") && messages.querySelectorAll(".chat-msg-user").length === 1 && !!messages.querySelector(".chat-msg-regenerate-btn") && !pending;
   })()`), { timeoutMs: 30000, intervalMs: 200 });
-  // 历史恢复后建议区还会再发一轮建议生成请求：请求基线取点击前的计数。
   await sleep(1200);
   const baseline = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
   await setStubBehavior(offscreen, 120, "regeneration");

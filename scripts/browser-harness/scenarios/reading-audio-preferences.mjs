@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// 离线真机判据（仅保留 jsdom 够不着的两条 Chromium 几何/指针判据）：
-// 1. Aa 深链在真实样式（吸顶导航栏 + scroll-margin-top）下触发有效滚动且标题不被遮挡；
-// 2. 真实指针点击 #liveVoiceVolume range 轨道后，抽屉、伴看浮窗与控制器三端同源且仅保存一次。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -192,7 +189,6 @@ await withBrowser({ muted: true }, async (ctx) => {
     await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", buttons: 0, clickCount: 1 });
   }
 
-  // R1：Aa 深链进入「AI 对话与快捷动作」子页后真正滚动并避开吸顶导航栏
   await page.cdp.evaluate(`ReadingAudioPreferences.settingsPanel.openAppearanceSettings()`);
   await waitFor("Aa 深链聚焦", () => page.cdp.evaluate(
     `document.activeElement?.id === 'chatPreferencesHeading'`
@@ -230,7 +226,6 @@ await withBrowser({ muted: true }, async (ctx) => {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "01-appearance-deep-link.png"));
 
-  // R2：真实指针点击 #liveVoiceVolume 轨道同步抽屉、浮窗与控制器且仅保存一次
   await clickAt("#biliscript-reading-settings-back-btn");
   await waitFor("返回设置总览", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false`));
   await clickAt("#openLiveSettingsBtn");

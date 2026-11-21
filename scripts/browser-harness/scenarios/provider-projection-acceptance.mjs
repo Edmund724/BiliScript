@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// 票 provider-onboarding-consistency/12：生效投影的真机验收——AI 默认平台与模型、
-// 对话另选、Live / ASR 激活、搜索智能回退与单平台摘要，必须与**实际请求**一致。
-//
-// 全程离线：B 站文档与接口、AI 完成请求、搜索请求、Live WebSocket、ASR 音轨与转写
-// 全部由本场景回放，不使用真实账号、真实 Key 或外部付费服务。
 import path from "node:path";
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -35,14 +30,10 @@ const VIDEO_URL = `https://www.bilibili.com/video/${BVID}/?p=1`;
 const ASR_BVID = "BV1xr4y1c7dE";
 const ASR_CID = 42393349999;
 const ASR_URL = `https://www.bilibili.com/video/${ASR_BVID}/?p=1`;
-// 第二个无字幕视频：切换 ASR 平台后用它重新进入抓取链（同视频的字幕已在手，
-// reenter 会按 in-hand 让位）。
 const ASR_BVID2 = "BV1yf4y1k7mN";
 const ASR_URL2 = `https://www.bilibili.com/video/${ASR_BVID2}/?p=1`;
 const ASR_AUDIO_BYTES = readFileSync(path.join(REPO_ROOT, "tests/asr/fixtures/fmp4-audio-sample.bin"));
 const ASR_AUDIO_URL = "https://upos-sz-mirrorcos.bilivideo.com/fixture/asr-audio.m4s";
-// 两个 AI 平台共用已授权的 api.bilibili.com 源，用路径区分（实际请求的 URL 因此
-// 能直接指认平台）；ASR 两个平台同源，用路径区分。
 const AI_A_BASE = "https://api.bilibili.com/ai-alpha";
 const AI_B_BASE = "https://api.bilibili.com/ai-beta";
 const ASR_A_BASE = "https://api.bilibili.com/asr-alpha/v1";
@@ -173,12 +164,7 @@ function openAiToolCallSse(query) {
 function completionFixture(body) {
   const messages = body?.messages || [];
   const prompt = JSON.stringify(messages);
-  // 选区解释的联网轮：带 tools 的请求先要求模型发起一次搜索（流式 / 非流式
-  // 两种回包形状必须分开，否则非流式调用方会拿 SSE 当 JSON 解析）；
-  // 之后每轮都回正文——配额用尽后工具定义被摘除，请求自然收束为最终回答。
   if (prompt.includes("被观众选中的内容") && Array.isArray(body?.tools) && body.tools.length > 0) {
-    // 每一轮工具调用都用新查询词：搜索缓存按查询词键控，重复查询会命中缓存、
-    // 不再出网——那样就数不出「单轮上限」对真实请求的约束。
     const query = `离线验收搜索词-${searchRunId}-${searchRound += 1}`;
     if (body?.stream === false) {
       return {
@@ -234,8 +220,6 @@ function fulfilledJson(payload, status = 200) {
   };
 }
 
-// 搜索平台回放：Tavily 恒 500（用于真实回退），AnySearch 成功；DeepSeek 搜索
-// 只用于「付费准入」证据（请求被真实发出即算进链，不需要成功解析）。
 function searchResponseFor(url) {
   if (url.includes(TAVILY_URL_PATTERN)) {
     return fulfilledJson({ detail: "fixture tavily failure" }, 500);
@@ -267,8 +251,6 @@ let activePage;
 let offscreenTargetId = "";
 
 async function createHarnessDist() {
-  // Live 两家的域名不在 manifest 常驻 host_permissions 里：与 live-companion-closure
-  // 同法在临时 dist 副本里补齐（不改正式构建产物）。
   const dir = await mkdtemp(path.join(os.tmpdir(), "biliscript-projection-dist-"));
   await cp(DEFAULT_DIST, dir, { recursive: true });
   const manifestPath = path.join(dir, "manifest.json");
@@ -346,8 +328,6 @@ function installWorkerFixtures(handle) {
   });
 }
 
-// AI 流式完成请求在 offscreen 文档发起；ASR 音轨与转写请求也在 offscreen。
-// offscreen 可能在 ASR 终态自关，本场景把 ASR 放在最后（见主流程次序）。
 function installOffscreenFixtures(cdp) {
   return cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }).then(() => {
     cdp.on("Fetch.requestPaused", async (params) => {
@@ -431,8 +411,6 @@ function installDocumentFixture(pageCdp) {
   });
 }
 
-// offscreen 文档可能在长流程中被回收/重建（ASR 终态自关、会话收尾）：每个依赖它
-// 的阶段前重新确认文档存在并把 fixture 挂到当前 target 上，避免补丁静默失效。
 async function ensureOffscreenDocument(workerSession) {
   await workerSession.evaluate(`(async () => {
     const url = chrome.runtime.getURL("entry/offscreen.html");
@@ -464,8 +442,6 @@ async function refreshOffscreen() {
   return cdp;
 }
 
-// ASR 终态会让 offscreen 文档自关：第二次转写前重新确保文档存在并把 fixture 挂上，
-// 用 stub 标记（__fixtureLive）自检这次真的挂到了当前文档。
 async function prepareOffscreenForAsr(workerSession) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await sleep(600);
@@ -493,7 +469,6 @@ async function attachOffscreen(browserInstance) {
   return cdp;
 }
 
-// 离线 WebSocket 替身（Live 会话）：记录连接 URL 与会话指令，不发任何真实流量。
 async function installLiveSocketStub(offscreenCdp) {
   await offscreenCdp.evaluate(`(() => {
     const sockets = [];
@@ -562,7 +537,6 @@ async function installLiveSocketStub(offscreenCdp) {
   })()`);
 }
 
-// ===== 真实输入 / 读取 =====
 async function clickCenter(pageCdp, selector) {
   const point = await waitFor(`真实点击目标 ${selector}`, async () => {
     const value = await pageCdp.evaluate(`(() => {
@@ -600,8 +574,6 @@ async function fillField(pageCdp, selector, text) {
   await sleep(60);
 }
 
-// 范围滑块用真实键盘事件落值：先点中心取得焦点（点击本身可能跳值），Home 回到
-// 最小值，再逐档 ArrowRight 到目标值——每一步都是浏览器原生的 input/change。
 async function setRangeByKeyboard(pageCdp, selector, targetValue) {
   await clickCenter(pageCdp, selector);
   const press = async (key, code, virtualKeyCode) => {
@@ -624,7 +596,6 @@ async function failShot(pageCdp, name) {
   }
 }
 
-// content script 隔离世界的执行上下文（keepalive 端口只能在扩展语境里开）。
 function watchContentScriptContexts(pageCdp) {
   const contexts = new Set();
   pageCdp.on("Runtime.executionContextCreated", ({ context }) => {
@@ -651,9 +622,6 @@ async function evaluateInContentScript(pageCdp, contexts, expression) {
   }, { timeoutMs: 20000 });
 }
 
-// offscreen 文档会因 ASR 终态自关：从内容脚本持有一个聊天端口，让文档在整个场景
-// 内保持同一个 target（fixture 因此不会在第二轮转写时静默失效）。整页导航会断开
-// 端口，每次导航后重开。
 async function ensureOffscreenKeepAlive(pageCdp, contexts) {
   return evaluateInContentScript(pageCdp, contexts, `(() => {
     if (!globalThis.__harnessOffscreenKeepAlive || !globalThis.__harnessOffscreenKeepAlive.__connected) {
@@ -754,7 +722,6 @@ async function selectExplainText(pageCdp) {
 }
 
 async function runExplainWithSearch(pageCdp, workerSession, answerNeedle = "受控解释回答") {
-  // 每次解释都换一轮查询词并清引擎健康度（连败 3 次会触发冷却，跨轮会改变链）。
   searchRunId += 1;
   searchRound = 0;
   await workerSession.evaluate(`chrome.storage.local.remove("biliscript_search_health")`).catch(() => {});
@@ -852,7 +819,6 @@ async function clickSearchRadio(pageCdp, providerId) {
   await sleep(400);
 }
 
-// ===== 主流程 =====
 try {
   distDir = await createHarnessDist();
   browser = await launchBrowser({
@@ -901,9 +867,6 @@ try {
   await waitFor("视频页扩展按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
 
-  // ============================================================
-  // B1 AI 默认平台 / 模型 / 对话另选 / 回落与不可用
-  // ============================================================
   await seedAiProviders(worker);
   await openReader(page.cdp);
   results.keepAlive = await ensureOffscreenKeepAlive(page.cdp, contentScriptContexts);
@@ -958,7 +921,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "01-ai-projection.png"));
 
-  // 默认平台的真实请求：概览（Alpha / model-alpha）
   await closeSettings(page.cdp);
   await activateTab(page.cdp, "biliscript-reading-tab-overview");
   await waitFor("概览生成完成", () => page.cdp.evaluate(`(() => {
@@ -973,7 +935,6 @@ try {
     overviewCompletion
   );
 
-  // 对话另选的真实请求：Beta / model-beta
   await activateTab(page.cdp, "biliscript-reading-tab-chat");
   await waitFor("对话输入可用", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-chat-input") && !document.getElementById("biliscript-reading-chat-input").disabled`), { timeoutMs: 30000 });
   await fillField(page.cdp, "#biliscript-reading-chat-input", "投影验收：另选平台问答");
@@ -988,7 +949,6 @@ try {
     chatCompletion
   );
 
-  // 删除默认平台 → 摘要显示真实回落（不是陈旧成功）
   await openSettingsSection(page.cdp, "llm");
   await clickCenter(page.cdp, '#aiProvidersList .ai-provider-row[data-provider-id="ai-alpha"] .provider-row-remove');
   await clickCenter(page.cdp, ".confirm-dialog-confirm");
@@ -1013,7 +973,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "02-ai-fallback.png"));
 
-  // 删除全部平台 → 摘要不可用，且概览请求确实失败（不展示陈旧成功态）
   await clickCenter(page.cdp, '#aiProvidersList .ai-provider-row[data-provider-id="ai-beta"] .provider-row-remove');
   await clickCenter(page.cdp, ".confirm-dialog-confirm");
   const unavailableProjection = await waitFor("无平台不可用投影", () => page.cdp.evaluate(`(() => {
@@ -1024,8 +983,6 @@ try {
   results.unavailableProjection = unavailableProjection;
   check("B1.7-无平台时摘要显示不可用", unavailableProjection.chatLineHidden === true, unavailableProjection);
   await closeSettings(page.cdp);
-  // 同一身份键的 ready 概览不会自动重跑：刷新页面拿到干净的「无平台 → 概览错误」
-  // 起点，证明不可用投影与实际请求失败一致。
   await page.cdp.send("Page.reload", { ignoreCache: false });
   await waitFor("刷新后视频页扩展按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
@@ -1038,9 +995,6 @@ try {
   results.unavailableOverview = unavailableOverview;
   check("B1.8-不可用投影与实际请求失败一致", Boolean(unavailableOverview), unavailableOverview);
 
-  // ============================================================
-  // B2 搜索：模式摘要 / 可见性 / 付费准入 / 次数上限 / 排序恢复 / 实际回退
-  // ============================================================
   await seedAiProviders(worker);
   await seedSearchProviders(worker);
   await openSettingsSection(page.cdp, "search");
@@ -1058,8 +1012,6 @@ try {
   check("B2.2-单轮搜索次数上限两种模式都可见", smartState.maxCallsVisible === true && smartState.maxCallsBadge === "5", { visible: smartState.maxCallsVisible, badge: smartState.maxCallsBadge });
   await screenshot(page.cdp, path.join(OUT_DIR, "03-search-smart.png"));
 
-  // 先把单轮上限收到 2：模型每轮都发起一次搜索，不同轮用不同查询词（不经缓存），
-  // 于是「轮数 × 链长」就是实际搜索请求数——上限是否生效可以直接数请求。
   await setRangeByKeyboard(page.cdp, "#webSearchMaxToolCalls", 2);
   const maxCallsState = await waitFor("次数上限落值", () => page.cdp.evaluate(`(() => {
     const badge = document.getElementById("webSearchMaxToolCallsValue")?.textContent?.trim() || "";
@@ -1070,7 +1022,6 @@ try {
   check("B2.3-次数上限落盘", maxCallsState.badge === "2" && Number(results.maxCalls.stored) === 2, results.maxCalls);
   await closeSettings(page.cdp);
 
-  // 智能模式的实际回退：两轮各 2 家（Tavily 500 → AnySearch 成功）
   const searchBeforeSmart = searchRequests().length;
   const smartExplain = await runExplainWithSearch(page.cdp, worker);
   const smartSearchUrls = searchRequests().slice(searchBeforeSmart).map((entry) => entry.url);
@@ -1085,7 +1036,6 @@ try {
     results.smartSearch
   );
 
-  // 单平台：Tavily 失败不回退（两轮都只打 Tavily）
   await openSettingsSection(page.cdp, "search");
   await clickSearchRadio(page.cdp, "search_tavily");
   const singleTavily = await searchChainControlState(page.cdp);
@@ -1111,7 +1061,6 @@ try {
     results.singleSearch
   );
 
-  // 单平台成功的实际请求：只打 AnySearch
   await openSettingsSection(page.cdp, "search");
   await clickSearchRadio(page.cdp, "search_anysearch");
   await closeSettings(page.cdp);
@@ -1125,7 +1074,6 @@ try {
     results.anySearch
   );
 
-  // 付费准入：智能模式下勾选后落盘，链尾出现付费平台
   await openSettingsSection(page.cdp, "search");
   await clickSearchRadio(page.cdp, "__smart__");
   const paidOff = await searchChainControlState(page.cdp);
@@ -1141,7 +1089,6 @@ try {
   results.paidOn = paidOn;
   check("B2.9-付费准入开关状态生效", paidOn.checked === true, paidOn);
   await closeSettings(page.cdp);
-  // 让两家免 Key 平台都失败，逼真实链尾走到付费平台（DeepSeek Search）。
   searchFailures.anysearch = true;
   const searchBeforePaid = searchRequests().length;
   await runExplainWithSearch(page.cdp, worker);
@@ -1157,7 +1104,6 @@ try {
     results.paidSearch
   );
 
-  // 上限回到 5：同样的两全家链，轮数翻倍 → 请求数翻倍（上限确实约束单轮工具调用）
   await openSettingsSection(page.cdp, "search");
   await clickCenter(page.cdp, ".biliscript-toggle-row:has(#allowPaidSearchProviders) .biliscript-toggle-track");
   await waitFor("付费准入关闭", () => page.cdp.evaluate(`document.getElementById("allowPaidSearchProviders")?.checked === false`), { timeoutMs: 10000 });
@@ -1177,7 +1123,6 @@ try {
     results.fiveRoundSearch
   );
 
-  // 排序恢复：自定义顺序 → 模式切换保留 → 恢复默认顺序
   await worker.evaluate(`chrome.storage.sync.set({ searchProviderOrder: ["search_deepseek", "search_anysearch", "search_tavily"] })`);
   await openSettingsSection(page.cdp, "search");
   const customOrder = await searchChainControlState(page.cdp);
@@ -1212,9 +1157,6 @@ try {
   await screenshot(page.cdp, path.join(OUT_DIR, "04-search-controls.png"));
   await closeSettings(page.cdp);
 
-  // ============================================================
-  // B3 Live 激活：平台单选 → 实际 WebSocket 会话
-  // ============================================================
   await ensureOffscreenDocument(worker);
   await refreshOffscreen();
   await worker.evaluate(`(async () => {
@@ -1241,8 +1183,6 @@ try {
     const button = document.getElementById("biliscript-player-live-quick-action");
     return overlay && !overlay.hidden && overlay.innerText.includes("正在伴看") && button?.getAttribute("aria-pressed") === "true";
   })()`), { timeoutMs: 45000 });
-  // 播放器控制栏节点会被页面/扩展同步重建：点一次不一定落在当前节点上，
-  // 给「点 → 等 connecting/connected」重试（真机点击语义不变）。
   const startLive = async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await clickCenter(page.cdp, "#biliscript-player-live-quick-action").catch(() => {});
@@ -1311,9 +1251,6 @@ try {
   await clickCenter(page.cdp, ".live-overlay-close-btn");
   await sleep(400);
 
-  // ============================================================
-  // B4 ASR 激活：平台单选 → 实际转写请求
-  // ============================================================
   await ensureOffscreenDocument(worker);
   await refreshOffscreen();
   await worker.evaluate(`(async () => {
@@ -1343,8 +1280,6 @@ try {
     alphaTranscription
   );
 
-  // 切换 ASR 单选：清空字幕缓存（同一视频的转写成果已落缓存，靠缓存命中的话
-  // 不会发转写请求），再重进字幕链观察新平台请求。
   await openSettingsSection(page.cdp, "asr");
   await clickCenter(page.cdp, '#asrProvidersList .asr-provider-row[data-provider-id="asr-beta"] .asr-provider-active-radio');
   await waitFor("ASR 激活切换落盘", () => worker.evaluate(`chrome.storage.sync.get("activeAsrProviderId").then((value) => value.activeAsrProviderId === "asr-beta")`), { timeoutMs: 15000 });
@@ -1362,8 +1297,6 @@ try {
     if (keys.length) await chrome.storage.local.remove(keys);
     return keys.length;
   })()`);
-  // 字幕已在手时 reenter 不会重抓（skipIfInHandOrInFlight）：换到第二个无字幕视频，
-  // 重新走既有「无字幕 → ASR → 字幕接受事务」链，观察激活平台是否真的换了。
   await prepareOffscreenForAsr(worker);
   await page.cdp.send("Page.navigate", { url: ASR_URL2 });
   await waitFor("第二个无字幕视频页", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-player-ai-quick-action"))`), { timeoutMs: 45000 });
@@ -1381,9 +1314,6 @@ try {
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "07-asr-beta.png"));
 
-  // ============================================================
-  // 结果
-  // ============================================================
 } catch (error) {
   if (activePage) {
     results.failureDiagnostics = await activePage.cdp.evaluate(`(() => ({

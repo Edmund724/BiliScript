@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// 对话回答朗读的真实页面回归：内容脚本没有 chrome.tts，按钮调用必须经 SW 完成。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
