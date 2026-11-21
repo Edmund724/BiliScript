@@ -1,0 +1,61 @@
+{
+  "classes": {
+    "fx-glm-effort": [
+      "docs.bigmodel.cn"
+    ],
+    "fx-glm-always": [
+      "docs.bigmodel.cn"
+    ],
+    "fx-kimi-k3-effort": [
+      "platform.kimi.ai"
+    ],
+    "fx-minimax-always": [
+      "platform.minimax.io"
+    ],
+    "fx-qwen-switch": [
+      "alibabacloud.com"
+    ],
+    "fx-mimo-switch": [
+      "aliyun.com"
+    ]
+  },
+  "providers": {
+    "deepseek": [
+      "api-docs.deepseek.com"
+    ],
+    "qwen": [
+      "alibabacloud.com"
+    ],
+    "zhipu": [
+      "docs.bigmodel.cn"
+    ],
+    "moonshot": [
+      "platform.kimi.ai"
+    ],
+    "minimax": [
+      "platform.minimax.io"
+    ],
+    "openrouter": [
+      "openrouter.ai"
+    ],
+    "stepfun": [
+      "platform.stepfun.com"
+    ],
+    "modelscope": [
+      "modelscope.cn"
+    ]
+  },
+  "exceptions": {
+    "fx-glm-always|glm-5.3": [
+      "docs.bigmodel.cn"
+    ],
+    "fx-kimi-k3-effort|kimi-k3": [
+      "platform.kimi.ai"
+    ]
+  },
+  "taxonomy": {
+    "fx-glm-effort|glm-5.2": [
+      "docs.bigmodel.cn"
+    ]
+  }
+}

@@ -1,55 +1,3 @@
-// scripts/check-models-dev-catalog.mjs —— 只读对账命令（工单 upstream-model-facts/03）。
-//
-//   pnpm catalog:check
-//
-// 回答两个问题，**只报告不改动**：
-//   1. 漂移：仓库快照（01 产物的 12 家裁剪子集）相对当前上游旧了没有、差在哪；
-//   2. 分歧：02 的指派表（上游逐模型词表）与手写表（thinking-profiles.ts）逐格比，
-//      哪些格子上游更对（Q1=B 上游胜 → 手写表删除候选）、哪些上游新增、哪些只有手写表有。
-//
-// 口径（为什么这么算，逐条有据）：
-//   - 漂移 = **裁剪后 12 家子集**的 sha256 与 01 产物里的 contentHash 比对。上游没有版本号
-//     （只有弱 ETag，覆盖 200+ provider，其中 190 个与本仓无关），所以口径是内容哈希，
-//     且必须与 scripts/sync-models-dev-catalog.mjs 的裁剪逐字节等效（字段白名单与键序都照抄，
-//     否则本命令会对同一份上游数据误报漂移）。12 家之外的 provider 变了不算漂移。
-//   - 分歧单元 = 12 家 × 每个 `reasoning: true` 模型（逐格）。上游侧事实取 02 产物的值集
-//     指派（含 canonical_model_id 借词与 MODEL_ID_ALIASES 的结论）；手写侧事实取
-//     extension/ai/thinking-profiles.ts 的**文本解析**（本脚本不执行仓库代码：手写表与产物
-//     都是零依赖文本，解析出结构后按 resolveThinkingProfile 的同序解析：
-//       PROVIDERS[preset].override 短路 >> EXCEPTIONS >> TAXONOMY >> unknownClass >> 无结论
-//     模型名 = 上游 id（折叠大小写）优先，其次去命名空间前缀（最后一个 "/" 之后），
-//     再有 02 别名表的 localId 优先命中（如上游 k3 ↔ 本仓 kimi-k3）。
-//   - 三类分歧：
-//       upstream-wins  双方都有结论且不相容 → Q1=B：上游胜，这里是**删除候选**（删减归 04 号票）；
-//       upstream-new   上游有词表、手写表没覆盖（EXCEPTIONS/TAXONOMY/unknownClass 全没命中）；
-//       hand-only      上游没有词表（缺口）、手写表有结论 → **保留**。
-//   - **override 型平台**（openrouter / amd / sensenova / opencodego）单列不逐格对比：那四家的
-//     手写表给的是**平台级产品裁定**（整域只认某种词汇 / 顶层参数透传，见各 PROVIDERS 注释），
-//     与上游的**逐模型**词表不是同一层事实；逐格比会产出上百条不可执行的"分歧"，淹没真正的
-//     删除候选。报告 §6 给平台级形状 + 上游逐模型形状分布，可见性不降级。
-//   - 已知"不是分歧"：手写 low/high 共用一个写点（开关型 on，或 low/high 同 effort 值）而上游
-//     没有 effort 词表时，本仓把 low/high 落成同一份参数（如 qwen3-max 的 budget_tokens 塌陷）
-//     是唯一形状。报告 §5 逐组列出，不混进 upstream-wins。
-//
-// 只读纪律：本命令不改任何仓库文件、不提交快照、不写产物；唯一的输出是报告文件（默认
-// `.scratch/tickets/upstream-model-facts/artifacts/03-catalog-check.md`）。抓取时间只出现在报告里，
-// stdout 只有摘要与退出码。
-//
-// 用法：
-//   node scripts/check-models-dev-catalog.mjs \
-//     [--input <path|url>] [--catalog <path>] [--assignments <path>] [--profiles <path>] [--report <path>]
-//
-//   --input        当前上游（默认直连 https://models.dev/api.json；离线/测试传本地快照）。
-//   --catalog      01 的 UI 目录产物（contentHash + 逐模型字段，漂移与字段级差异的比对基准）。
-//   --assignments  02 的思考事实产物（值集 + 指派 + 别名表）。
-//   --profiles     手写表（默认 extension/ai/thinking-profiles.ts；只读文本，测试可喂小样）。
-//   --report       报告落点。
-//
-// 退出码：
-//   0 = in sync（12 家子集内容哈希一致；**分歧清单仍可能有内容**，那是要人核对的，不是失败）；
-//   1 = drift（快照与上游不同，或上游形状解析出问题；报告给逐家差异）；
-//   2 = 硬错（输入读不到/不是 JSON、产物或手写表解析不了）。
-
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -63,7 +11,6 @@ const ASSIGNMENTS_MODULE = "extension/ai/catalog/models-dev-thinking.generated.t
 const PROFILES_MODULE = "extension/ai/thinking-profiles.ts";
 const REPORT_FILE = ".scratch/tickets/upstream-model-facts/artifacts/03-catalog-check.md";
 
-// 与 01 产物一致的字段白名单（漂移哈希必须与 scripts/sync-models-dev-catalog.mjs 等效）。
 const KEEP_FIELDS = ["name", "reasoning", "input", "contextWindow", "maxTokens"];
 
 const EXIT_IN_SYNC = 0;
@@ -141,8 +88,6 @@ function sliceSection(text, startMarker, endMarker) {
   return text.slice(start + startMarker.length, end);
 }
 
-// 标记只到 annotation 前缀的表（PROVIDERS：真表与 fixture 的泛型实参不同）：扫描体从
-// 该行的 `{` 之后开始，其余与 sliceSection 相同。
 function sliceObjectBody(text, startMarker, endMarker) {
   const start = text.indexOf(startMarker);
   if (start < 0) return null;
@@ -153,7 +98,6 @@ function sliceObjectBody(text, startMarker, endMarker) {
   return text.slice(open + 1, end);
 }
 
-// 去掉行尾 `// …` 注释（不动字符串里的 `//`）。
 function stripLineComment(line) {
   let out = "";
   let quote = null;
@@ -185,7 +129,6 @@ function commentText(line) {
   return index < 0 ? "" : line.slice(index + 2).trim();
 }
 
-// 注释里的出处域名（报告的"本仓证据"一栏）。只认常见 TLD，避免把中文注释里的词当域名。
 const DOMAIN_RE = /\b(?:[a-z0-9][a-z0-9-]*\.)+(?:com|cn|ai|io|org|dev|net)(?:\.[a-z]{2})?\b/g;
 function domainsOf(commentLines) {
   const found = [];
@@ -197,10 +140,44 @@ function domainsOf(commentLines) {
   return found;
 }
 
-// ───────────────────────────── 01 产物的裁剪（漂移口径）─────────────────────────────
+const EMPTY_PROFILE_SOURCES = { classes: {}, providers: {}, overrides: {}, exceptions: {}, taxonomy: {} };
 
-// 与 sync-models-dev-catalog.mjs 的 cropCatalog/pickModel 逐字段等效，但**宽容**：上游形状
-// 出问题时记 problem 继续算（检查命令的职责是把问题报出来，不是像生成器那样中止）。
+function loadProfileSources(profilesPath) {
+  const resolvedProfiles = path.resolve(rootDir, profilesPath);
+  const candidates = [];
+  if (/\.ts$/.test(resolvedProfiles)) {
+    candidates.push(resolvedProfiles.replace(/\.ts$/, ".sources.json"));
+  }
+  if (resolvedProfiles === path.resolve(rootDir, PROFILES_MODULE)) {
+    candidates.push(path.resolve(rootDir, "scripts/thinking-profile-sources.json"));
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      const parsed = JSON.parse(fs.readFileSync(candidate, "utf8"));
+      return {
+        classes: parsed?.classes ?? {},
+        providers: parsed?.providers ?? {},
+        overrides: parsed?.overrides ?? {},
+        exceptions: parsed?.exceptions ?? {},
+        taxonomy: parsed?.taxonomy ?? {}
+      };
+    }
+  }
+  return EMPTY_PROFILE_SOURCES;
+}
+
+function mergeDomains(commentLines, sidecarDomains) {
+  const merged = [...domainsOf(commentLines)];
+  if (Array.isArray(sidecarDomains)) {
+    for (const domain of sidecarDomains) {
+      if (typeof domain === "string" && domain && !merged.includes(domain)) {
+        merged.push(domain);
+      }
+    }
+  }
+  return merged;
+}
+
 function pickModelForCheck(providerId, modelId, model, problems) {
   const at = `${providerId}/${modelId}`;
   if (!model || typeof model !== "object") {
@@ -271,12 +248,9 @@ function cropForCheck(api) {
   return { upstreams, problems };
 }
 
-// 与 01 逐字节同口径：JSON.stringify 的键序就是产物的键序。
 function hashCatalog(upstreams) {
   return createHash("sha256").update(JSON.stringify(upstreams), "utf8").digest("hex");
 }
-
-// ───────────────────────────── 产物文本解析 ─────────────────────────────
 
 function jsonString(literal) {
   try {
@@ -419,7 +393,6 @@ function parseAssignmentsModule(text, label) {
       }
     }
   }
-  // 别名指向的 (provider, modelId) → localId：本仓口径 id 的上游 id 映射（对比时用它查手写表）。
   const aliasByUpstream = new Map();
   for (const alias of aliases) {
     const slash = alias.upstream.indexOf("/");
@@ -429,21 +402,13 @@ function parseAssignmentsModule(text, label) {
   return { valuesets, assignments, aliases, aliasByUpstream };
 }
 
-// ───────────────────────────── 手写表文本解析 ─────────────────────────────
-
 const PROFILE_MARKERS = {
   CLASSES: "export const CLASSES: Record<string, ClassRule> = {",
   EXCEPTIONS: "export const EXCEPTIONS: readonly TaxonomyEntry[] = [",
   TAXONOMY: "export const TAXONOMY: readonly TaxonomyEntry[] = [",
-  // 平台身份键表自候选 6 起以封闭键词表叶索引：真表 annotation = Record<PlatformKey, ProviderRule>，
-  // fixture 仍是刻意不全的 Record<string, ProviderRule>（12 键小样）→ 标记取两行共有的前缀，
-  // 扫描体从该行的 `{` 之后开始（见 sliceObjectBody）。前导换行 = 只认**行首**的声明
-  // （注释里提到这个前缀不算命中）。
   PROVIDERS: "\nexport const PROVIDERS: Record<"
 };
 
-// 行级扫描：注释归到下一条目（条目内注释归该条目），单行/多行条目都吃。
-// 解析不了的代码行一律硬错 —— 静默漏读整表会把所有模型误报成"手写未覆盖"。
 function scanObjectEntries(body, keyPattern, inlineKeyPattern, label) {
   const entries = [];
   const byKey = new Map();
@@ -497,9 +462,6 @@ function scanObjectEntries(body, keyPattern, inlineKeyPattern, label) {
 function patchFacts(line) {
   if (!line) return null;
   const facts = { fields: [] };
-  // 两套形状都吃（2026-10-05「封闭词汇」改造后真表换了形状，override 分支仍是旧记录形状）：
-  // - 中转词汇构造子（真表 CLASSES）：thinkingType(...) / enableThinking(...) / reasoningEffort("...")；
-  // - 记录形状（fixture 的平台级 override 分支本地声明）：thinking: / enable_thinking: / reasoning_effort: "..."。
   if (/\bthinkingType\(/.test(line) || /\bthinking:/.test(line)) facts.fields.push("thinking");
   if (/\benableThinking\(/.test(line) || /\benable_thinking:/.test(line)) facts.fields.push("enable_thinking");
   const effort = line.match(/reasoningEffort\("([^"]+)"\)/) ?? line.match(/reasoning_effort: "([^"]+)"/);
@@ -509,13 +471,12 @@ function patchFacts(line) {
   }
   if (/streamOnly: true/.test(line)) facts.streamOnly = true;
   if (facts.fields.length === 0) {
-    // 静默空读会把整个 class 误报成「未表达任何档位」——与上面「解析不了的行硬错」同一条纪律。
     fail(`patch 行解析不出任何词汇：${JSON.stringify(line)} —— 手写表结构变了，先核对本脚本的解析口径。`);
   }
   return facts;
 }
 
-function classFacts(entry) {
+function classFacts(entry, sources = EMPTY_PROFILE_SOURCES) {
   const text = entry.lines.join(" ");
   const lineOf = (key) => entry.lines.find((line) => line.startsWith(`${key}:`)) ?? null;
   const off = patchFacts(lineOf("off"));
@@ -531,7 +492,7 @@ function classFacts(entry) {
   return {
     name: entry.key,
     comments: entry.comments,
-    domains: domainsOf(entry.comments),
+    domains: mergeDomains(entry.comments, sources?.classes?.[entry.key]),
     thinkingClass: text.match(/thinkingClass: "([^"]+)"/)?.[1],
     off,
     on,
@@ -545,7 +506,7 @@ function classFacts(entry) {
   };
 }
 
-function overrideFacts(entry) {
+function overrideFacts(entry, sources = EMPTY_PROFILE_SOURCES) {
   const lineOf = (key) => entry.lines.find((line) => line.startsWith(`${key}:`)) ?? null;
   const text = entry.lines.join(" ");
   const off = patchFacts(lineOf("off"));
@@ -554,7 +515,7 @@ function overrideFacts(entry) {
   return {
     name: `${entry.key}.override`,
     comments: entry.comments,
-    domains: domainsOf(entry.comments),
+    domains: mergeDomains(entry.comments, sources?.overrides?.[entry.key] ?? sources?.providers?.[entry.key]),
     thinkingClass: text.match(/thinkingClass: "([^"]+)"/)?.[1],
     off,
     low,
@@ -566,7 +527,7 @@ function overrideFacts(entry) {
   };
 }
 
-function parseProfilesModule(text, label) {
+function parseProfilesModule(text, label, sources = EMPTY_PROFILE_SOURCES) {
   const source = normalizeEol(text);
   const missing = Object.values(PROFILE_MARKERS).filter((marker) => !source.includes(marker));
   if (missing.length > 0) {
@@ -589,7 +550,7 @@ function parseProfilesModule(text, label) {
   );
   const classes = new Map();
   for (const entry of classesTable.entries) {
-    const facts = classFacts(entry);
+    const facts = classFacts(entry, sources);
     if (!facts.thinkingClass) {
       fail(`${label} 的 CLASSES["${entry.key}"] 解析不出 thinkingClass —— 手写表结构变了。`);
     }
@@ -598,19 +559,19 @@ function parseProfilesModule(text, label) {
   const providers = new Map();
   for (const entry of providersTable.entries) {
     const text2 = entry.lines.join(" ");
-    const override = /\boverride: \{/.test(text2) ? overrideFacts(entry) : null;
+    const override = /\boverride: \{/.test(text2) ? overrideFacts(entry, sources) : null;
     if (override && !override.thinkingClass) {
       fail(`${label} 的 PROVIDERS.${entry.key}.override 解析不出 thinkingClass —— 手写表结构变了。`);
     }
     providers.set(entry.key, {
       id: entry.key,
       comments: entry.comments,
-      domains: domainsOf(entry.comments),
+      domains: mergeDomains(entry.comments, sources?.providers?.[entry.key]),
       unknownClass: text2.match(/unknownClass: "([^"]+)"/)?.[1] ?? null,
       override
     });
   }
-  const parseRuleEntries = (marker, tableLabel) => {
+  const parseRuleEntries = (marker, tableLabel, sourceMap) => {
     const body = sliceSection(source, marker, "\n];");
     const entries = [];
     let pendingComments = [];
@@ -629,20 +590,21 @@ function parseProfilesModule(text, label) {
       }
       const trailing = commentText(raw);
       const comments = trailing ? [...pendingComments, trailing] : pendingComments;
+      const patterns = [...match[2].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+      const ruleKey = `${match[1]}|${patterns.join(",")}`;
       entries.push({
         className: match[1],
-        patterns: [...match[2].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]),
+        patterns,
         comments,
-        domains: domainsOf(comments)
+        domains: mergeDomains(comments, sourceMap?.[ruleKey])
       });
       pendingComments = [];
     }
     return entries;
   };
-  const exceptions = parseRuleEntries(PROFILE_MARKERS.EXCEPTIONS, `${label} 的 EXCEPTIONS`);
-  const taxonomy = parseRuleEntries(PROFILE_MARKERS.TAXONOMY, `${label} 的 TAXONOMY`);
+  const exceptions = parseRuleEntries(PROFILE_MARKERS.EXCEPTIONS, `${label} 的 EXCEPTIONS`, sources?.exceptions);
+  const taxonomy = parseRuleEntries(PROFILE_MARKERS.TAXONOMY, `${label} 的 TAXONOMY`, sources?.taxonomy);
 
-  // 引用完整性：引用了不存在的 class 就是解析/结构问题，必须吵（静默会让整片模型"未覆盖"）。
   for (const [tableName, entries] of [["EXCEPTIONS", exceptions], ["TAXONOMY", taxonomy]]) {
     entries.forEach((entry, index) => {
       if (!classes.has(entry.className)) {
@@ -684,8 +646,6 @@ function matchRule(entries, model) {
   return null;
 }
 
-// 与 resolveThinkingProfile 同序：override 短路 >> EXCEPTIONS >> TAXONOMY >> unknownClass >> 无结论。
-// domains = 本仓注释里的出处域名（class 条目 + 规则条目/平台条目的注释），报告的"本仓证据"。
 function resolveHandwriting(profiles, presetId, candidates) {
   const provider = profiles.providers.get(presetId);
   const providerDomains = provider?.domains ?? [];
@@ -733,8 +693,6 @@ function resolveHandwriting(profiles, presetId, candidates) {
   return { kind: "uncovered", presetKnown: Boolean(provider) };
 }
 
-// ───────────────────────────── 分歧判定 ─────────────────────────────
-
 function shapeOf(valueset) {
   if (!valueset) return "无词表";
   const parts = [];
@@ -771,7 +729,6 @@ function offLabelOf(rule) {
   return rule.off.fields.join("+") || "未知字段";
 }
 
-// 手写侧 low/high 的写点描述（"不是分歧"分区用）：开关型 on 是唯一写点，或 low/high 同 effort 值。
 function writePointOf(rule) {
   if (rule.on && !rule.low && !rule.high) {
     return `switch on=<${rule.on.fields.join("+")}${rule.on.effort ? ` ${rule.on.effort}` : ""}>`;
@@ -782,7 +739,6 @@ function writePointOf(rule) {
   return null;
 }
 
-// 分歧判据（只对逐模型事实、class 型手写表用；override 平台走平台级分区）。
 function compareClasses(hw, upstream) {
   const reasons = [];
   if (hw.hasOff && !upstream.off) {
@@ -809,14 +765,11 @@ function compareClasses(hw, upstream) {
   if (hw.thinkingClass === "never" && (upstream.toggle || upstream.effort || upstream.budget)) {
     reasons.push("手写声明从不思考（never），上游有词表");
   }
-  // "不是分歧"：手写 low/high 共用一个写点（开关型 on 或同 effort 值）而上游没有 effort 词表。
   if (reasons.length === 0 && hw.singleWritePoint && !upstream.effort) {
     return { kind: "note", reasons };
   }
   return reasons.length > 0 ? { kind: "upstream-wins", reasons } : { kind: "agree", reasons };
 }
-
-// ───────────────────────────── 对账主流程 ─────────────────────────────
 
 function sortIds(ids) {
   return [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -881,7 +834,6 @@ function collectDivergences(options, api, catalogModule, assignmentsModule, prof
       const valuesetId = table.get(modelId);
       const valueset = valuesetId ? assignmentsModule.valuesets.get(valuesetId) : null;
       if (hasOptions && !valueset) {
-        // 上游有词表、02 产物没有指派 → 产物过期（漂移症状），不算手写表的分歧。
         artifactStale += 1;
         continue;
       }
@@ -936,8 +888,6 @@ function collectDivergences(options, api, catalogModule, assignmentsModule, prof
   }
   return { rows, platformRows, artifactStale };
 }
-
-// ───────────────────────────── 报告渲染 ─────────────────────────────
 
 function winShapeLabel(row) {
   return row.upstreamShape;
@@ -1229,8 +1179,6 @@ function renderReport(context) {
   return `${lines.join("\n")}\n`;
 }
 
-// ───────────────────────────── 主流程 ─────────────────────────────
-
 function summaryLines(context) {
   const { drift, problems, rows, profileCounts, options } = context;
   const wins = rows.filter((row) => row.kind === "upstream-wins").length;
@@ -1294,7 +1242,8 @@ async function main() {
 
   const catalogModule = parseCatalogModule(readTextFile(options.catalog), options.catalog);
   const assignmentsModule = parseAssignmentsModule(readTextFile(options.assignments), options.assignments);
-  const profiles = parseProfilesModule(readTextFile(options.profiles), options.profiles);
+  const profileSources = loadProfileSources(options.profiles);
+  const profiles = parseProfilesModule(readTextFile(options.profiles), options.profiles, profileSources);
 
   const { upstreams, problems } = cropForCheck(api);
   const upstreamHash = hashCatalog(upstreams);

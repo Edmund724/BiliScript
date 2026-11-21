@@ -1,0 +1,123 @@
+{
+  "classes": {
+    "openai-reasoning": [
+      "developers.openai.com"
+    ],
+    "qwen-hybrid-switch": [
+      "alibabacloud.com",
+      "qwen.ai"
+    ],
+    "deepseek-hybrid-effort": [
+      "api-docs.deepseek.com"
+    ],
+    "glm-hybrid-switch": [
+      "docs.bigmodel.cn"
+    ],
+    "kimi-hybrid-switch": [
+      "platform.kimi.ai",
+      "kimi.com"
+    ],
+    "minimax-always": [
+      "platform.minimax.io",
+      "github.com"
+    ],
+    "doubao-hybrid-switch": [
+      "volcengine.com"
+    ],
+    "step37-effort": [
+      "platform.stepfun.com"
+    ],
+    "mimo-hybrid-switch": [
+      "aliyun.com"
+    ],
+    "ollama-effort": [
+      "docs.ollama.com"
+    ],
+    "siliconflow-switch": [
+      "docs.siliconflow.cn"
+    ]
+  },
+  "providers": {
+    "deepseek": [
+      "api-docs.deepseek.com"
+    ],
+    "zhipu": [
+      "docs.bigmodel.cn"
+    ],
+    "moonshot": [
+      "platform.kimi.ai"
+    ],
+    "minimax": [
+      "platform.minimax.io"
+    ],
+    "openrouter": [
+      "openrouter.ai"
+    ],
+    "stepfun": [
+      "platform.stepfun.com"
+    ],
+    "modelscope": [
+      "modelscope.cn"
+    ],
+    "amd": [
+      "developer.amd.com.cn"
+    ],
+    "sensenova": [
+      "token.sensenova.cn"
+    ],
+    "opencodego": [
+      "opencode.ai",
+      "models.dev"
+    ]
+  },
+  "exceptions": {
+    "qwen-always|qwen3-*-thinking-2507": [
+      "alibabacloud.com"
+    ],
+    "qwen-hybrid-effort|qwen3.8-max": [
+      "alibabacloud.com",
+      "qwen.ai"
+    ],
+    "qwen-hybrid-switch-streamonly|qwen3-235b,qwen3-32b,qwen3-30b": [
+      "alibabacloud.com"
+    ],
+    "glm-always|glm-5.3": [
+      "docs.bigmodel.cn"
+    ],
+    "kimi-always|kimi-k2.7": [
+      "platform.kimi.ai"
+    ],
+    "openai-reasoning-none|gpt-5.1,gpt-5.2": [
+      "developers.openai.com"
+    ],
+    "openai-reasoning|gpt-6,o3,o4": [
+      "developers.openai.com"
+    ]
+  },
+  "taxonomy": {
+    "deepseek-chat-never|deepseek-chat": [
+      "api-docs.deepseek.com"
+    ],
+    "glm-hybrid-effort|glm-5.2": [
+      "docs.bigmodel.cn"
+    ],
+    "kimi-always|kimi-k2-thinking,kimi-thinking": [
+      "platform.kimi.ai"
+    ],
+    "minimax-always|minimax-m1,minimax-m2,minimax-m3": [
+      "platform.minimax.io"
+    ],
+    "doubao-hybrid-switch|doubao-seed": [
+      "volcengine.com"
+    ],
+    "openai-reasoning|gpt-5": [
+      "developers.openai.com"
+    ],
+    "step37-effort|step-3.7": [
+      "platform.stepfun.com"
+    ],
+    "mimo-hybrid-switch|mimo-v2": [
+      "aliyun.com"
+    ]
+  }
+}
