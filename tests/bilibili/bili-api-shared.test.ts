@@ -1,20 +1,7 @@
-// bilibili/bili-api-shared.ts 直测：热评 payload 挑/合并（纯函数，零 transport）。
-//
-// 背景（2026-09-29 匿名实跑 x/v2/reply?type=1&oid=117346425377969&sort=2）：
-// UP 置顶评论（rpid 315310607649）只出现在 data.top_replies[]（data.upper.top
-// 同为该条），data.top 为 null，而 data.replies[] 只有 3 条普通评论。
-// 旧实现只读 data.replies[]，置顶的时间轴目录因此永远进不了 hotComments。
-//
-// 本文件锁定合并语义：四来源合并 → 按 rpid 去重（保留首个，即前置的置顶条）
-// → 走既有 normalizeHotComments 归一 + limit 裁剪；字段缺失/类型不对一律容错。
-//
-// 被测函数纯逻辑，无 DOM/chrome/fetch 依赖，真实模块直接导入即可。
-
 import { describe, expect, it } from "vitest";
 import { mergeHotCommentsFromPayload } from "../../extension/bilibili/bili-api-shared.js";
 import { hotCommentsText, parseChapterOutline } from "../../extension/shared/chapter-outline.js";
 
-// 置顶评论（UP 硅谷101 的时间轴目录），来自实跑样本
 const pinnedReply = {
   rpid: 315310607649,
   member: { uname: "硅谷101" },
@@ -28,7 +15,6 @@ const normalReplies = [
   { rpid: 333, member: { uname: "观众丙" }, like: 3, content: { message: "第三条" } }
 ];
 
-// main 接口实跑形状：replies 无置顶条，置顶条在 top_replies / upper.top
 function mainPayload(data: Record<string, unknown> = {}) {
   return {
     code: 0,
@@ -111,7 +97,6 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     expect(mergeHotCommentsFromPayload({ data: "oops" })).toEqual([]);
     expect(mergeHotCommentsFromPayload({ data: { replies: "oops", top_replies: 42, top: "x", upper: 5 } })).toEqual([]);
     expect(mergeHotCommentsFromPayload({ data: { replies: [] } })).toEqual([]);
-    // top / upper.top 为数组或空对象时不产出条目
     expect(mergeHotCommentsFromPayload({ data: { top: [], upper: { top: [] } } })).toEqual([]);
   });
 
@@ -127,13 +112,7 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
   });
 });
 
-// 热评数据侧禁止截断（F1，2026-09-30 实跑回归）：置顶长评论是章节目录的载体，
-// 旧 normalizeHotComments 的 slice(0, 500) 把「25:00 核心原则…」拦腰切断、「30:00
-// 尾声」整行丢掉，概览分章因此断在 09:33。数据通道保存全文；聊天展示侧的
-// 500 字截断由 ai/context.ts 的评论块单独负责。
 describe("热评全文通道：不截断", () => {
-  // 9 行 × 53 字符 + 行间换行 = 485 字符：第 500 字符正好落在「25:00 核心原则…」的
-  // 标题中部，其后的「30:00 尾声」整行位于 500 之外——两个断点都能暴露截断。
   const head = Array.from({ length: 9 }, (_, i) => `0${i}:00 小节${i}：${"甲".repeat(43)}`).join("\n");
   const longMessage = `${head}\n25:00 核心原则：智能体设计的五个层次\n30:00 尾声`;
 

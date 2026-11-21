@@ -1,9 +1,3 @@
-// extension/search/adapters/deepseek.ts 测试：请求构造（端点 / 鉴权头 / 固定
-// need_content:false / count 透传）与响应映射形状（snippet 取 summary、缺 summary
-// 回落 snippet、空结果合法）。行映射不变量（坏行不抛、截 500）单源在
-// adapter-rows.test.ts，此处不复测。HTTP 402/429 的非 2xx 分支由执行器
-//（search-executor）抛 `HTTP <status>`，分类走 classifySearchFailure（既有用例），
-// 此处不重复；不写真付费请求。
 import { describe, expect, it } from "vitest";
 import {
   buildDeepseekSearchRequest,

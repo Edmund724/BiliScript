@@ -1,8 +1,3 @@
-// searchProviderStore 测试：锁定搜索平台专属 storage key（searchProviders /
-// searchProviderKeys）与 Key 双存储不变式（列表进 sync、明文 Key 只进 local，
-// 列表只带 hasSavedKey 占位，删除清孤儿 Key）。工厂本体契约见
-// tests/core/provider-store.test.ts，此处只锁搜索域绑定。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -81,8 +76,6 @@ describe("searchProviderStore", () => {
     expect(localStorage.searchProviderKeys).toEqual({});
   });
 
-  // 自定义顺序的键字面量单源在本模块（spec §12.3 / §12.5 第 8 行）：与列表同侧
-  // （sync）、粒度 = 记录级；不随 provider 列表 CRUD 写坏（没默认值、不在白名单）。
   it("searchProviderOrder 键字面量单源，且列表 CRUD 不碰该键", async () => {
     expect(SEARCH_PROVIDER_ORDER_STORAGE).toBe("searchProviderOrder");
 

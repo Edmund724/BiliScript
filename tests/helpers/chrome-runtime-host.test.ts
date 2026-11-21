@@ -1,7 +1,3 @@
-// tests/helpers/chrome-runtime-host.ts 的契约用例：两种回包风格 + 最小宿主的装配与
-// onConnect 登记。这些契约原先在各用例的私有桩里各写一份（「未登记 type 回 { ok: true }」
-// 这条兜底就散在近二十处）。
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callbackStyleSendMessage, installMinimalChromeHost } from "./chrome-runtime-host.js";
 

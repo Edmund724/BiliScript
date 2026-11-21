@@ -95,7 +95,6 @@ afterAll(() => {
     try {
       process.kill(pid);
     } catch {
-      // Daemon already exited.
     }
   }
   rmSync(tempRoot, { recursive: true, force: true });
@@ -128,7 +127,6 @@ describe("POSIX 安装脚本 scripts/install-agent.sh", () => {
     spawnedPids.add(firstStatus.daemonPid);
     expect(isProcessAlive(firstStatus.daemonPid)).toBe(true);
 
-    // 写入旧目录标记文件，验证再次安装会替换目录并杀掉旧 Daemon、启动新 PID
     const staleMarker = join(skillRoot, "biliscript", "stale.txt");
     writeFileSync(staleMarker, "stale");
 

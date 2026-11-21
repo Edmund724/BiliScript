@@ -1,20 +1,7 @@
-// AI 连通性探针测试（候选 04：探针移至 ai/provider-test.js）。
-// 覆盖 testAiConnection / probeAiChatCompletion 的 { ok, error } 形状契约：
-// 输入预检、probe 请求负载（token 上限 1 + ping，参数名随模型类映射：reasoning
-// 系 max_completion_tokens、其余 max_tokens）、成功判定 = response.ok、
-// HTTP / 连接错误的文案包装（复用共享 helper，AI/ASR 逐字一致）。
-//
-// 传输层经 SW 代发（core/provider-http.js 的 providerFetchViaBackground）：
-// content script 直连 fetch 服从网页 CORS，平台网关不支持浏览器预检时一律
-// 「Failed to fetch」（模型列表能跑通只因它在 SW 里发）。故此处断言的是
-// provider-http 出向载荷，而不是本地 fetch 调用；代发通道本身（URL 校验 /
-// host 权限预检 / Response 合成 / 超时）在 tests/core/provider-http.test.ts。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
 
-// provider-http 出向载荷（探针只发一次：url/method/headers/body）
 type ProxyRequest = {
   type: string;
   url: string;
@@ -32,14 +19,12 @@ async function loadModule() {
   return import("../../extension/ai/provider-test.js");
 }
 
-// provider-http 消息总线：记录每次出向载荷，按 responder 回包（缺省 200 空体）。
 function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: "" }));
   const host = installSendMessageHost<ProxyRequest>({ "provider-http": (message: unknown) => responder(message) });
   sent = host.sent;
 }
 
-// 最近一次代发请求的载荷（探针只发一次：url/method/headers/body）
 function lastRequest() {
   return sent[sent.length - 1];
 }
@@ -95,16 +80,12 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
     expect(request.type).toBe("provider-http");
     expect(request.url).toBe("https://api.example.com/v1/chat/completions");
     expect(request.method).toBe("POST");
-    // 探针省略档位 ⇒ 请求侧归一为 default（不干预）⇒ 不发任何思考字段（2026-10-05 裁定，
-    // 见 docs/adr/0015 的修订块；此前归 off）；未知平台×模型本就无事实（UNKNOWN 哨兵）
-    // → 同样不发（旧霰弹枪双发 thinking+enable_thinking 会令 OpenAI 探针必 400）
     expect(JSON.parse(request.body)).toEqual({
       model: "gpt",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
       max_tokens: 1
     });
-    // Headers 归一化：代发载荷里的键统一小写（浏览器 fetch 语义同款）
     expect(request.headers).toEqual({
       accept: "application/json",
       "content-type": "application/json",
@@ -145,9 +126,8 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
     const resp = await probeAiChatCompletion({ baseUrl: "https://x", apiKey: "sk", model: "m" });
 
     expect(resp.ok).toBe(false);
-    // OpenAI 错误信封（error.message）经 adapter 提取，core 加协议名前缀。
     expect(resp.error).toBe("HTTP 401: [openai] bad key");
-    expect(sent).toHaveLength(1); // 探针不重试
+    expect(sent).toHaveLength(1);
   });
 
   it("代发失败（网络层）→ { ok:false, error: '无法连接：<原始信息>' }（与 ASR 探针文案逐字一致）", async () => {
@@ -180,9 +160,6 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
   });
 });
 
-// testAiProviderConnection = 设置面板「测试」按钮入口，契约继承原 SW 侧
-// ai-providers-test 处理器的输入装配（provider-handlers.js pickFlatTestProvider）：
-// 直输 Key 优先，否则按 providerId 从 chrome.storage.local 代查，都没有为空串。
 describe("testAiProviderConnection Key 代查", () => {
   const storageGet = () => vi.mocked(globalThis.chrome.storage.local.get);
 
@@ -246,12 +223,6 @@ describe("testAiProviderConnection Key 代查", () => {
   });
 });
 
-// S2 收紧 host_permissions 后，未授权由 SW 代发通道拦下（core/provider-http.ts 的
-// handleProviderHttpRequest 在 SW 里跑，那里的 hasHostPermission 真实生效）；页面侧
-// **不再有预检**：content script 没有 chrome.permissions，hasHostPermission 取不到
-// contains 实现即放行，留着只是恒放行的假门（ADR-0010 口径附注，语境守卫见
-// tests/core/host-permissions.test.ts）。于是未授权时探针照发一次代发请求，拿回
-// HOST_PERMISSION_HINT，再经「无法连接：…」包装透传（与任何网络层失败同一形状）。
 describe("testAiProviderConnection 无页面侧权限预检（未授权由 SW 代发通道拦下）", () => {
   it("SW 回 HOST_PERMISSION_HINT → 可操作文案经「无法连接：」包装透传，页面侧不读 chrome.permissions", async () => {
     installProxyBus(() => ({ ok: false, error: "该平台域名未授权，请在保存时允许权限" }));
@@ -267,7 +238,6 @@ describe("testAiProviderConnection 无页面侧权限预检（未授权由 SW �
     });
 
     expect(resp).toEqual({ ok: false, error: "无法连接：该平台域名未授权，请在保存时允许权限" });
-    // 页面侧不看 chrome.permissions：代发照发一次，判定权在 SW 侧那道门
     expect(contains).not.toHaveBeenCalled();
     expect(sent).toHaveLength(1);
   });
@@ -290,12 +260,7 @@ describe("testAiProviderConnection 无页面侧权限预检（未授权由 SW �
   });
 });
 
-// presetId 穿线（02 号票，探针链）：testAiProviderConnection 按 providerId 从
-// 已存列表读记录的 presetId（preset 词表键，非记录 id）随探针请求下发，baseUrl
-// host 推断退为兜底；旧记录（无 presetId 字段）经 normalize 落 "custom" → 回落
-// host/模型名识别，与 01 落地行为一致。
 describe("testAiProviderConnection presetId 穿线", () => {
-  // 播种 chrome.storage.sync 的已存列表（loadProviders 读取 + normalize 的入口）
   function stubProviderStorage(list: unknown[]) {
     stubChrome({
       permissions: { contains: vi.fn(async () => true) },
@@ -325,9 +290,6 @@ describe("testAiProviderConnection presetId 穿线", () => {
     });
 
     expect(resp).toEqual({ ok: true });
-    // 穿线：presetId 命中上游指派表（opencode-go/gpt-6-luna）——这些托管行按上游词表投影，
-    // 而上游投影不产 tokenParam → 收 max_tokens（既有登记见 thinking-profiles 的 tokenParam 注）。
-    // 探针的思考字段在缺省档裁定后恒为空，可观察量因此是 token 上限参数名（档位无关的平台事实）。
     expect(JSON.parse(lastRequest().body)).toEqual({
       model: "gpt-6-luna",
       messages: [{ role: "user", content: "ping" }],
@@ -335,8 +297,6 @@ describe("testAiProviderConnection presetId 穿线", () => {
       max_tokens: 1
     });
 
-    // 对照（同 host 同模型、不带 presetId）：host 未入索引 → 手写 OpenAI 血统（EXCEPTIONS 的
-    // gpt-6 前缀）→ token 上限换名 max_completion_tokens。两者不同即证明 presetId 穿线生效。
     const withoutThreading = await probeAiChatCompletion({
       baseUrl: "https://thinking-proxy.example.com/v1",
       apiKey: "sk-1",
@@ -365,16 +325,9 @@ describe("testAiProviderConnection presetId 穿线", () => {
     });
 
     expect(resp).toEqual({ ok: true });
-    // 缺省档不发言（2026-10-05 裁定）后，可观察量 = token 上限参数名（01 golden 锁定）：
-    // 手写 openai-reasoning-none 血统 → max_completion_tokens:1（api.openai.com 不在 host 索引里，
-    // 走手写兜底；串线断了则落 unknown、参数名回 max_tokens）。
     expect(JSON.parse(lastRequest().body)).toMatchObject({ max_completion_tokens: 1 });
   });
 
-  // 直传 presetId 优先（新增/改平台未保存场景）：新增平台没有 providerId、没有
-  // 已存记录，身份只能来自表单下拉；靠记录代查时探针会以「无预设」发出去，
-  // Opencode Go 这类要求平台头的站点因此测不通（对话能通是因为它走
-  // resolve-ai-provider 拿得到 presetId）。
   it("直传 presetId 优先于已存记录：新增平台（无 providerId）也带预设身份与平台头", async () => {
     stubProviderStorage([]);
     const { testAiProviderConnection } = await loadModule();
@@ -418,14 +371,10 @@ describe("testAiProviderConnection presetId 穿线", () => {
   });
 });
 
-// 协议穿线（multi-protocol-ai 第五部分）：探针只调度——protocol 随 provider 透传
-// chatCompletion，端点/鉴权头/请求体由 adapter 自然切换；本模块无任何协议分支
-//（原手写 Authorization: Bearer 注入已删，鉴权归 adapter.authHeaders）。
 describe("探针协议调度（multi-protocol-ai）", () => {
   it("protocol:anthropic → 端点 <baseUrl>/v1/messages、x-api-key 鉴权、无 Authorization", async () => {
     const { probeAiChatCompletion } = await loadModule();
 
-    // anthropic endpoint 自补 /v1 路径：baseUrl 不带 /v1（如 https://api.anthropic.com）
     const resp = await probeAiChatCompletion({
       baseUrl: "https://api.example.com",
       apiKey: "sk-ant",
@@ -439,7 +388,6 @@ describe("探针协议调度（multi-protocol-ai）", () => {
     expect(request.headers["x-api-key"]).toBe("sk-ant");
     expect(request.headers["anthropic-version"]).toBe("2023-06-01");
     expect(request.headers.authorization).toBeUndefined();
-    // max_tokens 必填：probe 特化 maxTokens=1 由 core 代劳
     expect(JSON.parse(request.body)).toMatchObject({ model: "claude-sonnet-4-5", max_tokens: 1 });
   });
 

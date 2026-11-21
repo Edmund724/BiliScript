@@ -1,6 +1,3 @@
-// tests/notes/template.test.ts
-// 模板化笔记导出（变量渲染、条件段落清理、Obsidian URI 及超长剪贴板回退、高亮笔记存储）。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildNoteTemplateVariables,
@@ -127,7 +124,6 @@ describe("highlights-store 高亮笔记持久化", () => {
     expect(first.added).toBe(true);
     expect(first.items).toHaveLength(1);
 
-    // 重复添加同一文本与时间戳不会重复落盘
     const dup = await addVideoHighlight("BV1hl001", {
       text: "第一条高亮",
       from: 42.1,

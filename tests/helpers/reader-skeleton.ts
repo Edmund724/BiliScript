@@ -1,19 +1,3 @@
-// 测试共享的阅读视图 DOM 骨架与播放器宿主链。
-//
-// 原先 lifecycle.test.js / settings.test.js / sync.test.js /
-// chapter-visibility.bug.test.js 各自维护一份几乎相同的 DOM 搭建代码
-// （重复约 200+ 行），这里收敛为三组共享函数：
-// - mountReaderSkeleton()：renderReadingView / applyReadingViewPresentation /
-//   renderReaderPanels 等路径需要的阅读视图元素（id 取自 reader 的 ids 表）
-// - mountPlayerChain(container)：B 站页面侧的播放器宿主链
-//   （video → .bpx-player-primary-area → .bpx-player-video-area →
-//    .bpx-player-container → #bilibili-player → #playerWrap），并给 video
-//   定义默认媒体属性
-// - mockPlayerRects()：给播放器链上需要“可见”判定的节点补 getBoundingClientRect
-//
-// 各测试若需要额外元素（如经典面板、readingThemeSelect 等），在调用
-// mountReaderSkeleton() 之后再自行创建。
-
 import { READER_MODE_URL } from "../setup.js";
 import type { ids as readerIds } from "../../extension/reader/state.js";
 
@@ -25,7 +9,6 @@ const DEFAULT_VIDEO_PROPS = {
   readyState: 4
 };
 
-// 给 video 元素定义默认媒体属性（jsdom 不实现这些属性，读取会得到 undefined）。
 export function stubVideoMediaProps(video: HTMLVideoElement): HTMLVideoElement {
   Object.entries(DEFAULT_VIDEO_PROPS).forEach(([key, value]) => {
     Object.defineProperty(video, key, { value, configurable: true });
@@ -33,7 +16,6 @@ export function stubVideoMediaProps(video: HTMLVideoElement): HTMLVideoElement {
   return video;
 }
 
-// 搭建播放器宿主链（B 站页面侧结构，不在扩展模板里），返回 video 元素。
 export function mountPlayerChain(container = document.body) {
   const playerWrap = document.createElement("div");
   playerWrap.id = "playerWrap";
@@ -59,17 +41,9 @@ export function mountPlayerChain(container = document.body) {
   return video;
 }
 
-// 搭建阅读视图的基本 DOM 骨架（renderReadingView 及其 presentation 依赖的
-// 元素），返回 { readingView, readingMain, scriptPanel }。阅读视图 id 取自
-// ids 表，顺序/从属关系与 ui-renderer.js 的真实模板保持一致（PR2 起：
-// 字幕列表挂进统一面板「字幕」tab body，header/settings 也在面板壳内——
-// 骨架按同一从属关系搭建，bindUiEvents 可直接使用。PR3 起字幕 tab 另含
-// 搜索工具条/复制导出/转写横幅/Follow 按钮/解释浮层，chat tab 含待解释
-// 意图卡，均按真实模板同构搭建）。
 export function mountReaderSkeleton(ids: typeof readerIds) {
   const doc = document;
 
-  // applyReaderPageFocus 通过 getReaderElement(ids.root) 读取扩展根节点
   const root = doc.createElement("div");
   root.id = ids.root;
   doc.body.appendChild(root);
@@ -78,10 +52,6 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   readingView.id = ids.readingView;
   doc.body.appendChild(readingView);
 
-  // 统一 文摘面板壳（B 形态）：header / 设置面板 / 三标签 + tab body
-  // 与真实模板同构；字幕列表 .biliscript-reading-main
-  // 挂在字幕 tab body 内。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管
-  // 退役，不再搭建（章节列表由概览 tab 提供）。
   const scriptPanel = doc.createElement("aside");
   scriptPanel.id = ids.readingScriptPanel;
   scriptPanel.className = "biliscript-reading-script-panel";
@@ -140,15 +110,11 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   tabBodyChat.setAttribute("hidden", "");
   scriptPanel.appendChild(tabBodyChat);
 
-  // PR4 概览 tab 渲染宿主（真实模板同构：reader/overview.js 按状态机整块重建）。
-  // renderReadingView 尾部经 renderReadingOverview 收敛概览内容，骨架必须齐。
   const overviewBody = doc.createElement("div");
   overviewBody.id = ids.readingOverviewBody;
   overviewBody.className = "biliscript-reading-overview";
   tabBodyOverview.appendChild(overviewBody);
 
-  // PR3 字幕 tab 工具条（搜索 + 复制/导出）：与 ui-renderer 真实模板同构，
-  // bindUiEvents 对这些节点直接 byId 绑定（缺节点会抛错，骨架必须齐）。
   const subToolbar = doc.createElement("div");
   subToolbar.className = "biliscript-reading-sub-toolbar";
   tabBodySubtitle.appendChild(subToolbar);
@@ -198,7 +164,6 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   exportSubtitleBtn.setAttribute("aria-label", "导出字幕");
   subToolbar.appendChild(exportSubtitleBtn);
 
-  // PR3 转写中间态横幅（默认隐藏）+ 标题/副文案 + 进度行
   const transcribeBanner = doc.createElement("aside");
   transcribeBanner.id = ids.readingTranscribeBanner;
   transcribeBanner.className = "biliscript-reading-asr-banner";
@@ -228,7 +193,6 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   readingSubtitleList.id = ids.readingSubtitleList;
   readingMain.appendChild(readingSubtitleList);
 
-  // PR3 Follow playback 悬浮胶囊 + 句上「解释」浮层（含按钮，真实模板同构）
   const followBtn = doc.createElement("button");
   followBtn.type = "button";
   followBtn.id = ids.readingFollowBtn;
@@ -261,15 +225,12 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   explainBtn.dataset.selectionAction = "explain";
   explainPop.appendChild(explainBtn);
 
-  // 选区「解释」卡片宿主（真实模板同构：空壳，内容整块由 explain-card 状态机重建）
   const explainCard = doc.createElement("div");
   explainCard.id = ids.readingExplainCard;
   explainCard.className = "biliscript-reading-explain-card";
   explainCard.setAttribute("hidden", "");
   scriptPanel.appendChild(explainCard);
 
-  // PR3 AI 对话 tab 的待解释意图引用卡（quote/time/cancel，真实模板同构；
-  // PR5 起整卡由对话组合根渲染/消费，骨架只保留节点存在性）
   const chatIntent = doc.createElement("div");
   chatIntent.id = ids.readingChatIntent;
   chatIntent.className = "biliscript-reading-chat-intent";
@@ -292,9 +253,6 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   intentQuote.className = "biliscript-reading-chat-intent-quote";
   chatIntent.appendChild(intentQuote);
 
-  // 三开关退役（2026-09）：滚动/字幕/章节三个 checkbox 从设置面板删除，不再
-  // 在骨架中搭建（对应 id 已从 ids 表移除）。工具条「字幕语言」下拉同样已删除
-  //（2026-10 用户决议，见 reader/subtitle-tab-ui.ts 头注），不再搭建。
   const readingSettingsBtn = doc.createElement("button");
   readingSettingsBtn.id = ids.readingSettingsBtn;
   scriptPanel.appendChild(readingSettingsBtn);
@@ -306,9 +264,6 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   return { readingView, readingMain, scriptPanel };
 }
 
-// 给播放器链上的元素补可见尺寸，保证 video-probe 判定通过。
-// （PR2：#biliscript-reading-inline-host 随字幕列表搬进统一面板而移除，列表容器
-// 自身不再需要可见尺寸 mock——sync 域滚动路径对其不可见容器本就走兜底。）
 export function mockPlayerRects(extraSelectors: string[] = []) {
   const selectors = [
     ".bpx-player-primary-area",
@@ -347,7 +302,6 @@ function STANDARD_RECT() {
   };
 }
 
-// 预设的阅读模式 URL（对齐 setup.ts 的 READER_MODE_URL）。
 export function readerModeUrl() {
   return READER_MODE_URL;
 }

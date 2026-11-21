@@ -1,6 +1,3 @@
-// search/search-executor.ts 搜索执行器测试（spec §2.4/§3）。
-// 经 deps.fetchImpl 注入假 fetch，锁适配器分派、请求形状（SW 经 provider-http
-// 发起的载荷与 BuiltSearchRequest 一致）、!ok 抛错（附 status）与解析透传。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { executeWebSearch, SEARCH_RESULT_COUNT } from "../../extension/search/search-executor.js";
 
@@ -49,7 +46,6 @@ describe("executeWebSearch 适配器分派", () => {
     expect(outcome.platform).toBe("Exa");
   });
 
-  // row 8：apiKey: "" 构造时 build 不产鉴权头，URL 与 body 不变。
   it("Firecrawl：apiKey 为空 → 完全无鉴权头，URL 与 body 不变", async () => {
     const { fetchImpl } = makeFetch({ success: true, data: { web: [{ title: "f", url: "u", description: "d" }] } });
     const outcome = await executeWebSearch(
@@ -92,7 +88,6 @@ describe("executeWebSearch 适配器分派", () => {
     ).rejects.toThrow("HTTP 401");
   });
 
-  // §3「失败分类的落点」：!ok 抛出的错误附 status 属性（供链侧 classifySearchFailure）
   it("!response.ok：抛出的 Error 带 status 属性", async () => {
     const { fetchImpl } = makeFetch({}, false, 429);
     const error = await executeWebSearch(

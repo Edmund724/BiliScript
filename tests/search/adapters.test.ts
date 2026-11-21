@@ -1,8 +1,3 @@
-// 搜索适配器测试（spec §2 调用形状表 / §8）：请求构造（endpoint / 鉴权头 / body
-// 形状）与响应解析的形状接线（envelope 路径 + 字段映射，计费可读时透传）。行映射
-// 不变量（坏行不抛、snippet 截断 500）单源在 adapter-rows.test.ts，此处不复测。
-// 适配器是纯函数，直接调用。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { buildTavilySearchRequest, parseTavilySearchResponse } from "../../extension/search/adapters/tavily.js";
@@ -18,7 +13,6 @@ beforeEach(() => {
 
 const INPUT = { baseUrl: "https://api.tavily.com", apiKey: "key-1", query: "B站 UP 主", count: 5 };
 
-// 「完全无鉴权头」= 任何形式的凭据头都不发（spec §2 调用形状表的三家 keyless）
 function authHeaderNames(headers: Record<string, string>): string[] {
   return Object.keys(headers)
     .map((key) => key.toLowerCase())

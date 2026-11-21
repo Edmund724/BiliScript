@@ -1,16 +1,3 @@
-// tests/asr/provider-models.test.ts
-// asr/provider-models.ts 的 listAsrModels（ASR 模型名下拉的数据源）契约：
-// - GET `${baseUrl}/models?sub_type=speech-to-text`（SiliconFlow 语音模型过滤参数）；
-// - 传输经 SW 代发（core/provider-http.ts 的 providerFetchViaBackground，与 AI 探针 /
-//   搜索执行器同款）：设置面板跑在 content script，直连 fetch 服从网页 CORS，带
-//   Authorization 的预检失败即「Failed to fetch」，而真转写在 offscreen（不受网页
-//   CORS 约束）——同一平台「模型列表拉不到、真转写正常」的失败面由此消除；
-// - host 权限判定单源在 SW 侧代发通道（provider-http.ts 的 handleProviderHttpRequest），
-//   未授权回 HOST_PERMISSION_HINT；页面侧不再自查（content 无 chrome.permissions，
-//   那道门恒放行），调用方 model-picker.ts 已先在用户手势上申请；
-// - Key 代查：优先用户重输 apiKey，否则按 providerId 读已存 Key。
-// 代发通道本身（URL 校验 / 权限预检 / Response 合成 / 超时）在 tests/core/provider-http.test.ts。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
@@ -34,8 +21,6 @@ async function loadModule() {
   return import("../../extension/asr/provider-models.js");
 }
 
-// provider-http 消息总线：记录每次出向载荷，按 responder 回包（缺省一条 OpenAI
-// 兼容形状的模型列表）。
 function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: JSON.stringify({ data: [{ id: "m1" }] }) }));
   const host = installSendMessageHost<ProxyRequest>({ "provider-http": (message: unknown) => responder(message) });
@@ -77,7 +62,6 @@ describe("listAsrModels", () => {
     expect(request.url).toBe("https://api.siliconflow.cn/v1/models?sub_type=speech-to-text");
     expect(request.method).toBe("GET");
     expect(request.body).toBeUndefined();
-    // Headers 归一：代发载荷里的键统一小写（浏览器 fetch 语义同款）
     expect(request.headers).toEqual({ accept: "application/json", authorization: "Bearer sk-1" });
   });
 

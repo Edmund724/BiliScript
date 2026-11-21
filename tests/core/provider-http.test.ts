@@ -1,13 +1,3 @@
-// core/provider-http.ts 测试：AI 探针的传输层（content script 的跨域 fetch 服从
-// 网页 CORS，平台网关不支持浏览器预检时一律「Failed to fetch」——模型列表能跑通
-// 只因它在 SW 里发，故探针请求经本通道交给 SW）。
-//
-// 覆盖两端：
-// - SW 侧 handleProviderHttpRequest：URL 合法性与 host 权限预检（拒绝时不发
-//   fetch）、HTTP 状态与响应体透传、网络错误与超时的形状；
-// - content 侧 providerFetchViaBackground：出向载荷（url/method/headers/body）、
-//   ok:false 抛错（经 completion 包装成「无法连接：…」）、Response 合成。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
@@ -32,7 +22,6 @@ function installProxyBus(next?: ProxyResponder) {
 function stubChrome(overrides = {}) {
   const previous = globalThis.chrome;
   vi.stubGlobal("chrome", { ...previous, ...overrides });
-  // 复位为默认回包：不继承上一条用例 installProxyBus 设过的 responder
   installProxyBus();
 }
 
@@ -107,9 +96,6 @@ describe("handleProviderHttpRequest（SW 侧代发）", () => {
     expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
   });
 
-  // spec §4 必改 ①：限时范围从「响应头」扩到「响应头 + 正文」。B 类卡死 = 头已到
-  // （fetch 已落定）、正文挂住：旧写法里 `await resp.text()` 在限时之外，永不落定、
-  // 永不触发回退，用户唯一出口是「停止」。
   it("头已到、正文挂住 → 正文读取仍在 15s 档位内，到点回可操作超时文案", async () => {
     vi.useFakeTimers();
     const textMock = vi.fn(() => new Promise<string>(() => {}));
@@ -127,7 +113,6 @@ describe("handleProviderHttpRequest（SW 侧代发）", () => {
       }
     );
 
-    // 到点前：头已回、正文已开始读，但整体不落定（正文也在档位内等）
     await vi.advanceTimersByTimeAsync(14999);
     expect(textMock).toHaveBeenCalledTimes(1);
     expect(settled).toBe(false);
@@ -136,8 +121,6 @@ describe("handleProviderHttpRequest（SW 侧代发）", () => {
     expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
   });
 
-  // spec §4 必改 ②：到点真中止。旧的限时只竞速、不中止 → A / B 两类到点后 socket 仍
-  // 开、继续消耗匿名额度；fetch 必须带 signal，到点 abort，且到点后不再读正文。
   it("超时到点 → abort 在飞请求（signal.aborted === true），且不再读正文", async () => {
     vi.useFakeTimers();
     const textMock = vi.fn(() => new Promise<string>(() => {}));
@@ -154,7 +137,6 @@ describe("handleProviderHttpRequest（SW 侧代发）", () => {
 
     expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
     expect(init.signal.aborted).toBe(true);
-    // 到点后没有第二次正文读取（正文读取与响应头同处一个已结束的档位）
     expect(textMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -174,7 +156,6 @@ describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () =>
       type: "provider-http",
       url: "https://api.example.com/v1/chat/completions",
       method: "POST",
-      // Headers 归一化：键小写（浏览器 fetch 语义同款）
       headers: { accept: "application/json", authorization: "Bearer sk-1" },
       body: '{"model":"gpt"}'
     });
@@ -210,9 +191,6 @@ describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () =>
     );
   });
 
-  // 解释卡片换选区/关闭时 abort 上一请求（reader/explain-card 的 controller）：
-  // 中止必须以 AbortError 名字拒绝，completion 才能转 makeAbortedError 让调用方
-  // 静默丢弃，而不是把中止报成错误态。
   it("init.signal 已中止 → 同步以 AbortError 拒绝，不发消息", async () => {
     const { providerFetchViaBackground } = await loadModule();
     const controller = new AbortController();
@@ -228,7 +206,6 @@ describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () =>
   });
 
   it("等待中中止 → 以 AbortError 拒绝（在飞请求无法撤回，只结束本端等待）", async () => {
-    // 代发永不回包：模拟慢请求
     installProxyBus(() => undefined);
     const { providerFetchViaBackground } = await loadModule();
     const controller = new AbortController();
@@ -251,7 +228,6 @@ describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () =>
     });
 
     expect(resp.ok).toBe(true);
-    // 落定后 abort 不再有监听可触发（不应抛未处理拒绝）
     controller.abort();
   });
 });

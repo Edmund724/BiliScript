@@ -1,6 +1,3 @@
-// normalizeSearchProvider 测试：字段齐全 + type 合法值校验（spec §6，域归一化
-// 收口）。与 normalizeAsrProvider 同契约：apiKey 不归列表，未知 type 丢弃。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeSearchProvider } from "../../extension/search/search-provider-normalize.js";

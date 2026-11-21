@@ -113,7 +113,6 @@ describe("Agent Bridge Daemon 冷启动宽限重连", () => {
 
     await allWaiting;
 
-    // 不带等待语义的 status 在扩展接入前仍立即返回 offline
     const immediateStatus = await requestDaemon("status", { port, timeoutMs: 1000 });
     expect(immediateStatus).toMatchObject({
       ok: true,
@@ -122,7 +121,6 @@ describe("Agent Bridge Daemon 冷启动宽限重连", () => {
       extensionOnline: false
     });
 
-    // 模拟扩展后台延迟重连进入 Daemon
     extension = await connectWebSocket({
       port,
       protocol: "biliscript-extension-v1",
@@ -158,7 +156,6 @@ describe("Agent Bridge Daemon 冷启动宽限重连", () => {
     await expect(requestDaemon("tabs", { port, timeoutMs: 0 })).rejects.toThrow(/扩展未连接.*设置 → 本地 Agent.*去连接/);
     await expect(requestDaemon("status", { port, options: { wait: true }, timeoutMs: 0 })).rejects.toThrow(/扩展未连接/);
 
-    // 之后若扩展曾经连接过再主动断开，不应继续等待冷启动宽限
     extension = await connectWebSocket({
       port,
       protocol: "biliscript-extension-v1",
@@ -195,7 +192,6 @@ describe("Agent Bridge Daemon 冷启动宽限重连", () => {
       BILISCRIPT_BRIDGE_GRACE_MS: "3000"
     };
 
-    // 1. CLI 冷启动 tabs，Daemon 拉起后扩展再接入，CLI 应顺利收到完整结果
     const cliTabsPromise = runCliRaw(["tabs"], envSuccess);
     extension = await connectExtensionWithRetry(portSuccess);
     attachMockExtensionHandler(extension);
@@ -210,7 +206,6 @@ describe("Agent Bridge Daemon 冷启动宽限重连", () => {
     });
     spawnedPids.push(Number(tabsResult.json.daemonPid));
 
-    // 2. CLI 冷启动 status --wait，未开启扩展超时后返回明确未连接错误
     const envTimeout = {
       ...process.env,
       BILISCRIPT_BRIDGE_PORT: String(portTimeout),

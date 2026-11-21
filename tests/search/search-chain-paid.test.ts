@@ -1,10 +1,3 @@
-// 付费平台（GLOSSARY「付费平台」，SearchProviderAccess 的 "paid"）链行为测试：
-//   ① 链装配过滤：智能链开关关 → paid 跳过；开 → 入链（默认序末位）；无 Key（凭据
-//      引用解析产物为空）→ 跳过；单选不受开关限制；
-//   ② 执行器付费可见性：付费平台成功 → outcome.paid；付费平台失败（402/429/超时）
-//      后回退成功 → outcome.paidFallback（reason 映射）+ formatPaidFallbackNotice 文案；
-//      全部失败仍走既有整链无果错误（含额度类终态文案）。
-// 不写真付费请求：执行器全部走注入桩。
 import { describe, expect, it } from "vitest";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import type { SearchProvider } from "../../extension/search/search-provider-normalize.js";
@@ -72,7 +65,6 @@ describe("链装配：付费候选过滤（GLOSSARY「付费平台」）", () =>
       smartOptions({ allowPaid: true, paidKeys: { deepseek: "sk-deepseek" } })
     );
     expect(resolved.chain.map((c) => c.provider.presetId)).toEqual(["tavily", "deepseek"]);
-    // 候选带出 access 与凭据引用解析的 Key（执行器付费标注 / 适配器鉴权用）
     const deepseek = resolved.chain[1];
     expect(deepseek.provider.access).toBe("paid");
     expect(deepseek.apiKey).toBe("sk-deepseek");

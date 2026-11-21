@@ -1,11 +1,3 @@
-// 查询缓存（spec §5 / §3 落点表第 9 行 / §10 第 33–38 行）测试：
-//   ① SW 叶 search/search-cache.ts——键与归一（64 位哈希、不落明文、跨引擎同一条）、
-//      单键整张映射、TTL 300s、上限 50 按 ts 淘汰最旧、读写失败容错、clear 清空；
-//   ② 发送方 proxy search/search-cache-client.ts——软超时 1000ms、读失败/无回包按
-//      未命中、写失败静默 no-op（缓存绝不影响回答）。
-// SW handler 的注册面在 tests/entry/offscreen-message-guard.test.ts（§10 第 39 行，
-// 发送者含 content）与 tests/search/search-runtime.test.ts（命中直回 / 失败不写）。
-// 时间走 fake timers，storage 走内存 fixture，不测真实网络与墙钟。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SEARCH_CACHE_KEY,
@@ -20,8 +12,6 @@ import {
 import { searchCacheClient } from "../../extension/search/search-cache-client.js";
 
 const RESULT = { title: "t", url: "https://example.com", snippet: "s" };
-
-// ===== 内存 storage fixture（单键映射的形状断言直接读它）=====
 
 let localFixture: Record<string, unknown>;
 

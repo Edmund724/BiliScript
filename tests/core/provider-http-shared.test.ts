@@ -1,17 +1,3 @@
-// tests/core/provider-http-shared.test.ts
-// core/provider-http-shared.ts（平台请求代发两通道的公共件叶）单测：抽叶前两侧
-// 逐字相同、抽叶后必须逐件同义的 9 组公共件，按件钉死现状语义——
-// URL 提取 / Headers 归一 / 已中止短路判据 / errorText / Response status 归一 /
-// makeAbortError / 接收端 URL 预检判据 / 接收端 fetch init 构造 / 出向载荷核心。
-//
-// 不在本文件内的（各侧自留，见 GLOSSARY.md「平台请求代发」词条）：承载（消息 vs
-// 端口）、超时（SW 15s vs offscreen 无）、中止机制（raceWithAbort vs onAbort +
-// 端口释放）、回吐形态——两侧差异正是「不抽」的部分。
-//
-// 另有一条结构用例钉叶子纪律（零运行时依赖 + 零 chrome.* 触达）：本叶被 SW 图、
-// content 懒区与 offscreen 文档三处消费，任何一条运行时 import 都会把别的语境
-// 拖进来。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -149,7 +135,6 @@ describe("接收端 fetch init 构造（buildProviderFetchInit）", () => {
       body: undefined,
       signal: controller.signal
     });
-    // signal 是同一个引用（到点 abort / 端口断连 abort 走的就是它）
     expect(buildProviderFetchInit({ headers }, controller.signal).signal).toBe(controller.signal);
   });
 
@@ -205,8 +190,6 @@ describe("出向载荷核心（buildProviderRequestPayload）", () => {
 
 describe("叶子纪律（结构用例）", () => {
   const leafSource = (): string =>
-    // 与 tests/search/search-order.test.ts 同款：jsdom 环境里 new URL(相对, import.meta.url)
-    // 会按文档地址解析，直接取仓库根下的源文件。
     readFileSync(join(process.cwd(), "extension/core/provider-http-shared.ts"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^[ \t]*\/\/.*$/gm, "");

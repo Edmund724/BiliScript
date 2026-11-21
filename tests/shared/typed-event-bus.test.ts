@@ -103,7 +103,6 @@ describe("shared/typed-event-bus", () => {
     expect(onBus).toHaveBeenCalledTimes(1);
 
     parent.dispose();
-    // 幂等二次调用安全
     parent.dispose();
 
     expect(parent.disposed).toBe(true);
@@ -111,7 +110,6 @@ describe("shared/typed-event-bus", () => {
     expect(child.disposed).toBe(true);
     expect(child.signal.aborted).toBe(true);
     expect(bus.listenerCount()).toBe(0);
-    // 逆序 LIFO 回收（父 abort 先级联释放 child，再逆序跑 parent 自身 cleanup）
     expect(order).toEqual(["child", "second", "first"]);
 
     target.dispatchEvent(new Event("custom"));

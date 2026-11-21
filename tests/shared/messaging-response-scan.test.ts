@@ -1,19 +1,3 @@
-// 消息协议响应半边扫描（arch-slim-2/02 验收，沿 reader/shell-sequence.test.js
-// 的源码文本级扫描先例）：
-//  1. extension/ 源码内 `as { ok` 型响应形状断言清零——响应形状改由消息类型经
-//     ResponseOf 推断（shared/messaging-protocol.ts 的 ResponseOf 由 SW 消息注册表
-//     派生 + shared/messaging.ts 的泛型 sendRuntimeMessage），消费点不再手猜形状；
-//  2. 每条 ContentScriptMessage / BackgroundMessage 消息别名都有并列声明的
-//     `XxxResponse` 响应类型；
-//  3. entry/background.ts 的 messageHandlerTable 路由表键集与 BackgroundMessage
-//     的消息字面量集全等（编译期由 satisfies 穷尽保证，本扫描是同向的运行期
-//     冗余防线：漏注册 / 多注册未知名 / 消息与路由漂移都在这里再拦一道）；
-//  4. BACKGROUND_MESSAGE_REGISTRY 注册表键集与 BackgroundMessage 的消息字面量集
-//     全等（同上：satisfies 已保证，这里拦「声明与登记漂移」）。
-//
-// 用 .js 落地：扫描要读 node:fs/node:path，tsconfig 未含 node 类型（与
-// shell-sequence 扫描同款选择）。tests/ 不在扫描范围。
-
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,8 +36,6 @@ const read = (file: string) => {
 const PROTOCOL = "shared/messaging-protocol.ts";
 const BACKGROUND = "entry/background.ts";
 
-// 消息别名 → 线上 type 字面量（仅匹配单块声明体内的 type: "..."，响应类型
-// 声明体没有 type: 字面量，不会误配）
 const MESSAGE_LITERAL_RE = /export type (\w+) = \{[^}]*?type:\s*"([^"]+)"/g;
 
 function parseUnionMembers(protocolText: string, unionName: string): string[] {
@@ -86,7 +68,6 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
   it("extension/ 源码内 as { ok 型响应断言清零", () => {
     const offenders = [];
     for (const [file, text] of sourceFileMap) {
-      // 容忍任意空白形态：as { ok / as{ok / as {ok 均算手猜响应形状
       if (/as\s*\{\s*ok/.test(text)) {
         offenders.push(file);
       }
@@ -112,7 +93,6 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
   it("ResponseOf 由 SW 消息注册表派生且接到传输层入口", () => {
     expect(protocolText).toContain("export type ResponseOf<M>");
     expect(protocolText).toContain("const BACKGROUND_MESSAGE_REGISTRY");
-    // 传输层把返回类型接到映射上
     expect(read("shared/messaging.ts")).toMatch(/Promise<ResponseOf<M>>/);
   });
 
@@ -135,9 +115,6 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
 
     expect(routeKeys).toHaveLength(backgroundLiterals.length);
     expect([...routeKeys].sort()).toEqual([...backgroundLiterals].sort());
-    // 路由表经 satisfies 穷尽后**原样**注入路由器（单一事实源）：本处钉住
-    // 「handler 表就是被注入的那张表」，且不再有 Map/Record 中转把宽窄形参
-    // 的相容性问题推给组合根。
     expect(read(BACKGROUND)).toContain("handlers: messageHandlerTable");
     expect(read(BACKGROUND)).not.toContain("new Map<BackgroundMessageType");
   });

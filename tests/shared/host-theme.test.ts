@@ -1,7 +1,3 @@
-// tests/shared/host-theme.test.ts
-// B 站宿主主题自动探测、四模式切换（bilibili / system / light / dark）、
-// MutationObserver + matchMedia 实时跟随与无首屏闪烁快照测试。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   THEME_SNAPSHOT_STORAGE_KEY,
@@ -114,14 +110,12 @@ describe("四模式主题解析与存量兼容", () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as unknown as typeof window.matchMedia;
 
-    // 宿主显式浅色优先于系统深色
     document.documentElement.setAttribute("data-theme", "light");
     expect(resolveEffectiveTheme("bilibili", document)).toBe("light");
     expect(resolveEffectiveTheme("system", document)).toBe("dark");
     expect(resolveEffectiveTheme("light", document)).toBe("light");
     expect(resolveEffectiveTheme("dark", document)).toBe("dark");
 
-    // 无宿主信号时 bilibili 回落系统深色
     clearHostThemeDom();
     expect(resolveEffectiveTheme("bilibili", document)).toBe("dark");
 
@@ -158,18 +152,15 @@ describe("实时外部监听与首屏防闪烁快照", () => {
       expect(onChange).toHaveBeenCalledTimes(1);
     });
 
-    // BiliScript 自身的 data-biliscript-* 属性不触发回调（防自激循环）
     document.documentElement.setAttribute("data-biliscript-reader-theme", "dark");
     await new Promise((r) => setTimeout(r, 20));
     expect(onChange).toHaveBeenCalledTimes(1);
 
-    // 系统 prefers-color-scheme 变化触发回调
     mediaListeners.forEach((fn) => fn());
     await vi.waitFor(() => {
       expect(onChange).toHaveBeenCalledTimes(2);
     });
 
-    // AbortSignal 中止后解绑监听，后续变更不再触发
     controller.abort();
     expect(removeListener).toHaveBeenCalledTimes(1);
     document.documentElement.classList.remove("dark");

@@ -1,9 +1,3 @@
-// notes/paste.js 单测：normalizeMarkdownForSectionPaste——把助手回复原样喂给
-// 笔记段落（段落在 buildMarkdown 里是 `## 标题`）时的两级归一：
-//   1. ATX 标题 1-6 级整体下移 baseLevel 档，且夹在 6 级以内；
-//   2. 时间戳专用的行内代码去掉反引号（转成纯文本，粘贴后可被时间戳导航识别）。
-// 此前只认 1-3 个 #：`#### 四` 落不进标题分支，原样留成正文（与 ui/markdown
-// 的渲染侧同源缺陷）。这里钉住放开后的档位与夹取行为。
 import { describe, expect, it } from "vitest";
 
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";

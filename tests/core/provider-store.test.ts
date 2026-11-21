@@ -1,8 +1,3 @@
-// provider-store.js createProviderStore 工厂测试。
-// AI 平台与 ASR 平台的 provider 存储共用该工厂：列表存 sync、Key 单独存 local
-//（apiKey 永不进同步列表）、列表只带 hasSavedKey 占位、删除时清理孤儿 Key。
-// 用 chrome.storage mock 直接验证工厂的存储行为。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createProviderStore } from "../../extension/core/provider-store.js";
@@ -10,7 +5,6 @@ import { createProviderStore } from "../../extension/core/provider-store.js";
 let syncStorage: Record<string, any>;
 let localStorage: Record<string, any>;
 
-// 工厂测试专用的最小归一化函数（不依赖 shared-defaults，验证工厂本身契约）
 function normalizeProvider(item: any) {
   if (!item || typeof item !== "object") return null;
   const id = String(item.id || "").trim();
@@ -81,9 +75,7 @@ describe("loadProviders / saveProviders 往返", () => {
     expect(saved).toHaveLength(2);
     expect(saved[0].id).toBe("p1");
 
-    // Key 收割进 local 存储
     expect(localStorage.testProviderKeys).toEqual({ p1: "secret-1", p2: "secret-2" });
-    // sync 列表里绝无明文 apiKey
     expect(JSON.stringify(syncStorage.testProviders)).not.toContain("secret-1");
     expect(JSON.stringify(syncStorage.testProviders)).not.toContain("secret-2");
     expect(syncStorage.testProviders[0]).not.toHaveProperty("apiKey");
@@ -101,7 +93,6 @@ describe("loadProviders / saveProviders 往返", () => {
     expect(localStorage.testProviderKeys).toEqual({});
 
     await store.saveProviders([provider("p1", { apiKey: "  k1  " })]);
-    // apiKey trim 后写入
     expect(localStorage.testProviderKeys).toEqual({ p1: "k1" });
   });
 
@@ -109,7 +100,6 @@ describe("loadProviders / saveProviders 往返", () => {
     const store = makeStore();
     await store.saveProviders([provider("p1", { apiKey: "k1" })]);
     await store.saveProviders([provider("p1"), { id: "   " }]);
-    // p1 的 Key 保留，空 id 项不入列表也不影响 Key
     expect(localStorage.testProviderKeys).toEqual({ p1: "k1" });
     const list = await store.loadProviders();
     expect(list).toHaveLength(1);
@@ -142,11 +132,8 @@ describe("deleteProvider", () => {
       provider("p2", { apiKey: "k2" })
     ]);
     const after = await store.deleteProvider("p1");
-    // 返回列表只剩 p2，且带正确的 hasSavedKey
     expect(after).toEqual([{ id: "p2", name: "P p2", model: "m-p2", hasSavedKey: true }]);
-    // p1 的 Key 被清理
     expect(localStorage.testProviderKeys).toEqual({ p2: "k2" });
-    // sync 列表只剩 p2，且不带 hasSavedKey / apiKey 字段
     expect(syncStorage.testProviders).toEqual([
       { id: "p2", name: "P p2", model: "m-p2" }
     ]);

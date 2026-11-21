@@ -1,12 +1,3 @@
-// 页内消息分发原语（shared/messaging.ts 的注册槽 + 转发）回归锁：
-// - 未注册时分发返回 false（与「无人处理」同义）；
-// - 注册后分发路由到分发主体，回包与返回值透传；
-// - 注册槽挂 globalThis 而非模块级变量——两轮构建把 shared 底座在轮 B
-//   懒 chunk 区重复一份（content-main 与 chunks/ 各一个 messaging 实例），
-//   模块级槽会让懒 chunk 里的页内源（ui/script-button.ts 点击/自愈）永远
-//   看不到常驻包实例上的注册，静默无反应；本用例直接断言槽住在 globalThis
-//   的固定键上，防回退。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

@@ -1,7 +1,3 @@
-// 联网搜索三标量的归一化测试（spec §3.2）：activeSearchProviderId（string，
-// "" = 无激活）、webSearchEnabled（仅显式 true 开，默认关）、
-// webSearchMaxToolCalls（整数夹取 1–20，非法回落 5）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -33,9 +29,6 @@ describe("normalizeSettings：联网搜索标量", () => {
     expect(normalizeSettings({ webSearchMaxToolCalls: "abc" }).webSearchMaxToolCalls).toBe(5);
   });
 
-  // searchProviderOrder 是偏好（记录 id 数组）不是可调设置项（spec §12.3 / §10 第 76 行）：
-  // 无默认值 → 不进 DEFAULT_SETTINGS（否则 initializeSettingsStorage 会把「删除该键」
-  // 重建成 []，「恢复默认顺序」失效），也不在 save-settings 白名单。
   it("searchProviderOrder 不在 DEFAULT_SETTINGS 键集，也不在 save-settings 白名单", async () => {
     const setMock = vi.fn(async (_payload: Record<string, unknown>) => {});
     vi.stubGlobal("chrome", { ...globalThis.chrome, storage: { ...globalThis.chrome?.storage, sync: { set: setMock } } });

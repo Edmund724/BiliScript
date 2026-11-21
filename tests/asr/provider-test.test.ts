@@ -1,15 +1,3 @@
-// asr/provider-test.js 的输入预检与委派测试。
-//
-// 本模块现在只负责「探针入参」这一层：草稿归一化、baseUrl/模型名校验、Key 代查
-// （表单重输优先，否则按 id 读已存 Key）、语言档位取全局设置，然后**把草稿交给
-// offscreen 的真适配器**跑（asr/offscreen-bridge.page.js 的探针客户端）。
-//
-// 回归背景：旧实现在 content script 里自己拼 FormData 发 fetch，于是
-// ① 页面侧没有 chrome.permissions，host 权限门必然 fail-open（域名未授权也照样
-// 放行）；② 请求受网页 CORS 约束，与扩展文档里「只受 host 权限约束」的真转写出口
-// 不是一回事；③ 验的是草稿 Key，真跑用的是已保存配置。三者叠加出「测试连接成功、
-// 实际转写 401」的误导。本文件锁死：页面侧不再发任何请求，失败文案原样透传。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

@@ -1,15 +1,3 @@
-// bilibili/gateway.ts 直测（arch-slim-2/05 测试网，整域此前零测试）。
-//
-// transport 参数已注入，全部用假 transport 直测，不发真实 fetch / runtime 消息。
-// 覆盖：
-// - fetchSubtitleBundle 主备源回退三形态（工单 acceptance）：主成有字幕 /
-//   主成无字幕（不跨源兜底）/ 主败落次来源 + 充电专属受限标记 upowerBlocked；
-// - fetchVideoMeta 字段映射（pages / pubdate→uploadDate 归一 / upowerBlocked / code!=0 报错）；
-// - isBiliUrl 边界（非字符串 / 空 / 带端口 / 伪装域）。
-//
-// 被测函数虽经 logInfo/logWarn（shared/logging，debug 关闭时零输出），但无
-// DOM/chrome 依赖，真实模块直接导入即可。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchHotCommentsWithLedger,
@@ -24,7 +12,6 @@ import { clipState } from "../../extension/core/state.js";
 import { formatLocalDate } from "../../extension/shared/utils.js";
 import type { HotComment } from "../../extension/bilibili/bili-api-shared.js";
 
-// 假 transport：按 URL 子串路由到预设载荷/异常，并记录调用轨迹（供次数与顺序断言）
 function fakeTransport(routes: [match: string, handler: unknown][]) {
   const calls: string[] = [];
   const transport = vi.fn(async (url: string) => {
@@ -85,7 +72,6 @@ describe("fetchSubtitleBundle：主备源回退三形态", () => {
 
     const result = await fetchSubtitleBundle(transport, withAid);
 
-    // 主来源成功返回（code=0）但字幕为空：次来源绝不能被触发
     expect(transport).toHaveBeenCalledTimes(1);
     expect(transport.calls[0]).toContain(wbiMatch);
     expect(result.tracks).toEqual([]);
@@ -279,7 +265,6 @@ describe("fetchVideoMeta：字段映射", () => {
     expect(meta.description).toBe("视频简介");
     expect(meta.defaultCid).toBe("777");
     expect(meta.defaultDuration).toBe(321);
-    // pubdate 秒 → 本地日期串（口径单源 shared/utils.formatLocalDate）
     expect(meta.uploadDate).toBe(formatLocalDate(1767225600 * 1000));
     expect(meta.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(meta.pages).toEqual([
@@ -348,9 +333,7 @@ describe("isBiliUrl 边界", () => {
   });
 
   it("伪装域与非法串为 false", () => {
-    // 路径里出现 B 站域名不算
     expect(isBiliUrl("https://evil.com/api.bilibili.com/x")).toBe(false);
-    // B 站域名作后缀的钓鱼域不算
     expect(isBiliUrl("https://api.bilibili.com.evil.com/x")).toBe(false);
     expect(isBiliUrl("https://bilibili.com/x")).toBe(false);
     expect(isBiliUrl("not a url")).toBe(false);
@@ -358,11 +341,6 @@ describe("isBiliUrl 边界", () => {
   });
 });
 
-// fetchHotCommentsWithLedger（arch-review-2026-09/07 编排单源）：context-assembly
-// 缺省热评实现使用的「aid 判空 → fetchHotComments(20) → clipState 落账 → 失败降级
-// 空列表 + note」。
-// deps 全注入（ledger/aid/拉取替身），另有一条缺省 deps 接线对账（落账到真实
-// core/state 的 clipState）。
 describe("fetchHotCommentsWithLedger：热评编排单源", () => {
   function makeDeps({
     aid = 100,

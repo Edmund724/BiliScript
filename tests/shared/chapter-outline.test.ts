@@ -1,7 +1,3 @@
-// shared/chapter-outline.ts 章节来源叶子测试（概览分章票 03 决议）：
-// 分章来源优先级（简介/评论时间轴 > 官方章节 > AI 自由分章）、官方章节归一，
-// 以及管线与 reader 概览 tab 共用的「签名侧章节字段」（同构口径）。
-
 import { describe, expect, it } from "vitest";
 import {
   hotCommentsText,
@@ -39,7 +35,7 @@ describe("resolveChapterSource 分章来源优先级", () => {
       { seconds: 0, title: "官方开场", to: 100 },
       { seconds: 100, title: "官方正题", to: 300 }
     ]);
-    expect(source.signatureChapters).toBe(MANUSCRIPT); // 同一引用（模式位口径）
+    expect(source.signatureChapters).toBe(MANUSCRIPT);
   });
 
   it("两者都无：auto，给定章节与签名模式位都为空", () => {
@@ -77,8 +73,6 @@ describe("parseChapterOutline 上限可参数化", () => {
   });
 });
 
-// 简介/评论接口正文常带 HTML 字符实体：标题解析时还原成真实字符（下游渲染
-// 统一 escapeHtml，解码不引入 XSS 面）。
 describe("parseChapterOutline HTML 实体解码", () => {
   it("常见命名与数字实体解码为明文字符", () => {
     expect(
@@ -115,8 +109,6 @@ describe("parseChapterOutline HTML 实体解码", () => {
   });
 });
 
-// 楼中楼续篇并入（F4）：置顶目录的第二段是楼中楼，续篇正文挂在顶层评论的
-// subMessages 上，拼进目录解析文本；聊天展示只用 message（ai/context.ts）。
 describe("hotCommentsText 楼中楼续篇并入", () => {
   const withSub = {
     uname: "UP",

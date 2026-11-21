@@ -1,8 +1,4 @@
 // @vitest-environment node
-// 回归测试：中止判定的形状谓词三件套（工单 01）。
-// 谓词只负责「单一形状识别」，接受集由各调用点自己的 OR 组合表达；判据统一严格
-// （=== true / name === "AbortError"）。本文件是谓词的唯一 seam，逐格子钉住真值表，
-// 并确认三谓词互不串味——不新增任何跨形状（放宽接受集）断言。
 
 import { describe, expect, it } from "vitest";
 

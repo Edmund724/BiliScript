@@ -1,11 +1,3 @@
-// tests/search/search-provider-deletion.test.ts
-// 搜索平台删除撤回事务（spec §6.7 / §10 第 40 行）测试：
-//   ① 正常路径：store 删除（带 invalidatingWrite 包装）→ 顺序剔除 → 清空缓存三步串联，回包为存活列表；
-//   ② 顺序剔除失败静默：写回抛错 → 回包照常、logWarn 一次，清缓存照常执行；
-//   ③ 清缓存失败静默：clearCache 抛错 → 回包照常、logWarn 一次；
-//   ④ 顺序剔除短路：数组未含该 id / 存储非数组 → 不调用 writeSnapshotKeys；
-//   ⑤ pruneSearchProviderOrder 纯逻辑单测：数组过滤与无匹配短路。
-
 import { describe, expect, it, vi } from "vitest";
 import { SEARCH_PROVIDER_ORDER_STORAGE } from "../../extension/search/search-provider-store.js";
 import {

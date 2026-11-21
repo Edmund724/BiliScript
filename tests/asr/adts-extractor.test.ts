@@ -1,7 +1,3 @@
-// extension/asr/adts.js createAdtsExtractor 单测：有状态增量解析器。
-// 覆盖：非 fMP4 输入无段产出；1 字节/次的极端切分 push 序列与
-// 整块 push 输出一致（残包边界）；flush 收尾（尾部不足 10 moof 的段）。
-
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -14,15 +10,12 @@ import {
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
-//（同 tests/entry/offscreen-audio-stream.test.ts 的处理），读二进制走本别名
 const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
   readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
 const big = new Uint8Array(readFileBytes(join(__dirname, "fixtures", "fmp4-1mb.bin")));
 
-// 用整块 push 复现 adtsFromFmp4 的输出（包装即此语义），作为逐字节一致的基准
 function collectViaExtractor(bytes: Uint8Array, config: AdtsExtractorConfig): Uint8Array[] {
   const extractor = createAdtsExtractor(config);
   const segments = [...extractor.push(bytes), ...extractor.flush()];
@@ -30,7 +23,6 @@ function collectViaExtractor(bytes: Uint8Array, config: AdtsExtractorConfig): Ui
   return segments;
 }
 
-// 按给定块长序列循环切分字节并喂给 extractor，返回全部段
 function collectViaChunkedPush(bytes: Uint8Array, chunkSizes: number[], config: AdtsExtractorConfig): Uint8Array[] {
   const extractor = createAdtsExtractor(config);
   const segments: Uint8Array[] = [];
@@ -73,19 +65,17 @@ describe("createAdtsExtractor 极端切分（残包边界）", () => {
 
 describe("createAdtsExtractor flush 收尾", () => {
   it("满 10 moof 的段在 push 中产出，尾部不足 10 moof 由 flush 交出", () => {
-    // 1MB 样本 26 对 moof/mdat：push 阶段产出前 20 个 moof（2 段），flush 交 6 个
     const extractor = createAdtsExtractor(asc);
     const pushed = extractor.push(big);
     const flushed = extractor.flush();
     expect(pushed.length).toBe(2);
     expect(flushed.length).toBe(1);
-    // push + flush 拼起来与整段包装结果一致
     expect([...pushed, ...flushed]).toEqual(adtsFromFmp4(big, asc));
   });
 
   it("总数不足 10 moof 时 push 不产段、flush 交出唯一段", () => {
     const extractor = createAdtsExtractor(asc);
-    const pushed = extractor.push(fixture); // 2 对 moof/mdat
+    const pushed = extractor.push(fixture);
     expect(pushed).toEqual([]);
     const flushed = extractor.flush();
     expect(flushed.length).toBe(1);
@@ -93,11 +83,9 @@ describe("createAdtsExtractor flush 收尾", () => {
   });
 
   it("整流后零音帧：frameCount 为 0、无段产出", () => {
-    // 只有 ftyp/moov 没有 moof/mdat 对的容器：判 fMP4 与否交给调用方，
-    // extractor 层面表现为无帧无段
     const bare = new Uint8Array(64);
     new DataView(bare.buffer).setUint32(0, 32);
-    bare.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
+    bare.set([0x66, 0x74, 0x79, 0x70], 4);
     const extractor = createAdtsExtractor(asc);
     expect([...extractor.push(bare), ...extractor.flush()]).toEqual([]);
     expect(extractor.frameCount).toBe(0);

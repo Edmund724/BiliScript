@@ -1,12 +1,3 @@
-// core/host-permissions.js（按需申请 host 权限与授权弹窗编解码的纯逻辑层）测试。
-// 覆盖：
-// - origin / 无端口权限 pattern 提取与去重（extractOriginFromBaseUrl / toPermissionMatchPattern / collectPermissionMatchPatterns）；
-// - 授权弹窗 query 编解码与错误文案（buildPermissionGrantQuery / parsePermissionGrantParams / formatPermissionRequestError）；
-// - 保存手势链上的批量申请（requestProviderOrigins）；
-// - hasHostPermission（扩展页 / SW 语境的真判定）及其语境守卫；
-// - 跨语境代查（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen）；
-// - 权限回收与跨语境孤儿回收（revokeOriginPermission / revokeOrphanOriginViaBackground）。
-
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -221,8 +212,6 @@ describe("checkHostPermission / hasHostPermission（探针/模型列表的权限
 });
 
 describe("checkHostPermissionViaBackground / hasHostPermissionViaBackground（content 语境的权限代查）", () => {
-  // 概览/快捷提示词的 offscreen 代发在 content 侧发起，而 content 没有
-  // chrome.permissions——与 requestProviderOriginsViaBackground 同一条代查通道。
   it("扩展页面语境（有 chrome.permissions）→ 直查，不发消息", async () => {
     const contains = vi.fn(async () => true);
     const sendMessage = vi.fn();
@@ -274,8 +263,6 @@ describe("checkHostPermissionViaBackground / hasHostPermissionViaBackground（co
     vi.stubGlobal("chrome", { runtime: { sendMessage: granted } });
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
 
-    // 无回包（旧 SW 不认识这条消息 / 消息未送达）：fail-open，让请求照旧发出去，
-    // 不新造拦截面
     const unanswered = vi.fn((_message: unknown, callback?: (resp: unknown) => void) => {
       callback?.(undefined);
       return undefined;
@@ -283,17 +270,12 @@ describe("checkHostPermissionViaBackground / hasHostPermissionViaBackground（co
     vi.stubGlobal("chrome", { runtime: { sendMessage: unanswered } });
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
 
-    // 非扩展环境（单测）：连消息都发不出
     vi.stubGlobal("chrome", {});
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
   });
 });
 
 describe("checkHostPermissionFromOffscreen / hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", () => {
-  // 对话链（entry/offscreen.ts）与 ASR 转写链（entry/offscreen-asr.ts）的平台请求
-  // 都在 offscreen 内直发，而该语境只有 chrome.runtime——代查走同一条
-  // check-provider-origin 消息，只是发送方式按本语境的 promise 风格直发
-  //（无回调签名约定，见 entry/offscreen.ts 的 resolveProviderWithKey）。
   it("SW 明确回 { granted: false } → false / denied，消息带 match pattern", async () => {
     const sendMessage = vi.fn(async () => ({ granted: false, status: "denied" }));
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
@@ -324,11 +306,9 @@ describe("checkHostPermissionFromOffscreen / hasHostPermissionFromOffscreen（of
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => ({ granted: true, status: "granted" })) } });
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
 
-    // 无回包（旧 SW 不认识这条消息）：fail-open，让请求照旧发出去
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => undefined) } });
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
 
-    // 消息抛错（SW 无接收方 / 文档正在关闭）
     vi.stubGlobal("chrome", {
       runtime: {
         sendMessage: vi.fn(async () => {
@@ -338,24 +318,11 @@ describe("checkHostPermissionFromOffscreen / hasHostPermissionFromOffscreen（of
     });
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
 
-    // 非扩展环境（单测）：连 runtime 都没有
     vi.stubGlobal("chrome", {});
     expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
   });
 });
 
-// ===== 语境守卫：原样 import hasHostPermission 的文件必须全是 SW 语境 =====
-//
-// content script 与 offscreen 文档都拿不到 chrome.permissions（Chromium 只给扩展
-// 自有页面 / SW）。在这两个语境里调 hasHostPermission，取不到 contains 实现即按已
-// 授权放行——那道门是恒放行的假门，只会让维护者以为请求已被拦住（ADR-0010 口径
-// 附注）。两个语境各有代查入口：content 用 hasHostPermissionViaBackground，
-// offscreen 用 hasHostPermissionFromOffscreen。
-//
-// 故本守卫锁一条**零例外**的不变式：原样 import hasHostPermission 的文件只能是下表
-// 三个 SW 语境调用方。白名单不是免死金牌而是复核点——多出第四行，就意味着有人要在
-// 判不了权限的语境里做预检：先确认那个语境到底是谁，再决定是换代查入口还是删门，
-// 不要顺手把文件加进来。
 const HOST_PERMISSION_SW_IMPORTERS: Record<string, string> = {
   "core/provider-http.ts": "SW 代发接收端（handleProviderHttpRequest）",
   "core/host-permission-handlers.ts": "SW host 权限消息族处理器（check-provider-origin / request-provider-origins）",
@@ -381,14 +348,10 @@ describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用
     return files;
   }
 
-  // 先去注释：注释里写的 import 例子不算真依赖边（与 tests/ui/options-save-gesture
-  // 及 layer-deps 的扫描同口径）。
   function stripComments(source: string): string {
     return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
   }
 
-  // 原样 import 了 hasHostPermission 的文件（\b 收边界：hasHostPermissionViaBackground /
-  // hasHostPermissionFromOffscreen 都不算）。
   function importersOfRawHasHostPermission(): string[] {
     const found: string[] = [];
     for (const file of listExtensionSources()) {
@@ -471,14 +434,12 @@ describe("revokeOriginPermission 与 revokeOrphanOriginViaBackground（孤儿权
       runtime: { getManifest: () => ({ host_permissions: [] }) }
     });
 
-    // 列表含被删行自身也照常回收
     expect(await revokeOrphanOriginViaBackground(deleted, [deleted])).toEqual({
       origins: ["https://api.openai.com/*"],
       revoked: true
     });
     expect(remove).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
 
-    // 另一条存活记录仍用同 origin 或同 host 其他端口 → 不回收
     remove.mockClear();
     expect(
       await revokeOrphanOriginViaBackground(deleted, [{ id: "s1", baseUrl: "https://api.openai.com/chat" }])
@@ -498,7 +459,6 @@ describe("revokeOriginPermission 与 revokeOrphanOriginViaBackground（孤儿权
     });
     expect(remove).not.toHaveBeenCalled();
 
-    // 同 host 无其他端口占用 → 无端口 pattern 回收
     expect(
       await revokeOrphanOriginViaBackground(
         { id: "ollama", baseUrl: "http://localhost:11434/v1" },

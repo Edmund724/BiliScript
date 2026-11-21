@@ -1,14 +1,3 @@
-// asr/protocol.ts 的片级失败摘要（判定 + 投影）——本域跨 port 事实的唯一 seam。
-//
-// 判据：**类别是唯一存在判据**——类别缺失 / 非字符串 / 空串 ⇒ 整条摘要缺席
-//（null）；状态码与报文用 !== undefined 携带（键在且不是 undefined 就照搬原文：
-// 0 / 空串 / null / 数字串都算携带），且不得脱离类别单独存在。
-// 投影：wire 上「有则带键」——缺席字段的键绝不出现（旧宿主不认得新字段，凭空
-// 多出 undefined 键会破坏跨 port 形状兼容）。
-//
-// 期望值全部是手写字面量（判定规则见 spec 的片级失败摘要条），不由被测函数反推；
-// 对拍用例额外钉住「两侧走不同输入路径、产出同一 wire 形状」。
-
 import { describe, expect, it } from "vitest";
 import { projectAsrFailureSummary, readAsrFailureSummary } from "../../extension/asr/protocol.js";
 
@@ -19,8 +8,6 @@ describe("readAsrFailureSummary：类别是唯一存在判据", () => {
     expect(readAsrFailureSummary({ failedKind: null })).toBeNull();
     expect(readAsrFailureSummary({ failedKind: 401 })).toBeNull();
     expect(readAsrFailureSummary({ failedKind: "" })).toBeNull();
-    // 空串类别不因状态码 / 报文有值而成立：摘要缺席后两者也不被读出——归类点
-    // 只会得到「没有失败信号」，不会把空串当成一个类别往上传。
     expect(readAsrFailureSummary({ failedKind: "", failedStatus: 401, failedDetail: "x" })).toBeNull();
   });
 
@@ -125,8 +112,6 @@ describe("projectAsrFailureSummary：缺席字段的键不出现", () => {
 });
 
 describe("对拍：offscreen 侧与页面侧产出同一 wire 形状", () => {
-  // offscreen 侧：域摘要（summarizeFailure 的产物）→ 投影，随 DONE 过界；
-  // 页面侧：收到的 wire 原文 → 判定 → 投影，进页面侧宿主结果。
   it("同一失败信号两侧逐字同形，且与手写字面量相符", () => {
     const offscreen = projectAsrFailureSummary({
       kind: "asr-auth",

@@ -1,33 +1,14 @@
-// pipeline.js + openai-transcriptions 适配器测试。
-// 关键点：转写调度已迁入 offscreen（engine + ASR_ADAPTERS，见 entry/offscreen-asr.js
-// 与 engine.test.js），页面侧 pipeline 只做编排——取音轨 → 任务宿主（生产为
-// offscreen 桥，测试传合成宿主）收文本结果 → 合并/诊断。宿主契约：
-//   async ({ audioUrl, backupUrls, onProgress? }) =>
-//     { results, totalChunks, skippedSegments, failedChunks }
-// 网络层用 fake fetch（vi.stubGlobal("fetch")）断言 FormData 与请求体。
-// 管线不带 runId/isStale 守卫：转写与视频切换解耦（切走视频任务照跑，
-// 中止只剩真断连），见 fallback 的 UI 门控与 offscreen-bridge.page。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { AsrChunkResult } from "../../extension/asr/offscreen-bridge.page.js";
 import type { AsrProvider } from "../../extension/asr/asr-provider-store.js";
 
-// ===== 模块级 mock：pipeline 的外部依赖 =====
-
-// 切片宿主走 offscreen 直连（jsdom 无 chrome.runtime.connect），mock 掉
-// audio-source 返回的 URL 即可（pipeline 不直接接触 offscreen 通道）。
 vi.mock("../../extension/asr/audio-source.js", () => ({
   getSourceAudioUrl: vi.fn(async () => ({
     url: "https://example.com/audio.m4s",
     backupUrls: []
   }))
 }));
-// retryAsync 已移入 shared/error-helpers.js（转写重试现由 offscreen 侧
-// engine.js 调用，见 engine.test.js）。这里不用 vi.mock 工厂：
-// resetModuleState 的 vi.resetModules 不会重跑 mock 工厂，工厂里
-// importOriginal 捕获的真实导出会闭包到过期的 state 实例（ensureRunActive 因此
-// 看不到用例内 setFetchRunId 的变更）。保持直 import 真实模块，逐用例新鲜。
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
@@ -50,18 +31,11 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-// 取体链收口 subtitle/body.js 后本文件不再整体替换 subtitle/cache.js：pipeline
-// 只经 asr 域内部接口，缓存落盘口由真实模块 + tests/setup.js 的 chrome.storage
-// stub 承担（本文件不作缓存断言）。
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };
 });
 
-// 合成任务宿主：模拟 offscreen 桥返回的文本结果（{results, totalChunks,
-// skippedSegments, failedChunks}），results 为按片 index 对齐的单片记录
-// [{ index, startSec, durationSec, result }]。durationSec 对齐 offscreen
-// streamWavChunks 的实际解码片长语义（测试按时长切好传入）。
 function makeSynthTaskHost(chunks: Array<{ startSec: number; durationSec: number; result: AsrChunkResult }>) {
   return vi.fn(async () => ({
     results: chunks.map((chunk, index) => ({
@@ -76,9 +50,6 @@ function makeSynthTaskHost(chunks: Array<{ startSec: number; durationSec: number
   }));
 }
 
-// 默认 provider（openai-transcriptions，带时间戳）。
-// presetId/enabled 为 AsrProvider 签名必填字段（normalizeAsrProvider 的产出形状），
-// 运行时适配器只读 baseUrl/model/apiKey/language，此处按签名补齐。
 const OPENAI_PROVIDER: AsrProvider = {
   id: "siliconflow-sensevoice",
   presetId: "custom",
@@ -96,7 +67,6 @@ let pipeline: typeof import("../../extension/asr/pipeline.js");
 beforeEach(async () => {
   resetModuleState();
   pipeline = await import("../../extension/asr/pipeline.js");
-  // fetch mock：默认直接 200 返回空 text（transcribe 各用例自己覆盖）
   vi.stubGlobal("fetch", vi.fn(async () => {
     return { ok: true, status: 200, json: async () => ({ text: "" }) };
   }));
@@ -248,7 +218,6 @@ describe("openai-transcriptions 适配器", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        // 响应到了但 json() 解析失败 → postTranscription 返回 status=-1
         json: async () => {
           throw new SyntaxError("Unexpected token < in JSON");
         }
@@ -275,7 +244,6 @@ describe("openai-transcriptions 适配器", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
-    // 单片 wav 38MB 级：非 2xx 后断言绝不发生第二次全量重传
     const wavBlob = new Blob([new Uint8Array(16000 * 2 * 2)]);
 
     await expect(
@@ -324,18 +292,12 @@ describe("openai-transcriptions 适配器", () => {
       caught = error as Error & { kind?: string };
     }
 
-    // 网络层错误不被适配器包装：原样上抛，交 retryAsync 消息启发式判定可重试
     expect(caught).toBeInstanceOf(TypeError);
     expect(caught?.message).toBe("Failed to fetch");
     expect(isRetryableNetworkError(caught)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  // ===== 失败信号的 kind 标注（票 03：判定在完整报文还在手上的层做）=====
-  // 适配器是唯一拿到**未截断**响应体的地方，故状态码 → kind 的判定在此落定；
-  // 跨 port 只传 kind 这个小字符串，报文全量只进 offscreen 的 logWarn。
-  // 判定表与次序的唯一实现在 asr/failure-kind.js（本组用例锁的是「接线」：
-  // 适配器把 status + 完整 raw + provider 喂进分类模块，并把结果挂上 error）。
   describe("抛出物携带 kind / detail（分类在完整报文还在手上时完成）", () => {
     function stubHttpResponse({ status, body }: { status: number; body: string }) {
       const fetchMock = vi.fn(async () => ({
@@ -369,7 +331,6 @@ describe("openai-transcriptions 适配器", () => {
       [404, "Not Found", "no-asr-config"],
       [415, '{"detail":"Failed to decode audio. The provided file type is not supported."}', "asr-media"],
       [500, "internal error", "asr-server"],
-      // 429 双义：只能靠报文 error.type 消歧（纯状态码表在这条上不成立）
       [429, '{"error":{"message":"You exceeded your current quota","type":"insufficient_quota"}}', "asr-quota"],
       [429, '{"error":{"message":"Rate limit reached","type":"rate_limit_exceeded"}}', "asr-ratelimit"]
     ])("HTTP %s → kind=%s（message 与 status 形状不变）", async (status, body, kind) => {
@@ -379,12 +340,10 @@ describe("openai-transcriptions 适配器", () => {
 
       expect(error).toMatchObject({ status, kind, detail: String(body).slice(0, 200) });
       expect(error.message).toBe(`HTTP ${status}: ${String(body).slice(0, 200)}`);
-      // 非 2xx 不再降级：绝不发生第二次全量重传（单片 wav 38MB 级）
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("detail 为截断到 200 字符的展示片段，kind 判定仍基于完整报文", async () => {
-      // 关键词藏在第 200 字符之后：截断片段已不含它，分类必须以完整报文为准
       const body = `{"error":"${"x".repeat(300)}","type":"insufficient_quota"}`;
       stubHttpResponse({ status: 429, body });
 
@@ -396,7 +355,6 @@ describe("openai-transcriptions 适配器", () => {
     });
 
     it("响应体非 JSON（status=-1 哨兵）：走 json 降级，降级也失败则 kind=asr-unknown", async () => {
-      // 首次 verbose_json 与降级 json 两次都是 2xx 但体不可解析 → 第二次以 -1 抛出
       const fetchMock = vi.fn(async () => ({
         ok: true,
         status: 200,
@@ -430,7 +388,6 @@ describe("openai-transcriptions 适配器", () => {
       }
 
       expect(caught).toMatchObject({ message: "平台 baseUrl 未配置", kind: "no-asr-config" });
-      // 票 02/04：这条**无状态码**（同步抛出、无网络交互），不许凭空造一个
       expect((caught as { status?: unknown }).status).toBeUndefined();
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -453,18 +410,14 @@ describe("openai-transcriptions 适配器", () => {
       provider: OPENAI_PROVIDER
     });
 
-    // 2xx 含 text 时不再发第二次 json 降级请求
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(captured!.body).toBeInstanceOf(FormData);
     expect(captured!.body.get("model")).toBe("FunAudioLLM/SenseVoiceSmall");
     expect(captured!.body.get("response_format")).toBe("verbose_json");
-    // 语言不放在 multipart 字段里（SiliconFlow 只认查询参数）
     expect(captured!.body.get("language")).toBeNull();
     expect(captured!.body.get("file")).toBeInstanceOf(Blob);
-    // 绝不手动设 Content-Type
     expect(captured!.headers["Content-Type"]).toBeUndefined();
     expect(captured!.headers.Authorization).toBe("Bearer sk-test");
-    // provider 未设语言档位 → URL 不带 language 参数
     expect(capturedUrl).toBe("https://api.siliconflow.cn/v1/audio/transcriptions");
   });
 
@@ -562,7 +515,6 @@ describe("pipeline 时间戳合成与偏移合并", () => {
       { from: 1200, to: 1201, content: "第三句" },
       { from: 1201.5, to: 1202.5, content: "第四句" }
     ]);
-    // from 严格递增
     for (let i = 1; i < body.length; i += 1) {
       expect(body[i].from).toBeGreaterThan(body[i - 1].from);
     }
@@ -591,9 +543,7 @@ describe("pipeline 时间戳合成与偏移合并", () => {
     const hostArgs = host.mock.calls[0][0];
     expect(hostArgs.audioUrl).toBe("https://example.com/audio.m4s");
     expect(hostArgs.backupUrls).toEqual([]);
-    // 守卫链已整体移除：宿主参数不再有 isStale（跨 context 中止只剩真断连）
     expect(hostArgs.isStale).toBeUndefined();
-    // 页面自身的阶段文案 + offscreen 引擎进度文本原样中继
     expect(onProgress).toHaveBeenCalledWith("无字幕轨，正在获取音频流…");
     expect(onProgress).toHaveBeenCalledWith("音频下载与解码中…");
     expect(onProgress).toHaveBeenCalledWith("语音识别中 1 片…");
@@ -613,8 +563,6 @@ describe("pipeline 时间戳合成与偏移合并", () => {
   });
 
   it("无 segments 多句纯文本：按标点与换行切分并按字符权重线性插值，连续不重叠", async () => {
-    // 片长 60s，startSec=100
-    // 两句长度各 4 字符（"这是第一句。" 和 "这是第二句！"）
     const body = await pipeline.runAsrPipeline({
       bvid: "BV1test",
       cid: "101",
@@ -646,7 +594,6 @@ describe("pipeline 时间戳合成与偏移合并", () => {
 
   it("转写与视频切换解耦：runId 过期（fetchRunId 前进）不再中止管线", async () => {
     const { clipState } = await import("../../extension/core/state.js");
-    // 模拟转写进行中视频被切换/并发刷新：fetchRunId 前进，任务照跑不中止
     clipState.setFetchRunId(99);
 
     const body = await pipeline.runAsrPipeline({
@@ -694,7 +641,6 @@ describe("pipeline 空结果与诊断", () => {
 
   it("空结果诊断追加失败计数：N 片转写失败、M 段解码失败已跳过", async () => {
     const onEmptyDiagnostic = vi.fn();
-    // 转写失败片/解码失败段不产生 result 记录，只有 done 计数上来
     const host = vi.fn(async () => ({
       results: [],
       totalChunks: 3,
@@ -733,7 +679,6 @@ describe("pipeline 空结果与诊断", () => {
     });
 
     expect(body).toEqual([{ from: 0, to: 60, content: "有内容" }]);
-    // 有文本产出 → 诊断回调不触发
     expect(onEmptyDiagnostic).not.toHaveBeenCalled();
   });
 });
@@ -861,11 +806,8 @@ describe("工单 01：纯文本分句与过短碎句合并 (splitTextIntoSentenc
 
   it("合并过短碎句（句首短句合入下一句、句尾/句中短句合入前一句）", async () => {
     const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
-    // 句首 "好。"（2字符）与后续完整句合并
     expect(splitTextIntoSentences("好。今天我们开始讲第一章。")).toEqual(["好。今天我们开始讲第一章。"]);
-    // 句尾 "好。" 与前句合并
     expect(splitTextIntoSentences("今天我们开始讲第一章。好。")).toEqual(["今天我们开始讲第一章。好。"]);
-    // 句中 "对。" 与前句合并
     expect(splitTextIntoSentences("今天讲第一章。对。明天讲第二章。")).toEqual([
       "今天讲第一章。对。",
       "明天讲第二章。"
@@ -916,8 +858,6 @@ describe("工单 01：纯文本线性插值 (interpolateSentenceTimestamps)", ()
 
   it("多句按字符长度严格按比例线性分配，首尾对齐且连续不重叠", async () => {
     const { interpolateSentenceTimestamps } = await import("../../extension/asr/pipeline.js");
-    // 句1长度 10，句2长度 20，总长 30；总时长 60s
-    // 句1 应分得 20s (10/30 * 60)，句2 应分得 40s (20/30 * 60)
     const sentences = ["一二三四五六七八九十", "一二三四五六七八九十一二三四五六七八九十"];
     const res = interpolateSentenceTimestamps({
       sentences,
@@ -1079,7 +1019,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
     expect(emitted[1].startSec).toBeCloseTo(58.5, 6);
     expect(emitted[1].overlapLeadSec).toBeCloseTo(1.5, 6);
 
-    // 场景 A：重叠区完全重复的句段 + 跨重叠边界后续句段，且携带 words 时同步裁剪
     const mergedExact = mergeChunkResults([
       {
         ...emitted[0],
@@ -1101,7 +1040,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
         result: {
           text: "今天我们要讲解核心原理。",
           segments: [
-            // 相对 emitted[1].startSec=58.5：0.1~1.5s 对应全局 58.6~60.0s
             { start: 0.1, end: 3.5, text: "今天我们要讲解核心原理。" }
           ],
           words: [
@@ -1126,7 +1064,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
       "原理。"
     ]);
 
-    // 场景 B：硬切边界导致尾字微残损（近边界 LCS 容错），去重后与未闭合尾句协同修复断词并缝合
     const mergedFuzzy = mergeChunkResults([
       {
         index: 0,
@@ -1154,7 +1091,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
       { from: 58.6, to: 61.5, content: "welcome to the show today." }
     ]);
 
-    // 场景 C：闭合句子后的尾缀残损被 LCS 裁剪后保留句末标点，各自独立并在中点平滑衔接
     const mergedClosedFuzzy = mergeChunkResults([
       {
         index: 0,
@@ -1189,7 +1125,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
     const { createProgressiveChunkMerger } = await import("../../extension/asr/pipeline.js");
     const merger = createProgressiveChunkMerger();
 
-    // 1) 分片 1 先到（无重叠，左边界 0.1s 距 60s < 0.45s）
     const snap1 = merger.push({
       index: 1,
       startSec: 60,
@@ -1206,7 +1141,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
     });
     expect(snap1.mergedItems).toHaveLength(3);
 
-    // 2) 分片 0 后到：末尾非音效句未闭合（距 60s < 0.45s），跳过末尾瞬间 [音乐] 与分片 1 首条缝合
     const snap2 = merger.push({
       index: 0,
       startSec: 0,
@@ -1231,7 +1165,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
       expect(snap2.mergedItems[i].from).toBeGreaterThanOrEqual(snap2.mergedItems[i - 1].to);
     }
 
-    // 3) 分片 0 先到时先正常展示未闭合尾句，分片 1 后到再无感更新（英文自动补空格）
     const progressive = createProgressiveChunkMerger();
     const firstView = progressive.push({
       index: 0,
@@ -1278,7 +1211,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
   it("跨片缝合守卫：句末含标点、距边界 >= 0.45s 或合并后 > 10s 时不误缝合", async () => {
     const { mergeChunkResults } = await import("../../extension/asr/pipeline.js");
 
-    // 1) 末尾已有句末标点（含闭合引号）不缝合
     const closed = mergeChunkResults([
       {
         index: 0,
@@ -1297,7 +1229,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
     ]);
     expect(closed).toHaveLength(2);
 
-    // 2) 距右边界 >= 0.45s 不缝合
     const farFromEdge = mergeChunkResults([
       {
         index: 0,
@@ -1316,7 +1247,6 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
     ]);
     expect(farFromEdge).toHaveLength(2);
 
-    // 3) 合并后总时长 > 10s 不缝合
     const tooLong = mergeChunkResults([
       {
         index: 0,

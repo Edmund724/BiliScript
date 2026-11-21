@@ -1,40 +1,7 @@
-// PRESETS 的 Anthropic 端点组装回归。
-//
-// anthropicAdapter.endpoint() = `${baseUrl}/v1/messages`，所以 protocolBaseUrls
-// 里登记的 anthropic 值**不得再以 /v1 结尾**，否则拼成 /v1/v1/messages。
-// moonshot / opencodego / stepfun 曾因缺 protocolBaseUrls.anthropic 而回落以
-// /v1 结尾的 openai baseUrl，正是这个重复。13 家登记的依据（2026-09-23 核实、
-// 2026-10-05 补 ollama）：
-// - deepseek / qwen / zhipu / minimax / mimo：原审计表既有登记，实测 /v1/messages
-//   非 404 且同前缀对照 404（deepseek 该前缀整体先鉴权，另有一手文档）。
-// - moonshot：官方文档 Anthropic Base URL = https://api.kimi.com/coding/，
-//   endpoint 示例 https://api.kimi.com/coding/v1/messages
-//   （https://www.kimi.com/code/docs/en/）。
-// - opencodego：models.dev 的 opencode-go provider 条目（doc
-//   https://opencode.ai/docs/go）登记的 api 是 OpenAI 兼容族
-//   https://opencode.ai/zen/go/v1；Anthropic 兼容族端点按适配器约定去掉那个 /v1
-//   后缀 = https://opencode.ai/zen/go（本表登记值）。
-// - stepfun：官方「推理模型接入」明示路径 https://api.stepfun.com/step_plan/v1/messages，
-//   并警告 Anthropic SDK 的 base_url 不带 /v1（与 adapter 约定一致）。
-// - openrouter：官方 OpenAPI（tag「Anthropic Messages」）路径 /messages、server
-//   https://openrouter.ai/api/v1（https://openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message.md）。
-// - modelscope：官方（Beta）Anthropic 兼容 base_url 固定为
-//   https://api-inference.modelscope.cn 且「不带 /v1/ 后缀」。
-// - amd：官方 API 概览列出 `POST /v1/messages`「兼容 Anthropic，供 Claude Code
-//   这类客户端使用」，Public Free Model APIs base =
-//   https://developer.amd.com.cn/radeon/api/v1。
-// - sensenova：实测 /v1/messages 401 且同前缀对照 404；sensenova-proxy 的兼容性
-//   研究亦称其 /v1/messages 原生实现 Anthropic Messages 协议（无一手文档，见
-//   research/preset-protocol-audit.md 的证据分级）。
-// - ollama：官方 Anthropic 兼容层文档明示 /v1/messages
-//   （https://docs.ollama.com/api/anthropic-compatibility；实现见 ollama/ollama
-//   commit 2b2cda7）。2026-10-05 由预设登记覆盖视图报出欠账后补登记。
-
 import { describe, expect, it } from "vitest";
 import { PRESETS } from "../../extension/core/presets.js";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 
-// preset-protocol-audit（multi-protocol-ai/01）登记的 Anthropic 端点平台（按 PRESETS 顺序）
 const ANTHROPIC_PRESET_IDS = [
   "deepseek",
   "qwen",

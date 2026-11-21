@@ -1,20 +1,3 @@
-// core 消息 router：SW 消息入口「按键取 handler → 判来源 → 判形状 → 派发 →
-// 派生回包口径」的单点。
-//
-// 本文件是守卫搬家后的最高测试接缝：假 handler 表 + 假来源判据直接驱动监听器
-// 函数，零 chrome。原有两个必须整包装载 SW 入口才能驱动的用例族（来源守卫、
-// 回包口径）在此以同一断言意图重述；其余装载 SW 入口、真正在测 handler 行为的
-// 用例仍留在 tests/entry/offscreen-message-guard.test.ts。
-//
-// 结构锁（源码文本级，沿 tests/shared/messaging-response-scan 的先例）：
-//   ① router 正文不得出现消息类型字面量——键集是注册表的事实，任何 type 字面量
-//      都意味着「名单回抄」的单源回退；
-//   ② router 正文不得出现 `message.type ===` 式按键分派；
-//   ③ 来源判据只经注册表的 sender 标签 + 组合根注入的 senders（不得自带域判据）；
-//   ④ router 不得 import 任何域 handler 模块（handler 表留组合根）；
-//   ⑤ router 零 chrome API 触碰（判据本体与 handler 本体都住各自域）；
-//   ⑥ 拒绝文案由组合根注入（单源常量住 asr/protocol），router 不持文案本身。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -31,9 +14,6 @@ import {
 
 const ROUTER_SOURCE = readFileSync(join(process.cwd(), "extension/core/message-router.ts"), "utf8");
 
-// 假来源判据：形状与真实 isOffscreenDocumentSender 同款（无 tab + url 指向 offscreen
-// 文档），但不碰 chrome——判据本体住 asr/offscreen-bridge.bg.ts，router 只消费组合根
-// 注入的判据。
 const OFFSCREEN_DOCUMENT_URL = "chrome-extension://test/entry/offscreen.html";
 const OFFSCREEN_SENDER: MessageSender = { url: OFFSCREEN_DOCUMENT_URL };
 const tabSender = (id = 7): MessageSender => ({
@@ -45,7 +25,6 @@ const isOffscreenLike = (sender: MessageSender): boolean =>
 
 type TestHandler = (message: unknown, sender: MessageSender, sendResponse: SendResponse) => unknown;
 
-// SW 半边（生产配置）：handler 表 + 来源判据 + 拒绝文案三者都由组合根注入。
 function swRouter(handlers: Record<string, TestHandler>) {
   return createMessageRouter({
     handlers,
@@ -254,7 +233,6 @@ describe("消息 router：注册表外类型的回包口径", () => {
 
     expect(router({ type: "reader-restore", readerUrl: "x" }, undefined, vi.fn())).toBe(false);
     expect(handler).toHaveBeenCalledTimes(1);
-    // 三参派发：第二位是 sender 位（可能缺位），第三位是回包回调
     const sendResponse = vi.fn();
     router({ type: "reader-restore", readerUrl: "x" }, tabSender(), sendResponse);
     expect(handler.mock.calls[1]).toHaveLength(3);
@@ -270,8 +248,6 @@ describe("消息 router：注册表外类型的回包口径", () => {
 
 describe("消息 router：来源名单单源（注册表 sender 标签派生）", () => {
   it("OFFSCREEN_ONLY_MESSAGE_TYPES 导出且恰为协议约定的两项", () => {
-    // 期望值取自协议契约本身（offscreen 专属族 = 这两个 type 字面量），
-    // 不复用派生结果，避免等于自身的同义断言。
     expect([...OFFSCREEN_ONLY_MESSAGE_TYPES]).toEqual(["segment-cache", "offscreen-request-close"]);
   });
 

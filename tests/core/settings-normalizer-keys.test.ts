@@ -1,22 +1,6 @@
-// C5「设置项声明对账」：settings 域键面（DEFAULT_SETTINGS）与两张名单的对账。
-//
-// 键面 = 归一步骤表键（SETTINGS_NORMALIZER_KEYS）× 透传名单（SETTINGS_PASSTHROUGH_KEYS）
-// 的不相交并集；saveSettings 的写入白名单取键面全集，故本对账同时钉住白名单的
-// 静默缺口：
-//   - 新增 settings 键忘写归一化步骤、也没列进透传名单 → missing 非空 → 红
-//     （该键会经白名单落盘但从不归一化，脏值原样进存储）；
-//   - 同一键同时出现在两张名单 → overlap 非空 → 红（归一步骤被透传"接管"后
-//     归一化静默失效）；
-//   - 名单里有键面外的键 → extra 非空 → 红（名单漂移，白名单其实不落盘它）。
-// 判定的有效性由合成漂移夹具自证（三个方向各一条），不依赖变异测试。
-
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
-// 透传四键的字面量锚：白名单 = 键面全集，所以「键在键面内」不足以证明它还是
-// 透传的——把某个归一化键悄悄挪进透传名单（同时删掉它的步骤）并集仍然自洽，
-// 只有这里的字面量会抓住这种语义漂移（手法同 tests/core/provider-storage-keys.test.ts
-// 对存储键常量的锚定）。
 const PASSTHROUGH_LITERAL = [
   "includeDateInFilename",
   "includeTimestampInBody",
@@ -28,8 +12,6 @@ function sortedKeys(keys: readonly unknown[]): string[] {
   return [...keys].map(String).sort();
 }
 
-// 对账判定：missing = 键面有、两张名单都没有；overlap = 同时进两张名单；
-// extra = 名单有、键面没有。
 function audit(stepsKeys: readonly string[], passthroughKeys: readonly string[], keyFace: readonly string[]) {
   const face = new Set(keyFace);
   const steps = new Set(stepsKeys);
@@ -41,7 +23,6 @@ function audit(stepsKeys: readonly string[], passthroughKeys: readonly string[],
   };
 }
 
-// 名单读面：导出缺失时读到 undefined，在断言处红（不在 import 期炸）。
 async function readKeyList(name: string): Promise<string[]> {
   const store = (await import("../../extension/core/settings-store.js")) as unknown as Record<string, unknown>;
   const value = store[name];

@@ -1,6 +1,3 @@
-// core/offscreen-host.ts tests: unified offscreen document lifecycle, sender check,
-// and Bilibili media DNR session rule allocation/release/reaping.
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "../../extension/asr/protocol.js";
@@ -242,7 +239,6 @@ describe("SW 侧串行生命周期队列与关闭代际号", () => {
     const closePromise = host.closeOffscreenDocument();
     const ensurePromise = host.ensureOffscreenDocument();
 
-    // close 尚未完成前，ensure 不得提前触碰 getContexts 或 createDocument
     await Promise.resolve();
     expect(events).toEqual(["close:start"]);
 
@@ -276,7 +272,6 @@ describe("SW 侧串行生命周期队列与关闭代际号", () => {
     const firstEnsure = host.ensureOffscreenDocument();
     await vi.waitFor(() => expect(createDocument).toHaveBeenCalledTimes(1));
 
-    // ensure1 在飞期间依次入队 close 与 ensure2
     const closeResult = host.tryCloseOffscreenDocument();
     const secondEnsure = host.ensureOffscreenDocument();
 
@@ -285,7 +280,6 @@ describe("SW 侧串行生命周期队列与关闭代际号", () => {
     await expect(closeResult).resolves.toBe(false);
     await expect(secondEnsure).resolves.toBe(true);
 
-    // 关闭被跳过，现有文档直接复用，零重复创建
     expect(closeDocument).not.toHaveBeenCalled();
     expect(createDocument).toHaveBeenCalledTimes(1);
   });

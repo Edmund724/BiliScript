@@ -1,7 +1,3 @@
-// core/offscreen-host.ts tests (Firefox Event Page hidden iframe host):
-// covers idempotent creation, singleflight concurrency, load completion, error rollback,
-// close teardown, and Firefox moz-extension:// offscreen sender verification.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { OFFSCREEN_URL } from "../../extension/shared/offscreen-constants.js";

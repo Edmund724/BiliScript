@@ -1,8 +1,3 @@
-// AI 平台存储归一化测试（multi-model-catalog 拍板 Q2/Q7/Q13）：
-// AiProvider.model(string) 已改为 models(string[])，normalizeAiProvider 负责
-// 旧数据无感迁移（单 model 包成单元素目录）与目录收口（trim / 去空串 / 去重）。
-// 经 aiProviderStore.loadProviders 走真实存储读取路径（chrome.storage stub）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -77,7 +72,6 @@ describe("normalizeAiProvider 协议字段归一化（multi-protocol-ai）", () 
       { id: "p1", name: "x" },
       { id: "p2", name: "y", protocol: "unknown-proto" },
       { id: "p3", name: "z", protocol: "" },
-      // "responses"：适配器已移除，词表同步摘除后按未知值不落盘。
       { id: "p4", name: "w", protocol: "responses" }
     ]);
     expect(providers[0]).not.toHaveProperty("protocol");

@@ -1,7 +1,3 @@
-// extension/asr/adts.js 单测：fMP4 检测、ASC 解析、ADTS 包装。
-// 真实 B 站 DASH 音轨片段 fixture（ftyp+moov+sidx+2 对 moof/mdat，98KB），
-// 覆盖：fMP4 判定、esds ASC 提取、trun sample sizes 提取、ADTS 头组装。
-
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,63 +9,50 @@ import {
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
-//（同 tests/entry/offscreen-audio-stream.test.ts 的处理），读二进制走本别名
 const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
   readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
 
-// 手工构造的最小 fMP4：ftyp + moof + mdat（1 个样本）
 function buildMinimalFmp4(asc = [0x11, 0x90]) {
-  // ftyp box
   const ftyp = new Uint8Array(32);
   writeU32(ftyp, 0, 32);
-  ftyp.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
-  ftyp.set([0x69, 0x73, 0x6f, 0x35], 8); // "iso5"
+  ftyp.set([0x66, 0x74, 0x79, 0x70], 4);
+  ftyp.set([0x69, 0x73, 0x6f, 0x35], 8);
 
-  // moov: mvhd 略，直接放 stsd 不可行——用最小 moov 结构
-  // 简化：只放 ftyp + moof + mdat
-  // moof: mfhd(16) + traf{tfhd(24) + trun(...)}
   const moofSize = 8 + 16 + (8 + 24 + (8 + 4 + 4 + 4 + 8));
   const moof = new Uint8Array(moofSize);
   writeU32(moof, 0, moofSize);
-  moof.set([0x6d, 0x6f, 0x6f, 0x66], 4); // "moof"
-  // mfhd
+  moof.set([0x6d, 0x6f, 0x6f, 0x66], 4);
   writeU32(moof, 8, 16);
-  moof.set([0x6d, 0x66, 0x68, 0x64], 12); // "mfhd"
-  moof.set([0, 0, 0, 0], 16); // version/flags
-  writeU32(moof, 20, 1); // sequence
-  // traf
+  moof.set([0x6d, 0x66, 0x68, 0x64], 12);
+  moof.set([0, 0, 0, 0], 16);
+  writeU32(moof, 20, 1);
   const trafStart = 24;
   writeU32(moof, trafStart, 8 + 24 + (8 + 4 + 4 + 4 + 8));
-  moof.set([0x74, 0x72, 0x61, 0x66], trafStart + 4); // "traf"
-  // tfhd
+  moof.set([0x74, 0x72, 0x61, 0x66], trafStart + 4);
   const tfhdStart = trafStart + 8;
   writeU32(moof, tfhdStart, 24);
-  moof.set([0x74, 0x66, 0x68, 0x64], tfhdStart + 4); // "tfhd"
-  moof.set([0, 0, 0, 0], tfhdStart + 8); // version/flags
-  writeU32(moof, tfhdStart + 12, 1); // track_id
-  writeU32(moof, tfhdStart + 16, 1024); // duration
-  writeU32(moof, tfhdStart + 20, 171); // size
-  // trun
+  moof.set([0x74, 0x66, 0x68, 0x64], tfhdStart + 4);
+  moof.set([0, 0, 0, 0], tfhdStart + 8);
+  writeU32(moof, tfhdStart + 12, 1);
+  writeU32(moof, tfhdStart + 16, 1024);
+  writeU32(moof, tfhdStart + 20, 171);
   const trunStart = tfhdStart + 24;
   writeU32(moof, trunStart, 8 + 4 + 4 + 4 + 8);
-  moof.set([0x74, 0x72, 0x75, 0x6e], trunStart + 4); // "trun"
-  // version=0, flags=0x301（data_offset + sample_duration + sample_size）
-  moof[trunStart + 8] = 0; // version
+  moof.set([0x74, 0x72, 0x75, 0x6e], trunStart + 4);
+  moof[trunStart + 8] = 0;
   moof[trunStart + 9] = 0x03;
   moof[trunStart + 10] = 0x01;
-  writeU32(moof, trunStart + 12, 1); // sample_count = 1
-  writeU32(moof, trunStart + 16, 8); // data_offset = 8 (mdat header)
-  writeU32(moof, trunStart + 20, 1024); // sample duration
-  writeU32(moof, trunStart + 24, 171); // sample size
+  writeU32(moof, trunStart + 12, 1);
+  writeU32(moof, trunStart + 16, 8);
+  writeU32(moof, trunStart + 20, 1024);
+  writeU32(moof, trunStart + 24, 171);
 
-  // mdat: 171 字节样本
   const mdat = new Uint8Array(8 + 171);
   writeU32(mdat, 0, 8 + 171);
-  mdat.set([0x6d, 0x64, 0x61, 0x74], 4); // "mdat"
-  mdat.fill(0x21, 8); // 造些数据
+  mdat.set([0x6d, 0x64, 0x61, 0x74], 4);
+  mdat.fill(0x21, 8);
 
   const out = new Uint8Array(ftyp.length + moof.length + mdat.length);
   out.set(ftyp, 0);
@@ -91,11 +74,9 @@ describe("isFragmentedMp4", () => {
   });
 
   it("非 fMP4（如 WAV/PCM 或常规 MP4）判定为 false", () => {
-    // WAV 头
     const wav = new Uint8Array(44);
-    wav.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+    wav.set([0x52, 0x49, 0x46, 0x46], 0);
     expect(isFragmentedMp4(wav)).toBe(false);
-    // 常规 MP4：ftyp + moov 无 moof
     const mp4 = new Uint8Array(64);
     writeU32(mp4, 0, 32);
     mp4.set([0x66, 0x74, 0x79, 0x70], 4);
@@ -123,8 +104,6 @@ describe("adtsFromFmp4", () => {
     expect(Array.isArray(segments)).toBe(true);
     expect(segments.length).toBeGreaterThan(0);
     const first = segments[0];
-    // ADTS 每帧 = 7 + sample_size；样本含 2 对 moof/mdat ≈ 470 帧
-    // 验证 syncword
     expect(first[0]).toBe(0xff);
     expect(first[1] & 0xf0).toBe(0xf0);
   });
@@ -138,10 +117,8 @@ describe("adtsFromFmp4", () => {
     const freqIdx = (b0 >> 2) & 0xf;
     expect(profile).toBe(1);
     expect(freqIdx).toBe(3);
-    // chCfg 分布在 byte2 bit0 + byte3 bit7-6
     const chMask = (b0 & 1) << 2 | ((adts[3] >> 6) & 3);
     expect(chMask).toBe(2);
-    // 帧长度 = sample_size + 7；用真实样本第一个 trun 的 size 171
     const b1 = adts[3];
     const b2 = adts[4];
     const len = ((b1 & 3) << 11) | (b2 << 3) | ((adts[5] >> 5) & 7);
@@ -165,7 +142,6 @@ describe("真实 1MB 样本（26 对 moof/mdat）", () => {
     expect(segments.length).toBeGreaterThan(0);
     let frames = 0;
     for (const adts of segments) {
-      // 按 ADTS header 的帧长字段遍历（payload 里的 0xFFFx 伪 syncword 不会误计）
       let off = 0;
       while (off + 7 <= adts.length) {
         if (adts[off] !== 0xff || (adts[off + 1] & 0xf0) !== 0xf0) break;

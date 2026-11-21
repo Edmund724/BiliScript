@@ -1,8 +1,3 @@
-// 概览首配错误分类（票 provider-onboarding-consistency/01）：
-// - 无平台 / 缺 Key 两个解析期文案精确命中 → 对应设置类目；
-// - 其余错误（网络 / 鉴权 / 额度 / 相似但不等的文案）→ null，不伪装成配置问题；
-// - provider-handlers 的 re-export 与叶子同源（SW 产生点不漂移）。
-
 import { describe, expect, it } from "vitest";
 import {
   classifyOverviewSetupError,

@@ -1,12 +1,3 @@
-// search/search-health.ts 引擎健康度与冷却测试（spec §12.4 / §12.5 第 3 行、
-// §10 第 68–71 行、票 15 §4）。覆盖：
-//   ① 纯逻辑（零 Chrome / 不取时间，now 注入、不改写入参）：
-//      滑窗 20 次溢出丢头部、连败边界 2→3、触发 5min / 翻倍 10-20-40 / 封顶 60min、
-//      冷却期内不再触发不延长、成功一次三者同清、脏延迟/脏计数归一、
-//      normalizeSearchHealthMap 脏值防御、cooldownUntilByPresetId 只含未到期项；
-//   ② 薄 storage 层：单键 biliscript_search_health、按 presetId 聚合（引擎级）、
-//      读失败回落 {}、写失败静默、脏载荷 no-op、SW 冷启动后账仍在（无内存态）。
-// 时间一律注入 / fake timers，storage 走内存 fixture，不测真实网络与墙钟。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SEARCH_COOLDOWN_BASE_MS,
@@ -24,8 +15,6 @@ import {
 
 const MINUTE = 60_000;
 const T0 = 1_700_000_000_000;
-
-// ===== 内存 storage fixture（薄 storage 层的形状断言直接读它）=====
 
 let localFixture: Record<string, unknown>;
 
@@ -67,8 +56,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ===== 纯逻辑夹具 =====
-
 function fail(current: SearchProviderHealth | undefined, now: number, latencyMs = 10): SearchProviderHealth {
   return applySearchAttempt(current, false, latencyMs, now);
 }
@@ -77,7 +64,6 @@ function pass(current: SearchProviderHealth | undefined, now: number, latencyMs 
   return applySearchAttempt(current, true, latencyMs, now);
 }
 
-// 连败 3 次 = 一次触发（同一时刻三次失败：第 3 次触发，冷却期自 now 起算）。
 function trigger(current: SearchProviderHealth | undefined, now: number): SearchProviderHealth {
   return fail(fail(fail(current, now), now), now);
 }
@@ -159,7 +145,7 @@ describe("冷却触发 / 翻倍 / 封顶 / 冷却期内不延长（§12.4 第 3 
     expect(health.cooldownLevel).toBe(1);
 
     for (let level = 2; level <= 6; level += 1) {
-      const at = health.cooldownUntil + 1; // 冷却到期后的第一次尝试
+      const at = health.cooldownUntil + 1;
       health = trigger(health, at);
       durations.push(health.cooldownUntil - at);
       expect(health.cooldownLevel).toBe(level);
@@ -175,7 +161,6 @@ describe("冷却触发 / 翻倍 / 封顶 / 冷却期内不延长（§12.4 第 3 
 
     expect(during.cooldownLevel).toBe(1);
     expect(during.cooldownUntil).toBe(triggered.cooldownUntil);
-    // 连败计数照累加（只是不再触发）
     expect(during.consecutiveFailures).toBe(4);
   });
 
@@ -249,7 +234,6 @@ describe("normalizeSearchHealthMap 脏值防御与冷却图（§12.4 第 6 条�
       }
     });
 
-    // 25 条合法尝试 + 1 条归一后的尝试 = 26 → 截断到最近 20 条（丢头部 6 条）
     expect(map.doubao.attempts).toHaveLength(SEARCH_HEALTH_WINDOW);
     expect(map.doubao.attempts[0].latencyMs).toBe(6);
     expect(map.doubao.attempts[19]).toEqual({ ok: false, latencyMs: 0 });
@@ -283,7 +267,6 @@ describe("search-health 薄 storage 层（§12.4 第 6–7、10 条）", () => {
       { ok: true, latencyMs: 42 },
       { ok: false, latencyMs: 7 }
     ]);
-    // 隐私：只存 ok / 延迟，无查询词 / 结果 / Key 字段
     expect(Object.keys(stored.tavily.attempts[0] as object)).toEqual(["ok", "latencyMs"]);
   });
 

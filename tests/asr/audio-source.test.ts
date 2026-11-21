@@ -1,5 +1,3 @@
-// audio-source.js 单测：DASH 音轨选择（bandwidth 最小）、URL 组装、无音轨报错。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

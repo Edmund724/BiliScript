@@ -1,8 +1,3 @@
-// extension/search/adapters/rows.ts 测试：七家 adapter 共享的行映射不变量单源
-// （spec §8）：坏行（非对象）落到 {} 不抛、title/url String 归一、snippet 解析期
-// 截断 500（SEARCH_SNIPPET_MAX_LENGTH）。各 adapter 自己的测试只钉 envelope 路径
-// 与 pickRow 字段接线，不复测这些不变量。
-
 import { describe, expect, it } from "vitest";
 import { mapSearchResultRows } from "../../extension/search/adapters/rows.js";
 import { SEARCH_SNIPPET_MAX_LENGTH } from "../../extension/search/adapters/types.js";

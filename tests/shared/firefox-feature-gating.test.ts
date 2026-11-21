@@ -1,9 +1,3 @@
-// Firefox 特性门控与 TTS 回退单测（TTS 语音朗读 + Live 实时伴看）：
-// 1. 平台判据纯函数：moz-extension:// 识别 Firefox，TTS 在具备 window.speechSynthesis 时启用，Live 仍门控禁用；
-// 2. chat-speech-bg.ts 在 chrome.tts 缺失时返回 TTS_UNSUPPORTED 且 stop 不抛未捕获异常；
-// 3. Firefox 缺少 speechSynthesis 时隐藏朗读入口，具备 speechSynthesis 时正常展示；Chromium 正常展示；
-// 4. Firefox 下播放器实时伴看入口、对话栏实时伴看入口、设置实时伴看分区隐藏，直播间内容脚本短路；Chromium 正常展示。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { resetModuleState } from "../setup.js";

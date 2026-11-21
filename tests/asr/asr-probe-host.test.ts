@@ -1,24 +1,7 @@
-// asr/offscreen-bridge.page.js 探针客户端（probeAsrProviderViaOffscreen）测试。
-//
-// 页面侧（content script）把草稿 provider 交给 offscreen 的真适配器跑一次连通性
-// 探针，本文件钉住这条客户端的边界契约：
-//   - 任务消息形状：草稿字段（type/baseUrl/model/apiKey/language）随 asr-probe
-//     任务过去——含用户在表单里新输、还没保存的 Key；
-//   - 任何「没等到回执」的路径都以可读错误收口，**绝不当成通过**（这是本次修复
-//     的要害：旧探针在 content script 里自己发 fetch，无 chrome.permissions 故
-//     权限门必然 fail-open，域名未授权也能报「连接成功」）：
-//     ① offscreen 文档自愈失败（ensure-offscreen-chat 回 ok:false）→ 连端口都
-//        不连；② 端口连上即断（文档未就绪）→ 可读错误；③ 超时 → 可读错误 +
-//        断开端口（测试按钮不会永远转圈）；
-//   - 回执 ok:false 的文案原样透传（与实际转写同一串，如 HTTP 401 的报文）；
-//   - 不经 offload-task 的 prepare/cleanup：探针不发音轨请求，不占防盗链规则 id。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { ASR_PROBE_TIMEOUT_MS } from "../../extension/asr/protocol.js";
 
-// 与 offscreen-chunk-host.test.ts 同款 connect mock：捕获每次 connect，把端口的
-// onMessage/onDisconnect 监听器存下来，用例内手动派发。
 function installChromeStub(options: { ensureReply?: unknown; ensureThrows?: boolean } = {}) {
   const connections: any[] = [];
   const sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {

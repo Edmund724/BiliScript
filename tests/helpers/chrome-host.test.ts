@@ -1,8 +1,3 @@
-// tests/helpers/chrome-host.js 的契约用例：宿主即 seam，消费方是测试本身。
-// 钉住四件事：键三形状（单键 / 键数组 / null ⇒ 全量快照）、值形状由宿主单源派生、
-// 两种索引落盘格式（现代分键条目 { ts } vs 旧汇总清单数值 ts）不被互相现代化、
-// failNextWrite 只拒绝下一次 set。
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installChromeHost } from "./chrome-host.js";
 import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
@@ -43,7 +38,6 @@ describe("installChromeHost：storage.local 键契约", () => {
     expect(vi.isMockFunction(host.local.set)).toBe(true);
     expect(vi.isMockFunction(host.local.remove)).toBe(true);
 
-    // 既有用例靠 getMockImplementation 包裹宿主默认写实现（reset-fetch-runid 的写窗口）
     const original = host.local.set.getMockImplementation();
     expect(typeof original).toBe("function");
     host.local.set.mockImplementation(async (items) => {
@@ -103,7 +97,6 @@ describe("installChromeHost：盘上布局单源", () => {
       biliscript_lvs_raw_: { BV1old: 10, BV1a: 100 },
       biliscript_subtitle_cache_: { BV1old: 1 }
     });
-    // 索引条目仍是 { ts }，旧清单仍是数值 ts——两条 seed 各写各的格式
     expect(host.map.get(buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", "biliscript_lvs_raw_BV1a_1_a_1"))).toEqual({
       ts: 100
     });
@@ -142,14 +135,11 @@ describe("installChromeHost：failNextWrite 与装配面", () => {
     const host = installChromeHost({ areas: ["local"], runtime: { custom: 1 } });
 
     expect(globalThis.chrome.storage.local).toBe(host.local);
-    // areas 未含 sync：既有 sync 原样保留
     expect(globalThis.chrome.storage.sync).toBe(previous.storage.sync);
     expect(globalThis.chrome.storage.onChanged.addListener).toBeTypeOf("function");
-    // 既有 runtime 成员保留，options.runtime 覆盖
     expect(globalThis.chrome.runtime.sendMessage).toBe(previous.runtime.sendMessage);
     expect(globalThis.chrome.runtime.getURL).toBe(previous.runtime.getURL);
     expect((globalThis.chrome.runtime as unknown as { custom: number }).custom).toBe(1);
-    // 其余 namespace 不丢
     expect((globalThis.chrome as unknown as { offscreen: unknown }).offscreen).toBe(previous.offscreen);
   });
 

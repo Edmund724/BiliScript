@@ -1,13 +1,3 @@
-// extension/core/ai-credential-reference.ts 测试（GLOSSARY「凭据引用」「官方端点判定」）：
-//   ① 官方端点判定：DeepSeek 与 Gemini Live 正例（含尾斜杠 / 大小写 / 带路径 / 443 端口 / 裸域兜底）
-//      与反例（明文 http / 非标端口 / 中转 / 反代 / 子域 / 非法串）；
-//   ② 凭据引用记录解析：第一条「启用 + 对应 AI presetId + 官方端点」记录；停用 /
-//      非目标预设 / 非官方端点跳过；unofficial / no-record / no-key 分野；
-//      记录 baseUrl 为空时按预设协议查 protocolBaseUrls；
-//   ③ 内存态 Key 解析（resolveAiCredentialKey）：返回 { key, status }，Key 为空时自动降级为 no-key；
-//   ④ 运行时消息 Key 查询（queryAiCredentialKey）：两跳消息读取与异常安全兜底；
-//   ⑤ UI 声明式查询与行副行状态文案注入（usesAiCredentialReference / annotateAiCredentialRows）。
-
 import { describe, expect, it } from "vitest";
 import {
   AI_CREDENTIAL_REFERENCE_SPECS,

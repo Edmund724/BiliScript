@@ -1,28 +1,9 @@
-// offscreen-bridge.page.js 页面侧客户端测试（createOffscreenChunkHost）：
-// - mock chrome.runtime.connect：连 "asr-decode" 端口，手动派发 progress/
-//   chunk-result/done/error/断连消息，验证页面侧收包逻辑
-// - 跨 port 只传文本结果：chunk-result 的 result 原样透传（无 Blob/base64），
-//   done 后按 index 排序汇总 { results, totalChunks, skippedSegments, failedChunks }
-// - progress 文本原样中继 onProgress；error 消息 reject 且带 code（asr-skip）；
-//   port 断连未 done → reject「音频解码中断」（真断连是唯一的任务取消路径，
-//   旧 isStale 每消息复核/跨 context 中止已随"转写与视频切换解耦"移除）
-// - prepare 响应带回的 ruleId 存进任务闭包，cleanup 原样带回（多任务并发时
-//   各删各的防盗链规则）
-// 参考 probes 测试的 mock 风格：beforeEach 重建 chrome stub，用例内直接
-// 捕获 connect 返回的 port 手动触发事件。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-// 构造一个可手动驱动的 chrome.runtime.connect mock：
-// 捕获每次 connect 调用，把 port 的 onMessage/onDisconnect 监听器存下来，
-// 用例内调用 emitMessage/emitDisconnect 派发事件，postMessage 记录调用。
-// sendMessage 每次重建（默认回 ok:true），避免前一用例的 mockImplementation
-// 污染（jsdom 全局 chrome 一经 stub 便不重置）。
 function installConnectMock() {
   const connections: any[] = [];
   const sendMessage = vi.fn((_message, callback) => {
-    // prepare 响应带 ruleId（background 分配器返回），与真实契约一致
     callback?.({ ok: true, ruleId: 32001 });
     return undefined;
   });
@@ -67,7 +48,6 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
 
     const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: ["https://y/a.m4s"] });
 
-    // host 内部先 await prepare 消息（异步），flush 微任务后再取 port
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(connect).toHaveBeenCalledTimes(1);
     const port = connections[0];
@@ -91,7 +71,6 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const port = connections[0];
 
-    // 乱序发送：先发 index=1，再发 index=0，验证 done 前收集、done 后排序
     port._emit({
       type: "chunk-result",
       index: 1,
@@ -114,7 +93,6 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     expect(out.skippedSegments).toBe(1);
     expect(out.failedChunks).toBe(0);
     expect(out.results.map((r) => r.index)).toEqual([0, 1]);
-    // result 原样透传（纯 JSON 文本结果，无 Blob/base64 还原）；未附带 overlapLeadSec 时不多出键
     expect(out.results[0]).toEqual({
       index: 0,
       startSec: 0,
@@ -127,8 +105,6 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
       text: "片二",
       segments: [{ start: 0, end: 1, text: "第三句" }]
     });
-    // done 后 disconnect + cleanup 消息（sendOffloadMessage 带 type 前缀，
-    // cleanup 携带 prepare 响应的 ruleId，只删本任务这条规则）
     expect(port.disconnect).toHaveBeenCalledTimes(1);
     expect(globalThis.chrome.runtime.sendMessage).toHaveBeenCalledWith(
       { type: "offload-task", taskType: "asr-decode-cleanup", ruleId: 32001 },
@@ -206,10 +182,6 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     await expect(promise).rejects.toThrow("音频解码中断：后台连接已断开");
   });
 
-  // ===== 失败信号透传契约（票 03：跨 port 只传 kind 这个小字符串）=====
-  // DONE 带片级失败摘要（failedKind/failedStatus/failedDetail），ERROR 带管线级
-  // 失败类别（kind）。字段「有则附、无则不加」：页面侧结果形状按严格相等断言，
-  // 无失败的任务不得凭空多出 undefined 字段。
   describe("失败信号字段透传", () => {
     it("done 带 failedKind/failedStatus/failedDetail → 原样进结果对象", async () => {
       const { connections } = installConnectMock();
@@ -317,10 +289,6 @@ describe("任务取消只剩真断连（isStale 跨 context 复核已移除）",
     const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
     const host = bridge.createOffscreenChunkHost();
 
-    // 旧契约按注入的 isStale 在每条 port 消息到达时断连 reject；新契约宿主
-    // 不再接收该参数——传了也被忽略，转写与视频切换解耦（abort 语义收敛到
-    // port.onDisconnect）。先赋给变量再传入：对象字面量直传会触发 excess
-    // property 检查，而本用例恰恰要验证「多传的字段被忽略」。
     const staleArgs = {
       audioUrl: "https://x/a.m4s",
       backupUrls: [],

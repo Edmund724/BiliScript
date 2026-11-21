@@ -1,18 +1,3 @@
-// 端到端走查（用户报障 2026-09-30，BV1q9He6SEyX）：置顶长评论的目录被 500 字截断
-// 拦腰切断（渲染出「语言轴：一个词 ag」这类半截标题）、第二段目录发在楼中楼里整段
-// 丢失，概览分章因此断尾且逐章 AI 简介过长。本文件跑全链真实模块，只假 transport
-// 与模型两头；transport 喂的是**真接口响应**（tests/fixtures/bilibili/
-// bv1q9he6seyx-reply-*.json：2026-10-06 用带 cookie 的真实浏览器抓的同一支视频的
-// x/v2/reply/main 与 x/v2/reply/reply），不是手写样本：
-//
-//   B 站热评接口真响应（含楼中楼）→ fetchHotCommentsJson → 热评全文通道
-//   → resolveChapterSource 目录解析（顶层正文 + 楼中楼续篇）→ runOverviewAnalysis
-//   产物 → buildMessages 聊天展示
-//
-// 当前口径：评论/简介时间轴达到 10 章时只留标题，总体简介与金句照常；
-// 稀疏时间轴、官方章节与 AI 自由分章保留逐章说明。
-// 走查末尾写出可复现工件（.scratch/tickets/outline-titles-only/artifacts/01-e2e-walkthrough.md）。
-
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,8 +10,6 @@ let gateway: typeof import("../../extension/bilibili/gateway.js");
 let outline: typeof import("../../extension/shared/chapter-outline.js");
 let analysis: typeof import("../../extension/ai/analysis.js");
 let context: typeof import("../../extension/ai/context.js");
-
-// 共享宿主（tests/helpers/chrome-host.ts）承载管线缓存族的落盘。
 
 async function importModules() {
   vi.resetModules();
@@ -47,8 +30,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// —— 真接口响应样本（BV1q9He6SEyX，2026-10-06 抓，出处写在 fixture 的 _provenance）——
-
 const FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "bilibili");
 const MAIN_FIXTURE = JSON.parse(
   readFileSync(join(FIXTURE_DIR, "bv1q9he6seyx-reply-main.json"), "utf8")
@@ -65,11 +46,9 @@ const VIDEO = MAIN_FIXTURE._provenance.video as {
   duration: number;
   desc: string;
 };
-// 置顶目录评论（UP ChHsich 自己置顶）：正文 906 字符，第二段目录在它的楼中楼里
 const PINNED = MAIN_FIXTURE.data.top_replies[0];
 const PINNED_MESSAGE = String(PINNED.content.message);
 const SUB_REPLY_MESSAGE = String(SUB_FIXTURE.data.replies[0].content.message);
-// 09:33 那一行：旧 slice(0, 500) 恰好切在这行中部（用户报障原文「语言轴：一个词 ag」）
 const FULL_0933_TITLE =
   "语言轴：一个词 agent 会咬住并在思考里强化；TDD 该不该用无所谓，让 agent 换一种方式排优先级才是真目的";
 
@@ -85,10 +64,6 @@ function fakeTransport(routes: [match: string, handler: unknown][]) {
   return Object.assign(transport, { calls });
 }
 
-// 流式模型替身：quotes-only 契约只回金句 JSON（经 token 事件流式回吐——概览正文
-// 只能从事件聚合，替身必须走这条路）。入参形状单源引用 ai/completion.js 的
-// ChatCompletionInput（同 tests/ai/analysis.test.ts）：手抄形状会随 StreamChatEvent
-// 词表漂移，正是本文件此前的类型错来源。
 const QUOTE_TEXT = "工具是人的延伸，agent 是意图的延伸。";
 
 function makeQuotesOnlyModel() {
@@ -107,7 +82,6 @@ function makeQuotesOnlyModel() {
   return { chatCompletion, calls };
 }
 
-// 秒 → 与阅读面板同款时钟（小时级带 h，如 1:06:17）。
 function clock(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -119,7 +93,6 @@ function clock(seconds: number): string {
 
 describe("端到端：置顶评论目录全量识别 → 章节只留标题 + 金句照常", () => {
   it("截断/楼中楼/只留标题三处回归走查（真接口响应回放，产出可复现工件）", async () => {
-    // ① B 站热评接口（真实 gateway + 真响应 fixture）：main 给置顶目录评论，reply 给楼中楼续篇
     const transport = fakeTransport([
       ["x/v2/reply/main", MAIN_FIXTURE],
       ["x/v2/reply/reply", SUB_FIXTURE]
@@ -127,7 +100,6 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     const comments = await gateway.fetchHotCommentsJson(transport, VIDEO.aid, 20);
     const subCalls = transport.calls.filter((url) => url.includes("x/v2/reply/reply"));
 
-    // ② 热评全文通道：置顶正文完整（906 字符，>500 不截断），续篇挂在 subMessages
     expect(comments[0].uname).toBe("ChHsich");
     expect(comments[0].message).toBe(PINNED_MESSAGE);
     expect(PINNED_MESSAGE.length).toBe(906);
@@ -137,27 +109,22 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     expect(subCalls[0]).toContain(`root=${PINNED.rpid}`);
     expect(subCalls[0]).toContain(`oid=${VIDEO.aid}`);
 
-    // 旧实现口径（slice(0, 500)）在真数据上的样子：正好断在 09:33 那行中部——
-    // 这就是用户报障的「语言轴：一个词 ag」。锁住它，防截断回归。
     const legacyCut = PINNED_MESSAGE.slice(0, 500);
     expect(legacyCut.endsWith("语言轴：一个词 ag")).toBe(true);
     expect(legacyCut).not.toContain("TDD 该不该用");
     expect(PINNED_MESSAGE).toContain(FULL_0933_TITLE);
 
-    // ③ 目录解析：500 字符之后的章节行（09:33 整行）与楼中楼续篇（25:00 起）都识别
     const source = outline.resolveChapterSource(VIDEO.desc, comments, []);
     expect(source.kind).toBe("outline");
     expect(source.chapters).toHaveLength(27);
     expect(source.chapters[0].seconds).toBe(0);
     expect(source.chapters.find((item) => item.seconds === 573)?.title).toBe(FULL_0933_TITLE);
-    // 25:00 之后整段目录只存在于楼中楼续篇里（顶层正文里搜不到 00:25:00）
     expect(PINNED_MESSAGE).not.toContain("00:25:00");
     expect(source.chapters.find((item) => item.seconds === 1500)?.title).toBe(
       "核心原则：确定性归脚本、判断归 agent，迁移就该 codemod 爬 AST 硬转"
     );
     expect(source.chapters.at(-1)).toEqual({ seconds: 3977, title: "道别：约定 Part 2，周一碰时间" });
 
-    // ④ 概览产物（真实管线 + 假模型）：章节只留标题（不写 AI 简介），金句照常
     const { chatCompletion, calls } = makeQuotesOnlyModel();
     const result = await analysis.runOverviewAnalysis(
       {
@@ -191,9 +158,6 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     });
     expect(result.quotes.map((q) => q.content)).toEqual([QUOTE_TEXT]);
 
-    // ⑤ 聊天展示（真实 buildMessages）：每条 500 字截断、楼中楼续篇不外泄
-    // 展示契约是 ai/types 的宽松形状（字段全可选 + 索引签名），目录数据是
-    // bilibili 侧的具体形状：过界处显式投影，不用 as 断言绕过检查。
     const displayComments: AiHotComment[] = comments.map(({ uname, like, message, subMessages }) => ({
       uname,
       like,
@@ -208,7 +172,6 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     expect(systemText).not.toContain("以下是按热度排序的前");
     expect(systemText).not.toContain(PINNED_MESSAGE.slice(0, 100));
 
-    // ⑦ 工件：可复现走查记录（同一测试重跑逐字节一致）
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "outline-titles-only", "artifacts");
     mkdirSync(artifactDir, { recursive: true });
     writeFileSync(
@@ -250,7 +213,6 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
       ].join("\n")
     );
 
-    // 工件与真实产物对账（防工件说谎）
     const artifact = readFileSync(join(artifactDir, "01-e2e-walkthrough.md"), "utf8");
     expect(artifact).toContain("语言轴：一个词 ag");
     expect(artifact).toContain("1:06:17 道别：约定 Part 2，周一碰时间");

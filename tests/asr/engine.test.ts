@@ -1,8 +1,3 @@
-// engine.js（ASR 转写调度引擎）测试：活队列调度 / 并发上限 / 逐片重试 /
-// 失败计数（Q8a）/ 中止探针 / 逐片交付回调。纯模块单测——transcribe 注入
-// fake（deferred 门控），不依赖 chrome / AudioContext / 真实网络。
-// retryAsync 走真实实现，验证 error.retryable=true / 网络错误才重试的真实语义。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   createTranscriptionEngine,
@@ -11,10 +6,6 @@ import {
 import type { AsrTranscribeResult, TranscribeChunk, TranscribeFn } from "../../extension/asr/engine.js";
 import * as errorHelpers from "../../extension/shared/error-helpers.js";
 
-// makeChunk：合成切片，形状对齐 chunkHost 回传的 { index, startSec,
-// durationSec, wavBlob }（自建 600s/片场景 → startSec 间隔 600，与生产
-// 片长无关）。wavBlob 取真实 Blob（TranscribeChunk 契约要求；tag 仅作
-// 调试文本内容，无断言依赖）。
 function makeChunk(index: number, extra: Partial<TranscribeChunk> & { fast?: boolean } = {}): TranscribeChunk {
   return {
     index,
@@ -41,7 +32,6 @@ function makeDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-// 计数信号量 fake transcribe：记录峰值并发，制造可控延迟。
 function makeCountingTranscribe(delayMs = 5) {
   let active = 0;
   let peak = 0;
@@ -55,7 +45,6 @@ function makeCountingTranscribe(delayMs = 5) {
   return { transcribe, getPeak: () => peak };
 }
 
-// 可重试错误工厂：error.retryable === true（shared/error-helpers 的重试判据之一）
 function makeRetryableError(message = "转写请求失败") {
   return Object.assign(new Error(message), { retryable: true });
 }
@@ -77,7 +66,6 @@ describe("transcribeChunk 单片语义（镜像 pipeline transcribeChunk）", ()
       segments: [{ start: 0, end: 1, text: "你" }],
       durationSec: 1200
     });
-    // 文案与 pipeline 一致：片号 = chunk.index + 1
     expect(onProgress).toHaveBeenCalledTimes(2);
     expect(onProgress).toHaveBeenNthCalledWith(1, "语音识别中 3 片…");
     expect(onProgress).toHaveBeenNthCalledWith(2, "语音识别中 3 片…");
@@ -125,7 +113,7 @@ describe("createTranscriptionEngine 活队列调度", () => {
   });
 
   it("活喂入：push 发生在部分片仍在途时——新片占满空位、超出部分排队，全部被处理", async () => {
-    const gates = new Map<number, Deferred<AsrTranscribeResult>>(); // 慢片 index → deferred
+    const gates = new Map<number, Deferred<AsrTranscribeResult>>();
     const transcribe = vi.fn(async (chunk: TranscribeChunk & { fast?: boolean }) => {
       if (chunk.fast) {
         return { text: `fast-${chunk.index}` };
@@ -141,19 +129,16 @@ describe("createTranscriptionEngine 活队列调度", () => {
       onChunkResult: (chunk, result) => delivered.push({ index: chunk.index, text: result.text })
     });
 
-    // 3 个慢片占 3 个空位（在途）
     engine.push(makeChunk(0));
     engine.push(makeChunk(1));
     engine.push(makeChunk(2));
     expect(transcribe).toHaveBeenCalledTimes(3);
 
-    // 在途期间继续喂 3 个快片：2 个立即启动（并发 5 封顶），1 个排队
     engine.push(makeChunk(3, { fast: true }));
     engine.push(makeChunk(4, { fast: true }));
     engine.push(makeChunk(5, { fast: true }));
     expect(transcribe).toHaveBeenCalledTimes(5);
 
-    // 释放慢片 → 排队片启动，全部消化
     for (const gate of gates.values()) {
       gate.resolve({ text: "slow" });
     }
@@ -174,7 +159,6 @@ describe("createTranscriptionEngine 活队列调度", () => {
         gates.push(gate);
         return gate.promise;
       }
-      // close 后从排队位启动的片：立即完成
       return { text: "late" };
     });
     const engine = createTranscriptionEngine({ transcribe });
@@ -182,7 +166,7 @@ describe("createTranscriptionEngine 活队列调度", () => {
     for (let i = 0; i < 7; i += 1) {
       engine.push(makeChunk(i));
     }
-    const closing = engine.close(); // 5 在途 + 2 排队
+    const closing = engine.close();
     gates.forEach((gate) => gate.resolve({ text: "t" }));
 
     const summary = await closing;
@@ -208,13 +192,12 @@ describe("createTranscriptionEngine 活队列调度", () => {
     expect(transcribe).not.toHaveBeenCalled();
 
     const again = await engine.close();
-    expect(again).toBe(empty); // 重复 close 返回同一 promise 的同一汇总
+    expect(again).toBe(empty);
   });
 });
 
 describe("失败计数（Q8a）与逐片交付", () => {
   it("可重试错误重试成功不计失败；重试耗尽仍失败 → 跳过并计 failedChunks", async () => {
-    // 耗尽路径：retries=2 → 首次 + 2 次重试共 3 次尝试，随后按失败片跳过
     const transcribe = vi.fn(async () => {
       throw makeRetryableError("HTTP 503");
     });
@@ -247,7 +230,6 @@ describe("失败计数（Q8a）与逐片交付", () => {
     [0, 1, 2, 3].forEach((i) => engine.push(makeChunk(i)));
     const summary = await engine.close();
 
-    // 失败片非网络错误不重试：4 片各尝试 1 次
     expect(transcribe).toHaveBeenCalledTimes(4);
     expect(summary).toMatchObject({ acceptedChunks: 4, completedChunks: 3, failedChunks: 1 });
     expect(summary.failures[0].chunk.index).toBe(1);
@@ -263,37 +245,31 @@ describe("失败计数（Q8a）与逐片交付", () => {
       gates.push(gate);
       return gate.promise;
     });
-    const deliveryAttempts: number[] = []; // 每次交付回调的尝试记录（含抛错那次）
-    const delivered: Array<{ index: number; text: string }> = []; // 成功交付（回调未抛错）的片
+    const deliveryAttempts: number[] = [];
+    const delivered: Array<{ index: number; text: string }> = [];
     const engine = createTranscriptionEngine({
       transcribe,
       onChunkResult: (chunk, result) => {
         deliveryAttempts.push(chunk.index);
         if (deliveryAttempts.length === 1) {
-          throw new Error("port 已断开"); // 模拟 postMessage 抛错
+          throw new Error("port 已断开");
         }
         delivered.push({ index: chunk.index, text: result.text });
       }
     });
 
     [0, 1, 2].forEach((i) => engine.push(makeChunk(i)));
-    // 宏任务屏障：让各片的 await 链（async fn 返回值 adoption）先挂载到各自
-    // 的 gate promise 上——否则 push 与 resolve 同处一个同步块，级联顺序由
-    // 订阅顺序而非 resolve 顺序决定，交付顺序断言失去意义。
     await new Promise((r) => setTimeout(r, 0));
-    // 完成顺序 2 → 0 → 1（与 push 顺序不同）
     gates[2].resolve({ text: "C" });
     gates[0].resolve({ text: "A" });
     gates[1].resolve({ text: "B" });
     const summary = await engine.close();
 
-    // 交付回调次数 = 成功片数，且按完成顺序调用
     expect(deliveryAttempts).toEqual([2, 0, 1]);
     expect(delivered).toEqual([
       { index: 0, text: "A" },
       { index: 1, text: "B" }
     ]);
-    // 交付回调抛错的那片仍计完成（转写本身成功）
     expect(summary.completedChunks).toBe(3);
     expect(summary.failedChunks).toBe(0);
   });
@@ -323,14 +299,11 @@ describe("代表失败（representativeFailure：首个不可重试失败优先�
   });
 
   it("首个可重试失败在前、不可重试失败在后 → 取后者（401 不被网络抖动淹没）", async () => {
-    // 真实的「网络抖动在前、确定性失败在后」顺序：不能只看 failures[0]。
-    // 两片同时启动：可重试那片**同步**失败一次后进退避重试（500ms 后第二次
-    // 尝试），确定性那片立即失败入列——错峰不靠计时器也成立。
     const transcribe = vi.fn(async (chunk: TranscribeChunk) => {
       if (chunk.index === 0) {
-        throw makeHttpErrorForSummary(503, "service unavailable"); // 可重试，重试耗尽仍失败
+        throw makeHttpErrorForSummary(503, "service unavailable");
       }
-      throw makeHttpErrorForSummary(401, "invalid api key"); // 确定性失败
+      throw makeHttpErrorForSummary(401, "invalid api key");
     });
     const engine = createTranscriptionEngine({ transcribe });
 
@@ -338,12 +311,10 @@ describe("代表失败（representativeFailure：首个不可重试失败优先�
     engine.push(makeChunk(1));
     const summary = await engine.close();
 
-    // 完成次序：片 1（401，无重试）先入 failures；片 0 在 500ms 退避后才落列
     expect(summary.failures.map((f) => f.chunk.index)).toEqual([1, 0]);
     expect(summary.failures[0].error).toMatchObject({ status: 401 });
     expect(summary.failures[1].error).toMatchObject({ status: 503 });
     expect(summary.failedChunks).toBe(2);
-    // failures[] 与计数语义不变，只是「代表失败」挑不可重试的那一片
     expect(summary.representativeFailure?.chunk.index).toBe(1);
     expect(summary.representativeFailure?.error).toMatchObject({ status: 401 });
   });
@@ -352,9 +323,9 @@ describe("代表失败（representativeFailure：首个不可重试失败优先�
     const engine = createTranscriptionEngine({
       transcribe: async (chunk) => {
         if (chunk.index === 0) {
-          throw makeHttpErrorForSummary(429, "rate limited"); // 可重试（同样先退避）
+          throw makeHttpErrorForSummary(429, "rate limited");
         }
-        throw Object.assign(new Error("平台 baseUrl 未配置"), { kind: "no-asr-config" }); // 不可重试
+        throw Object.assign(new Error("平台 baseUrl 未配置"), { kind: "no-asr-config" });
       }
     });
 
@@ -362,14 +333,12 @@ describe("代表失败（representativeFailure：首个不可重试失败优先�
     engine.push(makeChunk(1));
     const summary = await engine.close();
 
-    // 429 那片后入列（重试耗尽），仍排在 failures 末位；代表失败取配置类那片
     expect(summary.failures.map((f) => f.chunk.index)).toEqual([1, 0]);
     expect(summary.representativeFailure?.chunk.index).toBe(1);
     expect(summary.representativeFailure?.error).toMatchObject({ kind: "no-asr-config" });
   });
 });
 
-// 代表失败用例专用的 HTTP 错误工厂（形状对齐适配器抛出物：message + status）
 function makeHttpErrorForSummary(status: number, detail = "") {
   return Object.assign(new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`), { status });
 }
@@ -394,15 +363,15 @@ describe("中止探针", () => {
     for (let i = 0; i < 8; i += 1) {
       engine.push(makeChunk(i));
     }
-    expect(transcribe).toHaveBeenCalledTimes(5); // 并发封顶，3 片排队
+    expect(transcribe).toHaveBeenCalledTimes(5);
 
-    aborted = true; // 模拟 offscreen port 断连
-    expect(engine.push(makeChunk(8))).toBe(false); // 中止后 push 拒绝
+    aborted = true;
+    expect(engine.push(makeChunk(8))).toBe(false);
 
     gates.forEach((gate) => gate.resolve({ text: "在途完成" }));
     const summary = await engine.close();
 
-    expect(transcribe).toHaveBeenCalledTimes(5); // 未发起新转写
+    expect(transcribe).toHaveBeenCalledTimes(5);
     expect(summary).toEqual({
       acceptedChunks: 8,
       completedChunks: 5,
@@ -412,7 +381,7 @@ describe("中止探针", () => {
       representativeFailure: null,
       aborted: true
     });
-    expect(delivered).toHaveLength(5); // 在途片成果仍交付
+    expect(delivered).toHaveLength(5);
   });
 
   it("在途片失败 + 中止并存：计数如实（completed + failed + dropped = accepted）", async () => {
@@ -435,7 +404,7 @@ describe("中止探针", () => {
     aborted = true;
     gates.forEach(({ index, gate }) => {
       if (index === 2) {
-        gate.reject(new Error("boom")); // 在途片失败：计 failed 不计 dropped
+        gate.reject(new Error("boom"));
       } else {
         gate.resolve({ text: "t" });
       }
@@ -450,30 +419,22 @@ describe("中止探针", () => {
     expect(summary.aborted).toBe(true);
   });
 
-  // 票 05 的机制：中止复用注入的 isAborted（不给 engine 加新选项）。置位点在
-  // 注入的 transcribe 闭包内（offscreen-asr 的 catch），故此处直接模拟该置位
-  // 时序——首片以确定性失败收场的同时 isAborted 翻真。
   it("首片不可重试失败即置位 isAborted：排队片一个都不启动，全部计入 droppedByAbort", async () => {
     const gate = makeDeferred<AsrTranscribeResult>();
     let aborted = false;
     const started: number[] = [];
     const transcribe = vi.fn(async (chunk: TranscribeChunk) => {
       started.push(chunk.index);
-      // 首片挂在半空：先让 10 片全部进队列（9 片排队），再放行它失败——否则
-      // 失败的置位会赶在后续 push 之前，那些片根本不会被接受，droppedByAbort
-      // 也就无从谈起
       await gate.promise;
-      aborted = true; // 真实链路上 offscreen-asr 的 catch 正是在这里置位
+      aborted = true;
       throw makeHttpErrorForSummary(401, "invalid api key");
     });
     const engine = createTranscriptionEngine({
       transcribe,
-      // 并发 1：首片启动（随后失败）时第 2 片还停在排队位，中止置位后它从未启动
       concurrency: 1,
       isAborted: () => aborted
     });
 
-    // 10 片一次性喂入：第 1 片在途，其余 9 片排队
     for (let i = 0; i < 10; i += 1) {
       expect(engine.push(makeChunk(i))).toBe(true);
     }
@@ -482,18 +443,13 @@ describe("中止探针", () => {
     gate.resolve({ text: "不会用到" });
     const summary = await engine.close();
 
-    // 中止后不再启动任何新的排队片：整轮只发出过第 1 个请求（省下的是后续
-    // 9 片的切、编、传）
     expect(transcribe).toHaveBeenCalledTimes(1);
     expect(started).toEqual([0]);
     expect(summary.acceptedChunks).toBe(10);
     expect(summary.failedChunks).toBe(1);
     expect(summary.completedChunks).toBe(0);
-    // 真实语义：中止只影响**尚未启动**的排队片（并发上的在途片收不回来）。
-    // 生产并发 ASR_CONCURRENCY=10，故 401 时最多还有 9 片已经在途。
     expect(summary.droppedByAbort).toBe(9);
     expect(summary.aborted).toBe(true);
-    // 中止是「片级失败」，代表失败仍是那片 401（不是中止本身）
     expect(summary.representativeFailure?.error).toMatchObject({ status: 401 });
   });
 
@@ -501,7 +457,7 @@ describe("中止探针", () => {
     let aborted = false;
     const engine = createTranscriptionEngine({
       transcribe: async () => {
-        aborted = true; // 首片确定性失败 → 置位
+        aborted = true;
         throw makeHttpErrorForSummary(403, "forbidden");
       },
       concurrency: 1,
@@ -519,7 +475,6 @@ describe("中止探针", () => {
 });
 
 describe("HTTP 状态码重试判定（isRetryableNetworkError 按状态收紧）", () => {
-  // 对齐适配器（openai-transcriptions）抛出的 HTTP 错误形状：message + err.status
   function makeHttpError(status: number, detail = "") {
     return Object.assign(new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`), { status });
   }
@@ -533,7 +488,6 @@ describe("HTTP 状态码重试判定（isRetryableNetworkError 按状态收紧�
     engine.push(makeChunk(0));
     const summary = await engine.close();
 
-    // 旧消息启发式（"http " 即重试）会重试 3 次；收紧后按 status 判定只试 1 次
     expect(transcribe).toHaveBeenCalledTimes(1);
     expect(summary.completedChunks).toBe(0);
     expect(summary.failedChunks).toBe(1);
@@ -588,18 +542,12 @@ describe("HTTP 状态码重试判定（isRetryableNetworkError 按状态收紧�
   });
 
   it("无 status 的错误维持消息启发式：网关 'HTTP 404' 消息仍判可重试（其他域行为不回退）", () => {
-    // bilibili 网关只把状态码写进消息文本（无 err.status），收紧不得误伤
     expect(errorHelpers.isRetryableNetworkError(new Error("HTTP 404"))).toBe(true);
     expect(errorHelpers.isRetryableNetworkError(new Error("请求失败：502"))).toBe(true);
-    // 非正数的 status 不是有效 HTTP 状态码（适配器 -1 哨兵）→ 落回消息启发式
     expect(errorHelpers.isRetryableNetworkError({ message: "响应体不是合法 JSON", status: -1 })).toBe(false);
   });
 });
 
-// ===== maxPendingChunks（工单 04：待处理音频分片上限）=====
-// 活队列（已接受未启动）深度达上限时 push 拒绝返回 false：不接受、不计数，
-// 消费方（entry/offscreen-asr.js 的 onChunk）据 false 停止新增工作并报可读
-// 错误。上限只按排队计，在途片不占排队额度。
 describe("maxPendingChunks（待处理分片上限）", () => {
   function blockedTranscribe() {
     const deferred = makeDeferred<AsrTranscribeResult>();
@@ -611,32 +559,31 @@ describe("maxPendingChunks（待处理分片上限）", () => {
     const { transcribe, release } = blockedTranscribe();
     const engine = createTranscriptionEngine({ transcribe, concurrency: 1, maxPendingChunks: 2 });
 
-    expect(engine.push(makeChunk(0))).toBe(true); // 立即在途
-    expect(engine.push(makeChunk(1))).toBe(true); // 排队 1
-    expect(engine.push(makeChunk(2))).toBe(true); // 排队 2（达上限）
-    expect(engine.push(makeChunk(3))).toBe(false); // 超限拒绝
+    expect(engine.push(makeChunk(0))).toBe(true);
+    expect(engine.push(makeChunk(1))).toBe(true);
+    expect(engine.push(makeChunk(2))).toBe(true);
+    expect(engine.push(makeChunk(3))).toBe(false);
     expect(engine.push(makeChunk(4))).toBe(false);
 
-    release(); // 放行阻塞的 transcribe：3 片全部消化
+    release();
     const summary = await engine.close();
 
-    expect(summary.acceptedChunks).toBe(3); // 被拒绝的片不计数
+    expect(summary.acceptedChunks).toBe(3);
     expect(summary.completedChunks).toBe(3);
-    expect(transcribe).toHaveBeenCalledTimes(3); // chunk 3/4 从未调度
+    expect(transcribe).toHaveBeenCalledTimes(3);
   });
 
   it("上限只按排队深度计：在途片完成腾出额度后 push 恢复接受", async () => {
     const { transcribe, release } = blockedTranscribe();
     const engine = createTranscriptionEngine({ transcribe, concurrency: 1, maxPendingChunks: 1 });
 
-    expect(engine.push(makeChunk(0))).toBe(true); // 在途
-    expect(engine.push(makeChunk(1))).toBe(true); // 排队 1（达上限）
+    expect(engine.push(makeChunk(0))).toBe(true);
+    expect(engine.push(makeChunk(1))).toBe(true);
     expect(engine.push(makeChunk(2))).toBe(false);
 
-    release(); // 片 0 完成 → 排队片 1 进入在途，排队清空
+    release();
     await vi.waitFor(() => expect(transcribe).toHaveBeenCalledTimes(2));
 
-    // 未 close（close 后 push 一律拒绝）：额度按排队深度恢复
     expect(engine.push(makeChunk(2))).toBe(true);
   });
 

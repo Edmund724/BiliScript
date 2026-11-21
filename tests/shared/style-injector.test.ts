@@ -1,15 +1,3 @@
-// S3 分层：shared/style-injector.js 的挂载生命周期。
-//
-// 覆盖「开→关→开」注入契约：
-//   - ensureReaderStyles 挂两张阅读表 link（styles/reader.css +
-//     styles/reader-gate.css），路径经 chrome.runtime.getURL 解析；
-//   - 幂等：重复 ensure 不重复挂（mounted Map 防重）；
-//   - removeReaderStyles 摘表并清 Map；再次 ensure 重挂（link 引用全新，
-//     但浏览器样式缓存保证二进宫无闪变——本测试断言 DOM 层行为）；
-//   - ensurePlayerAiStyles / removePlayerAiStyles 同契约（单表）。
-//
-// 不校验 CSS 内容（minify/引用完整性由 build.js 的 manifest 校验覆盖）。
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -28,7 +16,6 @@ function mountedLinks(): HTMLLinkElement[] {
   return Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-biliscript-style="1"]'));
 }
 
-// 挂载态即 DOM：每张表一条 link，逐路径断言（不合并成单个布尔，缺失时能报出是哪张表）。
 function hasStyleLink(path: string): boolean {
   return document.head.querySelector(`link[href$="${path}"]`) !== null;
 }
@@ -87,13 +74,12 @@ describe("style-injector 挂载生命周期", () => {
     expect(mountedLinks()).toHaveLength(4);
 
     injector.removeReaderStyles();
-    expect(mountedLinks()).toHaveLength(1); // 只剩 player-ai 表
+    expect(mountedLinks()).toHaveLength(1);
     expectReaderLinks(false);
 
     injector.ensureReaderStyles();
     const links = mountedLinks();
     expect(links).toHaveLength(4);
-    // 重挂的 link 是新节点（旧引用已摘除；样式数据由浏览器缓存，二进宫无闪变）
     expectReaderLinks(true);
   });
 

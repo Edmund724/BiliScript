@@ -227,13 +227,11 @@ describe("回环地址归一与多浏览器实例共存", () => {
       ]
     });
 
-    // 1. 两个连接并存，不踢掉任何一方
     const status = await requestDaemon("status", { port }) as { extensionOnline: boolean };
     expect(status.extensionOnline).toBe(true);
     expect(mock1.isClosed()).toBe(false);
     expect(mock2.isClosed()).toBe(false);
 
-    // 2. tabs 聚合全部 4 个标签页，且冲突的 raw tabId=42 分配唯一正整数路由标识
     const tabsFirst = await requestDaemon("tabs", { port }) as { tabs: MockTab[] };
     const tabsSecond = await requestDaemon("tabs", { port }) as { tabs: MockTab[] };
     expect(tabsFirst.tabs).toHaveLength(4);
@@ -252,7 +250,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
     const ext2Tab42Id = tabsFirst.tabs[2].tabId;
     expect(ext1Tab42Id).not.toBe(ext2Tab42Id);
 
-    // 3. 按 --tab 分别精准路由到两个实例，并还原为各自原生 tabId=42
     mock1.requests.length = 0;
     mock2.requests.length = 0;
     const sub1 = await requestDaemon("subtitles", { port, options: { tabId: ext1Tab42Id } }) as {
@@ -271,7 +268,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
     expect(mock2.requests).toEqual([{ command: "subtitles", options: { tabId: 42 } }]);
     expect(mock1.requests).toEqual([]);
 
-    // 4. 按 --bvid 视频链接路由到持有该标签页的实例
     mock1.requests.length = 0;
     mock2.requests.length = 0;
     const commentsByUrl = await requestDaemon("comments", {
@@ -282,14 +278,12 @@ describe("回环地址归一与多浏览器实例共存", () => {
     expect(mock2.requests.some((req) => req.command === "comments")).toBe(true);
     expect(mock1.requests.some((req) => req.command === "comments")).toBe(false);
 
-    // 5. 未打开的 --bvid 也能路由到可用在线实例执行
     const unopened = await requestDaemon("subtitles", {
       port,
       options: { bvid: "BV1unopened99" }
     }) as { video: { bvid: string } };
     expect(unopened.video.bvid).toBe("BV1unopened99");
 
-    // 6. 默认取当前活动视频时，准确路由到持有 active 标签页的实例二
     mock1.requests.length = 0;
     mock2.requests.length = 0;
     const activeDefault = await requestDaemon("frame", { port }) as { bvid: string };
@@ -317,7 +311,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     };
 
-    // ext1 有视频标签但均非当前活动标签页（且不带 active 字段）
     attachExtensionMock(ext1, {
       tabs: [{
         tabId: 10,
@@ -329,7 +322,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
         subtitlesReady: true
       }]
     });
-    // ext2 持有当前活动视频
     attachExtensionMock(ext2, {
       subtitleText: "实例二活动视频字幕",
       tabs: [{
@@ -401,7 +393,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
     const ext1PublicTabId = initialTabs.tabs[0].tabId;
     const ext2PublicTabId = initialTabs.tabs[1].tabId;
 
-    // 模拟 ext1 在接收 tabs 请求时突然断连，ext2 仍正常返回
     ext1.onMessage = (message: { type?: string; command?: string }) => {
       if (message.type === "request" && message.command === "tabs") ext1.close();
     };
@@ -414,7 +405,6 @@ describe("回环地址归一与多浏览器实例共存", () => {
     expect(partialTabs.tabs[0]).toMatchObject({ tabId: ext2PublicTabId, bvid: "BV1alive00002" });
     expect(mock2.isClosed()).toBe(false);
 
-    // 幸存实例的原有映射 tabId 仍可精准路由，而断开实例的旧 tabId 不会误打到 ext2 的 tab 42
     const okResult = await requestDaemon("subtitles", { port, options: { tabId: ext2PublicTabId } }) as {
       subtitle: { items: Array<{ content: string }> };
     };

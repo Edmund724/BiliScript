@@ -1,15 +1,3 @@
-// notes/render.ts 直测（arch-slim-2/05 测试网）。
-//
-// 被测函数全部是纯函数（无 DOM/chrome 依赖），零注入成本直测。覆盖：
-// - buildSubtitleSectionLines 章节分桶四要素（工单 acceptance 逐条参数化）：
-//   浮点容差（from + 0.001 >= start）/ 章界取下一章 from /「### 其他片段」兜底 /
-//   末尾空行裁剪。该函数同时被 ai/subtitle-prompt.ts 消费——输出即发给模型的
-//   prompt 字节，断言冻结意义双份（改动即 prompt 漂移，必须显式过门）；
-// - buildMarkdown 段结构断言：简介 / 章节 / 字幕三段；笔记导出删除后正文不再
-//   出现 frontmatter、播放器 iframe 与「## 评论」节（meta 带热评也不出）；
-// - buildTxt / buildSrt / shouldShowHoursInNote
-//   （三输入 max 口径：字幕 maxTo、章节 max(from,to)、meta.videoDuration）。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 
@@ -18,17 +6,12 @@ import {
   buildSrt,
   buildTxt
 } from "../../extension/notes/render.js";
-// arch-review-2026-09/04：两函数已提取到窄叶子（prompt 字节冻结断言不变——
-// 同一份用例锁的是输出，不是居住地）。
 import {
   buildSubtitleSectionLines,
   shouldShowHoursInNote
 } from "../../extension/notes/section-lines.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../extension/core/defaults.js";
 
-// 字幕条目夹具形状：from/to/content 三键均可被用例局部覆盖；对调用方而言既
-// 满足 SubtitleBodyItemLike（from/to/content 全部按可选 unknown 收口）也满足
-// unknown[] 参数。
 type BodyItem = Partial<{ from: number; to: number; content: string }>;
 
 const body = (items: BodyItem[]) => items.map((item) => ({ from: 0, to: 5, content: "x", ...item }));
@@ -36,8 +19,6 @@ const body = (items: BodyItem[]) => items.map((item) => ({ from: 0, to: 5, conte
 beforeEach(() => {
   setLocationUrl(NORMAL_PAGE_URL);
 });
-
-// ===== buildSubtitleSectionLines：章节分桶游标算法 =====
 
 describe("buildSubtitleSectionLines：章节分桶四要素", () => {
   const tsOn = { includeTimestampInBody: true };
@@ -50,7 +31,6 @@ describe("buildSubtitleSectionLines：章节分桶四要素", () => {
       false
     );
 
-    // 不带容差会因 4.9995 < 5 被游标跳过，落到「其他片段」
     expect(lines).toContain("### 第一章 `0:05`");
     expect(lines.some((line) => line.includes("边界句"))).toBe(true);
     expect(lines).not.toContain("### 其他片段");
@@ -151,7 +131,6 @@ describe("buildSubtitleSectionLines：章节分桶四要素", () => {
       false
     );
 
-    // 章节段末尾 push 的空行分隔符被裁掉，最后一个是字幕内容行
     expect(lines[lines.length - 1]).not.toBe("");
     expect(lines[lines.length - 1]).toContain("唯一一句");
   });
@@ -200,10 +179,7 @@ describe("buildSubtitleSectionLines：章节分桶四要素", () => {
   });
 });
 
-// ===== buildMarkdown：逐段断言 =====
-
 describe("buildMarkdown", () => {
-  // 未列出的键以 DEFAULT_SETTINGS 兜底（与生产读取行为一致）。
   const baseSettings: Settings = {
     ...DEFAULT_SETTINGS,
     includeTimestampInBody: true
@@ -222,7 +198,6 @@ describe("buildMarkdown", () => {
       { title: "第一章", from: 0, to: 10 },
       { title: "第二章", from: 10, to: 20 }
     ],
-    // 笔记导出删除后热评不再进正文：meta 带热评也不得出现「## 评论」
     hotComments: [
       { uname: "甲", like: 10, message: "说得好" },
       { uname: "乙", like: 5, message: "学到了" }
@@ -240,23 +215,19 @@ describe("buildMarkdown", () => {
     );
     const lines = md.split("\n");
 
-    // 简介
     expect(lines[0]).toBe("## 简介");
     expect(lines).toContain("这是简介");
 
-    // 章节：紧凑时间戳（不补零，arch-slim-2/08 拍板 Q1）
     expect(lines).toContain("## 章节");
     expect(lines).toContain("- `0:00` 第一章");
     expect(lines).toContain("- `0:10` 第二章");
 
-    // 字幕：走同一套章节分桶（标题带章首时间戳）
     expect(lines).toContain("## 字幕");
     expect(lines).toContain("### 第一章 `0:00`");
     expect(lines).toContain("`0:00` 第一句");
     expect(lines).toContain("### 第二章 `0:10`");
     expect(lines).toContain("`0:10` 第二句");
 
-    // 顺序约束：简介 < 章节 < 字幕
     const indexOf = (needle: string) => lines.findIndex((line) => line === needle || line.startsWith(needle));
     expect(indexOf("## 简介")).toBeLessThan(indexOf("## 章节"));
     expect(indexOf("## 章节")).toBeLessThan(indexOf("## 字幕"));
@@ -269,7 +240,6 @@ describe("buildMarkdown", () => {
 
     expect(md.startsWith("---")).toBe(false);
     expect(lines).not.toContain("---");
-    // 元信息不再以 YAML 属性行落进正文（tags 键随导出设置一并退役）
     expect(lines.some((line) => /^[a-z_]+:\s/.test(line))).toBe(false);
     expect(md).not.toContain("<iframe");
     expect(md).not.toContain("## 评论");
@@ -297,8 +267,6 @@ describe("buildMarkdown", () => {
     expect(md).not.toContain("### 第一章");
   });
 });
-
-// ===== buildTxt / buildSrt / shouldShowHoursInNote =====
 
 describe("buildTxt", () => {
   it("includeTimestampInBody 缺省/false：纯文本逐行拼接，空内容行被过滤", () => {
@@ -380,7 +348,6 @@ describe("shouldShowHoursInNote：三输入 max 口径", () => {
     expect(shouldShowHoursInNote(null, null)).toBe(false);
   });
 });
-
 
 describe("buildVtt：单语与异构双语 WebVTT 导出", () => {
   it("纯中文单轨导出：输出标准 WEBVTT 与 HH:MM:SS.mmm 时间戳，单行无空第二行或占位符", async () => {

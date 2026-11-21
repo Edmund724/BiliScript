@@ -1,37 +1,11 @@
-// 分层依赖守卫（02 结构收口，静态锁定）。
-//
-// 背景：2026-09 审阅发现两处逆向依赖——core/content-orchestration-wiring 反向
-// import entry 的纯工厂；shared/ui-status 为取一个 DOM id 反向 import 整个
-// reader 域，破了 shared 的叶子纪律。两处已在 02 归位（工厂下沉 core、接线归位
-// entry、id 表下沉 shared/dom-ids、ui-status 归位 core）。
-//
-// 本测试把归位结果钉死，防止再次漂回。锁定两条不变量：
-//   A. shared 是叶子层——shared/** 的相对 import（静态或动态）若非纯类型引入，
-//      必须落在 shared/ 内；
-//   B. entry 是组合根——只有 entry/** 可以 import entry/**，其它层一律不得
-//      反向或横向指回 entry（那等价于下层依赖装配现场）。
-//
-// 为什么只锁这两条：仓库的域层（ai/asr/bilibili/chat/notes/reader/subtitle/ui）
-// 之间本就允许横向互引（例：ai → subtitle/cache、reader ↔ ui），这是既有惯例而
-// 非违规，故不把「域层之间」纳入禁令。core → 域层的两条边（core/context-assembly
-// → ai/conversation、bilibili/gateway）经查阅module 头注确认是有意设计，同样放开。
-//
-// 纯类型引入（import type / export type）在构建后消失，不构成运行时依赖边，
-// 故 A 只对非 type-only 的 import 生效（shared/messaging-protocol.ts 即先例）。
-
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const EXTENSION_ROOT = join(process.cwd(), "extension");
 
-// 顶层分层（依赖方向自左向右；entry 为组合根）。新增顶层目录必须同步此处，
-// 否则第 4 条用例会红——这是有意的：结构变化要显式复核依赖方向。
-// search（联网搜索域，spec ai-chat-web-search）仿 asr：域类型/归一化/store
-// 在本层，预设数据与通用类型留在 core（search → core，无其它层指入）。
 const LAYERS = ["shared", "core", "agent-bridge", "ai", "asr", "bilibili", "chat", "live", "notes", "reader", "search", "subtitle", "ui", "entry"];
 
-// 构建产物（两轮 esbuild 输出），不参与源码依赖图。
 const GENERATED_DIRS = new Set(["chunks", "icons"]);
 const GENERATED_FILES = new Set(["content-main.mjs", "content-bootstrap.iife.js"]);
 
@@ -43,7 +17,7 @@ function walk(dir: string, out: string[] = []): string[] {
       walk(full, out);
       continue;
     }
-    if (/\.d\.ts$/.test(name)) continue; // 纯声明，无运行时依赖边
+    if (/\.d\.ts$/.test(name)) continue;
     if (/\.(ts|js)$/.test(name) && !GENERATED_FILES.has(name)) out.push(full);
   }
   return out;
@@ -57,16 +31,11 @@ interface ImportEdge {
   dynamic: boolean;
 }
 
-// 静态：import|export <clause> from "<相对路径>"；clause 不许跨过 `;`。
 const STATIC_RE = /(?:^|\n)[ \t]*(?:import|export)\s+([^;]*?)\s+from\s*["'](\.[^"']+)["']/g;
-// 裸副作用导入：import "<相对路径>"（无 from，同样构成运行时边）。
 const SIDE_EFFECT_RE = /(?:^|\n)[ \t]*import\s*["'](\.[^"']+)["']/g;
-// 动态：import("<相对路径>")。
 const DYNAMIC_RE = /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g;
 
 function collectEdges(file: string): ImportEdge[] {
-  // 先掐掉块注释：注释里举例写的 import 行（若独占一行）会被下面的行首正则
-  // 当成真边计入。行注释无此问题——行首已有 `//`，匹配不上。
   const source = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const edges: ImportEdge[] = [];
 
@@ -113,9 +82,6 @@ describe("分层依赖守卫", () => {
   const edges = files.flatMap(collectEdges);
 
   it("扫描到源码（守卫自身有效，不是空转）", () => {
-    // 不写死文件/边数阈值：源码只增不减，写死数字会在无人违反不变量时红。
-    // 改为钉住结构事实——每个已登记分层都有文件，且两条不变量各自都有待检边
-    // （shared 的出边、指向 entry 的入边），任一条没了都说明扫描空转。
     const emptyLayers = LAYERS.filter((layer) => !files.some((file) => layerOf(file) === layer));
     expect(emptyLayers, `分层 ${emptyLayers.join(", ")} 下无源码文件`).toEqual([]);
     expect(edges.some((edge) => layerOf(edge.importer) === "shared")).toBe(true);

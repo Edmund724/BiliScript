@@ -1,12 +1,3 @@
-// tests/core/save-settings-handler.test.ts
-// core/save-settings-handler.ts（save-settings SW 端 handler 工厂）与
-// search/search-opt-out.ts（撤回判据纯函数 + 撤回钩子）的行为契约：
-//   - 撤回只在 webSearchEnabled true→false 时触发，且先判（保存前快照）后写、
-//     钩子跟在落盘之后；
-//   - 落盘失败回 { ok:false, error } 信封，钩子不执行；
-//   - 撤回钩子清空失败静默（logWarn），不阻断保存回包；
-//   - isSearchOptOut：true→false / false→false / payload 非 false / 缺键。
-
 import { describe, expect, it, vi } from "vitest";
 import { createSaveSettingsHandler } from "../../extension/core/save-settings-handler.js";
 import { createSearchOptOutHook, isSearchOptOut } from "../../extension/search/search-opt-out.js";

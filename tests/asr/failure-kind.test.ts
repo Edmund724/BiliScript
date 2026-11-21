@@ -1,56 +1,34 @@
-// failure-kind.ts（ASR 失败分类纯模块）测试：票 04 判定表全表 + 判定次序。
-// 四档报文形状取自 research/platform-error-shapes.md §0（OpenAI 嵌套 /
-// 硅基流动扁平 / FastAPI detail / 纯文本 Not Found），逐条断言。
-// 重点覆盖三处「同一状态码不同含义」的陷阱：
-//   1. source 维度——音轨从 B 站 CDN 下载，它回的 403/404 与 ASR 平台同形，
-//      只看状态码会把 CDN 的 403 报成「API Key 无效」（本次要修的误报镜像）；
-//   2. 429 双义——OpenAI 一侧额度与限流共用 429，只能靠 error.type 消歧；
-//   3. 404 撞码——speaches「模型没下载」与「路由不存在」同码，但两者同为配置问题。
-// 纯模块：无 fetch / 无 chrome / 无 state，全部同步断言。
-
 import { describe, expect, it } from "vitest";
 import { classifyAsrFailure } from "../../extension/asr/failure-kind.js";
 import type { AsrFailureInput, AsrFailureKind, AsrFailureSource } from "../../extension/asr/failure-kind.js";
 
-// 平台侧（适配器）简写
 function platform(status: number | null | undefined, body?: string | null, baseUrl?: unknown): AsrFailureInput {
   return { source: "platform", status, body, provider: baseUrl === undefined ? null : { baseUrl } };
 }
 
-// 媒体侧（offscreen 管线抛出点）简写
 function media(message?: string | null): AsrFailureInput {
   return { source: "media", status: undefined, body: message };
 }
 
-// 四档真实报文形状（research/platform-error-shapes.md §0 逐字）
 const SHAPES = {
-  // ① OpenAI 嵌套：额度用尽样例（chatbox#401）
   openAiQuota:
     '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":null}}',
-  // ① OpenAI 嵌套：限流（error.type 为结构化枚举）
   openAiRateLimit: '{"error":{"message":"Rate limit reached for requests","type":"rate_limit_exceeded","param":null,"code":null}}',
-  // ① OpenAI 嵌套：格式非法（portkey 错误库）
   openAiFormat:
     '{"error":{"message":"Invalid file format. Please use one of the supported formats: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm.","type":"invalid_request_error","param":null,"code":null}}',
-  // ② 硅基流动扁平：模型不存在（官方错误处理页完整报文）
   siliconFlowModel: '{"code":20012,"message":"Model does not exist. Please check it carefully.","data":null}',
-  // ③ FastAPI detail：模型没下载（speaches routers/utils.py 源码）
   fastApiModelMissing:
     '{"detail":"Model \'whisper-large-v3\' is not installed locally. You can download the model using `POST /v1/models`"}',
   fastApiRouteMissing: '{"detail":"Not Found"}',
-  // ③ FastAPI detail：415 格式不支持
   fastApiFormat: '{"detail":"Failed to decode audio. The provided file type is not supported."}',
   fastApiAuthRequired:
     '{"detail":"API key required. Please provide an API key using the Authorization header with Bearer scheme."}',
   fastApiAuthInvalid: '{"detail":"Invalid API key. The provided API key is incorrect."}',
-  // ④ 纯文本（硅基流动 404 未知路由实测）
   plainNotFound: "Not Found"
 } as const;
 
 describe("判定次序 0a：适配器哨兵 status === -1", () => {
   it("status=-1 → asr-unknown，即使 body 是「响应体不是合法 JSON」", () => {
-    // 适配器 openai-transcriptions.ts:160 的自造哨兵：响应到了但体不是 JSON，
-    // 无从判断是平台故障还是配置问题 → unknown（票 04 Q3）。
     expect(classifyAsrFailure(platform(-1, "响应体不是合法 JSON"))).toBe("asr-unknown");
   });
 
@@ -79,14 +57,11 @@ describe("判定次序 0b：408 不看来源一律 asr-network", () => {
 
 describe("判定次序 0c：media 来源的 CDN 状态码绝不落进平台语义（CDN 陷阱）", () => {
   it("source=media + 403 → asr-media，而同状态的 platform → asr-auth", () => {
-    // 音轨从 B 站 CDN 下载，403 与 ASR 平台同形。只看状态码会把 CDN 拒绝
-    // 报成「API Key 无效」——正是本次要修的误报的镜像。
     expect(classifyAsrFailure({ source: "media", status: 403 })).toBe("asr-media");
     expect(classifyAsrFailure({ source: "platform", status: 403 })).toBe("asr-auth");
   });
 
   it("source=media + 404 → asr-media，而同状态的 platform → no-asr-config", () => {
-    // 同一撞码：CDN 404 是音轨取不到，平台 404 才是 baseUrl / 模型配置错。
     expect(classifyAsrFailure({ source: "media", status: 404 })).toBe("asr-media");
     expect(classifyAsrFailure({ source: "platform", status: 404 })).toBe("no-asr-config");
   });
@@ -171,8 +146,6 @@ describe("判定次序 1：400 的三分（格式 → media / 模型不存在 �
   });
 
   it("400 + 无格式关键词的报文（speaches 空文件 detail）→ asr-unknown（不猜）", () => {
-    // 该 detail 不含「格式 / format / unsupported media / 仅支持」任一关键词，
-    // 票 04 的 400 三分里没有它的位置 → unknown（不自行补规则）。
     expect(classifyAsrFailure(platform(400, '{"detail":"Failed to decode audio. The provided file is likely empty."}'))).toBe(
       "asr-unknown"
     );
@@ -301,8 +274,8 @@ describe("判定次序 0d：无有效状态码时的关键词表", () => {
 
   it("配置关键词（HOST_PERMISSION_HINT / baseUrl 未配置 / 未配置 / 模型类）→ no-asr-config", () => {
     const bodies = [
-      "该平台域名未授权，请在保存时允许权限", // extension/core/host-permissions.ts:28 逐字
-      "平台 baseUrl 未配置", // extension/asr/adapters/openai-transcriptions.ts:115 逐字
+      "该平台域名未授权，请在保存时允许权限",
+      "平台 baseUrl 未配置",
       "未配置语音识别平台",
       "Model does not exist. Please check it carefully.",
       "model not found",
@@ -419,7 +392,6 @@ describe("输入容错：非法 status", () => {
   });
 
   it("status 传字符串（\"401\" / \"403\" / \"404\"）与数字等价", () => {
-    // 跨 port 传输后类型可能丢失（票 03 契约保证 kind 到 content，但输入侧防御）
     expect(classifyAsrFailure(platform("401" as unknown as number))).toBe("asr-auth");
     expect(classifyAsrFailure(platform("403" as unknown as number))).toBe("asr-auth");
     expect(classifyAsrFailure(platform("404" as unknown as number))).toBe("no-asr-config");

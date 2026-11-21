@@ -20,14 +20,12 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
     const host = document.createElement("div");
     document.body.appendChild(host);
 
-    // 1. 仅有 host 且开启 fallbackToHost -> append 到 host
     expect(resolveControlBarPlacement({ host, fallbackToHost: true })).toEqual({
       kind: "append",
       parent: host
     });
     expect(resolveControlBarPlacement({ host, fallbackToHost: false })).toBeNull();
 
-    // 2. 挂载 .bpx-player-control-bottom-right -> prepend 到控制栏右侧
     const bottomRight = document.createElement("div");
     bottomRight.className = "bpx-player-control-bottom-right";
     host.appendChild(bottomRight);
@@ -36,7 +34,6 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
       parent: bottomRight
     });
 
-    // 3. 出现清晰度按钮 -> before 清晰度按钮
     const qualityBtn = document.createElement("div");
     qualityBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-quality";
     bottomRight.appendChild(qualityBtn);
@@ -46,7 +43,6 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
       reference: qualityBtn
     });
 
-    // 4. 开启 preferLiveRoomExtNodes 且存在直播间扩展区 -> prepend 到扩展区
     const liveExt = document.createElement("div");
     liveExt.innerHTML = `<div class="live-web-player-controller"><div class="right-area"><div class="ext-nodes"></div></div></div>`;
     host.appendChild(liveExt);
@@ -72,7 +68,6 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
     expect(insertSpy).toHaveBeenCalledTimes(1);
     expect(isControlBarItemMounted(item, placement)).toBe(true);
 
-    // 再次调用应短路返回 false，不触发 insertBefore
     expect(applyControlBarPlacement(item, placement)).toBe(false);
     expect(insertSpy).toHaveBeenCalledTimes(1);
   });
@@ -88,22 +83,18 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
       onObserverChange: (obs) => activeObservers.push(obs)
     });
 
-    // 启动时容器不在，回退观察 document.body
     expect(observeSpy).toHaveBeenCalledTimes(1);
     expect(observeSpy.mock.calls[0]?.[0]).toBe(document.body);
 
-    // 动态插入播放器容器
     const container = document.createElement("div");
     container.className = "bpx-player-container";
     document.body.appendChild(container);
     await Promise.resolve();
 
-    // 自动切换为观察局部容器，并触发一次空记录同步回调
     expect(observeSpy).toHaveBeenCalledTimes(2);
     expect(observeSpy.mock.calls[1]?.[0]).toBe(container);
     expect(onMutations).toHaveBeenCalledTimes(1);
 
-    // 局部容器内部变化可被捕获
     const child = document.createElement("span");
     container.appendChild(child);
     await Promise.resolve();

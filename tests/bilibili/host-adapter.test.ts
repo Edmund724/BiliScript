@@ -26,11 +26,9 @@ describe("bilibili/host-adapter（BiliHostAdapter）", () => {
     const bpx = document.querySelector(".bpx-player-container")!;
     expect(adapter.findVideoPlayerContainer()).toBe(bpx);
 
-    // 移除首选 .bpx-player-container，降级到 #bilibili-player
     bpx.classList.remove("bpx-player-container");
     expect(adapter.findVideoPlayerContainer()).toBe(document.getElementById("bilibili-player"));
 
-    // 直播间容器降级
     document.body.innerHTML = `<div id="live-player-ctnr"><div class="live-player-mounter"></div></div>`;
     expect(adapter.findLiveRoomPlayerHost()).toBe(document.querySelector(".live-player-mounter"));
     expect(adapter.findAnyPlayerHost()).toBe(document.querySelector(".live-player-mounter"));
@@ -71,24 +69,20 @@ describe("bilibili/host-adapter（BiliHostAdapter）", () => {
       onObserverChange: (obs) => obs2History.push(obs)
     });
 
-    // 同一容器只建 1 个底层 MutationObserver
     expect(adapter.getActiveObserverCount()).toBe(1);
     expect(adapter.getSubscriberCount()).toBe(2);
     expect(obs1History[0]).toBe(obs2History[0]);
 
-    // 仅改 style 属性：只通知订阅了 attributes 的 attrWatcher，不唤醒 childListOnly
     container.setAttribute("style", "opacity: 0.9");
     await Promise.resolve();
     expect(attrWatcher).toHaveBeenCalledTimes(1);
     expect(childListOnly).not.toHaveBeenCalled();
 
-    // 插入子节点：两者均收到
     container.appendChild(document.createElement("span"));
     await Promise.resolve();
     expect(attrWatcher).toHaveBeenCalledTimes(2);
     expect(childListOnly).toHaveBeenCalledTimes(1);
 
-    // 退订 attrWatcher（通过 AbortSignal），不得影响 childListOnly
     ac2.abort();
     expect(obs2History.at(-1)).toBeNull();
     expect(adapter.getActiveObserverCount()).toBe(1);
@@ -99,7 +93,6 @@ describe("bilibili/host-adapter（BiliHostAdapter）", () => {
     expect(childListOnly).toHaveBeenCalledTimes(2);
     expect(attrWatcher).toHaveBeenCalledTimes(2);
 
-    // 末位订阅方退订：底层 MutationObserver 彻底断开归零
     ac1.abort();
     expect(adapter.getActiveObserverCount()).toBe(0);
     expect(adapter.getSubscriberCount()).toBe(0);
@@ -112,7 +105,6 @@ describe("bilibili/host-adapter（BiliHostAdapter）", () => {
     const h1 = adapter.observeContainer({ containerSelector: ".bpx-player-container", onMutations: cb1 });
     const h2 = adapter.observeContainer({ containerSelector: ".bpx-player-container", onMutations: cb2 });
 
-    // 容器缺席：双方共用 1 个 body 回退观察器
     expect(adapter.getActiveObserverCount()).toBe(1);
 
     const firstContainer = document.createElement("div");
@@ -122,10 +114,8 @@ describe("bilibili/host-adapter（BiliHostAdapter）", () => {
 
     expect(cb1).toHaveBeenCalledTimes(1);
     expect(cb2).toHaveBeenCalledTimes(1);
-    // 已收敛到局部容器，body 回退观察器已释放，总数仍为 1
     expect(adapter.getActiveObserverCount()).toBe(1);
 
-    // 模拟 SPA 换集：旧容器脱离后发生变更触发脱离检测，并出现新容器
     const secondContainer = document.createElement("div");
     secondContainer.className = "bpx-player-container";
     firstContainer.remove();

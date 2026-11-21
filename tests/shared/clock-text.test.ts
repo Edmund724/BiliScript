@@ -1,10 +1,3 @@
-// 时刻文本单源模块测试（arch-slim-2/08）：
-// formatClock（不补零展示，拍板 Q1）/ parseClock（严口径解析 + 过渡期补零容错）/
-// withHours 两档谓词（条目级 / 元数据级聚合前的单点判定）。三个历史解析器
-// （parseOutlineClock / parseTimestampSeconds / parseTimestampToSeconds）的哨兵
-// 语义差异在各自消费方断言：outline -1 丢条目见 tests/ai/analysis.test.ts、
-// nav 0 哨兵见 tests/ui/timestamp-nav.test.ts。
-
 import { describe, expect, it } from "vitest";
 import {
   formatClock,
@@ -19,7 +12,6 @@ describe("formatClock：秒 → 时刻文本（不补零）", () => {
     expect(formatClock(5)).toBe("0:05");
     expect(formatClock(65)).toBe("1:05");
     expect(formatClock(600)).toBe("10:00");
-    // 拍板口径：分钟不封顶（沿原 formatAnalysisClock），3725 → 62:05
     expect(formatClock(3725)).toBe("62:05");
   });
 
@@ -48,7 +40,7 @@ describe("parseClock：时刻文本 → 秒（严口径 + 过渡期补零容错�
   it("2 段与 3 段均可解析，段序不补零", () => {
     expect(parseClock("0:05")).toBe(5);
     expect(parseClock("2:30")).toBe(150);
-    expect(parseClock("62:05")).toBe(3725); // 分钟不封顶
+    expect(parseClock("62:05")).toBe(3725);
     expect(parseClock("1:02:05")).toBe(3725);
   });
 
@@ -70,7 +62,7 @@ describe("parseClock：时刻文本 → 秒（严口径 + 过渡期补零容错�
   });
 
   it("2 段分钟位不封顶：formatClock never 档的产出必须可回读", () => {
-    expect(parseClock("60:00")).toBe(3600); // 60:00 = formatClock(3600)
+    expect(parseClock("60:00")).toBe(3600);
     expect(parseClock("99:59")).toBe(5999);
     expect(parseClock("62:05")).toBe(3725);
   });

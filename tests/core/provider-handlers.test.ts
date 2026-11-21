@@ -1,19 +1,7 @@
-// provider-handlers.js createProviderMessageHandlers 工厂测试。
-// background.js 的 AI / ASR Provider 消息家族共用该工厂：验证标准处理器
-// （list/get/save/remove）的响应负载契约与回包口径归属——list/save/remove
-// 返回 void（回包时机由协议层 BACKGROUND_MESSAGE_REGISTRY 的 reply 登记、
-// 入口 resolveReplyKeepOpen 兑现，工厂返回值不再是口径）；只有 get 保留
-// 判定（MessageReplyDecision），它唯一服务 get-ai-provider-key，该消息登记为
-// branch，入口读返回值派生「同步预检即答 / 通过后转异步」的持有口径。（原 test
-// 处理器与 probe/pickTestProvider 注入面的用例已随 arch-slim-2/03 死能力退役
-// 一并删除：生产零注入，探针由 options 页直调 ai/provider-test.js 与
-// asr/provider-test.js。）
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createProviderMessageHandlers, createAsrRuntimeConfigHandler, createSubtitleTranslateProviderHandler } from "../../extension/core/provider-handlers.js";
 
-// 捕获（可能异步的）sendResponse：回包即 resolve，测试 await response 即可
 function makeChannel<T = unknown>() {
   let resolveResponse: (payload: unknown) => void = () => {};
   const response = new Promise<T>((resolve) => {
@@ -126,8 +114,6 @@ describe("get（读取已存 Key）", () => {
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse, response } = makeChannel();
 
-    // get 是工厂内唯一保留判定的成员（get-ai-provider-key 登记为 branch，
-    // 入口 resolveReplyKeepOpen 读它），故此处继续钉住返回值。
     expect(handlers.get({ providerId: " p1 " }, {}, sendResponse)).toBe("hold");
     expect(await response).toEqual({ ok: true, apiKey: "spaced" });
   });
@@ -152,8 +138,6 @@ describe("get（读取已存 Key）", () => {
   });
 });
 
-// ===== get-asr-runtime-config（内容脚本 ASR 回退的运行时配置 seam）=====
-
 function makeRuntimeDeps(overrides = {}) {
   return {
     getMergedSettings: vi.fn(async () => ({
@@ -161,9 +145,6 @@ function makeRuntimeDeps(overrides = {}) {
       asrLanguage: "auto",
       asrAutoFallback: true
     })),
-    // provider 列表直读 provider-store（asrProviders 已摘出 settings）；条目形状
-    // 与协议响应 providers?: AsrProviderListEntry[] 逐字段对齐（回包形参按消息键
-    // 收型后，夹具也必须给全族条目的字段）。
     loadProviders: vi.fn(async () => [
       {
         id: "p1",
@@ -210,7 +191,6 @@ describe("get-asr-runtime-config（createAsrRuntimeConfigHandler）", () => {
       asrLanguage: "auto",
       asrAutoFallback: true
     });
-    // 列表直读 provider-store；Key 单查只针对激活平台 id（trim 后）
     expect(deps.loadProviders).toHaveBeenCalledTimes(1);
     expect(deps.getAsrProviderKey).toHaveBeenCalledTimes(1);
     expect(deps.getAsrProviderKey).toHaveBeenCalledWith("p1");
@@ -274,8 +254,6 @@ describe("get-asr-runtime-config（createAsrRuntimeConfigHandler）", () => {
     expect(deps.getAsrProviderKey).not.toHaveBeenCalled();
   });
 });
-
-// ===== 「激活平台」单趟解析处理器（arch-slim-3/09）=====
 
 import { createAiResolvedProviderHandler } from "../../extension/core/provider-handlers.js";
 
@@ -353,7 +331,6 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     fallbackHandler({}, {}, fallbackChannel.sendResponse);
     expect(await fallbackChannel.response).toMatchObject({ ok: true, isFallback: true });
 
-    // 无显式默认（defaultModel 为空）：首项即缺省，不算回落
     const noExplicitDeps = makeResolvedDeps({
       getMergedSettings: vi.fn(async () => ({ defaultModel: "" }))
     });
@@ -446,7 +423,6 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     handler({}, {}, ch1.sendResponse);
     expect(await ch1.response).toMatchObject({ ok: true, provider: { id: "p1" }, model: "m1b" });
 
-    // defaultAiModel 不在目录内 → 回落目录首项
     const staleDeps = makeResolvedDeps({
       getMergedSettings: vi.fn(async () => ({ defaultModel: "p1", defaultAiModel: "deleted-model" })),
       loadProviders: vi.fn(async () => [
@@ -457,7 +433,6 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     createAiResolvedProviderHandler(staleDeps)({}, {}, ch2.sendResponse);
     expect(await ch2.response).toMatchObject({ ok: true, model: "m1a" });
 
-    // 默认平台回落时不用旧平台的 defaultAiModel，回落到替补平台首项
     const fallbackDeps = makeResolvedDeps({
       getMergedSettings: vi.fn(async () => ({ defaultModel: "ghost", defaultAiModel: "m2b" })),
       loadProviders: vi.fn(async () => [

@@ -1,8 +1,3 @@
-// 调试日志门（shared/logging 的 registerDebugGate + shared/debug-log-gate 接线）：
-// - logging 未注册缺省关，logWarn/logError 不出声（叶子纪律：不读 core/state）
-// - registerDebugGate 生效且后注册覆盖先注册
-// - registerDebugLogGate 初始读 sync、onChanged 保活；area/key 不匹配不翻转；
-//   初始读失败维持关且不抛未处理拒绝
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -47,10 +42,6 @@ describe("shared/logging 调试门", () => {
   });
 
   it("门跨实例共享：常驻实例注册，懒加载区实例的 logWarn 也出声", async () => {
-    // 两轮构建（scripts/build-content.js）把 shared 底座在懒加载区重复一份：
-    // 门原先挂模块级变量，注册发生在常驻包实例（content.ts 的
-    // registerDebugLogGate），抓取链/reader/对话用的懒加载区那份看不到——
-    // 用户开了「调试日志」也捞不到 [BILISCRIPT] 行。门改挂 globalThis 槽。
     const resident = await import("../../extension/shared/logging.js");
     resident.registerDebugGate(() => true);
     vi.resetModules();

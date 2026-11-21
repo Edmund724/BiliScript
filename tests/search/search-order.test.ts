@@ -1,14 +1,3 @@
-// tests/search/search-order.test.ts
-// search/search-order.ts（零依赖叶，票 15 Q1-a）测试（spec §12.2 / §10 第 63–65 行）：
-//   ① normalizeSearchProviderOrder——searchProviderOrder 归一（非数组 / 元素非字符串
-//      或空串 / 未知 id / 重复 id → 整体作废 []）。用例原在 search-chain.test.ts
-//      （归一实现搬入本叶后用例随属主迁移，断言逐条不变）；
-//   ② providerOrderRank——链解析侧（search-chain）与设置列表侧（settings-panel）
-//      共用的排序键：[order 下标 | +Infinity, 内置默认序下标 | 默认序长度]。
-//      本组用例是「键规则唯一实现」的锚：两侧消费形态不同（链侧还带去重 / 冷却 /
-//      单选短路，列表侧不过是滤不去重），但键的算法只此一份。
-//   ③ 叶纪律：运行时相对 import 只允许 core/presets.js——多了任何一条都意味着
-//      设置抽屉的懒 chunk 可能重新挂上搜索适配器边（票 15 Q2-a 的收益被撤销）。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -62,7 +51,6 @@ describe("providerOrderRank 排序键（spec §12.2 / §10 第 63–65 行）", 
       Number.POSITIVE_INFINITY,
       0
     ]);
-    // 空 order（无自定义顺序 / 归一整体作废）= 全部取首哨兵 → 纯内置默认序
     expect(providerOrderRank("search_parallel", "parallel", [])).toEqual([
       Number.POSITIVE_INFINITY,
       DEFAULT_SEARCH_PROVIDER_ORDER.indexOf("parallel")

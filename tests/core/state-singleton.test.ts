@@ -1,14 +1,3 @@
-// core/state 单例跨实例共享回归（content 两轮构建的双实例缺陷，第 3 项）：
-//
-// scripts/build-content.js 是两轮构建——轮 A 常驻单文件（content-main.mjs）、
-// 轮 B 懒加载区（chunks/），共享底座在两侧各有一份实例。状态单例原先挂模块级
-// 变量：常驻侧（content.ts / message-handler / ui-status）与懒加载区（fetcher /
-// reader / 对话）各持一份 state，两边各写各的，跨侧读取随时可能拿到空值。修复：
-// 单例挂 globalThis 槽（与 shared/messaging.ts 的页内分发槽同款先例）。
-//
-// 手法：vi.resetModules() 后重新 import 得到**另一个模块实例**，断言它看到的是
-// 同一份状态对象——正是生产里两侧实例的分工。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -20,7 +9,6 @@ let lazy: StateModule;
 beforeEach(async () => {
   resetModuleState();
   resident = await import("../../extension/core/state.js");
-  // 模拟轮 B 懒加载区那份实例
   vi.resetModules();
   lazy = await import("../../extension/core/state.js");
 });

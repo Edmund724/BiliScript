@@ -1,10 +1,3 @@
-// tests/search/resolve-search-provider-handler.test.ts
-// search/resolve-search-provider-handler.ts（链装配编排的 SW 端 handler 工厂）的
-// 行为契约：五个读取 primitive 全部 fake 直驱，原 entry 层 10 个行为分支语义搬入
-//（单选 / 智能哨兵与空串 / 用户序 / 脏序回落 / 免 Key 无 Key / 无合格记录 /
-// 单选空链 / 免费额度无 Key 排除 / 有 Key 入链 / 未知 presetId 排除）+ 冷却归因支。
-// 链的形状锁在回包全等断言里（spec §1 S4 单趟回传形状）。
-
 import { describe, expect, it, vi } from "vitest";
 import { createResolveSearchProviderHandler } from "../../extension/search/resolve-search-provider-handler.js";
 import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
@@ -30,7 +23,6 @@ const FIRECRAWL_ENTRY: SearchProvider = {
   enabled: true
 };
 
-// free-quota 家（Exa）：无 Key 不进链、有 Key 才进（spec §2 调用形状表）
 const EXA_ENTRY: SearchProvider = {
   id: "exa",
   presetId: "exa",
@@ -118,7 +110,6 @@ describe("resolve-search-provider handler 工厂（链装配编排）", () => {
 
       const response = await call(handler);
 
-      // 内置默认序 tavily(2) < firecrawl(3)；预设表序是 firecrawl 起头，故本断言能分辨两者
       expect(response.chain).toEqual([TAVILY_CANDIDATE, FIRECRAWL_CANDIDATE]);
     }
   });
@@ -165,7 +156,6 @@ describe("resolve-search-provider handler 工厂（链装配编排）", () => {
 
     expect(response).toEqual({ ok: true });
     expect(response.chain).toBeUndefined();
-    // 真的没有合格记录 = 未配置路径：不带 chainEmptyReason（spec §12.7 第 6 条翻案）
     expect(response.chainEmptyReason).toBeUndefined();
   });
 

@@ -1,20 +1,3 @@
-// bilibili/gateway-core.ts 直测（arch-slim-2/04 拆叶）。
-//
-// 两层锁定：
-// 1. 叶子约束（源码扫描）：gateway-core.ts 不含任何 import——静态、动态、
-//    re-export 一律不允许，只准依赖平台全局（URL/Headers/fetch）。这是
-//    ADR-0003「拆静态边」的防回内联锁：SW（entry/background.ts）静态图经它
-//    只该拿到 isBiliUrl + bgFetchJson；scripts/build.js 的 35KB 守卫防的正是
-//    缓存链（state/video-probe/selection→cache→cache-lru）经此回内联。
-// 2. 行为语义锁定：bgFetchJson 的头部/凭据/referrer 语义拆叶前后零变化；
-//    isBiliUrl 边界另有 gateway.test.js 经 gateway re-export 的既有用例。
-//
-// Headers stub 说明：实现以 (headers as { size }).size > 0 探测是否附加头部，
-// 而真实平台的 Headers 均无 size 属性（Chrome Fetch Standard 与 Node undici 皆
-// 无），探针恒 false——既有实现细节，本票逐字保留（见票 Comments）。测试用带
-// size 的 Map 子类替身，跨环境确定地覆盖「探针为真 → 附加」分支并断言头部
-// 集合构造语义；替身只换 Headers 实现，被测代码路径不变。
-
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,7 +8,6 @@ import { bgFetchJson, isBiliUrl } from "../../extension/bilibili/gateway-core.js
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.resolve(here, "../../extension/bilibili/gateway-core.ts"), "utf8");
 
-// 带 size 的 Headers 替身（Map 子类，键小写归一，语义对齐 Fetch Standard）
 class FakeHeaders extends Map<string, string | null> {
   set(key: string, value: string) {
     super.set(String(key).toLowerCase(), value);
@@ -36,7 +18,6 @@ class FakeHeaders extends Map<string, string | null> {
   }
 }
 
-// bgFetchJson 实际下发的 init（替身场景下 headers 恒为 FakeHeaders 实例）
 interface FetchOptions {
   method: string;
   credentials: string;

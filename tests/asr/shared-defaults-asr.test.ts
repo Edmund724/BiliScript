@@ -1,14 +1,7 @@
-// presets.js / asr-provider-normalize.js / defaults.js ASR 预设与规范化测试：
-// 验证 ASR_PROVIDER_PRESETS 字段齐全、normalizeAsrProvider type 合法值校验、
-// DEFAULT_SETTINGS 不含 asrProviders（列表已摘出 settings，归 provider-store 管）。（arch-slim-2/09：normalizeAsrProvider 随域类型搬
-// asr/asr-provider-normalize.ts，预设数据仍住 core/presets.ts。）
-
 import { describe, expect, it } from "vitest";
 import { normalizeAsrLanguage } from "../../extension/core/presets.js";
 import { normalizeAsrProvider } from "../../extension/asr/asr-provider-normalize.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
-
-
 
 describe("normalizeAsrProvider", () => {
   it("完整 provider 原样保留关键字段并补 enabled 默认 true", () => {
@@ -45,7 +38,6 @@ describe("normalizeAsrProvider", () => {
     expect(normalizeAsrLanguage("en")).toBe("en");
     expect(normalizeAsrLanguage("EN")).toBe("en");
     expect(normalizeAsrLanguage("auto")).toBe("auto");
-    // 缺失 / 非法值都回落 auto
     expect(normalizeAsrLanguage("")).toBe("auto");
     expect(normalizeAsrLanguage(undefined)).toBe("auto");
     expect(normalizeAsrLanguage("ja")).toBe("auto");

@@ -1,7 +1,3 @@
-// core/host-permission-handlers.ts 接口测试（零整包 SW 装载，直测 HostPermissionHostAdapter 接缝）：
-// 覆盖同步零 await 手势不变式、无端口归一化、Firefox 手势缺失回退（常驻放行 / 仅未授权子集弹窗 /
-// 伪造来源拒绝 / 窗口关闭 / 120s 超时 / windows.create 同步抛错）、check-provider-origin 与
-// revoke-provider-origin。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createHostPermissionHandlers,
@@ -139,7 +135,6 @@ describe("request-provider-origins：同步手势链与 Firefox 授权回退", (
     );
 
     expect(decision).toBe("hold");
-    // 关键手势断言：未让出任何微任务，permissions.request 已同步触发
     expect(h.requestMock).toHaveBeenCalledTimes(1);
     expect(h.requestMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
     expect(h.createWindowMock).not.toHaveBeenCalled();
@@ -235,7 +230,6 @@ describe("request-provider-origins：同步手势链与 Firefox 授权回退", (
     expect(parsed.reqId).not.toBe("");
     expect(parsed.origins).toEqual(["http://localhost/*"]);
 
-    // 伪造来源（非扩展授权页 / 非本扩展 id）均被拒且不影响挂起请求
     expect(
       h.grantResult({ reqId: parsed.reqId, ok: true }, { url: CONTENT_SENDER.url, id: RUNTIME_ID })
     ).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
@@ -243,7 +237,6 @@ describe("request-provider-origins：同步手势链与 Firefox 授权回退", (
       h.grantResult({ reqId: parsed.reqId, ok: true }, { url: createArgs.url, id: "foreign-ext-id" })
     ).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
 
-    // 来自授权页本身的合法回包完成授权并释放监听
     expect(
       h.grantResult(
         { reqId: parsed.reqId, ok: true },
@@ -254,7 +247,6 @@ describe("request-provider-origins：同步手势链与 Firefox 授权回退", (
     expect(h.removeRemovedListener).toHaveBeenCalledTimes(1);
     expect(h.windowRemovedListeners.size).toBe(0);
 
-    // 已结算的 reqId 再次回包提示不存在
     expect(
       h.grantResult({ reqId: parsed.reqId, ok: true }, { url: createArgs.url, id: RUNTIME_ID })
     ).toEqual({ ok: false, error: "授权请求不存在或已结束" });

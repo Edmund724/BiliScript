@@ -1,8 +1,3 @@
-// search/search-adapters.ts 注册表对账测试：键集与 SearchProviderType 词表
-// （SEARCH_PROVIDER_PRESETS 的 type 集）一致；每个 adapter 的 type 自陈与所在键
-// 相同；resolveSearchAdapter 对未知 / 非字符串值兜底 tavily（对齐
-// resolveAdapter 的 openai 兜底语义）。
-
 import { describe, expect, it } from "vitest";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import { SEARCH_ADAPTERS, resolveSearchAdapter } from "../../extension/search/search-adapters.js";

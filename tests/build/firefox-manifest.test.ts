@@ -53,12 +53,11 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     });
 
     const expectedPresetOrigins = expectedOfficialHttpsOriginsFromPresets();
-    expect(expectedPresetOrigins).toHaveLength(14); // 13 新增 + deepseek（已在基线 15 域中）
+    expect(expectedPresetOrigins).toHaveLength(14);
     for (const origin of expectedPresetOrigins) {
       expect(derived.host_permissions).toContain(origin);
     }
 
-    // 15 基线 + 13 官方预设新增 = 28 常驻域（无重复）
     expect(derived.host_permissions).toHaveLength(28);
     expect(new Set(derived.host_permissions).size).toBe(28);
     expect(new Set(derived.host_permissions)).toEqual(
@@ -114,7 +113,6 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
       "declarativeNetRequest",
     ]);
 
-    // 纯函数不修改 Chromium 原 manifest 对象
     expect(JSON.stringify(chromiumManifest)).toBe(snapshot);
   });
 

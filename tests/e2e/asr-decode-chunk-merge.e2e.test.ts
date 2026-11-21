@@ -1,40 +1,3 @@
-// 端到端走查：ASR 解码→切片→合并全链（无字幕视频的语音转写链路）。
-//
-// 本文件跑全链真实模块，只假「平台能力」两头，并把假的位置与理由写在下面：
-//
-//   tests/asr/fixtures/fmp4-*.bin（真实 B 站 DASH 音轨 m4s 片段：ftyp/moov/sidx +
-//   moof/mdat）
-//     → extension/asr/adts        （真：fMP4 判定 / esds ASC / trun sample sizes /
-//                                  ADTS 头组装 / 流式分段）
-//     → [AAC 解码：平台能力，见下]  （假：本环境无解码器）
-//     → extension/asr/stream-chunker + chunker + wav-encode（真：切片计划 / 流式切片 /
-//                                  WAV 16bit PCM 编码，与全量切片逐字节对账）
-//     → extension/asr/pipeline     （真：全局偏移合并 / 无 segments 的整片降级 /
-//                                  越界截断 / 空结果诊断 / 失败面上报）
-//     → [转写 POST：平台边界，见下] （假：转写调度在 offscreen，页面侧只收片结果）
-//
-// 真实 payload 清单（都在 tests/fixtures 下，出处逐字写在各自 _provenance）：
-//   - tests/asr/fixtures/fmp4-audio-sample.bin / fmp4-1mb.bin：真 B 站音轨 m4s
-//   - tests/fixtures/bilibili/bv1q9he6seyx-playurl-dash-audio.json：真 playurl 响应
-//     （3 条 dash 音轨 + 真实签名 URL / backupUrl），驱动真实 audio-source 选轨
-//   - tests/fixtures/bilibili/bv1q9he6seyx-playurl-html5-no-dash.json：真 playurl
-//     响应（生产 buildPlayurlUrl 的 platform=html5 形状：无 dash、走 durl 回退）
-//   - tests/fixtures/asr/siliconflow-transcriptions-401.json / siliconflow-unknown-route-404.json：
-//     真硅基流动失败报文（线上抓取）
-//
-// 两处不可用真实数据、故显式停下（不是近似）：
-//   ① AAC 解码：Node/jsdom 没有 AudioContext，仓库依赖里也没有任何音频解码器
-//      （已核：node_modules 无 audio/aac/mp4/ffmpeg/wasm 解码包）。故 decodeSegment
-//      由本文件注入，返回的采样**值**是合成的非静音波形；但每段的采样**个数**由
-//      真 payload 推出（每段 ADTS 帧数 × AAC-LC 1024 采样/帧 @ 真 ASC 的 48kHz，
-//      再按生产解码目标 16k 折算），切片边界、片内偏移、WAV 字节因此都是真输出。
-//   ② 转写成功响应：仓库内没有任何真实转写响应（.scratch 与 git 历史都没有；
-//      eval:run 的产物目录 eval/out 不存在、环境也没有 SILICONFLOW_API_KEY）。故
-//      合并用例的片内文本是替身（片内相对秒是构造值）；**能**用真实报文驱动的那
-//      半边是失败响应——见「④ 适配器边界（真平台失败报文回放）」。
-//
-// 走查末尾写出可复现工件（.scratch/tickets/test-suite-trim/artifacts/01-asr-chain-walkthrough.md）。
-
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,8 +5,6 @@ import { resetModuleState } from "../setup.js";
 import type { WavChunk } from "../../extension/asr/chunker.js";
 import type { AsrChunkRecord, OffscreenChunkHost } from "../../extension/asr/offscreen-bridge.page.js";
 
-// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
-//（同 tests/asr/adts.test.ts 的处理），读二进制走本别名
 const readBinary = readFileSync as unknown as (path: string) => Uint8Array;
 
 const ASR_FIXTURE_DIR = join(process.cwd(), "tests", "asr", "fixtures");
@@ -51,11 +12,9 @@ const BILI_FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "bilibili");
 const PLATFORM_FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "asr");
 const ARTIFACT_DIR = join(process.cwd(), ".scratch", "tickets", "test-suite-trim", "artifacts");
 
-// 真实 fMP4 音轨片段：98KB（2 对 moof/mdat）与 1MB（26 对）
 const SMALL_FMP4 = new Uint8Array(readBinary(join(ASR_FIXTURE_DIR, "fmp4-audio-sample.bin")));
 const BIG_FMP4 = new Uint8Array(readBinary(join(ASR_FIXTURE_DIR, "fmp4-1mb.bin")));
 
-// 真实 playurl 响应（含 dash 音轨 / 生产 html5 形状）
 const PLAYURL_DASH = JSON.parse(
   readFileSync(join(BILI_FIXTURE_DIR, "bv1q9he6seyx-playurl-dash-audio.json"), "utf8")
 );
@@ -63,18 +22,10 @@ const PLAYURL_HTML5 = JSON.parse(
   readFileSync(join(BILI_FIXTURE_DIR, "bv1q9he6seyx-playurl-html5-no-dash.json"), "utf8")
 );
 
-// 真实平台失败报文（线上抓取，见 fixture 的 _provenance）
 const SF_401 = JSON.parse(readFileSync(join(PLATFORM_FIXTURE_DIR, "siliconflow-transcriptions-401.json"), "utf8"));
 const SF_404 = JSON.parse(readFileSync(join(PLATFORM_FIXTURE_DIR, "siliconflow-unknown-route-404.json"), "utf8"));
 
-// 生产片长（5 分钟）与走查自选片长：本 fixture 的真音频不足一片，走查另取 45s 片长
-// 以覆盖多片偏移（与 tests/asr/pipeline.test.ts「自建 1200s/片」同法；生产片长本身
-// 在下方用例里断言）。
 const WALKTHROUGH_CHUNK_SECONDS = 45;
-
-// ===== 测试侧独立复算（不 import 被测模块）=====
-// 直接从真实容器字节读顶层 box 与 moof→traf→trun 的 sample sizes，与 adts.ts 的
-// 产出逐项对账——两套实现独立，互为证据。
 
 function readU32BE(bytes: Uint8Array, p: number): number {
   return ((bytes[p] << 24) | (bytes[p + 1] << 16) | (bytes[p + 2] << 8) | bytes[p + 3]) >>> 0;
@@ -84,7 +35,6 @@ function boxType(bytes: Uint8Array, p: number): string {
   return String.fromCharCode(bytes[p + 4], bytes[p + 5], bytes[p + 6], bytes[p + 7]);
 }
 
-/** 单个 moof 内所有 trun 的逐 sample size（按容器顺序展开）。 */
 function trunSizesOfMoof(bytes: Uint8Array, moofStart: number, moofEnd: number): number[] {
   const sizes: number[] = [];
   let q = moofStart + 8;
@@ -120,15 +70,11 @@ function trunSizesOfMoof(bytes: Uint8Array, moofStart: number, moofEnd: number):
 
 interface RealContainerFacts {
   moofCount: number;
-  /** 全部 moof 的 sample sizes（含 mdat 不完整的那一对） */
   allSizes: number[];
-  /** sample sizes：只有紧跟**完整** mdat 的 moof 才可提取（与真实提取器口径一致） */
   pairedSizes: number[];
-  /** 被丢掉的 moof（容器尾部截断：mdat box 声称的字节超出文件实际长度） */
   dropped: Array<{ samples: number; mdatClaimedBytes: number; mdatAvailableBytes: number }>;
 }
 
-/** 真容器事实：顶层 box 序列 + moof/mdat 配对（截断的那一对不可提取）。 */
 function realContainerFacts(bytes: Uint8Array): RealContainerFacts {
   const boxes: Array<{ type: string; start: number; size: number; complete: boolean }> = [];
   let p = 0;
@@ -164,7 +110,6 @@ function realContainerFacts(bytes: Uint8Array): RealContainerFacts {
   return { moofCount, allSizes, pairedSizes, dropped };
 }
 
-/** 产物事实：按 ADTS 头走一遍真输出字节流，返回帧数 / 每帧负载长度 / 编码参数。 */
 function parseAdtsStream(adts: Uint8Array): {
   frames: number;
   payloadLengths: number[];
@@ -200,7 +145,6 @@ function parseAdtsStream(adts: Uint8Array): {
   };
 }
 
-/** WAV 头事实（44 字节 RIFF/WAVE + fmt + data）。 */
 function parseWavHeader(bytes: Uint8Array): {
   riff: string;
   wave: string;
@@ -229,7 +173,6 @@ function parseWavHeader(bytes: Uint8Array): {
   };
 }
 
-/** 逐字节比较（返回首个不同字节的下标，全同则 -1）：避免大数组 diff 输出。 */
 function firstByteDifference(a: Uint8Array, b: Uint8Array): number {
   if (a.length !== b.length) return Math.min(a.length, b.length);
   for (let i = 0; i < a.length; i += 1) {
@@ -238,16 +181,12 @@ function firstByteDifference(a: Uint8Array, b: Uint8Array): number {
   return -1;
 }
 
-// ===== 被测模块（每用例新鲜加载）=====
-
 let adts: typeof import("../../extension/asr/adts.js");
 let chunker: typeof import("../../extension/asr/chunker.js");
 let streamChunker: typeof import("../../extension/asr/stream-chunker.js");
 let pipeline: typeof import("../../extension/asr/pipeline.js");
 let contentTransport: typeof import("../../extension/bilibili/content-transport.js");
 
-// runAsrPipeline 的取音轨走 content-transport.contentFetchJson（audio-source 的真实默认 transport）；
-// 只替换这一个传输口，URL 构造与选轨仍在真模块里。
 vi.mock("../../extension/bilibili/content-transport.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };
@@ -267,15 +206,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ===== ① 真 fMP4 → 真 ADTS =====
-
 describe("① 真 fMP4 → 真 ADTS 提取（真实容器字节 vs 真实提取器，双向对账）", () => {
   it("1MB 片段：帧数 / 每帧负载长度 / 字节总量与容器 trun 逐项一致", () => {
     expect(adts.isFragmentedMp4(BIG_FMP4)).toBe(true);
     const asc = adts.parseAudioSpecificConfig(BIG_FMP4);
     expect(asc).toEqual({ profile: 1, freqIdx: 3, chCfg: 2 });
 
-    // 流式路径（生产下载侧逐块喂入）与整段路径输出逐字节一致
     const extractor = adts.createAdtsExtractor(asc ?? {});
     const streamed: Uint8Array[] = [];
     for (let off = 0; off < BIG_FMP4.length; off += 64 * 1024) {
@@ -288,10 +224,9 @@ describe("① 真 fMP4 → 真 ADTS 提取（真实容器字节 vs 真实提取�
       expect(firstByteDifference(streamed[i], whole[i])).toBe(-1);
     }
 
-    // 独立复算（测试侧读容器）vs 产物（真提取器读同一容器）
     const container = realContainerFacts(BIG_FMP4);
     const parsedSegments = whole.map((segment) => parseAdtsStream(segment));
-    expect(parsedSegments.every((parsed) => parsed.trailingBytes === 0)).toBe(true); // 段内无半帧
+    expect(parsedSegments.every((parsed) => parsed.trailingBytes === 0)).toBe(true);
     const frames = parsedSegments.reduce((sum, parsed) => sum + parsed.frames, 0);
 
     expect(extractor.frameCount).toBe(frames);
@@ -301,9 +236,6 @@ describe("① 真 fMP4 → 真 ADTS 提取（真实容器字节 vs 真实提取�
     expect(parsedSegments.every((parsed) => parsed.freqIdxs.every((value) => value === 3))).toBe(true);
     expect(parsedSegments.every((parsed) => parsed.chCfgs.every((value) => value === 2))).toBe(true);
 
-    // 真 fixture 是**截断**的 1MiB 片段：最后一个 mdat 声称的字节数超出文件实际长度，
-    // 它的 moof 因此不可提取（提取器整对丢弃，不产半帧）。锁定这个真实事实，
-    // 免得把「容器比产物多出来的 sample 数」误读成提取器丢帧。
     expect(container.dropped).toHaveLength(1);
     expect(container.pairedSizes.length).toBeLessThan(container.allSizes.length);
     expect(container.allSizes.length - container.pairedSizes.length).toBe(container.dropped[0].samples);
@@ -319,27 +251,22 @@ describe("① 真 fMP4 → 真 ADTS 提取（真实容器字节 vs 真实提取�
     expect(segments).toHaveLength(1);
     const parsed = parseAdtsStream(segments[0]);
     expect(parsed.trailingBytes).toBe(0);
-    expect(container.dropped).toHaveLength(0); // 98KB 片段两对 moof/mdat 都完整
+    expect(container.dropped).toHaveLength(0);
     expect(parsed.frames).toBe(container.pairedSizes.length);
     expect(parsed.payloadLengths).toEqual(container.pairedSizes);
   });
 });
-
-// ===== ② 真帧数 → 真时长 → 切片计划 → 真流式切片 =====
 
 interface ChainLayout {
   asc: { profile: number; freqIdx: number; chCfg: number };
   segments: Uint8Array[];
   framesPerSegment: number[];
   frames: number;
-  /** 真 payload 推导：帧数 × 1024 采样/帧（AAC-LC）@ 真 ASC 的 48kHz → 音频时长 */
   audioDurationSec: number;
-  /** 生产解码目标 16kHz 下每段的采样数（48k→16k 折算后取整） */
   sampleCounts: number[];
   decodedSamples: number;
   decodedDurationSec: number;
   sampleRate: number;
-  /** 真流式切片的产出（片边界 + WAV 字节 + 片内采样数） */
   chunks: Array<{
     index: number;
     startSec: number;
@@ -348,12 +275,10 @@ interface ChainLayout {
     wavBytes: Uint8Array;
     samples: number;
   }>;
-  /** 同一份 PCM 走全量切片（buildWavChunks）的基线产出 */
   wholeChunks: WavChunk[];
   pcm: Float32Array;
 }
 
-/** 一次走完「真 fMP4 → 真 ADTS → 真切片」，返回每一步的真事实。 */
 async function buildChainLayout(chunkSeconds = WALKTHROUGH_CHUNK_SECONDS): Promise<ChainLayout> {
   const asc = adts.parseAudioSpecificConfig(BIG_FMP4);
   if (!asc) throw new Error("真 fixture 里应当能解析出 AudioSpecificConfig");
@@ -366,8 +291,6 @@ async function buildChainLayout(chunkSeconds = WALKTHROUGH_CHUNK_SECONDS): Promi
   const sampleCounts = framesPerSegment.map((value) => Math.round((value * 1024 * sampleRate) / 48000));
   const decodedSamples = sampleCounts.reduce((sum, value) => sum + value, 0);
 
-  // 解码替身（边界见文件头 ①）：采样个数由真帧数推出，采样值是与音频内容无关的
-  // 确定性非静音波形（峰值 1.0，避开「疑似静音」校验，同时让 WAV 字节可复现）。
   const pcm = new Float32Array(decodedSamples);
   for (let i = 0; i < pcm.length; i += 1) {
     pcm[i] = (i % 200) / 100 - 1;
@@ -433,7 +356,6 @@ describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切�
       expect(layout.chunks[i].durationSec).toBeCloseTo(layout.wholeChunks[i].durationSec, 9);
       expect(layout.chunks[i].overlapLeadSec).toBeCloseTo(layout.wholeChunks[i].overlapLeadSec, 9);
     }
-    // 连续且带重叠回退：第 i 片起点 = 第 i-1 片终点 - overlapLeadSec[i]，去重总时长等于真解码时长
     const coveredDuration = layout.chunks.reduce(
       (sum, chunk) => sum + chunk.durationSec - chunk.overlapLeadSec,
       0
@@ -459,7 +381,7 @@ describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切�
         riff: "RIFF",
         wave: "WAVE",
         fmtTag: "fmt ",
-        audioFormat: 1, // PCM
+        audioFormat: 1,
         channels: 1,
         sampleRate: 16000,
         bitsPerSample: 16,
@@ -469,7 +391,6 @@ describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切�
       expect(firstByteDifference(layout.chunks[i].wavBytes, wholeBytes)).toBe(-1);
     }
 
-    // 扣除重叠前导采样后之和等于真解码采样数：无空隙、不漏帧
     expect(layout.chunks.every((chunk) => Number.isInteger(chunk.samples))).toBe(true);
     const uniqueSamples = layout.chunks.reduce(
       (sum, chunk) => sum + chunk.samples - Math.round(chunk.overlapLeadSec * layout.sampleRate),
@@ -481,8 +402,6 @@ describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切�
   });
 });
 
-// ===== ③ 真管线合并（片边界来自真音频时长）=====
-
 describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断（片边界来自真音频）", () => {
   it("真 playurl 音轨选出最小带宽轨并交给任务宿主；乱序片结果按全局偏移归并", async () => {
     const layout = await buildChainLayout();
@@ -493,13 +412,11 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
     }>;
     const selected = tracks.reduce((min, track) => (track.bandwidth < min.bandwidth ? track : min), tracks[0]);
 
-    // 真 playurl 响应驱动真 audio-source 选轨（页面 transport 只按 URL 路由）
     vi.mocked(contentTransport.contentFetchJson).mockImplementation(async (url: string) => {
       if (url.includes("/x/player/playurl")) return PLAYURL_DASH;
       throw new Error(`unexpected url: ${url}`);
     });
 
-    // 片边界取自真音频推出的切片布局；片内文本是替身（边界见文件头 ②）
     const [first, second, third] = layout.chunks;
     const records: AsrChunkRecord[] = [
       {
@@ -518,7 +435,6 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
           text: "片一",
           segments: [
             { start: 0.5, end: 2, text: "片一句甲。" },
-            // 片内越界：合并必须按片长截断
             { start: first.durationSec - 1, end: 9999, text: "片一句乙。" }
           ]
         }
@@ -528,7 +444,6 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
         startSec: second.startSec,
         durationSec: second.durationSec,
         overlapLeadSec: second.overlapLeadSec,
-        // 无 segments（json 降级形状）→ 整片一条粗粒度字幕
         result: { text: "片二整段。" }
       }
     ];
@@ -548,13 +463,10 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
       onAttemptOutcome: (outcome) => outcomes.push(outcome as unknown as Record<string, unknown>)
     });
 
-    // 取音轨：真 fixture 的最小带宽轨（含真实 backupUrl 列表）
     expect(hostCalls).toHaveLength(1);
     expect(hostCalls[0].audioUrl).toBe(selected.baseUrl);
     expect(hostCalls[0].backupUrls).toEqual(selected.backupUrl);
 
-    // 合并：全局偏移 = 片起点 + 片内相对秒；越界按片长截断；重叠边界平滑取中点衔接；
-    // 无 segments 走整片降级；输入乱序 → 输出按 from 升序且单调不重叠
     const seam01 = (first.startSec + first.durationSec - 1 + first.startSec + first.durationSec) / 2;
     const seam12 = (third.startSec + 1 + second.startSec + second.durationSec) / 2;
     expect(body).toEqual([
@@ -615,8 +527,6 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
   });
 });
 
-// ===== ④ 适配器边界：唯一有真实报文的半边 =====
-
 describe("④ 适配器边界（真平台失败报文回放）", () => {
   async function realProvider() {
     const presets = await import("../../extension/core/presets.js");
@@ -625,7 +535,6 @@ describe("④ 适配器边界（真平台失败报文回放）", () => {
     if (!preset) throw new Error("生产预设 siliconflow-sensevoice 不存在");
     const provider = normalize.normalizeAsrProvider({ ...preset, presetId: preset.id, enabled: true });
     if (!provider) throw new Error("生产预设归一失败");
-    // apiKey / language 不落盘，运行时由消费方注入（normalize 不产出）
     return { ...provider, apiKey: "sk-biliscript-e2e-invalid-key", language: "auto" };
   }
 
@@ -663,12 +572,9 @@ describe("④ 适配器边界（真平台失败报文回放）", () => {
     expect(caught?.kind).toBe("asr-auth");
     expect(caught?.detail).toBe(SF_401.body.slice(0, 200));
     expect(caught?.message).toBe(`HTTP 401: ${SF_401.body}`);
-    // 真报文是扁平形状：没有 OpenAI 的 error.message 可读（判定靠状态码 + 真报文原文）
     expect(JSON.parse(SF_401.body)).toEqual({ code: 30014, data: null, message: "Token is invalid." });
-    // 非 2xx 是确定性失败：绝不发第二次全量 POST（单片 wav 38MB 级）
     expect(calls).toHaveLength(1);
 
-    // 请求构造：真预设的 baseUrl/model + 适配器写的 multipart 字段；language=auto 不带查询参数
     expect(calls[0].url).toBe("https://api.siliconflow.cn/v1/audio/transcriptions");
     const form = calls[0].init.body as FormData;
     expect(form).toBeInstanceOf(FormData);
@@ -706,8 +612,6 @@ describe("④ 适配器边界（真平台失败报文回放）", () => {
     expect(calls).toHaveLength(1);
   });
 });
-
-// ===== ⑤ 走查工件：可复现、可对账 =====
 
 describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账）", () => {
   it("写出 01-asr-chain-walkthrough.md 并与链上真事实对账", async () => {
@@ -790,7 +694,6 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账
       ].join("\n")
     );
 
-    // 工件与真实产物对账（防工件说谎）
     const artifact = readFileSync(artifactPath, "utf8");
     expect(artifact).toContain(`容器：顶层 moof ${container.moofCount} 个`);
     expect(artifact).toContain(`提取器 frameCount：${layout.frames}`);

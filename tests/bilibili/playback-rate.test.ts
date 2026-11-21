@@ -67,19 +67,15 @@ describe("bilibili/playback-rate 播放器 3x/4x 倍速按钮模块", () => {
 
     expect(video.playbackRate).toBe(1);
 
-    // 点击 3x
     btn3.click();
     expect(video.playbackRate).toBe(3);
 
-    // 再次点击 3x 回到 1x
     btn3.click();
     expect(video.playbackRate).toBe(1);
 
-    // 点击 4x
     btn4.click();
     expect(video.playbackRate).toBe(4);
 
-    // 再次点击 4x 回到 1x
     btn4.click();
     expect(video.playbackRate).toBe(1);
   });
@@ -91,7 +87,6 @@ describe("bilibili/playback-rate 播放器 3x/4x 倍速按钮模块", () => {
     btn4.click();
     expect(video.playbackRate).toBe(4);
 
-    // 模拟换视频
     video.src = "https://example.com/video2.mp4";
     video.dispatchEvent(new Event("loadedmetadata"));
 
@@ -115,7 +110,6 @@ describe("bilibili/playback-rate 播放器 3x/4x 倍速按钮模块", () => {
     expect(setIntervalSpy).not.toHaveBeenCalled();
     expect(getComputedStyleSpy).toHaveBeenCalledTimes(1);
 
-    // 触发容器内与倍速按钮无关的 DOM 变化
     getComputedStyleSpy.mockClear();
     const dummy = document.createElement("span");
     container.appendChild(dummy);
@@ -123,7 +117,6 @@ describe("bilibili/playback-rate 播放器 3x/4x 倍速按钮模块", () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(getComputedStyleSpy).not.toHaveBeenCalled();
 
-    // 触发全屏切换事件 -> 300ms 后同步一次样式
     document.dispatchEvent(new Event("fullscreenchange"));
     await vi.advanceTimersByTimeAsync(300);
     expect(getComputedStyleSpy).toHaveBeenCalledTimes(1);

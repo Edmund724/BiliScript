@@ -1,10 +1,3 @@
-// tests/search/opt-in-notice.test.ts
-// 联网搜索首次授权闸（spec §6.7 / 票 11）：标题与查询词外发说明、双动作文案、
-// 付费平台费用提示、同意持久化、拒绝关闭联网偏好、写失败不阻断、偏好关闭后不重复
-// 询问、重新开启再询问、授权与平台可用性分开、无阅读视图 fail-closed。
-// chrome 桩按 type 路由（get-settings / resolve-search-provider / save-settings）；
-// 弹层是真实 ui/confirm-dialog（DOM 由阅读视图宿主承载），断言面向用户可见文案与
-// 出向消息，不直接调用内部步骤。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -15,9 +8,7 @@ interface StubSettings {
 
 interface StubOptions {
   settings?: StubSettings;
-  // resolve-search-provider 的候选链（缺省 = 空链：未配置任何搜索平台）
   chain?: Array<{ provider: Record<string, unknown>; apiKey: string }>;
-  // save-settings 一律失败（模拟授权写失败）
   saveFails?: boolean;
 }
 
@@ -108,7 +99,6 @@ describe("ensureWebSearchOptIn：授权弹层内容", () => {
     expect(message).toContain("你配置过 Key 的搜索平台");
     expect(box.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
     expect(box.querySelector(".confirm-dialog-cancel")!.textContent).toBe("关闭联网搜索");
-    // 同意前只做本地链可用性探测（不执行搜索、不带查询词）
     expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(true);
     expect(sent.some((m) => m.type === "search-cache")).toBe(false);
 
@@ -140,7 +130,6 @@ describe("ensureWebSearchOptIn：授权弹层内容", () => {
     const message = dialog()!.querySelector(".confirm-dialog-message")!.textContent!;
     expect(message).toContain("使用付费平台会产生费用");
     expect(message).toContain("具体计费方式以该平台为准");
-    // 不写具体价格 / 免费额度承诺
     expect(message).not.toMatch(/¥|\$\d|\d+\s*元|免费额度/);
 
     clickAction("cancel");
@@ -208,11 +197,9 @@ describe("ensureWebSearchOptIn：同意 / 拒绝 / 写失败", () => {
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
     clickAction("confirm");
     await expect(first).resolves.toBe(true);
-    // 没有伪造成功：授权位仍未置位（下次询问）
     expect(settings.searchOptInNoticeAcknowledged).toBe(false);
     expect(sent.filter((m) => m.type === "save-settings")).toHaveLength(1);
 
-    // 第二次：仍弹出授权（位没写成功，不假装已授权）
     const second = ensureWebSearchOptIn();
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
     clickAction("cancel");
@@ -242,11 +229,9 @@ describe("ensureWebSearchOptIn：偏好关闭后不重复询问", () => {
     clickAction("cancel");
     await expect(first).resolves.toBe(false);
 
-    // 调用方仍以为开关开着（存储变更尚未同步）：偏好已关 → 直接本轮不搜索，不弹层
     await expect(ensureWebSearchOptIn(true)).resolves.toBe(false);
     expect(dialog()).toBeNull();
 
-    // 用户重新开启开关（偏好回到 true）→ 再次询问
     settings.webSearchEnabled = true;
     const reopened = ensureWebSearchOptIn(true);
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
@@ -285,7 +270,6 @@ describe("ensureWebSearchOptIn：授权与平台可用性分开", () => {
     const pending = ensureWebSearchOptIn();
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
     const message = dialog()!.querySelector(".confirm-dialog-message")!.textContent!;
-    // 授权文案只讲外发与费用；平台可用性另有既有文案通道（搜索运行时 / 工具循环）
     expect(message).not.toContain("未配置搜索平台");
 
     clickAction("confirm");
@@ -320,7 +304,6 @@ describe("ensureWebSearchOptIn：授权与平台可用性分开", () => {
   it("付费链探测失败（消息异常）：按不含付费平台处理，不阻断授权", async () => {
     const { sent } = stubChrome();
     mountReadingView();
-    // resolve-search-provider 抛错（无接收方）
     const chromeStub = globalThis.chrome as unknown as {
       runtime: { sendMessage: (msg: Record<string, unknown>, cb?: (r: unknown) => void) => void; lastError: unknown };
     };

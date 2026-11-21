@@ -1,9 +1,3 @@
-// 设置归一化唯一收口测试：
-// - normalizeSettings 是唯一的归一化路径：getMergedSettings（读）、saveSettings
-//   （写）、background 的 initializeSettingsStorage（安装/更新迁移）输出一致；
-// - initializeSettingsStorage 落盘的是归一化后的值：存量 LEGACY 默认提示词与
-//   非法 aiThinkingLevel 在安装/更新时被一次性改写，而不是每次读取时再映射。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -77,9 +71,6 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, downloadFormat: "vtt-secondary" }).downloadFormat).toBe("vtt-secondary");
   });
 
-  // 笔记导出功能删除（导出的 Markdown 只剩简介/章节/字幕）：被删字段退出
-  // DEFAULT_SETTINGS 键面，旧存储里残留的这些键在写路径被白名单丢弃——不需要
-  // 迁移，白名单取 DEFAULT_SETTINGS 键集天然收敛。
   it("笔记导出字段已退出设置键面：DEFAULT_SETTINGS 不再声明这些键", async () => {
     for (const key of [
       "tags",
@@ -94,7 +85,6 @@ describe("normalizeSettings 纯函数", () => {
     }
   });
 
-  // 六代历史默认系统提示词一次性升到当前默认；用户自定义文本不动。
   it("aiSystemPrompt：六代历史默认都映射为当前默认，自定义文本原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
     for (const legacy of [
@@ -110,7 +100,6 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "我的自定义人设" }).aiSystemPrompt).toBe("我的自定义人设");
   });
 
-  // 两代旧默认快捷提示词一次性升到当前默认；用户自定义文本不动。
   it("playerAiQuickPrompt：两代旧默认都映射为当前默认，自定义文本原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
     for (const legacy of [LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT, LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2]) {
@@ -119,9 +108,6 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: "按章节整理内容" }).playerAiQuickPrompt).toBe("按章节整理内容");
   });
 
-  // defaults 拆分（first-button-ux/03）：DEFAULT_SETTINGS 的 prompt 字段是空占位，
-  // 读路径归一化必须回落当前默认——新装/缺键不能得到空串。
-  // 例外：aiInitialQuickPrompts 空数组是合法值（留空 = 按视频自动生成），不回落。
   it("新装缺键：提示词字段回落当前默认；初始问题留空保持空数组（自动生成）", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ ...DEFAULT_SETTINGS });
@@ -130,8 +116,6 @@ describe("normalizeSettings 纯函数", () => {
     expect(out.aiInitialQuickPrompts).toEqual([]);
   });
 
-  // 「清空 prompt 保存 = 恢复默认」：用户把提示词清空后保存，空串（含纯空白）
-  // 经归一化改写回当前默认（与 LEGACY 映射同机制，落盘即当前默认文本）。
   it("清空保存：aiSystemPrompt/playerAiQuickPrompt 空串回落当前默认", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "  ", playerAiQuickPrompt: "" });
@@ -140,8 +124,6 @@ describe("normalizeSettings 纯函数", () => {
   });
 });
 
-// 明暗主题四模式：readerTheme 支持 bilibili（跟随 B 站，默认）| system（跟随系统）| light | dark；
-// 未知/退役值收敛为默认 bilibili。
 describe("normalizeReaderTheme", () => {
   it("bilibili/system/light/dark 原样放行；退役值 flyme 收敛为 bilibili", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
@@ -188,8 +170,6 @@ describe("normalizeSettings：主题明暗归一", () => {
   });
 });
 
-// 外观色板与明暗正交：readerPalette 只取 flyme | editorial，缺失/非法存量值
-// 归一回落默认 flyme。
 describe("normalizeReaderPalette", () => {
   it("flyme/editorial 原样放行", async () => {
     const { normalizeReaderPalette } = await import("../../extension/core/validators.js");
@@ -239,8 +219,6 @@ describe("normalizeSettings：外观色板归一", () => {
   });
 });
 
-// 步骤表未接线时也能成立的部分：显式键值经写路径白名单原样透传（键面随
-// DEFAULT_SETTINGS 自动覆盖）。
 describe("normalizeSettings：主题明暗透传", () => {
   it("明暗显式键值原样透传", async () => {
     const { normalizeSettings } = await loadStoreModule();
@@ -249,9 +227,6 @@ describe("normalizeSettings：主题明暗透传", () => {
   });
 });
 
-// 两个非可调一次性状态位（spec §2「flag 的家」、§3 落点表第 20–21 行、§6.7
-// 「状态位」、§9.7 第 4 条）：不在设置页渲染、无校验区间，归一化与
-// normalizeWebSearchEnabled 同型（布尔，仅显式 true 置位，其余回落 false）。
 describe("normalizeSettings：两个一次性状态位", () => {
   it("searchPresetsAutoActivated：缺省/脏值回落 false，显式 true 保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
@@ -279,8 +254,6 @@ describe("normalizeSettings：两个一次性状态位", () => {
     }
   });
 
-  // 写路径：两位都在 DEFAULT_SETTINGS 键面内（save-settings 白名单），且写前
-  // 经同一套步骤表归一化。
   it("写路径：两个状态位在白名单内且经归一化落盘", async () => {
     const { saveSettings } = await loadStoreModule();
 
@@ -292,7 +265,6 @@ describe("normalizeSettings：两个一次性状态位", () => {
     expect(persisted).toHaveProperty("searchOptInNoticeAcknowledged", false);
   });
 
-  // validators.ts 的两个 normalizer 与 normalizeWebSearchEnabled 同型同列。
   it("normalizeSearchPresetsAutoActivated / normalizeSearchOptInNoticeAcknowledged 与 normalizeWebSearchEnabled 同型", async () => {
     const {
       normalizeSearchPresetsAutoActivated,
@@ -359,8 +331,6 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(syncSetMock.mock.calls[0][0].aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
   });
 
-  // 写路径同款：清空后的提示词空串不落盘为占位值，落盘即当前默认；
-  // 初始问题清空 = 回到「按视频自动生成」，同样落空数组。
   it("写路径：清空的提示词落盘为当前默认，初始问题清空落空数组", async () => {
     const { saveSettings } = await loadStoreModule();
 
@@ -378,8 +348,6 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(persisted.aiInitialQuickPrompts).toEqual([]);
   });
 
-  // 笔记导出删除后的写路径收敛：整对象写回里的被删字段（旧存储残留 / 陈旧
-  // 快照）被白名单剔除，不会复活。
   it("写路径：笔记导出字段被白名单丢弃，其余键照常落盘", async () => {
     const { saveSettings } = await loadStoreModule();
 
@@ -410,11 +378,6 @@ describe("normalizeSettings 是唯一归一化路径", () => {
   });
 });
 
-// 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；已存的 off/low/high 都是新值域的
-// 子集 → **不需要迁移**（读回/落盘都原样）。
-// 2026-10-05 用户裁定（两轮）：再加一个 `default`（不干预）——合法可存，出厂/重置默认
-// 就是它；第二轮把**存储侧的缺省 / 非法值回退也改成 `default`**（此前是 `off`）：同一条
-// 「没有偏好」意图全线一个说法，脏值不再被读成「显式关思考」。
 describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + default 档）", () => {
   const SEVEN = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
   const ALL = ["default", ...SEVEN] as const;
@@ -438,10 +401,7 @@ describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + 
   it("出厂默认 = default（合并后的设置视图读回 default）；显式垃圾/空值同口径回落 default", async () => {
     const { normalizeSettings } = await loadStoreModule();
     expect(DEFAULT_SETTINGS.aiThinkingLevel).toBe("default");
-    // 生产读路径先与 DEFAULT_SETTINGS 合并再归一（见 settings-store 的 getMergedSettings），
-    // 故「缺键 = 出厂默认」在这一层表现为「合并后的值就是 default」。
     expect(normalizeSettings({ ...DEFAULT_SETTINGS }).aiThinkingLevel).toBe("default");
-    // 显式给出的非法/空值与缺键同一口径（2026-10-05 第二轮裁定：回退值与出厂默认同词）。
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: undefined }).aiThinkingLevel).toBe("default");
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: "" }).aiThinkingLevel).toBe("default");
   });
@@ -461,7 +421,6 @@ describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + 
     for (const bogus of ["bogus", "none", "", "HIGH", null, undefined, 3]) {
       expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: bogus }).aiThinkingLevel, String(bogus)).toBe("default");
     }
-    // 写路径：undefined 视为「本次不改这个键」（saveSettings 剔除），故不在此循环。
     for (const bogus of ["bogus", "none", "", "HIGH", null, 3]) {
       syncSetMock.mockClear();
       await saveSettings({ aiThinkingLevel: bogus });
@@ -483,13 +442,10 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
 
     await onInstalledListener();
 
-    // 同一 onInstalled 还跑免 Key 预设自动激活（spec §1 S2）——它会追加「记录 →
-    // 链首 → flag」几次 sync.set；设置域的全量写恒是第一次调用（键面全在一次里）。
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.aiSystemPrompt).not.toBe(LEGACY_DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.aiThinkingLevel).toBe("default");
-    // 仍然全量落盘 DEFAULT_SETTINGS 的所有 key（{ ...DEFAULT_SETTINGS, ...syncCurrent }）
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
       expect(persisted).toHaveProperty(key);
     }
@@ -512,8 +468,6 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     expect(persisted.aiThinkingLevel).toBe("high");
   });
 
-  // 新装路径：sync.get 原样返回 DEFAULT_SETTINGS（prompt 字段为空占位），迁移
-  // 落盘的必须是当前默认文本，不能是空串（初始问题除外：空数组即自动生成）。
   it("onInstalled 新装迁移：空占位 prompt 落盘为当前默认，不产生空串", async () => {
     await import("../../extension/entry/background.js");
     const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
@@ -522,7 +476,6 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
 
     await onInstalledListener();
 
-    // 与上方同：自动激活的记录 / 链首 / flag 写在其后，设置全量写仍是第一次调用
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
@@ -581,9 +534,6 @@ describe("normalizeSettings：文摘面板排版设置归一", () => {
   });
 });
 
-// 宽度自定义标记（customPanelWidthEnabled）的存量补齐：开关键后于宽度键引入，
-// 旧版滑块只直写 customPanelWidth。读路径按「宽度非默认 = 已自定义」推导置位，
-// 不落盘、无需一次性迁移旗标；显式恢复默认（宽度回 540）后推导自然不再置位。
 describe("getMergedSettings：宽度自定义标记存量补齐", () => {
   it("只设宽度未设开关键 → 读路径按已自定义对待", async () => {
     const { getMergedSettings } = await loadStoreModule();

@@ -1,41 +1,7 @@
-// asr-decode-prepare 的 offscreen 文档守卫回归测试 + 防盗链规则 id 分配测试。
-//
-// 事故背景一（文档守卫）：ensureAsrOffscreenDocument 曾在 service worker 里用
-// 不存在的 `chrome.clients` 命名空间调用 matchAll（SW 标准全局是 `clients` /
-// self.clients），TypeError 被 catch-all 吞掉 → 无文档时从不创建 offscreen
-// 文档 → 页面侧 "asr-decode" 端口找不到接收端（"Receiving end does not
-// exist"），~2ms 内 onDisconnect，用户看到「音频解码中断：后台连接已断开」。
-// 修复：改用 SW 标准全局 `self.clients.matchAll`。
-//
-// 事故背景二（规则 id 冲突）：防盗链会话规则曾是固定 id 32001，多任务并发时
-// A 任务先结束的 cleanup 会把 B 任务正依赖的规则删掉，B 的音频下载随后失败
-//（切视频不取消转写后，两任务并发是正常场景）。修复：background 按任务分配
-// 独立 id（prepare 响应带回 ruleId，cleanup 只删自己的），空闲池复用防增长。
-//
-// 事故背景三（SW 冷启动撞车）：分配器账本是模块级状态、随 SW 实例生灭，而
-// 会话规则生命周期是整个浏览器会话。SW 重启后计数器归零、平台上残留旧规则
-// 时，新实例会再次分配同一 id：旧任务跑完的 cleanup 把新任务正依赖的规则
-// 删掉，音轨请求丢 Referer/Origin 被 bilivideo CDN 403。修复：首次分配前调
-// getSessionRules 以平台为事实源对账一次（区间内残留 id 收进活跃集不再复用、
-// 计数器越过平台最大 id、空闲池清空）。
-//
-// 判别性用例：
-// - 无文档时 handleAsrDecodePrepare 必须真正调用 chrome.offscreen.createDocument
-//   （旧实现吞掉 TypeError 后不会调用）；
-// - 并发 prepare 得到不同 ruleId 且规则并存；cleanup 只删自己的 id；
-//   重复/未知 id 的 cleanup 幂等不抛；释放后 id 复用；加规则失败照错误路径
-//   上报且 id 归还；
-// - 冷启动对账：平台残留 32001 时新任务分配 32002 不撞车、旧任务 cleanup 只
-//   删自己的、无残留时首次分配仍是 32001；
-// - 创建失败不再吞掉（工单 03）：ok:false 带原始错误，「文档已存在」视同成功；
-// - cleanup 的标签页归属（工单 03）：ruleId 有主时只接受同一来源的清理请求。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
 
-// 模拟 updateSessionRules 的会话规则表条目：只保留测试关心的 id 与宽松
-// 内容形状（priority/action/condition 原样存放，断言经 toMatchObject 进行）
 interface FakeSessionRule {
   id: number;
   priority?: number;
@@ -43,11 +9,8 @@ interface FakeSessionRule {
   condition?: unknown;
 }
 
-// prepare/cleanup 经 sendResponse 回传的响应形状（ruleId 仅 prepare 携带，
-// 这里取宽类型，prepare 助手在返回处收窄）
 type BridgeResponse = { ok: boolean; ruleId?: number; error?: string };
 
-// prepare 成功响应（ruleId 必有）：prepareOnce/prepareFrom 的返回类型
 type PrepareResponse = { ok: boolean; ruleId: number; error?: string };
 
 interface StubSwEnvOptions {
@@ -58,16 +21,12 @@ interface StubSwEnvOptions {
   tabsGet?: (tabId: number) => Promise<{ id: number }>;
 }
 
-// 模拟 updateSessionRules 的会话规则表：removeRuleIds 先删、addRules 后加，
-// 用于断言多任务规则并存 / 单任务删除的精确性（与真实 API 同序语义）；
-// initialRules 为冷启动对账要看到的平台残留规则
 function makeRuleStore(initialRules: FakeSessionRule[] = []) {
   const rules = new Map(initialRules.map((rule) => [rule.id, rule] as const));
   const updateSessionRules = vi.fn(async ({ removeRuleIds = [], addRules = [] }: { removeRuleIds?: number[]; addRules?: FakeSessionRule[] }) => {
     for (const id of removeRuleIds) rules.delete(id);
     for (const rule of addRules) rules.set(rule.id, rule);
   });
-  // getSessionRules 返回当前全表：对账按平台事实源读取
   const getSessionRules = vi.fn(async () => [...rules.values()]);
   return { rules, updateSessionRules, getSessionRules };
 }
@@ -90,8 +49,6 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
       local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
     },
-    // tabs.get：默认按「标签页都活着」处理（回收为无操作）；死标签页场景由
-    // 用例注入 reject 的实现
     tabs: { get: tabsGet || vi.fn(async () => ({ id: 1 })) },
     offscreen: { createDocument },
     declarativeNetRequest: { updateSessionRules: updateRules, getSessionRules: getRules }
@@ -104,7 +61,6 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
   return { createDocument, matchAll, updateSessionRules: updateRules, getSessionRules: getRules };
 }
 
-// 已存在 offscreen 文档的 matchAll 结果（跳过 createDocument 分支）
 const existingDocClients = [{ url: "chrome-extension://test/entry/offscreen.html" }];
 
 let bridge: typeof import("../../extension/asr/offscreen-bridge.bg.js");
@@ -124,8 +80,6 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     expect(createDocument).toHaveBeenCalledTimes(1);
     expect(createDocument.mock.calls[0][0]).toMatchObject({
       url: "chrome-extension://test/entry/offscreen.html",
-      // BLOBS（非 AUDIO_PLAYBACK，且不传非法的 WEBSOCKET）：承载 ASR 解码/转写与 MOSS-LIVE 伴看；Chrome 对无音频播放的 AUDIO_PLAYBACK
-      // 文档 30 秒强制关闭，长视频解码会被「音频解码中断」
       reasons: ["BLOBS"]
     });
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, ruleId: 32001 });
@@ -149,8 +103,6 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     const sendResponse = vi.fn();
     await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, sendResponse);
 
-    // 探测失败不再静默跳过创建：降级为直接 createDocument（already-exists
-    // 由创建路径兜底），文档就绪后才回 ok
     expect(createDocument).toHaveBeenCalledTimes(1);
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, ruleId: 32001 });
   });
@@ -168,16 +120,13 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
 
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "offscreen reasons invalid" });
 
-    // 失败任务不占用 id：重试成功拿到的是同一个首 id
     const retried: BridgeResponse[] = [];
     await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, (r) => retried.push(r as BridgeResponse));
     expect(retried[0]).toEqual({ ok: true, ruleId: 32001 });
   });
 
   it.each([
-    // Chrome 真实文案（r1 审查核实，Stack Overflow / moderok.dev 均证实）
     "Only a single offscreen document may be created.",
-    // 兼容的旧/变体文案（防未来 Chrome 改文案后正则被静默放宽）
     "Single offscreen document already exists."
   ])("createDocument 抛「文档已存在」（%s）视同成功", async (message) => {
     const { createDocument } = stubSwEnv({
@@ -208,9 +157,6 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
   });
 });
 
-// cleanup 的标签页归属（工单 03）：ruleId 在本实例簿记中有主时，只接受同一
-// 来源（同标签页 / 同为 offscreen）的清理请求；簿记不在（SW 冷启动后上一
-// 实例的 ruleId）保持幂等放行。
 describe("cleanup 的标签页归属校验（跨标签页请求拒绝执行）", () => {
   async function prepareFrom(sender: MessageSender) {
     const responses: BridgeResponse[] = [];
@@ -252,7 +198,6 @@ describe("cleanup 的标签页归属校验（跨标签页请求拒绝执行）",
       ok: false,
       error: "防盗链规则不属于当前来源"
     });
-    // 规则仍在（副作用未执行），归属不受污染：tab 7 之后仍能正常清理
     expect(store.rules.size).toBe(1);
     await expect(cleanupFrom({ tab: { id: 7 } }, prepared.ruleId)).resolves.toEqual({ ok: true });
     expect(store.rules.size).toBe(0);
@@ -268,9 +213,6 @@ describe("cleanup 的标签页归属校验（跨标签页请求拒绝执行）",
   });
 });
 
-// 规则内容（工单 04 收窄后）：requestDomains 精确匹配 ASR 音频 CDN 域
-//（bilivideo.com 及其子域），只对 offscreen 文档的 xmlhttprequest 音轨请求
-// 改写 Referer/Origin
 const EXPECTED_RULE_SHAPE = {
   priority: 1,
   action: {
@@ -316,7 +258,6 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
     expect(second.ok).toBe(true);
     expect(second.ruleId).toBe(bridge.ASR_AUDIO_SESSION_RULE_ID_BASE + 1);
     expect(second.ruleId).not.toBe(first.ruleId);
-    // 规则并存：各任务一条，id 互不相同；内容不变
     expect(store.rules.size).toBe(2);
     expect([...store.rules.keys()].sort((a, b) => a - b)).toEqual([
       bridge.ASR_AUDIO_SESSION_RULE_ID_BASE,
@@ -361,15 +302,12 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
     const first = await prepareOnce();
     const cleanup = (ruleId: number) => cleanupOnce(ruleId);
 
-    // 同一 id 重复 cleanup、从未分配的 id cleanup，都不抛且 ok:true
     await expect(cleanup(first.ruleId)).resolves.toEqual({ ok: true });
     await expect(cleanup(first.ruleId)).resolves.toEqual({ ok: true });
     const unknownId = bridge.ASR_AUDIO_SESSION_RULE_ID_BASE + 500;
     await expect(cleanup(unknownId)).resolves.toEqual({ ok: true });
     expect(store.rules.size).toBe(0);
 
-    // 未知 id 未进入空闲池：新任务复用的是首个 id 的释放位（32001），
-    // 而非 32501 之类从未分配的杂 id
     const next = await prepareOnce();
     expect(next.ruleId).toBe(bridge.ASR_AUDIO_SESSION_RULE_ID_BASE);
   });
@@ -408,16 +346,11 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
     expect(failed.ok).toBe(false);
     expect(failed.error).toContain("dnr quota exceeded");
 
-    // 失败任务不占用 id：重试成功拿到的是同一个首 id
     const retried = await prepareOnce();
     expect(retried).toEqual({ ok: true, ruleId: bridge.ASR_AUDIO_SESSION_RULE_ID_BASE });
   });
 });
 
-// 事故背景三的回归用例：重载本模块 = 冷启动一个新的 SW 实例（账本归零），
-// makeRuleStore 的初始规则 = 上一实例残留在平台的会话规则。
-// 平台残留的上一实例规则，内容与新任务所加规则同形（冷启动对账与泄漏回收
-// 用例共用）
 function residueRule(id: number): FakeSessionRule {
   return { id, ...EXPECTED_RULE_SHAPE };
 }
@@ -443,7 +376,6 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
 
     expect(first).toEqual({ ok: true, ruleId: 32002 });
     expect(second).toEqual({ ok: true, ruleId: 32003 });
-    // 残留规则未被先删后加覆写；对账每次 SW 实例只做一次（第二次分配靠账本）
     expect(store.rules.get(32001)).toBe(residue);
     expect(store.getSessionRules).toHaveBeenCalledTimes(1);
   });
@@ -454,12 +386,10 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
     const task2 = await prepareOnce();
     expect(task2.ruleId).toBe(32002);
 
-    // 上一实例的任务 1（offscreen 文档跨 SW 存活）跑完，cleanup 带回自己的 32001
     await expect(cleanupOnce(32001)).resolves.toEqual({ ok: true });
     expect(store.rules.has(32001)).toBe(false);
     expect(store.rules.has(task2.ruleId)).toBe(true);
 
-    // 账本一致：32001 随 cleanup 归还（平台上已无此 id），后续任务可安全复用
     const task3 = await prepareOnce();
     expect(task3.ruleId).toBe(32001);
     expect(store.rules.size).toBe(2);
@@ -478,11 +408,9 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
   it("旧任务 cleanup 先于对账到达：先删平台规则，随后的对账与分配不撞车", async () => {
     const store = await coldStartBridge([residueRule(32001)]);
 
-    // SW 刚重启、本实例尚无 prepare 时，上一实例任务 1 的 cleanup 先到达
     await expect(cleanupOnce(32001)).resolves.toEqual({ ok: true });
     expect(store.rules.size).toBe(0);
 
-    // 平台规则已被该 cleanup 删掉，对账看不到残留：32001 可重新分配
     const next = await prepareOnce();
     expect(next.ruleId).toBe(32001);
     expect(store.rules.size).toBe(1);
@@ -491,14 +419,11 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
   it("重复/未知 id 的 cleanup 幂等在对账后不回归：不抛、不重复入池", async () => {
     const store = await coldStartBridge([residueRule(32001)]);
 
-    await prepareOnce(); // 对账后分到 32002，保持活跃
-    // 对账收编的 32001 归还一次后，重复 cleanup 与未分配的区间内 id 均幂等忽略
+    await prepareOnce();
     await expect(cleanupOnce(32001)).resolves.toEqual({ ok: true });
     await expect(cleanupOnce(32001)).resolves.toEqual({ ok: true });
     await expect(cleanupOnce(bridge.ASR_AUDIO_SESSION_RULE_ID_BASE + 4)).resolves.toEqual({ ok: true });
 
-    // 池未被污染：下一任务复用刚归还的 32001，再下一任务走计数器 32003
-    //（若 32001 被重复入池，这里会再次分到 32001 而与活跃任务撞 id）
     const next = await prepareOnce();
     expect(next.ruleId).toBe(32001);
     const after = await prepareOnce();
@@ -506,10 +431,6 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
   });
 });
 
-// 泄漏回收（工单 04）：cleanup 消息依赖页面侧活着——标签页直接关闭/崩溃时
-// cleanup 永远不会到达，规则残留到浏览器会话结束。兜底：每次 prepare 前把
-// 归属标签页已不存在的活跃规则回收（tabs.get 的「No tab with id」确定性错误
-// 才判死，其他异常按存活处理——宁可漏收不误收）。
 describe("prepare 前的死标签页残留回收（异常取消 / 后台终止路径）", () => {
   async function freshBridge({ tabsGet, initialRules = [] }: { tabsGet?: StubSwEnvOptions["tabsGet"]; initialRules?: FakeSessionRule[] } = {}) {
     const store = makeRuleStore(initialRules);
@@ -531,7 +452,6 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
   }
 
   it("标签页关闭后（tabs.get 报 No tab with id），其名下规则在下一次 prepare 前被回收且 id 复用", async () => {
-    // tab 7 已死、tab 9 活着
     const tabsGet = vi.fn(async (tabId) => {
       if (tabId === 7) throw new Error(`No tab with id: ${tabId}.`);
       return { id: tabId };
@@ -539,16 +459,13 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
     const store = await freshBridge({ tabsGet });
 
     const dead = await prepareFrom(7);
-    expect(tabsGet).not.toHaveBeenCalled(); // 首个任务前无残留可回收
+    expect(tabsGet).not.toHaveBeenCalled();
 
-    // tab 9 的 prepare 先跑回收 pass：死标签页 tab 7 的规则在分配前被回收，
-    // 释放的 id 立即被 tab 9 的新规则复用（活跃集只剩 tab 9 一条）
     const alive = await prepareFrom(9);
     expect(tabsGet).toHaveBeenCalledWith(7);
     expect(store.rules.size).toBe(1);
     expect(alive.ruleId).toBe(dead.ruleId);
 
-    // 存活的 tab 9 规则不被后续回收误删，下一任务走未复用的计数器 id
     const third = await prepareFrom(9);
     expect(store.rules.has(alive.ruleId)).toBe(true);
     expect(store.rules.size).toBe(2);
@@ -556,7 +473,6 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
   });
 
   it("offscreen / 对账收编来源（无法核验）的规则不被误收；tabs.get 全线异常时保守保留", async () => {
-    // 对账收编上一实例残留 32001（owner "" 来源未知）+ 本实例 offscreen 来源新规则（owner "o"）
     const store = await freshBridge({
       initialRules: [residueRule(32001)],
       tabsGet: vi.fn(async () => {
@@ -567,7 +483,6 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
     const first = await prepareOnce();
     expect(first.ruleId).toBe(32002);
 
-    // 触发一次回收 pass：无 "t" 来源可核验，已有规则全部保留
     const fromTab = await prepareFrom(9);
     expect(store.rules.has(32001)).toBe(true);
     expect(store.rules.has(32002)).toBe(true);
@@ -585,8 +500,6 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
   });
 });
 
-// 安装 / 更新路径的整池清理（工单 04，entry/background.ts 的 onInstalled 接线）：
-// 池区间内平台现存规则全部清掉 + 账本重置，区间外规则不碰。
 describe("reapAllSessionRules（安装/更新整池清理）", () => {
   it("清空池区间内全部规则，区间外的动态规则不受影响", async () => {
     const foreignRule = { id: 999, priority: 1, action: { type: "block" }, condition: {} };
@@ -623,7 +536,6 @@ describe("reapAllSessionRules（安装/更新整池清理）", () => {
     expect(store.rules.size).toBe(1);
   });
 });
-
 
 describe("后台视频帧媒体会话规则", () => {
   it("仅覆盖 media 与跨域响应头，与 ASR 并发分配不同 id 且独立清理", async () => {

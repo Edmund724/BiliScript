@@ -83,7 +83,6 @@ describe("Agent Bridge 连接", () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(FakeWebSocket.instances[1].url).toBe("ws://127.0.0.1:19001");
 
-    // 等价回环写法（[::1] -> 127.0.0.1）不触发多余重连
     FakeWebSocket.instances[1].open();
     config.url = "ws://[::1]:19001";
     await bridge.sync();
@@ -170,41 +169,35 @@ describe("Agent Bridge 连接", () => {
       expect(alarms.create).toHaveBeenCalledWith(AGENT_BRIDGE_ALARM, { periodInMinutes: 0.5 });
       expect(FakeWebSocket.instances).toHaveLength(1);
 
-      // 第 1 次失败 -> 退避 1000ms
       FakeWebSocket.instances[0].close();
       await vi.advanceTimersByTimeAsync(999);
       expect(FakeWebSocket.instances).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(FakeWebSocket.instances).toHaveLength(2);
 
-      // 第 2 次失败 -> 退避 2000ms（不再每秒重试）
       FakeWebSocket.instances[1].close();
       await vi.advanceTimersByTimeAsync(1999);
       expect(FakeWebSocket.instances).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       expect(FakeWebSocket.instances).toHaveLength(3);
 
-      // 第 3 次失败 -> 退避 4000ms
       FakeWebSocket.instances[2].close();
       await vi.advanceTimersByTimeAsync(3999);
       expect(FakeWebSocket.instances).toHaveLength(3);
       await vi.advanceTimersByTimeAsync(1);
       expect(FakeWebSocket.instances).toHaveLength(4);
 
-      // 第 4 次失败 -> 退避 8000ms
       FakeWebSocket.instances[3].close();
       await vi.advanceTimersByTimeAsync(7999);
       expect(FakeWebSocket.instances).toHaveLength(4);
       await vi.advanceTimersByTimeAsync(1);
       expect(FakeWebSocket.instances).toHaveLength(5);
 
-      // 达到单次唤醒重试上限后静默等待定时唤醒，不再继续发包
       FakeWebSocket.instances[4].close();
       await vi.advanceTimersByTimeAsync(60_000);
       expect(FakeWebSocket.instances).toHaveLength(5);
       expect(alarms.create).toHaveBeenCalledTimes(1);
 
-      // 模拟定时唤醒触发 sync，重新开启新一轮重连窗口
       await bridge.sync();
       expect(FakeWebSocket.instances).toHaveLength(6);
     } finally {
@@ -224,7 +217,6 @@ describe("Agent Bridge 连接", () => {
       const bridge = createAgentBridge({ getConfig: async () => config });
       await bridge.sync();
 
-      // 经历两次失败后再成功连接，退避计数应归零
       FakeWebSocket.instances[0].close();
       await vi.advanceTimersByTimeAsync(1000);
       FakeWebSocket.instances[1].close();
@@ -233,13 +225,11 @@ describe("Agent Bridge 连接", () => {
       FakeWebSocket.instances[2].open();
       expect(bridge.getStatus().connected).toBe(true);
 
-      // 后续断线（如 Daemon 空闲退出）应从初始 1000ms 重新开始退避
       FakeWebSocket.instances[2].close();
       await vi.advanceTimersByTimeAsync(1000);
       expect(FakeWebSocket.instances).toHaveLength(4);
       FakeWebSocket.instances[3].open();
 
-      // 关闭开关立即断开连接、取消待执行退避并清除定时唤醒
       config.enabled = false;
       await bridge.sync();
       expect(FakeWebSocket.instances[3].readyState).toBe(FakeWebSocket.CLOSED);

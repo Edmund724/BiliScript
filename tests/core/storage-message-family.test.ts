@@ -1,13 +1,3 @@
-// 存储消息族工厂（core/storage-message-family.js）的真值表 seam：
-// 工厂吃一族声明（type / op 表 / 未知 op 文案 / 可选 toError），产出
-// (message, sender, sendResponse) 形状的 handler——内部只做 op 判别、未知 op 拒绝、
-// withOkResponse 信封，不碰任何域逻辑。本文件用假声明的假 op 表直接驱动它，不装载
-// SW 入口与任何域模块，钉住三条支路：
-//   ① 已声明 op → 回包 op 分支体的决议值原样（不二次包装）；
-//   ② 未声明 op（含缺 op / 命中原型成员的 op）→ { ok:false, error: 族文案 + op 原文 }；
-//   ③ 分支体拒绝 → { ok:false, error } 恒为可读串（非 Error / undefined 也不写成
-//      undefined），缺省归一 = withOkResponse 的 errorText 单源，声明带 toError 时用它。
-
 import { describe, expect, it, vi } from "vitest";
 import { defineStorageMessageFamily } from "../../extension/core/storage-message-family.js";
 

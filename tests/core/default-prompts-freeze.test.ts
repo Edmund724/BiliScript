@@ -1,9 +1,3 @@
-// 默认提示词及其各代 legacy 迁移断言与归一化测试
-// 确保：
-// 1. 导出键面完整；
-// 2. legacy 到当前默认的迁移映射与自定义提示词保持原样；
-// 3. 快捷提示词归一化与条数限制正确生效。
-
 import { describe, expect, it } from "vitest";
 import * as defaultPrompts from "../../extension/core/default-prompts.js";
 import {

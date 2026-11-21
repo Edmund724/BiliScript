@@ -1,11 +1,3 @@
-// chrome.storage.onChanged 区/键过滤 seam（shared/watch-storage-keys）：
-// - 单条真实监听：首个订阅者经 chrome.storage.onChanged.addListener 懒注册，
-//   后续订阅者不再重复注册，末个退订 removeListener 摘除；
-// - 键过滤：订阅者声明的区内键命中（自有属性）才分发，未命中不分发；
-// - 区过滤：只声明 sync 的订阅不收 local（或其他区）事件；
-// - 未声明键清单 = 不过滤：任意区任意键都分发；
-// - unsubscribe 后不再收到，且退订同步摘除真实监听。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -36,9 +28,7 @@ describe("shared/watch-storage-keys seam", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith({ enableFoo: { newValue: 1 } }, "sync");
 
-    // 同区他键：不分发
     listener({ enableBar: { newValue: 1 } }, "sync");
-    // 命中键但区不对：不分发
     listener({ enableFoo: { newValue: 2 } }, "local");
     expect(handler).toHaveBeenCalledTimes(1);
   });

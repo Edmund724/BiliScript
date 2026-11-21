@@ -1,6 +1,3 @@
-// ASR 会话规则管理器单元测试：测试 createAsrSessionRuleManager 契约
-// 包括分配/归还复用、幂等守卫、冷启动对账、孤儿回收与整池清理。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -85,16 +82,12 @@ describe("createAsrSessionRuleManager 分配与归还复用", () => {
 
     const id1 = await manager.allocate("t1");
     manager.release(id1);
-    // 重复 release
     manager.release(id1);
-    // 未分配的杂 id release
     manager.release(99999);
     manager.release(ASR_AUDIO_SESSION_RULE_ID_BASE + 50);
 
-    // 复用 id1
     const next1 = await manager.allocate("t2");
     expect(next1).toBe(id1);
-    // 下一个应该走计数器递增，而不是 99999 或其他杂 id
     const next2 = await manager.allocate("t3");
     expect(next2).toBe(ASR_AUDIO_SESSION_RULE_ID_BASE + 1);
   });
@@ -103,7 +96,6 @@ describe("createAsrSessionRuleManager 分配与归还复用", () => {
     stubManagerEnv();
     const manager = createAsrSessionRuleManager();
 
-    // 模拟分配到 MAX
     for (let i = ASR_AUDIO_SESSION_RULE_ID_BASE; i <= ASR_AUDIO_SESSION_RULE_ID_MAX; i++) {
       const id = await manager.allocate(`t${i}`);
       expect(id).toBe(i);
@@ -111,7 +103,6 @@ describe("createAsrSessionRuleManager 分配与归还复用", () => {
 
     await expect(manager.allocate("overflow")).rejects.toThrow("防盗链规则 id 已耗尽（活跃转写任务过多），请稍后重试");
 
-    // 释放一个后可再次分配
     manager.release(ASR_AUDIO_SESSION_RULE_ID_BASE + 5);
     const reused = await manager.allocate("t-reused");
     expect(reused).toBe(ASR_AUDIO_SESSION_RULE_ID_BASE + 5);
@@ -121,7 +112,7 @@ describe("createAsrSessionRuleManager 分配与归还复用", () => {
 describe("createAsrSessionRuleManager 冷启动对账", () => {
   it("平台残留活跃规则被收编进活跃集，计数器越过最大 id，空闲池清空", async () => {
     const residue = { id: 32001 };
-    const foreignRule = { id: 100 }; // 区间外
+    const foreignRule = { id: 100 };
     const { getSessionRules } = stubManagerEnv({ initialRules: [residue, foreignRule] });
     const manager = createAsrSessionRuleManager();
 
@@ -129,10 +120,8 @@ describe("createAsrSessionRuleManager 冷启动对账", () => {
     expect(allocated).toBe(32002);
     expect(getSessionRules).toHaveBeenCalledTimes(1);
 
-    // 对账收编的 32001 其 owner 记为空串 ""
     expect(manager.getOwner(32001)).toBe("");
     expect(manager.getOwner(32002)).toBe("t1");
-    // 区间外规则不入账
     expect(manager.getOwner(100)).toBeUndefined();
   });
 
@@ -170,7 +159,6 @@ describe("createAsrSessionRuleManager 冷启动对账", () => {
 
     await expect(manager.allocate("t1")).rejects.toThrow("DNR unavailable");
 
-    // 第二次重试对账成功
     const id = await manager.allocate("t1");
     expect(id).toBe(32002);
     expect(callCount).toBe(2);
@@ -198,18 +186,15 @@ describe("createAsrSessionRuleManager 孤儿回收 reapOrphans", () => {
 
     await manager.reapOrphans();
 
-    // tab 7 的规则被移除
     expect(updateSessionRules).toHaveBeenCalledWith({ removeRuleIds: [idTab7] });
     expect(rules.has(idTab7)).toBe(false);
     expect(manager.getOwner(idTab7)).toBeUndefined();
 
-    // tab 8 与 offscreen 规则保留
     expect(rules.has(idTab8)).toBe(true);
     expect(rules.has(idOffscreen)).toBe(true);
     expect(manager.getOwner(idTab8)).toBe("t8");
     expect(manager.getOwner(idOffscreen)).toBe("o");
 
-    // 被回收的 idTab7 立即可以被复用
     const reused = await manager.allocate("t9");
     expect(reused).toBe(idTab7);
   });
@@ -246,25 +231,22 @@ describe("createAsrSessionRuleManager 整池清理 clearAll", () => {
     const initialRules = [
       { id: 32001 },
       { id: 32005 },
-      { id: 999 } // 区间外规则
+      { id: 999 }
     ];
     const { rules, updateSessionRules } = stubManagerEnv({ initialRules });
     const manager = createAsrSessionRuleManager();
 
-    // 先做一次分配，建立状态
     const id = await manager.allocate("t1");
     expect(id).toBe(32006);
     rules.set(id, { id });
 
     await manager.clearAll();
 
-    // 平台区间内规则被删，区间外规则未受影响
     expect(updateSessionRules).toHaveBeenCalledWith({ removeRuleIds: [32001, 32005, 32006] });
     expect(rules.has(999)).toBe(true);
     expect(rules.has(32001)).toBe(false);
     expect(rules.has(32006)).toBe(false);
 
-    // 内部账本完全重置，下次分配重新从 BASE 开始
     const freshId = await manager.allocate("t2");
     expect(freshId).toBe(ASR_AUDIO_SESSION_RULE_ID_BASE);
   });

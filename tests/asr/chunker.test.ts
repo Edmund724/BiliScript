@@ -1,7 +1,3 @@
-// chunker.js 测试：WAV 编码器正确性 / buildChunkPlan 各平台规则 /
-// decideChunks 边界与连续性 / buildWavChunks 直测。
-// 全部纯 Node/vitest，不依赖真实 AudioContext。
-
 import { describe, expect, it } from "vitest";
 import {
   encodeWav,
@@ -15,7 +11,6 @@ import {
   type DecodedAudioBuffer
 } from "../../extension/asr/chunker.js";
 
-// 读取 WAV 头各字段（对照 44 字节标准布局）
 function readWavHeader(blob: Blob, bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const ascii = (offset: number, len: number) =>
@@ -37,7 +32,6 @@ function readWavHeader(blob: Blob, bytes: Uint8Array) {
   };
 }
 
-// 读 WAV 的 PCM 采样值（Int16 little-endian）
 function readPcmSamples(blob: Blob, bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const count = (bytes.length - 44) / 2;
@@ -55,14 +49,14 @@ describe("encodeWav 编码器正确性", () => {
     const bytes = new Uint8Array(await blob.arrayBuffer());
 
     expect(blob.type).toBe("audio/wav");
-    expect(bytes.byteLength).toBe(44 + 16000 * 2); // header + PCM
+    expect(bytes.byteLength).toBe(44 + 16000 * 2);
     const h = readWavHeader(blob, bytes);
     expect(h.riff).toBe("RIFF");
     expect(h.chunkSize).toBe(36 + 16000 * 2);
     expect(h.wave).toBe("WAVE");
     expect(h.fmt).toBe("fmt ");
     expect(h.subchunkSize).toBe(16);
-    expect(h.audioFormat).toBe(1); // PCM
+    expect(h.audioFormat).toBe(1);
     expect(h.numChannels).toBe(1);
     expect(h.sampleRate).toBe(16000);
     expect(h.byteRate).toBe(16000 * 2);
@@ -77,10 +71,10 @@ describe("encodeWav 编码器正确性", () => {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const samples = readPcmSamples(blob, bytes);
     expect(samples[0]).toBe(16384);
-    expect(samples[1]).toBe(32767); // 量化后 clamp
-    expect(samples[2]).toBe(-32768); // 量化后 clamp
+    expect(samples[1]).toBe(32767);
+    expect(samples[2]).toBe(-32768);
     expect(samples[3]).toBe(0);
-    expect(samples[4]).toBe(32765); // round(0.9999*32768) = round(32764.7) = 32765
+    expect(samples[4]).toBe(32765);
   });
 
   it("负半样本 round 行为：-0.5→-16384（Math.round 半值向 +∞）", async () => {
@@ -171,7 +165,6 @@ describe("decideAudioChunkCut 软切分与微重叠决策", () => {
     for (let i = 0; i < buf.length; i += 1) {
       buf[i] = 0.4 * Math.sin((2 * Math.PI * 300 * i) / rate);
     }
-    // 插入以 56.2s 为中心的 300ms 静音段 [56.05s, 56.35s]
     buf.fill(0, Math.round(56.05 * rate), Math.round(56.35 * rate));
 
     const decision = decideAudioChunkCut(buf, rate);
@@ -233,7 +226,6 @@ describe("buildWavChunks 直测", () => {
     expect(h.sampleRate).toBe(16000);
     expect(h.numChannels).toBe(1);
     expect(h.bitsPerSample).toBe(16);
-    // 最后一片 123 秒（120s 新采样 + 1.5s * 2 重叠折算：357s ~ 480s）：44 + 16000*2*123
     expect(bytes.byteLength).toBe(44 + 16000 * 2 * 123);
   });
 
@@ -268,8 +260,6 @@ describe("makeDecodedBuffer 契约适配", () => {
   });
 
   it("未适配的裸数组（重构回归点）→ 校验抛「采样率 undefined」而非静默零切片", () => {
-    // 模拟用户报错路径：解码产出的裸 Float32Array，若绕过适配
-    // 直接喂给 validateDecodedAudio，必须抛显式错误而不是产出空切片。
     const bare = new Float32Array(16000);
     expect(() => validateDecodedAudio(bare as unknown as DecodedAudioBuffer)).toThrow(
       "音频解码失败：解码结果时长为零（采样数 16000、采样率 undefined）"
@@ -303,8 +293,6 @@ describe("validateDecodedAudio 直测", () => {
   });
 });
 
-// 静音叶是 chunker 与 stream-chunker 共用的判据与文案落点（逐字断言在此钉死，
-// 两条调用路径的用例只验证它们确实经此抛出）。
 describe("assertDecodedAudioNotSilent 直测", () => {
   it("时长 ≤ 0 不判（零片产出归调用方按有无产出判定）", () => {
     expect(() => assertDecodedAudioNotSilent({ durationSec: 0, peak: 0 })).not.toThrow();

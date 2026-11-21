@@ -1,21 +1,3 @@
-// search/search-chain.ts 测试（spec §1 S1/S4/S6-S8、§3 落点表第 8 行、§6.4、§12.1–§12.3、
-// §10 第 59–67、83 行）。
-// 覆盖 resolveSearchChain 的两模式：
-//   ① 单选（activeId = 记录 id）= 独苗链，无回退；悬空按空处理走智能链；进组判据不变
-//      （free-quota 无 Key 不进 → 单选它得到空链，走既有「未配置」路径）；
-//   ② 智能（哨兵 / 空串）= 全部在组记录按「归一 order 下标 > 内置默认序
-//      DEFAULT_SEARCH_PROVIDER_ORDER」排序 → 同 presetId 取排序最靠前的合格记录
-//      → 剔除 cooldownUntil[presetId] > now 的引擎（单选不消费冷却）。
-// 返回形状 = { chain, emptyCause? }：链与归因**一趟随链返回**（不再由调用方同参重跑
-// 判因）——emptyCause:'cooldown' 只在智能链「链空且确有合格幸存者（含同 presetId
-// 去重赢家）在冷却处被剔」时出现；单选空链 / 无合格记录一律不带（调用方据此分
-// 「未配置」与冷却专属文案）。
-// 另覆盖候选形状（provider 增 presetId）；顺序规则（归一 + 排序键）的实现与用例
-// 已随票 15 迁往零依赖叶 search/search-order.ts（tests/search/search-order.test.ts）。
-// 执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45 行）、
-// executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
-// 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
-// 注入桩，不测真实网络与墙钟（§10 非断言节）。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
@@ -32,7 +14,6 @@ import {
   type SearchChainResolution
 } from "../../extension/search/search-chain.js";
 
-// 记录夹具：presetId 是链成员资格的唯一判据（spec §7「只挂预设表，记录不带副本」）。
 const FIRECRAWL: SearchProvider = {
   id: "search_firecrawl",
   presetId: "firecrawl",
@@ -41,7 +22,6 @@ const FIRECRAWL: SearchProvider = {
   baseUrl: "https://api.firecrawl.dev",
   enabled: true
 };
-// 用户手加的同一家：生成式 id（ui/provider-row.ts），presetId 仍是 firecrawl
 const FIRECRAWL_USER: SearchProvider = {
   id: "firecrawl-picked",
   presetId: "firecrawl",
@@ -91,7 +71,6 @@ const EXA: SearchProvider = {
   enabled: true
 };
 
-// options 夹具：mode 由消费方（background 的 resolveSearchMode）给出，纯函数不自己取时间。
 function smart(overrides: Partial<SearchChainOptions> = {}): SearchChainOptions {
   return { mode: "smart", order: [], cooldownUntil: {}, now: 0, ...overrides };
 }
@@ -99,11 +78,9 @@ function single(overrides: Partial<SearchChainOptions> = {}): SearchChainOptions
   return { mode: "single", order: [], cooldownUntil: {}, now: 0, ...overrides };
 }
 
-// 链内容断言统一走解析产物的 .chain（返回形状 = 链 + 归因，见文件头）。
 function ids(resolved: SearchChainResolution): string[] {
   return resolved.chain.map((candidate) => candidate.provider.id);
 }
-
 
 describe("resolveSearchChain 单选模式（spec §12.1 / §10 第 59 行）", () => {
   it("chain 只含 activeId 那一条记录（无回退），apiKey 取该记录自己的", () => {
@@ -141,7 +118,6 @@ describe("resolveSearchChain 单选模式（spec §12.1 / §10 第 59 行）", (
     );
 
     expect(resolved.chain).toEqual([]);
-    // 单选不消费冷却 → 空链只可能是真未配置，调用方不得走冷却文案（§12.4 第 5 条）
     expect(resolved.emptyCause).toBeUndefined();
   });
 
@@ -313,7 +289,6 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
     expect(ids(withKey)).toEqual(["search_doubao", "search_firecrawl"]);
     expect(withKey.chain[0].apiKey).toBe("db-key");
     expect(blankKey.chain).toEqual([]);
-    // 无合格记录（不进候选，与冷却无关）→ 链空但不是冷却剔除，不带归因
     expect(blankKey.emptyCause).toBeUndefined();
   });
 
@@ -366,7 +341,6 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
 
     expect(ids(cooled)).toEqual(["tavily-picked", "search_anysearch"]);
     expect(ids(expired)).toEqual(["tavily-picked", "search_firecrawl", "search_anysearch"]);
-    // 部分冷却 → 链非空：归因只在链空时有意义，此处必须不带（dropped 的引擎不该污染链非空回包）
     expect(cooled.emptyCause).toBeUndefined();
     expect(expired.emptyCause).toBeUndefined();
   });
@@ -393,8 +367,6 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
       smart({ cooldownUntil: { firecrawl: 5000 }, now: 1000 })
     );
 
-    // 去重赢家（排序最靠前的合格记录）在冷却处被剔；同 presetId 的第二条本就不入链，
-    // 故「不消费冷却时链非空」成立 = 有幸存者在冷却处被剔。
     expect(resolved.chain).toEqual([]);
     expect(resolved.emptyCause).toBe("cooldown");
   });
@@ -428,22 +400,17 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
         name: "Firecrawl",
         type: "firecrawl",
         baseUrl: "https://api.firecrawl.dev",
-        // access 随候选带出（付费可见性标注的输入，执行器不再二次查表）
         access: "keyless"
       },
       apiKey: ""
     });
-    // 链非空（DOUBAO 无 Key 不进、FIRECRAWL 未冷却）→ 无归因
     expect(resolved.emptyCause).toBeUndefined();
     expect(JSON.stringify({ records, keys, order, cooldownUntil })).toBe(before);
   });
 });
 
-// ===== 执行器面（spec §4 / §6.4 / §10 第 16、42–45 行）=====
-
 const RESULT = { title: "t", url: "https://example.com", snippet: "s" };
 
-// 链候选夹具（= ResolveSearchProviderResponse.chain 的元素，S4 单一形状）。
 const FIRECRAWL_CHAIN: SearchChainCandidate = {
   provider: {
     id: "search_firecrawl",
@@ -465,12 +432,10 @@ const TAVILY_CHAIN: SearchChainCandidate = {
   apiKey: "tvly-k"
 };
 
-// 既有 executor 的失败形状：!response.ok 时抛 `HTTP <status>` 并附 status。
 function httpError(status: number): Error {
   return Object.assign(new Error(`HTTP ${status}`), { status });
 }
 
-// 豆包 HTTP 200 信封错误：经真实适配器 parse 抛出（带 providerCode）。
 function doubaoEnvelopeError(error: Record<string, unknown>): unknown {
   try {
     parseDoubaoSearchResponse({ ResponseMetadata: { Error: error }, Result: { WebResults: [] } });
@@ -528,7 +493,6 @@ describe("classifySearchFailure 失败分类（§6.4 唯一映射表）", () => 
     for (const code of ["700901", "10403"]) {
       expect(classifySearchFailure(doubaoEnvelopeError({ CodeN: code }))).toBe("auth");
     }
-    // Code / CodeN 双查：Code 无效（"0"）时落 CodeN，数字码也认
     expect(classifySearchFailure(doubaoEnvelopeError({ Code: "0", CodeN: 10406 }))).toBe("quota");
   });
 });
@@ -693,9 +657,6 @@ describe("executeSearchChain 链级预算（§4 / §10 第 16 行）", () => {
   });
 });
 
-// ===== 健康度记账接线（spec §12.4 第 1–2 条 / §12.5 第 7 行 / §10 第 72 行）=====
-// 记账粒度 = 引擎级（候选 provider.presetId）；每次真实出网尝试记一次（成功 / 失败
-// 各一次）；调用方中止（已中止 / 在飞中止）与自伤中止不构成引擎失败的口径见实现注释。
 describe("executeSearchChain 健康度记账（§12.4 第 1–2 条 / §12.5 第 7 行）", () => {
   interface Recorded {
     presetId: string;
@@ -713,7 +674,6 @@ describe("executeSearchChain 健康度记账（§12.4 第 1–2 条 / §12.5 第
     };
   }
 
-  // 注入时钟：按顺序返回（延迟 = 两次读数之差）
   function clock(values: number[]): () => number {
     let index = 0;
     return () => values[Math.min(index++, values.length - 1)];

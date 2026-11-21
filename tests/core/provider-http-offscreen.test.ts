@@ -1,33 +1,7 @@
-// core/provider-http-offscreen.ts 测试：概览链的平台请求代发（content 发起 →
-// offscreen 文档执行）。
-//
-// 与 core/provider-http.ts（SW 代发）同形，差别只在承载者、超时/取消策略与
-// 回吐形态：概览已改流式（网关对非流式长请求返回 500 Request timed out），
-// offscreen 一律按「响应头 → 正文分片 → done」分块回吐，content 侧合成带
-// ReadableStream body 的标准 Response——非流式调用方（.json()/.text()）行为不变，
-// 流式调用方（response.body.getReader()）拿增量。SW 代发的 15s 超时
-//（provider-http.ts:72）与 MV3 service worker 生命周期都不适用；offscreen 是
-// 扩展源、不过网页 CORS 预检（ModelScope 的 Anthropic 端点拒 anthropic-version /
-// x-api-key 预检头即此因）。
-//
-// 覆盖两端：
-// - content 侧 providerFetchViaOffscreen：ensure → connect → 出向载荷
-//   （url/method/headers/body 原样）、首条回吐即落定并合成标准 Response（status
-//   正确、text() 得完整拼接、getReader() 得增量）、中途 ok:false 让读流抛错
-//   （不得静默截断当成功）、ok:false 抛原始文案（交 completion 包装）、signal
-//   中止以 AbortError 拒绝且断开端口；派发确认（accepted ack）判活与「端口未被
-//   接管 → 重连一次 → 可读错误」的出口（ASR 终态自关撞上概览请求时的静默挂起）；
-// - offscreen 侧 attachProviderHttpPort：URL 合法性预检（拒绝时不发 fetch）、
-//   回吐顺序（响应头 → 分片 → done）、多字节字符跨分片不破损、body 为 null 时
-//   直接 done、fetch 抛错与读流中途失败归 { ok:false, error }、端口断连即 abort。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 
-// 端口回吐消息（offscreen → content，同一端口严格按序）：
-// 响应头 { ok, status } → 分片 { ok, status, chunk } → 收束 { ok, status, done }；
-// 失败一律只带 { ok:false, error }（响应头已发 = 中途失败）。
 type Reply = { ok: boolean; status?: number; chunk?: string; done?: boolean; error?: string; accepted?: boolean };
 
 interface FakePort {
@@ -49,7 +23,6 @@ async function loadModule() {
   return import("../../extension/core/provider-http-offscreen.js");
 }
 
-// 手动推进的假响应体：按 chunks 顺序供 reader.read()，供完即 done。
 function makeBody(chunks: Array<string | Uint8Array>) {
   const encoder = new TextEncoder();
   const parts = chunks.map((part) => (typeof part === "string" ? encoder.encode(part) : part));
@@ -62,7 +35,6 @@ function makeBody(chunks: Array<string | Uint8Array>) {
   };
 }
 
-// content 侧环境：ensure 消息计数 + connect 返回可手动驱动回吐的假端口
 function makeFakePort(name: string): FakePort {
   const messageListeners: Array<(message: unknown) => void> = [];
   const disconnectListeners: Array<() => void> = [];
@@ -89,16 +61,12 @@ function makeFakePort(name: string): FakePort {
   });
 }
 
-// 假计时器下放行微任务链：ensure / 权限代查的回包都是同步回调，推进 0ms 即把
-// connect 前后的微任务放干净（不依赖具体跳数）。
 async function flushAsync(times = 3): Promise<void> {
   for (let i = 0; i < times; i += 1) {
     await vi.advanceTimersByTimeAsync(0);
   }
 }
 
-// 拒绝路径的收束：把 pending 的 rejection 取成 Error（免得与 Response 联合类型纠缠），
-// 同时保证拒绝发生前就挂上 handler（假计时器下不能等到断言时才接）。
 function rejectionOf(pending: Promise<Response>): Promise<Error> {
   return pending.then(
     () => new Error("预期失败但成功了"),
@@ -157,7 +125,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     lastPort!.send({ ok: true, status: 200, done: true });
     await pending;
 
-    // 代发前的两跳：权限代查（SW）→ ensure 文档；随后才连端口
     expect(ensureCalls).toBe(1);
     expect(sentRuntimeMessages).toEqual([
       { type: "check-provider-origin", origin: "https://api.example.com/*" },
@@ -197,7 +164,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
     await vi.waitFor(() => expect(lastPort).toBeTruthy());
     lastPort!.send({ ok: true, status: 200 });
-    const resp = await pending; // 不等正文：响应头到达即落定
+    const resp = await pending;
 
     lastPort!.send({ ok: true, status: 200, chunk: "po" });
     lastPort!.send({ ok: true, status: 200, chunk: "ng" });
@@ -302,7 +269,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" })
     ).rejects.toThrow(HOST_PERMISSION_HINT);
 
-    // 预检在 ensure 之前：连 offscreen 文档都不必创建，更不发注定失败的请求
     expect(ensureCalls).toBe(0);
     expect(connected).toHaveLength(0);
     expect(sentRuntimeMessages).toEqual([
@@ -371,7 +337,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     controller.abort();
 
     expect(lastPort!.disconnectMock).toHaveBeenCalledTimes(1);
-    // 挂起的读流不等 onDisconnect 回执也收束：消费侧据 signal.aborted 转中止
     await expect(reader.read()).rejects.toThrow("请求已中止");
   });
 
@@ -384,7 +349,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       await flushAsync();
       lastPort!.fireDisconnect();
 
-      // 无需推进 400ms 盲等计时器，下一轮 ensure + connect 立即发起
       await flushAsync();
       expect(connected).toHaveLength(2);
       expect(ensureCalls).toBe(2);
@@ -433,7 +397,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     lastPort!.fireDisconnect();
 
     await expect(reader.read()).rejects.toThrow("代发通道已断开");
-    // 断连后迟到的回吐分片：丢弃，不得对已出错的流 enqueue 抛 TypeError
     expect(() => lastPort!.send({ ok: true, status: 200, chunk: "迟到" })).not.toThrow();
   });
 
@@ -455,13 +418,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     controller.abort();
   });
 
-  // ---- 派发确认（accepted ack）：把「通道死了」与「平台慢」分开 ----
-  // 症状来源：ASR 终态自关（entry/offscreen-lifecycle.ts 的 noteAsrTerminal）与同一个
-  // subtitle-ready 触发的概览请求撞车时，connect 出的端口可能没被 offscreen 文档
-  // 接管，而被 SW 的保活 onConnect 收下（entry/background.ts 对不认识的端口名只
-  // return，不 disconnect）：既不回吐也不断连。没有确认机制时面板会永久停在
-  // 「正在等待平台响应…」，只有取消键能出去。
-
   it("收到接管确认 → 通道判活，确认超时不再触发重连；确认本身不是响应头", async () => {
     vi.useFakeTimers();
     try {
@@ -472,7 +428,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       expect(connected).toHaveLength(1);
 
       lastPort!.send({ ok: true, accepted: true });
-      await vi.advanceTimersByTimeAsync(5000); // 远超确认超时
+      await vi.advanceTimersByTimeAsync(5000);
       expect(connected).toHaveLength(1);
 
       lastPort!.send({ ok: true, status: 200 });
@@ -493,7 +449,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
 
       const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
       await flushAsync();
-      lastPort!.send({ ok: true, status: 200 }); // 旧文档：没有 ack，直接回响应头
+      lastPort!.send({ ok: true, status: 200 });
       const resp = await pending;
       lastPort!.send({ ok: true, status: 200, chunk: "pong" });
       lastPort!.send({ ok: true, status: 200, done: true });
@@ -515,7 +471,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       await flushAsync();
       const stray = lastPort!;
 
-      await vi.advanceTimersByTimeAsync(2000); // 确认超时：判死并断掉悬挂端口
+      await vi.advanceTimersByTimeAsync(2000);
       expect(stray.disconnectMock).toHaveBeenCalledTimes(1);
 
       await flushAsync();
@@ -551,7 +507,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       expect(first.disconnectMock).toHaveBeenCalled();
       expect(second.disconnectMock).toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(5000); // 不再有第三次连接
+      await vi.advanceTimersByTimeAsync(5000);
       expect(connected).toHaveLength(2);
     } finally {
       vi.useRealTimers();
@@ -597,7 +553,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       const settled = rejectionOf(pending);
       await flushAsync();
 
-      await vi.advanceTimersByTimeAsync(2000); // 第一次未被接管，进入第二次 ensure
+      await vi.advanceTimersByTimeAsync(2000);
       await flushAsync();
       controller.abort();
       resolveSecondEnsure();
@@ -640,7 +596,6 @@ describe("attachProviderHttpPort（offscreen 侧）", () => {
   });
 
   it("多字节字符跨 body 分片不破损（TextDecoder stream 模式，不得吐替换字符）", async () => {
-    // "概览" = E6 A6 82 E8 A7 88：首片只给第一个字节（半截字符）
     const bytes = new TextEncoder().encode("概览");
     fetchMock.mockResolvedValue({ status: 200, body: makeBody([bytes.slice(0, 1), bytes.slice(1, 3), bytes.slice(3)]) });
     const { attachProviderHttpPort } = await loadModule();
