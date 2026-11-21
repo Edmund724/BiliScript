@@ -1,17 +1,3 @@
-// 候选06 seek 深入口测试：seekReadingTarget 的规范序与播放策略参数化。
-//
-// 覆盖：
-// - 规范序：清手动滚动暂停先于 currentTime 赋值（旧侧栏手抄序先 currentTime
-//   后清暂停，currentTime 触发的 timeupdate 会在暂停标志未清时跑同步）；
-// - resumePlayback:true：暂停中自动播放（阅读视图内点击语义）；
-// - resumePlayback:false：暂停中不自动播放（侧栏 seek 语义）；
-// - 正在播放时不重复 play；jumpReadingTarget 委托 = resumePlayback:true；
-// - 非法时间截断；无可用视频时返回 null 并写状态栏。
-//
-// mock video/时钟手法：jsdom 视频的 currentTime 换成「记录型」存取器，赋值即
-// 同步派发 timeupdate（复刻浏览器 seek → timeupdate 行为），并在赋值瞬间记录
-// 手动滚动暂停状态（scroll-state.js 共享叶子的真实读取），使调用顺序可断言。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -27,8 +13,6 @@ async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
-  // scroll-state/ids 与动态域同批 import：resetModules 后必须取同一模块实例，
-  // 否则测试读到的暂停状态与被测代码读到的不是同一份闭包。
   const stateModule = await import("../../extension/reader/state.js");
   scrollState = stateModule;
   ids = stateModule.ids;
@@ -62,7 +46,6 @@ interface CurrentTimeLogEntry {
   next: number;
 }
 
-// 把视频的 currentTime 换成记录型存取器（见文件头说明），返回记录数组。
 function recordCurrentTimeAssignments(targetVideo: HTMLVideoElement) {
   const log: CurrentTimeLogEntry[] = [];
   let value = targetVideo.currentTime;
@@ -81,7 +64,6 @@ function recordCurrentTimeAssignments(targetVideo: HTMLVideoElement) {
 describe("seekReadingTarget 规范序", () => {
   it("清手动滚动暂停先于 currentTime 赋值（timeupdate 落在干净状态上）", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    // 先制造一次未过期的手动滚动暂停（自动滚动开启时生效）
     shell.noteManualReaderInteraction(5000);
     expect(scrollState.isManualScrollPaused()).toBe(true);
 
@@ -94,9 +76,7 @@ describe("seekReadingTarget 规范序", () => {
     const log = recordCurrentTimeAssignments(video);
     shell.seekReadingTarget(12, { resumePlayback: false });
 
-    // currentTime 被赋值的瞬间，手动暂停必须已经清掉（规范序第 1 步先于第 3 步）
     expect(log).toEqual([{ pausedAtAssign: false, next: 12 }]);
-    // 跟随状态按规范序第 2 步落在 auto；seek 后事件驱动以 auto 行为滚容器内部，不滚宿主页
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
     expect(listScrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
     expect(scrollToSpy).not.toHaveBeenCalled();
@@ -104,18 +84,15 @@ describe("seekReadingTarget 规范序", () => {
   });
 
   it("未清暂停时同型同步会吞掉跟随滚动（回归对照：bug 形态可观察）", () => {
-    // 对照组：手动暂停处于生效状态时，同步走 manual 分支——follow 保持 manual，
-    // 证明上面用例断言的 pausedAtAssign=false 确实是行为分岔点。原版派发
-    // timeupdate 驱动同步（P3 单路化后该事件不再监听），等价改派 seeked。
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     shell.noteManualReaderInteraction(5000);
     expect(scrollState.isManualScrollPaused()).toBe(true);
 
-    video.currentTime = 12; // 直接赋值：此刻暂停未清
+    video.currentTime = 12;
     video.dispatchEvent(new Event("seeked"));
 
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
-    expect(state.reader.readingActiveSubtitleIndex).toBe(1); // 高亮照切
+    expect(state.reader.readingActiveSubtitleIndex).toBe(1);
   });
 });
 

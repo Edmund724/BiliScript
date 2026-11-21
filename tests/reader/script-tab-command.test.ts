@@ -1,24 +1,3 @@
-// 文摘面板标签「投影命令 + 恢复链」回归（工单：标签激活属主收口）。
-//
-// 收口后壳侧只剩一条命令：
-//   project-tab → 纯 DOM 三通道投影（+ 对话分区表挂载）；不写状态位、不落盘、
-//                 不做二级激活（未知/缺失 payload 静默忽略，不动当前投影）；
-//   旧 "set-tab" / "set-tab:chat" 随命令退役（不再注册，发送方静默丢弃）。
-//
-// 「切标签并激活」的完整语义（状态位 → 持久化 → 投影 → 二级激活）在 reader 域
-// 属主 reader/script-tab-activation（单测见 tests/reader/script-tab-activation.test.ts）；
-// 本文件锁它的两个消费面：
-//   1. 恢复链：lifecycle.enterReaderMode 按持久值恢复上次所在标签——chat 激活
-//      对话组合根（ensureChatTabActivated）/ overview 触达概览渲染生成
-//      （ensureReaderOverviewTab）；persist:false 表示恢复不写回存储；
-//   2. 投影落点：属主的 project-tab 命令经真实 ui-renderer 写出的 DOM 三通道。
-//
-// 覆盖的失败方式：
-//   1. 命令名/载荷不被识别 → 静默丢弃（tab 停在当前投影）；
-//   2. 恢复 chat 只投影不激活 → 面板空壳（断言激活被调用且 consumeIntent 透传）；
-//   3. 恢复 overview 不触发生成 → 概览诚实空态卡死（断言 ensureReaderOverviewTab）；
-//   4. 恢复写回存储 → 每次打开都改写用户上次位置（断言 persist:false 不落盘）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
@@ -96,7 +75,6 @@ beforeEach(async () => {
     uiRenderer
   };
 
-  // 壳就绪：建面板 DOM 并注册壳命令订阅者（project-tab / open-settings 的 handler）
   uiRenderer.ensureUiReady({ forceRecreate: true });
 
   chatActivated = vi.fn(async () => {});
@@ -135,7 +113,6 @@ describe("壳命令 project-tab（纯 DOM 投影）", () => {
     m.requestUiCommand("project-tab", { tab: "overview" });
 
     expectTabActive("Overview", true);
-    // 谓词读唯一状态位：投影不碰它，故仍按字幕 tab 判定
     expect(m.isReadingSubtitleBodyVisible()).toBe(true);
     expect(vi.mocked(chrome.storage.local.set)).not.toHaveBeenCalled();
   });
@@ -157,7 +134,6 @@ describe("壳命令 project-tab（纯 DOM 投影）", () => {
     m.requestUiCommand("set-tab", { tab: "overview" });
     m.requestUiCommand("set-tab:chat", { consumeIntent: false });
 
-    // 模板初值：字幕 tab
     expectTabActive("Subtitle", true);
     expectTabActive("Overview", false);
     expectTabActive("Chat", false);

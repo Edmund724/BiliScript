@@ -1,13 +1,3 @@
-// reader-bus 槽表跨实例共享回归（content 两轮构建的双实例缺陷）。
-//
-// scripts/build-content.js 是两轮构建——轮 A 常驻单文件（content-main.mjs）、
-// 轮 B 懒加载区（chunks/），共享底座在两侧各有一份实例。reader-bus 的槽表必须
-// 挂 globalThis：settings 持久化槽由常驻包注册、懒加载区的 reader 域消费——
-// 注册与调用落在不同实例上时，模块级槽会静默错开（阅读面板里改主题不落盘）。
-//
-// 手法：vi.resetModules() 后重新 import 得到**另一个模块实例**，用它调用消费端，
-// 断言注册在第一个实例上的 handler 仍被命中——正是生产里两侧实例的分工。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -20,7 +10,6 @@ let lazy: ReaderBus;
 beforeEach(async () => {
   resetModuleState();
   resident = await import("../../extension/reader/reader-bus.js");
-  // 模拟轮 B 懒加载区那份实例
   vi.resetModules();
   lazy = await import("../../extension/reader/reader-bus.js");
 });

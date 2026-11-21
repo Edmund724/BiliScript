@@ -1,25 +1,8 @@
-// 后台字幕抓取落定后的「对账收尾」回归测试（M22 script-eager-subtitle-overview）。
-//
-// subtitle-ready 通知存在丢失形态（发射门控、init-essentials 分派链 catch 吞错），
-// 一旦丢失，列表渲染与概览自动生成只剩切 tab 兜底，而状态栏照写「抓取完成」
-// ——出现「完成但显示无字幕」的面板态。修复：lifecycle.
-// maybeRefreshReaderSubtitleInBackground 在 requestSubtitleRefresh() 落定后
-// reconcile——视图开着则 renderReadingView()（幂等 state 投影），subtitleBody
-// 非空再 triggerReaderOverviewGeneration()（inflight + 身份去重，重复触发安全）。
-//
-// 手法：refresh 落盘口（reader-bus.subscribeSubtitleRefresh）注入 spy 同步写
-// state 模拟抓取成功；概览触发以 vi.fn 替身观察（真实生成管线归 overview.test.ts）。
-// 注意 refresh 句柄取 subtitleRefreshHandlers[0]，本套件先订阅 spy、
-// ensureSummarizeChain 后装载的 refreshClip 排在其后，不会被调用。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 
-// 概览触发电打替身：lifecycle 内部经局部绑定调用具名入口，mock 模块导出的手法
-// 拦不到——在协调器工厂层包 trigger spy（lifecycle 装配实例时拿到替身），
-// 断言面对 spy 计数（真实生成管线归 overview.test.ts）。
 const { overviewTriggerSpy } = vi.hoisted(() => ({
   overviewTriggerSpy: vi.fn(() => Promise.resolve())
 }));
@@ -54,7 +37,6 @@ beforeEach(async () => {
   mountReaderSkeleton(ids);
   mountPlayerChain();
   mockPlayerRects();
-  // waitForVideoMetadata 不等满超时：给 stub 视频一个有效 duration。
   const video = document.querySelector("video") as HTMLVideoElement;
   Object.defineProperty(video, "duration", { value: 120, configurable: true });
 });
@@ -63,7 +45,6 @@ afterEach(() => {
   try {
     shell.stopReadingViewSync();
   } catch {
-    // ignore
   }
   document.body.innerHTML = "";
   vi.clearAllMocks();
@@ -85,12 +66,8 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
 
     await shell.enterReaderMode();
 
-    // 打开即触发（点 Script 同时启动抓取与概览生成；此时 body 为空早退），
-    // 概览触发电不依赖用户切 tab。
     expect(overviewTriggerSpy).toHaveBeenCalledTimes(1);
 
-    // 对账：抓取落定后列表按 state 重渲染（无字幕空态 → 有数据列表），
-    // 概览生成再次触发。
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(2);
     });
@@ -100,27 +77,20 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
   });
 
   it("字幕在元数据等待期间落账（另一处先抓完）：不再起第二轮抓取，仍对账重渲", async () => {
-    // 用户报障形态：打开面板时字幕还没抓，后台抓取排在 waitForVideoMetadata
-    // 之后（最长 5 秒）；等待期间对话侧主动抓取已落账（字幕 tab 里已是本视频
-    // 字幕）。此时再起一轮只是白刷一次（refreshClip 固定 forceRefresh 走网络），
-    // 状态行重新停在「正在获取可用字幕...」，而列表里明明有字幕。
     const readerBus = await import("../../extension/reader/reader-bus.js");
     const refreshSpy = vi.fn(() => Promise.resolve());
     readerBus.subscribeSubtitleRefresh(refreshSpy);
 
-    // 元数据未就绪 → waitForVideoMetadata 进入轮询（为「等待期间」造出窗口）
     const video = document.querySelector("video") as HTMLVideoElement;
     Object.defineProperty(video, "duration", { value: NaN, configurable: true });
 
     await shell.enterReaderMode();
 
-    // 等待期间另一处落账（对话侧发送前的主动抓取）
     state.clip.bvid = "BV1test000000";
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     Object.defineProperty(video, "duration", { value: 120, configurable: true });
 
-    // 对账重渲照旧发生（subtitle-ready 通知可能丢），但不再起第二轮抓取
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     });
@@ -141,12 +111,11 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
 
     await shell.enterReaderMode();
     shell.closeReadingView();
-    await refreshSpy(); // 落定发生在视图关闭之后
+    await refreshSpy();
 
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(overviewTriggerSpy).toHaveBeenCalledTimes(1);
 
-    // 重开按当前 state 渲染 + 触发，数据不丢
     await shell.enterReaderMode();
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);

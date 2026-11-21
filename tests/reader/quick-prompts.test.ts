@@ -1,14 +1,3 @@
-// tests/reader/quick-prompts.test.ts
-// 初始快捷问题的预热编排契约（extension/reader/quick-prompts.ts）：
-// 字幕就绪 → 解析激活平台 → 一次流式短调用 → 聚合正文 → 解析问题 → 写缓存。
-// 约束：无字幕 / 无视频身份 / 用户配了自定义问题 / 已有缓存 时不发请求；
-// 任何失败（平台缺失、网络、输出不可解析）静默吞掉，由渲染侧回落固定三条。
-//
-// 手法：ai/active-provider、ai/completion、core/provider-http-offscreen 三个
-// 外部边界以 vi.mock 替身（各自都有独立测试），get-settings 经 chrome stub 注入。
-// chatCompletion 替身按流式契约作答：正文只经 onEvent 的 token 事件回吐，
-// 返回值是 { done: true }（正文不在返回值里——这是流式与非流式最易踩的形状差）。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -48,11 +37,6 @@ const SOURCE = {
 
 const ANSWER = '["核心结论是什么","三种成因分别是什么","怎么避免缓存穿透"]';
 
-// 流式替身：把 text 逐片经 onEvent 的 token 事件回吐后返回 { done: true }。
-// 分片按 3 字切，好让「漏聚合」「reasoning 混入」「reset 未清缓冲」三类失败
-// 在断言里显形（一次性回吐时它们会互相掩盖）。
-// 用 mockImplementation（常驻默认）而非 Once：beforeEach 装默认答案，用例再调一次
-// 即替换它；Once 是队列语义，beforeEach 那次会先被消费掉。
 function streamAnswer(text: string, opts: { reasoning?: string } = {}) {
   mocks.chatCompletion.mockImplementation(async (args: Record<string, unknown>) => {
     const onEvent = args.onEvent as ((event: { type: string; data?: string }) => void) | undefined;
@@ -76,7 +60,6 @@ async function importModules() {
   resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
 }
 
-// get-settings 响应注入：settings 为 null 表示「用户没配自定义问题」。
 function stubSettings(settings: Record<string, unknown> | null) {
   const sendMessage = (globalThis.chrome as unknown as { runtime: { sendMessage: Mock } }).runtime.sendMessage;
   sendMessage.mockImplementation((message: Record<string, unknown>, callback?: (resp: unknown) => void) => {
@@ -116,12 +99,8 @@ describe("预热成功路径", () => {
 
     expect(mocks.chatCompletion).toHaveBeenCalledTimes(1);
     const args = mocks.chatCompletion.mock.calls[0][0] as Record<string, unknown>;
-    // 流式的首要理由：streamOnly 规则遇非流式按「无事实」处理（Q14A），
-    // 那类模型的 off 会被级联到开档——预热反而打开思考。流式才照发关思考字段。
     expect(args.stream).toBe(true);
-    // 思考档位显式钉死 off（与概览生成同口径：这类短任务不开思考）
     expect(args.thinkingLevel).toBe("off");
-    // 预热是尽力而为：不为重试花两次钱。
     expect(args.retries).toBe(0);
     expect(args.fetchImpl).toBe(mocks.providerFetchViaOffscreen);
     expect(args.provider).toMatchObject({ baseUrl: "https://api.test/v1", model: "test-model" });
@@ -148,7 +127,6 @@ describe("预热成功路径", () => {
   });
 
   it("读流中断重试（onStreamReset）：旧代缓冲作废，两代不拼接", async () => {
-    // 第一代吐半截后中断，reset 清缓冲，第二代从头完整作答。
     mocks.chatCompletion.mockReset();
     mocks.chatCompletion.mockImplementationOnce(async (args: Record<string, unknown>) => {
       const onEvent = args.onEvent as ((event: { type: string; data?: string }) => void) | undefined;

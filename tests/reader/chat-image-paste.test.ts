@@ -1,12 +1,3 @@
-// tests/reader/chat-image-paste.test.ts
-// 02 号票的集成回归：真实模板（ensureUiReady）+ 对话 tab 组合根上，粘贴图片的
-// 端到端链路——textarea 的 paste 监听（lifecycle bindEvents）→ 压缩（image-compress
-// 真实管线）→ 附件区缩略图 → 容器委托删除 → 回车发送带走 images 字段并清空附件区。
-//
-// jsdom 没有 createImageBitmap / canvas 2d / toBlob：本文件按既有 canvas 测试先例
-// 直接 mock 这三个 DOM 原语（不注入替身），从而跑的是真实的压缩管线；纯文本粘贴
-// 不拦截、流式闸、删除键委托也在同一宿主上锁定。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
@@ -49,8 +40,6 @@ interface FakePort {
 }
 const ports: FakePort[] = [];
 
-// ai-providers-list 载荷（stub 的 sendMessage 闭包按引用读）：缺省是目录查不到的
-// 「模型一」，门控用例替换成落在真实目录里的平台/模型。
 const DEFAULT_PROVIDERS_PAYLOAD = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
 let providersPayload: Array<Record<string, unknown>> = DEFAULT_PROVIDERS_PAYLOAD;
 
@@ -78,8 +67,6 @@ function stubChromeByType(): void {
     ports.push(port);
     return port;
   });
-  // storage.local = 共享内存面单源（写后可读回，三方法都是 vi.fn，调用记录照旧可断言）；
-  // sync 面只记调用、不写盘——这些用例只断言 sync 写实参。
   chromeStub.storage.local = createMemoryStorageArea();
   chromeStub.storage.sync.set = vi.fn(async () => {});
 }
@@ -113,7 +100,6 @@ async function loadShell(): Promise<void> {
   mountPlayerChain();
 }
 
-// 粘贴的 webp 编码结果（canvas.toBlob 替身产出）
 const WEBP_BYTES = [0x89, 0x50, 0x4e, 0x47];
 
 function stubCanvasPrimitives(): void {
@@ -121,8 +107,6 @@ function stubCanvasPrimitives(): void {
     "createImageBitmap",
     vi.fn(async () => ({ width: 2400, height: 1200 }))
   );
-  // 同一张 canvas 2d 替身服务两条既有路径：图片压缩的 drawImage，以及模型 chip
-  // 宽度度量的 measureText（model-select-width 在激活期跑）。
   vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     drawImage: vi.fn(),
     measureText: vi.fn(() => ({ width: 0 }))
@@ -146,8 +130,6 @@ function textItem(): FakeClipboardItem {
   return { kind: "string", type: "text/plain", getAsFile: () => null };
 }
 
-// jsdom 无 ClipboardEvent / DataTransfer：用真实 Event（cancelable）挂上
-// clipboardData 具名属性——组合根的 paste 监听读到的是同一份形状。
 function dispatchPaste(target: HTMLElement, items: FakeClipboardItem[] | null): Event {
   const event = new Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
@@ -202,10 +184,10 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     await activateChat();
     const input = inputEl();
     const strip = imageStrip();
-    expect(strip.hidden).toBe(true); // 初始无附件
+    expect(strip.hidden).toBe(true);
 
     const event = dispatchPaste(input, [textItem(), imageItem("image/png")]);
-    expect(event.defaultPrevented).toBe(true); // 含 image/*：拦截
+    expect(event.defaultPrevented).toBe(true);
     expect(strip.hidden).toBe(false);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
     expect(strip.querySelector(".chat-image-skeleton")).not.toBeNull();
@@ -218,7 +200,6 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     await waitForImageReady(strip);
     const open = strip.querySelector<HTMLButtonElement>(".chat-image-open.chat-image-preview");
     expect(open).not.toBeNull();
-    // 压缩后的缩略图位于共享查看器按钮内（长边 2400→1568 后的 toBlob 产物）。
     expect(open?.querySelector(".chat-image-thumb")?.getAttribute("src")).toBe(
       "data:image/webp;base64,iVBORw=="
     );
@@ -235,7 +216,6 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     expect(posted.images?.[0].mime).toBe("image/webp");
     expect(atob(String(posted.images?.[0].data))).toBe("\x89PNG");
 
-    // 发送后清空附件区 + 输入框
     expect(strip.hidden).toBe(true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
     expect(input.value).toBe("");
@@ -377,15 +357,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
   });
 });
 
-// ===========================================================================
-// 闸内上下文变化与附件（image-input）：发送闸调用链上的 restartChat 是「上下文
-// 跟随」，不是用户语义上的「新会话」——不得清输入框与附件区。修复前它照走
-// restartChat 的清场，而 takeInputImages 在闸之后才消费附件区 → 随消息附的图片
-// 被静默吞掉（正文照发）；被闸拦下时连用户已打好的文本也一起没了。
-// ===========================================================================
 describe("闸内上下文变化（apply-live → restartChat）与附件", () => {
-  // 换分P（cid 变 → contextKey 变）：闸内 loadContextState 走 apply-live 且
-  // contextChanged → 编排壳调 restartChat({ keepContext: true })。
   function switchPageCid(cid: string): void {
     state.clip.cid = cid;
     state.clip.subtitleBody = [{ from: 0, to: 10, content: `第 ${cid} P 的字幕` }];
@@ -411,7 +383,6 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     expect(posted.images).toHaveLength(1);
     expect(posted.images?.[0].mime).toBe("image/webp");
     expect(atob(String(posted.images?.[0].data))).toBe("\x89PNG");
-    // 受理语义不变：附件被 takeInputImages 消费（清空）、输入框清空
     expect(strip.hidden).toBe(true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
     expect(input.value).toBe("");
@@ -424,7 +395,6 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     dispatchPaste(input, [imageItem()]);
     await waitForImageReady(strip);
 
-    // 换 P（触发闸内 restartChat）且新上下文是无字幕收尾：闸 G6 拦截发送
     state.clip.cid = "202";
     state.clip.subtitleFetchState = "empty";
     state.clip.subtitleBody = [];
@@ -433,7 +403,6 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     await waitFor(() => Boolean(document.querySelector(".chat-input-card .chat-context-notice")));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // 被拦下 = 未受理：不发起 port、附件留在附件区、输入框文本保留
     expect(ports).toHaveLength(0);
     expect(input.value).toBe("这张图里是什么");
     expect(strip.hidden).toBe(false);
@@ -441,11 +410,6 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
   });
 });
 
-// ===========================================================================
-// 发图门控（image-input 05 号票）：发送受理时按选中模型的目录事实乐观放行——
-// 目录明确登记「仅文本」才提示（不阻断，消息照发）；查不到静默。真实目录走
-// ui/lazy-model-catalog 的动态 import，这里不替身。
-// ===========================================================================
 describe("发图门控（目录乐观放行）", () => {
   it("目录仅文本的模型带图发送：提示「可能不支持图片」，消息照常下发", async () => {
     providersPayload = [
@@ -472,7 +436,6 @@ describe("发图门控（目录乐观放行）", () => {
     await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
     expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("可能不支持图片");
 
-    // 不阻断：消息照发、images 随行（提示只是提示）
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
     const posted = ports[0].postMessage.mock.calls[0][0] as { images?: unknown[] };
     expect(posted.images).toHaveLength(1);
@@ -490,8 +453,6 @@ describe("发图门控（目录乐观放行）", () => {
     input.value = "这张图里是什么";
     sendEnter();
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
-    // 目录查询（动态 import）落在发送之后的微任务里：等一轮再看提示出口，
-    // 否则「静默」可能只是还没查到。
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(messages.querySelector(".chat-context-notice")).toBeNull();

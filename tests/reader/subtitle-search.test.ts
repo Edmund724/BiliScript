@@ -1,16 +1,3 @@
-// PR3 字幕 tab 句内搜索回归测试。
-//
-// 覆盖：
-// - 大小写不敏感字面量匹配（正则元字符按字面量，不做表达式求值）；
-// - 匹配计数与上/下一条控件态（无匹配 → 「无匹配」+ 按钮 disabled）；
-// - 分批渲染硬约束：搜索覆盖未渲染条目（计数含未上屏命中）；「下一条」跳到
-//   第 2 批之后的条目先同步补渲染（不许跳不过去）；
-// - 搜索激活期间后续批次上屏的条目自动带高亮（batched-render 批次回执 hook）；
-// - 清除恢复原文本（无 mark 残留、textContent 逐字还原）；
-// - renderReadingView 重渲后搜索重放（高亮/计数保持）；
-// - 字幕 tab 隐藏（切到概览）时搜索状态维持，切回原样；
-// - 真实事件绑定：input/Enter 驱动刷新与导航。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -25,7 +12,6 @@ let readerState: typeof import("../../extension/reader/state.js");
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let video: HTMLVideoElement;
 
-// fake rAF：捕获回调 + 尊重 cancelAnimationFrame（与 batched-subtitle.test 同款）
 let rafPending: Map<number, (time: number) => void>;
 let rafNextId: number;
 let originalRaf: typeof window.requestAnimationFrame;
@@ -72,9 +58,6 @@ async function loadReaderModules() {
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
 
-// 「用户切到某标签」的前置：状态位 + DOM 投影各写一次（生产里两步同属标签
-// 激活属主 reader/script-tab-activation.activateScriptTab；本文件只关心搜索态
-// 是否随 tab 隐藏/切回保持，不引入属主的二级激活）。
 function switchReaderScriptTab(tab: "subtitle" | "overview"): void {
   readerState.setReaderActiveScriptTab(tab);
   uiRenderer.setReaderScriptTab(tab);
@@ -112,7 +95,6 @@ function seedBody() {
   ];
 }
 
-// bindUiEvents 还需要经典面板与阅读头部按钮（不在阅读骨架内，与 sync.test 同款补齐）
 function mountBindExtras() {
   const readingView = document.getElementById(ids.readingView) as HTMLElement;
   const readingThemeSelect = document.createElement("button");
@@ -212,27 +194,23 @@ describe("字幕句内搜索", () => {
     }
     state.clip.subtitleBody = body;
     shell.renderReadingView();
-    expect(renderedItemCount()).toBe(120); // item 600 尚未上屏
+    expect(renderedItemCount()).toBe(120);
 
     searchInput().value = "目标词";
     shell.refreshReadingSubtitleSearch();
-    // 匹配在数据层计算：两条命中（含未渲染的 item 600）都计数
     expect(searchCount()).toBe("1 / 2");
 
     shell.moveReadingSubtitleSearch(1);
-    // 补渲染被同步上限截断（cursor 120 → 320）：落点 item 600 不在本拍上屏
     expect(renderedItemCount()).toBe(320);
     expect(searchCount()).toBe("2 / 2");
     expect(subtitleList().querySelector(".search-current")).toBeNull();
 
-    // rAF 追加任务逐帧补齐：item 600 上屏即由批次回执 hook 自动带命中高亮
     flushAnimationFrames();
     const hitMark = subtitleList().querySelector(
       '[data-index="600"] mark.biliscript-reading-search-hit'
     );
     expect(hitMark?.textContent).toBe("目标词");
 
-    // 重放（preserveIndex 保住当前命中序号）：目标已上屏，search-current 落位
     shell.refreshReadingSubtitleSearch({ preserveIndex: true, scroll: false });
     const hit = subtitleList().querySelector(
       '[data-index="600"] mark.biliscript-reading-search-hit.search-current'
@@ -240,9 +218,6 @@ describe("字幕句内搜索", () => {
     expect(hit?.textContent).toBe("目标词");
   });
 
-  // 显式 20s 超时（arch-slim-2/06）：800 条 rAF 逐帧追加 + 逐条高亮是全量套件
-  // 里最重的 CPU 用例，默认 10s 线在全量并发下被挤过（单文件实测 ~5s，断言与
-  // 执行路径无关并发）。超时放宽不放宽断言。
   it("搜索激活期间后续批次渲染的条目自动带高亮", () => {
     const body = [];
     for (let i = 0; i < 800; i += 1) {
@@ -252,10 +227,9 @@ describe("字幕句内搜索", () => {
     shell.renderReadingView();
     searchInput().value = "关键词";
     shell.refreshReadingSubtitleSearch();
-    expect(searchMarks().length).toBe(120); // 首屏批已带高亮
+    expect(searchMarks().length).toBe(120);
 
     flushAnimationFrames();
-    // 后续批次上屏即带高亮：800 条全部有 mark
     expect(renderedItemCount()).toBe(800);
     expect(searchMarks().length).toBe(800);
     expect(subtitleList().querySelector('[data-index="700"] mark.biliscript-reading-search-hit')).not.toBe(null);
@@ -295,7 +269,6 @@ describe("字幕句内搜索", () => {
     const marksBefore = searchMarks().length;
 
     switchReaderScriptTab("overview");
-    // DOM 不销毁：输入、高亮、计数原样保留
     expect(searchInput().value).toBe("目标词");
     expect(searchMarks().length).toBe(marksBefore);
     expect(searchCount()).toBe("1 / 2");
@@ -340,13 +313,8 @@ describe("字幕句内搜索", () => {
   });
 });
 
-// 防抖接线（arch-slim-4/03）：input 路径 180ms trailing 防抖 + Enter/Escape/
-// prev/next 冲刷，全部经真实事件绑定驱动（模块层零改动，防抖只存在于
-// bindSubtitleTabEvents 闭包）。
 describe("字幕句内搜索防抖接线", () => {
   function flushDebounceWindow(): void {
-    // jsdom 环境：直接快进所有挂起的 setTimeout（fake timers 与既有 rAF 假时钟
-    // 不冲突——分批渲染用 rAF，防抖用 timer，两套互不干扰）。
     vi.runAllTimers();
   }
 
@@ -358,8 +326,6 @@ describe("字幕句内搜索防抖接线", () => {
     vi.useRealTimers();
   });
 
-  // withReader 首次触发走 reader 域动态 import 边（其 then 链在 fake timers 下
-  // 需十几个微任务 tick 兑现，探针实测 17）；逐轮 await 排空直到落地。
   async function settle(): Promise<void> {
     for (let i = 0; i < 50; i += 1) {
       await Promise.resolve();
@@ -376,10 +342,8 @@ describe("字幕句内搜索防抖接线", () => {
     await bindRealEvents();
     searchInput().value = "目标词";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
-    // 防抖窗口内不刷新
     vi.advanceTimersByTime(179);
     expect(searchCount()).toBe("");
-    // 停顿过线后恰一次
     vi.advanceTimersByTime(1);
     await settle();
     expect(searchCount()).toBe("1 / 2");
@@ -387,7 +351,6 @@ describe("字幕句内搜索防抖接线", () => {
 
   it("防抖窗口内多键合并为停顿后一次", async () => {
     await bindRealEvents();
-    // 逐字打「目标词」：每键重置计时器，只在最后一次停顿后执行
     for (const ch of ["目", "标", "词"]) {
       searchInput().value = searchInput().value + ch;
       searchInput().dispatchEvent(new Event("input", { bubbles: true }));
@@ -401,14 +364,12 @@ describe("字幕句内搜索防抖接线", () => {
 
   it("防抖窗口内按 Enter：先冲刷新词再导航（不作用于旧词 matches）", async () => {
     await bindRealEvents();
-    // 先建立「目标词」的稳定结果并移动一次（currentIndex=0）
     searchInput().value = "目标词";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
     flushDebounceWindow();
     await settle();
     expect(searchCount()).toBe("1 / 2");
 
-    // 防抖窗口内改成「目标词乙」并立即 Enter：冲刷后应在乙的匹配上导航
     searchInput().value = "目标词乙";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
     searchInput().dispatchEvent(
@@ -419,7 +380,6 @@ describe("字幕句内搜索防抖接线", () => {
     expect(
       subtitleList().querySelector('[data-index="2"] mark.biliscript-reading-search-hit.search-current')
     ).not.toBe(null);
-    // 计时器已被冲刷消费：快进不再二次刷新
     flushDebounceWindow();
     await settle();
     expect(searchCount()).toBe("1 / 1");
@@ -427,15 +387,12 @@ describe("字幕句内搜索防抖接线", () => {
 
   it("防抖窗口内按 prev/next：先冲刷新词再导航", async () => {
     await bindRealEvents();
-    // 先建立稳定搜索让 next 按钮脱离初始 disabled（无匹配时 jsdom click 不派发）
     searchInput().value = "目标词";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
     flushDebounceWindow();
     await settle();
     expect(searchCount()).toBe("1 / 2");
 
-    // 防抖窗口内改成「目标词乙」（唯一命中）并点 next：冲刷使导航作用于新词
-    //（冲刷与 move 是两次独立 withReader，先后各排空一次微任务）
     searchInput().value = "目标词乙";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
     (document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).click();
@@ -455,7 +412,6 @@ describe("字幕句内搜索防抖接线", () => {
     expect(searchInput().value).toBe("");
     expect(searchMarks().length).toBe(0);
     expect(searchCount()).toBe("");
-    // 计时器已消费：快进不再把已清空的词重新刷回来
     flushDebounceWindow();
     await settle();
     expect(searchMarks().length).toBe(0);
@@ -474,7 +430,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     const normalizeSpy = vi.spyOn(list, "normalize");
     const querySpy = vi.spyOn(list, "querySelectorAll");
 
-    // 连续两次空查询 refresh（模拟稳态重渲与重放）
     shell.refreshReadingSubtitleSearch({ scroll: false });
     shell.refreshReadingSubtitleSearch({ scroll: false });
 
@@ -501,7 +456,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect(subtitleList().querySelector(".search-current")).not.toBeNull();
     expect(searchCount()).toContain("1 /");
 
-    // 清空查询词并 refresh：触发非空后清空
     searchInput().value = "";
     shell.refreshReadingSubtitleSearch();
 
@@ -511,7 +465,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
     expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
 
-    // 主行与副行正文逐字恢复，副行节点与状态保持
     const item1 = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
     expect(item1.querySelector(".biliscript-reading-text")?.textContent).toContain("这里提到目标词甲");
     const subtext = item1.querySelector(".biliscript-reading-subtext") as HTMLElement;
@@ -520,7 +473,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect(subtext.textContent).toBe("secondary 目标词 hit");
     expect(subtext.querySelectorAll("mark").length).toBe(0);
 
-    // 状态已收敛为空态：后续稳态重渲不应再触发节点扫描与 normalize
     const list = subtitleList();
     const normalizeSpy = vi.spyOn(list, "normalize");
     const querySpy = vi.spyOn(list, "querySelectorAll");
@@ -541,7 +493,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
     expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
 
-    // 从无匹配清空
     searchInput().value = "";
     shell.refreshReadingSubtitleSearch();
 
@@ -549,7 +500,6 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
     expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
 
-    // 状态已收敛为空态：后续稳态重渲进入快速路径
     const list = subtitleList();
     const normalizeSpy = vi.spyOn(list, "normalize");
     const querySpy = vi.spyOn(list, "querySelectorAll");
@@ -560,7 +510,6 @@ describe("字幕句内搜索空查询快速路径", () => {
   });
 });
 
-
 describe("字幕句内搜索条目索引与命中范围复用", () => {
   it("首批渲染同步维护条目索引，查找命中条目不走全兄弟属性扫描", () => {
     shell.renderReadingView();
@@ -570,7 +519,6 @@ describe("字幕句内搜索条目索引与命中范围复用", () => {
     const querySpy = vi.spyOn(list, "querySelector");
     shell.refreshReadingSubtitleSearch({ scroll: false });
 
-    // 搜索高亮打到已上屏条目，条目获取走索引，不触发 querySelector
     expect(querySpy).not.toHaveBeenCalled();
     expect(searchMarks().length).toBe(2);
   });
@@ -590,29 +538,24 @@ describe("字幕句内搜索条目索引与命中范围复用", () => {
     searchInput().value = "目标词";
     shell.refreshReadingSubtitleSearch({ scroll: false });
 
-    // 一条内共 4 个命中：主行 2 个，副行 2 个
     expect(searchCount()).toBe("1 / 4");
     expect(searchMarks().length).toBe(4);
 
     const marks = Array.from(searchMarks());
     expect(currentMark()).toBe(marks[0]);
 
-    // 第 2 个命中：主行第 2 个 mark
     shell.moveReadingSubtitleSearch(1);
     expect(searchCount()).toBe("2 / 4");
     expect(currentMark()).toBe(marks[1]);
 
-    // 第 3 个命中：副行第 1 个 mark
     shell.moveReadingSubtitleSearch(1);
     expect(searchCount()).toBe("3 / 4");
     expect(currentMark()).toBe(marks[2]);
 
-    // 第 4 个命中：副行第 2 个 mark
     shell.moveReadingSubtitleSearch(1);
     expect(searchCount()).toBe("4 / 4");
     expect(currentMark()).toBe(marks[3]);
 
-    // 循环回第 1 个命中
     shell.moveReadingSubtitleSearch(1);
     expect(searchCount()).toBe("1 / 4");
     expect(currentMark()).toBe(marks[0]);
@@ -626,14 +569,12 @@ describe("字幕句内搜索条目索引与命中范围复用", () => {
     const oldFirstItem = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
     expect(oldFirstItem).not.toBeNull();
 
-    // 触发整表重建
     shell.renderReadingView();
 
     const newFirstItem = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
     expect(newFirstItem).not.toBeNull();
     expect(newFirstItem).not.toBe(oldFirstItem);
 
-    // 再次刷新搜索并导航，当前命中应挂在新的 DOM 节点上
     shell.refreshReadingSubtitleSearch({ scroll: false });
     expect(currentMark()?.closest('[data-index="1"]')).toBe(newFirstItem);
     expect(oldFirstItem.classList.contains("search-current")).toBe(false);

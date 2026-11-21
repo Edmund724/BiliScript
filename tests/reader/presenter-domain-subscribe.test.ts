@@ -1,12 +1,3 @@
-// Presenter seam 在 reader 域自注册（双实例缺陷回归测试）。
-//
-// 缺陷背景：lifecycle.js 曾将 notifyReaderPresenter 订阅放在「仅打开阅读视图才
-// 跑」的路径里，而 presenter 是模块级单例；若在阅读视图打开前有抓取完成通知，
-// 状态行和字幕列表都丢通知。修复后由 lifecycle 模块求值期顶层注册。
-//
-// 依赖：setup（READER_MODE_URL）、reader-skeleton、reader/reader-bus、
-// reader/index（触发域装载）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -25,7 +16,6 @@ beforeEach(async () => {
   mountReaderSkeleton(ids);
   mountPlayerChain();
   presenter = await import("../../extension/reader/reader-bus.js");
-  // 域装载：lifecycle 模块求值期注册 presenter 订阅（本用例的断言面）
   await import("../../extension/reader/index.js");
 });
 

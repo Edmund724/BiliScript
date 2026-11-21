@@ -1,15 +1,3 @@
-// 文摘面板「当前标签」持久化叶子测试（2026-10 用户决议：刷新不跳回字幕 tab）。
-//
-// 语义：当前标签落 chrome.storage.local（设备本地 UI 偏好，与「对话 tab 选中
-// 模型」同类，不进 settings 域）——刷新/新视频/手动进入一律恢复上次所在标签；
-// 缺失、非法值或读写失败一律回落「字幕」，且不得让进入阅读模式失败。
-//
-// 覆盖的失败方式：
-//   1. 非法/缺失/非字符串值被当成合法标签 → 必须回落 subtitle；
-//   2. 读取抛错（storage 不可用）→ 回落 subtitle，不向调用方抛；
-//   3. 写入失败（quota/异常）→ 静默，不向切换 tab 的交互抛；
-//   4. 键名漂移：读写的键必须同一（否则永远读不到刚写的值）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

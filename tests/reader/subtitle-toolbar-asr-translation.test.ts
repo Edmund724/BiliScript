@@ -1,15 +1,3 @@
-// 伪轨视频（自配平台转写）的副列投影：副列的选项来源换成译文目标语言、列首标题
-// 换成「译文」、说明行承担进度、按钮承担启动/补齐（票 asr-panel-translation）。
-//
-// 同一张双列卡、同一套节点骨架与度量——本套件只锁「换来源后的投影」，不重复锁
-// 骨架/度量（那些在 bilingual-picker 与 bilingual-subtitles.css 的用例里）。
-//
-// 系统可能怎么坏：
-//   a. 副列仍按轨列表铺：伪轨 url 空被过滤 ⇒ 副列空着一排，用户没有可选语言；
-//   b. 列首标题仍写「副字幕」：这一列装的是译文语言，不是第二条字幕轨；
-//   c. 说明行/按钮不投影：开关亮着却什么都不发生（控件与状态两说）；
-//   d. 在飞不禁用副列：同一视频被点成两份目标语言。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -150,7 +138,6 @@ describe("伪轨视频的副列（译文目标语言）", () => {
 
     expect(col("sub")).not.toBeNull();
     expect(subRowTexts()).toEqual(LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => option.label));
-    // 原生值源同构：value = 语言码，data-id = 副轨槽身份
     expect([...secondarySelect().options].map((option) => option.value)).toEqual(
       LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => option.value)
     );

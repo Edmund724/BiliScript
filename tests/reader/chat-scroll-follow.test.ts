@@ -1,13 +1,3 @@
-// tests/reader/chat-scroll-follow.test.ts
-// createScrollFollowController（滚动跟随与回底闸状态机）行为契约测试：
-// 1. 按帧合批与防抖（rAF 调度）
-// 2. 双阈值迟滞（<= 40px 跟随，> 120px 按钮显现，40px~120px 间微调带）
-// 3. 物理手势即时断跟（wheel 向上、touchmove 立即停止自动跟随）
-// 4. 回底途中闸（动画期间远离底部不误判脱离跟随，落底自动放闸）
-// 5. 用户主动干预放闸矩阵（wheel / touchstart / keydown 立即放闸）
-// 6. 清场放闸（reset 取消在途帧、放闸并隐藏按钮）
-// 7. bind 常驻绑定（scroll、wheel、touchmove 与 click 监听挂载）
-
 import { describe, expect, it } from "vitest";
 import {
   createScrollFollowController,
@@ -139,14 +129,12 @@ describe("chat-scroll-follow：按帧合批与自然滚动判定", () => {
     h.controller.notifyScrolled();
     expect(h.hasScheduledFrames()).toBe(true);
 
-    // 同一帧再次触发被防抖吞掉
     h.controller.notifyScrolled();
     h.controller.notifyScrolled();
 
     h.flushFrames();
     expect(h.hasScheduledFrames()).toBe(false);
 
-    // 下一轮 scroll 可再次调度
     h.controller.notifyScrolled();
     expect(h.hasScheduledFrames()).toBe(true);
   });
@@ -154,27 +142,23 @@ describe("chat-scroll-follow：按帧合批与自然滚动判定", () => {
   it("双阈值迟滞：<=40px 开启跟随且隐藏按钮；40px~120px 间关闭跟随但保持隐藏；>120px 浮现按钮", () => {
     const h = makeHarness(true, 20);
 
-    // 距底 20px (<= 40px)：跟随后台开启，按钮隐藏
     h.controller.notifyScrolled();
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(true);
     expect(h.button.hidden).toBe(true);
 
-    // 距底 80px (40px~120px 迟滞带)：停止跟随，按钮仍保持隐藏（防抖动）
     h.setBottomOffset(80);
     h.controller.notifyScrolled();
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(false);
     expect(h.button.hidden).toBe(true);
 
-    // 距底 150px (> 120px)：停止跟随，按钮浮现
     h.setBottomOffset(150);
     h.controller.notifyScrolled();
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(false);
     expect(h.button.hidden).toBe(false);
 
-    // 滚回 30px (<= 40px)：恢复跟随，按钮隐藏
     h.setBottomOffset(30);
     h.controller.notifyScrolled();
     h.flushFrames();
@@ -190,7 +174,6 @@ describe("chat-scroll-follow：物理手势即时断跟", () => {
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(null);
 
-    // 模拟向上滚动 wheel 事件
     const wheelUp = new Event("wheel") as WheelEvent;
     Object.defineProperty(wheelUp, "deltaY", { value: -50 });
     h.messages.dispatchEvent(wheelUp);
@@ -263,7 +246,6 @@ describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {
     const h = makeHarness(false);
     h.controller.scrollBottomClicked();
 
-    // 动画途中产生 scroll 事件，几何读数依然远离底部
     h.setNearBottom(false);
     h.controller.notifyScrolled();
     h.flushFrames();
@@ -277,7 +259,6 @@ describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {
     const h = makeHarness(false);
     h.controller.scrollBottomClicked();
 
-    // 滚动落底
     h.setNearBottom(true);
     h.controller.notifyScrolled();
     h.flushFrames();
@@ -295,12 +276,10 @@ describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {
     h.controller.scrollBottomClicked();
     expect(h.controller.isHolding()).toBe(true);
 
-    // 用户滚轮干预
     h.messages.dispatchEvent(new Event("wheel"));
     expect(h.controller.isHolding()).toBe(false);
     expect(h.messages.listenerCount("wheel")).toBe(0);
 
-    // 随后远离底部判定生效
     h.setNearBottom(false);
     h.controller.notifyScrolled();
     h.flushFrames();
@@ -343,13 +322,11 @@ describe("chat-scroll-follow：清场 reset 与 bind 挂载", () => {
     const h = makeHarness(false);
     h.controller.bind();
 
-    // scroll 触发调度
     h.messages.dispatchEvent(new Event("scroll"));
     expect(h.hasScheduledFrames()).toBe(true);
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(false);
 
-    // button click 触发回底
     h.button.click();
     expect(h.controller.isHolding()).toBe(true);
     expect(h.getAutoScroll()).toBe(true);

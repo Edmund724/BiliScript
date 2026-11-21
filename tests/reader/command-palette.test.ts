@@ -1,6 +1,3 @@
-// tests/reader/command-palette.test.ts
-// 侧边栏内 ⌘K / Ctrl+K 命令面板：模糊检索、时间戳解析、键盘上下键选择、动作执行与 <kbd> 提示。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -106,7 +103,6 @@ describe("command-palette 交互与高频动作", () => {
     const dialog = document.getElementById("biliscript-command-palette") as HTMLDialogElement;
     const input = dialog.querySelector<HTMLInputElement>(".biliscript-cmd-input")!;
 
-    // 1. 输入时间戳 02:20 回车跳播
     input.value = "02:20";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -115,7 +111,6 @@ describe("command-palette 交互与高频动作", () => {
     expect(mockActivateTab).toHaveBeenCalledWith("subtitle", { consumeIntent: false });
     expect(isCommandPaletteOpen()).toBe(false);
 
-    // 2. 模糊检索切换思考强度
     openCommandPalette();
     input.value = "高强度";
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -130,7 +125,6 @@ describe("command-palette 交互与高频动作", () => {
       });
     });
 
-    // 3. 打开设置
     closeCommandPalette();
     openCommandPalette();
     input.value = "打开设置";

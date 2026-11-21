@@ -1,18 +1,3 @@
-// tests/reader/chat-tab-urlsync.test.ts
-// URL 变化强刷调度（arch-slim 工单 05：chat/context-sync.ts 并回 chat-tab 后的
-// 行为锁定）。原 createLiveContextSync 的 schedule 防抖状态机在单宿主现实下
-// 只剩 biliscript:urlchange 一个触发源（恒强刷 → 120ms 快档防抖，重复触发即重置）。
-//
-// 独立成文件的原因：biliscript:urlchange 监听挂在 window 上，跨测试纪元（vi.reset-
-// Modules 换代）的旧 chat-tab 模块实例无法摘除自己的监听；本文件每例收尾
-// closeChatSession（会话触发源 deactivate 摘监听），保证断言不被旧纪元污染。
-//
-// 全量路径的可数代理：mock gateway.getCurrentAid 返回真值后，
-// fetchHotCommentsWithLedger 接缝替身才会调用 gateway.fetchHotComments
-//（默认恒 0 早退）。编排已收口为 gateway.fetchHotCommentsWithLedger
-//（arch-review-2026-09/07），context-assembly 静态 import——替身经
-// gatewayMock 两函数重演单源形状（落账不在本文件断言面），计数语义不变。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
@@ -31,8 +16,6 @@ const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
   }
 }));
 
-// gateway 拆叶（arch-slim-2/04）：bgFetchJson 已迁 gateway-core（经
-// ai/context-resolver 被对话链消费）。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   getCurrentAid: gatewayMock.getCurrentAid,
   fetchHotComments: gatewayMock.fetchHotComments,
@@ -77,8 +60,6 @@ function stubChromeByType(): void {
     onMessage: { addListener: () => {} },
     onDisconnect: { addListener: () => {} }
   }));
-  // storage.local = 共享内存面单源（写后可读回，三方法都是 vi.fn，调用记录照旧可断言）；
-  // sync 面只记调用、不写盘——这些用例只断言 sync 写实参。
   chromeStub.storage.local = createMemoryStorageArea();
   chromeStub.storage.sync.set = vi.fn(async () => {});
 }
@@ -130,11 +111,10 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1); // init 首轮全量
+    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
     const baseline = gatewayMock.fetchHotComments.mock.calls.length;
-    chat.closeChatSession(); // 摘本纪元监听，隔离后续断言
+    chat.closeChatSession();
 
-    // 下一纪元（模拟重开后的对话 tab）：单一触发源恒为强刷，重复调度即防抖重置
     const reopened = await lazyChat.ensureReaderChatTab();
     await reopened.ensureChatTabActivated();
     const reopenedBaseline = gatewayMock.fetchHotComments.mock.calls.length;
@@ -159,8 +139,6 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     dispatchClipChange(2);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    // 标题的呈现面（头部 chip）已删：强刷结果改在 live 上下文快照上对账
-    //（与「无标题可上屏但装载链照旧」同源）。
     expect(chatSessionState.liveContextData?.title).toBe("防抖后的新标题");
     chat.closeChatSession();
   });
@@ -173,26 +151,19 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
     const baseline = gatewayMock.fetchHotComments.mock.calls.length;
 
-    // 触发 URL 变化（排入 120ms 防抖同步）
     state.clip.title = "关闭前排入的新标题";
     dispatchClipChange(2);
 
-    // 在防抖 120ms 触发前立刻关闭会话
     chat.closeChatSession();
 
-    // 等待 250ms 越过原防抖窗口
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    // 关闭后不再触发网络强刷（fetchHotComments 计数不增加）
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline);
-    // live 上下文快照不被修改为新标题（防抖已取消，无隐藏上下文写入）
     expect(chatSessionState.liveContextData?.title).toBe("测试视频");
 
-    // 重开会话：按现有恢复流程装载上下文，且重挂触发源
     await chat.ensureChatTabActivated();
     expect(chatSessionState.liveContextData?.title).toBe("测试视频");
 
-    // 重开后触发源已重新激活，新 URL 变化正常触发防抖同步
     state.clip.title = "重开后的新标题";
     dispatchClipChange(3);
     await new Promise((resolve) => setTimeout(resolve, 250));

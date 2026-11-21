@@ -1,21 +1,3 @@
-// tests/reader/chat-notices.test.ts
-// createReaderChatFeedback（对话 tab 消息区通知/错误/建议区清理/近底判定）行为契约。
-// PR5 自 tests/sidepanel/sidepanel-notices.test.ts 随重建迁移：逻辑断言保真；
-// 语义改造——「前往设置」链接在 reader 语境经 deps.onOpenSettings 回调打开
-// 侧边栏设置抽屉（script-only-ui：open-options 消息与独立设置页已删除）。
-//
-// 覆盖：
-// - showConversationContextNotice：追加通知条（textContent，防注入）、重复显示
-//   去重（先移除旧条）、autoHideMs > 0 时经注入定时器自动消失、clearTimer 取消；
-// - openSettingsAction：附「前往设置」链接，点击触发 onOpenSettings 回调；
-// - spinner：文案前插入 .chat-notice-spinner（aria-hidden 空 span，缺省不插）；
-// - removeConversationContextNotice：清通知 + 取消挂起定时器；
-// - showConversationContextError：空文案 no-op、居中错误块 + scrollToBottom；
-// - removeCenteredState / removeSuggestions（建议区撤除经属主 clear）；
-// - isMessagesNearBottom：近底/远底判定。
-//
-// 定时器注入受控 fake（手动推进）。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { CreateReaderChatFeedbackDeps } from "../../extension/reader/chat-notices.js";
@@ -41,7 +23,6 @@ function makeHarness() {
   }
   const timers: InjectedTimer[] = [];
   let timerSeq = 0;
-  // 建议区属主替身：本模块只经 clear 撤除建议区，节点生命周期由属主自己承重。
   const suggestions = {
     render: vi.fn(),
     clear: vi.fn(),
@@ -105,8 +86,6 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(timers[0].ms).toBe(4000);
 
     fireTimers();
-    // 与生产 window.setTimeout 行为一致：回调里的 remove 会 clearTimeout 一次
-    // 过期句柄（无害），随后 timer 归零
     expect(deps.clearTimer).toHaveBeenCalledTimes(1);
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(timers).toHaveLength(0);
@@ -156,7 +135,6 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(spinner).not.toBeNull();
     expect(spinner.getAttribute("aria-hidden")).toBe("true");
     expect(spinner.textContent).toBe("");
-    // span 在最前：文案节点排在其后
     expect(notice.firstChild).toBe(spinner);
     expect(notice.textContent).toBe("正在抓取字幕…");
   });
@@ -305,7 +283,6 @@ describe("removeSuggestions / isMessagesNearBottom", () => {
     Object.defineProperty(messages, "scrollHeight", { value: 1000, configurable: true });
     Object.defineProperty(messages, "clientHeight", { value: 900, configurable: true });
 
-    // 1000 - (0 + 900) = 100 > 56 → 远底；滚到底部 → 近底
     expect(feedback.isMessagesNearBottom()).toBe(false);
     messages.scrollTop = 950;
     expect(feedback.isMessagesNearBottom()).toBe(true);

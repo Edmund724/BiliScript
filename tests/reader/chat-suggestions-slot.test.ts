@@ -1,16 +1,8 @@
-// tests/reader/chat-suggestions-slot.test.ts
-// createChatSuggestionsSlot（对话 tab 建议区属主）行为契约：节点建立 / 写入 / 摘除 /
-// 在场判定，以及消息区清场（节点脱开文档）后由 render 补挂新节点。
-//
-// 不挂阅读壳：容器与 id 都是本文件造的替身——属主只认 deps.messages 与 deps.id，
-// chip 点击经 deps.onPick 交回调用方。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 let createChatSuggestionsSlot: typeof import("../../extension/reader/chat-suggestions-slot.js").createChatSuggestionsSlot;
 
-// 与生产同形的挂点：一个容器 + 一个 id 由 deps 定的建议区节点。
 const SLOT_ID = "test-reading-chat-suggestions";
 
 function mount() {
@@ -104,7 +96,6 @@ describe("建议区属主：render / clear / isPresent 三态", () => {
     slot.render(["问题一"]);
     const before = node();
 
-    // 消息区清场（innerHTML 重建）：节点脱出文档，属主手里的引用还在
     container.innerHTML = "";
 
     expect(slot.isPresent()).toBe(false);

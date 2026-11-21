@@ -1,37 +1,10 @@
-// 副轨（双语字幕的第二路轨）的目标解析 + 装载事务（reader/secondary-subtitle.ts）。
-//
-// 这个模块是四个装载入口的唯一落点：reader/lifecycle 的主轨就绪自动装载、弹层开关
-// 打开 / 跨上下文收敛、副列改选、副列重试。原先守卫与匹配散在两个调用点（lifecycle
-// 的三重守卫、弹层的列投影 + startSecondaryLoad），本套件直接打新接口，不再经
-// 「通知 → lifecycle」或「点击 → 弹层 DOM」两条远端路径才能覆盖到判定。
-// 接线（通知确实会走到本模块、弹层确实把目标投影进 DOM）留在
-// tests/reader/bilingual-autoload.test.ts 与 tests/reader/bilingual-picker.test.ts。
-//
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   a. 解析不再排除主轨：偏好指向主轨那一条时把**主轨**抓成副轨（列表出两份一样的正文，
-//      而弹层副列同时写着「主副字幕相同」）；
-//   b. 「没命中」与「命中的是主轨」两态混成一条：弹层 ②/③ 两套文案漂移；
-//   c. 两级匹配退化成单级：混源视频（人工 en-US + AI ai-en）结果依赖轨序；
-//   d. 槽语言按轨的 `lan` 算：轨 id 为空时缓存 source key 退到 lang 分量，自动装载与
-//      弹层改选算出不同缓存键、写进槽的 lang 也不一致（本模块存在的理由之一）；
-//   e. 守卫丢掉「槽非 idle 不动」：主轨每来一次 subtitle-ready 就重抓一遍副轨；
-//   f. 显式目标（改选 / 重试）被槽守卫拦下：槽 ready/error 时用户再也换不了副轨；
-//   g. 在飞登记漏清：弹层本列永久禁用（切轨路径踩过的同一个坑）；
-//   h. 装载失败把异常抛给调用方：自动装载入口不 await 事务 ⇒ 未处理拒绝。
-//
-// mock 只有一条边界：总结链（subtitle/lazy.js）——它是网络入口，其余（state、模块本体）
-// 全部走真实实现。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 const lazy = vi.hoisted(() => ({
-  // 调用流水（元组顺序 = 形参顺序：url, lang, runId, subtitleId, forceRefresh）
   calls: [] as unknown[][],
-  // ok = 立即返回；pend = 停在飞（在飞登记与弹层禁用的观察点）；reject = 模拟装载失败
   mode: "ok" as "ok" | "pend" | "reject",
-  // pend 模式的放行闸：测试 resolve 它才落定（否则那条 promise 永远悬着）
   gate: null as null | (() => void)
 }));
 
@@ -55,7 +28,6 @@ vi.mock("../../extension/subtitle/lazy.js", () => ({
 type SecondaryModule = typeof import("../../extension/reader/secondary-subtitle.js");
 type EnsureOutcome = ReturnType<SecondaryModule["ensureSecondarySubtitleLoaded"]>;
 
-// started 分支的收窄读口（断言失败时给出原因，避免用例里堆 `kind === "started" &&`）
 function started(outcome: EnsureOutcome) {
   if (outcome.kind !== "started") {
     throw new Error(`期望事务起步，实际 ${JSON.stringify(outcome)}`);
@@ -81,7 +53,6 @@ const ZH_TRACK = {
   subtitleUrl: "https://sub/ai-zh.json",
   source: "player"
 };
-// 人工 CC 轨：lan 是 BCP-47（与偏好串同形），lanDoc 与 AI 轨不同——混源样本的第二条。
 const CC_EN_TRACK = {
   id: "cc-en",
   lan: "en-US",
@@ -120,7 +91,6 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
   it("精确 lan 命中优先：混源（人工 en-US + AI ai-en）不依赖轨序", () => {
     setBilingual(true, "en-US");
-    // AI 轨排在前面：单级子标签匹配会先命中它 ⇒ 两级后必须仍选人工 CC 轨
     clipState.setSubtitles([ZH_TRACK, EN_TRACK, CC_EN_TRACK]);
 
     expect(module.resolveSecondaryTarget()).toEqual({
@@ -140,7 +110,6 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
   });
 
   it("槽语言统一 lanDoc || lan || unknown（轨 id 为空时它是缓存 source key 的分量）", () => {
-    // 偏好路径：跨语种下有 lan 才能被两级匹配命中 ⇒ 取 lanDoc / lan
     setBilingual(true, "en-US");
     clipState.setSubtitles([ZH_TRACK, { id: "", lan: "ai-en", subtitleUrl: "https://sub/ai-en.json" }]);
     clipState.setSelectedSubtitleId(ZH_TRACK.id);
@@ -150,7 +119,6 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
       target: { id: "", url: "https://sub/ai-en.json", lang: "ai-en" }
     });
 
-    // 轨 lan 与 lanDoc 都没有（defensive 兜底）走显式轨身份路径：投影出 "unknown"
     clipState.setSubtitles([{ id: "", lan: "", subtitleUrl: "https://sub/x.json" }]);
     expect(module.resolveSecondaryTarget({ url: "https://sub/x.json" })).toEqual({
       kind: "target",
@@ -170,7 +138,6 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
     clipState.setSubtitles([ZH_TRACK, CC_ZH, EN_TRACK]);
     clipState.setSelectedSubtitleId(CC_ZH.id);
 
-    // 顺位退到 ai-zh 仍是两份中文 ⇒ 必须报 main-track（副列文案与装载守卫同一判据）
     expect(module.resolveSecondaryTarget()).toEqual({ kind: "none", reason: "main-track" });
   });
 
@@ -184,7 +151,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
       source: "player-wbi-v2"
     };
     clipState.setSubtitles([ZH_TRACK, CC_ZH, EN_TRACK]);
-    clipState.setSelectedSubtitleId(CC_ZH.id); // 主轨 = 人工 zh-CN，副轨偏好 = ai-zh（同属 zh 族）
+    clipState.setSelectedSubtitleId(CC_ZH.id);
 
     expect(module.resolveSecondaryTarget()).toEqual({ kind: "none", reason: "main-track" });
 
@@ -210,7 +177,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
   });
 
   it("显式轨身份（副列改选）：按 id 辨认并统一投影 lang，不看偏好", () => {
-    setBilingual(true, "ja-JP"); // 偏好指向别的语言：改选必须按用户点的那条走
+    setBilingual(true, "ja-JP");
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
     expect(module.resolveSecondaryTarget({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lan })).toEqual({
@@ -293,7 +260,6 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
       lang: EN_TRACK.lanDoc
     });
     await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
-    // runId 取链装载之后的 fetchRunId（事务门口的 runId 自检窗口与重构前一致）
     expect(lazy.calls[0]).toEqual([EN_TRACK.subtitleUrl, EN_TRACK.lanDoc, 3, EN_TRACK.id, false]);
   });
 
@@ -348,7 +314,7 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
 
     releaseAuto();
     await expect(auto.settled).resolves.toEqual({ error: null });
-    expect(module.isSecondarySubtitleLoadInFlight()).toBe(true); // 即时那条还在飞
+    expect(module.isSecondarySubtitleLoadInFlight()).toBe(true);
 
     releaseImmediate();
     await expect(immediate.settled).resolves.toEqual({ error: null });
@@ -366,9 +332,6 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
   });
 });
 
-// 列模型（六态判定 → 视图）：纯判定不读 state、不碰 DOM，四项事实全部显式传入，
-// 于是六态可以逐格断言，不必搭壳与几何。模型落成 DOM 的接线在
-// tests/reader/bilingual-picker.test.ts。
 describe("resolveSecondaryColumnView（六态：目标 × 偏好 × 槽相位 × 在飞）", () => {
   const TARGET = { id: "sub-ja", url: "https://sub/ja.json", lang: "日本語" };
 
@@ -439,11 +402,9 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
       body: [{ from: 0, to: 5, content: "hello" }]
     });
 
-    // 主副不同轨：不动副轨槽
     expect(module.clearSecondarySubtitleIfShadowedByMain()).toBe(false);
     expect(state.clip.secondarySubtitle.state).toBe("ready");
 
-    // 主轨切到副轨那一条：清空副轨槽，保留全局偏好供投影「主副字幕相同」
     clipState.setSelectedSubtitleId(EN_TRACK.id);
     expect(module.clearSecondarySubtitleIfShadowedByMain()).toBe(true);
     expect(state.clip.secondarySubtitle).toEqual({
@@ -514,7 +475,6 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
     clipState.setSelectedSubtitleId(ZH_TRACK.id);
 
-    // 打开双语：持久化 + 通知重渲 + 立即按偏好装载
     const opened = module.toggleBilingualSubtitles(true);
     expect(opened.kind).toBe("started");
     expect(state.settings.bilingualSubtitles).toBe(true);
@@ -522,7 +482,6 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
     expect(notify).toHaveBeenCalledWith({ kind: "rerender" });
     await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
 
-    // 跨上下文同步新目标语言（槽 idle 时激活新目标）
     lazy.calls = [];
     clipState.clearSecondarySubtitle();
     const synced = module.syncBilingualSettingsFromStorage({
@@ -542,7 +501,6 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
     expect(state.settings.liveInterpretTargetLang).toBe("zh");
     await started(invalidSync.loadOutcome).settled;
 
-    // 重试：槽 error 时以 forceRefresh=true 重抓
     lazy.calls = [];
     clipState.markSecondarySubtitleError();
     const retried = module.retrySecondarySubtitleLoad();

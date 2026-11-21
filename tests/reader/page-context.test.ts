@@ -1,10 +1,3 @@
-// page-context seam 纯逻辑单元测试（issue 02）。
-// 覆盖：多 P 解析、watchlater 页面状态路径、URL ?p= 显式页码、
-// player DOM 推断、duration 选取。
-//
-// DOM / 页面全局状态场景通过 options.ctx / options.getVideo 注入轻量 stub，
-// 不依赖真实 document；模块本身不读写 state。
-
 import { describe, it, expect } from "vitest";
 import { resolvePageContext } from "../../extension/reader/page-context.js";
 
@@ -15,7 +8,6 @@ interface MetaOverrides {
   pages?: Array<{ cid: string; page: number; part: string; duration: number }>;
 }
 
-// 与 bili-gateway.fetchVideoMeta 返回结构一致的分P列表
 function buildMeta(overrides: MetaOverrides = {}) {
   return {
     aid: "170001",
@@ -120,8 +112,6 @@ describe("watchlater 页面状态路径（oid 为 aid）", () => {
 });
 
 describe("player DOM 推断路径", () => {
-  // DOM 推断原实现仅在 watchlater 型页面（oid === aid 且页面状态为空）时被触达，
-  // 因此用例使用带 oid=aid 的 URL 并置空页面状态，保证走到 readPageFromPlayerDom。
   const WATCHLATER_URL = "https://www.bilibili.com/list/watchlater?bvid=BV1xx411c7mD&oid=170001";
 
   it("video currentSrc 的 cid 命中分P", () => {

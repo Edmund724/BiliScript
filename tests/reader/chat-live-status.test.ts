@@ -538,7 +538,6 @@ describe("AI 对话实时伴看状态区", () => {
       }
     }
 
-    // 重开后 sync() 无参数从 getLastError / getLastFailureKind 恢复错误
     chat.closeChatSession();
     liveHarness.state = "failure";
     liveHarness.lastError = "晚到失败";
@@ -548,14 +547,12 @@ describe("AI 对话实时伴看状态区", () => {
     expect(visibleActions()).toEqual(["settings", "stop"]);
     expect(actionButton("settings")?.textContent).toBe("填写 Key");
 
-    // 非 connected 隐藏文本模型重试按钮
     liveHarness.records.apply({ type: "started", callId: "rec-1", source: "gemini", objective: "分析片段", startedAt: 1 });
     liveHarness.records.apply({ type: "failed", callId: "rec-1", error: "失败", endedAt: 2 });
     const recordsRoot = statusElement().querySelector<HTMLElement>(".chat-live-tool-records")!;
     expect(recordsRoot.querySelector("[data-live-record-action='retry']")).toBeNull();
     expect(recordsRoot.querySelector("[data-live-record-action='continue']")).not.toBeNull();
 
-    // connected 下渲染已完成记录的时间戳链接
     liveHarness.emit("connected");
     liveHarness.records.apply({ type: "started", callId: "rec-2", source: "moss", objective: "带时间戳结果", startedAt: 1 });
     liveHarness.records.apply({

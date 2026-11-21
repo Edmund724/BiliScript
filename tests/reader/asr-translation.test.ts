@@ -1,24 +1,8 @@
-// 伪轨视频的译文副轨（reader/asr-translation.ts）：场景判据、视图模型、启动/中止/
-// 换语言，以及跨上下文的目标语言收敛。
-//
-// 这个模块是面板那边唯一的同步读口：字幕工具条每次重渲都要读「在飞、进度、要不要
-// 用户点一下」，所以它不许在投影里发起装载；真正的分片调度在链层
-//（subtitle/asr-translation），本套件只 mock 那条懒装载链。
-//
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   a. 判据退化成「可装载轨 < 2」：有 CC 但只有一条轨的视频被拖进译文场景；
-//   b. 主轨未就绪时点「开始生成译文」丢掉意图：转写完成后什么都不发生；
-//   c. 在飞不设门：连点两次开关把整片翻译跑两遍（双倍账单）；
-//   d. 换视频不收场：旧视频的译文进度落到新视频的列上；
-//   e. 中止只停显示、不 abort：关开关后还在烧 token；
-//   f. 换目标语言不清副轨槽：英文译文挂在中文目标下面。
-
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 const lazy = vi.hoisted(() => ({
-  // 每次链层调用的参数快照（mode / targetLang / runId / signal）
   calls: [] as Array<{
     mode: string;
     targetLang: string;
@@ -26,11 +10,8 @@ const lazy = vi.hoisted(() => ({
     signal: AbortSignal;
     onProgress: (progress: { total: number; done: number; failed: number }) => void;
   }>,
-  // pending = 缺片；pend = 停在飞；reject = 链层抛错；done = 全片有译文
   mode: "done" as "done" | "pending" | "pend" | "reject",
-  // 链层回报的失败分片数（面板「补齐失败的 N 片」的唯一来源）
   failed: 0,
-  // pend 模式的放行闸（按次登记：改选语言会让两轮同时在飞，单槽会把先卡住那轮吊死）
   gates: [] as Array<() => void>
 }));
 
@@ -132,7 +113,6 @@ describe("ensureAsrTranslation（装载入口）", () => {
     await expect(module.ensureAsrTranslation("translate")).resolves.toEqual({ kind: "skipped" });
     expect(lazy.calls).toHaveLength(0);
 
-    // 单语种中文真轨：允许手动开启双语外译，且默认目标语言由 zh 自动切为 en
     seedAsrClip([REAL_TRACK]);
     clipState.setSelectedSubtitleId(REAL_TRACK.id);
     await expect(module.ensureAsrTranslation("translate")).resolves.toEqual({ kind: "done" });
@@ -167,7 +147,6 @@ describe("ensureAsrTranslation（装载入口）", () => {
     expect(await module.ensureAsrTranslation("translate")).toEqual({ kind: "skipped" });
     expect(lazy.calls).toHaveLength(0);
 
-    // 转写完成：字幕体到站，接着的自动挂载（cache-only 调用）必须升级成 translate
     clipState.setSubtitleBody(BODY as never);
     await module.ensureAsrTranslation("cache-only");
     expect(lazy.calls).toHaveLength(1);
@@ -328,7 +307,6 @@ describe("换视频收场（d）", () => {
     clipState.setBvid("BV1another000");
     clipState.setCid("999");
 
-    // 收场点是「下一次投影/装载」：换片的重渲会走到这里
     const view = module.resolveAsrTranslationView();
     expect(lazy.calls[0].signal.aborted).toBe(true);
     expect(view.inFlight).toBe(false);

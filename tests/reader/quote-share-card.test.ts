@@ -1,6 +1,3 @@
-// tests/reader/quote-share-card.test.ts
-// 金句分享卡片预览模态弹窗、视差弹簧微动效与光栅化导出端到端交互测试。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -96,7 +93,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     const textEl = host?.querySelector(".biliscript-quote-card-text");
     expect(textEl?.textContent).toBe("代码如诗，简洁至上。");
 
-    // 卡面只承载金句：视频标题与时间戳都不再出现
     expect(host?.querySelector(".biliscript-quote-card-source")).toBeNull();
     expect(host?.querySelector(".biliscript-quote-card-timestamp")).toBeNull();
     expect(host?.querySelector(".biliscript-quote-card-brand")?.textContent).toBe("BiliScript");
@@ -150,7 +146,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
     const patternEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-pattern");
 
-    // 1. 切换至 contours
     const contoursBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='contours']");
     contoursBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(card?.dataset.pattern).toBe("contours");
@@ -158,21 +153,18 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     expect(patternEl?.innerHTML).toContain("Z");
     expect(contoursBtn?.classList.contains("is-active")).toBe(true);
 
-    // 2. 切换至 soundwaves
     const soundwavesBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='soundwaves']");
     soundwavesBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(card?.dataset.pattern).toBe("soundwaves");
     expect(patternEl?.innerHTML).toContain("<path");
     expect(patternEl?.innerHTML).toContain("Q");
 
-    // 3. 切换至 dots
     const dotsBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='dots']");
     dotsBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(card?.dataset.pattern).toBe("dots");
     expect(patternEl?.innerHTML).toContain("<circle");
     expect(patternEl?.innerHTML).toContain('r="0.8"');
 
-    // 4. 切换至 lens
     const lensBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='lens']");
     lensBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(card?.dataset.pattern).toBe("lens");
@@ -180,7 +172,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     expect(patternEl?.innerHTML).toContain("<circle");
     expect(patternEl?.innerHTML).toContain('cx="200" cy="150"');
 
-    // 5. 切换至 none（无纹样）
     const noneBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='none']");
     noneBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(card?.dataset.pattern).toBe("none");
@@ -215,7 +206,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     const origDpr = window.devicePixelRatio;
     const origCreateElement = document.createElement.bind(document);
 
-    // 1. 测试无 2D context 降级 SVG
     Object.defineProperty(window, "devicePixelRatio", { value: 1.75, configurable: true });
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag === "canvas") {
@@ -233,7 +223,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     closeQuoteShareModal();
     vi.restoreAllMocks();
 
-    // 2. 测试 2D context 灰度像素生成
     let capturedData: Uint8ClampedArray | null = null;
     const fakeImageData = { data: new Uint8ClampedArray(128 * 128 * 4) };
     const fakeCtx = {
@@ -363,7 +352,6 @@ describe("quote-share-motion-and-parallax 悬停视差与弹簧回弹", () => {
     expect(card.style.getPropertyValue("--quote-glow-y")).toBe("170.0px");
     expect(callbacks.length).toBeGreaterThan(0);
 
-    // 推进多帧动画，验证弹簧变量向目标 (0.3, 0.1333) 收敛
     let ts = 1000;
     for (let i = 0; i < 45 && callbacks.length > 0; i++) {
       const cb = callbacks.shift()!;
@@ -376,7 +364,6 @@ describe("quote-share-motion-and-parallax 悬停视差与弹簧回弹", () => {
     expect(springX).toBeCloseTo(0.3, 1);
     expect(springY).toBeCloseTo(0.1333, 1);
 
-    // 鼠标移出后弹簧目标归零
     card.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
     expect(card.classList.contains("is-hovered")).toBe(false);
 
@@ -473,7 +460,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
         c.getContext = vi.fn((type: string) =>
           type === "2d" ? (fakeCtx as unknown as CanvasRenderingContext2D) : null
         ) as unknown as typeof c.getContext;
-        // 测试 toBlob 返回 null 走 toDataURL -> dataUrlToBlob 降级链路
         c.toBlob = vi.fn((cb: BlobCallback) => {
           createdCanvasWidth = c.width;
           createdCanvasHeight = c.height;
@@ -495,7 +481,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
       return origCreateElement(tag);
     });
 
-    // 模拟 Image onload 立即完成，避免 jsdom 下 Image 加载挂起
     const OrigImage = globalThis.Image;
     globalThis.Image = class MockImage {
       onload: (() => void) | null = null;
@@ -526,14 +511,11 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
 
     await new Promise((r) => setTimeout(r, 30));
 
-    // 固定设计画布：内卡 1200 宽，相纸约 1261×806，不随窗口变化
     expect(createdCanvasWidth).toBe(1261);
     expect(createdCanvasHeight).toBe(806);
     expect(clipCalled).toBe(true);
     expect(strokeCalled).toBe(true);
-    // 超椭圆右上角 45° 采样点比正圆弧更贴角外扩
     expect(points.some((p) => p.x > 405 && p.y < 15)).toBe(true);
-    // 折行与分段保留，品牌角标与底栏双段标记也进图
     expect(filledTexts).toContain("第二段精简金句");
     expect(filledTexts).toContain("BiliScript");
     expect(filledStyles).toContain("#e04a75");
@@ -566,7 +548,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     const origClipboard = navigator.clipboard;
     const origClipboardItem = (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
 
-    // 1. 剪贴板写入成功：点击同步栈内直接向 ClipboardItem 传入 Promise<Blob> 并调用 clipboard.write
     const mockWriteSuccess = vi.fn().mockResolvedValue(undefined);
     const clipboardItemCtor = vi.fn();
     Object.defineProperty(navigator, "clipboard", {
@@ -579,7 +560,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     const copyBtn = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
     copyBtn.click();
 
-    // 断言在点击同步栈内即已发起写入（未跨 await 丢失瞬态用户激活）
     expect(clipboardItemCtor).toHaveBeenCalledTimes(1);
     expect(mockWriteSuccess).toHaveBeenCalledTimes(1);
     const itemArg = clipboardItemCtor.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
@@ -592,7 +572,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
 
     closeQuoteShareModal();
 
-    // 2. 剪贴板写入抛错时优雅回退提示
     const mockWriteReject = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
     Object.defineProperty(navigator, "clipboard", {
       value: { write: mockWriteReject },
@@ -654,7 +633,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
     expect(document.querySelector(".biliscript-quote-card-text")?.textContent).toBe(
       "不经一番寒彻骨，怎得梅花扑鼻香。"
     );
-    // 卡片不再带视频标题与时间戳：来源靠品牌角标承担
     expect(document.querySelector(".biliscript-quote-card-source")).toBeNull();
     expect(document.querySelector(".biliscript-quote-card-timestamp")).toBeNull();
     expect(document.querySelector(".biliscript-quote-card-brand")?.textContent).toBe("BiliScript");
@@ -820,7 +798,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
       } as unknown as typeof Image;
       (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
 
-      // 1. 反馈定时器在关闭弹窗时被取消，过期后不再触发文案回退
       Object.defineProperty(navigator, "clipboard", {
         value: { write: vi.fn().mockResolvedValue(undefined) },
         configurable: true
@@ -835,7 +812,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
       closeQuoteShareModal();
       expect(clearTimeoutSpy).toHaveBeenCalled();
 
-      // 2. 在途异步操作跨会话返回时被 sessionEpoch 拦截
       let resolvePending!: () => void;
       Object.defineProperty(navigator, "clipboard", {
         value: {
@@ -886,7 +862,6 @@ describe("金句卡片正文布局（预览与导出共用同一份）", () => {
     expect(layout.fontSize).toBe(21);
     expect(layout.lines).toEqual(["短金句"]);
     expect(layout.truncated).toBe(false);
-    // 上下等距：文字块中线落在卡面中线上
     expect(layout.textTop + (layout.lines.length * layout.lineHeight) / 2).toBeCloseTo(229.5 / 2, 5);
   });
 
@@ -961,13 +936,11 @@ describe("连续圆角 SVG 路径生成与非支持引擎 clip-path 降级同步
       return { x, y };
     });
 
-    // 首点与末点各自位于上边缘的左右圆角切点，经 Z 闭合上边
     expect(coords[0].x).toBeCloseTo(388, 2);
     expect(coords[0].y).toBe(0);
     expect(coords[coords.length - 1].x).toBeCloseTo(20, 2);
     expect(coords[coords.length - 1].y).toBe(0);
 
-    // 右上角 45° 中点（step 10）满足 exponent = 1 / (2 * 1.25) = 0.4 的超椭圆外扩几何
     const topRightMid = coords[10];
     expect(topRightMid.x).toBeCloseTo(405.41, 2);
     expect(topRightMid.y).toBeCloseTo(2.59, 2);
@@ -1013,7 +986,6 @@ describe("连续圆角 SVG 路径生成与非支持引擎 clip-path 降级同步
     expect(svgs[0].getAttribute("viewBox")).toBe("0 0 408 229.5");
     expect(svgs[0].querySelector("path")?.getAttribute("d")).toBe(initialPath);
 
-    // 模拟卡片宽度缩放至 306×172.125（等比圆角 15px）
     vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,

@@ -1,5 +1,3 @@
-// 待解释意图契约与控制器（reader/explain-intent）单测。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
@@ -39,7 +37,6 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     explainIntent.setPendingExplainIntent(draft);
     draft.content = "被外部篡改";
 
-    // 后写覆盖先写
     explainIntent.setPendingExplainIntent({ from: 34, content: "句子乙", createdAt: 2000 });
     await controller.consumeIfPending();
 
@@ -48,12 +45,10 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     expect(sendPrompt.mock.calls[0][0]).toContain("0:34");
     expect(card.hidden).toBe(true);
 
-    // 已消费：再次触发不再重复发送
     sendPrompt.mockClear();
     await controller.consumeIfPending();
     expect(sendPrompt).not.toHaveBeenCalled();
 
-    // clearPendingExplainIntent 清除未消费意图
     explainIntent.setPendingExplainIntent({ from: 1, content: "待清句", createdAt: 3 });
     explainIntent.clearPendingExplainIntent();
     await controller.consumeIfPending();
@@ -75,7 +70,6 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     expect(card.querySelector(".biliscript-reading-chat-intent-quote")?.textContent).toBe("「重试句」");
     expect(card.querySelector(".biliscript-reading-chat-intent-time")?.textContent).toBe("0:10");
 
-    // 直接点击卡片内置绑定的发送按钮重试
     card.querySelector<HTMLButtonElement>('[data-chat-intent-action="send"]')!.click();
     await vi.waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
     expect(card.hidden).toBe(true);
@@ -99,14 +93,12 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     );
     expect(sendPrompt.mock.calls[0][0]).toContain("解释我选中的词句：「传递信息的工具」");
 
-    // 整句选中归一化为整句口径
     explainIntent.setPendingExplainIntent({ from: 6, content: "同一句", selection: "同一句", createdAt: 1 });
     sendPrompt.mockResolvedValueOnce(false);
     await controller.consumeIfPending();
     expect(card.querySelector(".biliscript-reading-chat-intent-quote")?.textContent).toBe("「同一句」");
     expect(sendPrompt.mock.calls[1][0]).toContain("解释这句字幕：「同一句」");
 
-    // 纯空白 selection 归一化为整句口径
     explainIntent.setPendingExplainIntent({ from: 7, content: "句", selection: "   ", createdAt: 1 });
     await controller.consumeIfPending();
     expect(card.querySelector(".biliscript-reading-chat-intent-quote")?.textContent).toBe("「句」");
@@ -145,7 +137,6 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     expect(card.hidden).toBe(true);
     expect(controller.buildFollowUpPrompt("后续问题")).toBe("后续问题");
 
-    // 纯空白 explanation 忽略，照常走自动发送
     explainIntent.setPendingExplainIntent({
       from: 9,
       content: "无解释句",
@@ -182,13 +173,11 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     expect(onNotice).toHaveBeenCalledWith("当前对话正在生成，待本轮结束后可继续追问或发送。", 4000);
     expect(sendPrompt).not.toHaveBeenCalled();
 
-    // 直接点击卡片 cancel 按钮
     card.querySelector<HTMLButtonElement>('[data-chat-intent-action="cancel"]')!.click();
     expect(card.hidden).toBe(true);
     expect(onFocusInput).toHaveBeenCalledTimes(1);
     expect(sendPrompt).not.toHaveBeenCalled();
 
-    // 重新设置后在空闲期点击 send 按钮成功发送并消费
     active = false;
     explainIntent.setPendingExplainIntent({
       from: 12,

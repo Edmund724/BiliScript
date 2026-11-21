@@ -1,9 +1,3 @@
-// 概览配置类错误「去设置」跳转与保存续跑契约：
-// 1. 统一协调模块（reader/setup-resume）：单飞防重入、errorClass（含 no-model）直传、
-//    一次性恢复槽及按 scope/all 失效；
-// 2. 概览协调器接线：配置类错误「去设置」收集有效性与恢复回调，保存成功后在同一视频
-//    以 forceRefresh 续跑一次，取消 / 换视频 / 代次推进 / 空字幕 / 关抽屉均不续跑。
-
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -288,7 +282,6 @@ describe("setup 动作与续跑", () => {
     expect(args.forceRefresh).toBe(true);
     expect(h.coordinator.getPhase()).toBe("ready");
 
-    // 重复保存 / 已消费：不再续跑
     session.onAfterSave();
     await Promise.resolve();
     expect(h.runOverviewAnalysis).toHaveBeenCalledTimes(1);
@@ -330,7 +323,6 @@ describe("setup 动作与续跑", () => {
     await Promise.resolve();
     expect(h.runOverviewAnalysis).not.toHaveBeenCalled();
 
-    // 槽已随保存尝试作废：换回原视频也不会再续跑
     h.clip.bvid = "BV1test000000";
     session.onAfterSave();
     await Promise.resolve();

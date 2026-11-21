@@ -1,14 +1,3 @@
-// 字幕条目 DOM 契约（extension/reader/subtitle-item-dom.ts）的聚焦单测。
-//
-// 覆盖的失败方式：
-// - 主行文本把副行一起吃进来（重建后两行压平成一行）；
-// - 主行里有搜索 `<mark>` 时读不回原文（幂等重算命中失效）；
-// - 主行重写丢失副行节点身份或打乱「主文在前、副行在后」的顺序；
-// - 无副行时重写落点错误；
-// - 占位副行（data-state 非 ready）被当成可读副行；
-// - 条目查找（data-index / 祖先）落到错误节点；
-// - 条目索引（首批/后续批次维护、失效节点清理、缺失时回退）。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   clearSubtitleItemIndex,
@@ -104,7 +93,6 @@ describe("subtitle-item-dom 主行/副行读写", () => {
     expect(children[0]?.textContent).toBe("新");
     expect((children[1] as Element | undefined)?.tagName).toBe("MARK");
     expect(getMainLineText(item)).toBe("新主行");
-    // 副行自身内容不受主行重写影响
     expect(subtext?.textContent).toBe("译文");
     expect(subtext?.dataset.state).toBe("ready");
   });
@@ -211,12 +199,10 @@ describe("subtitle-item-dom 条目查找与索引", () => {
     list.append(oldNode);
     indexSubtitleItems(list);
 
-    // 模拟上一代节点被脱离 DOM 且换上新节点
     oldNode.remove();
     const newNode = buildItem(0, "新一代第一句");
     list.append(newNode);
 
-    // 旧节点已脱离 list，不应返回旧节点；回退查到新节点
     expect(findSubtitleItem(list, 0)).toBe(newNode);
   });
 

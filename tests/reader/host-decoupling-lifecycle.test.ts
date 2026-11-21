@@ -22,7 +22,6 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
     const { waitForVideoMetadata } = await import("../../extension/bilibili/video-probe.js");
     const { contentEventBus } = await import("../../extension/shared/content-event-bus.js");
 
-    // 锁定宿主页面滚动位置
     const scrollToSpy = vi.spyOn(window, "scrollTo");
     const scrollBySpy = vi.spyOn(window, "scrollBy");
     document.documentElement.scrollTop = 420;
@@ -64,13 +63,11 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
     const clipListener = vi.fn();
     contentEventBus.on("subtitle:status-phase", clipListener, { signal: firstClipSignal });
 
-    // 启动无视频时的元数据轮询（5 秒上限），绑定第一片作用域
     let metadataResolved = false;
     const metadataPromise = waitForVideoMetadata(5000, firstClipSignal).then(() => {
       metadataResolved = true;
     });
 
-    // SPA 切换到 BV2
     currentUrl = "https://www.bilibili.com/video/BV1second0002/";
     currentSig = "sig-2";
     const startEvents: unknown[] = [];
@@ -80,7 +77,6 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
 
     tx.handleUrlChange();
 
-    // 旧片作用域已立即中止，旧片订阅与元数据轮询同步回收
     expect(firstClipSignal.aborted).toBe(true);
     expect(tx.getClipSignal()).not.toBe(firstClipSignal);
     expect(tx.getClipSignal().aborted).toBe(false);
@@ -89,14 +85,12 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
     await metadataPromise;
     expect(metadataResolved).toBe(true);
 
-    // 旧片监听器不再触发
     contentEventBus.emit("subtitle:status-phase", "asr-transcribing");
     expect(clipListener).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(0);
     expect(settledEvents).toHaveLength(1);
 
-    // 宿主页面滚动位置零漂移
     expect(document.documentElement.scrollTop).toBe(420);
     expect(window.scrollY).toBe(420);
     expect(scrollToSpy).not.toHaveBeenCalled();
@@ -143,13 +137,11 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
     const { startReadingViewSync, stopReadingViewSync } = await import("../../extension/reader/sync.js");
     const { isPlayerFullscreen } = await import("../../extension/bilibili/fullscreen.js");
 
-    // 1. 启动倍速控件 + 打开面板定位器与同步
     startPlaybackRateButtons();
     openScriptHost();
     startReadingViewSync();
     expect(biliHostAdapter.getActiveObserverCount()).toBe(1);
 
-    // 2. 模拟宽屏 / 网页全屏切换再退出
     const player = document.querySelector(".bpx-player-container") as HTMLElement;
     player.setAttribute("data-screen", "wide");
     window.dispatchEvent(new Event("resize"));
@@ -165,16 +157,13 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
 
     await vi.advanceTimersByTimeAsync(400);
 
-    // 3. 关闭面板与控件
     stopReadingViewSync();
     closeScriptHost();
     stopPlaybackRateButtons();
 
-    // 断言 1：共享 MutationObserver 与订阅计数完全归零
     expect(biliHostAdapter.getActiveObserverCount()).toBe(0);
     expect(biliHostAdapter.getSubscriberCount()).toBe(0);
 
-    // 断言 2：所有新增的 window / document 监听器均已成对摘除
     for (const [type, handler] of winAdd.mock.calls) {
       expect(
         winRemove.mock.calls.some(([rt, rh]) => rt === type && rh === handler),
@@ -188,12 +177,10 @@ describe("宿主解耦生命周期验收：SPA 切集 / 全屏宽屏切换 / 面
       ).toBe(true);
     }
 
-    // 断言 3：宿主滚动条位置零漂移
     expect(document.documentElement.scrollTop).toBe(300);
     expect(window.scrollY).toBe(300);
     expect(scrollToSpy).not.toHaveBeenCalled();
 
-    // 断言 4：无残留定时器（推进 10 秒不应抛错或重新写入定位变量）
     const readingView = document.getElementById("biliscript-reading-view") as HTMLElement;
     await vi.advanceTimersByTimeAsync(10000);
     expect(readingView.style.getPropertyValue("--biliscript-script-top")).toBe("");

@@ -1,14 +1,3 @@
-// 面板 header 元信息行（2026-09 用户决议，2026-10-04 收窄）：
-//   - `UP主：…` 与 `P{n}：…` 各占一行（`\n` + CSS pre-line）：长分P标题不再从
-//     中间折断，也不再跟在 UP主 后面；两行都空时整块 hidden，header 不留空行；
-//   - 「字幕：来源（语言）」整行已按 2026-10-04 用户决议删除（不再注明字幕来源），
-//     meta 行因此不读任何字幕轨/选中语言字段——来源与语言投影随之下线
-//     （subtitle/selection），下面的 selectTrack 只为证明这些字段不再影响 meta；
-//   - 「网址已按 2026-09 用户决议删除」；分P 采用「P{n}：分P标题」（无标题时不落
-//     裸冒号，单P 不显示分P行）。只隐藏 meta 本体：
-//     .biliscript-reading-header-copy 的「手动浏览中」::after 挂在它的父节点上
-//     （reader-gate.css），隐藏父节点会把该标注一并吃掉。
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -22,7 +11,6 @@ function metaNode(): HTMLElement {
   return document.getElementById(ids.readingMeta) as HTMLElement;
 }
 
-// 落满字幕轨与选中态：断言的是「meta 行不再消费这些字段」，不是这些字段没被写。
 function selectTrack(track: { id: string; lan: string; lanDoc: string; subtitleUrl: string }, lang = track.lanDoc) {
   state.clip.setSubtitles([track]);
   state.clip.setSelectedSubtitleId(track.id);

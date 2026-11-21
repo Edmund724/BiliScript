@@ -1,19 +1,3 @@
-// 主轨就绪后的副轨自动装载：**接线**（"subtitle-ready" 通知 → 副轨装载事务）。
-//
-// 判定与装载本体（目标解析的三态、两级匹配、排除主轨、三重守卫、在飞登记、参数口径）
-// 已下沉到 tests/reader/secondary-subtitle.test.ts 的新模块接口上——那里不再需要
-// 经「通知 → lifecycle」这条远端路径就能覆盖全部失败方式。本文件只留接线独有的两件事：
-//   1. 通知确实会走到事务（lifecycle 的 handler 没有把这条调用漏掉）；
-//   2. 自动装载失败不污染通知链（事务自己吞异常，副列 error 占位即用户的入口）。
-//
-// 系统可能怎么坏：
-//   a. lifecycle 的 subtitle-ready 分支漏调事务（双语开着却永远不抓副轨）；
-//   b. 自动装载的异常抛回通知链（主轨渲染路径被副轨失败带崩）；
-//   c. 视图未开就不抓（Q1：双语是全局偏好，切到字幕 tab 时就该已经就绪）。
-//
-// mock 只有一条边界：总结链（lazy.js）——它是网络入口，其余（state、lifecycle、
-// 通知分派、副轨事务本体）全部走真实实现。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -79,7 +63,6 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
     setBilingual(true, "en-US");
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
-    // 面板未打开（readingViewOpen=false）也照抓：双语是全局偏好，切到字幕 tab 时就该就绪
     lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" });
 
     await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));

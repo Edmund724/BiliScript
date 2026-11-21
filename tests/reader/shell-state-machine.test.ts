@@ -1,16 +1,3 @@
-// 阅读壳生命周期状态机回归（closed/entering/open/exiting）。
-//
-// 覆盖四条钉死面：
-//   1. entering 中收到 close → 退出事务在同一单飞队列里排队顺延，最终 closed；
-//   2. restore 与 URL 跳转连发 → 串行，第二个事务在第一个收敛后才起跑（无交错）；
-//   3. 非法迁移拒绝 + logWarnAlways 直出（不经调试门，异常路径不能静默）；
-//   4. 进入失败回退 closed、退出失败回退 open——状态机不能卡在过渡态。
-//
-// reader 域桩按真实契约走状态机：enterReaderMode 桩 = transitionReaderShell("open")
-//（lifecycle.enterReaderMode 的状态位行为），closeReadingView 桩 =
-// transitionReaderShell("closed")（closeReadingView 同）。壳 DOM/tab/字幕链等
-// 中间步骤与本文件无关，一律 mock 掉（与 shell.test.ts 同款 mock 面）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
@@ -31,7 +18,6 @@ vi.mock("../../extension/ai/lazy-player-ai.js", () => ({
   loadPlayerAi: vi.fn(),
   isPlayerAiLoaded: vi.fn(() => false)
 }));
-// shell 进入链的 replaceState：jsdom 下无谓改写地址，mock 掉（与 shell.test.ts 同款）
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
@@ -87,10 +73,8 @@ describe("entering 中收到 close：退出事务顺延", () => {
 
     const enterPromise = shell.enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
     await vi.waitFor(() => expect(order).toContain("enter-start"));
-    // 进入事务被 gate 卡住 ⇒ 仍在 entering
     expect(stateModule.getReaderShellState()).toBe("entering");
 
-    // entering 中收到 close：排队顺延，不与进入事务交错
     const exitPromise = shell.exitReaderShell();
     await flushMicrotasks();
     expect(order).not.toContain("close");
@@ -129,7 +113,6 @@ describe("restore 与 URL 跳转连发：同队列串行", () => {
     await vi.waitFor(() => expect(order).toContain("restore-enter-start"));
 
     const navPromise = shell.enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL });
-    // 第一个事务未收敛 ⇒ 第二个事务连进入链都没起跑
     await flushMicrotasks();
     expect(order).toEqual(["ensure-ui", "restore-enter-start"]);
 

@@ -1,16 +1,3 @@
-// 候选06 属性表半边：reader 呈现属性单一事实源（presentation-fields.js）不变量。
-//
-// 五个消费方（presentation 写入 / lifecycle close 移除 / page-state 守卫清理与
-// 两份 attributeFilter / init-essentials storage 监听键）全部改为从表派生后，
-// 本文件守住表自身的契约：
-//   A. 表结构不变量（id 唯一 / 目标与 dataset 键派生一致 / 标志齐全 / 每项必有 DOM 落位）
-//   B. 派生清单与表标志一致；close 与守卫两份移除清单的「真实差异」显式断言
-//   C. storage 键与同步设置键全部落在 DEFAULT_SETTINGS 键面且无重复
-//   D. 源码扫描：消费方与 CSS 中出现的每个 data-biliscript-* 属性要么在表里、
-//      要么在 LOCAL_FLAG_ATTRIBUTES（防止手抄清单复活）
-//   E. 行为：apply 真的写全 writtenByApply 字段；close 真的清全 clearOnClose
-//      字段；守卫真的收敛 body 全集
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,8 +21,6 @@ import type { TestState } from "./reader-test-env.js";
 const TARGETS = ["html", "body", "readingView"] as const;
 const VALID_KINDS = new Set(["presentation", "enter-flag", "view-flag"]);
 
-// 连字符属性名 → dataset 驼峰键（浏览器 dataset 语义：去 "data-"，余下按 "-"
-// 分段、首段原样、后继段首字母大写）。
 function attrToDatasetKey(attr: string) {
   return attr
     .slice("data-".length)
@@ -47,8 +32,6 @@ function attrToDatasetKey(attr: string) {
 type AttrFlag = "clearOnClose" | "clearOnGuard" | "watchedByGuard";
 type AttrTarget = "html" | "body" | "readingView";
 
-// 按标志 × 目标从表手工推导属性清单（与 presentation-fields.js 的派生函数
-// 独立实现，用于交叉验证；readingView 列同样要求 clearViewOnClose）。
 function deriveAttrs(flag: AttrFlag, target: AttrTarget) {
   return READER_PRESENTATION_FIELDS
     .filter((field) => field[flag] && field.targets[target])
@@ -56,7 +39,6 @@ function deriveAttrs(flag: AttrFlag, target: AttrTarget) {
     .map((field) => field.targets[target] as string);
 }
 
-// 表声明过的全部连字符属性名（含 readingView 短名）。
 function allDeclaredAttrs() {
   return new Set(
     READER_PRESENTATION_FIELDS.flatMap((field) =>
@@ -99,7 +81,6 @@ afterEach(async () => {
   try {
     shell.stopReadingViewSync();
   } catch {
-    // ignore
   }
   document.body.innerHTML = "";
   vi.restoreAllMocks();
@@ -116,7 +97,6 @@ describe("A. 表结构不变量", () => {
       for (const target of TARGETS) {
         expect(field.targets, `${field.id}.targets`).toHaveProperty(target);
         expect(field.datasetKeys, `${field.id}.datasetKeys`).toHaveProperty(target);
-        // 有属性名必有 dataset 键，反之亦然（dataset 键是属性名的读写形态）
         expect(Boolean(field.targets[target])).toBe(Boolean(field.datasetKeys[target]));
         if (field.targets[target]) {
           expect(
@@ -146,7 +126,6 @@ describe("A. 表结构不变量", () => {
       for (const flag of ["watchedByGuard", "clearOnGuard", "clearOnClose", "clearViewOnClose"] as const) {
         expect(typeof field[flag], `${field.id}.${flag}`).toBe("boolean");
       }
-      // clearViewOnClose 只对有 readingView 落位的字段有语义
       if (!field.targets.readingView) {
         expect(field.clearViewOnClose, `${field.id} 无 readingView 落位，clearViewOnClose 应为 false`).toBe(false);
       }
@@ -314,7 +293,6 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
   it("E1. apply 写全 writtenByApply 字段的三处目标，且不触碰其他字段", () => {
     state.reader.setTheme("dark");
 
-    // 非 apply 字段预置值：apply 不得清除/覆写它们
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reading-active", "1");
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
@@ -331,7 +309,6 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
         ).toBe(expected);
       }
     }
-    // apply 不负责的字段原值保持
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
@@ -339,12 +316,10 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
 
   it("E2. closeReadingView 清全 clearOnClose 字段（theme + palette + 页面级标志）", async () => {
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
-    // 组合根语义：进入前 mode 由 content.js/message-handler 写
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reader-mode", "1");
 
     await shell.enterReaderMode();
-    // 进入后确认属性确实已落位（否则 close 断言空转）
     expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBeTruthy();
     expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
 
@@ -366,7 +341,6 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
     const pageState = await import("../../extension/reader/state.js");
     pageState.bindNormalPageStateGuard();
 
-    // 表派生后为全集，theme 写入即触发收敛清除。
     document.body.setAttribute("data-biliscript-reader-theme", "dark");
     document.documentElement.setAttribute("data-biliscript-reader-theme", "dark");
 
@@ -375,7 +349,6 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
       expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBe(null);
     });
 
-    // follow 是视图内标志（watchedByGuard=false）：守卫不监听也不清理
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     readingView.setAttribute("data-biliscript-reader-follow", "manual");
     await new Promise((resolve) => setTimeout(resolve, 50));

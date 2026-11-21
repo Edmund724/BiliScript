@@ -1,15 +1,3 @@
-// tests/reader/chat-popovers.test.ts
-// createReaderChatPopovers：历史内容模式、模型面板与显示设置菜单的
-// 开合互斥、逐层外点/Esc 结算及焦点恢复行为契约。文档级外点经 reader-bus
-// 转发槽并入 ui-renderer 的单一文档级委托。
-//
-// 覆盖：
-// - toggleHistoryPopover：刷新历史列表、关模型面板、同步 aria-expanded、
-//   打开聚焦返回键，关闭聚焦历史入口；
-// - toggleModelPanel：开（刷新面板列表）、关历史、再 toggle 关；
-// - handleDocumentClick：只结算最上层；点击弹层/触发按钮内部不关；
-// - handleEscapeKey：Escape 逐层关闭，确认框打开时不穿透，其余键 no-op。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 

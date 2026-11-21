@@ -38,7 +38,6 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
     expect(overlay).not.toBeNull();
     expect(overlay.isVisible()).toBe(false);
 
-    // 网页全屏模式
     playerContainer.setAttribute("data-screen", "web");
     overlay.show();
 
@@ -54,7 +53,6 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
     const overlay = ensureFullscreenOverlay();
     overlay.show();
 
-    // 状态胶囊同步
     overlay.syncState("connecting");
     const statusText = overlay.getElement()?.querySelector(".live-overlay-status-text");
     expect(statusText?.textContent).toBe("连接中...");
@@ -62,13 +60,11 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
     overlay.syncState("connected");
     expect(statusText?.textContent).toBe("正在伴看");
 
-    // VAD 动效
     overlay.updateVad(true);
     expect(overlay.getElement()?.querySelector(".live-overlay-status-capsule")?.classList.contains("is-talking")).toBe(true);
     overlay.updateVad(false);
     expect(overlay.getElement()?.querySelector(".live-overlay-status-capsule")?.classList.contains("is-talking")).toBe(false);
 
-    // 用户与 Assistant 实时转写字幕上屏
     overlay.updateTranscript({
       kind: "input.done",
       text: "视频里这个人是谁？"

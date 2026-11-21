@@ -1,21 +1,3 @@
-// tests/reader/chat-lists.test.ts
-// createReaderChatLists（对话 tab 两列表：建议内容决策 / 历史会话渲染）行为契约。
-// PR5 自 tests/sidepanel/sidepanel-lists.test.ts 随重建迁移（tests/sidepanel/
-// 对应文件已迁走）：逻辑断言保真，DOM 壳换新——元素为 reader 的 readingChat*
-// 节点，class 名沿用 .chat-*（样式段在 styles/reader-chat.css，按需装载）。
-//
-// 覆盖：
-// - renderSuggestions：只决定「该显示哪些问题」并交给建议区属主——属主替身收口，
-//   断言面是提交的清单（有平台/无历史/视频上下文 → 三档取用结果；无上下文 /
-//   非视频页 / 有会话历史 / 无平台 → 空表），以及建议区不在场（已撤除 / 回放清场）
-//   时不对账重渲。DOM 落点与 chip 点击接线属属主，见
-//   tests/reader/chat-suggestions-slot.test.ts。
-// - renderHistoryList：空列表占位 + 清空按钮隐藏；active / live-match 高亮；
-//   open 点击 → applyById + 关历史 popover；remove 点击 → deleteById。
-//
-// 模块纪元注意：chatSessionState 是模块级单例，beforeEach resetModules 后与被测
-// 模块同纪元导入，并经 resetChatSessionStateForTests 重置字段。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
@@ -29,7 +11,6 @@ let chatSessionState: ChatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
 let resetQuickPromptCacheForTests: typeof import("../../extension/chat/quick-prompt-cache.js").resetQuickPromptCacheForTests;
-// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -49,7 +30,6 @@ async function importModule() {
   resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
 }
 
-// 建议区属主替身：列表只经 render 提交清单、经 isPresent 决定要不要对账（缺省在场）。
 function makeSuggestionsSlot(overrides: Partial<ChatSuggestionsSlot> = {}): ChatSuggestionsSlot {
   return {
     render: vi.fn(),
@@ -80,15 +60,11 @@ function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
   return { deps, lists, historyList, historyClearBtn, suggestions: deps.suggestions };
 }
 
-// setup.ts 给 HTMLElement.prototype.click 打了「补派发一次 MouseEvent」的补丁，
-// 直接 .click() 会双触发；测试里统一用 dispatchEvent 保证恰好一次。
 function clickOnce(el: Element) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
 const VIDEO_CONTEXT = { isVideoContext: true, title: "测试视频", url: "https://www.bilibili.com/video/BV1" };
-// 当前页（jsdom 地址由 setup 的 resetModuleState 固定为 BV1test000000）的视频身份与
-// 已就绪字幕：建议区的缓存键读进程内 clip（与写方 reader/quick-prompts 同源）。
 const PAGE_BVID = "BV1test000000";
 const PAGE_CID = "1";
 const PAGE_CACHE_KEY = `video:${PAGE_BVID}|${PAGE_CID}`;
@@ -164,14 +140,9 @@ describe("renderSuggestions（提交给建议区属主的清单）", () => {
     expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 
-  // 用户报障（音频转写中显示上一个视频的三个问题）：缓存里有生成结果 ≠ 该在当前页
-  // 显示。取用要同时满足「身份是当前页视频」与「字幕已就绪」，两条不满足都回落
-  // 固定三条默认问题。
   it("字幕未就绪（转写中，字幕体为空）：回落固定三条默认问题，不用该视频已有的生成结果", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
     writeCachedQuickPrompts(PAGE_CACHE_KEY, ["上一轮一", "上一轮二", "上一轮三"]);
-    // 对照：旧口径（读对话上下文的 currentContextKey）在这里会命中缓存、
-    // 把生成结果显示到没字幕的视频上。
     chatSessionStateForTests.currentContextKey = PAGE_CACHE_KEY;
     state.clip.setSubtitleBody([]);
     const { lists, suggestions } = makeDeps();
@@ -183,8 +154,6 @@ describe("renderSuggestions（提交给建议区属主的清单）", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
     const prevKey = "video:BV1prev00000|9";
     writeCachedQuickPrompts(prevKey, ["Karpathy四层输出阶梯是什么？", "第三层网页为何更适合读长文？", "如何用一次性软件降低大脑带宽？"]);
-    // 真实形态：对话上下文也还停在上一个视频（URL 变化同步早于 clip 重置，
-    // 且此后不再对账）——建议区不读它，读进程内 clip 的当前页身份。
     chatSessionStateForTests.currentContextKey = prevKey;
     state.clip.setBvid("BV1prev00000");
     state.clip.setCid("9");
@@ -316,7 +285,6 @@ describe("renderHistoryList（历史会话）", () => {
   });
 });
 
-
 describe("历史定位、切换与删除撤销（工单 05）", () => {
   function conversation(id: string) {
     return { id, title: `会话 ${id}`, contextKey: "", contextTitle: "", contextUrl: "", isVideoContext: true, createdAt: 0, updatedAt: 0, contextRef: null, messages: [] };
@@ -403,7 +371,6 @@ describe("历史定位、切换与删除撤销（工单 05）", () => {
     expect(historyList.querySelector(".chat-history-item[data-id=c1]")?.getAttribute("aria-busy")).toBe("true");
     expect(historyList.getAttribute("aria-busy")).toBe("true");
     const busyButton = historyList.querySelector<HTMLButtonElement>(".chat-history-open[data-id=c1]")!;
-    // aria-disabled 而非原生 disabled：焦点留在被保存的行上，重渲不把键盘用户甩到 body。
     expect(busyButton.getAttribute("aria-disabled")).toBe("true");
     expect(busyButton.disabled).toBe(false);
     expect(document.activeElement).toBe(busyButton);
@@ -580,12 +547,10 @@ describe("历史定位、切换与删除撤销（工单 05）", () => {
     await flushPromises();
     expect(deleteById).toHaveBeenCalledTimes(2);
 
-    // 后发的 c3 先落定：撤销条属于 c3，焦点落到它之后（无下一项 → 上一项 c1）。
     pending[1]();
     await flushPromises();
     expect(document.activeElement).toBe(historyList.querySelector(".chat-history-open[data-id=c1]"));
 
-    // 先发的 c2 迟到落定：不得顶掉 c3 的撤销条，也不改焦点。
     pending[0]();
     await flushPromises();
     expect(document.activeElement).toBe(historyList.querySelector(".chat-history-open[data-id=c1]"));

@@ -1,14 +1,3 @@
-// 候选10 批2：阅读视图字幕列表分批渲染回归测试。
-//
-// 覆盖：
-// - 首屏只渲染前 120 条，其余按序 rAF 分批追加；
-// - rAF 每帧追加一批直至渲染完成（fake rAF 手动 flush）；
-// - 分批追加后的条目可点击跳转（事件委托在容器层，无需逐条绑定）；
-// - follow 跳转到未渲染区：先同步补渲染到目标 index 再滚动（不许跳不过去）；
-// - 激活计算对未渲染条目照旧（不产生高亮 DOM，条目上屏后下一拍补上高亮）；
-// - 渲染期间再次 renderReadingView（切轨）：取消上一轮任务，从头分批不重不漏；
-// - closeReadingView 取消挂起的追加任务。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -19,7 +8,6 @@ let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let video: HTMLVideoElement;
 
-// fake rAF：捕获回调 + 尊重 cancelAnimationFrame（验证取消路径）。
 let rafPending: Map<number, (time: number) => void>;
 let rafCancelled: number[];
 let rafNextId: number;
@@ -43,9 +31,6 @@ function installFakeRaf() {
   };
 }
 
-// 执行当前已登记的 rAF 回调快照（回调内新登记的留到下一轮），直至队列清空
-// 或到达轮数上限（防死循环）。回调执行即从队列移除——与真实 rAF 的出队语义
-// 一致，否则旧回调积压会让队列永远排不干。
 function flushAnimationFrames(maxRounds = 30) {
   let rounds = 0;
   while (rafPending.size > 0 && rounds < maxRounds) {
@@ -87,7 +72,6 @@ beforeEach(async () => {
   await loadReaderModules();
   mountSkeleton();
   installFakeRaf();
-  // scrollReadingSubtitleItemIntoView 的兜底路径会调 scrollIntoView，jsdom 未实现
   Element.prototype.scrollIntoView = () => {};
 });
 
@@ -111,7 +95,7 @@ describe("字幕列表分批渲染", () => {
     shell.renderReadingView();
     expect(renderedItemCount()).toBe(120);
     expect(subtitleList().lastElementChild?.getAttribute("data-index")).toBe("119");
-    expect(rafPending.size).toBe(2); // 追加任务 + 占位高度校准帧已登记，等待下一帧
+    expect(rafPending.size).toBe(2);
   });
 
   it("rAF 每帧追加直至完成：800 条不重不漏，按序收尾", () => {
@@ -121,7 +105,6 @@ describe("字幕列表分批渲染", () => {
     expect(renderedItemCount()).toBe(800);
     const list = subtitleList();
     expect(list.lastElementChild?.getAttribute("data-index")).toBe("799");
-    // data-index 0..799 各恰好一个（不重不漏）
     for (let i = 0; i < 800; i += 50) {
       expect(list.querySelectorAll(`[data-index="${i}"]`).length).toBe(1);
     }
@@ -130,16 +113,15 @@ describe("字幕列表分批渲染", () => {
   it("分批追加后的条目可点击跳转（容器层事件委托）", () => {
     state.clip.subtitleBody = makeBody(800);
     state.reader.readingViewOpen = true;
-    video.play = () => Promise.resolve(); // jsdom video 无 play，jumpReadingTarget 需要
+    video.play = () => Promise.resolve();
     shell.renderReadingView();
-    // 首屏 120 条里没有 index 300：先 flush 一批（120+200=320），300 上屏
     flushAnimationFrames();
     const target = subtitleList().querySelector('[data-index="300"]') as HTMLElement;
     expect(target).not.toBeNull();
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     Object.defineProperty(event, "target", { value: target });
     shell.onReadingSubtitleClick(event);
-    expect(video.currentTime).toBe(600); // data-seconds = 300 * 2
+    expect(video.currentTime).toBe(600);
     expect(state.reader.readingActiveSubtitleIndex).toBe(300);
   });
 
@@ -147,21 +129,19 @@ describe("字幕列表分批渲染", () => {
     state.clip.subtitleBody = makeBody(600);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
-    expect(renderedItemCount()).toBe(120); // 目标 index 300 尚未上屏（区间 181 条 < 同步上限，当拍全量补齐）
+    expect(renderedItemCount()).toBe(120);
 
     const bound = shell.bindReadingViewVideo(video);
     expect(bound).toBe(video);
     video.play = () => Promise.resolve();
-    video.currentTime = 600; // 第 300 条（from = 300 * 2）
+    video.currentTime = 600;
 
-    // 不 flush 任何 rAF：目标必须在本拍内同步补渲染（未超同步上限）
     shell.syncReadingViewPlayback(true);
 
     expect(renderedItemCount()).toBe(301);
     const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active.dataset.index).toBe("300");
     expect(state.reader.readingActiveSubtitleIndex).toBe(300);
-    // 任务已收尾，flush 队列不再追加
     flushAnimationFrames();
     expect(renderedItemCount()).toBe(600);
   });
@@ -175,15 +155,12 @@ describe("字幕列表分批渲染", () => {
     const bound = shell.bindReadingViewVideo(video);
     expect(bound).toBe(video);
     video.play = () => Promise.resolve();
-    video.currentTime = 2800; // 落点第 1400 条（from = 1400 * 2）
+    video.currentTime = 2800;
 
-    // 同步 flush 被上限截断：cursor 120 → 320，只多补一批，落点条目不在本拍上屏
     shell.syncReadingViewPlayback(true);
     expect(renderedItemCount()).toBe(320);
     expect(subtitleList().querySelector(".biliscript-reading-item.is-active")).toBeNull();
 
-    // rAF 追加任务逐帧补齐到落点；下一次时间更新（视频播放中的 timeupdate）
-    // 重走 sync 时目标已上屏，is-active 与滚动自愈落位
     flushAnimationFrames();
     expect(renderedItemCount()).toBe(1500);
     shell.syncReadingViewPlayback(true);
@@ -193,14 +170,11 @@ describe("字幕列表分批渲染", () => {
   });
 
   it("force 拍落点超出同步 flush 上限：rAF 补齐后，后续非 force tick 必须补滚动", () => {
-    // 用户报障形态：视频播了一段时间后点 script，subtitle-ready 的 force 拍
-    // 目标 index 超出 120+200 同步补渲染窗口 → 节点未上屏滚动被跳过；此后
-    // 生产环境只有非 force 的 250ms tick，滚动必须随条目上屏补落位。
     state.clip.subtitleBody = makeBody(1500);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
-    video.currentTime = 2800; // 落点第 1400 条，远超 120+200 窗口
+    video.currentTime = 2800;
 
     const list = subtitleList();
     Object.defineProperty(list, "clientHeight", { value: 400, configurable: true });
@@ -212,18 +186,15 @@ describe("字幕列表分批渲染", () => {
     const windowScrollSpy = vi.fn();
     window.scrollTo = windowScrollSpy;
 
-    // subtitle-ready 的 force 拍：flush 被上限截断，滚动当拍跳过
     shell.syncReadingViewPlayback(true);
     expect(subtitleList().querySelector('[data-index="1400"]')).toBeNull();
 
-    // rAF 逐帧补齐全部条目（生产中约百余毫秒内完成）
     flushAnimationFrames();
     expect(renderedItemCount()).toBe(1500);
     elementScrollSpy.mockClear();
     listScrollSpy.mockClear();
     windowScrollSpy.mockClear();
 
-    // 生产 tick（非 force，视频暂停中 index 不再变化）：滚动必须补上（且不滚宿主页）
     shell.syncReadingViewPlayback();
     shell.syncReadingViewPlayback();
     const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
@@ -233,21 +204,16 @@ describe("字幕列表分批渲染", () => {
   });
 
   it("手动暂停中的激活计算照旧：不补渲染/滚动，恢复后下一拍补高亮", () => {
-    // 三开关退役后自动滚动恒开：未暂停时 index 变化会立即同步补渲染并滚动
-    //（见上面 follow 用例）。真正不产生滚动/补渲染的是手动暂停分支——此处
-    // 验证暂停中的激活计算照旧，恢复跟随后再滚动到目标句并补上高亮。
     state.clip.subtitleBody = makeBody(800);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
-    shell.noteManualReaderInteraction(60_000); // 手动暂停跟随
-    video.currentTime = 600; // index 300 未渲染（区间 181 条 < 同步上限）
+    shell.noteManualReaderInteraction(60_000);
+    video.currentTime = 600;
     shell.syncReadingViewPlayback();
-    expect(state.reader.readingActiveSubtitleIndex).toBe(300); // 计算照旧
-    expect(subtitleList().querySelector(".biliscript-reading-item.is-active")).toBeNull(); // 暂停分支不补渲染/滚动
+    expect(state.reader.readingActiveSubtitleIndex).toBe(300);
+    expect(subtitleList().querySelector(".biliscript-reading-item.is-active")).toBeNull();
 
-    // 手动暂停过期后恢复跟随（等价 resumeReaderFollowPlayback 的 forceScroll
-    // 路径）：flush 补渲染 + 高亮 + scrollIntoView
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
     shell.syncReadingViewPlayback(true);
     expect(renderedItemCount()).toBeGreaterThanOrEqual(301);
@@ -257,22 +223,21 @@ describe("字幕列表分批渲染", () => {
   it("渲染期间再次 renderReadingView（切轨）：取消上一轮任务，新数据不重不漏", () => {
     state.clip.subtitleBody = makeBody(800);
     shell.renderReadingView();
-    // 只 flush 一批（120 → 320），任务未完成时模拟切轨
     const snapshot = [...rafPending.values()];
     snapshot.forEach((cb) => cb(0));
     expect(renderedItemCount()).toBe(320);
 
-    state.clip.subtitleBody = makeBody(400); // 切轨后的新字幕
+    state.clip.subtitleBody = makeBody(400);
     shell.renderReadingView();
-    expect(rafCancelled.length).toBeGreaterThanOrEqual(1); // 旧任务被显式取消
-    expect(renderedItemCount()).toBe(120); // 新数据首屏
+    expect(rafCancelled.length).toBeGreaterThanOrEqual(1);
+    expect(renderedItemCount()).toBe(120);
 
     flushAnimationFrames();
     const list = subtitleList();
-    expect(renderedItemCount()).toBe(400); // 精确等于新数据条数
+    expect(renderedItemCount()).toBe(400);
     expect(list.querySelectorAll('[data-index="0"]').length).toBe(1);
     expect(list.querySelectorAll('[data-index="399"]').length).toBe(1);
-    expect(list.querySelector('[data-index="400"]')).toBeNull(); // 旧任务的条目没有串进来
+    expect(list.querySelector('[data-index="400"]')).toBeNull();
     expect(list.lastElementChild?.getAttribute("data-index")).toBe("399");
   });
 
@@ -280,11 +245,11 @@ describe("字幕列表分批渲染", () => {
     state.clip.subtitleBody = makeBody(800);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
-    expect(rafPending.size).toBe(2); // 追加任务 + 占位高度校准帧
+    expect(rafPending.size).toBe(2);
     shell.closeReadingView();
-    expect(rafPending.size).toBe(0); // 挂起回调已取消
+    expect(rafPending.size).toBe(0);
     expect(rafCancelled.length).toBeGreaterThanOrEqual(1);
-    flushAnimationFrames(); // 队列已空：不应有任何追加发生
+    flushAnimationFrames();
     expect(renderedItemCount()).toBe(120);
   });
 });

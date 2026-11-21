@@ -1,20 +1,3 @@
-// 概览协调器工厂（createOverviewCoordinator(deps)）注入直测。
-//
-// 手法（对齐 subtitle-search-factory 直驱套路）：不 mock 任何模块、不用 fake timers——
-// clip 读取、readingViewOpen 闸门、provider 解析、analysis 管线、confirm、
-// UI 动作注册、now/interval 全部经 deps 注入（vi.fn/局部假钟直驱）。
-// 呈现层走真实 overview-ui，闸门默认关（isReadingViewOpen: () => false），DOM 用例显式开闸并挂宿主。
-//
-// 覆盖：
-//   1. 相位迁移：idle→generating→ready / partial / error / empty；
-//   2. 去重：同 key inflight 复用、换 key 旧回执按纪元校验丢弃；
-//   3. cancel 矩阵：cancelRequested + aborted 上浮为 cancelled、无取消的 aborted
-//      回落 idle、cancelled 短路表、forceRefresh 绕过；
-//   4. ticker：假 now + 捕获 interval 回调直驱「等满 10 秒出提示」「有进度不叠加」
-//      「非 generating 自停」；
-//   5. ADR-0010 DOM 节点同一性：等待计时只改状态条文案节点，不重建整块 DOM；
-//   6. reset 不取消在飞、回执不写入新会话。
-
 import { describe, expect, it, vi, type Mock } from "vitest";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
@@ -119,7 +102,6 @@ function makeHarness(): Harness {
   let nextIntervalId = 1;
   const deps: CreateOverviewCoordinatorDeps = {
     getClip: () => clip,
-    // 闸门默认关：直驱相位机，不触达 DOM；DOM 用例显式开闸并挂宿主
     isReadingViewOpen: () => readingViewOpen,
     resolveProvider: async () => PROVIDER,
     loadAnalysis: async () =>
@@ -159,14 +141,12 @@ function makeHarness(): Harness {
   };
 }
 
-// 挂起的管线：让 runOverviewAnalysis 可控推挤（resolve/reject 由用例持有）
 function pendingRun(h: Harness): { resolve: (v: OverviewAnalysis) => void; reject: (e: unknown) => void } {
   const d = deferred<OverviewAnalysis>();
   h.runOverviewAnalysis.mockImplementation(() => d.promise);
   return d;
 }
 
-// 等管线真正发起（loadAnalysis + resolveProvider 各一趟微任务）
 async function waitForRunStarted(h: Harness, times = 1): Promise<void> {
   await vi.waitFor(() => expect(h.runOverviewAnalysis).toHaveBeenCalledTimes(times));
 }
@@ -187,7 +167,6 @@ describe("相位迁移", () => {
     expect(snapshot.progressText).toBe("");
     expect(snapshot.errorText).toBe("");
 
-    // 入参口径：provider / 上下文 / 思考档位钉死 off
     const args = h.runOverviewAnalysis.mock.calls[0][0] as RunArgs;
     expect(args.provider).toBe(PROVIDER);
     expect(args.thinkingLevel).toBe("off");
@@ -224,7 +203,6 @@ describe("相位迁移", () => {
 
     expect(h.coordinator.getPhase()).toBe("error");
     const snapshot = h.coordinator.getSnapshot();
-    // 快照存原始错误文本；「概览生成失败」前缀由呈现层拼接（overview.test.ts 集成网断言）
     expect(snapshot.errorText).toBe("模型请求失败");
   });
 
@@ -258,7 +236,6 @@ describe("去重与纪元校验", () => {
     await first;
     expect(h.coordinator.getPhase()).toBe("ready");
 
-    // ready 态再触发：短路表拦截，不重跑
     await h.coordinator.trigger();
     expect(h.runOverviewAnalysis).toHaveBeenCalledTimes(1);
   });
@@ -270,7 +247,6 @@ describe("去重与纪元校验", () => {
     const first = h.coordinator.trigger();
     await waitForRunStarted(h);
 
-    // 切片：新 key 换血重跑
     h.clip.bvid = "BV1newvideo000";
     h.clip.cid = "2000";
     const newRun = pendingRun(h);
@@ -278,7 +254,6 @@ describe("去重与纪元校验", () => {
     expect(second).not.toBe(first);
     await waitForRunStarted(h);
 
-    // 旧编排落定：inflightAbort 已换代 + generatedFor 已换 key → 旧产物按过期丢弃
     oldRun.resolve({
       summary: "",
       chapters: [{ from: 0, to: 120, title: "旧视频章节", summary: "" }],
@@ -288,7 +263,6 @@ describe("去重与纪元校验", () => {
     expect(h.coordinator.getPhase()).toBe("generating");
     expect(h.coordinator.getSnapshot().analysis).toBeNull();
 
-    // 新编排落定：正常入槽
     newRun.resolve({
       summary: "",
       chapters: [{ from: 0, to: 120, title: "新视频章节", summary: "" }],
@@ -313,7 +287,6 @@ describe("cancel 矩阵", () => {
     expect(signal?.aborted).toBe(true);
     expect(h.coordinator.getPhase()).toBe("cancelled");
 
-    // 管线以 aborted 上浮：cancelRequested 为真 → 维持 cancelled，不回落 idle
     d.reject(abortedMarkerError());
     await run;
     expect(h.coordinator.getPhase()).toBe("cancelled");
@@ -342,11 +315,9 @@ describe("cancel 矩阵", () => {
     d.reject(abortedMarkerError());
     await run;
 
-    // cancelled 态普通触发：短路
     await h.coordinator.trigger();
     expect(h.runOverviewAnalysis).toHaveBeenCalledTimes(1);
 
-    // forceRefresh 绕过短路：已中止的 controller 不复用，新信号未中止
     h.runOverviewAnalysis.mockResolvedValue(SAMPLE_ANALYSIS);
     await h.coordinator.trigger({ forceRefresh: true });
     expect(h.runOverviewAnalysis).toHaveBeenCalledTimes(2);
@@ -392,12 +363,10 @@ describe("wait ticker（假 now + 捕获 interval 回调）", () => {
     await waitForRunStarted(h);
     expect(h.intervals.size).toBe(1);
 
-    // 阈值内：无等待文案
     h.advance(9_000);
     h.fireTick();
     expect(h.coordinator.getSnapshot().stripText).toBe("");
 
-    // 跨过阈值：就地给出等待计时
     h.advance(2_000);
     h.fireTick();
     expect(h.coordinator.getSnapshot().stripText).toBe("正在等待平台响应…（已等待 11 秒）");
@@ -432,10 +401,8 @@ describe("wait ticker（假 now + 捕获 interval 回调）", () => {
 
     d.resolve(SAMPLE_ANALYSIS);
     await vi.waitFor(() => expect(h.coordinator.getPhase()).toBe("ready"));
-    // 落定清理：编排收尾即停 ticker
     expect(h.intervals.size).toBe(0);
 
-    // 即便回调再来（迟到 tick）：相位非 generating → 自停，不再写状态
     h.fireTick();
     expect(h.intervals.size).toBe(0);
     expect(h.coordinator.getSnapshot().stripText).toBe("");
@@ -455,11 +422,9 @@ describe("wait ticker（假 now + 捕获 interval 回调）", () => {
       expect(stripText?.textContent).toBe("正在生成概览…");
       expect(cancelBtn).not.toBeNull();
 
-      // 跨过等待阈值：tick 每秒就地刷新那句文案
       h.advance(11_000);
       h.fireTick();
 
-      // 同一性不变：状态条与其取消键都是原来的节点（整块重建会丢滚动位置与选区）
       expect(document.querySelector(".biliscript-reading-ov-strip-text")).toBe(stripText);
       expect(document.querySelector("button[data-overview-action='cancel']")).toBe(cancelBtn);
       expect(stripText?.textContent).toContain("正在等待平台响应…（已等待 11 秒）");
@@ -558,7 +523,6 @@ describe("reset 会话收尾", () => {
     expect(h.coordinator.getPhase()).toBe("idle");
     expect(signal?.aborted).toBe(false);
 
-    // 后台落定：generatedFor 已清 → 回执按过期丢弃
     d.resolve(SAMPLE_ANALYSIS);
     await run;
     expect(h.coordinator.getPhase()).toBe("idle");

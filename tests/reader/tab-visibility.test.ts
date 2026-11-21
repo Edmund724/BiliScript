@@ -1,15 +1,3 @@
-// 字幕 tab body 可见性谓词（候选 06）：判定输入只取状态位，不反解 DOM class。
-//
-// 背景：sync 域 250ms tick 需要判定「字幕 tab body 是否可见」以决定是否跳过
-// 高亮/滚动段（P3-1）。原实现反解 DOM class——CONTEXT「文摘面板」词条把
-// 「反解 DOM class 取当前标签」列为 Avoid。本文件钉住两件事：
-//   A. 谓词真值表：视图开关 × 当前标签 × 设置抽屉展开；
-//   B. 投影一致锁：谓词（状态侧）与 DOM 投影（CSS 侧）在每次切换后逐一相符
-//      ——状态位由标签激活属主 activateScriptTab 单点写、DOM 由它的 project-tab
-//      投影命令与 renderReaderPanels 单点写，谓词改读状态位后这条「写方唯一」
-//      不变量必须仍成立。
-// CSS 源守卫在 tests/entry/reader-tab-body-visibility-css.test.ts。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
@@ -40,8 +28,6 @@ function settingsPanel() {
   return document.getElementById(ids.readingSettingsPanel) as HTMLElement;
 }
 
-// DOM 投影侧的同义判定，逐条对齐 CSS 的三条隐藏通道：body 未 is-active、
-// body 带 hidden、设置抽屉展开（兄弟选择器压掉三 tab body）。
 function domSaysSubtitleBodyVisible(): boolean {
   return (
     subtitleBody().classList.contains("is-active") &&
@@ -65,7 +51,6 @@ afterEach(async () => {
     reader.stopReadingViewSync();
     reader.closeReadingView();
   } catch {
-    // ignore
   }
   await new Promise((resolve) => setTimeout(resolve, 150));
   document.body.innerHTML = "";
@@ -104,7 +89,6 @@ describe("字幕 tab body 可见性谓词（候选 06）", () => {
     expect(readerState.isReadingSubtitleBodyVisible(), "打开默认为字幕 tab").toBe(true);
     expect(domSaysSubtitleBodyVisible(), "DOM 同口径").toBe(true);
 
-    // 生产切换路径：属主写状态位 + 投影命令 → DOM（两侧同源）
     await activation.activateScriptTab("overview");
     expect(readerState.isReadingSubtitleBodyVisible(), "切到概览后谓词").toBe(false);
     expect(domSaysSubtitleBodyVisible(), "切到概览后 DOM").toBe(false);
@@ -113,7 +97,6 @@ describe("字幕 tab body 可见性谓词（候选 06）", () => {
     expect(readerState.isReadingSubtitleBodyVisible(), "切回字幕").toBe(true);
     expect(domSaysSubtitleBodyVisible(), "切回字幕 DOM").toBe(true);
 
-    // 抽屉通道单独生效：body 仍是 is-active（第一通道没变），可见性由抽屉压掉
     state.reader.setSettingsExpanded(true);
     reader.renderReaderPanels();
     expect(subtitleBody().classList.contains("is-active"), "抽屉展开不改 tab 通道").toBe(true);

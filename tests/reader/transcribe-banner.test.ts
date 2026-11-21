@@ -1,20 +1,3 @@
-// PR3 转写中间态呈现回归测试（横幅 + 列表淡出禁用 + 进度行）。
-//
-// 数据源结论（已核实）：biliscript-subtitle-status 的 chrome.runtime.sendMessage 广播
-// 不会被发送方所在的 content script 自己收到——reader 与转写编排同进程，相位经
-// shared/subtitle-status-bus 的进程内镜像读取/订阅（fetcher.broadcastSubtitleStatus
-// 在原广播旁同步发布）；分片进度（片 x/y）页面侧拿不到（切片计划与总数只在
-// offscreen 文档内），横幅为不确定进度样式，进度行实时显示状态栏文本。
-//
-// 覆盖：
-// - status-bus 语义：publish 通知订阅者 + get 返回最后相位 + 退订；
-// - asr-transcribing + 空 body → 横幅显示 + tab body is-transcribing + 进度行；
-// - asr-done → 横幅隐藏、淡出禁用解除；
-// - 相位残留防御：字幕体已就绪（非空）时即使相位残留 asr-transcribing 也强制隐藏；
-// - 相位订阅驱动（视图开着，无需手动 update）；
-// - renderReadingView 恢复呈现（打开视图晚于转写发起）；
-// - sync 250ms tick 收敛进度行（onProgress 改写状态栏文本后跟随刷新）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -62,7 +45,6 @@ beforeEach(async () => {
   await loadReaderModules();
   mountReaderSkeleton(ids);
   video = mountPlayerChain();
-  // 相位是文件内共享的模块级状态：每个用例归位到非转写相位
   statusBus.publishSubtitleStatusPhase("idle");
 });
 
@@ -136,14 +118,11 @@ describe("转写中间态横幅", () => {
   });
 
   it("横幅文案按相位取：标题/副文案写入 id 节点（不是硬编码在模板里）", () => {
-    // 票 07 Q3：文案表的单源在 transcribe-banner.ts，渲染时按当前相位写入
-    // id 节点——模板自带的串只是首拍前的初始值，不是契约。
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     shell.updateReadingTranscribeBanner();
 
     expect(bannerTitleText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
     expect(bannerCopyText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy);
-    // 逐字与归一化前的硬编码串一致（本次无可见变化）
     expect(bannerTitleText()).toBe("当前视频无字幕，正在进行语音转写…");
     expect(bannerCopyText()).toBe("转写完成后将自动展示字幕与概览，期间可继续观看视频");
   });
@@ -155,7 +134,6 @@ describe("转写中间态横幅", () => {
 
     shell.updateReadingTranscribeBanner();
 
-    // 内容相同即不赋值（textContent 赋值会换文本节点，脏检查保证零 DOM 写）
     expect(titleNode.textContent).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
     expect(bannerTitleText()).toBe("当前视频无字幕，正在进行语音转写…");
   });
@@ -174,12 +152,10 @@ describe("转写中间态横幅", () => {
     state.reader.readingViewOpen = true;
     shell.bindReadingViewVideo(video);
 
-    // 第一次收敛：进度行取当前状态栏文本
     state.ui.setStatusText("音频下载与解码中…");
     shell.updateReadingTranscribeBanner();
     expect(progressText()).toBe("音频下载与解码中…");
 
-    // 模拟 tick：分片进度文本（无总数，页面侧拿不到片 x/y）经 syncReadingViewPlayback 收敛
     state.ui.setStatusText("语音识别中 2 片…");
     shell.syncReadingViewPlayback();
     expect(progressText()).toBe("语音识别中 2 片…");

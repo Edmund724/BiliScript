@@ -1,15 +1,3 @@
-// 字幕搜索工厂（createSubtitleSearch(deps)）注入直测（arch-review-20261018/03）。
-//
-// 不经完整 reader shell、不注册 reader 端口：DOM 元素访问与补渲染端口/手动交互
-// 通知全部经 deps 注入（vi.fn 断言触达），数据层喂 state.clip.subtitleBody
-// （与生产同源 getReadingSubtitleItems 口径）。
-//
-// 覆盖工单列的三条行为：
-//   1. 补渲染闸：导航目标未上屏时先经 deps.flushReadingSubtitleToIndex 同步补
-//      渲染，再落到新上屏条目的 mark 上（不许跳不过去）；
-//   2. 上/下一条循环导航：越过末尾/开头环绕，像浏览器 Find；
-//   3. 批次回执只对新区间打高亮：[from, to) 之外的条目不被触碰。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -50,8 +38,6 @@ type TestDeps = SubtitleSearchDeps & {
   noteManualReaderInteraction: Mock;
 };
 
-// 注入夹具：list/input 用测试局部元素（不挂生产 id），flush 语义由用例传入
-// （默认只追加节点），手动交互通知收 vi.fn。
 function mountSearchShell(renderedCount: number): void {
   document.body.innerHTML = "";
   input = document.createElement("input");
@@ -110,11 +96,8 @@ afterEach(() => {
 
 describe("createSubtitleSearch：补渲染闸", () => {
   it("导航目标未上屏：先经 flush 端口补渲染，search-current 落到新上屏条目的 mark", () => {
-    // 首屏只有第 0 条，其余 3 条匹配但尚未上屏
     mountSearchShell(1);
     let search!: ReturnType<typeof createSubtitleSearch>;
-    // flush 模拟生产补渲染闭环：追加节点（batched-render 的活），再经批次回执
-    // 给新上屏条目补高亮（lifecycle 注册的 hook 的活）——两者都在端口返回前完成
     const deps = makeDeps((itemIndex: number) => {
       list.appendChild(buildItemNode(itemIndex));
       search.handleRangeAppended(itemIndex, itemIndex + 1);
@@ -129,12 +112,10 @@ describe("createSubtitleSearch：补渲染闸", () => {
 
     search.move(1);
 
-    // 补渲染端口以目标条目序号被调一次，且补渲染后命中落点立即跟上
     expect(deps.flushReadingSubtitleToIndex).toHaveBeenCalledTimes(1);
     expect(deps.flushReadingSubtitleToIndex).toHaveBeenCalledWith(1);
     expect(itemNode(1)).not.toBeNull();
     expect(currentMark()?.closest("[data-index]")).toBe(itemNode(1));
-    // move 的滚动路径即「用户在看这里」：手动交互通知经 deps 触达
     expect(deps.noteManualReaderInteraction).toHaveBeenCalled();
     expect(searchCount()).toBe("2 / 4");
   });
@@ -161,17 +142,14 @@ describe("createSubtitleSearch：循环导航", () => {
     expect(searchCount()).toBe("4 / 4");
     expect(currentMark()?.closest("[data-index]")).toBe(itemNode(3));
 
-    // 越过末尾 → 回到第一条
     search.move(1);
     expect(searchCount()).toBe("1 / 4");
     expect(currentMark()?.closest("[data-index]")).toBe(itemNode(0));
 
-    // 越过开头 → 绕到最后一条
     search.move(-1);
     expect(searchCount()).toBe("4 / 4");
     expect(currentMark()?.closest("[data-index]")).toBe(itemNode(3));
 
-    // 全部命中已上屏：补渲染端口全程不被触碰
     expect(deps.flushReadingSubtitleToIndex).not.toHaveBeenCalled();
   });
 });
@@ -184,13 +162,11 @@ describe("createSubtitleSearch：批次回执只对新区间打高亮", () => {
     search.refresh({ scroll: false });
     expect(list.querySelectorAll(MARK_SELECTOR).length).toBe(TOTAL);
 
-    // 模拟「新一批上屏」：整表重建为无 mark 的原始条目（与分批渲染的新批次同形）
     list.replaceChildren(...BODY.map((_, i) => buildItemNode(i)));
     expect(list.querySelectorAll(MARK_SELECTOR).length).toBe(0);
 
     search.handleRangeAppended(1, 3);
 
-    // 区间内的两条补回高亮，区间外不动
     expect(itemNode(0)!.querySelectorAll(MARK_SELECTOR).length).toBe(0);
     expect(itemNode(1)!.querySelectorAll(MARK_SELECTOR).length).toBe(1);
     expect(itemNode(2)!.querySelectorAll(MARK_SELECTOR).length).toBe(1);

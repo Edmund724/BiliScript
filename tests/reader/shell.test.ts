@@ -1,15 +1,3 @@
-// 阅读壳唯一事务（工单 arch-slim/02）：reader/shell.ts 的壳级接口测试。
-//
-// 接口即测试面：restore 档的失同步自愈原先只能在 message-handler 层测（handler
-// 内联壳自查 + 进入链），现在按壳接口直接测——isReaderShellIntact 判定、
-// restore 的先收敛再重进、三种 intent 的时序（抑制 → 摘按钮 → 改写 → 挂表 →
-// 翻门控属性 → enterReaderMode）与退出逆事务（URL 收敛 → closeReadingView →
-// 摘阅读表）都锁在本文件。
-//
-// 写法与 message-handler-reading-chat.test.js 同款：重依赖全部 vi.mock，state /
-// style-injector / player-ai-state 走真实模块（断言真实挂表、真实抑制窗口）；
-// reader 域本体经 reader/lazy-reader mock（由 tests/reader/lifecycle.test.ts 覆盖）。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   NORMAL_PAGE_URL,
@@ -17,8 +5,6 @@ import {
   setLocationUrl
 } from "../setup.js";
 
-// mock 句柄用 vi.hoisted 提出模块纪元外：.ts 测试里静态 import 的是真实模块
-// 类型（运行时才被 mock 掉），mock 配置/断言一律走这组句柄，避免 TS2339。
 const mocks = vi.hoisted(() => ({
   ensureUiReady: vi.fn(),
   loadPlayerAi: vi.fn(),
@@ -47,8 +33,6 @@ vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../extension/reader/reader-bus.js")>(),
   requestUiCommand: mocks.requestUiCommand
 }));
-// arch-slim-2/03：reader-url 单源后 shell.ts 也消费 buildReaderModeUrl——
-// 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
@@ -78,8 +62,6 @@ const {
   replaceReaderModeUrl
 } = mocks;
 
-// closeReadingView 桩按真实契约把 readingViewOpen 翻回 false（restore 自愈后的
-// 重进判定读的是这个状态位），否则壳级测试测不出「先收敛再重进」的接续。
 function makeReaderStub() {
   return {
     enterReaderMode: vi.fn(async () => {}),
@@ -100,8 +82,6 @@ function makeChatStub() {
   };
 }
 
-// 构造 #biliscript-reading-view 壳 DOM 与页面门控属性（isReaderShellIntact 的判定面）。
-// 缺省全部就位 = 完好壳；各用例按需破坏单一条件。
 interface ShellMountOptions {
   present?: boolean;
   open?: boolean;
@@ -137,8 +117,6 @@ function mountShell({
   }
 }
 
-// 阅读表挂载态即 DOM：两枚 link（reader.css + reader-gate.css）各自查询，
-// 不合并成单个布尔——缺失时能报出是哪张表没挂上。
 const READER_STYLE_PATHS = [
   "entry/styles/tokens-primitive.css",
   "entry/styles/reader.css",
@@ -162,7 +140,6 @@ beforeEach(() => {
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("data-biliscript-reader-mode");
   document.body.removeAttribute("data-biliscript-reader-mode");
-  // style-injector 的挂载记录是模块级 Map，跨用例残留会污染挂表断言
   removeReaderStyles();
   playerAiState.setSuppressedUntil(0);
   state.reader.setViewOpen(false);
@@ -189,17 +166,14 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
 
     await enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
 
-    // 前奏：抑制窗口 2.5s（点击过渡期内快捷按钮不再触发）
     expect(playerAiState.playerAiQuickActionSuppressedUntil).toBeGreaterThan(Date.now());
     expect(removeButton).toHaveBeenCalledTimes(1);
-    // 进入链：改写 + 挂表 + 翻属性 + 进入，且 ensureUiReady 先于改写
     expect(ensureUiReady).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
     expectReaderStylesMounted(true);
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
-    // 无闪变时序：壳就绪 → 改写 → 挂表 → 翻属性 → 进入
     const uiOrder = ensureUiReady.mock.invocationCallOrder[0];
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     const enterOrder = reader.enterReaderMode.mock.invocationCallOrder[0];
@@ -299,7 +273,6 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
 
     expect(reader.closeReadingView).toHaveBeenCalledTimes(1);
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
-    // 收敛先于重进（先退出事务把失同步状态清干净，再走进入链）
     expect(reader.closeReadingView.mock.invocationCallOrder[0]).toBeLessThan(
       reader.enterReaderMode.mock.invocationCallOrder[0]
     );
@@ -339,8 +312,6 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
       .mockResolvedValueOnce(reader);
 
     await expect(enterReaderShell({ readerUrl: READER_MODE_URL, intent: "restore" })).resolves.toBeUndefined();
-    // closeReadingView 未执行 ⇒ readingViewOpen 仍为 true ⇒ 序列不重进（与收口
-    // 前处理器行为一致：`if (!isReaderViewOpen())` 不满足），但进入链继续走完。
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
     expect(reader.enterReaderMode).not.toHaveBeenCalled();
   });
@@ -433,7 +404,6 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     mountShell();
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
-    // 预挂阅读表：验证退出后摘除
     ensureReaderStyles();
     expectReaderStylesMounted(true);
 
@@ -442,7 +412,6 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/");
     expect(reader.closeReadingView).toHaveBeenCalledTimes(1);
     expectReaderStylesMounted(false);
-    // URL 收敛先于关闭（与原处理器「先收敛地址栏」的时序一致）
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
   });

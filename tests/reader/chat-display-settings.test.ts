@@ -1,11 +1,3 @@
-// 对话排版（文摘排版）与对话朗读音量单源偏好模块接口测试。
-// 孤立失败方式：
-// 1. 越界/非法输入未按单源规格归一，或未同步写入 state 与 CSS 变量；
-// 2. 同页两处滑块（设置抽屉 vs 对话更多菜单）拖动/重置后未即时联动；
-// 3. 跨标签页 storage.onChanged 变更未归一、未更新排版 CSS 变量，或退订后仍触发；
-// 4. 持久化失败抛出未捕获异常而非返回 { ok: false, error }；
-// 5. Firefox 缺少 speechSynthesis 时未隐藏朗读音量行，具备时误隐藏。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";

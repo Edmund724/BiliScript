@@ -1,16 +1,3 @@
-// reader seam 单 handler 槽与端口的声明纪律测试。
-//
-// 覆盖：
-// - 单点注册后全部端口方法可路由（参数原样转发）；
-// - 端口方法集只含真实调用名（无死槽位）；
-// - 重复注册报错（防止实现被静默覆盖）；
-// - 注册表缺方法 / 含未知方法键即抛错；
-// - 未注册即调用端口方法抛错（缺失策略 throw）；
-// - 合法缺席的槽按声明策略 no-op（字幕刷新 / 壳命令 / 标签意图 / 外点关闭）；
-// - 常驻能力组同样精确覆盖。
-//
-// 槽表挂在 globalThis：每用例经 resetModuleState 清槽并重新动态 import。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ContentSeamCapabilities, ReaderPortImpls } from "../../extension/reader/reader-bus.js";

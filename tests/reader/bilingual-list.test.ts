@@ -1,38 +1,3 @@
-// 双语字幕列表渲染与搜索（票 bilingual-subtitles/06）。
-//
-// 口径来源（本文件不重述理由，只落断言）：
-//   - 形状：01 号票的次级样式——副行是主文 span **内嵌**的块级 span，两行同属
-//     `.biliscript-reading-text`（时间列随字号缩放，正文列保持 `minmax(0,1fr)`）；
-//   - 配对：04 号票（重叠时长 > 0 的副轨段按 from 升序空格拼接；无重叠 = 折叠，
-//     不发副行节点）；副轨 loading / error 的占位由渲染层出，算法不出占位；
-//   - 占位：02 号票 Q6——重试入口**唯一**在弹层副列，列表这行不可点、不带 affordance；
-//   - 搜索：06 号票 Q6 映射——匹配可见的两轨文本，逐条目「主行先、副行后」，
-//     占位文案不参与匹配。
-//
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   1. 双语关：条目 HTML 多出副行节点或空 span（零行为差被破坏）；搜索命中集合 /
-//      计数 / 当前命中落点被改动；
-//   2. 副行节点挂在 `.biliscript-reading-text` 之外（破坏 grid 的两列与时间戳落位），
-//      或主 / 副行顺序被调换；
-//   3. 折叠口径丢失：无重叠的行仍出空副行节点，或副轨槽 idle 也出占位；
-//   4. 合并段（2 主段 ↔ 1 副段）只给其中一行挂译文——另一行该段时间里屏幕上没有译文；
-//   5. loading / error 不出占位（用户以为本来就没译文），或占位被做成可点
-//      （重试入口在列表与弹层各出现一次）；
-//   6. 占位文案参与匹配：搜「译文 / 加载」把每一行都命中（占位不是译文内容）；
-//   7. 副行命中不可导航：ordinal 与 DOM 顺序不一致（`querySelectorAll(...)[ordinal]`
-//      落错 mark），或高亮重建时用 `textSpan.textContent` 把副行压平进主行
-//      （两行结构丢失，清除后还原不回来）；
-//   8. 逐行重建配对索引（1500 行渲染变成平方级卡死）；
-//   9. 关掉双语后命中集合没有回到单轨结果（残留副行命中 / 副行 mark）。
-//
-// 端到端形态：列表 DOM 全部由生产的 `buildReadingSubtitleItemHtml` 拼出（与
-// renderReadingView 的首屏批同一份代码），搜索走生产的 subtitle-search 模块缝。
-// 不挂完整 reader shell：那会连带装载选轨弹层 / 概览 / 生命周期（本改动不碰的域），
-// 而这里要锁的渲染与匹配路径在模块层已完整可达。
-// 唯一 mock：alignment 的 `secondaryAlignmentFor` 包一层调用记录（仍委托真实实现），
-// 用来钉住「一批 / 一次搜索只建一次索引」——消费方（渲染/搜索）每次取索引返回的
-// 必须是同一实例（memo 命中），换 body 引用才重建。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -50,9 +15,6 @@ vi.mock("../../extension/subtitle/alignment.js", async (importOriginal) => {
 const SUBTEXT_SELECTOR = ".biliscript-reading-subtext";
 const MARK_SELECTOR = "mark.biliscript-reading-search-hit";
 
-// 双语能力上线前的单轨模板（改动前 buildReadingSubtitleItemHtml 的逐字副本）。
-// 写死在这里是**故意的**：双语关的输出必须与它逐字节相同——多一个换行、多一个
-// 空 span 都算零行为差被破坏。
 function singleTrackItemHtml(item: ReadingSubtitleItem, withHours: boolean): string {
   return `
     <button
@@ -79,8 +41,6 @@ let search: ReturnType<
   typeof import("../../extension/reader/subtitle-search.js").createSubtitleSearch
 >;
 
-// ===== 夹具：03 号票探针的合并形状（缩比） =====
-// 2 主段共享 1 副段（相邻两行显示同一句译文）；第 3 段与副轨零重叠（折叠）。
 const MAIN_BODY: SubtitleBodyItem[] = [
   { from: 0, to: 5, content: "第一句" },
   { from: 5, to: 9, content: "第二句" },
@@ -107,7 +67,6 @@ function ensureList(): HTMLElement {
   return list;
 }
 
-// 与 renderReadingView 的列表构建同源：同一份 buildReadingSubtitleItemHtml。
 function renderList(items: ReadingSubtitleItem[]): void {
   ensureList().innerHTML = items.map((item) => render.buildReadingSubtitleItemHtml(item, false)).join("");
 }
@@ -175,14 +134,10 @@ function runSearch(needle: string): void {
   search.refresh({ scroll: false });
 }
 
-// secondaryAlignmentFor 历次返回的索引实例集合：size = 1 ⇔ memo 命中、没有重建。
 function alignmentInstances(): Set<unknown> {
   return new Set(vi.mocked(alignment.secondaryAlignmentFor).mock.results.map((result) => result.value));
 }
 
-// 占位行不可点：不是按钮 / 链接，不带 role / tabindex / 任何交互子节点，文案也不写
-// 「重试」（重试入口唯一在弹层副列；行本身的 button 是既有的点击 seek 行为，与主文
-// 共享同一个命中盒）。
 function expectNoRetryAffordance(node: HTMLElement): void {
   expect(node.tagName).toBe("SPAN");
   expect(node.getAttribute("role")).toBeNull();
@@ -204,14 +159,9 @@ beforeEach(async () => {
   core = await import("../../extension/subtitle/core.js");
   alignment = await import("../../extension/subtitle/alignment.js");
   vi.mocked(alignment.secondaryAlignmentFor).mockClear();
-  // 先 core/alignment，再 batched-render / subtitle-search：后两者取到本用例注册表里
-  // 的同一个 mock 实例（计数才覆盖到它们内部的调用）。
   render = await import("../../extension/reader/batched-render.js");
   const searchMod = await import("../../extension/reader/subtitle-search.js");
   mountSearchShell();
-  // 生产实例由组装根（lifecycle）持有；本套件不挂 reader shell，直接以
-  // createSubtitleSearch 工厂 + 注入 deps 建测试实例（DOM 访问绑本夹具的常驻 id，
-  // 补渲染走 batched-render 同一条实现）。
   search = searchMod.createSubtitleSearch({
     getSearchInput: () =>
       document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
@@ -242,7 +192,6 @@ describe("06 双语列表：双语关零行为差", () => {
       expect(render.buildReadingSubtitleItemHtml(item, false)).toBe(singleTrackItemHtml(item, false));
       expect(render.buildReadingSubtitleItemHtml(item, true)).toBe(singleTrackItemHtml(item, true));
     }
-    // 单轨形态里根本没有副行节点，也没有空 span
     expect(render.buildReadingSubtitleItemHtml(items[0], false)).not.toContain(SUBTEXT_SELECTOR);
   });
 
@@ -321,7 +270,6 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
       expect(node?.getAttribute("data-state")).toBe("loading");
       expectNoRetryAffordance(node!);
     }
-    // 主行照常，副轨占位不阻塞（主文仍是 text span 的第一个文本节点）
     expect(textSpan(2).firstChild?.textContent).toBe("独行");
   });
 
@@ -347,13 +295,10 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
     }
     seedSecondaryReady([{ from: 0, to: 600, content: "整段译文" }]);
     renderBody(body);
-    // 300 行经同一副轨 body 投影：取到的索引是同一实例（memo 命中，绝不逐行重建）
     expect(alignmentInstances().size).toBe(1);
 
     runSearch("整段译文");
     expect(searchCount()).toBe("1 / 300");
-    // 搜索与渲染共读 clipState.secondarySubtitle 的同一 body 引用：单槽 memo 命中，
-    // 不重建第二份索引
     expect(alignmentInstances().size).toBe(1);
   });
 
@@ -364,7 +309,6 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
     expect(alignmentInstances().size).toBe(1);
     expect(subtextOf(0)?.textContent).toBe("old translation");
 
-    // 接受事务整体落新数组：新引用触发重建，投影跟着新索引走
     seedSecondaryReady([{ from: 0, to: 9, content: "new translation" }]);
     renderBody(MAIN_BODY);
     expect(alignmentInstances().size).toBe(2);
@@ -388,10 +332,8 @@ describe("06 双语列表：双轨搜索", () => {
     runSearch("target");
     expect(searchCount()).toBe("1 / 2");
     expect(marks().length).toBe(2);
-    // 命中落在副行 span 内，当前命中 = 第 1 行的副行 mark（ordinal 0）
     expect(marks()[0].closest(SUBTEXT_SELECTOR)).toBe(subtextBefore);
     expect(currentMark()).toBe(marks()[0]);
-    // 高亮重建后副行节点身份 / class / data-state 原样保留
     expect(subtextOf(0)).toBe(subtextBefore);
     expect(subtextBefore?.getAttribute("data-state")).toBe("ready");
     expect(subtextBefore?.textContent).toBe("hello target");
@@ -416,7 +358,6 @@ describe("06 双语列表：双轨搜索", () => {
     expect(rowMarks.length).toBe(2);
     expect(rowMarks[0].parentElement).toBe(textSpan(0));
     expect(rowMarks[1].closest(SUBTEXT_SELECTOR)).not.toBeNull();
-    // 第 1 个命中（ordinal 0）在主行，第 2 个（ordinal 1）在副行
     expect(currentMark()).toBe(rowMarks[0]);
     expect(currentMark()?.closest(SUBTEXT_SELECTOR)).toBeNull();
 
@@ -444,7 +385,6 @@ describe("06 双语列表：双轨搜索", () => {
     expect(marks()[0].closest(SUBTEXT_SELECTOR)).toBeNull();
     expect(subtextOf(0)?.querySelectorAll("mark").length).toBe(0);
 
-    // fail 占位同理：占位文案搜不到（占位不是译文内容）
     clipState.markSecondarySubtitleError();
     renderBody([{ from: 0, to: 5, content: "主行正文" }]);
     runSearch("失败");
@@ -465,12 +405,10 @@ describe("06 双语列表：双轨搜索", () => {
       { from: 0, to: 5, content: "第一句" },
       { from: 5, to: 10, content: "第二句" }
     ]);
-    // 首屏只有第 1 行
     renderList([items[0]]);
     runSearch("target");
     expect(marks().length).toBe(1);
 
-    // 第二批上屏（原始无 mark 的条目）→ hook 补高亮
     listEl().insertAdjacentHTML("beforeend", render.buildReadingSubtitleItemHtml(items[1], false));
     expect(marks().length).toBe(1);
     search.handleRangeAppended(1, 2);
@@ -506,7 +444,6 @@ describe("06 双语列表：双轨搜索", () => {
     expect(searchCount()).toBe("1 / 2");
 
     setBilingual(false);
-    // 未重渲的老 DOM（副行仍在屏上）：匹配按单轨算，且不给残留副行落 mark
     const staleSubtext = subtextOf(0);
     search.refresh({ scroll: false });
     expect(searchCount()).toBe("1 / 1");
@@ -515,13 +452,11 @@ describe("06 双语列表：双轨搜索", () => {
     expect(staleSubtext?.querySelectorAll("mark").length).toBe(0);
     expect(staleSubtext?.textContent).toBe("target in sub");
 
-    // 开关收尾的重渲（同一份 builder）后：列表退回单轨，命中与单轨态一致
     renderList(items);
     expect(subtextNodes().length).toBe(0);
     search.refresh({ scroll: false });
     expect(searchCount()).toBe("1 / 1");
     expect(marks().length).toBe(1);
-    // 重渲后的行只有主行（textContent 不含任何副行文本）
     expect(textSpan(0).textContent).toBe("target in main");
   });
 });

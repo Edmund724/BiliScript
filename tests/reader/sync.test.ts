@@ -1,6 +1,3 @@
-// 播放同步（sync）与章节/字幕高亮切换测试。
-// 覆盖 subtitle-sync.js 的 start/stop/sync/click 与 shell.js 的 renderReadingView。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -26,10 +23,6 @@ async function loadReaderModules() {
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
 
-// 用例按「用户切到某标签」构前置：状态位（谓词读它，sync tick 据此跳过字幕段）
-// 与 DOM 投影各写一次——生产里这两步同属标签激活属主
-//（reader/script-tab-activation.activateScriptTab），本文件不引入属主的二级激活
-// （概览生成）以免把无关链路拖进来。
 function switchReaderScriptTab(tab: "subtitle" | "overview"): void {
   readerState.setReaderActiveScriptTab(tab);
   uiRenderer.setReaderScriptTab(tab);
@@ -38,7 +31,6 @@ function switchReaderScriptTab(tab: "subtitle" | "overview"): void {
 function mountExtraSkeleton() {
   const doc = document;
 
-  // bindUiEvents 需要的额外节点（阅读视图相关）
   const readingView = doc.body.querySelector(`#${ids.readingView}`) as HTMLElement;
   const readingThemeSelect = doc.createElement("button");
   readingThemeSelect.id = ids.readingThemeSelect;
@@ -48,7 +40,6 @@ function mountExtraSkeleton() {
   readingCloseBtn.id = ids.readingCloseBtn;
   readingView.appendChild(readingCloseBtn);
 
-  // 经典面板（bindUiEvents 通过 byId 访问）
   const panel = doc.createElement("div");
   panel.id = "biliscript-panel";
   doc.body.appendChild(panel);
@@ -112,7 +103,6 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
 
-    // 手动绑定 stub 视频（与挂载路径一致）
     const bound = playerHost.bindReadingViewVideo(video);
     expect(bound).toBe(video);
     expect(video.__biliscriptReadingSyncController).toBeInstanceOf(AbortController);
@@ -121,13 +111,10 @@ describe("播放同步与高亮", () => {
     sync.syncReadingViewPlayback();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    // B 形态（阶段 2）：rail 章节列表 DOM 退役，章节高亮断言删除（概览 tab
-    // 承接章节导航，其 seek 链路由 overview.test.ts 覆盖）
     const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.dataset.index).toBe("1");
     expect(activeSubtitle.textContent).toContain("第二句");
 
-    // 状态同步到 readerState
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
     expect(state.reader.readingActiveChapterIndex).toBe(0);
   });
@@ -162,7 +149,6 @@ describe("播放同步与高亮", () => {
     expect(active?.dataset.seconds).toBe("20");
     expect(active?.getAttribute("aria-current")).toBe("true");
 
-    // 稳态拍：currentTime 仍在 [20, 60) 章界窗口内且节点在树，直接命中缓存短路，零 DOM 查询
     const qsaSpy = vi.spyOn(overview, "querySelectorAll");
     video.currentTime = 42;
     sync.syncReadingViewPlayback();
@@ -198,19 +184,15 @@ describe("播放同步与高亮", () => {
     playerHost.bindReadingViewVideo(video);
 
     const rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect");
-    // 首拍建立高亮与跟随基线（本身是一拍真实滚动），跑完清零计数
     video.currentTime = 12;
     sync.syncReadingViewPlayback();
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
     rectSpy.mockClear();
 
-    // 稳态拍：currentTime 未越过条目边界，shouldScroll 不通过 →
-    // 不进滚动函数、不发生任何强制布局读取
     sync.syncReadingViewPlayback();
     sync.syncReadingViewPlayback();
     expect(rectSpy).not.toHaveBeenCalled();
 
-    // 真实滚动拍：切到第三句 → 列表容器 rect + 条目 rect 各一次
     video.currentTime = 45;
     sync.syncReadingViewPlayback();
     expect(state.reader.readingActiveSubtitleIndex).toBe(2);
@@ -224,17 +206,15 @@ describe("播放同步与高亮", () => {
     switchReaderScriptTab("overview");
 
     video.currentTime = 12;
-    sync.syncReadingViewPlayback(); // 预热 video 元素缓存（其探测会读 rect）
+    sync.syncReadingViewPlayback();
     const rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect");
     sync.syncReadingViewPlayback();
 
-    // 高亮/滚动整段跳过：零布局读取、无 is-active、索引状态不推进
     expect(rectSpy).not.toHaveBeenCalled();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
 
-    // 跟随态属性（header 标注消费）照常收敛
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
   });
 
@@ -281,16 +261,12 @@ describe("播放同步与高亮", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
 
-    // 稳态播放的 timeupdate（真实现 ≈4-5Hz）不再直连同步：若仍监听，35s 处
-    // 高亮会被切到第三句——高亮不动即「无额外 sync 调用」的负向锁。
     video.currentTime = 35;
     video.dispatchEvent(new Event("timeupdate"));
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
     const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.textContent).toContain("第二句");
 
-    // 跟随收敛到 250ms interval 单路：tick 到点即切高亮（此刻 timeupdate/seeked
-    // 均未派发，能驱动同步的只剩 interval；测试完即停，不留游离 tick）
     sync.startReadingViewSync();
     video.currentTime = 45;
     await vi.waitFor(() => {
@@ -322,8 +298,6 @@ describe("播放同步与高亮", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     const target = readingView.querySelectorAll(".biliscript-reading-item")[2] as HTMLElement;
 
-    // 选中文本时不跳转：候选02 后点击经 ensure 异步转发，先等一拍确保处理器
-    // 已执行过——此刻仍不跳转才证明「选区拦截」语义成立。
     const selection = window.getSelection()!;
     const range = document.createRange();
     range.selectNodeContents(target);
@@ -333,7 +307,6 @@ describe("播放同步与高亮", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(video.currentTime).toBe(0);
 
-    // 清空选区后点击跳转
     selection.removeAllRanges();
     target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
@@ -358,12 +331,10 @@ describe("播放同步与高亮", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     state.reader.readingViewOpen = true;
 
-    // 手动交互暂停跟随（等价于原状态字段直接赋值：手动暂停 5s）
     sync.noteManualReaderInteraction(5000);
     sync.updateReaderFollowState();
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
-    // 暂停过期后跟随回到 auto
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000);
     sync.updateReaderFollowState();
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
@@ -387,18 +358,15 @@ describe("播放同步与高亮", () => {
     sync.syncReadingViewPlayback(true);
     expect(state.reader.readingActiveSubtitleIndex).toBe(0);
 
-    // 用户手动交互（未传超时）：进入 manual 态
     sync.noteManualReaderInteraction();
     sync.updateReaderFollowState();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
-    // 时间推进很久，manual 态依然保持
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
     sync.updateReaderFollowState();
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
-    // 视频继续播放到下一句（12s 在第二句）
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
     Object.defineProperty(subtitleList, "clientHeight", { value: 400, configurable: true });
     Object.defineProperty(subtitleList, "scrollHeight", { value: 1200, configurable: true });
@@ -409,13 +377,11 @@ describe("播放同步与高亮", () => {
 
     sync.syncReadingViewPlayback();
 
-    // 活跃状态正常前进，但列表不被强制滚动（不产生程序化滚动）
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
     expect(listScrollToSpy).not.toHaveBeenCalled();
     expect(windowScrollToSpy).not.toHaveBeenCalled();
 
-    // 点击跟随播放恢复自动跟随并立即补上容器内滚动，不滚宿主页
     sync.resumeReaderFollowPlayback();
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
     expect(listScrollToSpy).toHaveBeenCalled();

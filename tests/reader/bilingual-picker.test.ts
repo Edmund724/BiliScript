@@ -1,43 +1,3 @@
-// 双语选轨弹层（票 bilingual-subtitles/06；形态 01 号票、状态机 02 号票、槽与偏好 05 号票）。
-//
-// 覆盖同一个叶子（reader/subtitle-tab-ui.ts）里新长出来的两件事：页脚「双语字幕」开关
-// 与主/副两列弹层；列表副行（.biliscript-reading-subtext）的样式与注册面在最后一节
-// 按源码/表面锁（它的 DOM 由另一处渲染器产出，本文件不造那份 DOM）。
-//
-// 口径来源（本文件不重述理由，只落断言）：
-//   - 形态：01 号票裁定「几何 A 双列 max-content / trigger 主轨名 + 双语徽标 @120px /
-//     页脚在列表底部（不进设置抽屉）」+ prototypes/README.md §4/§5/§7/§8 的实测；
-//   - 状态机：02 号票 —— 开关打开即抓（forceRefresh=false）、每列各持一枚在飞值且
-//     只禁自己那列、失败不回退目标且重试入口唯一在副列、副列只列有 subtitleUrl 的
-//     真轨（排除 ASR 伪轨）、三套空态文案、关开关不清副轨槽、Q8 同轨自动清空；
-//   - 槽与偏好：05 号票 —— settings.bilingualSubtitles/secondarySubtitleLang 是全局
-//     偏好（进键面 ⇒ 跨设备同步），clip.secondarySubtitle 是 per-video 槽，DOM 只投影。
-//
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   1. 形态层：双语关时卡片结构或主列行为被改动（多出副列/徽标、主列选项行被重排或
-//      丢失）／双语开时没有两列／页脚开关不在列表底部或说明文字挤进页脚／徽标写进
-//      .custom-select-value（被组件的值投影在下一次写值时抹掉）／trigger 被徽标撑宽；
-//   2. 几何层（硬约束 §5.1–§5.4）：卡片没右锚（左锚 @380 越界）／滚动留在卡片上
-//      （第 9 条轨就把页脚开关滚出视野）／空态文案能把列顶宽（长文案把卡片顶出面板）／
-//      单轨禁用态页脚折行；
-//   3. 装载层：选副列语言没调 loadSecondarySubtitle 或参数取错（url/槽语言/runId/id，
-//      槽语言 = 轨的 lanDoc，与 reader 侧自动装载同一口径）／forceRefresh 不是 false
-//      （切轨语义变成每次走网络）／重试不是 true／在飞期间重复 change 又发一次装载／
-//      副列在飞把主列一起禁掉（或反之）；
-//   4. 失败层：副列失败把双语开关弹回关闭／把主列的 subtitleFetchState 洗成失败面／
-//      重试入口不在副列；
-//   5. 投影层：三套空态文案混用或缺席（未选 / 本视频无该语言 / 主副同轨被清）／副列
-//      列了 ASR 伪轨／副列的选中行不按目标 lan 投影／主列切轨把副列选择带跑／关开关
-//      清了副轨槽；
-//   6. 偏好层：开关或目标语言不落盘（persist seam 没调）／别的标签页改了这两个键，
-//      本页控件不收敛（控件与 state 两说）。
-//
-// 端到端形态：真实模板（buildUiHtml/ensureUiReady，含真实壳与真实事件绑定）+ 真实
-// ui/custom-select 建壳（两列各一枚），jsdom 只走 DOM 事件。mock 只有两条运行时边界
-// ——总结链（loadSubtitle / loadSecondarySubtitle 的网络入口）与 reader-gate（装载
-// reader 域的转发助手）。字幕接受事务（subtitle/commit）保持真实：主轨换轨链路是被测
-// 的一部分，不 mock。
-
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,16 +7,10 @@ import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
 
-// ===== mock（hoisted）：总结链装载器（主轨 + 副轨）+ reader-gate 转发助手 =====
-
 const lazy = vi.hoisted(() => ({
   bodies: {} as Record<string, unknown[]>,
   defaultBody: null as unknown[] | null,
-  // 副轨装载器的调用流水（元组顺序 = 形参顺序：url, lang, runId, subtitleId, forceRefresh）
   secondaryCalls: [] as unknown[][],
-  // ok    = 接受事务落 body；
-  // pend  = 停在飞（断言「本列禁用、主列不受牵连」）；
-  // reject= 写 error 态后抛（真实装载器的失败语义：槽写 error，异常上浮）
   secondaryMode: "ok" as "ok" | "pend" | "reject",
   secondaryBody: [] as unknown[]
 }));
@@ -65,7 +19,6 @@ vi.mock("../../extension/subtitle/lazy.js", () => ({
   ensureSummarizeChain: vi.fn(async () => ({
     loadSubtitle: async (url: string, lang: string, runId: number, subtitleId: string, forceRefresh: boolean) => {
       const { acceptSubtitle } = await import("../../extension/subtitle/commit.js");
-      // 一拍的异步窗口（与真实缓存/网络路径同形）：busy 态断言才有观察点。
       await new Promise((resolve) => setTimeout(resolve, 20));
       await acceptSubtitle({
         body: (forceRefresh ? [] : (lazy.bodies[lang] ?? lazy.defaultBody)) as never,
@@ -102,16 +55,12 @@ vi.mock("../../extension/ui/reader-gate.js", () => ({
   whenReaderReady: vi.fn()
 }));
 
-// ===== 被测模块（mock 之后导入） =====
-
 let state: TestState;
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let shell: typeof import("../../extension/reader/index.js");
 let readerBus: typeof import("../../extension/reader/reader-bus.js");
 
-// 样本：8 条 ai-* 真轨（research/01-track-shape.md 的接口原顺序）+ 一条 ASR 伪轨
-//（lan: asr-*、subtitleUrl: ""：02 号票第 4 条要它在副列之外）。
 const ASR_TRACK: SubtitleTrack = {
   id: "asr",
   lan: "asr-zh",
@@ -154,8 +103,6 @@ function setBilingual(on: boolean, lang = "en-US"): void {
   state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: on, secondarySubtitleLang: lang });
 }
 
-// ===== DOM 取用口（真实壳；两列各一枚原生 select，组件浮层即卡片） =====
-
 function mainSelect(): HTMLSelectElement {
   return document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement;
 }
@@ -168,7 +115,6 @@ function secondarySelect(): HTMLSelectElement {
   return document.getElementById("biliscript-reading-secondary-subtitle-select") as HTMLSelectElement;
 }
 
-// 卡片 = 组件浮层本体（双语卡片根 li.biliscript-bilingual-popover 就装在里面）。
 function card(): HTMLElement {
   return pickerWrapper().querySelector(".custom-select-dropdown") as HTMLElement;
 }
@@ -179,8 +125,6 @@ function cardRoot(): HTMLElement | null {
 
 function col(name: "main" | "sub"): HTMLElement | null {
   const node = card().querySelector<HTMLElement>(`.biliscript-bilingual-col[data-col="${name}"]`);
-  // 骨架常驻（节点身份不变量）：列「不出场」= hidden，取用口按不出场返回 null，
-  // 让用例读起来仍是「副列在不在」。
   return node && !node.hidden ? node : null;
 }
 
@@ -218,7 +162,6 @@ function footer(): HTMLElement {
   return card().querySelector(".biliscript-bilingual-footer") as HTMLElement;
 }
 
-// 页脚状态提示（③ 主副同轨）：空串 = 不显示（2026-10-06 用户裁决把它从副列列表挪到页脚）。
 function footerNoteText(): string {
   const node = footer().querySelector<HTMLElement>(".biliscript-bilingual-footer-note") ?? null;
   return shown(node) ? node.textContent || "" : "";
@@ -245,7 +188,6 @@ function triggerValueText(): string {
   return trigger().querySelector(".custom-select-value")?.textContent || "";
 }
 
-// 真实点击路径：点浮层里的选项行 → 组件 chooseOption（写值 + 派发 change）。
 function clickMainOption(text: string): void {
   const row = colRows("main").find((node) => node.textContent === text);
   expect(row, `主列浮层里应有「${text}」这一项`).toBeTruthy();
@@ -258,8 +200,6 @@ function clickSubOption(text: string): void {
   row!.click();
 }
 
-// 跨上下文存储事件：只喂**本轮用例注册**的监听器（resetModules 后旧实例的监听器
-// 还挂在同一个 stub 上，一起喂会把旧 state 的重渲混进当前 DOM）。
 let storageListenerBase = 0;
 
 function storageListenerCount(): number {
@@ -289,8 +229,6 @@ beforeEach(async () => {
   ids = (await import("../../extension/reader/state.js")).ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
   shell = await import("../../extension/reader/index.js");
-  // reader-bus 的 presenter 订阅注册在 lifecycle 模块求值期——只有该模块被装载，
-  // 通知链才会驱动 renderReadingView（本文件同样把 withReader mock 掉，故显式装载）。
   await import("../../extension/reader/lifecycle.js");
   readerBus = await import("../../extension/reader/reader-bus.js");
   uiRenderer.ensureUiReady({ forceRecreate: true });
@@ -311,12 +249,10 @@ describe("双语关：单列 + 页脚开关，主列行为不变", () => {
     expect(col("sub")).toBeNull();
     expect(badge()).toBeNull();
     expect(triggerValueText()).toBe("中文");
-    // 页脚开关在场（不然用户永远打不开双语），默认关
     expect(footer().textContent?.trim()).toBe("双语字幕");
     expect(switchButton().getAttribute("aria-checked")).toBe("false");
     expect(switchButton().dataset.on).toBe("false");
     expect(switchButton().disabled).toBe(false);
-    // 页脚在滚动区之外（硬约束 §5.2：第 9 条轨也不能把它滚走）
     const scrollArea = card().querySelector(".biliscript-bilingual-main") as HTMLElement;
     expect(scrollArea.contains(footer())).toBe(false);
     expect(card().contains(footer())).toBe(true);
@@ -334,7 +270,6 @@ describe("双语关：单列 + 页脚开关，主列行为不变", () => {
       "https://sub/ai-es.json",
       "https://sub/ai-id.json"
     ]);
-    // 浮层项与原生选项同值同序（组件不变式：一列一枚 select、显示 = 现值）
     expect(colRows("main").map((row) => row.dataset.value)).toEqual([...mainSelect().options].map((option) => option.value));
   });
 
@@ -344,10 +279,10 @@ describe("双语关：单列 + 页脚开关，主列行为不变", () => {
     expect(state.clip.subtitleBody).toEqual(ZH_BODY);
 
     clickMainOption("English");
-    expect(triggerValueText()).toBe("English"); // 乐观显示目标轨
+    expect(triggerValueText()).toBe("English");
     expect(trigger().disabled).toBe(true);
     expect(trigger().getAttribute("aria-busy")).toBe("true");
-    expect(colTexts("main")).toContain("中文"); // 列表保留旧轨
+    expect(colTexts("main")).toContain("中文");
 
     await vi.waitFor(() => expect(state.clip.subtitleBody).toEqual(EN_BODY));
     expect(state.clip.selectedSubtitleId).toBe(EN_ID);
@@ -366,13 +301,10 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     expect(state.settings.bilingualSubtitles).toBe(true);
     expect(col("main")).not.toBeNull();
     expect(col("sub")).not.toBeNull();
-    // 打开那一刻目标轨（English）就在抓：语言列表**留在原地**、本列当场禁用
-    //（2026-10-06 用户裁决：在飞不换列表，否则用户刚滚到底的列表会跳回顶部）。
     expect(secondarySelect().disabled).toBe(true);
     expect(placeholder()).toBeNull();
     expect(colRows("sub").length).toBeGreaterThan(0);
-    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false)); // 首次自动抓取落定
-    // 副列选项 = 真轨（5 条），伪轨不在其中；主列仍含伪轨（主列行为不动）
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
     expect(colTexts("sub")).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
     expect(secondaryOptionTexts()).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
     expect([...secondarySelect().options].map((option) => option.dataset.id)).toEqual([
@@ -385,10 +317,8 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     expect([...secondarySelect().options].map((option) => option.value)).not.toContain("");
     expect(colTexts("main")).toContain("自配平台转写（本机 ASR）");
     expect(colTexts("sub").some((text) => text.includes("转写"))).toBe(false);
-    // 页脚开关仍是列表底部那一行，且翻到 on
     expect(switchButton().getAttribute("aria-checked")).toBe("true");
     expect(switchButton().dataset.on).toBe("true");
-    // 徽标：主轨名 + 「双语」；紧凑 trigger 保持裸语言名防 120px 截断，主列下拉项标（B 站 AI）。
     expect(badge()?.textContent).toBe("双语");
     expect(triggerValueText()).toBe("中文");
     expect(colTexts("main")).toContain("中文（B 站 AI）");
@@ -401,9 +331,8 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     switchButton().click();
 
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
-    // 槽语言（元组第 2 位）统一取轨的 lanDoc——与 reader 侧自动装载同口径
     expect(lazy.secondaryCalls[0]).toEqual([EN_URL, "English", state.clip.fetchRunId, EN_ID, false]);
-    expect(mainSelect().disabled).toBe(false); // 副轨装载不阻塞主列
+    expect(mainSelect().disabled).toBe(false);
   });
 
   it("副列的选中行 = 目标 lan 的投影（偏好 en-US 命中 ai-en），恰一项选中", () => {
@@ -424,8 +353,7 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
-    await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1)); // 打开开关的自动抓取
-    // 落定屏障 = 本列恢复可点（列表在飞期间就在场，行数不再是落定的证据）
+    await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
     await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
     lazy.secondaryCalls.length = 0;
     lazy.secondaryMode = "pend";
@@ -433,22 +361,15 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
 
     clickSubOption("日本語");
 
-    // 乐观收尾是同步的：本列当场禁用（装载器调用在下一拍）。语言列表**留在原地**：
-    // 2026-10-06 用户裁决「选完应该滚动条不动」——在飞把列表换成一行「译文加载中…」
-    // 会当场抽掉本列的滚动高度，用户刚滚到底选中的那条语言，下一秒整列跳回列表顶部
-    //（真机读数见 walkthrough run13）。在飞的可见反馈由两处承担：本列 disabled /
-    // aria-busy（点不动），以及列表里副行的「译文加载中…」占位。
     expect(secondarySelect().disabled).toBe(true);
     expect(placeholder()).toBeNull();
     expect(colRows("sub")).toHaveLength(rowsBefore);
-    // 主列不受牵连（02 号票 Q9）：可点、不 busy
     expect(mainSelect().disabled).toBe(false);
     expect(trigger().disabled).toBe(false);
 
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
     expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
 
-    // 在飞期间再来一次 change（组件浮层的点击不查 disabled，禁用只是视觉/键盘守卫）
     secondarySelect().dispatchEvent(new Event("change", { bubbles: true }));
     expect(lazy.secondaryCalls).toHaveLength(1);
   });
@@ -457,8 +378,6 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
-    // 首次自动抓取落定的屏障是「本列恢复可点」——语言列表在飞期间就在场（裁决后
-    // 不再换成占位），故「行数 > 0」不再是「装载已落定」的证据。
     await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
     lazy.secondaryMode = "reject";
     lazy.secondaryCalls.length = 0;
@@ -466,10 +385,9 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     clickSubOption("日本語");
 
     await vi.waitFor(() => expect(state.clip.secondarySubtitle.state).toBe("error"));
-    expect(state.settings.bilingualSubtitles).toBe(true); // 绝不弹回关闭（Q9）
+    expect(state.settings.bilingualSubtitles).toBe(true);
     expect(placeholder()).toBeNull();
     expect(retryButton()?.textContent).toBe("加载失败 · 重试");
-    // 失败**不写**主列相位（整片单相位不能被副轨污染，02 号票第 6 条）
     expect(state.clip.subtitleFetchState).not.toBe("error");
     expect(state.clip.subtitleBody).toEqual(ZH_BODY);
     expect(mainSelect().disabled).toBe(false);
@@ -487,7 +405,6 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
     shell.renderReadingView();
-    // 副轨已就绪（槽非 idle ⇒ 主轨到站不会触发自动装载，本用例只看「切主轨不动副列」）
     state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, body: EN_BODY as never });
     shell.renderReadingView();
 
@@ -495,7 +412,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     await vi.waitFor(() => expect(state.clip.selectedSubtitleId).toBe(JA_ID));
 
     expect(state.settings.secondarySubtitleLang).toBe("en-US");
-    expect(state.clip.secondarySubtitle.id).toBe(EN_ID); // 副轨槽未被清
+    expect(state.clip.secondarySubtitle.id).toBe(EN_ID);
     const selected = colRows("sub").filter((row) => row.dataset.selected === "true");
     expect(selected).toHaveLength(1);
     expect(selected[0].textContent).toBe("English");
@@ -512,30 +429,27 @@ describe("主副互不牵连（Q8 / Q9）", () => {
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
     expect(state.clip.secondarySubtitle.body).toEqual([]);
-    // 目标 lan 记成用户刚点的那条轨（= 主轨的 lan）：第三套空态文案由此投影出来
     expect(state.settings.secondarySubtitleLang).toBe("ai-zh");
-    expect(col("sub")).not.toBeNull(); // 开关保持开，副列仍在场（只是空）
-    // 提示进页脚、紧挨「双语字幕」；副列列表顶上不再占一行（2026-10-06 用户裁决）
+    expect(col("sub")).not.toBeNull();
     expect(footerNoteText()).toBe("主副字幕相同");
     expect(placeholder()).toBeNull();
-    // 语言列表照旧在场：点错一条不该把整列锁死（列表没了就再也改不回来）
     expect(colTexts("sub")).toContain("English");
   });
 
   it("主轨切到副列指向的同一条轨（反方向）⇒ 副轨槽清空、副列出同一条空态文案", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
-    setBilingual(true, "ja-JP"); // 目标 = 日本語
+    setBilingual(true, "ja-JP");
     shell.renderReadingView();
     state.clip.applySecondarySubtitle({ id: JA_ID, url: JA_URL, body: EN_BODY as never });
     shell.renderReadingView();
-    expect(placeholder()).toBeNull(); // 目标轨在场 ⇒ 列里出语言列表，不出占位行
+    expect(placeholder()).toBeNull();
 
     clickMainOption("日本語");
     await vi.waitFor(() => expect(state.clip.selectedSubtitleId).toBe(JA_ID));
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
     expect(footerNoteText()).toBe("主副字幕相同");
-    expect(placeholder()).toBeNull(); // 副列列表顶上不多占一行，语言列表仍可点
+    expect(placeholder()).toBeNull();
     expect(colTexts("sub")).toContain("English");
   });
 
@@ -543,19 +457,17 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
-    // 自动装载落定的唯一屏障是「槽 ready」——列表自本图起从第一帧就在场，
-    // 用行数当屏障会立刻通过（空转的假绿，2026-10-06 踩过同一个坑）。
     await vi.waitFor(() => expect(state.clip.secondarySubtitle.state).toBe("ready"));
 
-    switchButton().click(); // 关
+    switchButton().click();
 
     expect(state.settings.bilingualSubtitles).toBe(false);
     expect(col("sub")).toBeNull();
-    expect(state.clip.secondarySubtitle.state).toBe("ready"); // 槽没被清（02 号票第 7(d) 条）
+    expect(state.clip.secondarySubtitle.state).toBe("ready");
     expect(state.clip.secondarySubtitle.body).toEqual(EN_BODY);
 
     lazy.secondaryCalls.length = 0;
-    switchButton().click(); // 再开：槽仍是 ready ⇒ 不重抓
+    switchButton().click();
     expect(lazy.secondaryCalls).toHaveLength(0);
     expect(state.clip.secondarySubtitle.state).toBe("ready");
   });
@@ -579,28 +491,23 @@ describe("副列的三套空态 + 单轨禁用", () => {
     shell.renderReadingView();
 
     expect(placeholderText()).toBe("本视频没有日语轨");
-    // 偏好在本视频落不到轨，但列表照出：用户就地改选（而不是被一行说明锁死）
     expect(colTexts("sub")).toEqual(["中文", "English", "Español", "Bahasa Indonesia"]);
     expect(lazy.secondaryCalls).toHaveLength(0);
     expect(state.clip.secondarySubtitle.state).toBe("idle");
-    // 三套文案只影响副列：主列照常
     expect(colTexts("main")).toContain("中文");
   });
 
   it("③ 主副指向同一条轨 → 提示进页脚（紧挨「双语字幕」）+ 语言列表仍在场（改选得回来）", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
-    setBilingual(true, "ai-zh"); // 目标语言 = 主轨自己的语言
+    setBilingual(true, "ai-zh");
     shell.renderReadingView();
 
     expect(footerNoteText()).toBe("主副字幕相同");
     expect(footer().textContent?.trim()).toBe("双语字幕主副字幕相同");
-    expect(placeholder()).toBeNull(); // 不在副列列表里（2026-10-06 用户裁决）
+    expect(placeholder()).toBeNull();
     expect(lazy.secondaryCalls).toHaveLength(0);
-    // 列表仍在场：用户的下一步动作就是「换一条语言」，列表必须在场
-    //（2026-10-06 图外回访：原样只剩一行说明 ⇒ 副语言再也改不回来）。
     expect(colTexts("sub")).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
 
-    // 改选得回来：从同轨说明态点另一条语言 ⇒ 正常发起装载
     clickSubOption("日本語");
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
     expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
@@ -640,7 +547,7 @@ describe("偏好落盘与跨上下文收敛", () => {
     switchButton().click();
     expect(persist).toHaveBeenCalledTimes(1);
     expect(state.settings.bilingualSubtitles).toBe(true);
-    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false)); // 首次自动抓取落定
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
 
     clickSubOption("日本語");
     expect(persist).toHaveBeenCalledTimes(2);
@@ -671,7 +578,6 @@ describe("偏好落盘与跨上下文收敛", () => {
     fireStorageChange({ secondarySubtitleLang: { oldValue: "en-US", newValue: "ja-JP" } });
 
     expect(state.settings.secondarySubtitleLang).toBe("ja-JP");
-    // 目标变了 ⇒ 立即抓新目标（Q1），落定后副列选中行跟着换
     await vi.waitFor(() =>
       expect(colRows("sub").find((row) => row.dataset.selected === "true")?.textContent).toBe("日本語")
     );
@@ -688,7 +594,6 @@ describe("骨架与壳重建（forceRecreate）", () => {
     const oldSelect = secondarySelect();
     expect(secondarySelect().id).toBe("biliscript-reading-secondary-subtitle-select");
 
-    // 壳整块重建（阅读面板 forceRecreate）：pickerWrapper 与浮层都是新节点
     uiRenderer.ensureUiReady({ forceRecreate: true });
     mountPlayerChain();
     shell.renderReadingView();
@@ -697,19 +602,12 @@ describe("骨架与壳重建（forceRecreate）", () => {
     expect(secondarySelect()).not.toBe(oldSelect);
     expect(oldToggle.isConnected).toBe(false);
     expect(oldSelect.isConnected).toBe(false);
-    // 新骨架的开关不是只剩外观：点一下真的改偏好
     switchButton().click();
     expect(state.settings.bilingualSubtitles).toBe(false);
     expect(col("sub")).toBeNull();
   });
 });
 
-
-// ===== 真机走查（headless Edge + CDP，真实 B 站页面）反向发现的两条缺陷及其锁 =====
-//
-// jsdom 看不见这两条：① 靠的是**页面**样式表（jsdom 里没有 B 站的 `video.*.css`），
-// ② 靠的是「列表属主是谁」（jsdom 里列表是由测试手动 renderReadingView 出来的，
-// 不重渲也看不出差别——真机上副行就一直挂在列表上）。
 describe("真机反向发现的修复锁", () => {
 
   it("关闭开关：请列表属主重渲（副行不能挂在列表上）", () => {
@@ -724,7 +622,6 @@ describe("真机反向发现的修复锁", () => {
     switchButton().click();
 
     expect(state.settings.bilingualSubtitles).toBe(false);
-    // 关双语改的是 settings，而副行在列表里 ⇒ 必须请列表属主重渲（叶子不自绘列表）
     expect(kinds).toContain("rerender");
   });
 
@@ -736,24 +633,10 @@ describe("真机反向发现的修复锁", () => {
 
     const kinds: string[] = [];
     readerBus.subscribeReaderPresenter((event) => kinds.push(event.kind));
-    clickSubOption("中文"); // 副列选到主轨那一条
+    clickSubOption("中文");
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
     expect(kinds).toContain("rerender");
   });
 });
 
-// ===== 弹层滚动（2026-10-06 用户真机裁决：两列各自滚；选完滚动条不动）========
-//
-// 用户报的两条缺陷都是 jsdom 够不着的（真实布局 / 真实浏览器行为），权威读数在
-// `.scratch/tickets/bilingual-subtitles/walkthrough` 的 run13：
-//   1. 两列共用一条滚动条：滚动盒是跨两列的主区，滚一列另一列跟着动 —— 用户要求
-//      改成「分开有两个滚动条」；
-//   2. 选完副语言整列跳回列表顶部：组件重铺选项把卡片整块摘下再装回（节点身份不变），
-//      而**滚动位置不在节点身份里**——真机上子树脱离文档后布局盒销毁，两列 scrollTop
-//      一起归零。
-// 第 2 条自 2026-10 深化起是**组件侧不变式**而不是本叶子的快照/恢复：卡片根与选项行
-// 落点都走 setCustomSelectSlots 的槽位声明，组件换项只摘自己产出的 <li>，骨架（连带
-// 两列）全程不脱离文档 ⇒ scrollTop 自然保住。行为面用例在
-// tests/ui/custom-select.test.ts 的「弹层槽位」组（含「槽位节点不得在重铺期间脱离
-// 浮层」这条真机语义的替身断言）；这里只锁定滚动归属（源码面）。

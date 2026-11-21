@@ -1,8 +1,3 @@
-// tests/reader/chat-thinking-slider.test.ts
-// 05 号票：思考强度滑轨内嵌比例精修契约测试。
-// 验证滑轨为无内描边的 24px 高 surface-2 胶囊凹槽，滑块为 28×28px（高于轨条 4px，
-// 垂直居中 top: -2px），range 两端留 12px 呼吸间距，fill 与 preview 几何采用 + 12px 匹配 left: -12px。
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +28,6 @@ function getRuleBody(css: string, selector: string): string {
   expect(matched.length, `应找到选择器 ${selector} 对应的规则`).toBeGreaterThan(0);
   return matched.map((r) => r.body).join("\n");
 }
-
 
 describe("05: 思考强度滑轨运行时几何与交互契约", () => {
   let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;
@@ -120,8 +114,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
   it("renderThinkingPicker: fill 宽度计算采用 calc(pct% + 12px)，thumb 水平百分比与隐藏状态匹配", () => {
     const { thinkingToggle, modelPanel } = makeHarness();
 
-    // 4 档位：off, low, high, max (n=4, 档位间隔 100/3 %)
-    // 1. off 档 (index=0)：thumb 隐藏，fill 宽度为 0px
     modelPanel.renderThinkingPicker(
       view({
         label: "Off",
@@ -134,7 +126,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     expect(thumb.style.left).toBe("0%");
     expect(fill.style.width).toBe("0px");
 
-    // 2. low 档 (index=1)：pct = 100/3%
     modelPanel.renderThinkingPicker(
       view({
         label: "Low",
@@ -145,7 +136,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
     expect(fill.style.width).toMatch(/^calc\(33\.3333.*% \+ 12px\)$/);
 
-    // 3. max 档 (index=3)：pct = 100%
     modelPanel.renderThinkingPicker(
       view({
         label: "Max",
@@ -172,7 +162,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    // 拖动到 100px (1/3 处，对应 low，index=1)
     track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
     track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 100 }));
 
@@ -180,7 +169,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     expect(fill.style.width).toMatch(/^calc\(33\.3333.*% \+ 12px\)$/);
     expect(thinkingRowValue.textContent).toBe("Low");
 
-    // 释放并完成选档
     track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 100 }));
     expect(pickLevel).toHaveBeenCalledWith("low");
   });
@@ -208,23 +196,19 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       return { left: 0, width: 300 } as DOMRect;
     };
 
-    // 1. pointerdown：建立缓存
     track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
     const downQueries = rectQueries;
     expect(downQueries).toBeGreaterThan(0);
 
-    // 2. 连续 5 次 pointermove：不增加 getBoundingClientRect 调用
     for (let x = 10; x <= 50; x += 10) {
       track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: x }));
     }
     expect(rectQueries - downQueries).toBe(0);
 
-    // 3. 拖拽中触发 window resize：缓存主动刷新
     const beforeResizeQueries = rectQueries;
     window.dispatchEvent(new Event("resize"));
     expect(rectQueries).toBeGreaterThan(beforeResizeQueries);
 
-    // 4. 释放结束拖拽
     track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 50 }));
   });
 
@@ -241,7 +225,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    // 从 Off (0%) 切到 Low (33.3333%)
     modelPanel.renderThinkingPicker(
       view({
         label: "Low",
@@ -249,13 +232,10 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       })
     );
 
-    // 响应式终点依然由 left 百分比决定
     expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
-    // 位移动画由 transform 驱动
     expect(thumb.style.transition).toContain("transform");
     expect(thumb.style.transform).toBe("translateX(0)");
 
-    // 动画完成（transitionend）后清除 transform，不留过期像素终点
     thumb.dispatchEvent(new Event("transitionend"));
     expect(thumb.style.transform).toBe("");
     expect(thumb.style.transition).toBe("");
@@ -292,7 +272,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       })
     );
 
-    // 瞬间到位，无 transform 动画挂载
     expect(thumb.style.left).toMatch(/^66\.6666.*%$/);
     expect(thumb.style.transition).toBe("");
     expect(thumb.style.transform).toBe("");
@@ -310,7 +289,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    // 1. 切向 Max (100% = 300px)
     modelPanel.renderThinkingPicker(
       view({
         label: "Max",
@@ -319,11 +297,8 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     );
     expect(thumb.style.left).toBe("100%");
 
-    // 2. 假设动画进行到中间位置（模拟 visual matrix 或 inline translateX）
-    // 视觉位置在 150px (300px + (-150px) = 150px)
     thumb.style.transform = "matrix(1, 0, 0, 1, -150, 0)";
 
-    // 3. 快速反向切向 Low (33.3333% = 100px)
     modelPanel.renderThinkingPicker(
       view({
         label: "Low",
@@ -332,12 +307,9 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     );
 
     expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
-    // deltaX = currentVisualX(150) - newTargetX(100) = +50px
-    // 起播阶段 transform 设为 translateX(50px) 然后过渡到 translateX(0)
     expect(thumb.style.transition).toContain("transform");
     expect(thumb.style.transform).toBe("translateX(0)");
 
-    // 动画结束清理
     thumb.dispatchEvent(new Event("transitionend"));
     expect(thumb.style.transform).toBe("");
   });

@@ -1,9 +1,3 @@
-// 设置变更测试：主题（明暗）、外观色板与对话排版/朗读偏好
-// 通过 hydrateReaderStateFromSettings 与 updateReaderPreferences 驱动，
-// 校验 data-attribute 在阅读视图、documentElement、body 三处的应用。
-// 明暗与色板正交：header 按钮只动明暗，设置抽屉色板选择只动色板；
-// 对话行高、段落间距和朗读音量由设置抽屉与 Aa 菜单同源读写。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -26,9 +20,6 @@ async function loadReaderModules() {
   lifecycle = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   chromeStub = globalThis.chrome as unknown as ChromeRuntimeStub;
-  // 模拟 content.js 的能力槽接线：reader 域经 reader-bus 持久化设置，底层仍是
-  // chrome.runtime.sendMessage（tests/setup.ts 的 stub）；设置回读走
-  // core/runtime 的 getSettings。
   presenter.registerContentCapabilities({
     persistSettings: () => {
       chromeStub.runtime.sendMessage(
@@ -64,13 +55,11 @@ describe("设置变更与 data-attribute", () => {
   });
 
   it("hydrateReaderStateFromSettings：色板缺失/非法时归一回落 flyme（两条水合分支同口径）", () => {
-    // 未手动选过主题的分支（readerThemeUserSet 缺省）
     presentation.hydrateReaderStateFromSettings({ readerPalette: "neon" });
     expect(state.reader.readingPalette).toBe("flyme");
     presentation.hydrateReaderStateFromSettings({});
     expect(state.reader.readingPalette).toBe("flyme");
 
-    // 手动选过主题的分支
     presentation.hydrateReaderStateFromSettings({
       readerTheme: "dark",
       readerThemeUserSet: true,
@@ -105,7 +94,6 @@ describe("设置变更与 data-attribute", () => {
   });
 
   it("applyReadingViewPresentation：在视图/html/body 三处写 theme data-attribute", () => {
-    // 纸色档已退役：存量 "paper" 经 normalizeReaderTheme 静默归一为 light。
     presentation.hydrateReaderStateFromSettings({
       readerTheme: "paper",
       readerThemeUserSet: true
@@ -137,7 +125,6 @@ describe("设置变更与 data-attribute", () => {
     expect(htmlEl.dataset.biliscriptReaderPalette).toBe("editorial");
     expect(bodyEl.dataset.biliscriptReaderPalette).toBe("editorial");
 
-    // 存量非法色板经水合归一回落 flyme，apply 落位 flyme
     presentation.hydrateReaderStateFromSettings({
       readerTheme: "dark",
       readerThemeUserSet: true,
@@ -213,7 +200,6 @@ describe("设置变更与 data-attribute", () => {
   });
 
   it("settings 变更监听：chrome.storage.onChanged 触发时刷新设置", async () => {
-    // bindSettingsWatcher 在 chrome.storage.onChanged 存在时绑定
     initEssentials.bindSettingsWatcher();
     expect(state.ui.settingsWatcherBound).toBe(true);
     expect(chromeStub.storage.onChanged.addListener).toHaveBeenCalled();
@@ -224,7 +210,6 @@ describe("设置变更与 data-attribute", () => {
     const themeButton = document.createElement("button");
     themeButton.id = ids.readingThemeSelect;
     readingView.appendChild(themeButton);
-    // bindUiEvents 对关闭按钮同样直接 byId（阅读骨架不含，与 sync.test 同款补齐）
     const closeBtn = document.createElement("button");
     closeBtn.id = ids.readingCloseBtn;
     readingView.appendChild(closeBtn);
@@ -249,7 +234,6 @@ describe("设置变更与 data-attribute", () => {
     expect(themeButton.title).toBe("主题：浅色");
     expect(themeButton.getAttribute("aria-label")).toBe("主题：浅色");
 
-    // 两态各用一枚图标：回到浅色不复用月亮图标
     expect(themeButton.innerHTML).not.toBe(darkIcon);
   });
 
@@ -277,11 +261,9 @@ describe("设置变更与 data-attribute", () => {
     await vi.waitFor(() => {
       expect(state.reader.readingTheme).toBe("dark");
     });
-    // 明暗已切、色板不动：三处 palette 属性保持 editorial
     expect(readingView.dataset.palette).toBe("editorial");
     expect(document.documentElement.dataset.biliscriptReaderPalette).toBe("editorial");
     expect(document.body.dataset.biliscriptReaderPalette).toBe("editorial");
-    // 明暗照常落位
     expect(readingView.dataset.theme).toBe("dark");
   });
 
@@ -289,7 +271,6 @@ describe("设置变更与 data-attribute", () => {
     initEssentials.bindSettingsWatcher();
     const listener = chromeStub.storage.onChanged.addListener.mock.calls[0][0];
 
-    // 让 getSettings 返回指定设置（init-essentials.js 内部经 runtime.getSettings -> chrome.runtime.sendMessage）
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
       if (message?.type === "get-settings") {
         callback?.({
@@ -305,7 +286,6 @@ describe("设置变更与 data-attribute", () => {
       return undefined;
     });
 
-    // 候选03：设置变更只在阅读视图打开时才应用呈现层。
     state.reader.setViewOpen(true);
 
     listener(
@@ -374,15 +354,10 @@ describe("设置变更与 data-attribute", () => {
       expect(document.documentElement.dataset.biliscriptReaderPalette).toBe("editorial");
       expect(document.body.dataset.biliscriptReaderPalette).toBe("editorial");
     });
-    // 明暗不被色板存储变更带动（正交）
     expect(state.reader.readingTheme).toBe("light");
   });
 });
 
-// 明暗一轴：readerTheme 只存明暗（light | dark），色板是另一根正交轴
-//（readerPalette flyme | editorial，设置抽屉「外观」分区选择）。本 describe 守：
-// 水合只落明暗（退役三值制值收敛 light）、apply 只写 data-theme、抽屉不渲染
-// 主题族选择项、色板选择项随保存载荷落盘 readerPalette。
 describe("主题：只剩明暗一轴", () => {
   it("hydrateReaderStateFromSettings：明暗落位，退役三值制值收敛 light", () => {
     presentation.hydrateReaderStateFromSettings({
@@ -413,7 +388,6 @@ describe("主题：只剩明暗一轴", () => {
       readerThemeFamily: "bilibili"
     } as unknown as Partial<typeof state.settings>);
     presentation.applyReadingViewPresentation();
-    // 明暗照常落位；存量 family 键被忽略，无属性落位
     expect(readingView.dataset.theme).toBe("dark");
     expect(readingView.dataset.family).toBeUndefined();
     expect(document.documentElement.dataset.biliscriptReaderFamily).toBeUndefined();
@@ -434,7 +408,6 @@ describe("主题：只剩明暗一轴", () => {
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
       sentTypes.push(String(message?.type || ""));
       if (message?.type === "get-settings") {
-        // 存量数据里仍可能残留已删除的 family 键：面板照常装载，不读它
         callback?.({
           ok: true,
           settings: {
@@ -469,12 +442,10 @@ describe("主题：只剩明暗一轴", () => {
 
     const panel = await import("../../extension/ui/settings-panel.js");
     panel.renderReaderSettingsPanel();
-    // 等面板装载链走完（末路 search-providers-list），避免与保存竞态
     await vi.waitFor(() => {
       expect(sentTypes).toContain("search-providers-list");
     });
 
-    // 外观分区在场：色板下拉两档（flyme 默认 / editorial），装载显示存储值
     const appearance = document.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="appearance"]');
     expect(appearance, "外观分区应存在").toBeTruthy();
     expect(appearance?.querySelector(".biliscript-set-h")?.textContent?.startsWith("外观")).toBe(true);
@@ -486,7 +457,6 @@ describe("主题：只剩明暗一轴", () => {
     ]);
     expect(paletteSelect.value).toBe("editorial");
 
-    // 改选 flyme 后即时保存：载荷带归一后的 readerPalette（无保存按钮）
     paletteSelect.value = "flyme";
     paletteSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(document.getElementById("biliscriptSettingsSaveBtn")).toBeNull();
@@ -494,7 +464,6 @@ describe("主题：只剩明暗一轴", () => {
       expect(saveSettingsPayload).not.toBeNull();
     });
     expect(saveSettingsPayload).toHaveProperty("readerPalette", "flyme");
-    // 主题族早已退役：渲染与载荷都不复活
     expect(document.getElementById("readerThemeFamily")).toBeNull();
     expect(saveSettingsPayload).not.toHaveProperty("readerThemeFamily");
   });
@@ -533,7 +502,6 @@ describe("主题：只剩明暗一轴", () => {
     expect(aiPromptSubpage.hidden).toBe(false);
     expect(title.textContent?.trim()).toBe("AI 对话与快捷动作");
     expect(subgroup.getAttribute("data-settings-subgroup")).toBe("chat");
-    // 深链滚动的是子组容器：56px scroll-margin 才能避开吸顶导航，标题保持可见。
     expect(scrollSpy.mock.instances).toContain(subgroup);
     expect(document.activeElement).toBe(heading);
   });
@@ -624,13 +592,11 @@ describe("主题：只剩明暗一轴", () => {
     expect(fontBadge.textContent).toBe("110%");
     expect(fontReset.disabled).toBe(false);
 
-    // 滑动触发 input：即时更新 badge 与 CSS 变量
     fontSlider.value = "120";
     fontSlider.dispatchEvent(new Event("input", { bubbles: true }));
     expect(fontBadge.textContent).toBe("120%");
     expect(document.getElementById("biliscript-reading-view")?.style.getPropertyValue("--biliscript-reader-font-scale")).toBe("1.2");
 
-    // 点击重置键：恢复到 100%，重置键置灰，进度条与 CSS 变量同步恢复
     fontReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(fontSlider.value).toBe("100");
     expect(fontSlider.style.getPropertyValue("--range-progress")).toBe("50%");
@@ -642,7 +608,6 @@ describe("主题：只剩明暗一轴", () => {
       settings: { readerFontSizeScale: 100 }
     });
 
-    // 文摘面板宽度滑块与重置键测试
     const widthSlider = document.getElementById("customPanelWidth") as HTMLInputElement;
     const widthBadge = document.getElementById("customPanelWidthValue") as HTMLElement;
     const widthReset = document.getElementById("customPanelWidthResetBtn") as HTMLButtonElement;
@@ -662,13 +627,11 @@ describe("主题：只剩明暗一轴", () => {
     expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(56);
     expect(widthBadge.textContent).toBe("540px");
     expect(widthReset.disabled).toBe(true);
-    // 重置同时清除显式自定义标记，恢复三种形态默认几何。
     expect(sentMessages).toContainEqual({
       type: "save-settings",
       settings: { customPanelWidth: 540, customPanelWidthEnabled: false }
     });
 
-    // 单轮搜索次数上限滑块与重置键测试（默认 5，最小 1，最大 20）
     const searchSlider = document.getElementById("webSearchMaxToolCalls") as HTMLInputElement;
     const searchBadge = document.getElementById("webSearchMaxToolCallsValue") as HTMLElement;
     const searchReset = document.getElementById("webSearchMaxToolCallsResetBtn") as HTMLButtonElement;
@@ -752,7 +715,6 @@ describe("主题：只剩明暗一轴", () => {
     ]);
     expect(themeSelect.value).toBe("bilibili");
 
-    // 切到深色：立即更新 DOM data-theme 并落盘 readerThemeUserSet: true
     themeSelect.value = "dark";
     themeSelect.dispatchEvent(new Event("change", { bubbles: true }));
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
@@ -761,7 +723,6 @@ describe("主题：只剩明暗一轴", () => {
     });
     expect(readingView.dataset.theme).toBe("dark");
 
-    // 切回跟随 B 站：探测 html.dark（BewlyBewly/BewlyCat）生效深色，移除后回浅色
     document.documentElement.classList.add("dark");
     themeSelect.value = "bilibili";
     themeSelect.dispatchEvent(new Event("change", { bubbles: true }));

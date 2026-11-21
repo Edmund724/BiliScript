@@ -1,6 +1,3 @@
-// tests/reader/selection-pill.test.ts
-// 划词悬浮胶囊：上方定位与边界翻转防裁切、字幕/概览 4 动作、简介省略时间戳、点击外部与 Esc 关闭。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -75,7 +72,7 @@ describe("computeSelectionPopPosition 视口与面板边界防裁切", () => {
     });
     expect(pos.placedAbove).toBe(true);
     expect(pos.top).toBe(200 - 34 - 4);
-    expect(pos.left).toBe(80); // center=220, 220-140=80
+    expect(pos.left).toBe(80);
   });
 
   it("选区贴近顶部时自动翻转至选区下方，贴右侧时向左收敛防裁切", () => {
@@ -142,7 +139,6 @@ describe("划词悬浮胶囊交互（4 动作 + 自动关闭）", () => {
     const textNode = document.querySelector(".biliscript-reading-text")!.firstChild as Text;
     const pop = document.getElementById(ids.readingExplainPop)!;
 
-    // 1. 高亮存笔记 + 字幕原位高亮标示
     selectTextNode(textNode, 4, 11);
     expect(pop.hidden).toBe(false);
     pop.querySelector<HTMLButtonElement>('[data-selection-action="highlight"]')!.click();
@@ -156,21 +152,18 @@ describe("划词悬浮胶囊交互（4 动作 + 自动关闭）", () => {
     expect(item.classList.contains("is-note-highlighted")).toBe(true);
     expect(item.querySelector(".biliscript-reading-note-badge")).not.toBeNull();
 
-    // 2. AI 解释
     selectTextNode(textNode, 0, 5);
     pop.querySelector<HTMLButtonElement>('[data-selection-action="explain"]')!.click();
     expect(readerMocks.openReaderExplainCard).toHaveBeenCalledWith(
       expect.objectContaining({ selection: "这是第一句", from: 85, index: 0 })
     );
 
-    // 3. 生成金句卡
     selectTextNode(textNode, 0, 6);
     pop.querySelector<HTMLButtonElement>('[data-selection-action="quote-card"]')!.click();
     expect(readerMocks.openQuoteShareModal).toHaveBeenCalledWith(
       expect.objectContaining({ content: "这是第一句很" })
     );
 
-    // 4. 复制带时间戳
     selectTextNode(textNode, 5, 11);
     pop.querySelector<HTMLButtonElement>('[data-selection-action="copy-timestamp"]')!.click();
     await vi.waitFor(() => {
@@ -189,13 +182,11 @@ describe("划词悬浮胶囊交互（4 动作 + 自动关闭）", () => {
       expect(writeText).toHaveBeenCalledWith("全片核心简介");
     });
 
-    // Esc 关闭
     selectTextNode(summaryText, 0, 5);
     expect(pop.hidden).toBe(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(pop.hidden).toBe(true);
 
-    // 点击外部关闭
     selectTextNode(summaryText, 0, 5);
     expect(pop.hidden).toBe(false);
     document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));

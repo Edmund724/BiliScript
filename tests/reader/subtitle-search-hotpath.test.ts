@@ -1,15 +1,3 @@
-// arch-review-2026-09/01：字幕搜索热路径三修的回归网（1500 条全量命中夹具）。
-//
-// - 修1：clearSearchHighlights 的 normalize 出循环——清除时对列表整体 normalize
-//   一次，不再每个 mark 各扫一次全子树（全量命中下 O(n²)）；
-// - 修2：批次回执 handleReadingSubtitleRangeAppended 对有序 matches 数组二分
-//   取批次 index 区间子集，不遍历 matchesByItem 全表；
-// - 修3：当前命中清理只处理必要节点，不触发全列表 .search-current 扫描；
-// - 修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用。
-//
-// 测试直驱 reader/subtitle-search.js 模块缝（不经完整 reader shell）：手工搭
-// 列表 DOM + state.clip.subtitleBody，行为断言与计数断言共享同一夹具。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
@@ -63,8 +51,6 @@ beforeEach(async () => {
   state = (await import("../../extension/core/state.js")).state;
   ids = (await import("../../extension/reader/state.js")).ids;
   indexSubtitleItems = (await import("../../extension/reader/subtitle-item-dom.js")).indexSubtitleItems;
-  // 生产实例由组装根（lifecycle）持有；本套件直驱工厂模块缝：手工注入
-  // 夹具 DOM 访问与空交互回调，不经完整 reader shell。
   const searchMod = await import("../../extension/reader/subtitle-search.js");
   search = searchMod.createSubtitleSearch({
     getSearchInput: () =>
@@ -81,9 +67,6 @@ afterEach(() => {
 });
 
 describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
-  // 两用例各自重建 1500 条 DOM 夹具（jsdom 下 O(n) 的 replaceChildren/normalize
-  // 实测量级 5-13s），在并发跑测试（多 worker 抢核）时贴近默认 10s 上限而随机
-  // 超时——与本改动无关的既有抖动。给显式余量，让 tests/reader 全量跑稳定。
   it("修1：清除高亮只 normalize 列表一次，且文本逐字还原", { timeout: 30_000 }, () => {
     const { input } = buildFixture();
     input.value = KEYWORD;
@@ -100,7 +83,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(itemText(0).textContent).toBe(`第0条含${KEYWORD}的句子`);
     expect(itemText(TOTAL_ITEMS - 1).textContent).toBe(`第${TOTAL_ITEMS - 1}条含${KEYWORD}的句子`);
 
-    // 再次在空态下 refresh：命中快速路径，不应产生额外的 normalize 与节点扫描
     const querySpy = vi.spyOn(document.getElementById(ids.readingSubtitleList)!, "querySelectorAll");
     search.refresh({ scroll: false });
     expect(normalizeSpy).toHaveBeenCalledTimes(1);
@@ -127,7 +109,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     search.refresh({ scroll: false });
     expect(markCount()).toBe(TOTAL_ITEMS);
 
-    // 模拟批次回执场景：区间内条目按「新上屏」形态还原为无 mark 纯文本
     const from = 500;
     const to = 510;
     for (let i = from; i < to; i += 1) {
@@ -135,8 +116,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     }
     expect(itemText(from).querySelector("mark")).toBe(null);
 
-    // 统计回执期间对列表的 querySelector 调用：getItemNode 每处理一个区间
-    // 内条目定位一次；全表扫描形态的实现会是 TOTAL_ITEMS 次起步
     const querySpy = vi.spyOn(list, "querySelector");
     try {
       search.handleRangeAppended(from, to);
@@ -144,13 +123,11 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
       vi.restoreAllMocks();
     }
 
-    // 区间内 10 个条目逐一补高亮，区间外不动
     for (let i = from; i < to; i += 1) {
       expect(itemText(i).querySelectorAll("mark").length).toBe(1);
     }
     expect(itemText(from).querySelector("mark")!.textContent).toBe(KEYWORD);
     expect(markCount()).toBe(TOTAL_ITEMS);
-    // 区间取子集：恰为区间宽次定位，与全表规模无关
     expect(querySpy).toHaveBeenCalledTimes(to - from);
   });
 
@@ -159,7 +136,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     input.value = KEYWORD;
     search.refresh({ scroll: false });
 
-    // 移动当前命中时，不应调用 list.querySelectorAll(".search-current") 扫描全表
     const querySpy = vi.spyOn(list, "querySelectorAll");
     search.move(1);
 
@@ -171,7 +147,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
 
   it("修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用", { timeout: 30_000 }, () => {
     const { input, list } = buildFixture();
-    // 建立索引
     indexSubtitleItems(list);
     input.value = KEYWORD;
     search.refresh({ scroll: false });
@@ -185,7 +160,6 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     const querySpy = vi.spyOn(list, "querySelector");
     search.handleRangeAppended(from, to);
 
-    // 索引就绪时无需走 querySelector 降级回退
     expect(querySpy).not.toHaveBeenCalled();
     for (let i = from; i < to; i += 1) {
       expect(itemText(i).querySelectorAll("mark").length).toBe(1);

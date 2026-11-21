@@ -1,14 +1,3 @@
-// PR4 概览 tab 回归测试：状态机（reader/overview.js）+ 渲染 + 点击 seek +
-// 金句复制 + partial 重试 + 无字幕空态 + closeReadingView 清理。
-//
-// 手法（对齐 tests/reader 现有套路）：
-//   - 真实模板/骨架（mountReaderSkeleton 补 PR4 概览渲染宿主）+ 真实状态机；
-//   - vi.mock 掉 ai/analysis.js 的 runOverviewAnalysis（数据管线 PR4a 本体，
-//     已有独立测试；这里只测接线与状态机迁移），其余导出（buildSubtitleSignature
-//     等签名守卫用）保留真实实现；
-//   - provider 解析（resolve-ai-provider 单趟，arch-slim-3/09）经 chrome stub
-//     的 sendMessage 注入。
-
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -16,15 +5,10 @@ import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { TestState } from "./reader-test-env.d.ts";
 
-// 数据管线 mock：runOverviewAnalysis 换成 vi.fn（每次用例自行给实现），
-// resetModules 不清 mock 注册表，跨用例稳定。
 vi.mock("../../extension/ai/analysis.js", async (importActual) => {
   const actual = await importActual<typeof import("../../extension/ai/analysis.js")>();
   return { ...actual, runOverviewAnalysis: vi.fn() };
 });
-
-// PR5：概览笔记引导已随笔记区块删除——对话域不再由本套件解耦 mock（对话 seam
-// 的行为回归在 tests/reader/chat-tab.test.ts）。
 
 let state: TestState;
 let reader: typeof import("../../extension/reader/index.js");
@@ -51,9 +35,6 @@ async function loadModules() {
   runOverviewMock = vi.mocked(analysis.runOverviewAnalysis);
 }
 
-// provider 解析（resolve-ai-provider 单趟，arch-slim-3/09）与笔记生成引导消息
-// 的统一响应 stub（默认全通；extra 可对特定消息类型给出覆盖响应，返回 undefined
-// 则落回默认分支）。
 function stubRuntimeMessages(extra?: (message: Record<string, unknown>) => unknown | undefined) {
   chromeStub().runtime.sendMessage.mockImplementation((message: Record<string, unknown>, callback?: (resp: unknown) => void) => {
     const respond = (resp: unknown) => {
@@ -68,7 +49,6 @@ function stubRuntimeMessages(extra?: (message: Record<string, unknown>) => unkno
     }
     switch (message?.type) {
       case "resolve-ai-provider":
-        // presetId 为真实记录形状：core/ai-provider-store normalize 后恒有（缺省 "custom"）
         return respond({
           ok: true,
           provider: [{ id: "prov-1", presetId: "custom", name: "测试平台", baseUrl: "https://api.test/v1", model: "test-model", enabled: true, hasSavedKey: true }][0],
@@ -99,8 +79,6 @@ function overviewText(): string {
   return overviewBody().textContent || "";
 }
 
-// 概览渲染宿主上的手动委托（真实接线在 bindUiEvents，这里等价绑定以验证
-// closest 委托与 data-seconds/data-overview-action 分流）。
 function bindOverviewDelegation() {
   overviewBody().addEventListener("click", (event) => {
     reader.onReadingOverviewClick(event as MouseEvent);
@@ -131,7 +109,6 @@ beforeEach(async () => {
   await loadModules();
   mountReaderSkeleton(ids);
   mountPlayerChain();
-  // storage.get 每用例显式归位（clearMocks 不清实现，防用例间串数据）
   chromeStub().storage.local.get.mockImplementation(async () => ({}));
   stubRuntimeMessages();
 });
@@ -178,13 +155,11 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     await reader.triggerReaderOverviewGeneration();
 
     expect(runOverviewMock).not.toHaveBeenCalled();
-    // 标题与正文逐字来自 core 的单一真源（票 07 Q4：只跟随 reason，不新写文案）
     const notice = getAsrFailureNotice("asr-auth");
     const text = overviewText();
     expect(text).toContain(notice.cause);
     expect(text).toContain(notice.remedyText);
     expect(text).not.toContain("该视频没有可用字幕");
-    // 详情行是单行宿主的设计，不塞进空态排版
     expect(text).not.toContain("错误详情");
   });
 
@@ -214,8 +189,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     };
     expect(args.provider).toEqual({ baseUrl: "https://api.test/v1", apiKey: "sk-test", model: "test-model", presetId: "custom" });
     expect(args.forceRefresh).toBe(false);
-    // script-only-ui：章节/金句生成思考档位显式钉死 off（请求体的思考字段由
-    // thinking-profiles 查表注入，见 ai/completion.test 与 thinking-golden）
     expect(args.thinkingLevel).toBe("off");
     expect(args.context.bvid).toBe("BV1test000000");
     expect(args.context.selectedSubtitleId).toBe("sub-1");
@@ -225,7 +198,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(text).toContain("开场");
     expect(text).toContain("为什么测试难写");
     expect(text).toContain("测试不是目的，而是反馈。");
-    // 章节与金句都是可点击跳播目标
     expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter").length).toBe(2);
     expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(1);
   });
@@ -238,7 +210,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
 
     await reader.triggerReaderOverviewGeneration();
 
-    // 提示条用概览自己的 ov-strip（非生成中/失败条），产物照常渲染
     const strip = overviewBody().querySelector(".biliscript-reading-ov-strip") as HTMLElement;
     expect(strip).not.toBeNull();
     expect(strip.classList.contains("is-generating")).toBe(false);
@@ -261,7 +232,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
   it("presetId 穿线：解析链带回记录的 presetId（preset 词表键），随 provider 进入概览管线", async () => {
     seedClip();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
-    // 反代 baseUrl：host 推断无规则，presetId 是概览链唯一的平台识别线索
     stubRuntimeMessages((message) => {
       if (message?.type === "resolve-ai-provider") {
         return {
@@ -291,20 +261,17 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     );
 
     const first = reader.triggerReaderOverviewGeneration();
-    // provider 解析链（3 跳消息）是异步的：先等管线真正发起
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
 
     const second = reader.triggerReaderOverviewGeneration();
     expect(second).toBe(first);
     expect(runOverviewMock).toHaveBeenCalledTimes(1);
-    // 生成中：状态条 + 进度文案，无结果区
     expect(overviewText()).toContain("正在生成概览");
 
     resolveRun({ ...SAMPLE_ANALYSIS });
     await first;
     expect(overviewText()).toContain("开场");
 
-    // 已 ready 再触发：不重跑（缓存语义由管线负责，状态机直接短路）
     await reader.triggerReaderOverviewGeneration();
     expect(runOverviewMock).toHaveBeenCalledTimes(1);
   });
@@ -321,7 +288,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     const oldRun = reader.triggerReaderOverviewGeneration();
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
 
-    // 切到新视频：字幕与签名换血（seedClip 重写 bvid/cid/字幕体）
     seedClip();
     state.clip.bvid = "BV1newvideo000";
     state.clip.cid = "2000";
@@ -334,13 +300,11 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
       })
     );
 
-    // 新视频触发：不复用旧 inflight，重新发起管线调用
     const newRun = reader.triggerReaderOverviewGeneration();
     expect(newRun).not.toBe(oldRun);
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
     expect(overviewText()).toContain("正在生成概览");
 
-    // 旧编排落定：回执因 generatedFor 已换成新视频而按过期丢弃，不串片
     resolveOld({
       summary: "",
       chapters: [{ from: 0, to: 120, title: "旧视频章节", summary: "" }],
@@ -350,7 +314,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("正在生成概览");
     expect(overviewText()).not.toContain("旧视频章节");
 
-    // 新编排落定：正常渲染新视频产物
     resolveNew({
       summary: "",
       chapters: [{ from: 0, to: 120, title: "新视频章节", summary: "" }],
@@ -397,14 +360,11 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
 
     const occurrences = () => overviewText().split("正在生成概览").length - 1;
-    // 未收到任何进度：状态条回落到固定文案；结果区占位卡已无标题，全面板只此一处
     expect(overviewText()).toContain("正在生成概览…");
     expect(occurrences()).toBe(1);
     expect(overviewBody().querySelector(".biliscript-reading-placeholder-title")).toBeNull();
-    // 说明文字挂在 is-generating 修饰上：没了标题，它按 tab 正文档 16px 排（reader.css）
     expect(overviewBody().querySelector(".biliscript-reading-placeholder.is-generating")).not.toBeNull();
 
-    // 单发路径流式进度：进度文案替换回落文案，而非与之并列
     notify("正在生成概览…（已接收 1195 字）");
     expect(overviewText()).toContain("正在生成概览…（已接收 1195 字）");
     expect(occurrences()).toBe(1);
@@ -418,11 +378,9 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
     await reader.triggerReaderOverviewGeneration();
     const sectionHead = overviewBody().querySelector(".biliscript-reading-ov-h")?.parentElement?.textContent || "";
-    // AI 分章：章节标头带标注（章节与金句分区呈现，见分区渲染测试）
     expect(overviewText()).toContain("AI 生成");
     expect(sectionHead).toBeDefined();
 
-    // 官方章节作给定分章来源：重开生成后不标「AI 生成」
     seedClip({ chapters: [{ title: "自带章节", from: 0 }] });
     runOverviewMock.mockClear();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
@@ -441,7 +399,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
 
     await reader.triggerReaderOverviewGeneration();
     expect(overviewText()).toContain("1 个分段生成失败");
-    // 部分结果照常展示
     expect(overviewText()).toContain("开场");
 
     runOverviewMock.mockClear();
@@ -490,7 +447,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("概览生成失败");
     expect(overviewText()).toContain("模型请求失败");
 
-    // error 态切回概览 tab：不自动重跑（重试必须显式）
     reader.ensureReaderOverviewTab();
     await Promise.resolve();
     expect(runOverviewMock).toHaveBeenCalledTimes(1);
@@ -527,10 +483,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
 });
 
 describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）", () => {
-  // 产物统一形状：两章（from 100 / 200）+ 三金句（30、120、250）。
-  // 渲染层不区分产物来源（07 票决议「UI 不区分来源」），自带章节与 AI 分章
-  // 用同一形状断言分区；本套件只 mock runOverviewAnalysis，analysis.js 其余
-  // 导出走真实实现。
   const GROUPED_ANALYSIS: OverviewAnalysis = {
     summary: "全片简介。",
     chapters: [
@@ -548,7 +500,6 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     return overviewBody().querySelector<HTMLElement>(`.biliscript-reading-ov-quote[data-seconds='${seconds}']`);
   }
 
-  // 分区结构：简介 → 章节 → 金句；章节卡与金句卡互不混排。
   function assertSectionsSplit(): void {
     const sections = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-section"));
     expect(sections.length).toBe(3);
@@ -568,7 +519,6 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     await reader.triggerReaderOverviewGeneration();
 
     assertSectionsSplit();
-    // 时间戳与原话保真：显示秒数与金句文本原样，不重排不改写
     expect(quoteCard(30)?.textContent).toContain("开篇点题的金句");
     expect(quoteCard(120)?.textContent).toContain("章一里的原话金句");
     expect(quoteCard(250)?.textContent).toContain("章二里的原话金句");
@@ -600,7 +550,6 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     await reader.triggerReaderOverviewGeneration();
 
     assertSectionsSplit();
-    // 金句统一按 from 升序平铺在金句 section 下
     const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".biliscript-reading-ov-quote"));
     expect(quotes.map((node) => node.dataset.seconds)).toEqual(["30", "150"]);
   });
@@ -620,7 +569,6 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     expect(overviewText()).toContain("没有可用的章节");
     const headings = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-h")).map((node) => node.textContent || "");
     expect(headings.some((heading) => heading.includes("金句") && heading.includes("AI 精选"))).toBe(true);
-    // 平铺：金句按 from 升序铺在金句 section 下
     const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".biliscript-reading-ov-quote"));
     expect(quotes.map((node) => node.dataset.seconds)).toEqual(["125", "200"]);
   });
@@ -740,11 +688,9 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
     copyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => expect(clipboardWriteText).toHaveBeenCalledTimes(1));
-    // 金句复制 = 文本 + 时间戳（概览时间戳同款紧凑格式）
     const copied = String(clipboardWriteText.mock.calls[0][0]);
     expect(copied).toContain("测试不是目的，而是反馈。");
     expect(copied).toMatch(/\d{1,2}:\d{2}/);
-    // Copy 分流在跳播判定之前：金句卡不 seek
     expect(video.currentTime).toBe(0);
     expect(video.play).not.toHaveBeenCalled();
   });
@@ -802,7 +748,6 @@ describe("概览划词防误跳与金句键盘可达性", () => {
     } as unknown as Selection);
     chapter.dispatchEvent(new Event("pointerdown", { bubbles: true }));
 
-    // 模拟浏览器在 click 前清空选区
     selectionSpy.mockReturnValue({
       toString: () => ""
     } as unknown as Selection);
@@ -812,7 +757,6 @@ describe("概览划词防误跳与金句键盘可达性", () => {
     expect(video.currentTime).toBe(0);
     expect(video.play).not.toHaveBeenCalled();
 
-    // 再次无选区正常点击时应恢复跳播
     chapter.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     chapter.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
@@ -877,7 +821,6 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
     await reader.triggerReaderOverviewGeneration();
     expect(overviewText()).toContain("开场");
 
-    // 换轨（签名变化）：渲染层自愈，旧概览不串轨展示
     state.clip.selectedSubtitleId = "sub-2";
     state.clip.selectedSubtitleUrl = "https://subtitle.test/2";
     reader.renderReadingOverview();
@@ -895,10 +838,8 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
     await reader.triggerReaderOverviewGeneration();
     expect(overviewText()).toContain("开场");
-    expect(overviewText()).toContain("AI 生成"); // 无目录 → 自由分章，带标注
+    expect(overviewText()).toContain("AI 生成");
 
-    // 简介里补上评论/简介时间轴目录（分章来源变 outline）：身份键随之变化，
-    // 渲染层让旧产物退场，不把 AI 自由分章的旧章节当时间轴产物展示
     state.clip.description = "视频简介\n00:00 评论区开场\n01:40 评论区正题";
     reader.renderReadingOverview();
     expect(overviewText()).toContain("概览还未生成");
@@ -908,7 +849,7 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
     reader.ensureReaderOverviewTab();
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(overviewText()).toContain("开场"));
-    expect(overviewText()).not.toContain("AI 生成"); // 时间轴作给定来源，章节不是 AI 分的
+    expect(overviewText()).not.toContain("AI 生成");
   });
 });
 
@@ -928,18 +869,15 @@ describe("closeReadingView 清理", () => {
     reader.closeReadingView();
     expect(state.reader.readingViewOpen).toBe(false);
 
-    // 关闭后渲染：状态机已归位（未生成诚实态）
     reader.renderReadingOverview();
     expect(overviewText()).toContain("概览还未生成");
 
-    // 管线后台落定：回执被丢弃（generatedFor 已清），不渲染、不报错
     resolveRun({ ...SAMPLE_ANALYSIS });
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     expect(overviewText()).toContain("概览还未生成");
 
-    // 重开（缓存命中路径由管线负责）：再次触发生成正常发起
     state.reader.readingViewOpen = true;
     runOverviewMock.mockClear();
     runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
@@ -949,9 +887,6 @@ describe("closeReadingView 清理", () => {
   });
 });
 
-// 取消生成与等待计时（ADR-0010：通道不设硬超时，但面板内必须有出口）。
-// 失败模式：网关收下请求却不回首字节时，生成中状态条只有固定文案、面板内没有
-// 任何按钮（retry 只在 error/partial 条），关阅读模式又不取消请求——用户没有出路。
 describe("取消生成与等待计时", () => {
   function cancelButton(): HTMLButtonElement | null {
     return overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='cancel']");
@@ -970,7 +905,6 @@ describe("取消生成与等待计时", () => {
     return (runOverviewMock.mock.calls[index]?.[0] as { signal?: AbortSignal } | undefined)?.signal;
   }
 
-  // 挂起且不响应 abort 的编排：用于断言「取消即中止信号」与「取消后不自动重启」
   function pendingRun(): void {
     runOverviewMock.mockImplementation(() => new Promise<OverviewAnalysis>(() => {}));
   }
@@ -984,7 +918,6 @@ describe("取消生成与等待计时", () => {
 
     const button = cancelButton();
     expect(button).not.toBe(null);
-    // 生成中条单槽：文案 + 取消键
     expect(overviewText()).toContain("正在生成概览…");
     clickButton(button!);
 
@@ -1022,7 +955,6 @@ describe("取消生成与等待计时", () => {
 
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
     expect((runOverviewMock.mock.calls[0][0] as { forceRefresh?: boolean }).forceRefresh).toBe(true);
-    // 已中止的 controller 不被复用：新请求拿到未中止的新信号
     expect(runSignal(0)?.aborted).toBe(false);
     await vi.waitFor(() => expect(overviewText()).toContain("开场"));
     expect(cancelButton()).toBe(null);
@@ -1075,9 +1007,6 @@ describe("取消生成与等待计时", () => {
   });
 });
 
-// 重试 / 取消 / 失败三态都不得抹掉上一轮产物：generating 期间屏上仍有旧章节与金句
-//（用户正读着的内容不因重试闪空），cancelled / error 落定后产物引用仍在——再次生成
-// 时旧产物立刻回到屏上，而不是等新结果。
 describe("重试/取消/失败期间的上一轮产物保留", () => {
   function chapterTitles(): string[] {
     return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-title")).map(
@@ -1110,7 +1039,6 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(chapterTitles()).toContain("开场");
     expect(quoteCount()).toBe(1);
 
-    // 1) 重试（forceRefresh）进入 generating：旧章节与金句仍在屏上
     const retry = deferredRun();
     runOverviewMock.mockClear();
     runOverviewMock.mockImplementation(() => retry.promise);
@@ -1120,7 +1048,6 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(chapterTitles()).toContain("开场");
     expect(quoteCount()).toBe(1);
 
-    // 2) cancelled 落定：产物引用未被抹掉——「重新生成」回到 generating，旧产物仍在屏上
     bindOverviewDelegation();
     overviewBody()
       .querySelector<HTMLButtonElement>("button[data-overview-action='cancel']")!
@@ -1134,7 +1061,6 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(chapterTitles()).toContain("开场");
     expect(quoteCount()).toBe(1);
 
-    // 3) error 落定：产物引用同样未被清——重试回到 generating，旧产物仍在屏上
     afterCancel.reject(new Error("模型请求失败"));
     await vi.waitFor(() => expect(overviewText()).toContain("概览生成失败"));
     const afterError = deferredRun();
@@ -1145,7 +1071,6 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(chapterTitles()).toContain("开场");
     expect(quoteCount()).toBe(1);
 
-    // 新结果落定：面板换成这一轮的产物
     afterError.resolve({
       summary: "新一轮简介。",
       chapters: [{ from: 0, to: 120, title: "新一轮章节", summary: "" }],
@@ -1173,7 +1098,6 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
 
-    // 抓取已有节点与交互状态
     const chapterEl = overviewBody().querySelector(".biliscript-reading-ov-chapter");
     const quoteEl = overviewBody().querySelector(".biliscript-reading-ov-quote");
     const cancelBtn = overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='cancel']");
@@ -1184,15 +1108,12 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(cancelBtn).not.toBeNull();
     expect(stripTextEl?.textContent).toBe("正在生成概览…");
 
-    // 1) 按钮获得焦点
     cancelBtn!.focus();
     expect(document.activeElement).toBe(cancelBtn);
 
-    // 2) 容器滚动位置
     overviewBody().scrollTop = 150;
     expect(overviewBody().scrollTop).toBe(150);
 
-    // 3) 金句文本选区
     const quoteTextNode = quoteEl!.querySelector(".biliscript-reading-ov-quote-text")!.firstChild!;
     const range = document.createRange();
     range.setStart(quoteTextNode, 0);
@@ -1203,37 +1124,29 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(selection.toString()).toBe("测试不是");
     expect(selection.anchorNode).toBe(quoteTextNode);
 
-    // 第一轮进度通知到达
     notifyProgress("正在整理第 1/3 段（33%）");
 
-    // 断言：状态条文案更新
     expect(stripTextEl?.textContent).toBe("正在整理第 1/3 段（33%）");
     expect(overviewBody().querySelector(".biliscript-reading-ov-strip-text")).toBe(stripTextEl);
 
-    // 断言：已有节点身份保持不变（未被重新创建）
     expect(overviewBody().querySelector(".biliscript-reading-ov-chapter")).toBe(chapterEl);
     expect(overviewBody().querySelector(".biliscript-reading-ov-quote")).toBe(quoteEl);
     expect(overviewBody().querySelector("button[data-overview-action='cancel']")).toBe(cancelBtn);
 
-    // 断言：按钮焦点未被重置
     expect(document.activeElement).toBe(cancelBtn);
 
-    // 断言：文本选区未丢失，且锚点文本节点仍然在 DOM 树中
     expect(selection.toString()).toBe("测试不是");
     expect(selection.anchorNode).toBe(quoteTextNode);
     expect(quoteTextNode.isConnected).toBe(true);
 
-    // 断言：滚动位置未被重置
     expect(overviewBody().scrollTop).toBe(150);
 
-    // 第二轮进度通知到达（字数累计）
     notifyProgress("正在生成概览…（已接收 1200 字）");
     expect(stripTextEl?.textContent).toBe("正在生成概览…（已接收 1200 字）");
     expect(document.activeElement).toBe(cancelBtn);
     expect(selection.toString()).toBe("测试不是");
     expect(overviewBody().scrollTop).toBe(150);
 
-    // 最终落定：新结果正常上屏
     retry.resolve({
       summary: "第二轮简介。",
       chapters: [{ from: 0, to: 120, title: "第二轮章节", summary: "" }],
@@ -1243,5 +1156,4 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     expect(chapterTitles()).not.toContain("开场");
   });
 });
-
 

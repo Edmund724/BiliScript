@@ -1,16 +1,3 @@
-// 票 provider-onboarding-consistency/03 的 AI 对话首配与草稿恢复测试：
-// 无平台空态、发送前无平台、已选平台缺 Key 三条入口都能直达正确的平台编辑记录；
-// 保存成功后回到 AI 对话、聚焦输入区并提示「平台已就绪、请确认发送」——是否发送
-// 始终由用户再点一次；受理前拦截的草稿与图片附件原位保留；已受理错误回合（用户
-// 气泡 / 部分回复）不自动重发、不新建会话、不清输入、不拆历史；取消 / 换视频 /
-// 关抽屉 / 关会话后不残留返回行为。
-//
-// 手法（对齐 tests/reader/explain-setup-resume.test.ts 与 tests/reader/chat-tab.test.ts）：
-//   - 真实阅读壳 + 真实对话组合根（ui-renderer + lazy-chat-tab），chrome 消息按 type 路由；
-//   - ui/settings-panel 整个 mock 掉，捕获 openReaderAiSetup(errorClass, session, target)，
-//     用捕获的 session 回调模拟「保存成功 / 取消编辑」两个装配方出口；
-//   - 意图叶直接 import 断言快照字段与单槽语义。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
@@ -175,8 +162,6 @@ function capturedSetupSession() {
   ];
 }
 
-// ===== 图片附件（真实压缩管线，jsdom 缺的三个 DOM 原语按既有 canvas 先例补齐）=====
-
 const WEBP_BYTES = [0x89, 0x50, 0x4e, 0x47];
 
 function stubCanvasPrimitives(): void {
@@ -278,7 +263,6 @@ describe("无平台空态：直达新增平台编辑器，保存后回对话聚�
     expect(errorClass).toBe("no-provider");
     expect(target).toBeUndefined();
 
-    // 保存成功：平台已落盘 → 返回对话
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
     const { openReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
     openReaderSettingsMode();
@@ -288,10 +272,8 @@ describe("无平台空态：直达新增平台编辑器，保存后回对话聚�
     await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
     expect(state.reader.readingSettingsExpanded, "保存成功后应退出设置抽屉").toBe(false);
     expect(document.activeElement, "应聚焦对话输入区").toBe(input);
-    // 不误自动发送：没有端口、没有用户气泡
     expect(ports).toHaveLength(0);
     expect(messagesEl().querySelector(".chat-msg-user")).toBeNull();
-    // 配置后空态消失（初始态重渲）
     expect(setupLink()).toBeNull();
   });
 
@@ -322,13 +304,11 @@ describe("发送前无平台：草稿与图片附件原位保留", () => {
     const input = inputEl();
     const strip = imageStrip();
 
-    // 先备好草稿与一张图片附件
     dispatchPaste(input, [imageItem()]);
     await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
     input.value = "请总结这个视频";
 
     sendEnter();
-    // 配置类拦截屏（与空态同源）：出现「前往设置」动作，未发起端口
     await waitFor(() => setupLink() !== null);
     expect(ports).toHaveLength(0);
     expect(input.value, "被拦截的草稿应留在输入框").toBe("请总结这个视频");
@@ -343,13 +323,11 @@ describe("发送前无平台：草稿与图片附件原位保留", () => {
     session.onAfterSave();
     await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
 
-    // 原位：草稿、附件、焦点都在对话里；仍未发送
     expect(input.value).toBe("请总结这个视频");
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
     expect(document.activeElement).toBe(input);
     expect(ports).toHaveLength(0);
 
-    // 用户再点一次发送：草稿与图片一起发出（不被返回事务代发）
     sendEnter();
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
     const posted = ports[0].postMessage.mock.calls[0][0] as {
@@ -377,14 +355,12 @@ describe("已选平台缺 Key：错误回合直达该记录，不自动重发", 
     const turnPrompt = (ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt;
     expect(turnPrompt).toBe("问一句");
 
-    // 部分回复后配置类错误：用户气泡已在屏上，回合未被受理进 history
     ports[0].__fire!({ type: "token", data: "半截回答" });
     ports[0].__fire!({ type: "error", error: MISSING_PROVIDER_KEY_MESSAGE });
     await waitFor(() => Boolean(messages.querySelector(".chat-msg-error")));
     expect(messages.querySelector(".chat-msg-error")?.textContent).toContain("该平台 API Key 未配置");
     expect(messages.querySelector(".chat-msg-user")?.textContent).toBe("问一句");
 
-    // 错误回合给直达对应平台记录的动作
     const action = messages.querySelector<HTMLAnchorElement>(".chat-context-notice a");
     expect(action, "缺 Key 错误应给「前往设置」动作").not.toBeNull();
     expect(action?.textContent).toBe("前往设置");
@@ -394,7 +370,6 @@ describe("已选平台缺 Key：错误回合直达该记录，不自动重发", 
     expect(errorClass).toBe("missing-key");
     expect(target).toEqual({ providerId: "p1" });
 
-    // 保存成功：只回对话提示，不重发、不新建会话、不清历史身份
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true, hasSavedKey: true }];
     session.onAfterSave();
     await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
@@ -422,7 +397,6 @@ describe("已选平台缺 Key：错误回合直达该记录，不自动重发", 
     ports[0].__fire!({ type: "error", error: "网络连接失败" });
     await waitFor(() => Boolean(messages.querySelector(".chat-msg-error")));
     expect(messages.querySelector(".chat-msg-error")?.textContent).toContain("网络连接失败");
-    // 网络错误不伪装成配置问题：没有「前往设置」动作、不进入设置跳转
     expect(messages.querySelector(".chat-context-notice a")).toBeNull();
     expect(setupMock.openReaderAiSetup).not.toHaveBeenCalled();
   });
@@ -439,7 +413,6 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
 
     session.onSessionEnd();
 
-    // 迟到回调（同一 session 被误触发）：无提示、无发送、草稿不动
     input.value = "草稿仍在";
     session.onAfterSave();
     await Promise.resolve();
@@ -491,7 +464,6 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session] = capturedSetupSession();
 
-    // 会话身份变化（历史项切换 / 新会话）：快照失配，保存回调静默作废
     const { applyConversationIdentity } = await import("../../extension/chat/chat-state.js");
     applyConversationIdentity({ id: "conv-other" });
     session.onAfterSave();
@@ -581,7 +553,6 @@ describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防�
     await Promise.resolve();
     await Promise.resolve();
 
-    // 打开第二轮设置会话后，旧会话迟到的 onSessionEnd 不得误清第二轮流程
     clickElement(link);
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(2));
     const [, session2] = capturedSetupSession();

@@ -1,7 +1,3 @@
-// tests/reader/chat-model-panel.test.ts
-// createReaderChatModelPanel 行为契约：平台/偏好加载与思考档位落盘、模型 chip 与
-// 面板渲染、宽度度量与 resize rAF 合帧、联网搜索开关、思考强度滑轨/提示行接线。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ThinkingView } from "../../extension/chat/thinking-picker.js";
@@ -290,25 +286,21 @@ describe("reload 与持久化状态水合", () => {
       settings: async () => ({ ok: true, settings: { defaultModel: "p1" } })
     });
 
-    // preferredProviderId 优先
     const prefStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
     const h1 = makeHarness({ seedProviders: false, storage: prefStorage });
     await h1.modelPanel.reload({ preferredProviderId: "p1" });
     expect(h1.select.value).toBe(buildModelOptionValue("p1", "m1"));
 
-    // storage 复合值优先于 defaultModel（同平台非首模型不丢失）
     const exactStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p1", "m1b") });
     const h2 = makeHarness({ seedProviders: false, storage: exactStorage });
     await h2.modelPanel.reload();
     expect(h2.select.value).toBe(buildModelOptionValue("p1", "m1b"));
 
-    // storage 失效回落 defaultModel（再回落旧裸 id）
     const staleStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p9", "m9") });
     const h3 = makeHarness({ seedProviders: false, storage: staleStorage });
     await h3.modelPanel.reload();
     expect(h3.select.value).toBe(buildModelOptionValue("p1", "m1"));
 
-    // storage 旧裸平台 id 兼容
     mockRuntimeReplies({
       providers: {
         providers: [
@@ -618,32 +610,27 @@ describe("chip 宽度度量、面板宽度与 resize rAF 合帧", () => {
   it("canvas 降级下按模型名 + 档位测宽并夹取 [92, 420] 与 .chat-input-bar 60% 上限", () => {
     stubNoCanvas();
 
-    // 「AI Off」: 2*8 + 3*8 + 44 = 84 → 触底 92px
     chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["AI"], enabled: true }];
     chatSessionStateForTests.aiThinkingLevel = "off";
     const shortH = makeHarness({ seedProviders: false });
     shortH.modelPanel.renderChip();
     expect(shortH.chip.style.width).toBe("92px");
 
-    // 「MODEL Off」: 5*8 + 3*8 + 44 = 108px（hug content）
     chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["MODEL"], enabled: true }];
     const hugH = makeHarness({ seedProviders: false });
     hugH.modelPanel.renderChip();
     expect(hugH.chip.style.width).toBe("108px");
 
-    // 无档位时回落「未配置平台」+ 空档位：5*8 + 44 = 84 → 92px
     chatSessionStateForTests.providers = [];
     const emptyH = makeHarness({ seedProviders: false });
     emptyH.modelPanel.renderChip();
     expect(emptyH.chip.style.width).toBe("92px");
 
-    // 极端长名触顶 420px
     chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["x".repeat(60)], enabled: true }];
     const longH = makeHarness({ seedProviders: false });
     longH.modelPanel.renderChip();
     expect(longH.chip.style.width).toBe("420px");
 
-    // .chat-input-bar 存在时上限取行宽 60%（500 * 0.6 = 300px）
     const barH = makeHarness({ seedProviders: false, withInputBar: true });
     Object.defineProperty(barH.inputBar!, "clientWidth", { value: 500, configurable: true });
     barH.modelPanel.renderChip();
@@ -658,26 +645,21 @@ describe("chip 宽度度量、面板宽度与 resize rAF 合帧", () => {
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("253px");
 
-    // 打开期间重渲档位不重算面板宽度
     chip.getBoundingClientRect = () => ({ width: 300 } as DOMRect);
     modelPanel.renderThinkingPicker(view({ label: "High", entries: [] }));
     expect(panel.style.width).toBe("253px");
 
-    // 重开取新值
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("300px");
 
-    // 低于 240 触底 240
     chip.getBoundingClientRect = () => ({ width: 150 } as DOMRect);
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("240px");
 
-    // 高于 320 截断 320
     chip.getBoundingClientRect = () => ({ width: 500 } as DOMRect);
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("320px");
 
-    // 未布局（可见宽 0）回落内容度量宽再夹取 [240, 320]
     chip.getBoundingClientRect = () => ({ width: 0 } as DOMRect);
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("240px");

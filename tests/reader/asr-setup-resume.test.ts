@@ -1,14 +1,3 @@
-// 票 provider-onboarding-consistency/04 的自动化验收：
-// 1. 配置类 ASR 阻塞的设置目标解析（未配置 / 停用 / 缺 Key / 记录在但配置不可用）；
-// 2. 三个面共用的设置直达入口 openReaderAsrSetup（新增编辑器 / 编辑精确记录并聚焦
-//    Key / 自动转写关闭的启用路径）；
-// 3. 一次性续跑意图（重发只续跑一次、换视频失效、在飞去重、消费后不再）；
-// 4. 配置完成后经既有字幕抓取链续跑（不建第二条转写管线、不虚构用户消息）。
-//
-// 手法：真实 settings-panel + 真实意图叶子 + 消息总线桩（对齐
-// tests/ui/settings-panel-ai-setup.test.ts）；总结链装载 mock 掉，只验证
-// 「重新进入既有抓取链」这一件事，不在单测里跑真实转写。
-
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
@@ -25,8 +14,6 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
-// 总结链（subtitle/fetcher 等）整体 mock：续跑只要求「经既有 kick 链请求刷新」，
-// 真实抓取链属于其它套件的覆盖范围。
 vi.mock("../../extension/subtitle/lazy.js", () => ({
   ensureSummarizeChain: vi.fn(async () => ({ refreshClip: vi.fn() }))
 }));
@@ -61,8 +48,6 @@ interface PanelHarness {
   refresh: Mock;
 }
 
-// 挂载真实设置面板 + 一个「字幕刷新请求」探针（reader-bus 的 subtitleRefresh 槽，
-// 即 fetcher 正常注册的同一个槽）。探针命中 = 续跑确实重新进入了既有抓取链。
 async function mountPanel(overrides: Record<string, MessageResponder> = {}): Promise<PanelHarness> {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
@@ -136,7 +121,6 @@ describe("resolveAsrSetupPlan：配置类 ASR 阻塞的三态解析", () => {
     expect(
       resolveAsrSetupPlan({
         asrAutoFallback: true,
-        // activeAsrProviderId 悬空时回退列表首项（与运行时/面板单选同一回退规则）
         activeAsrProviderId: "missing-id",
         providers: [MISSING_KEY_PROVIDER, other]
       })
@@ -223,7 +207,6 @@ describe("openReaderAsrSetup：未配置 → 直接打开 ASR 编辑器", () => 
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog");
     expect(dialog).not.toBeNull();
     expect(dialog?.querySelector(".provider-editor-title")?.textContent).toBe("添加语音转写平台");
-    // 新增流程不聚焦 Key（聚焦在对话框本体）
     expect(document.activeElement).not.toBe(
       dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")
     );
@@ -246,7 +229,6 @@ describe("openReaderAsrSetup：缺 Key → 编辑精确记录并聚焦 Key", () 
     expect(core.state.reader.readingSettingsExpanded).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
 
-    // 保存 = 配置完成：续跑一次并退出设置回到原任务
     setFieldValue(keyInput!, "sk-test");
     fireClick(dialog!.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
@@ -263,7 +245,6 @@ describe("openReaderAsrSetup：缺 Key → 编辑精确记录并聚焦 Key", () 
     });
     await panel.openReaderAsrSetup();
     expect(leaf.peekAsrSetupResumeToken()).not.toBeNull();
-    // 取消 = 关闭编辑器会话
     fireClick(document.querySelector(".provider-editor-mask"));
     await vi.waitFor(() => {
       expect(document.querySelector(".provider-editor-dialog")).toBeNull();
@@ -287,7 +268,6 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     expect(document.activeElement).toBe(toggle);
     expect(leaf.peekAsrSetupResumeToken()).toMatchObject({ kind: "disabled" });
 
-    // 用户显式打开开关（不代用户改设置），落盘成功后续跑
     toggle!.checked = true;
     toggle!.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => {
@@ -399,8 +379,6 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
 });
 
 describe("字幕空态：配置类 ASR 补救投影为实际设置动作", () => {
-  // 字幕空态要真实壳模板（列表宿主 + 设置宿主 + 副本/导出绑定都在壳里），
-  // 故这里用 ui-renderer 的完整模板而不是 mountPanel 的最小骨架。
   async function renderEmptySubtitleList(
     reason: "asr-disabled" | "asr-empty"
   ): Promise<PanelHarness> {
@@ -444,7 +422,6 @@ describe("字幕空态：配置类 ASR 补救投影为实际设置动作", () =>
     await vi.waitFor(() => {
       expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
     });
-    // 默认设置（开关开、无 ASR 记录）→ 新增编辑器
     expect(document.querySelector(".provider-editor-title")?.textContent).toBe("添加语音转写平台");
   });
 

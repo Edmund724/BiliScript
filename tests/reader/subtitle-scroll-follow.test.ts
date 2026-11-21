@@ -1,11 +1,3 @@
-// 字幕精读列表自动跟随滚动交互状态机与集成边界测试。
-// 覆盖：
-// 1. 纯状态机（createSubtitleScrollFollowMachine）：手动滚轮/触摸/键盘/滚动条拖拽、
-//    程序化 scrollTo（含长距离平滑滚动、scrollend、Promise、代次覆盖、反向/越界让位）、
-//    列表重建守卫与切集复位；
-// 2. 真实 DOM 接线（subtitle-tab-ui + sync + lifecycle + view-render）：
-//    回位胶囊实时进度文案、点击平滑居中回位、点句跳播同步恢复自动跟随、切集不误判。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSubtitleScrollFollowMachine,
@@ -65,19 +57,16 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 600 });
     expect(machine.isProgrammaticScrolling()).toBe(true);
 
-    // 滚轮/触控板手势立即打破程序化锁并切回 manual
     expect(machine.handleWheel({ deltaY: -40, canScroll: true })).toBe(true);
     expect(machine.getMode()).toBe("manual");
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 恢复后再测触摸滑动
     machine.resumeAuto();
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 600, targetTop: 100 });
     expect(machine.handleTouchMove({ canScroll: true })).toBe(true);
     expect(machine.getMode()).toBe("manual");
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 恢复后再测键盘翻页键；可编辑区域内按键忽略
     machine.resumeAuto();
     expect(machine.handleKeyDown({ key: "PageDown", canScroll: true, editable: true })).toBe(false);
     expect(machine.getMode()).toBe("auto");
@@ -98,14 +87,12 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
   it("滚动条拖拽 vs 点击字幕条目：经典滚动条按下即停、悬浮滚动条拖动即停、点击条目不闪停", () => {
     const { machine } = createFakeClockMachine();
 
-    // 点击字幕条目（非容器本身、非滚动条）：不暂停
     expect(
       machine.handlePointerDown({ isDirectContainer: false, isScrollbar: false, canScroll: true })
     ).toBe(false);
     expect(machine.getMode()).toBe("auto");
     machine.handlePointerUp();
 
-    // 经典滚动条按下（即使程序化滚动在途）：立即暂停
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 500 });
     expect(
       machine.handlePointerDown({ isDirectContainer: true, isScrollbar: true, canScroll: true })
@@ -114,7 +101,6 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     expect(machine.isProgrammaticScrolling()).toBe(false);
     machine.handlePointerUp();
 
-    // 悬浮滚动条（isDirectContainer=true, isScrollbar=false）：仅按下不暂停，拖动触发 scroll 即时打破程序化锁
     machine.resumeAuto();
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 500 });
     expect(
@@ -132,7 +118,6 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
 
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 1200 });
 
-    // 模拟 1200ms 长的平滑滚动，每 100ms 触发一次 scroll（超过旧版 800ms 固定窗口）
     for (let step = 1; step <= 12; step += 1) {
       advance(100);
       expect(machine.handleScroll({ scrollTop: step * 100 })).toBe(false);
@@ -140,11 +125,9 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
       expect(machine.isProgrammaticScrolling()).toBe(true);
     }
 
-    // scrollend 到达后立即释放程序化锁
     machine.handleScrollEnd();
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 此后用户手动触发的 scroll 立即进入 manual
     expect(machine.handleScroll({ scrollTop: 1050 })).toBe(true);
     expect(machine.getMode()).toBe("manual");
   });
@@ -164,18 +147,15 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     const token1 = machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 400 });
     machine.attachProgrammaticScrollPromise(token1, firstPromise);
 
-    // 第二次程序化滚动打断第一次
     const token2 = machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 150, targetTop: 900 });
     machine.attachProgrammaticScrollPromise(token2, secondPromise);
 
-    // 浏览器对被打断的第一次滚动 resolve Promise：旧代次必须被忽略
     resolveFirst();
     await Promise.resolve();
     expect(machine.isProgrammaticScrolling()).toBe(true);
     expect(machine.handleScroll({ scrollTop: 300 })).toBe(false);
     expect(machine.getMode()).toBe("auto");
 
-    // 第二次滚动完成 resolve：正常放锁
     resolveSecond();
     await Promise.resolve();
     expect(machine.isProgrammaticScrolling()).toBe(false);
@@ -185,16 +165,13 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     const { machine } = createFakeClockMachine();
 
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 100, targetTop: 500 });
-    // 正常顺向推进
     expect(machine.handleScroll({ scrollTop: 220 })).toBe(false);
     expect(machine.getMode()).toBe("auto");
 
-    // 用户拖滚动条反向拉回
     expect(machine.handleScroll({ scrollTop: 180 })).toBe(true);
     expect(machine.getMode()).toBe("manual");
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 再测越界超过目标
     machine.resumeAuto();
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 100, targetTop: 500 });
     expect(machine.handleScroll({ scrollTop: 650 })).toBe(true);
@@ -208,7 +185,6 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     advance(120);
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 连续高频 scroll 也被硬上限封顶（不会永久锁死）
     machine.beginProgrammaticScroll({ behavior: "smooth", startTop: 0, targetTop: 1000, idleMs: 180, maxMs: 600 });
     for (let i = 1; i <= 5; i += 1) {
       advance(100);
@@ -221,23 +197,19 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
   it("切集复位（resetForVideoSwitch）与列表重建守卫（guardLayoutReset）边界不误判", async () => {
     const { machine, advance } = createFakeClockMachine();
 
-    // 上一集处于手动浏览 + 容器按下态
     machine.handlePointerDown({ isDirectContainer: true, isScrollbar: true, canScroll: true });
     expect(machine.getMode()).toBe("manual");
 
-    // 切集复位：清空暂停态、拖拽态，并作废旧 Promise
     machine.resetForVideoSwitch();
     expect(machine.getMode()).toBe("auto");
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 新集列表重建触发浏览器钳制 scrollTop→0 派发的 scroll：在 guardLayoutReset 内不误判
     machine.guardLayoutReset();
     expect(machine.handleScroll({ scrollTop: 0 })).toBe(false);
     expect(machine.getMode()).toBe("auto");
     advance(130);
     expect(machine.isProgrammaticScrolling()).toBe(false);
 
-    // 若用户本来就在 manual 态（例如同视频切轨），guardLayoutReset 不破坏 manual 态
     machine.pauseManual();
     machine.guardLayoutReset();
     expect(machine.getMode()).toBe("manual");
@@ -373,19 +345,15 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     const followBtn = document.getElementById(ids.readingFollowBtn) as HTMLButtonElement;
 
-    video.currentTime = 512; // 8:32，对应第 2 句（contentTop=620）
+    video.currentTime = 512;
     shell.syncReadingViewPlayback(true);
-    // 居中公式：620 - (400 - 40) / 2 = 440
     expect(scrollToSpy).toHaveBeenCalledWith({ top: 440, behavior: "smooth" });
-    // 程序化 scrollTo 派发的 scroll 不应误判为 manual
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // 用户在平滑滚动途中立即滚动滚轮 → 立刻暂停跟随并显示当前播放时间
     subtitleList.dispatchEvent(new WheelEvent("wheel", { deltaY: -120 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
     expect(followBtn.textContent).toBe("回到当前播放 · 8:32");
 
-    // 播放推进到 3605s（1:00:05）：高亮前进、胶囊时间实时刷新，但不抢滚动条
     scrollToSpy.mockClear();
     video.currentTime = 3605;
     shell.syncReadingViewPlayback();
@@ -404,13 +372,11 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     subtitleList.dispatchEvent(new WheelEvent("wheel", { deltaY: -200 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
-    // 暂停期间用户拖动原生视频进度条触发 seeked（video-bind 会把 nextBehavior 置为 auto）
     video.currentTime = 3605;
     video.dispatchEvent(new Event("seeked"));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
     expect(followBtn.textContent).toBe("回到当前播放 · 1:00:05");
 
-    // 点击回位胶囊：仍以 smooth 居中滚回第 3 句（1220 - 180 = 1040），且不误判回 manual
     scrollToSpy.mockClear();
     followBtn.click();
     await vi.waitFor(() => {
@@ -428,12 +394,10 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     shell.syncReadingViewPlayback(true);
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // 在 auto 态直接按下某条字幕：不应在 pointerdown 阶段闪成 manual
     const secondItem = subtitleList.querySelectorAll<HTMLElement>(".biliscript-reading-item")[1];
     secondItem.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // 手动滚动进入 manual 后点击第 2 条字幕跳播：恢复 auto、隐藏胶囊并平滑居中
     subtitleList.dispatchEvent(new WheelEvent("wheel", { deltaY: 160 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
@@ -454,7 +418,6 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     shell.syncReadingViewPlayback(true);
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // clientWidth=348, offsetWidth=360 → clientX=354 落在右侧滚动条轨道上
     subtitleList.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 354 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
@@ -468,18 +431,15 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     subtitleList.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
-    // 切集发出 reset：立刻复位回 auto 并隐藏胶囊
     readerBus.notifyReaderPresenter({ kind: "reset" });
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // 切集后清空列表重渲，浏览器把 scrollTop 从 500 钳回 0 并异步派发 scroll → 不误判为 manual
     state.clip.subtitleBody = [];
     readerBus.notifyReaderPresenter({ kind: "rerender" });
     subtitleList.scrollTop = 0;
     subtitleList.dispatchEvent(new Event("scroll"));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
 
-    // 新集字幕就绪：自动居中跟随正常工作
     state.clip.subtitleBody = [
       { from: 0, to: 15, content: "第二集开场" },
       { from: 15, to: 40, content: "第二集正文" }

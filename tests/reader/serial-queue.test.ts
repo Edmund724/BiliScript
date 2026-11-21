@@ -1,13 +1,3 @@
-// tests/reader/serial-queue.test.ts
-// reader 通用串行队列（createSerialQueue）语义真值表测试。
-//
-// 验证契约：
-//   1. 后到等先到：并发 enqueue 按 FIFO 严格串行，后序必须等待前序完全落定再执行；
-//   2. 失败不阻断后续：前序任务 reject/抛错不影响后序任务执行，队列链尾不被污染；
-//   3. 自 promise 落定：每个 enqueue 调用返回的 promise 在自身任务落定后 resolve/reject；
-//   4. 链头同步捕获：同步连续 enqueue 时链头即时锁定，同步抛错与异步 reject 均安全隔离；
-//   5. 实例独立隔离：不同 createSerialQueue() 实例拥有独立时序，互不阻塞（ADR-0008 纪律）。
-
 import { describe, expect, it } from "vitest";
 import { createSerialQueue } from "../../extension/reader/serial-queue.js";
 
@@ -95,19 +85,16 @@ describe("createSerialQueue 通用串行队列", () => {
     const queue = createSerialQueue();
     const order: number[] = [];
 
-    // task1 同步抛出异常而非返回 rejected promise
     const p1 = queue.enqueue(() => {
       order.push(1);
       throw new Error("sync throw in task1");
     });
 
-    // task2 返回普通同步值
     const p2 = queue.enqueue(() => {
       order.push(2);
       return 200;
     });
 
-    // task3 异步任务
     const p3 = queue.enqueue(async () => {
       order.push(3);
       return 300;
@@ -138,7 +125,6 @@ describe("createSerialQueue 通用串行队列", () => {
 
     await Promise.all([pa, pb]);
 
-    // queueB 的短任务应在 queueA 的长任务还在睡眠时就已经完成
     expect(events[0]).toBe("a:start");
     expect(events[1]).toBe("b:start");
     expect(events[2]).toBe("b:end");

@@ -1,22 +1,3 @@
-// tests/reader/chat-suggestions-video-switch.test.ts
-// 用户报障的端到端回归：换片瞬间（音频转写中，新视频还没有字幕）建议区显示的是
-// 上一个视频的三个生成问题。
-//
-// 真实时序（本文件在真实组合根上重演，不走 DOM 替身）：
-//   1. 看到 A 视频（字幕就绪），建议区显示 A 的三个生成问题（缓存 video:BV_A|cid）；
-//   2. 跳到 B 视频（无字幕，正在音频转写）：URL 变化通知先到，clip 重置链后到
-//      ——"clip 仍停在上一个视频"是这一窗口的真实形态；
-//   3. 建议区必须回落固定三条默认问题（旧实现读对话上下文的 currentContextKey，
-//      该键此刻停在 A，缓存命中 → 把 A 的问题显示在 B 上）；
-//   4. B 字幕落定、预热写入 B 的三个问题后，建议区换成 B 的（缓存写入通知触发重渲）。
-//
-// 相邻文件分工：tests/reader/chat-lists.test.ts 锁渲染取键的口径（纯函数级），
-// 本文件锁「换片 → URL 变化同步 → 建议区重渲」这条编排链真的把新口径用上；
-// tests/reader/chat-tab-urlsync.test.ts 锁同一触发源的防抖行为。
-//
-// 纪元注意（同 chat-tab-urlsync.test.ts）：biliscript:urlchange 监听挂在 window 上，
-// 旧纪元模块实例摘不掉自己的监听——每例收尾 closeChatSession 摘本纪元监听。
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
@@ -36,8 +17,6 @@ const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
   }
 }));
 
-// gateway 替身（与 chat-tab-urlsync.test.ts 同一手法）：装配链静态 import 它，
-// 不打网络；aid 恒 0 时热评编排早退空列表。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   getCurrentAid: gatewayMock.getCurrentAid,
   fetchHotComments: gatewayMock.fetchHotComments,
@@ -65,7 +44,6 @@ let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSe
 let suggestionsId: string;
 let inputId: string;
 
-// 上一个视频（jsdom 起始地址 = BV1test000000）与换片后的新视频。
 const PREV_KEY = "video:BV1test000000|101";
 const NEXT_BASE_URL = "https://www.bilibili.com/video/BV1next00000/";
 const NEXT_URL = `${NEXT_BASE_URL}?biliscript_reader=1`;
@@ -92,8 +70,6 @@ function stubChromeByType(): void {
     onMessage: { addListener: () => {} },
     onDisconnect: { addListener: () => {} }
   }));
-  // storage.local = 共享内存面单源（写后可读回，三方法都是 vi.fn，调用记录照旧可断言）；
-  // sync 面只记调用、不写盘——这些用例只断言 sync 写实参。
   chromeStub.storage.local = createMemoryStorageArea();
   chromeStub.storage.sync.set = vi.fn(async () => {});
 }
@@ -114,7 +90,6 @@ function suggestionsChips(): string[] {
   );
 }
 
-// A 视频就绪（字幕体非空 = 建议区取生成结果的前置）。
 function seedPrevVideoReady(): void {
   state.clip.title = "上一个视频";
   state.clip.bvid = "BV1test000000";
@@ -155,7 +130,6 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     await waitFor(() => suggestionsChips().length > 0);
     expect(suggestionsChips()).toEqual(["上一个视频问题一", "上一个视频问题二", "上一个视频问题三"]);
 
-    // 换片：地址已变，clip 重置链还没跑（本窗口的真实形态）→ 报障画面
     setLocationUrl(NEXT_URL);
     contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -175,13 +149,11 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    // 字幕落定（acceptSubtitle 事务：身份 + 字幕体一起写入）
     state.clip.title = "新视频";
     state.clip.bvid = "BV1next00000";
     state.clip.cid = "202";
     state.clip.aid = "7200";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "新视频的第一句" }];
-    // 预热写入（lifecycle 在 subtitle-ready 后 fire-and-forget）→ 缓存变化通知重渲
     writeCachedQuickPrompts(NEXT_KEY, ["新视频问题一", "新视频问题二", "新视频问题三"]);
 
     expect(suggestionsChips()).toEqual(["新视频问题一", "新视频问题二", "新视频问题三"]);
@@ -195,18 +167,14 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     await chat.ensureChatTabActivated();
     await waitFor(() => suggestionsChips().length > 0);
 
-    // 换片：URL 变化同步先到（读到旧 clip）→ 装配按未就绪空快照收口，键落 url: 档
     setLocationUrl(NEXT_URL);
     contentEventBus.emit("host:url-change", { url: location.href });
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(chatSessionState.currentContextKey).toBe(`url:${NEXT_BASE_URL}`);
 
-    // 转写等待期间用户打好的草稿（后台对账不得清掉它）
     const input = document.getElementById(inputId) as HTMLTextAreaElement;
     input.value = "这段是谁讲的？";
 
-    // 字幕落定：subtitle/commit 的 acceptSubtitle 事务（身份 + 字幕体原子写入）
-    // 收尾发 subtitle-ready → 组合根据此补一轮上下文对账
     state.clip.title = "新视频";
     state.clip.bvid = "BV1next00000";
     state.clip.cid = "202";
@@ -218,7 +186,6 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     await waitFor(() => chatSessionState.currentContextKey === NEXT_KEY);
     expect(chatSessionState.contextData?.bvid).toBe("BV1next00000");
     expect(chatSessionState.liveContextData?.title).toBe("新视频");
-    // 对账是「跟着 clip 走」而不是用户语义上的新会话：草稿原样保留
     expect(input.value).toBe("这段是谁讲的？");
     chat.closeChatSession();
   });
