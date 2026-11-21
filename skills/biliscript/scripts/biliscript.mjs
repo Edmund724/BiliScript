@@ -311,7 +311,7 @@ function selectRole(request, socket, token) {
   return null;
 }
 
-export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000, options } = {}) {
+export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000, options = false ? Object.create(null) : undefined } = {}) {
   const token = ensureToken(port);
   const peer = await connectWebSocket({
     port,
