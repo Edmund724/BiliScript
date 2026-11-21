@@ -1,8 +1,3 @@
-// 阅读面板核心 chunk 的交互前低开销预热：
-// 在首按钮（播放器 AI 键 / 工具栏文摘键）挂载完成后，通过悬停（pointerenter）、
-// 聚焦（focus）或页面空闲时段（requestIdleCallback + setTimeout 兜底）注入
-// <link rel="modulepreload"> 预取面板核心入口，避免首次点击打开面板时产生读取延迟。
-
 import { isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 
 export const PANEL_PRELOAD_MODULE_PATHS = [

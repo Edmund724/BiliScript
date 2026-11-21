@@ -1,22 +1,3 @@
-// extension/ui/provider-row.ts
-// AI 平台行与 ASR 平台行构建器的共享工厂 createProviderRow（紧凑形态，
-// provider-master-detail/02）：行是纯展示 + 入口——Key 状态点 + 名称 +
-// 模型名 +（ASR）选用 radio +「编辑 / 删除」两个动作（搜索族另有行尾拖拽把手，
-// spec §6.10），行内零输入字段。
-// 编辑（预设 / baseUrl / API Key / 模型 / 测试）全部在 ui/provider-editor.js
-// 的 Modal 里（01），保存走单平台 upsert（settings-panel.saveProviderSingle）。
-//
-// 与 01 前的平铺形态相比退役的职责：预设下拉 / 行内编辑字段收集
-//（collectAiProviders / collectAsrProviders 已删，列表真相在后端）/ 连通性
-// 测试与行内状态（探针随 Modal）/ 模型下拉（model-picker 随 Modal）。
-// 此前 ASR 行复用 ai-provider-remove / ai-provider-status 类名的既有耦合
-// 随行内状态行退役一并收口：删除按钮统一 provider-row-remove。
-//
-// 两行差异通过参数注入：显示名 / 模型名的解析、删除报文；选用 radio
-// （ASR / 搜索同款）由本模块的 buildActiveRadioTail 统一收口。行构建器自身
-// 的状态只依赖参数与回调；唯一例外
-// 是删除确认走 ui/confirm-dialog.js 的面板内弹层（该模块自持挂载与结算）。
-
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
@@ -24,7 +5,6 @@ import type { SearchProviderAccess } from "../core/presets.js";
 import type { AiCredentialStatus } from "../core/ai-credential-reference.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
-// 垃圾桶图标路径：固定属性行 / 笔记段落行 / 平台行共用同一份 path 定义。
 export const TRASH_ICON_PATHS: string = [
   '<path d="M4 7h16"></path>',
   '<path d="M9 3h6"></path>',
@@ -33,54 +13,34 @@ export const TRASH_ICON_PATHS: string = [
   '<path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>'
 ].join("");
 
-// 拖拽把手图标（竖排点阵，spec §6.10）：仅搜索族记录行渲染。
 const DRAG_HANDLE_ICON_PATHS: string = [
   '<circle cx="12" cy="6" r="1.7"></circle>',
   '<circle cx="12" cy="12" r="1.7"></circle>',
   '<circle cx="12" cy="18" r="1.7"></circle>'
 ].join("");
 
-// 行元素：HTMLElement 之上承载行级 dataset——providerId / hasSavedKey /
-// currentPresetId / baseUrl（删除回收 host 权限时钩子要从行上拿到 baseUrl，
-// 紧凑行没有输入框，渲染时写入）。索引签名仅为将来的动态键读写兜底。
 export type ProviderRowElement = HTMLElement & Record<string, unknown>;
 
-// 平台行条目的宽松形状：AI / ASR 两条真实配置与测试注入的字面量对象都按
-// 此结构传入；行骨架只读列出的字段，其余字段（如 enabled/apiKey/type）不在
-// 行内消费（编辑走 Modal 的权威现查）。
 export interface ProviderRowItem {
   id?: string;
   presetId?: string;
   name?: string;
   baseUrl?: string;
   model?: string;
-  // AI 模型目录（multi-model-catalog）：多模型时副行显示「首项 等 N 个」；
-  // ASR 无此字段。缺省时回落 model（历史单模型数据/测试字面量）。
   models?: string[];
   type?: string;
   requiresKey?: boolean;
   enabled?: boolean;
   apiKey?: string;
   hasSavedKey?: boolean;
-  // 凭据引用状态：搜索族 DeepSeek 行覆写预设 note；实时族 Gemini Live 行追加到模型名后。
   statusNote?: string;
-  // 结构化凭据引用状态（消费族行：搜索 DeepSeek / 实时 Gemini Live）。与 statusNote
-  // 同源由 annotateAiCredentialRows 注入：行的 Key 指示点读它，不把消费族自己的
-  // hasSavedKey 当成应有自有 Key。
   credentialStatus?: AiCredentialStatus;
-  // 实际命中的 AI 记录来源名（仅「可用」态；搜索行副行展示，避免多条候选时误判）
   credentialSource?: string;
-  // 平台协议（multi-protocol-ai）：编辑 Modal 预填/回写；宽松 string，合法性
-  // 由编辑 Modal 经注册表词表收敛。
   protocol?: string;
   liveGeminiNativeSearch?: boolean;
-  // MOSS-LIVE 音色（编辑 Modal 预填/回写；行本身不展示）
   voiceId?: string;
 }
 
-// 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset
-// 均按结构兼容传入；搜索族额外带接入与额度形态 access（spec §7 单一真源，
-// AI/ASR 预设无该字段，不受影响）。
 export interface ProviderRowPreset {
   id: string;
   name: string;
@@ -88,41 +48,27 @@ export interface ProviderRowPreset {
   model?: string;
   type?: string;
   requiresKey?: boolean;
-  // 接入与额度形态（仅搜索预设表提供）：keyless 无 Key 即可调用；
-  // free-quota 必须自带 Key。行状态点第三态与徽章都由它派生。
   access?: SearchProviderAccess;
-  // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
   protocol?: string;
-  // 个别协议的差异化端点（multi-protocol-ai）：切协议时 baseUrl 未改过即跟随
-  // （与 AiProviderPreset.protocolBaseUrls 同字段，宽松 string 键）。
   protocolBaseUrls?: Record<string, string>;
 }
 
-// 行内状态 <p> 的写入口（wireModelPicker 注入用）：行内状态行已随紧凑形态
-// 退役，但 ui/provider-editor.js 的 Modal 仍以此签名接入 model-picker。
 export type ProviderRowShowStatus = (
   node: HTMLElement | null | undefined,
   text: string,
   isError?: boolean
 ) => void;
 
-// 删除动作前先执行的钩子（调用页注入 chrome.permissions.remove 回收 origin，
-// 需要在被删行摘出 DOM 之前拿到它的 baseUrl——行 dataset 提供）。
 export type ProviderRowBeforeDeleteHandler = (
   providerId: string,
   baseUrl: string
 ) => Promise<void> | void;
 
-// 删除完成后的回调（ASR：删的是当前选用平台时清 activeAsrProviderId）。
 export type ProviderRowHandler = (providerId: string) => Promise<void> | void;
 
-// 虚拟条目（spec §6.10 的「智能」虚拟行；仅搜索族声明）：不是平台记录，按同一
-// 行类 + 同一 activeRadio 渲染——选中态读写因此复用既有单源，不新增第二条路径。
 export interface ProviderRowVirtualRow {
-  // 行 id（写进 dataset.providerId；搜索族 = 哨兵 SMART_SEARCH_ACTIVE_ID）
   id: string;
   label: string;
-  // 副行说明（同时作为行 title 的缺省值）
   hint?: string;
   title?: string;
 }
@@ -133,22 +79,11 @@ export interface CreateProviderRowConfig {
   removeClass: string;
   idPrefix: string;
   resolvePreset: (presets: readonly ProviderRowPreset[], presetId: string) => ProviderRowPreset | null;
-  // 显示名：AI=自定义名回落预设名（拍板 Q7）；ASR=名称回落预设名/自定义
   displayName: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 显示模型名：AI=item.models（多个时「首项 等 N 个」，拍板 Q15）或历史
-  // item.model；ASR=item.model ?? preset.model。空串不渲染副行
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 已配 Key /
-  // 免费额度，后两者按 access 与 hasSavedKey 判定；AI / ASR 无徽章 → 空串）。
-  // 空串不渲染。
   resolveBadge?: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
-  // 拖拽把手类名（spec §6.10 / §12.5 第 13 行）：**仅搜索族给**，给了才在
-  // `.provider-row-line` 最右端（删除按钮之后）渲染把手；AI / ASR 行零变化。
   dragHandleClass?: string;
-  // 置顶虚拟条目（spec §6.10）：渲染在记录行之前，零记录时也在；不渲染状态点 /
-  // 徽章 / 编辑 / 删除，也不参与空态计数。
   virtualRow?: ProviderRowVirtualRow;
-  // （仅 ASR）选用 radio：change 即时持久化 activeAsrProviderId（平铺形态同款语义）
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
   onRowEdit: (row: ProviderRowElement) => void;
@@ -177,28 +112,17 @@ export interface ProviderRowController {
   setErrorHandler: (handler: ProviderRowErrorHandler) => void;
 }
 
-// 选用 radio 的共享实现（ASR / 搜索两行同款，差异仅类名前缀、radio 组名、
-// 提示文案与即时持久化的设置键）：由本模块统一产出 buildTailFields /
-// wireTailExtras 与选中态读写，行构建器只做薄调用。DOM 类名与设置键由
-// 调用方给定并逐字保持（CSS 与测试锚点）。
 export interface ActiveRadioTailConfig {
-  // 类名前缀（"asr" / "search"）：派生 asr-provider-active-radio、
-  // asr-provider-row、asrActiveProvider 三处锚点
   classPrefix: string;
-  // radio 的 title 提示文案（两族语义不同）
   title: string;
-  // 选中后即时落库的设置键（activeAsrProviderId / activeSearchProviderId）
   settingsKey: string;
 }
 
 export interface ActiveRadioTail {
   buildTailFields: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
-  // 把列表里 radio 选中态同步到指定平台 id（传空串则全部取消）
   setActive: (listNode: HTMLElement, activeId: string) => void;
-  // 当前列表选中的平台 id（无则空串）
   getActiveId: (listNode: HTMLElement) => string;
-  // 在整表 render 完成后同步基线 id（供失败回滚使用）
   syncRendered: (listNode: HTMLElement) => void;
   setErrorHandler: (handler: ProviderRowErrorHandler) => void;
   setActiveChangeHandler: (handler: ActiveRadioChangeHandler) => void;
@@ -298,7 +222,6 @@ export function createProviderRow({
   buildDeleteMessage
 }: CreateProviderRowConfig): ProviderRowController {
   let onDelete: ProviderRowHandler = async () => {};
-  // 删除动作前先执行的钩子（调用页注入回收 origin，需要被删行的 baseUrl）
   let onBeforeDelete: ProviderRowBeforeDeleteHandler = async () => {};
   let onError: ProviderRowErrorHandler = () => {};
 
@@ -306,7 +229,6 @@ export function createProviderRow({
     return `${idPrefix}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   }
 
-  // 空态计数只认**记录行**：置顶虚拟条目在场不代表配置了平台（spec §6.10）
   function updateEmptyState(listNode: HTMLElement, emptyNode: HTMLElement): void {
     const virtualId = virtualRow?.id;
     const hasRows = Array.from(listNode.children).some(
@@ -315,8 +237,6 @@ export function createProviderRow({
     emptyNode.hidden = hasRows;
   }
 
-  // 虚拟条目（spec §6.10）：置顶、复用同一 activeRadio 的 buildTailFields /
-  // wireTailExtras（选中即写哨兵走既有单源）；不渲染把手，故拖拽天然跳过它。
   function renderVirtualRow(listNode: HTMLElement, activeId: string): void {
     if (!virtualRow) return;
     const hint = String(virtualRow.hint || "");
@@ -363,11 +283,6 @@ export function createProviderRow({
 
       const nameText = displayName(item, preset);
       const model = displayModel(item, preset);
-      // Key 状态点第三态（spec §6.1 判据 f(access, hasSavedKey)）：keyless 预设
-      // 无 Key 也标「可用」（第三色由 CSS 复用 success 变量，不新增颜色）；
-      // free-quota 无 Key 恒 missing（与「无 Key 不进链」自洽）。凭据引用行
-      //（DeepSeek 搜索 / Gemini 伴看）没有自有 Key：状态由结构化引用状态驱动，
-      // 不再把消费族 hasSavedKey 当成应有自有 Key 而误报故障。
       const credentialStatus = item.credentialStatus;
       const keyState = credentialStatus
         ? credentialStatus === "ok" ? "saved" : "missing"
@@ -383,12 +298,7 @@ export function createProviderRow({
           : keyState === "keyless"
             ? "免 Key 可用"
             : "未保存 API Key";
-      // 额度形态徽章（spec §6.2）：讲额度形态而非是否存在 Key——free-quota 有
-      // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 已配 Key，
-      // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
       const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
-      // 拖拽把手（spec §6.10）：行内最右端（删除按钮之后）的可聚焦按钮，仅搜索族
-      // 记录行渲染；支持指针拖拽与聚焦后上下方向键调整顺序。
       const dragHandle = dragHandleClass
         ? `<button type="button" class="${dragHandleClass}" title="拖拽或按上下方向键调整搜索顺序" aria-label="调整 ${escapeHtml(nameText)} 搜索顺序"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${DRAG_HANDLE_ICON_PATHS}</svg></button>`
         : "";
@@ -407,13 +317,10 @@ export function createProviderRow({
         ${model ? `<div class="provider-row-model" title="${escapeHtml(model)}">${escapeHtml(model)}</div>` : ""}
       `;
 
-      // 编辑：打开 provider-editor Modal（回调由配置注入）
       row.querySelector(`.${editClass}`)?.addEventListener("click", () => {
         onRowEdit?.(row);
       });
 
-      // 删除：面板内二次确认后禁用行操作按钮，等待后台删除成功后再移出 DOM 与通知上层；
-      // 失败或抛错保留原行并恢复按钮可用态，触发 onError 提示错误。
       let deleting = false;
       row.querySelector(`.${removeClass}`)?.addEventListener("click", async () => {
         if (deleting) return;

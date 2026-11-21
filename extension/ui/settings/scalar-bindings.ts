@@ -1,8 +1,3 @@
-// ui/settings/scalar-bindings.ts — 标量设置项声明式绑定表（34 项）与字段间联动副作用。
-// 每个标量设置项声明控件类型、DOM 引用键、归一化与即时预览副作用；
-// loadSettings（水合）、bindScalarFieldEvents（事件持久化）与 watchStorageKeys（跨端同步）
-// 共用同一张表。
-
 import { cleanExpiredConversations } from "../../chat/conversation-store.js";
 import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "../../core/defaults.js";
 import { state } from "../../core/state.js";
@@ -89,8 +84,6 @@ export interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly watchSync?: boolean;
   readonly persist?: ScalarFieldPersist;
   readonly onApply?: (val: boolean) => void;
-  // 落盘成功后的生效回调（票 04：自动转写开关打开并保存成功后重新进入字幕抓取）。
-  // 只有写盘成功才调用——onApply 在保存前触发，失败时也会跑，不能承担续跑。
   readonly onSaved?: (val: boolean, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
@@ -106,11 +99,7 @@ export interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly persist?: ScalarFieldPersist;
-  // 滑块提交/预览时随主键一并 patch 与落盘的附加键（如宽度滑块置位
-  // customPanelWidthEnabled 显式自定义标记）。
   readonly commitExtras?: () => Record<string, unknown>;
-  // 重置键的附加清除键：提供后重置走完整替代路径（主键回默认值 + 附加键 +
-  // patch + 落盘），替代默认的「主键默认值 + onCommit」。
   readonly resetExtras?: () => Record<string, unknown>;
   readonly onPreview?: (val: number) => void;
 }
@@ -376,8 +365,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     normalize: (val) => val !== false,
     patchState: false,
     watchSync: true,
-    // 从配置类阻塞直达开关的启用路径：打开并落盘成功后，若底层 ASR 平台或 Key
-    // 仍缺配置则进入对应 ASR 编辑器；否则回到原任务续跑。
     onSaved: (val, hooks, elements) => {
       hooks.onAsrAutoFallbackSaved?.(val, elements);
     }

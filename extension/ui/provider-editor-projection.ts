@@ -1,26 +1,3 @@
-// extension/ui/provider-editor-projection.ts — 平台编辑 Modal 的字段投影（owner 1）。
-//
-// 一个编辑会话的 DOM 只有一处定义：本模块的字段表。每个可投影字段一行，行内
-// 同时给出三件事——
-//   project：draft → 该字段的 DOM 目标态（唯一的值投影规则）；
-//   html   ：该字段的 DOM 形态（模板片段，buildDialogHtml 只做布局拼装）；
-//   apply  ：把目标态写回已渲染节点（预设切换 / 协议切换 / 目录行增删的重投影）。
-// 外加 read：DOM → 同一形态的反向读取，供「重投影后 DOM == 目标态」的逐字段
-// 不变式核验（字段表新增一行即自动纳入核验，投影漏字段不再靠人眼）。
-//
-// 由此消掉「模板 / 预设切换 / 协议切换 / input 回写」四类抄写点：加一个编辑器
-// 字段只需在这里加一行（外加模板布局里引用一次）。联动**规则**（何时跟随上一
-// 预设/协议）仍留在 wireDialog 的处理器里，投影只负责「draft 是什么，DOM 就是
-// 什么」。
-//
-// 每族字段的在场性由族声明的能力位决定（usesProtocol / modelSource），与模板
-// 布局判据同源：非 AI 族不投影协议与限制点小字，非目录族不投影目录空态。
-//
-// 协议/预设的投影口径也收在这里（协议词表收敛 / 预设协议默认 / 限制点文案）；
-// 协议端点查表是 multi-protocol-ai 的共享叶，单源在 core/presets.ts，本模块只
-// re-export（上方）保持调用方路径不变：它们既是模板与联动的共用口径，也是本模块
-// project 的输入。
-
 import { escapeHtml } from "../shared/string-utils.js";
 import { usesAiCredentialReference } from "../core/ai-credential-reference.js";
 import { presetBaseUrlForProtocol } from "../core/presets.js";
@@ -33,42 +10,27 @@ import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from 
 import type { ProviderRowPreset } from "./provider-row.js";
 import type { LiveVoice } from "../live/live-provider-store.js";
 
-// 协议端点查表的单源在 core/presets.ts（multi-protocol-ai 叶）；此处原样 re-export，
-// 调用方（Modal / 目录片）路径不变。
 export { presetBaseUrlForProtocol };
 
-// ===== 协议/预设投影口径 =====
-
-// 任意来源的协议值收敛到注册表词表；缺省/未知值兜底 openai（与 resolveAdapter
-// 同口径——存量记录缺 protocol 字段时编辑 Modal 直接显示「OpenAI」，无提示，
-// 事实即如此）。
 export function normalizeProtocolValue(value: unknown): AiProtocol {
   return typeof value === "string" && value in PROTOCOL_ADAPTERS ? (value as AiProtocol) : "openai";
 }
 
-// 预设的协议默认归属：词表内值原样返回，缺省 openai（15 个预设现状全部
-// OpenAI compatible；逐平台多协议归属实测后由 preset 词表显式填写）。
 export function presetProtocol(preset: ProviderRowPreset | null): AiProtocol {
   return normalizeProtocolValue(preset?.protocol);
 }
 
-// 限制点文案（capabilities.unsupported 的说明串）：表单底部小字，仅非空时
-// 露出（openai 为空自然隐藏）。稳定键不进文案，只给人读的说明。
 export function protocolNotes(protocol: unknown): string {
   const unsupported = resolveAdapter(protocol).capabilities.unsupported;
   const text = Object.values(unsupported).join("；");
   return text ? `该协议限制：${text}` : "";
 }
 
-// ===== 字段投影表 =====
-
 export interface ProjectionContext {
   kind: ProviderEditorKind;
   presets: readonly ProviderRowPreset[];
   hasSavedKey: boolean;
-  // 编辑态切换预设或更改不同 origin 时：需要用户重新确认 API Key，禁止沿用已存 Key
   reconfirmKey?: boolean;
-  // 平台音色列表（仅 MOSS-LIVE 音色下拉用；未取到时装默认音色一项）
   voices?: readonly LiveVoice[];
 }
 
@@ -106,7 +68,6 @@ interface FieldSpec {
   html(projection: FieldProjection, scope: ProjectionScope): string;
   apply(dialog: HTMLElement, projection: FieldProjection, scope: ProjectionScope): void;
   read(dialog: HTMLElement): FieldProjection;
-  // 文本字段的 input 回写声明（DOM → draft 的唯一通道；缺省 = 无输入控件）
   input?: { draftKey: DraftInputKey; selector: string; clearStatus: boolean };
 }
 
@@ -127,16 +88,12 @@ function inputValue(projection: FieldProjection): string {
   return escapeHtml(projection.value ?? "");
 }
 
-// 音色字段只在 MOSS-LIVE 平台出现（Gemini Live / ASR 不渲染该行）。
 function isMossLiveScope(scope: ProjectionScope): boolean {
   if (scope.ctx.kind !== "live") return false;
   const preset = scope.preset;
   return preset?.type === "moss-live" || preset?.id === "moss-live";
 }
 
-// 音色下拉选项：首项「默认音色」= 空值（不发 change_voice）；列表按 name 展示
-//（空名已在 live-provider-store 回落 id）。已存 voiceId 不在列表里（音色被删或
-// 列表未取到）时保留一项，避免静默丢选择。
 function voiceOptionsHtml(scope: ProjectionScope, selected: string): string {
   const current = selected.trim();
   const voices = scope.ctx.voices ?? [];
@@ -173,8 +130,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     apply: (dialog, projection) => {
       const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset");
       if (!select || projection.value === undefined) return;
-      // 只在值确有对应选项时写：未知 presetId 的存量记录保持模板的原生默认选中，
-      // 不因一次重投影漂移到空值
       if (Array.from(select.options).some((option) => option.value === projection.value)) {
         setCustomSelectValue(select, projection.value);
       }
@@ -199,7 +154,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     apply: (dialog, projection) => {
       const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
       if (!select || projection.value === undefined) return;
-      // 经组件入口写值：裸写 select.value 不回流 trigger 显示（ADR-0007 修订）
       setCustomSelectValue(select, projection.value);
     },
     read: (dialog) => ({ value: dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value ?? "" })
@@ -209,7 +163,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     input: { draftKey: "name", selector: ".provider-editor-name", clearStatus: true },
     project: (scope, draft) => ({
       value: draft.name,
-      // AI 名称留空 + 占位（≠预设名才回填，拍板 Q7）；ASR/搜索是实值语义
       placeholder: scope.ctx.kind === "ai" ? scope.preset?.name || "" : "平台名称"
     }),
     html: (projection) =>
@@ -355,7 +308,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice");
       if (select) {
         select.innerHTML = voiceOptionsHtml(scope, projection.value ?? "");
-        // 已建壳（异步取到列表后重投影）时经组件入口换项集并同步 trigger 显示
         if (projection.value !== undefined) {
           setCustomSelectValue(select, projection.value);
         }
@@ -419,8 +371,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   }
 };
 
-// 编辑态（hasSavedKey=true）切换预设或更换不同 origin 时，旧平台密钥不可静默复用，
-// 需由用户重新确认（重填 Key）；同源改路径（如 DeepSeek /anthropic <-> /v1）保留已存 Key。
 export function isSavedKeyReconfirmRequired(draft: EditorDraftView | null = state.draft): boolean {
   if (!state.hasSavedKey || !state.editingId || !draft) return false;
   if (draft.apiKey.trim()) return false;
@@ -438,7 +388,6 @@ export function isSavedKeyReconfirmRequired(draft: EditorDraftView | null = stat
   return presetChanged || originChanged;
 }
 
-// Modal 打开参数直达的投影上下文（state 的只读视图，会话打开时即就位）
 export function sessionProjectionContext(): ProjectionContext {
   const reconfirmKey = isSavedKeyReconfirmRequired();
   return {
@@ -450,7 +399,6 @@ export function sessionProjectionContext(): ProjectionContext {
   };
 }
 
-// 每个字段的目标态（模板与重投影共用的唯一投影规则）
 export function projectEditorFields(
   draft: EditorDraftView,
   ctx: ProjectionContext
@@ -464,7 +412,6 @@ export function projectEditorFields(
   ) as Record<ProjectionFieldKey, FieldProjection>;
 }
 
-// 模板片段（每个字段的 DOM 形态各一份）：buildDialogHtml 只做布局拼装
 export function projectionBlocks(
   draft: EditorDraftView,
   ctx: ProjectionContext
@@ -478,8 +425,6 @@ export function projectionBlocks(
   ) as Record<ProjectionFieldKey, string>;
 }
 
-// 重投影：把当前 draft 的目标态写回已渲染的字段节点（预设/协议切换与目录行
-// 增删共用）。
 export function renderProjection(
   draft: EditorDraftView | null = state.draft,
   ctx: ProjectionContext = sessionProjectionContext()
@@ -492,7 +437,6 @@ export function renderProjection(
   }
 }
 
-// 反向读取（核验用）：DOM 的可观察目标态，键集与 projectEditorFields 同形
 export function readProjection(): Record<ProjectionFieldKey, FieldProjection> {
   const dialog = getDialog();
   if (!dialog) {
@@ -505,7 +449,6 @@ export function readProjection(): Record<ProjectionFieldKey, FieldProjection> {
   ) as Record<ProjectionFieldKey, FieldProjection>;
 }
 
-// input 回写声明（DOM → draft）：文本字段的唯一写通道，模板与联动共用同一份表
 export const DRAFT_INPUTS: readonly { key: DraftInputKey; selector: string; clearStatus: boolean }[] = (
   Object.values(FIELDS) as FieldSpec[]
 ).flatMap((spec) =>

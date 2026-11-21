@@ -1,30 +1,7 @@
-// Reader LAYOUT 层 · video-bind 域（自退役的 player-host.js 迁出）。
-//
-// 本文件只拥有「video 播放事件 ↔ 阅读视图同步」的绑定生命周期：
-//   - bindReadingViewVideo：把 seeked/loadedmetadata 经 AbortController 绑到
-//     video 上，事件回调经 reader-bus 的端口组驱动 SYNC（播放稳态由 sync 的
-//     250ms tick 单路驱动——timeupdate 直连已随 P3 播放 sync 单路化删除，
-//     双路合计 ~8-9Hz 收敛为 interval 4Hz，seek/换轨即时响应由事件路保留）；
-//   - unbindReadingViewVideoSync：abort 即移除整组监听。
-//
-// B 形态收尾：player-host 整页接管随 文摘面板形态退役，原绑定
-// 实现里的挂载/布局分支一并删除——loadedmetadata 不再触发 layoutReaderPlayerHost，
-// seeked 不再排队控制条恢复（面板形态用户用原生控制条），宿主变化不再排队
-// ensureReaderPlayerMounted（video 换新时「重新绑定」由本函数首行的
-// readingVideoEl 比对兜底，sync tick 与 seek 入口都会路过）。原 player-host 的
-// videoEventsBound 模块级标志删除：绑定与否以元素上的 __biliscriptReadingSyncController
-// 为准，单一事实来源（原实现里标志与控制器本就同生命周期，双轨是历史负担）。
-//
-// 依赖方向（保持层图不变）：本模块属 LAYOUT 层叶子，只依赖 state/video-probe/
-// reader-bus 端口组，不 import SYNC/LIFECYCLE 域；sync.js 经静态边 import 本模块。
 import { state } from "../core/state.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
-// 端口半边：SYNC 域回调经 reader-bus 的显式端口（缺失即抛错）。
 import { readerPorts } from "./reader-bus.js";
 
-// 解绑 video 同步监听：AbortController 挂在元素上（__biliscriptReadingSyncController），
-// abort 即移除整组 seeked/loadedmetadata 监听，无需再逐个
-// removeEventListener 并 stash handler 引用。
 export function unbindReadingViewVideoSync(): void {
   const prev = state.reader.readingVideoEl;
   if (prev && prev.__biliscriptReadingSyncController) {
@@ -48,13 +25,9 @@ export function bindReadingViewVideo(video: HTMLVideoElement | null = getRuntime
 
   const syncHandler = (event: Event) => {
     if (state.reader.readingViewOpen) {
-      // seek 后的滚动跟随重置为 auto（程序化滚动窗口）；布局/控制条恢复分支
-      // 已随 player-host 整页接管退役（见文件头注）。
       if (event?.type === "seeked") {
         state.reader.setNextScrollBehavior("auto");
       }
-      // Resolved at call time through the explicit reader ports group
-      // (reader-bus.ts), so this never creates a static video-bind → sync.js edge.
       readerPorts.syncReadingViewPlayback();
     }
   };

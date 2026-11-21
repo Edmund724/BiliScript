@@ -1,5 +1,3 @@
-// ui/range-slider.ts — <input type="range" class="biliscript-range-input"> 进度同步与可重置滑块组件
-
 export interface ResettableRangeSliderOptions {
   input: HTMLInputElement | null | undefined;
   badge: HTMLElement | null | undefined;
@@ -10,9 +8,6 @@ export interface ResettableRangeSliderOptions {
   initialValue?: unknown;
   onPreview?: (val: number) => void;
   onCommit?: (val: number) => void | Promise<void>;
-  // 重置键的完整替代路径：提供时点击重置只调它（替代「默认值 + onPreview +
-  // onCommit」组合），供需要连带改写其它设置键的场景（如宽度滑块重置同时清除
-  // 自定义标记）。未提供时维持原行为。
   onReset?: (val: number) => void;
 }
 

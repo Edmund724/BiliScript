@@ -1,38 +1,10 @@
-// reader 域（reader/index.ts facade 及其 LAYOUT/SYNC/LIFECYCLE 闭包）的按需
-// 加载器（候选02 分层惰性；arch-slim-2/09 自 core/ 搬回 reader/：加载器跟随
-// 被加载模块的目录，subtitle/lazy.ts 先例）。
-//
-// 为什么惰性：reader 域（~50KB）只在进入阅读模式 / reader 交互 / reader-bus
-// 通知到达且阅读视图打开时才有职责。候选02 之前它被 message-handler 与
-// player-ai 的静态 import（reader/index barrel）拖进常驻闭包，经 esbuild 提升
-// 为 93KB 共享静态 chunk。分层后这里成为动态 import 边：esbuild 会把 facade
-// 连同 lifecycle/sync 切进独立 chunk，只在首次
-// ensureReaderDomain() 时才下载。
-//
-// 写法与 ai/lazy-player-ai.ts、subtitle/lazy.ts 同款：加载器本体收拢于
-// shared/lazy-import.ts 的 createLazyLoader（手写 promise 缓存 + 失败清缓存
-// 可重试的共享工厂）。
-//
-// 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对
-// 路径按扩展自身 URL 解析（bootstrap 已用 chrome.runtime.getURL 的绝对路径
-// 拉起主包），无需也不应再经 getURL 拼绝对路径。
-//
-// 失败语义：加载失败清空缓存 promise，允许下次触发重试（例如扩展刚更新、
-// 旧 chunk 404 的过渡窗口内先失败、刷新后可恢复）。
-//
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
-// 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
-
-// 类型面取动态 import 真身（typeof import 是纯类型引用，不产生运行时静态边）：
-// 手写窄接口曾让消费方各自交叉收口（ui/reader-gate、script-tab-activation、
-// message-handler、init-essentials 四处补丁式 cast），域入口导出面一变就漂移。
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import { createLazyLoader } from "../shared/lazy-import.js";
 
 export type ReaderDomain = typeof import("./index.js");
 
 const loader = createLazyLoader<ReaderDomain>(() => import("./index.js"));
 
-// 按需加载 reader/index.ts facade，同一文档内重复调用共享同一 promise。
 export function ensureReaderDomain(): Promise<ReaderDomain> {
   return loader.load();
 }

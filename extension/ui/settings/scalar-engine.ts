@@ -1,5 +1,3 @@
-// ui/settings/scalar-engine.ts — 标量设置水合、保存、默认偏好重置、快捷问题与外部同步监听引擎。
-
 import { AI_PROVIDERS_STORAGE } from "../../core/ai-provider-store.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../core/default-prompts.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../core/defaults.js";
@@ -104,7 +102,6 @@ export function hydrateScalarField(
   syncScalarSideEffects(binding.key, elements);
 }
 
-// 音色回退提示（仅一次）：信箱内容在读取时清除，重开设置不再重复出现。
 export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
   if (!supportsLiveCompanion()) {
     return;
@@ -117,8 +114,6 @@ export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Pro
 }
 
 export function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
-  // 留空 = 按视频内容自动生成（见 chat/quick-prompts.ts 的三档取用）：空数组
-  // 是合法值，输入位就留空。
   const prompts = Array.isArray(value) ? value : [];
   elements.aiInitialQuickPrompts.forEach((input, index) => {
     input.value = String(prompts[index] || "");
@@ -144,11 +139,6 @@ export async function loadSettings(elements: SettingsElements, deps: ScalarLoadD
   deps.syncSummaries(elements);
 }
 
-// 偏好重置的默认值载荷：本面板管理的偏好键面（save-settings 按键面白名单落盘，
-// aiProviders/asrProviders/密钥不在 settings 键面，天然不受影响）。defaultModel
-// 与 ASR 标量（activeAsrProviderId / asrAutoFallback / asrLanguage）是平台域配置，
-// 不参与重置。aiBtnDefaultOnMigrated 是安装/更新迁移旗标，readerThemeUserSet 是
-// 用户手动改过主题的一次性哨兵，webSearchMaxToolCalls 是搜索上限平台配置，均不参与重置。
 export function buildDefaultPreferencePayload() {
   return {
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,
@@ -187,7 +177,6 @@ export function buildDefaultPreferencePayload() {
   };
 }
 
-// 恢复默认偏好：面板内确认弹层通过后，把本面板的偏好键面一次性写回默认值，随后重载表单。
 export async function resetPreferences(
   elements: SettingsElements,
   deps: { reloadSettings: (elements: SettingsElements) => Promise<void> }
@@ -436,7 +425,6 @@ export function bindScalarExternalSync(
     deps.syncSummaries(currentElements);
   });
 
-  // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。
   const watchedSyncBindings = SCALAR_FIELD_BINDINGS.filter((binding) => binding.watchSync);
   unwatchStorageSync?.();
   unwatchStorageSync = watchStorageKeys(

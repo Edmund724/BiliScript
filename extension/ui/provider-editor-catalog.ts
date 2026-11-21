@@ -1,16 +1,3 @@
-// extension/ui/provider-editor-catalog.ts — 平台编辑 Modal 的 AI「模型目录」片
-//（provider-editor 拆分片，工单 12）。
-//
-// 职责：目录行模板（modelRowHtml）、草稿行增删、空态提示、目录级红字错误、行级
-// 连通测试（multi-model-catalog 阶段2；拍板 Q3/Q4/Q7/Q9/Q10/Q12/Q13），以及只读
-// 模型元数据的渲染与重算（model-catalog/04）。
-// 依赖方向：只用底层的状态袋与字段/DOM 原语（./provider-editor-state.js）、目录
-// 懒加载器（./lazy-model-catalog.js）与权限代申请（../core/host-permissions.js，
-// 与 Modal 共用同一实现）；对 ai/model-catalog 只取类型（import type，构建后消失，
-// 不把 85KB 产物静态拖进本片）。不反向依赖 Modal 本体——「草稿是否有未保存改动」
-// 由调用方按 isDirty 传入（见 runModelTest 的 dirtyDraft）。函数体自原
-// provider-editor.ts 逐字节搬移。
-
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
@@ -19,8 +6,6 @@ import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { captureSession, editDraft, getDialog, readField, runIfCurrent, state } from "./provider-editor-state.js";
 import { isSavedKeyReconfirmRequired, renderProjection } from "./provider-editor-projection.js";
 import { loadModelCatalog, loadedModelCatalog } from "./lazy-model-catalog.js";
-
-// ===== AI 模型目录（multi-model-catalog 阶段2：内联行 + 行级测试 + 拉取弹窗） =====
 
 export function showCatalogError(message: string): void {
   const error = getDialog()?.querySelector<HTMLElement>(".provider-editor-catalog-error");
@@ -32,18 +17,15 @@ export function showCatalogError(message: string): void {
 export function addModelRow(value = ""): void {
   const list = getDialog()?.querySelector<HTMLElement>(".provider-editor-model-list");
   if (!list) return;
-  // draft 是真源（候选 4 片 3）：行 DOM 是 draft.models 的投影，先写 draft 再渲染
   editDraft((draft) => {
     draft.models.push(value);
   });
   list.insertAdjacentHTML("beforeend", modelRowHtml(value));
   refreshModelCatalogMeta();
-  // 目录空态属投影表（投影规则与模板同源）：行增删后重投影一次
   renderProjection();
 }
 
 export function removeModelRow(row: HTMLElement | null): void {
-  // 行序与 draft.models 一一对应，按索引摘除（含手工增删的目录行）
   const list = row?.closest<HTMLElement>(".provider-editor-model-list");
   if (row && list) {
     const index = Array.from(list.children).indexOf(row);
@@ -57,30 +39,15 @@ export function removeModelRow(row: HTMLElement | null): void {
   renderProjection();
 }
 
-// 行级连通测试（拍板 Q4/Q12）：用该行输入框当前的模型 ID 发 ping，行内原地
-// 反馈（spinner → ✓/✕，失败原因在 title 悬停查看）；多行可并发，同一行重复
-// 点击忽略前一个（dataset.testToken 代际比对）；测试不落盘——成功也不写设置。
-//
-// 权限（458cb45 的 ASR 平台级测试同款）：点按钮这次点击是唯一手势，直达
-// requestProviderOriginsViaBackground 代申请——已授权时 Chrome 直接放行不弹窗，
-// 未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」让用户
-// 自己去点保存。拒绝回滚成可原地重试的错误态（手势不变式见 tests/ui/
-// options-save-gesture.test.ts 的调用方扫描）。
-//
-// dirtyDraft：探针校验的是**当前表单配置**（draft）——调用方传入「草稿与打开时
-// 基线不同」；成功结果据此带未保存短标，避免「测试过、真跑用已保存配置」的误读。
 export async function runModelTest(row: HTMLElement | null, dirtyDraft = false): Promise<void> {
   const draft = state.draft;
   if (!row || state.kind !== "ai" || !draft) return;
   const result = row.querySelector<HTMLElement>(".provider-editor-model-result");
   const button = row.querySelector<HTMLButtonElement>(".provider-editor-model-test");
-  // 未保存短标（dirtyDraft 时给出）：每一次状态切换都与 title 一同重置，不留上一次
-  // 成功的残留（可见文案由 CSS 从 data-unsaved 渲染，与 ✓/✕/spinner 同款）
   const clearUnsavedNote = (): void => {
     if (!result) return;
     delete result.dataset.unsaved;
   };
-  // 行序与 draft.models 一一对应：该行模型 ID 按行索引从 draft 取
   const list = row.closest<HTMLElement>(".provider-editor-model-list");
   const index = list ? Array.from(list.children).indexOf(row) : -1;
   const model = String(draft.models[index] ?? "").trim();
@@ -100,8 +67,6 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
     fail("请先填写 API 地址");
     return;
   }
-  // 协议/平台身份按 draft 下发（multi-protocol-ai / preset-headers）：新增或未保存
-  // 的表单改动探针也按 draft 走；未传时探针回落已存记录的协议/平台头
   const protocol = draft.protocol;
   const presetId = draft.presetId;
   const apiKey = draft.apiKey.trim();
@@ -123,13 +88,7 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   if (button) {
     button.disabled = true;
   }
-  // 会话结算（owner 2）：权限回执的过期判据 = 代际/open + 行仍在文档（与既有
-  // 口径一致——权限被拒时另有同行重复点击的 token 判据）；探针结果的过期判据
-  // 再加 token（后点者的结果落定，前一个被忽略）。会话句柄在权限 await 之前
-  // 捕获，两处判据共用同一代际。
   const session = captureSession(() => row.isConnected);
-  // 权限代申请排在 loading/禁用之后：权限弹窗挂着时行内已是在飞态、按钮不可重复
-  // 点；代申请与探针执行收拢至 runWithOriginPreflight 统一守卫。
   await session.runWithOriginPreflight(
     [baseUrl],
     () =>
@@ -173,8 +132,6 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   );
 }
 
-// 模型目录行模板（拍板 Q3/Q9：只有模型 ID，无展示名 / 展开箭头）。
-// 元数据栏（data-model-meta）由 refreshModelCatalogMeta 填充，查不到即 hidden。
 export function modelRowHtml(value: string): string {
   return `
     <div class="provider-editor-model-row">
@@ -188,18 +145,6 @@ export function modelRowHtml(value: string): string {
     </div>`;
 }
 
-// ===== 只读模型元数据（model-catalog/04）=====
-//
-// 数据来源是构建期产物（ai/model-catalog.ts → ui/lazy-model-catalog.ts 动态
-// import），只在设置 Modal 打开后加载。元数据是「搭建时看的」，只在这里渲染：
-// 不进对话界面（chat 的模型 chip 宽度由 canvas 量出、硬上限 420px，塞元数据会
-// 挤压截断），也不落盘、不进请求体（spec 只读纪律）。
-//
-// 查不到就整栏静默隐藏——不显示 "—"、不显示"暂无数据"：14 个预设里 ollama / custom
-// 2 家永远没有目录数据（NO_CATALOG_PRESETS），满屏占位比不显示更难看。
-
-// 上下文窗口短格式（spec §展示）：≥10⁶ 用 M，否则取整到 K；两者都是十进制
-// （1000000→"1M"、524288→"524K"）。
 export function formatContextWindow(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) {
     return "";
@@ -210,7 +155,6 @@ export function formatContextWindow(tokens: number): string {
   return `${Math.round(tokens / 1000)}K`;
 }
 
-// 行内短格式：窗口 + 能力徽标（思考 / 图片）
 function modelMetaHtml(meta: CatalogModelMeta): string {
   const parts: string[] = [];
   const window = formatContextWindow(meta.contextWindow);
@@ -226,9 +170,6 @@ function modelMetaHtml(meta: CatalogModelMeta): string {
   return parts.join("");
 }
 
-// title 承载完整信息（spec §展示）：展示名 + 窗口 + 输出上限 + 两项能力 + 数据版本。
-// 数据版本 = 上游来源 URL + 01 产物的 contentHash（**不带时间戳**：产物幂等，同一份
-// 上游数据两次生成同值，见 ai/catalog/models-dev-catalog.generated.ts 头注释）。
 export function modelMetaTitle(
   meta: CatalogModelMeta,
   source: { source: string; contentHash: string } | null
@@ -257,14 +198,10 @@ function fillMetaSlot(slot: HTMLElement, meta: CatalogModelMeta | null): void {
   }
 }
 
-// 重算当前 Modal 里所有元数据栏（目录行 + 已打开的「获取可用模型」弹窗勾选项）。
-// 调用时机：平台身份（presetId / baseUrl）或模型 id 变化、行增删、目录模块加载
-// 完成。元数据只跟着 (presetId, baseUrl) + 模型 id 走，与协议无关。
 export function refreshModelCatalogMeta(): void {
   const host = state.host;
   if (!host) return;
   const catalog = loadedModelCatalog();
-  // 平台身份按 draft 取（真源），无 draft（手工挂载 DOM 的测试）回落 DOM 投影
   const draft = state.draft;
   const presetId =
     draft?.presetId ?? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value ?? "";
@@ -279,9 +216,6 @@ export function refreshModelCatalogMeta(): void {
   });
 }
 
-// 打开 AI Modal 时触发一次懒加载，加载完成后补齐已渲染的行与弹窗。
-// 失败（扩展刚更新的过渡窗口里旧 chunk 404）静默降级：没有元数据不影响任何
-// 既有功能，下次打开 Modal 会重试（createLazyLoader 失败清缓存）。
 export async function primeModelCatalogMeta(): Promise<boolean> {
   let primed = false;
   await runIfCurrent(
@@ -291,7 +225,6 @@ export async function primeModelCatalogMeta(): Promise<boolean> {
         refreshModelCatalogMeta();
         primed = true;
       },
-      // 加载失败静默降级：没有元数据不影响任何既有功能，下次打开 Modal 会重试
       fail: () => {}
     }
   );

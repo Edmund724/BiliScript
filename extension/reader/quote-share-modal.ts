@@ -1,6 +1,3 @@
-// extension/reader/quote-share-modal.ts
-// 金句分享卡片预览模态弹窗、视差弹簧微动效与图片光栅化导出。
-
 import { escapeHtml } from "../shared/string-utils.js";
 import {
   READING_CLOSE_ICON,
@@ -89,9 +86,6 @@ const state: QuoteShareModalState = {
   feedbackTimers: new Set()
 };
 
-/**
- * 计算欠阻尼/临界阻尼弹簧在 dt 秒步进后的解析解。
- */
 function solveSpring1D(
   current: number,
   velocity: number,
@@ -433,7 +427,6 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
 
 let quoteTextMeasurer: QuoteCardTextMeasurer | null | undefined;
 
-/** 预览与导出共用同一个测量器；上下文不可用时交给布局模块的估算降级。 */
 function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
   if (quoteTextMeasurer !== undefined) {
     return quoteTextMeasurer;
@@ -450,9 +443,6 @@ function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
 const QUOTE_CARD_BORDER_SVG_CLASS = "biliscript-quote-card-border-svg";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/**
- * 检测当前渲染引擎是否原生支持 `corner-shape: superellipse(1.25)`。
- */
 export function supportsCssCornerShape(): boolean {
   return (
     typeof CSS !== "undefined" &&
@@ -461,10 +451,6 @@ export function supportsCssCornerShape(): boolean {
   );
 }
 
-/**
- * 不支持 `corner-shape: superellipse(1.25)` 时，按实测卡尺寸写入同源超椭圆 `clip-path`
- * 与 `0.5px` 内侧 SVG 描边层（1px 描边居于路径中心，外侧 0.5px 由 `clip-path` 裁去）。
- */
 function syncContinuousCornerFallback(card: HTMLElement, width: number, height: number): void {
   if (supportsCssCornerShape()) {
     return;
@@ -503,10 +489,6 @@ function syncContinuousCornerFallback(card: HTMLElement, width: number, height: 
   svg.querySelector("path")?.setAttribute("d", d);
 }
 
-/**
- * 按卡宽等比落字号与折行：折行来自共享布局（标称 408 版式），预览与导出逐行一致。
- * 卡宽变窄时字号同步缩小，保持「同一张版式缩印」的观感。
- */
 function fitQuoteCardText(host: HTMLElement): void {
   const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
   const textInner = host.querySelector<HTMLElement>(".biliscript-quote-card-text-inner");
@@ -758,7 +740,6 @@ async function handleCopyImageAction(btn: HTMLButtonElement): Promise<void> {
         renderError = err;
         throw err;
       });
-      // 防止剪贴板不可用或提前拒绝时未消费的渲染 Promise 触发 unhandledrejection
       blobPromise.catch(() => {});
       const copied = await copyQuoteCardBlobToClipboard(blobPromise, "image/png");
       if (!copied && renderError !== null) {

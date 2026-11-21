@@ -1,5 +1,3 @@
-// ui/settings/setup-flows.ts — AI / ASR 首配直达与续跑事务。
-
 import { resolveAsrSetupState } from "../../asr/asr-setup.js";
 import type { OverviewSetupErrorClass } from "../../core/overview-setup-error.js";
 import { getSettings } from "../../core/runtime.js";
@@ -22,20 +20,12 @@ import type { ProviderSettingsHost } from "../provider-settings-host.js";
 import { collectElements, setStatus, type SettingsElements } from "./elements.js";
 import type { SettingsSubpageId } from "./navigation.js";
 
-// 首配编辑会话回调：保存成功后与编辑器会话结束时的装配方出口（消费/作废续跑
-// 意图、退出设置抽屉），由 reader 装配根注入。
 export interface AiSetupSession {
   onAfterSave(): void;
   onSessionEnd(): void;
 }
 
-// 概览配置类错误（无平台 / 缺 Key / 无模型）的「去设置」直达：
-// - "no-provider"：无记录 → 直接新增 AI 平台编辑器（保存并继续语义）；
-// - "missing-key"：定位缺 Key 的启用记录 → 直接编辑该记录并聚焦 Key 输入框；
-//   定位不到（缺失 / 禁用 / 无需 Key）则结束会话并在状态栏提示；
-// - "no-model"：定位可编辑的启用 AI 平台并聚焦模型配置区。
 export interface AiSetupTarget {
-  // 缺 Key / 缺模型时调用方已知的已选平台记录：优先直达该记录；缺省按解析策略定位。
   providerId?: string;
   setupContextBanner?: string | null;
   focusField?: "apiKey" | "models";
@@ -68,9 +58,6 @@ export async function loadAsrProviders(providerHost?: ProviderSettingsHost | nul
   }
 }
 
-/**
- * 缺模型错误进入设置时定位要编辑的启用 AI 平台 id（defaultModel 优先，否则首个启用平台）。
- */
 export async function resolveEditableAiProviderId(
   providerHost?: ProviderSettingsHost | null
 ): Promise<string> {
@@ -90,9 +77,6 @@ export async function resolveEditableAiProviderId(
   }
 }
 
-// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：调用方给定的已选平台 →
-// defaultModel 精确匹配 → 首个启用回落）：只对 requiresKey !== false 且未存 Key 的
-// 启用记录给编辑入口。调用方给定记录时直达它——若已缺失/禁用/无需 Key 则返回 null。
 export async function findMissingKeyAiProvider(
   preferredProviderId = "",
   providerHost?: ProviderSettingsHost | null
@@ -118,9 +102,6 @@ export async function findMissingKeyAiProvider(
   return candidates.find((p) => p.requiresKey !== false && !p.hasSavedKey) || null;
 }
 
-// 配置完成后的续跑（开关落盘 / 编辑器保存共用）：取走一次性令牌并校验——
-// 令牌缺失、换视频或换分 P（页面身份键失配）都不续跑；
-// 已在飞或字幕在手由 kick 的在手/在飞判定让位，通过后重新进入既有字幕抓取链。
 export function resumeAsrSubtitleFetchAfterSetup(): boolean {
   const token = consumeAsrSetupResumeToken();
   if (!token) {
@@ -266,11 +247,6 @@ export async function openReaderAiSetup(
   });
 }
 
-/**
- * ASR 配置类阻塞的「前往设置」直达（字幕空态 / 概览空态 / 对话拦截共用）：
- * 点击时刻重新读实时设置与平台列表；打开前记录一次性续跑令牌，
- * 保存成功或开关落盘成功后回到原任务续跑，取消编辑或关闭抽屉作废令牌。
- */
 export async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
   openReaderSettingsMode();
   await deps.ensureRendered();

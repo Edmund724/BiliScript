@@ -1,12 +1,3 @@
-// 字幕与概览摘要选区悬浮胶囊与解释卡片宿主（4 动作：高亮存笔记 / AI 解释 / 生成金句卡 / 复制带时间戳）。
-//
-// 交互链：在字幕句或概览摘要内选中任意片段 → 光标/选区上方浮出紧凑 4 动作悬浮胶囊
-// （上方空间不足自动翻转至下方，左右按面板与视口边界钳制防裁切；点击外部、滚动或 Esc 自动关闭）。
-//   - [高亮存笔记]：按当前视频落 chrome.storage.local，字幕句同步原位高亮标示；
-//   - [AI 解释]：经 reader-gate 装载 reader 域并打开 explain-card；
-//   - [生成金句卡]：经 reader-gate 打开 quote-share-modal；
-//   - [复制带时间戳]：字幕及带 data-seconds 的概览条目附 `[MM:SS] ` 前缀，概览全片简介省略时间戳。
-
 import { state } from "../core/state.js";
 import { formatClock } from "../shared/clock-text.js";
 import { byId } from "../shared/dom-utils.js";
@@ -102,7 +93,6 @@ export function computeSelectionPopPosition(params: {
   const selectionCenter = Math.round(selectionRect.left + selectionRect.width / 2 - containerRect.left);
   const containerMaxLeft = Math.max(margin, Math.round(containerRect.width) - popWidth - margin);
 
-  // 同时兼顾面板边界与浏览器视口边界，防止窄屏/滚动时被视口裁切
   const viewportMinLeft = Math.max(margin, Math.round(margin - containerRect.left));
   const viewportMaxLeft =
     viewportWidth > 0
@@ -338,7 +328,6 @@ export function bindReadingExplainEvents(): void {
       return null;
     }
 
-    // 单句内严格过滤时间戳与未就绪译文占位；跨句时要求两端都在有效字幕条目内且起止未落在时间戳
     const touchesTime = Boolean(
       startEl?.closest(".biliscript-reading-time") ||
       endEl?.closest(".biliscript-reading-time") ||
@@ -402,7 +391,6 @@ export function bindReadingExplainEvents(): void {
     if (!startEl || !endEl || !currentOverviewBody.contains(startEl) || !currentOverviewBody.contains(endEl)) {
       return null;
     }
-    // 排除状态条、空态占位及小按钮内的误选
     const disallowed = ".biliscript-reading-ov-strip, .biliscript-reading-placeholder, .biliscript-reading-ov-quote-actions, .biliscript-reading-time";
     if (startEl.closest(disallowed) || endEl.closest(disallowed)) {
       return null;
@@ -415,7 +403,6 @@ export function bindReadingExplainEvents(): void {
       return null;
     }
 
-    // 章节与金句带 data-seconds；全片简介无时间戳（from = null，复制时省略时间戳）
     const rawSeconds = anchorBlock.dataset.seconds;
     const parsedSeconds = rawSeconds !== undefined && rawSeconds !== "" ? Number(rawSeconds) : NaN;
     const from = Number.isFinite(parsedSeconds) && parsedSeconds >= 0 ? parsedSeconds : null;
@@ -481,13 +468,11 @@ export function bindReadingExplainEvents(): void {
     hideExplainPop();
   });
 
-  // 按住悬浮胶囊按钮的 mousedown 必须吃掉默认动作，避免 Chrome 先折叠选区导致快照清空
   readingExplainPop.addEventListener("mousedown", (event) => {
     event.preventDefault();
   });
   subtitleList.addEventListener("scroll", hideExplainPop, { passive: true });
   overviewBody?.addEventListener("scroll", hideExplainPop, { passive: true });
-  // 概览外层 tab body 可能是实际滚动容器
   byId(ids.readingTabBodyOverview).addEventListener("scroll", hideExplainPop, { passive: true });
 
   const flashButtonAndClose = (btn: HTMLButtonElement, message: string) => {

@@ -1,5 +1,3 @@
-// ui/settings/navigation.ts — 设置抽屉三级视图导航状态切片、返回/关闭拦截与目标直达。
-
 import type { LiveSettingsTarget } from "../../live/fullscreen-live-overlay.js";
 import {
   registerReaderSettingsBackInterceptor,
@@ -309,7 +307,6 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     sectionHeading?.focus({ preventScroll: true });
   }
 
-  // 设置子页定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
   function focusSettingsView(view: SettingsSubpageId): void {
     const host = deps.getHost();
     if (!host || !host.dataset.biliscriptSettingsRendered) return;

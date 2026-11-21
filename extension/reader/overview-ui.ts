@@ -1,11 +1,3 @@
-// 概览 tab 的呈现与交互（arch-slim-2/06 占位 + 点击委托；arch-review-batch3/02 承接 HTML 拼装与事件分派）。
-// 协调逻辑（相位机/并发闸门/wait ticker/去重）收在 reader/overview-coordinator.ts。
-//
-// 纪律：
-//  1. 呈现单向依赖快照：renderReadingOverview 改吃 ReaderOverviewSnapshot 快照，不直读协调器模块级变量；
-//  2. 依赖方向单向：呈现层不得反向 import 协调器，动作通过 registerOverviewUiActions 或入参注入；
-//  3. 宿主整块重建：reader 域装载后的渲染一律由 renderReadingOverview 整块重建内容，容器不换。
-
 import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -27,9 +19,7 @@ import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 export interface OverviewUiActions {
   retry: () => void;
   cancel: () => void;
-  /** 配置类错误「去设置」（票 01）：直达正确的平台编辑界面并记录续跑意图 */
   setup: (errorClass: OverviewSetupErrorClass) => void;
-  /** 无字幕配置空态「前往设置」：直达 ASR 平台编辑或自动转写开关（票 04） */
   openTranscribeSettings: () => void;
 }
 
@@ -72,9 +62,6 @@ export function buildOverviewTabBodyHtml(): string {
 }
 
 export function bindReadingOverviewEvents(): void {
-  // ===== PR4 概览 tab：章节/金句点击跳播 + 重试/笔记按钮 =====
-  // 事件委托挂概览渲染宿主（内容被状态机整块重建，容器不换）；逻辑经 ui/reader-gate
-  // 装载后转发，与章节 rail / 字幕句点击同款接线。
   const readingOverviewBody = byId(ids.readingOverviewBody);
   readingOverviewBody.addEventListener("pointerdown", () => {
     markOverviewPointerDownSelection();
@@ -91,10 +78,6 @@ function getClipBody(): { from: number; to: number; content: string }[] {
   return Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
 }
 
-/**
- * 就地更新生成中状态条文案（进度通知与 wait ticker 专用，不整块重渲以保留选区、焦点与滚动位置）。
- * 若状态条节点不存在则返回 false，通知调用方整块补渲。
- */
 export function updateGeneratingStripText(text: string): boolean {
   const node = document
     .getElementById(ids.readingOverviewBody)
@@ -109,9 +92,6 @@ export function updateGeneratingStripText(text: string): boolean {
   return false;
 }
 
-/**
- * 将快照投影到 DOM 渲染宿主中。
- */
 export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
   const body = document.getElementById(ids.readingOverviewBody);
   if (!body) {
@@ -122,9 +102,6 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
-  // 热评拉取失败提示（字幕管线写入 state.clip.hotCommentsNotice）：概览的章节
-  // 目录来源之一没拿到，按职责在概览自己的状态条呈现；只在有产物的相位挂条，
-  // empty/generating 等相位已有各自的预期文案。
   const hotNotice = String(state.clip.hotCommentsNotice || "").trim();
   const hotNoticeStrip = hotNotice
     ? `<div class="biliscript-reading-ov-strip"><span class="biliscript-reading-ov-strip-text">${escapeHtml(hotNotice)}</span></div>`
@@ -152,16 +129,6 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
   }
 }
 
-// 无字幕诚实空态（07 票决议：无字幕不触发、不放假数据）。转写进行中（字幕
-// tab 横幅同源判定）给出预期文案，与横幅「转写完成后字幕与概览将自动出现」
-// 一致；字幕抓取中（subtitleFetchState=loading，点 Script 后台抓取未落定）
-// 同为预期态，不误显「该视频没有可用字幕」——字幕就绪后 subtitle-ready 通知
-// / 落定对账会自动触发生成。
-//
-// 已归因（noSubtitleReason 非空）时跟随原因（票 07 Q4）：标题 = 病因、正文 =
-// 补救，逐字来自 core/asr-failure-notice 的单一真源，不带详情行（详情行是
-// 单行宿主的设计，塞进标题 + 正文占位块会破排版）；任一段缺失时回退到通用
-// 标题/正文。
 function buildEmptyStateHtml(): string {
   if (isReaderTranscribing()) {
     return `
@@ -184,9 +151,6 @@ function buildEmptyStateHtml(): string {
     const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
     title = notice.cause || title;
     copy = notice.remedyText || copy;
-    // 配置类无字幕空态（票 01/04）：补救动作是「去设置检查」时给明确设置入口，
-    // 直达 ASR 平台编辑或自动转写开关；非配置类（充值/重试/无人声）不挂，
-    // 不伪装成配置问题。
     if (requiresAsrSetup(state.clip.noSubtitleReason)) {
       settingsAction = `
         <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="open-transcribe-settings">前往设置</button>`;
@@ -201,11 +165,6 @@ function buildEmptyStateHtml(): string {
   `;
 }
 
-// 生成中状态条：单槽显示管线进度文案（onProgress，分段路径实时推进；单发路径为
-// 「正在生成概览…（已接收 N 字）」/「模型正在思考…」）+ 取消键——生成中唯一的面板内
-// 出口。管线还没报过进度且首字节等待超过阈值时，文案换成等待计时（只提示，不设硬
-// 超时）。细进度条复用转写横幅的 biliscript-asr-pulse 不确定动画（页面侧拿不到确定
-// 进度）。
 function buildGeneratingStrip(snapshot: ReaderOverviewSnapshot): string {
   const text = snapshot.stripText || "正在生成概览…";
   return `
@@ -217,8 +176,6 @@ function buildGeneratingStrip(snapshot: ReaderOverviewSnapshot): string {
   `;
 }
 
-// 取消后的收场条：已无在飞请求，给出显式重跑入口（forceRefresh；整份缓存不读、
-// 段缓存照常复用，与 partial/error 重试同一语义）。
 function buildCancelledStrip(): string {
   return `
     <div class="biliscript-reading-ov-strip">
@@ -247,8 +204,6 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
 }
 
 function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
-  // 配置类错误（票 01）：无平台 / 缺 Key / 缺模型仅给「去设置」主按钮直达正确的
-  // 平台编辑界面（首配模式，保存后续跑概览）；其余错误只给「重试」，不伪装成配置问题。
   const errorClass = classifyOverviewSetupError(snapshot.errorText);
   const actionButton = errorClass
     ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="setup" data-setup-class="${errorClass}">去设置</button>`
@@ -261,7 +216,6 @@ function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
   `;
 }
 
-// 结果区固定为简介 → 章节 → 金句；重试期间继续展示旧产物。
 function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   const analysis = snapshot.analysis;
   if (!analysis) {
@@ -347,9 +301,6 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
   `;
 }
 
-// 金句卡（暖底淡卡）：surface-2 底 + 圆角分组，无边框、无左侧 accent 边条；
-// 正文经 CSS 伪元素包「」直角引号（复制文本不含括号），底行左侧播放三角 +
-// 时间戳 pill（点击跳播）、右侧操作区（分享卡片 + 复制图标钮）。
 function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
   const from = Number(item?.from) || 0;
   const content = String(item?.content || "").trim();
@@ -372,10 +323,6 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
     </button>
   `;
 }
-
-// ============================================================
-// 交互（章节/金句点击跳播 + 复制金句 + 分享金句卡片 + 重试；ui-renderer 事件委托入口）
-// ============================================================
 
 export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiActions): void {
   const hadSelection = hadSelectionOnOverviewPointerDown;
@@ -419,9 +366,6 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     return;
   }
 
-  // 章节/金句点击 → 跳播（点句跳转同一通道：jumpReadingTarget，阅读视图内
-  // 点击语义 = resumePlayback:true）。金句卡有正文，用户选中文本复制时不跳转，
-  // 与字幕句点击同款守卫。
   const seekTarget = (event.target as HTMLElement | null)?.closest<HTMLElement>(
     ".biliscript-reading-ov-chapter, .biliscript-reading-ov-quote"
   );

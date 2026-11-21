@@ -10,49 +10,16 @@ import {
   isChatDisplaySliderAvailable,
   type ChatDisplaySettingKey
 } from "../reader/chat-display-settings.js";
-// PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经 reader-bus 的转发槽并入本模块
-// 的单一 document click 委托（避免第二个 document 监听互踩）。
 import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
-// 候选03 常驻瘦身：本模块（面板 + 阅读视图壳构建、事件绑定）已整体惰性化，
-// 经 ui/lazy-ui.js 动态装载。静态 import 只允许常驻叶子——reader 状态微模块
-//（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
-//（../core/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
-// 在 reader/lazy-reader 内部）。
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
 import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode, stepBackReaderSettings } from "../reader/settings-mode.js";
 import { beginReaderAsrSetupFlow } from "../reader/setup-resume.js";
-// tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
-//（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
-// ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
 import { isReaderScriptTab } from "../reader/script-tab-persistence.js";
-// 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
-// 阅读壳（工单 arch-slim/02）：关闭按钮的关闭链退化为退出事务委托
-//（URL 收敛 → closeReadingView → 摘阅读表，唯一实现在 reader/shell.ts）。
 import { exitReaderShell } from "../reader/shell.js";
-// 对话分区表（arch-slim-4/07）：投影到对话 tab 时（project-tab 命令 / 恢复链）
-// 由 setReaderScriptTab 的 chat 分支同步挂载（reader/chat-tab.ts 模块顶层另兜底
-// 挂一次）；不建 onload 门控——无样式窗口只落在未激活的静默空态上。
 import { ensureReaderChatStyles, ensureReaderSettingsStyles } from "../shared/style-injector.js";
-// arch-slim-2/06 ui 按 tab 全量收口：三 tab 的模板段+绑定段同居各自域叶子，
-// 壳只组装与接线。叶子均为轻模块（ids 表 + reader-gate 转发助手，动态边在
-// 叶子依赖内部），不把 reader 重域/总结链拖进壳闭包：
-//   - reader/chat-template.ts：对话 tab 模板（绑定全在 reader/chat-tab.ts
-//     组合根，含 els 表与 bindEvents；无平台空态「前往设置」的容器委托也在
-//     该域——死绑定修复，见其 bindEvents 注释）；
-//   - reader/subtitle-tab-ui.ts：字幕 tab 工具条/转写横幅/列表容器/Follow
-//     的模板 + 搜索/切轨/复制导出/Follow/列表交互绑定；
-//   - reader/explain-pop-ui.ts：选区解释浮层与卡片宿主模板 + 选区监听/定位/
-//     快照/卡片委托绑定（卡片状态机在 reader/explain-card.ts）；
-//   - reader/overview-ui.ts：概览占位模板 + 点击委托（状态机在 reader/overview.ts）；
-//   - ui/reader-gate.ts：withReader/whenReaderReady 转发助手单源（壳与 tab
-//     叶子共用，禁止复制）。
 import { withReader } from "./reader-gate.js";
-// 壳命令通道（arch-review-2026-09/10 reader→ui 反转）+ tab 意图反向槽：reader 域
-// 对壳的回头调（属主的标签投影 / chat-tab「前往设置」）改发 reader-bus 命令，本壳
-// 注册 handler 执行；tab 点击反过来经同一 reader-bus 上报意图给属主——两条边都不
-// 需要 reader 域静态 import 本模块。
 import { reportTabIntent, subscribeUiCommand } from "../reader/reader-bus.js";
 import { buildChatTabBodyHtml } from "../reader/chat-template.js";
 import { buildSubtitleTabBodyHtml, bindSubtitleTabEvents } from "../reader/subtitle-tab-ui.js";
@@ -226,17 +193,6 @@ export function buildUiHtml(): string {
   `;
 }
 
-// ===== 统一 文摘面板三标签（PR2） =====
-//
-// 壳只剩「投影」一件事（读标签 → class/aria/hidden 三通道写入 + 对话分区表挂载）：
-// 标签切换的状态位、持久化写穿与二级激活（对话组合根 / 概览生成）都已收口 reader
-// 域属主 reader/script-tab-activation 的 activateScriptTab，壳经 project-tab 命令
-// 与之对接、经 reportTabIntent 反向槽接收点击意图（见下方 handler 与 bindUiEvents）。
-// active 态约定：tab 按钮 .is-active + aria-selected，tab body .is-active 且
-// 去 hidden（CSS 双通道：.biliscript-reading-tab-body:not(.is-active) 与 [hidden]
-// 都收敛为 display:none，防 UA 样式被作者 display 覆盖）。
-// 当前激活标签的类型单源在 reader/state.js（状态位同居本叶子，ui 壳与测试
-// 经本 re-export 取用，import 路径不变）。
 export type { ReaderScriptTab } from "../reader/state.js";
 
 const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: string }> = [
@@ -245,12 +201,7 @@ const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: 
   { name: "chat", buttonId: ids.readingTabChat, bodyId: ids.readingTabBodyChat }
 ];
 
-// 唯一的 DOM 投影写手（project-tab 命令执行点）。只写 DOM：状态位与持久化都在
-// reader 域属主（reader/script-tab-activation.ts），本函数不得再写它们——否则
-// 当前标签就有了第二条真源（禁止各入口自行组合「写状态位 + 投影」）。
 export function setReaderScriptTab(tab: ReaderScriptTab): void {
-  // 对话分区表按需装载（arch-slim-4/07）：投影到对话 tab 时同步挂载保证首开即
-  // 在场；ensure 内部 mounted Map 去重，重入零成本。
   if (tab === "chat") {
     ensureReaderChatStyles();
   }
@@ -276,7 +227,6 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
   }
 }
 
-// script-only-ui：打开侧边栏设置抽屉（展开 + 渲染）。原「打开设置页」入口
 let settingsAssetsPrewarmed = false;
 
 function prewarmReaderSettingsAssets(): void {
@@ -288,27 +238,12 @@ function prewarmReaderSettingsAssets(): void {
   });
 }
 
-//（open-options 消息/options 页）已删除，header 齿轮、对话 tab 设置按钮与
-// 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
-// 在抽屉打开时装载设置面板。
 export function openReaderSettingsPanel(): void {
   ensureReaderSettingsStyles();
   openReaderSettingsMode();
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
 
-// 壳命令通道 handler（arch-review-2026-09/10 reader→ui 反转 + 标签激活收口）：
-// reader 域对壳的回头调改发 reader-bus 具名命令，本壳是唯一执行方。二命令：
-//   - "project-tab"：把标签投影到 DOM（reader 域属主 reader/script-tab-activation
-//     的 activateScriptTab 在写状态位/持久化之后发本命令）——本命令只做 DOM 三通道
-//     + 对话分区表挂载，不写状态位、不落盘、不做二级激活（那些都在属主）；未知/
-//     缺失 payload 静默忽略，不动当前投影；
-//   - "open-settings"：打开侧边栏设置抽屉；target 可直达外观、伴看、Gemini
-//     凭据或 ASR 配置。
-// 旧命令 "set-tab" / "set-tab:chat" 已随标签激活收口 reader 属主退役（本处不再
-// 注册，残留发送方静默丢弃）。
-// 命令到达时壳必然已装载（本模块被装载才注册），但目标 DOM 缺失时各 setter
-// 空转，与原 reader 侧直调的行为同形。
 subscribeUiCommand((name, payload) => {
   if (name === "project-tab") {
     const tab = (payload as { tab?: unknown } | null)?.tab;
@@ -345,8 +280,6 @@ subscribeUiCommand((name, payload) => {
 });
 
 export function bindUiEvents(): void {
-  // script-only-ui：A 形态经典侧栏面板已删除，模板不再包含旧壳节点
-  //（biliscript-panel/biliscript-status/biliscript-preview 等）；面板交互只有阅读视图（Script）。
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingThemeSelect = byId(ids.readingThemeSelect);
@@ -354,30 +287,16 @@ export function bindUiEvents(): void {
   const readingSettingsBackBtn = byId(ids.readingSettingsBackBtn);
   const readingHeader = readingView.querySelector<HTMLElement>(".biliscript-reading-header")!;
 
-  // arch-slim-2/06 / batch2-04：三 tab 的专属绑定随模板同居各自域叶子（见文件头 import 注），
-  // 壳的 bindUiEvents 只保留面板骨架交互 + 各叶子接线的一次性触发；字幕工具条相位与设置
-  // 订阅已收进实例 bindEvents()，此处保留字幕 tab 自身交互绑定。
   bindSubtitleTabEvents();
   bindReadingExplainEvents();
   bindReadingOverviewEvents();
 
-  // 文摘面板三标签切换（标签激活收口 reader 属主，见上方 handler 注释）：点击
-  // 只上报意图（reader-bus 反向槽），由属主写状态位/持久化后经 "project-tab"
-  // 命令投影回 DOM；二级激活（对话组合根 / 概览生成）同属属主的串行队列。壳不
-  // 直接写 tab——那会绕过唯一状态位成为第二条真源。
   for (const def of SCRIPT_TAB_DEFS) {
     byId(def.buttonId).addEventListener("click", () => {
       reportTabIntent(def.name);
     });
   }
 
-  // script-only-ui：经典侧栏面板的按钮绑定（close/refresh/select/copy/
-  // download/settings）已随 A 形态模板删除；刷新/复制/导出等动作由字幕 tab
-  // 工具条与面板 header 的动作按钮承接，绑定见 reader/subtitle-tab-ui.ts。
-  // ===== 阅读视图交互回调（候选02）：closeReadingView/sync/click 等属 reader
-  // 重域，交互时经 ensureReaderDomain 装载后调用（视图开着 ⇒ 域几乎必然已装载
-  // ，ensure 命中缓存 promise）。关闭按钮：退出事务统一走阅读壳（工单
-  // arch-slim/02），与 reader-close 消息路径同一实现。
   const consumeOverlayClick = (event: Event): boolean => {
     if (!state.reader.readingSettingsExpanded || !hasReaderSettingsOverlayOpen()) return false;
     event.stopPropagation();
@@ -389,8 +308,6 @@ export function bindUiEvents(): void {
   });
   readingThemeSelect.addEventListener("click", (event) => {
     if (consumeOverlayClick(event)) return;
-    // 明暗两态循环 light ↔ dark（按钮只管明暗轴；主题族在设置抽屉手选，
-    // 档位文案/图标映射见 ui/theme-button.ts）。
     const next = state.reader.readingTheme === "dark" ? "light" : "dark";
     withReader("reader theme switch", (reader) => {
       reader.updateReaderPreferences({ readerTheme: next }, { persist: true });
@@ -429,8 +346,6 @@ export function bindUiEvents(): void {
     closeReaderSettingsMode();
   });
 
-  // 设置外点与 Esc 共用一次性文档委托；对话 tab popovers 的外点仍经 reader-bus
-  // 转发。只有整个文摘面板之外的宿主页点击才退出设置，且不取消宿主行为或抢回焦点。
   if (!state.reader.readingDocumentClickBound) {
     document.addEventListener("click", (event) => {
       dispatchChatTabOutsideClick(event);
@@ -470,14 +385,6 @@ export function bindUiEvents(): void {
   });
 }
 
-// 壳根（ids.root = #biliscript-reading-view）的生命周期：建成即长期在场——退出阅读
-// 形态只清属性与样式表（reader/shell.ts 的 exitReaderShell 不摘根），再次进入复用同
-// 一批节点。这条「建成后不重建」是域叶子的隐性前置：多个叶子在模块求值时解析并长期
-// 持有壳内节点引用（reader/chat-tab.ts 的 els 与文件级闭包状态、
-// reader/subtitle-tab-ui.ts 的控件节点表），重建壳根会让这些引用静默指向脱离文档的
-// 旧节点。故 forceRecreate 只用于「壳根首建前的清场」——content.ts 的启动直达路径与
-// 测试脚手架，都早于任何域叶子装载；要在叶子装载后重建的场景，先把叶子改成按需解析
-// 引用，再开这个开关。
 export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boolean } = {}): void {
   const existingRoot = document.getElementById(ids.root);
   if (existingRoot && forceRecreate) {
@@ -500,10 +407,3 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
   }
 }
 
-// renderMeta / renderSubtitleSelect / setBusyState 已随经典侧栏面板删除
-//（script-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
-// tab 工具条接线）；setStatus 已迁往 ../core/ui-status.js。
-// arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/
-// chat-template.ts + chat-tab.ts；字幕 reader/subtitle-tab-ui.ts；选区解释
-// reader/explain-pop-ui.ts + explain-card.ts；概览 reader/overview-ui.ts +
-// overview.ts），本壳只保留面板骨架、tab 投影与点击意图上报、文档级委托与懒加载转发。

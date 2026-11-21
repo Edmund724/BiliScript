@@ -1,5 +1,3 @@
-// ui/settings/model-selects.ts — AI 默认模型与字幕翻译来源/模型双级联下拉渲染、事件绑定与乐观回滚。
-
 import {
   INDEX_TRANSLATE_DEFAULT_MODEL,
   INDEX_TRANSLATE_MODEL_OPTIONS,

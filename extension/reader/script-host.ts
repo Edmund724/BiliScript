@@ -1,51 +1,15 @@
-// Reader LAYOUT 层 · script-host 域（右栏 文摘面板定位器）。
-//
-// 职责：计算右栏 rect 并写入 #biliscript-reading-view 的 CSS 变量
-// --biliscript-script-left/top/width/height。定位 CSS（reader-gate.css）消费这些变量，
-// 本模块只负责「算 + 写」；浮层形态（降级 2）不写定位变量，改设
-// data-biliscript-script-float="1" 属性，让 CSS 回落到 reader.css 既有的
-// 居中浮层基础样式；显式自定义宽度时另写 --biliscript-script-float-width
-// （CSS 用 min() 与视口边距约束取窄）。
-//
-// 贴栏形态的几何：面板贴视口右界，纵向钳进一屏（top 跟锚点
-// 但不出视口，底缘贴视口底），内容超高由面板内部滚动消化。
-// 宽度由 getCustomPanelWidth() 决定：显式自定义（customPanelWidthEnabled）
-// 时取 400–650px 自定义值，否则默认 540px。
-//
-// player-host 整页接管退役后，本模块是 LAYOUT 层唯一的布局调度器
-//（rAF 合帧 + 脏检查，思路源自旧 player-host 调度器）——script-host
-// 的写组是四个 CSS 变量与一个浮层属性，快照结构独立。
-//
-// 附带职责（M19）：滚动起止的材质降级标记。面板贴栏时每帧随变量位移，
-// header/设置抽屉的 backdrop-filter 会逐帧重采样；滚动期间给视图节点挂
-// data-biliscript-script-scrolling（CSS 侧摘掉毛玻璃），scrollend 或 150ms 静默
-// 兜底摘除。与 rAF 重算共用 scroll 监听、各自独立的收尾节拍。
-//
-// 为什么不用 MutationObserver：弹幕每飘一条都是变更事件，白烧 CPU（见
-// ui/script-button.ts 头注）；SPA 换页换掉锚点节点的场景由 2s 定时自查
-// 覆盖（节拍与拆单源的理由见 REANCHOR_INTERVAL_MS 处注释，与 script-button
-// 的按钮自愈相互独立，不复用 shared/self-heal.js 的 200ms 常量）。
-
 import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
-// #biliscript-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
-// 为此存在，本模块四处手抄字面量收口到 ids.readingView。
 import { ids } from "./state.js";
 
-// 右栏锚点候选（单源 bilibili/host-selectors）：只读 getBoundingClientRect，绝不往锚点里插节点。
 const ANCHOR_SELECTORS = BILI_HOST_SELECTORS.rightColumnAnchors;
 
-// 锚点有效硬下限：宽度过小视为隐藏副本/折叠态，跳过落到次优先候选。
 const ANCHOR_MIN_WIDTH = 280;
-// 贴栏形态默认目标宽度（540px）与播放器降级/浮层共用的宽度保底下限（300px）。
 const PANEL_MIN_WIDTH = 300;
 const DEFAULT_PANEL_TARGET_WIDTH = 540;
 
-// 显式自定义宽度：仅当设置里显式开启（customPanelWidthEnabled，设置面板宽度滑块
-// 改动时置位、重置键清除）且值落在 400–650 时返回取整值，否则返回 null——
-// 三种形态各自回落默认几何（贴栏 540、降级占满可用宽、浮层 CSS 默认上限）。
 function getCustomPanelWidth(): number | null {
   if (state.settings?.customPanelWidthEnabled !== true) {
     return null;
@@ -57,57 +21,27 @@ function getCustomPanelWidth(): number | null {
   return null;
 }
 
-// 贴播放器右缘时的间距。贴栏纵向钳进一屏的最低高度保底（视口过矮时
-// top 不再上移，宁可口子贴底）。
 const PLAYER_GAP = 12;
 const PINNED_MIN_HEIGHT = 240;
-// 窄于该值不进贴栏形态（1000 是估计值，TODO: 手工验证时对照 B 站
-// 右栏折叠断点校准后再定）。
 const FLOAT_VIEWPORT_MIN_WIDTH = 1000;
-// 定时自查间隔：SPA 换页把锚点节点换掉后靠它重锚（不用 MutationObserver，
-// 理由见文件头注）。有意不再沿用 shared/self-heal.js 的 200ms（按钮自愈
-// 节拍，仍是其唯一消费者）：面板跑位是「降级表现」，滚动/resize 的 rAF
-// 合帧与 ResizeObserver 自带重锚（applyScriptRect 每拍比对换锚），此拍只在
-// 「用户完全不动 + 无 observer 事件」期间兜底自愈，与按钮「功能失效恢复」
-// 的语义本就独立，不必同档——兜底延迟上限放宽到 2s。
 const REANCHOR_INTERVAL_MS = 2000;
-
 
 const SCRIPT_VAR_PREFIX = "--biliscript-script-";
 const SCRIPT_VARS = ["left", "top", "width", "height"] as const;
 const FLOAT_ATTR = "data-biliscript-script-float";
-// 浮层形态的显式自定义宽度：脚本写入、reader-gate.css 的浮层宽度规则消费
-//（min(var(--biliscript-script-float-width, 760px), calc(100vw - 32px))——
-// 视口边距约束恒生效，自定义宽度只在更窄时取窄）。未自定义不写入，
-// 回落 CSS 默认 760px 上限。
 const FLOAT_WIDTH_VAR = "--biliscript-script-float-width";
-// 滚动进行中标记：贴栏态面板每帧随 --biliscript-script-top 位移，header/设置抽屉的
-// backdrop-filter 跟着每帧重采样（M12 巡检 P2-2）。滚动期间摘掉毛玻璃、停下
-// 恢复——面板壳自身是不透明底，header/抽屉的 backdrop 只有面板底色，摘掉期间
-// 模糊结果无可见差异；静止态材质一字不动。规则在 reader.css / reader-settings-providers.css。
 const SCROLLING_ATTR = "data-biliscript-script-scrolling";
-// 滚动收尾兜底窗：scrollend（支持时）即时恢复材质，本定时器兜底——滚动事件
-// 每拍重置，滚动停止 150ms 内无 scrollend 也会恢复，不依赖引擎事件支持。
 const SCROLL_IDLE_TIMEOUT_MS = 150;
-
-// ===== 模块级生命周期状态（open/close 属主，统一托管于 DisposableContext） =====
 
 let hostScope: DisposableContext | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let observedAnchor: Element | null = null;
 let layoutRafId = 0;
-// 滚动进行中标记的定时收尾句柄（非 0 即标记已挂、收尾待跑）。
 let scrollIdleTimer = 0;
-// 上次写组快照：与本次计算结果全同则整组跳写，避免每个滚动事件的无谓样式
-// 失效（脏检查快照 lastSnapshot）。浮层分支记
-// floating: true 与浮层宽度（无自定义为空串），与贴栏分支互斥，形态切换天然强制重写。
 let lastSnapshot: { floating: boolean; values: string[]; floatWidth?: string } | null = null;
-
-// ===== 对外三个入口 =====
 
 let anchorWaitTimer = 0;
 
-// 检查是否有可用锚点或播放器
 export function hasScriptAnchor(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -115,9 +49,6 @@ export function hasScriptAnchor(): boolean {
   return Boolean(findScriptAnchor() || getPlayerRect());
 }
 
-// 等待右栏锚点或播放器挂载（首载宽限窗，避免首拍无锚点瞬态直接降级为浮层导致闪烁）：
-// 窄窗（<1000px）无需等待立即放行（天然浮层）；宽屏已命中锚点立即放行；
-// 首载未就绪时以 50ms 轮询等待至多 timeoutMs（默认 2000ms），命中或超时即放行。
 export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
   if (typeof window === "undefined" || window.innerWidth < FLOAT_VIEWPORT_MIN_WIDTH) {
     return Promise.resolve(true);
@@ -142,8 +73,6 @@ export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
   });
 }
 
-// 开始定位：立即算一次并写变量/浮层属性，然后挂上全部重算机制。重复调用
-// 不叠加监听（幂等）。
 export function openScriptHost(): void {
   if (hostScope && !hostScope.isDisposed()) {
     return;
@@ -155,9 +84,6 @@ export function openScriptHost(): void {
   scope.setInterval(checkReanchor, REANCHOR_INTERVAL_MS);
 }
 
-// 拆除全部监听/定时器/observer，清除四个 CSS 变量与浮层属性。未 open 时
-// 调用是安全的 no-op。
-// 供设置面板等外部在动态更新自定义宽度或切换布局时主动请求重算布局
 export function relayoutScriptHost(): void {
   scheduleScriptLayout();
 }
@@ -186,12 +112,7 @@ export function closeScriptHost(): void {
   readingView.removeAttribute(FLOAT_ATTR);
 }
 
-// ===== 重算机制 =====
-
 function bindScriptHostListeners(scope: DisposableContext): void {
-  // ResizeObserver 回调只排 rAF，由下一帧统一读 rect、写变量；当前锚点是
-  // open 的首拍在 bind 之前选出的，实例化后补上对它的观察。不支持 observer
-  // 时保留 2s 自查兜底。
   if (typeof ResizeObserver !== "undefined") {
     const observer = new ResizeObserver(() => {
       if (resizeObserver !== observer) {
@@ -210,21 +131,15 @@ function bindScriptHostListeners(scope: DisposableContext): void {
   scope.addListener(document, "scrollend", endScriptScroll);
 }
 
-// 事件路径入口：丢弃 Event 实参，转调合帧入口（不带 finding 的纯重算）。
 function requestScriptLayout(): void {
   scheduleScriptLayout();
 }
 
-// 滚动事件路径：与合帧重算并行地挂/续「滚动进行中」标记（重算只关心 rect，
-// 材质降级只关心滚动起止，两者节拍独立）。标记由 scrollend 或 150ms 静默收尾。
 function onScriptScroll(): void {
   markScriptScrolling();
   requestScriptLayout();
 }
 
-// 挂标记并重置收尾定时器：每次滚动事件都续命，滚动一停定时器就落地恢复。
-// 视图节点缺失（未渲染/已清理）时静默跳过，不空转定时器。标记已在则不重写
-// 属性值——与写组的脏检查同理，避免滚动每拍触发无谓的样式失效。
 function markScriptScrolling(): void {
   const readingView = document.getElementById(ids.readingView);
   if (!readingView) {
@@ -245,7 +160,6 @@ function markScriptScrolling(): void {
     : window.setTimeout(endScriptScroll, SCROLL_IDLE_TIMEOUT_MS);
 }
 
-// 收尾：摘标记、停定时器。scrollend 与定时器、close 都走这里，幂等。
 function endScriptScroll(): void {
   if (scrollIdleTimer) {
     if (hostScope) {
@@ -258,10 +172,6 @@ function endScriptScroll(): void {
   document.getElementById(ids.readingView)?.removeAttribute(SCROLLING_ATTR);
 }
 
-// rAF 合帧入口：置脏标志（rafId 非 0 即有未消费请求），一帧至多跑一次
-// 「读→算→写」。finding 为自查拍（checkReanchor）搜到的锚点与 rect，原样
-// 透传给本帧的 applyScriptRect（同拍复用，不重搜）；事件路径不传 finding，
-// 一帧内的重复请求合并为一帧（rAF 只认 fn 引用，不认形参）。
 function scheduleScriptLayout(finding?: AnchorFinding): void {
   if (layoutRafId) {
     return;
@@ -273,18 +183,12 @@ function scheduleScriptLayout(finding?: AnchorFinding): void {
 
 function runScriptLayout(finding?: AnchorFinding): void {
   layoutRafId = 0;
-  // 阅读视图节点已被移除（扩展根被清理/测试 teardown）时静默丢弃本帧：
-  // 没有可写变量/属性的对象。
   if (!document.getElementById(ids.readingView)) {
     return;
   }
   applyScriptRect(finding);
 }
 
-// 2s 自查：锚点节点被 B 站换掉（SPA 换页/重渲染）时重锚。自查只做一次
-// 搜索（锚点与 rect 一并得到），经 rAF 合帧把结果交给 applyScriptRect 复用
-//（一拍一搜：自查路径全拍 findScriptAnchor 恰一次、rect 恰一次），换观察
-// 对象的判断收在 applyScriptRect——自查自身不换锚，只触发合帧。
 function checkReanchor(): void {
   if (!hostScope || hostScope.isDisposed()) {
     return;
@@ -292,15 +196,8 @@ function checkReanchor(): void {
   scheduleScriptLayout(findScriptAnchor() ?? undefined);
 }
 
-// ===== 锚点与形态计算 =====
-
-// findScriptAnchor 的返回：命中的锚点与其筛选时量得的 rect（rect 一并给出，
-// 调用方复用、不重复量）；全落空返回 null。
 type AnchorFinding = { anchor: Element; rect: DOMRect } | null;
 
-// 按优先级取第一个有效的右栏锚点：存在、rect.width >= 280 且 rect.right
-// 未超出视口。隐藏副本（width 0）与滚出视口的候选都被跳过。rect 随命中
-// 一并返回（筛选时已量），调用方复用、不再重复读。
 function findScriptAnchor(): AnchorFinding {
   for (const selector of ANCHOR_SELECTORS) {
     const candidate = document.querySelector(selector);
@@ -315,7 +212,6 @@ function findScriptAnchor(): AnchorFinding {
   return null;
 }
 
-// 重锚时换 ResizeObserver 的观察对象；锚点为 null 时只解除旧观察。
 function observeScriptAnchor(anchor: Element | null): void {
   if (resizeObserver && observedAnchor) {
     resizeObserver.unobserve(observedAnchor);
@@ -326,11 +222,6 @@ function observeScriptAnchor(anchor: Element | null): void {
   }
 }
 
-// 读→算→写一拍。所有路径（open/事件合帧/自查）最终都到这里，形态计算与
-// 写组只有这一条路径。finding 为空即事件路径（rAF 合帧/初始化），函数自查
-// 锚点；自查路径（checkReanchor）传入其拍内已找到的锚点与 rect（搜索时
-// 一并量得），跳过 findScriptAnchor 与重复 rect 读。观察对象的换锚判断在
-// 此单点收口，两条路径同样过这段。
 function applyScriptRect(finding?: AnchorFinding): void {
   const readingView = document.getElementById(ids.readingView);
   if (!readingView) {
@@ -343,7 +234,6 @@ function applyScriptRect(finding?: AnchorFinding): void {
     observeScriptAnchor(anchor);
   }
 
-  // 锚点命中且视口够宽：贴栏形态，宽度为显式自定义值（无则默认 540px）。
   const anchorRect = found?.rect;
   if (anchorRect && window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
     const rect = clampAnchorRect(anchorRect);
@@ -351,9 +241,6 @@ function applyScriptRect(finding?: AnchorFinding): void {
     return;
   }
 
-  // 降级 1：锚点全落空但视口够宽且有播放器——面板占「播放器右缘 + 12 →
-  // 视口右缘」，纵向同样钳进一屏；显式自定义宽度时收缩为自定义宽（不超过可用
-  // 宽度）；挤不出下限宽则继续降级。
   if (window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
     const playerRect = getPlayerRect();
     if (playerRect) {
@@ -375,21 +262,13 @@ function applyScriptRect(finding?: AnchorFinding): void {
     }
   }
 
-  // 降级 2：窄窗 / 连播放器都没有——浮层形态。不写四个定位变量，改设浮层
-  // 属性，reader-gate.css 让面板回落到 reader.css 居中浮层基础样式；显式自定义
-  // 宽度另写 --biliscript-script-float-width（CSS 侧与视口边距约束取窄）。
   applyFloating(readingView);
 }
 
-// 视口右界：documentElement.clientWidth 不含经典滚动条（页面滚动条保持
-// 可用，宽屏死区被面板吃掉但不动滚动条）；覆盖式滚动条平台它等于
-// innerWidth。jsdom 下 clientWidth 恒 0，回落 innerWidth。
 function getViewportRightBound(): number {
   return document.documentElement.clientWidth || window.innerWidth;
 }
 
-// 纵向钳进一屏：top 跟锚点/播放器但不小于 0，且不超过「视口底 -
-// 最低高度保底」；底缘恒贴视口底。
 function clampTopIntoViewport(rawTop: number): number {
   return Math.max(
     0,
@@ -397,8 +276,6 @@ function clampTopIntoViewport(rawTop: number): number {
   );
 }
 
-// 命中锚点后取面板 rect：宽度为显式自定义值（无则默认 540px），贴视口右界；
-// left 为 right - width；纵向钳进一屏（top 跟锚点但不出视口，底缘贴视口底）。
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
   const width = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
@@ -407,8 +284,6 @@ function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: num
   return { left, top, width, height: window.innerHeight - top };
 }
 
-// 降级 1 的播放器 rect：findReaderPlayerHost(video) 的宿主若不可用（video
-// 缺失或宿主 rect 塌掉），返回 null 继续降级。
 function getPlayerRect(): DOMRect | null {
   const video = document.querySelector("video");
   const host = findReaderPlayerHost(video);
@@ -421,8 +296,6 @@ function getPlayerRect(): DOMRect | null {
   }
   return rect;
 }
-
-// ===== 写组（脏检查：与上次快照全同则整组跳写） =====
 
 function applyPinnedRect(
   readingView: HTMLElement,

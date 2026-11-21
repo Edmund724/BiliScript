@@ -1,6 +1,3 @@
-// ui/settings/dom-ids.ts — 设置面板所有模板元素的 DOM ID 常量表。
-// 由 settings-panel.ts 的 collectElements() 严格一一对应收集。
-
 export const SETTINGS_PANEL_DOM_IDS = {
   readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
   settingsTitle: "biliscriptSettingsTitle",

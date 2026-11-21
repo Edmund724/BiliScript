@@ -1,10 +1,3 @@
-// extension/ui/provider-settings-host.ts — 四族平台列表与编辑器协调宿主。
-//
-// 统一承接 ai / asr / live / search 四族的列表装载、事务保存/删除、orphan host 权限
-// 回收、单选激活回退、跨族凭据引用动态核验与编辑器同层往返。按 mountedFamilies
-// 挂载实际存在的 DOM 分区，不静态依赖 provider-editor / reader / chat / subtitle /
-// agent-bridge，确保伴看独立宿主 chunk 不引入阅读侧依赖。
-
 import {
   annotateAiCredentialRows,
   queryAiCredentialKey,
@@ -857,8 +850,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     }
     await openLinkedCredentialEditor("gemini-live");
   }
-
-  // ===== 列表行 / 事件绑定 =====
 
   const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
     deleteRevokeFailureInFlight = false;

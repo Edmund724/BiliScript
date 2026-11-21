@@ -1,24 +1,3 @@
-// timestamp-nav.ts — "assistant answer timestamp → clickable seek button" concern,
-// extracted out of extension/pages/sidepanel.js (ticket 04 of sidepanel-split).
-//
-// Domain: ui (same dir as markdown.js / ui-renderer.js). Every dependency
-// arrives via the injected deps object — no chrome/window imports here.
-//
-// Seek contract: the tab-message round trip is gone. `deps.seek(seconds)`
-// performs the seek in-process and returns the applied position, or `null` when
-// no video is bound (downgraded to a failure notice). The only production
-// adapter is reader/chat-tab.ts's getTimestampNavDeps, which wraps the reader
-// domain's seekReadingTarget. `deps.contextUrl` still guards the "no video
-// context" case (empty → notice, no seek).
-//
-// TIMESTAMP_PATTERN has a single home in ./markdown.js — this module imports
-// it instead of keeping a parallel copy.
-// Exported functions:
-//   - parseTimestampToSeconds(value)            pure; "mm:ss"/"hh:mm:ss" -> seconds
-//   - unwrapTimestampInlineCode(text)           pure; strips backticks around timestamp-only inline code
-//   - linkifyAssistantTimestamps(root, deps)    DOM walker; swaps timestamp text nodes for seek buttons
-//   - jumpToAssistantTimestamp(seconds, label, deps)  async seek; deps injected at call time
-
 import { formatClock, parseClock } from "../shared/clock-text.js";
 import { isTimestampOnlyInlineCode } from "./markdown.js";
 import { animateTriggerEnter, animateTriggerExit, cancelTriggerExit } from "./trigger-motion.js";
@@ -404,10 +383,6 @@ async function jumpToAssistantTimestamp(
   deps.notice?.(`正在跳转到 ${label || formatClock(safeSeconds, { hours: "auto" })}...`, 1800);
 
   try {
-    // 进程内定位：content script 无 tab 消息链，seek 不经 chrome.tabs /
-    // 跨标签导航，直接调注入的 seek（唯一生产实现是 reader 域单入口
-    // seekReadingTarget）。返回 null = 未绑定到视频，与旧 { ok:false, error }
-    // 回包同型降级。
     const seekedTo = deps.seek?.(safeSeconds);
     if (seekedTo === null) {
       throw new Error("视频时间跳转失败");

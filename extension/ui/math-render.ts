@@ -1,6 +1,3 @@
-// extension/ui/math-render.ts — LaTeX 数学公式渲染（ui/lazy-math 的动态 import 落点）
-// 依赖 KaTeX 库，仅产出浏览器原生 MathML，零外部字体依赖、无 CSP 风险。
-
 import katex from "katex";
 import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown.js";
 
@@ -155,11 +152,6 @@ function createBlockMathFromNodes(nodes: Element[], annotation?: Element | null)
   return math;
 }
 
-/**
- * 参考论文与学术规范：若块级顶层公式包含等号，将等号左侧（LHS+等号）与右侧（RHS）拆入外层 HTML flex 容器，
- * 右侧按顶层二元加减项分组为独立原生 MathML <math display="block"> 词项，确保 Chromium 与 Firefox Gecko 下
- * 多行换行均严格对齐在等号右边，同时不破坏内部 MathML 排版。
- */
 function alignEquationAtEquals(container: Element): void {
   const mathEl = container.querySelector("math");
   if (!mathEl || !mathEl.parentElement) {

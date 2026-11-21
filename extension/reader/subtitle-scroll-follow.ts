@@ -1,23 +1,3 @@
-// 字幕精读列表自动跟随滚动交互状态机（reader 域共享叶子）。
-//
-// 职责：
-// 1. 维护跟随模式（"auto" | "manual"）与手动暂停截止时间（缺省无限期，显式传
-//    durationMs 时到期自动回归 "auto"，兼容既有测试与定时暂停调用）。
-// 2. 区分「程序化 scrollTo / 列表重建复位」与「用户主动滚动」：
-//    - 程序化滚动按代次 token 跟踪，优先消费现代浏览器 scrollTo/scrollIntoView
-//      返回的 Promise 与容器 scrollend 事件，辅以滚动帧刷新空闲计时器 + 硬上限
-//      兜底，避免固定 800ms 窗口在长距离平滑滚动时过早过期、短距离时过长阻塞；
-//    - 被新滚动打断的旧 Promise 按代次丢弃，防止提前解除新滚动的保护。
-// 3. 物理手势即时断跟：wheel / touchmove / 滚动条 pointerdown / 滚动按键在任何
-//    时刻（含程序化平滑滚动途中）立即解除程序化锁并切回 manual，避免与用户抢滚动条；
-//    滚动期间若 scrollTop 反向或越界偏离程序化目标，同样立即让位给用户。
-// 4. 切集 / 关闭复位（resetForVideoSwitch）：清空暂停态、指针拖拽态与在途程序化
-//    滚动代次，防止上一集的 manual 态或迟到的 scroll/Promise 污染新剧集。
-//
-// 依赖方向：只依赖 core/state、shared/clock-text 与 ./state，不 import sync /
-// lifecycle / ui-renderer；仅在轮 B（懒加载 chunk 区）内由 subtitle-tab-ui、
-// sync、lifecycle、view-render、subtitle-search 共享同一份实例，不进入常驻主包。
-
 import { state } from "../core/state.js";
 import { formatClock } from "../shared/clock-text.js";
 import {
@@ -394,7 +374,6 @@ export function createSubtitleScrollFollowMachine(
   };
 }
 
-// 生产共享单例：状态变更同步镜像回 reader/state.ts（保持既有导出与测试口径唯一真源）。
 export const subtitleScrollFollow = createSubtitleScrollFollowMachine({
   onStateChange(snapshot) {
     setManualScrollPaused(snapshot.manualPauseUntil);
@@ -406,8 +385,6 @@ export function isElementScrollable(element: HTMLElement | null): boolean {
   if (!element) {
     return false;
   }
-  // jsdom 默认 clientHeight=0 且 scrollHeight=0；真机可见容器 clientHeight>0 时
-  // 严格判定是否真有溢出，避免短字幕列表上悬停滚轮误弹回位胶囊。
   return element.clientHeight === 0 || element.scrollHeight > element.clientHeight + 1;
 }
 

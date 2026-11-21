@@ -1,11 +1,3 @@
-// ui/icons.ts — inline SVG 图标构建函数。
-// AI 播放器快捷动作图标原在 ai/player-ai.js。均为纯函数，不依赖 DOM/全局状态。
-// 候选02 分层惰性：阅读视图 header 图标（READING_HEADER_ICONS）已拆往
-// ./reading-header-icons.js——两批图标消费方分属常驻（ui-renderer）与动态
-// chunk（ai/player-ai.js），共享模块会被 esbuild 整体提升为常驻静态 chunk，
-// 拆开后 AI 图标随 player-ai 按需下载。
-
-// 快捷动作图标形态键（player-ai 的快捷按钮唯一使用默认 "orbit"：±45° 正交 1.85:1 双椭圆流光星轨 + 中心白核）。
 export type PlayerAiQuickActionIconVariant = "orbit" | "badge" | "sparkles" | "nodes" | "chip";
 
 export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIconVariant = "orbit"): string {
@@ -76,7 +68,6 @@ export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIcon
   };
   return variants[variant] || variants.orbit;
 }
-
 
 export function buildPlayerLiveQuickActionIconSvg(): string {
   return `

@@ -1,59 +1,7 @@
-// Reader 域 seam：reader 与「reader 不能静态 import 的实现方」之间的注册式调用通道。
-//
-// 通道按调用方分组（每组方法名、缺失策略、注册属主见下方 READER_SEAM_METHODS）：
-//
-//   fetcher → reader（数据变更通知，单向扇出）：
-//     订阅方经 subscribeReaderPresenter 注册回调，发布方经 notifyReaderPresenter
-//     发事件。事件只带「变了什么」，渲染所需数据在通知时刻从共享 state 读取。
-//     无订阅者是常态（普通页预抓取先于 reader 域装载），因此该通道不参与下方
-//     单 handler 声明的缺失策略。
-//   reader → fetcher（刷新请求）：
-//     reader 经 requestSubtitleRefresh 请 fetcher 重抓当前 clip；fetcher 在总结链
-//     装载成功路径上经 subscribeSubtitleRefresh 注册 refreshClip。链装载失败时
-//     调用照旧发生，因此本槽缺失按 no-op 处理（不抛、不告警）。
-//   content → reader（能力槽）：
-//     settings 持久化的实现在常驻包（读全量 state.settings 后发 save-settings），
-//     reader 域经 persistReaderSettingsThroughSeam 调用；实现在 entry/content.ts
-//     启动时一次性注册。这是唯一跨常驻/懒加载两区的槽。
-//   reader → ui 壳（壳命令）、ui 壳 → reader（标签意图）：
-//     reader 侧对壳的回头调改发具名命令 requestUiCommand(name, payload?)；壳在
-//     装载时经 subscribeUiCommand 注册单 handler。反方向由壳的标签按钮经
-//     reportTabIntent 上报意图，属主 reader/script-tab-activation 经
-//     subscribeTabIntent 注册单 handler。两条边都不允许静态 import。
-//   ui 壳 → 对话 tab（文档级外点关闭）：
-//     ui 壳的单一文档级 click 委托经 dispatchChatTabOutsideClick 转发给对话 tab
-//     在激活时注册的处理体（setChatTabOutsideClickHandler），避免第二个
-//     document 监听与壳互踩。
-//   content 接管 → live-companion-session（跨标签停止）：
-//     SW 的 live-session-takeover 按通道请实现方停止对应会话；伴看、字幕翻译各一个
-//     槽（setLiveCompanionStopHandler / setInterpretStopHandler），实现方为
-//     live/live-companion-session，槽缺失按 no-op。
-//   reader 域内部逆边（显式端口）：
-//     LAYOUT/SYNC 需要上层实现而依赖图禁止静态 import 时，经 readerPorts 的
-//     显式方法回调；实现由域组装根 lifecycle 在模块求值时经 registerReaderPorts
-//     单点注册。方法集只从真实调用点推导，禁止预留死槽位。
-//
-// 单 handler 槽的缺失语义在 READER_SEAM_METHODS 一处声明：
-//   - "throw"：未注册即抛错（端口方法）；
-//   - "noop"：缺席是合法时序，静默返回（字幕刷新请求）；
-//   - "noop-warn"：缺席按 no-op 处理，但每槽首次命中记一次 warn——永久缺失
-//     即接线 bug，同时不打断用户交互。
-//
-// 槽表挂 globalThis 而非模块级变量：两轮构建（scripts/build-content.js）把常驻
-// 底座在懒加载区重复一份，本模块在 content-main 与 chunks/ 共享 chunk 里各是一个
-// 实例。settings 持久化槽由常驻包注册、懒加载区消费，模块级槽会让注册与调用静默
-// 错开（阅读面板里改主题不落盘）。隔离世界的 globalThis 在同一扩展的全部 content
-// 模块间唯一，两侧经它对齐到同一份槽。
-//
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（槽
-// 表），允许双实例；安全依据即上文的 globalThis 槽。
-
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import { logWarn } from "../shared/logging.js";
 import type { ReaderScriptTab } from "./state.js";
 
-// Presenter 通道的封闭事件联合（一 kind 一格）：kind 在类型层封闭，拼错的 kind
-// 连编译都过不去；接收方因此按 kind 全量建表，不需要 default 静默分支。
-// "notice" 只承载字幕区的就地失败提示文案。
 export type ReaderPresenterEvent =
   | { kind: "reset" }
   | { kind: "rerender" }
@@ -70,7 +18,6 @@ type TabIntentHandler = (tab: ReaderScriptTab) => void;
 type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
 type SessionStopHandler = (reason?: "takeover") => void;
 
-// 单 handler 槽的签名表：方法名 → 回调签名。新增槽在此加一行。
 interface ReaderSeamHandlerMap {
   subtitleRefresh: SubtitleRefreshHandler;
   persistSettings: SettingsPersistHandler;
@@ -91,7 +38,6 @@ interface ReaderSeamDeclaration {
   owner: string;
 }
 
-// 声明与策略的单一来源：方法名、缺失策略、注册属主。
 export const READER_SEAM_METHODS = Object.freeze({
   subtitleRefresh: { policy: "noop", owner: "subtitle/fetcher" },
   persistSettings: { policy: "noop-warn", owner: "entry/content" },
@@ -104,10 +50,8 @@ export const READER_SEAM_METHODS = Object.freeze({
   flushReadingSubtitleToIndex: { policy: "throw", owner: "reader/lifecycle" }
 } as const satisfies Record<ReaderSeamMethod, ReaderSeamDeclaration>);
 
-// 常驻能力组的精确覆盖方法集（entry/content.ts 一次性注册）。
 const CONTENT_CAPABILITY_METHODS = ["persistSettings"] as const;
 
-// reader 端口组的精确覆盖方法集（lifecycle 单点注册）。
 export const READER_PORT_METHODS = Object.freeze([
   "noteManualReaderInteraction",
   "syncReadingViewPlayback",
@@ -148,8 +92,6 @@ function readerBusSlots(): ReaderBusSlots {
   return slots as ReaderBusSlots;
 }
 
-// ===== Presenter 通知（单发布、多订阅，不参与缺失策略） =====
-
 export function subscribeReaderPresenter(handler: ReaderPresenterHandler) {
   if (typeof handler !== "function") {
     return () => {};
@@ -166,9 +108,6 @@ export function subscribeReaderPresenter(handler: ReaderPresenterHandler) {
   };
 }
 
-// 通知签名：单个事件对象。事件原样透传给每个 handler——fetcher 的
-// "subtitle-ready" 会带状态栏文案（如"当前视频无字幕。"），"status" 带提示文本；
-// 不带 text 的 kind（reset/rerender/无文案 subtitle-ready）接收方取各自默认行为。
 export function notifyReaderPresenter(event: ReaderPresenterEvent) {
   for (const handler of readerBusSlots().readers.slice()) {
     try {
@@ -178,8 +117,6 @@ export function notifyReaderPresenter(event: ReaderPresenterEvent) {
     }
   }
 }
-
-// ===== 单 handler 槽的注册与解析 =====
 
 function setSeamHandler<M extends ReaderSeamMethod>(
   method: M,
@@ -216,7 +153,6 @@ function assertNotRegistered(kind: string, methods: readonly ReaderSeamMethod[])
   }
 }
 
-// 常驻能力组的唯一注册入口：entry/content.ts 启动时一次性注册 settings 持久化槽。
 export function registerContentCapabilities(impls: ContentSeamCapabilities): void {
   if (!impls || typeof impls !== "object") {
     throw new Error("[BILISCRIPT] reader 能力槽注册缺少实现表。");
@@ -228,9 +164,6 @@ export function registerContentCapabilities(impls: ContentSeamCapabilities): voi
   }
 }
 
-// reader 端口组的唯一注册入口：域组装根 lifecycle 在模块求值时单点注册。
-// 注册表必须精确覆盖方法集：缺方法抛错（防实现缺失静默化），多出未知键也
-// 抛错（防拼写漂移悄悄绕过显式方法集）。
 export function registerReaderPorts(impls: ReaderPortImpls): void {
   if (!impls || typeof impls !== "object") {
     throw new Error("[BILISCRIPT] reader 端口注册缺少实现表。");
@@ -242,7 +175,6 @@ export function registerReaderPorts(impls: ReaderPortImpls): void {
   }
 }
 
-// 解析单 handler 槽：按声明策略抛错或按 no-op 返回 null（noop-warn 每槽首次告警）。
 function resolveSeamHandler<M extends ReaderSeamMethod>(
   method: M
 ): ReaderSeamHandlerMap[M] | null {
@@ -272,11 +204,6 @@ function requireSeamHandler<M extends ReaderSeamMethod>(
   return handler;
 }
 
-// ===== 字幕刷新（reader → fetcher） =====
-
-// fetcher 在总结链装载成功路径上注册 refreshClip。首个注册者生效：先到者占据
-// 该槽，后来的注册不覆盖（链重复装载时的 refreshClip 同一函数，幂等），返回
-// 摘除函数；摘除只清同名 handler。
 export function subscribeSubtitleRefresh(handler: SubtitleRefreshHandler) {
   if (typeof handler !== "function") {
     return () => {};
@@ -292,9 +219,6 @@ export function subscribeSubtitleRefresh(handler: SubtitleRefreshHandler) {
   };
 }
 
-// Asks the subtitle fetcher to re-fetch the current clip. Resolves with the
-// handler's return value (a Promise), or with undefined when no handler is
-// registered yet — must never throw.
 export function requestSubtitleRefresh(): Promise<unknown> {
   const handler = resolveSeamHandler("subtitleRefresh");
   if (!handler) {
@@ -308,8 +232,6 @@ export function requestSubtitleRefresh(): Promise<unknown> {
   }
 }
 
-// ===== 常驻能力槽（content → reader） =====
-
 export function persistReaderSettingsThroughSeam() {
   const handler = resolveSeamHandler("persistSettings");
   if (!handler) {
@@ -322,17 +244,10 @@ export function persistReaderSettingsThroughSeam() {
   }
 }
 
-// ===== 壳命令 / 标签意图（reader ↔ ui 壳） =====
-
-// Registers the ui-renderer callback that executes shell commands (tab 投影,
-// settings drawer). 单 handler 槽：后注册覆盖先注册。
 export function subscribeUiCommand(handler: UiCommandHandler) {
   setSeamHandler("uiCommand", typeof handler === "function" ? handler : null);
 }
 
-// 壳命令纯转发（fire-and-forget）：壳未装载（无 handler）或命令名未识别时按
-// 声明策略处理——reader 域发命令早于壳装载是合法时序。handler 内异常只记日志
-// 不上抛。
 export function requestUiCommand(name: string, payload?: unknown) {
   const handler = resolveSeamHandler("uiCommand");
   if (!handler) {
@@ -345,9 +260,6 @@ export function requestUiCommand(name: string, payload?: unknown) {
   }
 }
 
-// 反向槽（ui → reader）：ui 壳的 tab 点击经 reportTabIntent 上报标签意图，属主
-// reader/script-tab-activation 在模块装载时注册单 handler。槽缺席（壳点击早于
-// reader 域装载）按声明策略处理；DOM 反馈由属主的投影命令完成。
 export function subscribeTabIntent(handler: TabIntentHandler) {
   setSeamHandler("tabIntent", typeof handler === "function" ? handler : null);
 }
@@ -364,15 +276,10 @@ export function reportTabIntent(tab: ReaderScriptTab) {
   }
 }
 
-// ===== 文档级外点关闭转发（ui 壳 → 对话 tab） =====
-
-// 注册/替换对话 tab 的文档级外点关闭处理体（传 null 摘除）。同一时刻最多一个
-// 注册者（后注册覆盖先注册）；无注册者时转发按声明策略 no-op。
 export function setChatTabOutsideClickHandler(handler: ChatTabOutsideClickHandler | null): void {
   setSeamHandler("chatTabOutsideClick", typeof handler === "function" ? handler : null);
 }
 
-// ui-renderer 的单一文档级 click 委托调用：转发给对话 tab 的外点处理体。
 export function dispatchChatTabOutsideClick(event: MouseEvent): void {
   const handler = resolveSeamHandler("chatTabOutsideClick");
   if (!handler) {
@@ -384,8 +291,6 @@ export function dispatchChatTabOutsideClick(event: MouseEvent): void {
     logWarn("[BILISCRIPT] chat tab outside-click handler failed", { error });
   }
 }
-
-// ===== 跨标签接管停止通道（content → live-companion-session） =====
 
 export function setLiveCompanionStopHandler(handler: SessionStopHandler | null): void {
   setSeamHandler("liveCompanionStop", typeof handler === "function" ? handler : null);
@@ -403,22 +308,13 @@ export function requestLiveCompanionStop(reason?: "takeover"): void {
   }
 }
 
-// ===== reader 域内部逆边（显式端口） =====
-
-// 显式方法集：逐个列出、不做动态名字分发。LAYOUT/SYNC 域只经本对象回调
-// reader 上层域，方法签名与被替换的旧槽逐一对应。
 export const readerPorts = {
-  // LAYOUT(video-bind) → SYNC：阅读视图 scroll/wheel 的手动交互通知。
   noteManualReaderInteraction(...args: unknown[]) {
     return requireSeamHandler("noteManualReaderInteraction")(...args);
   },
-  // LAYOUT(video-bind) → SYNC：视频 seeked/loadedmetadata 事件驱动同步
-  //（播放稳态由 sync 250ms tick 单路驱动，不监听 timeupdate）。
   syncReadingViewPlayback(...args: unknown[]) {
     return requireSeamHandler("syncReadingViewPlayback")(...args);
   },
-  // SYNC → LIFECYCLE：跳转/跟随目标未上屏时的同步补渲染（分批渲染任务的
-  // 实现属主是 lifecycle，经此端口供给 sync）。
   flushReadingSubtitleToIndex(...args: unknown[]) {
     return requireSeamHandler("flushReadingSubtitleToIndex")(...args);
   }

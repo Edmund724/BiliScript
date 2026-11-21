@@ -1,12 +1,3 @@
-// extension/ui/provider-editor-validation.ts
-// 平台编辑 Modal 的字段级校验：提交时把错误定位到具体控件（错误文案 +
-// aria-invalid / aria-describedby + 聚焦首个无效字段），交互修正后只清掉
-// 已解决字段的错误。
-//
-// 校验读 draft（真源），DOM 形态来自投影片的字段表：required / hidden 与模板
-// 同源，不另写一份判据。首配 AI 至少一个模型的门槛也只在这里与保存动作各引用
-// 一次（同一份状态判据）。
-
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { getDialog, normalizeDraftModels, state, type EditorDraftView } from "./provider-editor-state.js";
 import { isSavedKeyReconfirmRequired, projectEditorFields, sessionProjectionContext } from "./provider-editor-projection.js";
@@ -30,7 +21,6 @@ const FIELD_DOM: Record<EditorFieldKey, FieldDom> = {
   models: { control: '[data-provider-editor-action="add-model"]', error: "provider-editor-error-models" }
 };
 
-// 提交过校验之后才在输入修正时重算（保留「交互后校验」：未提交前不因打字报错）
 let attempted = false;
 
 const HTTP_URL = /^https?:\/\/.+/i;
@@ -66,15 +56,12 @@ function issueFor(field: EditorFieldKey, draft: EditorDraftView): EditorFieldIss
     if (!draft.model.trim()) return { field, message: "请填写模型名" };
     return null;
   }
-  // 首配模式（票 01）：首个 AI 平台至少一个非空模型才可续跑（空白模型行不得放过）；
-  // 普通编辑仍允许空目录（multi-model-catalog Q13）
   if (state.firstSetup && state.kind === "ai" && normalizeDraftModels(draft.models).length === 0) {
     return { field, message: "请至少添加一个模型后再保存" };
   }
   return null;
 }
 
-// 当前 draft 的全部字段问题（按表单内控件顺序，供聚焦首个无效字段）。
 export function validateEditorFields(): EditorFieldIssue[] {
   const draft = state.draft;
   if (!draft) return [];
@@ -146,7 +133,6 @@ function clearIssue(field: EditorFieldKey): void {
   clearControlAttributes(field);
 }
 
-// 把一次校验结果落到 DOM：未出现在结果里的字段清空错误（已解决）。
 export function renderEditorFieldIssues(issues: readonly EditorFieldIssue[]): void {
   const keys = Object.keys(FIELD_DOM) as EditorFieldKey[];
   for (const field of keys) {
@@ -156,12 +142,10 @@ export function renderEditorFieldIssues(issues: readonly EditorFieldIssue[]): vo
   }
 }
 
-// 提交时进入校验态，并给出首个无效字段的聚焦目标。
 export function beginEditorValidation(): void {
   attempted = true;
 }
 
-// 输入修正：只重算被修正字段的错误；未提交过校验时不动 DOM。
 export function revalidateEditorField(field: EditorFieldKey): void {
   if (!attempted) return;
   const draft = state.draft;
@@ -171,8 +155,6 @@ export function revalidateEditorField(field: EditorFieldKey): void {
   else clearIssue(field);
 }
 
-// 局部前置校验（如「获取可用模型」前检查 baseUrl / apiKey）：仅重算指定字段，
-// 不清除其他字段（如模型目录）的已有错误，并返回问题列表供聚焦定位。
 export function revalidateEditorFields(fields: readonly EditorFieldKey[]): EditorFieldIssue[] {
   const draft = state.draft;
   if (!draft) return [];
@@ -189,9 +171,6 @@ export function revalidateEditorFields(fields: readonly EditorFieldKey[]): Edito
   return issues;
 }
 
-// 预设 / 协议切换可能改变 required 与联动值：由 Modal 取 validateEditorFields
-// 后统一 renderEditorFieldIssues，不另设入口。
-
 export function focusEditorField(field: EditorFieldKey): void {
   const control = controlOf(field);
   const error = errorOf(field);
@@ -204,7 +183,6 @@ export function isEditorValidationAttempted(): boolean {
   return attempted;
 }
 
-// 会话打开时归零：新会话的首次提交前不展示任何字段错误。
 export function resetEditorValidation(): void {
   attempted = false;
   renderEditorFieldIssues([]);

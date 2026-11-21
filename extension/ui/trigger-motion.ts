@@ -1,10 +1,3 @@
-// extension/ui/trigger-motion.ts
-// 触发式 UI（弹层 / 菜单 / 预览卡 / 模态弹窗 / 灯箱）的触发源锚定与进退场动效原语：
-// 根据触发器几何坐标动态计算 transform-origin，使展开与收回始终指向触发源；
-// 使用独立 CSS `scale` 属性 + `opacity` 执行 WAAPI 动画，不破坏既有居中 translate。
-// 在 jsdom（无 Element.prototype.animate）或 prefers-reduced-motion: reduce 下
-// 退场清理同步完成，不引入异步竞态。
-
 export interface TriggerEnterOptions {
   target: HTMLElement;
   trigger?: Element | DOMRect | null;
@@ -184,7 +177,6 @@ export function animateTriggerEnter(options: TriggerEnterOptions): DOMRect | nul
     );
     trackAnimation(target, anim);
   } catch {
-    // 忽略测试桩或不可动画宿主异常
   }
 
   if (mask && typeof mask.animate === "function") {

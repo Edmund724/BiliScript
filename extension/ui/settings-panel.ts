@@ -1,18 +1,3 @@
-// settings-panel.ts — 侧边栏设置面板组合根与公开出口（script-only-ui）。
-//
-// 设置项挂载在文摘面板的设置抽屉（ui-renderer 模板内的 #biliscript-reading-settings-host
-// 容器，分节、随抽屉滚动）：
-//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索 / MOSS-LIVE）与标量设置项；
-//   - 标量设置项按 SCALAR_FIELD_BINDINGS 声明式驱动水合、即时保存与跨端同步；
-//   - 平台经 provider-editor Modal 的单平台事务 provider-transaction 保存，
-//     平台行构建与验证复用 ../ui/provider-family.ts、../core/validators.ts；
-//   - 平台测试（AI/ASR 探针）只验证连通性，不落盘——保存只发生在 Modal 的
-//     保存按钮链路上；
-//   - content script 语境没有 chrome.permissions API（Chromium 仅扩展自有页面/SW
-//     可用），host 权限申请改走 "request-provider-origins" 消息由 background SW
-//     代为申请（手势随一次 runtime 消息传导；SW 监听器在调用
-//     chrome.permissions.request 前零 await）。
-
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { getSettings } from "../core/runtime.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
@@ -57,7 +42,6 @@ import { syncAllSummaries } from "./settings/summaries.js";
 
 ensureReaderSettingsStyles();
 
-// 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
 let renderSettingsPromise: Promise<void> | null = null;
@@ -197,10 +181,6 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
 }
 
-// ===== 对外入口 =====
-
-// 渲染设置面板（renderReaderPanels 打开抽屉时调用）：模板只建一次，数据每次
-// 打开都重新装载。首建分支等设置分区样式表 onload 就绪再渲染，避免首帧闪变。
 export function renderReaderSettingsPanel(): Promise<void> {
   const host = document.getElementById(ids.readingSettingsHost);
   if (!host) {

@@ -41,7 +41,6 @@ function resolveBridgePort(address: string): string {
     const port = new URL(address).port;
     if (/^\d+$/.test(port)) return port;
   } catch {
-    // Fall back to default bridge port when address is unparseable or omits port.
   }
   return DEFAULT_BRIDGE_PORT;
 }

@@ -1,9 +1,3 @@
-// extension/ui/nav-motion.ts
-// 面板内导航栈水平推入/退回动效原语（文摘主视图 ↔ 设置面板、设置总览 ↔ 多级子页共用）：
-// 仅动画合成层属性（transform: translate3d + opacity），通过 WAAPI 实现跨浏览器（Chromium / Firefox）
-// 一致的进退场编排与可中断重定位；jsdom（无 Element.prototype.animate）下同步收尾，零异步竞态；
-// prefers-reduced-motion: reduce 下自动降级为短淡入，关闭水平位移。
-
 import { prefersReducedMotion } from "./trigger-motion.js";
 
 export type NavDirection = "forward" | "backward";

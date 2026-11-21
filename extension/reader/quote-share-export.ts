@@ -1,6 +1,3 @@
-// extension/reader/quote-share-export.ts
-// 金句分享卡片预设表、细线几何纹样、物理灰度噪点、客户端光栅化导出、剪贴板写入与文件下载。
-
 export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";
 
 export interface QuoteCardPattern {
@@ -184,10 +181,6 @@ const NOISE_BASE_SIZE = 128;
 const noiseCache = new Map<number, string>();
 const patternCache = new Map<QuotePatternId, string>();
 
-/**
- * 获取当前 DPR 适配的 128×128 灰度噪点 base64 dataURL。
- * 命中缓存时直接复用，避免每次打开弹窗重复重绘 Canvas。
- */
 export function getQuoteShareNoiseDataUrl(customDpr?: number): string {
   const dpr =
     typeof customDpr === "number" && customDpr > 0
@@ -245,9 +238,6 @@ function createFallbackNoiseSvgDataUrl(): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/**
- * 获取指定纹样的内联 SVG 字符串（命中内存缓存时直接复用）。
- */
 export function getQuoteSharePatternSvg(patternId: QuotePatternId): string {
   if (patternId === "none") {
     return "";
@@ -409,22 +399,16 @@ function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement | null>
   });
 }
 
-// ===== 版式度量（单一来源：预览 DOM 与 Canvas 导出共用同一份数字）=====
-// 标称卡 408×229.5（16:9）：预览里 1cqi = 卡宽的 1%，导出的设计画布按 1200 宽等比放大。
-// 字号档位、折行、内边距与品牌位都从这一份常量推导，两边不会各算一套。
 export const QUOTE_CARD_CANONICAL_WIDTH = 408;
 export const QUOTE_CARD_CANONICAL_HEIGHT = 229.5;
 
-/** 正文衬线栈：与 `--biliscript-reader-font-serif` 同序，测量与绘制必须同源。 */
 export const QUOTE_CARD_FONT_SERIF =
   'Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif';
 
-/** 品牌角标与时间戳的无衬线栈：与 `--biliscript-reader-font-sans-medium` 同序。 */
 export const QUOTE_CARD_FONT_SANS =
   '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
 
 const TEXT_INSET_X = QUOTE_CARD_CANONICAL_WIDTH * 0.088;
-/** 正文区上下等距：文字块在卡面内几何居中，引号只占左上角的空白。 */
 const TEXT_INSET_Y = QUOTE_CARD_CANONICAL_WIDTH * 0.083;
 const TEXT_MAX_WIDTH = QUOTE_CARD_CANONICAL_WIDTH - TEXT_INSET_X * 2;
 const TEXT_AREA_HEIGHT = QUOTE_CARD_CANONICAL_HEIGHT - TEXT_INSET_Y * 2;
@@ -432,10 +416,8 @@ const BASE_FONT_SIZE = 21;
 const MIN_FONT_SIZE = 14;
 const FONT_STEP = 1;
 const LINE_HEIGHT_RATIO = 1.5;
-/** 正文最多 4 行：超过的用省略号收尾，宁可少字也不把卡面塞满。 */
 const MAX_LINES = 4;
 
-/** 正文字重：参考卡的宋体笔画厚度；可变字重字体上可在 380–450 之间连续微调。 */
 export const QUOTE_CARD_TEXT_WEIGHT = 400;
 
 export interface QuoteCardTextMeasurer {
@@ -443,22 +425,15 @@ export interface QuoteCardTextMeasurer {
 }
 
 export interface QuoteCardTextLayout {
-  /** 正文标称字号（408 卡宽下的 px）。 */
   fontSize: number;
   lineHeight: number;
   lines: string[];
-  /** 文字块左缘（最宽行居中后），各行共享这个左缘。 */
   textLeft: number;
   textTop: number;
-  /** 文字块宽度 = 最宽一行；块在卡面内左右居中。 */
   textWidth: number;
   truncated: boolean;
 }
 
-/**
- * 用 Canvas 上下文构造文字测量器（预览与导出共用）。上下文不可用时返回 null，
- * 布局退回按全角/半角估算的测量器——jsdom 与降级环境仍能出稳定折行。
- */
 export function createQuoteCardTextMeasurer(
   ctx: CanvasRenderingContext2D | null | undefined
 ): QuoteCardTextMeasurer | null {
@@ -492,7 +467,6 @@ function createApproximateMeasurer(): QuoteCardTextMeasurer {
   };
 }
 
-/** 按宽度逐字折行；保留段落换行（模型产出的金句可能自带 \n）。 */
 function wrapQuoteText(
   content: string,
   fontSize: number,
@@ -539,10 +513,6 @@ function truncateQuoteLines(
   return kept;
 }
 
-/**
- * 金句正文布局：字号从 21px 逐级降到 14px，取第一档能塞进正文区的；
- * 14px 仍超高则按行数截断并补省略号。返回值全部是标称单位。
- */
 export function layoutQuoteCardText(
   content: string,
   measurer?: QuoteCardTextMeasurer | null
@@ -588,17 +558,8 @@ export function layoutQuoteCardText(
   };
 }
 
-/**
- * 连续圆角曲线的超椭圆指数 K，与样式令牌
- * `--biliscript-primitive-corner-shape-continuous` 的 `superellipse(K)` 同值。
- * 导出图与 DOM 预览卡的角部曲率必须一致，改一处必须同改另一处。
- */
 const CORNER_SUPERELLIPSE_K = 1.25;
 
-/**
- * 采样连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
- * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径的顶点序列。
- */
 export function sampleContinuousCornerPoints(
   x: number,
   y: number,
@@ -640,10 +601,6 @@ export function sampleContinuousCornerPoints(
   return points;
 }
 
-/**
- * 生成与 Canvas 导出同源的超椭圆闭合 SVG `d` 路径字符串（保留 2 位小数），
- * 供不支持 CSS `corner-shape: superellipse(1.25)` 的引擎通过 `clip-path: path(...)` 1:1 对齐。
- */
 export function buildContinuousCornerSvgPath(
   width: number,
   height: number,
@@ -659,10 +616,6 @@ export function buildContinuousCornerSvgPath(
   return `${head} ${rest} Z`;
 }
 
-/**
- * 在 Canvas 2D 上绘制连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
- * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径。
- */
 function traceContinuousCornerRectPath(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -681,15 +634,12 @@ function traceContinuousCornerRectPath(
   ctx.closePath();
 }
 
-// ===== 导出画布（标称单位绘制，整体放大约 2.94 倍）=====
-// 相纸：纯白满版，左右/上留白 2.4%、底栏 8%（承载品牌角标）。
 const CANONICAL_SHEET_WIDTH = QUOTE_CARD_CANONICAL_WIDTH / (1 - 0.048);
 const CANONICAL_SHEET_SIDE = CANONICAL_SHEET_WIDTH * 0.024;
 const CANONICAL_SHEET_BAND = CANONICAL_SHEET_WIDTH * 0.08;
 const CANONICAL_SHEET_HEIGHT =
   CANONICAL_SHEET_SIDE + QUOTE_CARD_CANONICAL_HEIGHT + CANONICAL_SHEET_BAND;
 
-/** 导出内卡宽：固定 1200，成品约 1261×806，不随预览窗口变化。 */
 const EXPORT_CARD_WIDTH = 1200;
 const EXPORT_SCALE = EXPORT_CARD_WIDTH / QUOTE_CARD_CANONICAL_WIDTH;
 
@@ -706,7 +656,6 @@ const MOTIF_GAP = 5.5;
 const MOTIF_LEAD_COLOR = "#e04a75";
 const MOTIF_TRACK_COLOR = "#e9ebef";
 
-/** 底栏左侧双段标记：短玫红 + 长灰，与品牌角标同处底栏中线上。 */
 function drawQuoteCardMotif(ctx: CanvasRenderingContext2D): void {
   const centerY = CANONICAL_SHEET_SIDE + QUOTE_CARD_CANONICAL_HEIGHT + CANONICAL_SHEET_BAND / 2;
   const bars: Array<[x: number, width: number, color: string]> = [
@@ -727,10 +676,6 @@ function drawQuoteCardMotif(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
-/**
- * 离屏渲染分享卡至高分辨率 Canvas：白边相纸 + 16:9 内卡 + 品牌角标。
- * 全部坐标与字号走标称单位，靠 ctx.scale 放大——预览与成图共用同一份版式。
- */
 async function renderQuoteCardToCanvas(
   options: QuoteCardExportOptions
 ): Promise<HTMLCanvasElement> {
@@ -745,7 +690,6 @@ async function renderQuoteCardToCanvas(
 
   ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
 
-  // 0. 纯白相纸（顺带盖住取整后的画布余量，成品不留透明边）
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width / EXPORT_SCALE, canvas.height / EXPORT_SCALE);
 
@@ -754,13 +698,11 @@ async function renderQuoteCardToCanvas(
   const cardW = QUOTE_CARD_CANONICAL_WIDTH;
   const cardH = QUOTE_CARD_CANONICAL_HEIGHT;
 
-  // 1. 16:9 内卡裁切路径（20px 连续圆角）
   ctx.save();
   ctx.beginPath();
   traceContinuousCornerRectPath(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS);
   ctx.clip();
 
-  // 2. 底层线性渐变（165deg）
   const presetDef =
     (options.preset ? PRESET_BY_ID.get(options.preset) : undefined) ?? QUOTE_CARD_PRESETS[0];
 
@@ -778,7 +720,6 @@ async function renderQuoteCardToCanvas(
   ctx.fillStyle = linearGrad;
   ctx.fillRect(cardX, cardY, cardW, cardH);
 
-  // 3. 叠加 4 个大径向色团
   for (const blob of presetDef.blobs) {
     const blobX = cardX + blob.cxRatio * cardW;
     const blobY = cardY + blob.cyRatio * cardH;
@@ -790,7 +731,6 @@ async function renderQuoteCardToCanvas(
     ctx.fillRect(cardX, cardY, cardW, cardH);
   }
 
-  // 4. 几何细线纹样层与径向中心遮罩
   const patternId = options.pattern ?? "none";
   if (patternId !== "none") {
     const svgContent = getQuoteSharePatternSvg(patternId);
@@ -832,7 +772,6 @@ async function renderQuoteCardToCanvas(
     }
   }
 
-  // 5. 灰度物理噪点平铺层（图案按设备像素平铺，避免被放大变换拉糊）
   const noiseUrl = getQuoteShareNoiseDataUrl(EXPORT_SCALE);
   const noiseImg = await loadImageFromDataUrl(noiseUrl);
   if (noiseImg) {
@@ -848,15 +787,12 @@ async function renderQuoteCardToCanvas(
         ctx.restore();
       }
     } catch {
-      // 忽略 pattern 创建异常
     }
   }
 
-  // 6. 中性暗罩：与预览同参数，压住浅段渐变保证白字可读
   ctx.fillStyle = "rgba(0, 0, 0, 0.16)";
   ctx.fillRect(cardX, cardY, cardW, cardH);
 
-  // 7. 引号装饰
   ctx.save();
   ctx.font = `${QUOTE_MARK_SIZE}px Georgia, "Times New Roman", serif`;
   ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
@@ -865,7 +801,6 @@ async function renderQuoteCardToCanvas(
   ctx.fillText("“", cardX + QUOTE_MARK_LEFT, cardY + QUOTE_MARK_CENTER_Y);
   ctx.restore();
 
-  // 8. 金句正文：折行与字号档位来自共享布局，预览与成图逐行一致
   const layout = layoutQuoteCardText(options.content, createQuoteCardTextMeasurer(ctx));
   ctx.save();
   ctx.font = `${QUOTE_CARD_TEXT_WEIGHT} ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
@@ -886,7 +821,6 @@ async function renderQuoteCardToCanvas(
   });
   ctx.restore();
 
-  // 9. 卡片内侧 0.5px 精细描边（与圆角同心）
   ctx.save();
   ctx.beginPath();
   traceContinuousCornerRectPath(ctx, cardX + 0.25, cardY + 0.25, cardW - 0.5, cardH - 0.5, CARD_RADIUS - 0.25);
@@ -897,7 +831,6 @@ async function renderQuoteCardToCanvas(
 
   ctx.restore();
 
-  // 10. 相纸底栏品牌角标
   ctx.save();
   ctx.font = `600 ${BRAND_FONT_SIZE}px ${QUOTE_CARD_FONT_SANS}`;
   try {
@@ -907,7 +840,6 @@ async function renderQuoteCardToCanvas(
       ).toFixed(2)}px`;
     }
   } catch {
-    // 引擎不支持字距时按默认间距绘制
   }
   ctx.fillStyle = "#17181a";
   ctx.textAlign = "right";
@@ -919,10 +851,8 @@ async function renderQuoteCardToCanvas(
   );
   ctx.restore();
 
-  // 11. 底栏左侧双段标记
   drawQuoteCardMotif(ctx);
 
-  // 12. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
   ctx.save();
   ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
   ctx.lineWidth = 1;
@@ -976,9 +906,6 @@ async function canvasToBlob(
   return dataUrlToBlob(dataUrl);
 }
 
-/**
- * 渲染卡片为 PNG Blob。
- */
 export async function renderQuoteCardBlob(
   options: QuoteCardExportOptions
 ): Promise<Blob> {
@@ -986,11 +913,6 @@ export async function renderQuoteCardBlob(
   return await canvasToBlob(canvas, "image/png");
 }
 
-/**
- * 将卡片图片 Blob（或渲染中的 Promise<Blob>）写入系统剪贴板。
- * 传入 Promise<Blob> 可在点击同步栈内直接调用 clipboard.write，
- * 避免跨异步渲染后在 Chromium / Firefox 中丢失瞬态用户激活。
- */
 export async function copyQuoteCardBlobToClipboard(
   blobOrPromise: Blob | Promise<Blob>,
   mimeType = "image/png"
@@ -1016,9 +938,6 @@ export async function copyQuoteCardBlobToClipboard(
   return false;
 }
 
-/**
- * 触发卡片图片文件下载。
- */
 export function downloadQuoteCardBlob(
   blob: Blob,
   filename = `biliscript-quote-${Date.now()}.png`

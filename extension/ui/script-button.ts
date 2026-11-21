@@ -1,113 +1,39 @@
-// ui/script-button.ts — 播放页工具栏「文摘」按钮（统一 文摘阅读模式 PR1，
-// 工单 .scratch/tickets/script-reader/issues/04-script-button-anchor.md）。
-//
-// 装载模式仿 ai/player-ai.ts 的惰性域模块：经 ui/lazy-script-button.ts 动态
-// import（arch-slim-2/09 加载器归位 ui/），content.ts init() 触发装载（01 快
-// 路径：不等 getSettings 水合，本模块无设置项、常驻，无需 SW 往返先行）；模块
-// 求值即自管「寻锚注入/摘除 → setInterval 定时自查 + visibilitychange 即时
-// 自查」生命周期。
-// 阅读直达分支也装载的原因：直达路径上按钮模块同时承担视图失同步自愈（见
-// syncScriptButton）——视图关闭后把按钮补回来、视图壳被页面重渲染摘走或进入
-// 链半途失败时自动恢复，这些失同步在直达路径同样可能发生。
-//
-// 与 player-ai 的有意差异：工具栏按钮场景以定时自查为节拍底座——SPA 换页
-// 不触发事件，失同步恢复（RESTORE_CONFIRM_TICKS 连击确认）也要连续拍，定时
-// 器顺带覆盖两者。宿主出现的即时感知由观察器承担（bindToolbarObserver 两
-// 档：失锚期挂稳定祖先 body——工具栏宿主会被整棵替换、无处窄挂；宿主在场
-// 收窄到宿主子树，弹幕/播放器变更不入观）。失锚期 tick 只做单选择器轻探测，
-// findComplaintNode 全树扫描只在宿主在场后运行（02 失锚期事件化）——宽档
-// 回调走完整自查，落入失锚期轻探测分支后，弹幕级 childList 抖动一拍只付
-// 一次选择器查询，不重跑全树扫描。
-//
-// 点击行为：不发 background 消息。直接构造 reader-enter 消息交给
-// content 侧处理器（entry/message-handler.ts 已实现的阅读模式进入路径，
-// arch-slim-2/09 组合根归位 entry/），readerUrl 拼法单源在 bilibili/reader-url.ts
-// 的 buildReaderModeUrl（cleanVideoUrl 净化页面 URL 再加 biliscript_reader=1；
-// arch-slim-2/03 收口，原本地 buildReaderUrl 与 shell.ts 各抄一份）。经
-// dispatchContentScriptMessage 分发而非 chrome.runtime.sendMessage：content
-// script 的 sendMessage 不会回环到本文档自己的 onMessage 监听器，分发主体抽出
-// 后监听器与按钮共用同一条处理器路径。失同步自愈同理：自查派发 reader-restore
-//（阅读壳 restore 档先按 DOM 实况收敛失同步状态，再走与点击完全相同的进入链）。
-//
-// 自愈调度（arch-slim-2/09 收口）：自查节拍 200ms 单源 shared/self-heal.js 的
-// SELF_HEAL_INTERVAL_MS。阅读壳打开
-// 且完好期间按钮恒被守卫摘除、自查只会空跑 isReaderShellIntact 的 DOM 查询，
-// interval 降频至 PAUSED_INTERVAL_MS 兜底（恢复事件丢失时按钮延迟上限 2s）；
-// 视图关闭（exitReaderShell 派发 READER_CLOSED_EVENT 窗口事件，不建静态
-// import 边）时恢复常速并立即自查一轮补按钮，visibilitychange 现有链保持。
-
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { buildReaderModeUrl } from "../bilibili/reader-url.js";
-// 页内分发原语（arch-slim-2/09）：分发主体住 entry/message-handler.ts，于
-// bindRuntimeEvents 时注册进 shared 的原语槽——本模块只依赖 shared 叶子，
-// 不建 ui → entry 的静态边。
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
 import type { ReaderEnterResponse } from "../shared/messaging-protocol.js";
 import { isReaderViewOpen } from "../reader/state.js";
-// 阅读壳完好性自查（纯叶子模块）：restore 档自愈与本守卫共用同一 predicate，
-// 不静态拖入整个 reader/shell.ts。
 import { isReaderShellIntact } from "../reader/shell-intact.js";
 import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "./panel-preload.js";
 import { TOOLBAR_HOST_SELECTOR } from "../bilibili/host-selectors.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
-// 自愈调度共享常量：自查节拍。
 import { SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.js";
-// 锚点/耗时日志走 shared/logging 的 Always 直出口（工单 button-injection-
-// stability 决议：默认开启、不做持久化——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
 
 const SCRIPT_BUTTON_ID = "biliscript-script-button";
 
-// 定时自查间隔：B 站重渲染 / SPA 换页把节点带走后靠它补回（注入幂等）。
-// 单源 shared/self-heal.js（script-host 的面板重锚节拍独立，不复用本常量）。
 const REINJECT_INTERVAL_MS = SELF_HEAL_INTERVAL_MS;
-// 暂停期兜底节拍：阅读壳打开且完好时按钮恒被摘除，自查只剩空跑 DOM 查询，
-// 降频至此（不是全停——恢复事件丢失时按钮最迟一个兜底 tick 补回，风险上限
-// 2s，见文件头「自愈调度」注）。
 const PAUSED_INTERVAL_MS = 2000;
 
-// 造型对齐站内投稿等圆润矩形按钮风格（90×34、border-radius 8px、14px/500 白字、内容居中）。
 const BUTTON_BASE_STYLE =
   "display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;" +
   "height:34px;padding:0 20px;border:none;border-radius:8px;cursor:pointer;" +
   "font-size:14px;font-weight:500;line-height:20px;color:#fff;white-space:nowrap;";
 
-// ===== 模块求值即启动生命周期（content.ts init() 直接触发装载） =====
-//
-// 01 快路径：装载即寻锚，不等 window.load / <video> 轮询 / settle 余量。此前
-// 等 hydration 稳定是怕 SSR + Vue 水合期间向 Vue 管的容器插节点触发整树重渲染
-//（表现为视频加载两遍）；评审决议（工单 button-injection-stability/01）接受
-// 快路径与水合窗口的竞争——锚点未就绪时注入自然失败，偶发被水合推倒的按钮由
-// 200ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。
-
-// 注入耗时观测（01 可观测，默认开启）：模块求值到首个按钮挂载的耗时。
 const MODULE_BOOT_AT = Date.now();
 let mountTimingLogged = false;
 
-// 切回标签页立即自查一轮：hidden 期间定时器被 Chrome 强力节流（5 分钟后
-// 至多 1 次/分钟），靠它恢复会让「切走再切回」场景的白屏时间拉长到下一个
-// 节流 tick；visibilitychange 回来的第一次自查与定时器共用 brokenTicks
-// 连击确认，不会抢先误恢复。（若视图仍开着且完好，本轮自查会重新降频——
-// 暂停态对可见性变化是幂等的。）
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     setTickInterval(REINJECT_INTERVAL_MS);
     syncScriptButton();
   }
 });
-// 阅读壳退出（exitReaderShell 完成退出事务后经强类型事件总线发布）：
-// 恢复常速自查 + 立即自查一轮补按钮。
 contentEventBus.on("reader:closed", () => {
   setTickInterval(REINJECT_INTERVAL_MS);
   syncScriptButton();
 });
 
-// ===== 自查节拍（arch-slim-2/09 暂停/恢复收口） =====
-//
-// 单一 interval 句柄 + 档位切换：常速 REINJECT_INTERVAL_MS（按钮在场 / 失同步
-// 自愈中，需要 200ms 级节奏）与暂停档 PAUSED_INTERVAL_MS（阅读壳打开且完好，
-// 自查空跑）之间按每轮自查的结论切换。setInterval 回调持有人不变，换档只换
-// 周期，已挂出的定时器整体重建（幂等：同档不重建）。
 let tickTimer = 0;
 let tickIntervalMs = 0;
 
@@ -122,25 +48,14 @@ function setTickInterval(ms: number): void {
   tickIntervalMs = ms;
 }
 
-// ===== 定时自查：补按钮 / 摘按钮 / 视图失同步自愈 =====
-
-// 失同步恢复的节奏控制：连续 RESTORE_CONFIRM_TICKS 个自查周期都处于失同步态才
-// 派发恢复（点击路径上「URL 已改写、enterReaderMode 未完成」「状态已置开、
-// .open 未挂上」的亚秒瞬态不触发）；两次恢复派发之间至少隔 RESTORE_RETRY_BACKOFF_MS
-// （进入链自身失败时退避，不每 200ms 空转重试）。
 const RESTORE_CONFIRM_TICKS = 3;
 const RESTORE_RETRY_BACKOFF_MS = 4000;
 let brokenTicks = 0;
 let lastRestoreAt = 0;
 
 function syncScriptButton(): void {
-  // SPA 换到非视频页：工具栏按钮无意义，主动摘除。口径单源
-  // video-id-shared 的 isSupportedVideoPage（与 content.ts isSupportedUrl
-  // 共用）——稍后再看等列表播放页（/list/watchlater?bvid=）由该 predicate
-  // 覆盖，不能只看 /video/ pathname（否则按钮在装载后一个自查周期就被摘掉）。
   if (!isSupportedVideoPage()) {
     brokenTicks = 0;
-    // 锚点阶段一并复位：非视频页无①可言，回视频页按首载口径重新寻锚。
     anchorPhase = "init";
     anchorGraceBeats = 0;
     setTickInterval(REINJECT_INTERVAL_MS);
@@ -149,23 +64,12 @@ function syncScriptButton(): void {
   }
   const viewOpen = isReaderViewOpen();
   const readerUrlMode = isReaderMode();
-  // 阅读视图开着且壳完整：正常接管态，按钮保持摘除（视图关闭后由
-  // READER_CLOSED_EVENT 触发首轮补回；本自查降频为暂停档兜底，仅防恢复事件
-  // 丢失）。壳完好性判定收口到阅读壳的唯一实现 isReaderShellIntact
-  //（reader/shell.ts）。
   if (viewOpen && isReaderShellIntact()) {
     brokenTicks = 0;
     setTickInterval(PAUSED_INTERVAL_MS);
     removeScriptButton();
     return;
   }
-  // 失同步两态，交由 reader-restore 处理器自愈（连续确认 + 退避见
-  // 上方常量注）。自愈期恢复常速节拍——brokenTicks 连击确认的节奏以
-  // REINJECT_INTERVAL_MS 为基准，暂停档会拉长确认窗口。
-  //   - 状态开着而壳失整：面板被页面重渲染摘走，按钮被守卫永久压住——用户看到
-  //     「侧边栏和按钮一起消失，只能刷新」的正是它；
-  //   - URL 带 biliscript_reader=1 而视图没开：进入链半途失败（直达启动失败 / 中途
-  //     状态被清），失败文案写进隐藏面板用户看不见。
   if (viewOpen || readerUrlMode) {
     setTickInterval(REINJECT_INTERVAL_MS);
     if (++brokenTicks >= RESTORE_CONFIRM_TICKS) {
@@ -181,40 +85,21 @@ function syncScriptButton(): void {
     }
     return;
   }
-  // 视图没开也不在阅读模式：健康态，补按钮（brokenTicks 一并归位，避免上一轮
-  // 失同步的残留计数让下一轮瞬态误触发恢复）。
   brokenTicks = 0;
   setTickInterval(REINJECT_INTERVAL_MS);
   injectScriptButton();
 }
 
-// ===== 注入 =====
-//
-// 锚点层级：
-//   ①「稿件举报」节点左侧（多信号判定，见 findComplaintNode）；
-//   ② 工具栏右侧槽位（未充电的充电专属视频等场景下 B 站不渲染 .video-toolbar-right，
-//     工具栏宿主内仅有 .video-toolbar-left，此时挂在 .video-toolbar-left 之后，
-//     占原 .video-toolbar-right 的右侧 flex 槽位）。
-// 若①与②均不满足（例如工具栏尚未挂载，或 .video-toolbar-right 在场但举报节点未就绪），
-// 则不显示按钮，绝不浮动挂载到播放器内部。
-
-// 锚点①的锚定阶段：init=尚未命中过（首载/新开页）；anchor=①在位；grace=①
-// 短暂失配宽限中；fallback=①未命中或已降级。
 type AnchorPhase = "init" | "anchor" | "grace" | "fallback";
 let anchorPhase: AnchorPhase = "init";
-// 宽限剩余拍数：失配当拍进入 grace 并置满，其后每拍递减，耗尽才降级或移除。
 let anchorGraceBeats = 0;
-// 「宽限期内暂不注入」只说一遍的标志（每次进入宽限时复位）。
 let anchorGraceWaitLogged = false;
-// 宽限拍数 2：命中过①的页面，失配后至多再等 2 个自查拍（200ms 节拍，约
-// 0.4s）让重渲染恢复，连失配当拍约 0.6s——挡掉 B 站工具栏重渲染间隙的闪动。
 const ANCHOR_GRACE_BEATS = 2;
 
 function logAnchor(message: string): void {
   logInfoAlways(`[BILISCRIPT] script-button: ${message}`);
 }
 
-// 注入耗时日志（01 可观测）：首个按钮落到 DOM 的时刻，只记一次。
 function logMountTiming(target: string): void {
   if (mountTimingLogged) {
     return;
@@ -223,32 +108,17 @@ function logMountTiming(target: string): void {
   logAnchor(`按钮已挂载（${target}），装载→挂载耗时 ${Date.now() - MODULE_BOOT_AT}ms`);
 }
 
-// 就位席位（零扫描早退的唯一判据）：①档挂载时记下按钮紧邻左侧的举报节点。
-// 席位引用仍在、按钮仍是它的前一个兄弟 ⇒ 按钮就在①位（当前应处的锚点位置），
-// 本拍无需寻锚。降②（工具栏右侧槽位）或未挂载时置 null——每拍仍要寻锚，为的是
-// 发现①出现时升回①位。
 let anchorSeat: HTMLElement | null = null;
 
 export function injectScriptButton(): void {
   const existing = document.getElementById(SCRIPT_BUTTON_ID);
-  // 零扫描早退（性能；健康态 200ms 一拍 × 每页每小时约 18000 拍）：按钮挂着且
-  // 席位未变即返回，不跑 findComplaintNode 的全量扫描。豁免范围严格限于「挂
-  // 着且席位没变」这一种状态——席位节点被页面重渲染换掉/摘走（引用不等）、
-  // 按钮被摘走或挪走（isConnected 假、或后一个兄弟不再是席位）都落到下方全
-  // 量路径，失同步自愈与降级语义不变。
   if (existing?.isConnected && anchorSeat && existing.nextElementSibling === anchorSeat) {
-    // 相位归位：与下方全量路径命中①时同款维护（纯赋值，零 DOM 查询）。
     anchorPhase = "anchor";
     anchorGraceBeats = 0;
     anchorGraceWaitLogged = false;
     return;
   }
-  // 失锚期轻探测（02 事件化）：宿主缺席 ⇒ 「稿件举报」必无（多信号判定的
-  // 全局 [class*='complaint'] 兜底也只在宿主在场后跑），一拍只付一次单选
-  // 择器查询，不跑 findComplaintNode 的全树扫描。
   const hostPresent = document.querySelector(TOOLBAR_HOST_SELECTOR) !== null;
-  // 观察器维护：挂点失活（宿主被整棵换掉）或档位与宿主有无不符（宿主刚
-  // 出现/消失）即重挂——宿主出现的即时感知由观察器承担，tick 退为兜底。
   if (!isToolbarObserverActive() || toolbarObserverExpectsHost !== hostPresent) {
     bindToolbarObserver();
   }
@@ -265,7 +135,6 @@ export function injectScriptButton(): void {
     anchorPhase = "anchor";
     anchorGraceBeats = 0;
     anchorGraceWaitLogged = false;
-    // 幂等：已在①位（按钮后一个兄弟就是举报节点）即不动。
     if (existing?.isConnected && existing.nextElementSibling === complaint) {
       anchorSeat = complaint;
       return;
@@ -280,9 +149,6 @@ export function injectScriptButton(): void {
     return;
   }
 
-  // ①失配：命中过（anchor）先宽限等重渲染恢复；宽限期内已挂载的按钮不动——
-  // 重渲染若只换掉举报节点而按钮还在，原地保留；按钮也没了就暂不注入，等①
-  // 回来原地归位。
   if (anchorPhase === "anchor") {
     anchorPhase = "grace";
     anchorGraceBeats = ANCHOR_GRACE_BEATS;
@@ -295,7 +161,6 @@ export function injectScriptButton(): void {
       if (existing?.isConnected) {
         return;
       }
-      // 「暂不注入」每次宽限只说一遍，避免宽限拍逐拍刷屏。
       if (!anchorGraceWaitLogged) {
         anchorGraceWaitLogged = true;
         logAnchor("宽限期内暂不注入（等锚点①恢复，避免闪漂）");
@@ -345,29 +210,8 @@ export function removeScriptButton(): void {
   document.getElementById(SCRIPT_BUTTON_ID)?.remove();
 }
 
-// ===== 工具栏宿主即时注入观察器 =====
-//
-// 宿主出现的感知与宿主内的变更感知分两档（02 失锚期事件化）：
-//   - 窄档（宿主在场）：观察工具栏宿主子树，「稿件举报」由 Vue 水合/重渲染
-//     插进的时刻微任务级同步感知——按钮与它同拍落位；观察范围刻意收窄，
-//     弹幕/播放器变更不入观（见文件头「与 player-ai 的有意差异」注）；
-//   - 宽档（失锚期，宿主未出现）：工具栏宿主 #arc_toolbar_report /
-//     .video-toolbar-container 会被 B 站整棵替换，观察器无处窄挂，退到稳定
-//     祖先 body——宿主整棵出现的时刻由它感知。200ms tick 在失锚期只做轻
-//     探测（见 injectScriptButton），宿主出现的即时性感知由本观察器承担。
-//
-// 回调走完整自查而非直接注入：视图接管（按钮恒摘除）、失同步自愈等守卫
-// 口径全部收口在 syncScriptButton，观察器不自带第二套判定；失锚期自查落入
-// 轻探测分支，高频 childList 抖动（弹幕飘过等）一拍只付一次选择器查询。
-//
-// 重绑时机：观察器目标失活（宿主被整棵换掉，窄档旧挂点断连——宽档 body
-// 恒活）或档位与宿主有无不符时，下一拍全量路径（≤200ms 的自查兜底）重挂；
-// 健康态零扫描早退不触碰。
 let toolbarObserver: MutationObserver | null = null;
-// 当前挂点集合（失活检测用）：窄档为工具栏宿主列表，宽档为 body。
 let toolbarObserverTargets: Element[] = [];
-// 当前档位锁定的宿主有无：true=窄档（宿主在场，挂宿主子树），false=宽档
-//（宿主缺席，挂稳定祖先 body）。
 let toolbarObserverExpectsHost = false;
 
 function onToolbarMutation(): void {
@@ -396,8 +240,6 @@ function bindToolbarObserver(): void {
   }
 }
 
-// 观察器目标失活检测：窄档宿主被整棵换掉后旧挂点全部断连（isConnected 假），
-// 下一拍全量路径据此重挂新宿主；宽档 body 恒活。
 function isToolbarObserverActive(): boolean {
   return toolbarObserverTargets.some((target) => target.isConnected);
 }
@@ -408,25 +250,12 @@ function unbindToolbarObserver(): void {
   toolbarObserverTargets = [];
 }
 
-// 「稿件举报」多信号判定（02 加固；kimi-webbridge 2026-09-09 实地：现行 DOM
-// 为 .video-complaint.video-toolbar-right-item.toolbar-right-complaint，
-// aria/title/data-text 全空、文本「稿件举报」是主要语义信号——单押类名或
-// 单押文本都会在 B 站改版时整体失配）。类名信号（*complaint*）与语义信号
-//（aria-label/title/data-text/textContent 聚合命中「稿件举报|投诉」）任一
-// 命中即候选，双信号命中的优先。搜索范围：新版播放页宿主 #arc_toolbar_report
-// 与列表页形态 .video-toolbar-container（稍后再看等列表播放页无前者）内的
-// 全体元素，落空退全局类名查询。语义文本信号里 textContent 只对候选读
-//（出于热路径成本考虑，见 consider 内注）。
 const COMPLAINT_CLASS_SIGNAL = /complaint/i;
 const COMPLAINT_TEXT_SIGNAL = /稿件举报|投诉/;
 
 function findComplaintNode(): HTMLElement | null {
   let best: HTMLElement | null = null;
   let bestScore = 0;
-  // requireBoth：脱离工具栏宿主上下文的全局兜底要求类名+文本双信号确认——
-  // 单押类名（[class*='complaint']）比旧版 .video-complaint 全局查询更宽，
-  // 单押文本又易误命中页内无关「投诉」字样，双信号才够格当锚点。宿主范围内
-  // 保持单信号可当选（改版鲁棒是 02 加固的目的），双信号加权优先。
   const consider = (node: Element, requireBoth = false): void => {
     if (bestScore >= 2 || !(node instanceof HTMLElement) || !node.parentElement) {
       return;
@@ -434,10 +263,6 @@ function findComplaintNode(): HTMLElement | null {
     const classHit = COMPLAINT_CLASS_SIGNAL.test(
       typeof node.className === "string" ? node.className : ""
     );
-    // textContent 会把整棵子树拼成一个字符串：对工具栏全体节点都读即
-    // O(N·子树)。属性串短，照旧全节点读，命中即 textHit 成立、无需再读文本；
-    // 否则只在「类名命中或叶子节点」的候选上读 textContent——无类名又非叶子的
-    // 中间容器即便子树里有信号，也有更靠内的节点接住，不必在此拼字符串。
     const attrText = [
       node.getAttribute("aria-label"),
       node.getAttribute("title"),
@@ -467,10 +292,6 @@ function findComplaintNode(): HTMLElement | null {
   return best;
 }
 
-// 工具栏右侧缺席时的次选锚点：未充电的充电专属视频下 B 站不渲染 .video-toolbar-right，
-// 工具栏宿主内只有 .video-toolbar-left（以及绝对定位的 .teleport 节点）。仅当宿主内
-// 不存在 .video-toolbar-right 时才以 .video-toolbar-left 为锚点插在其后，避免普通视频
-// 水合期间（.video-toolbar-right 已在场而举报节点尚未挂载）将按钮夹在左右两栏中间。
 function findToolbarLeftWithoutRight(): HTMLElement | null {
   for (const host of document.querySelectorAll(TOOLBAR_HOST_SELECTOR)) {
     if (host.querySelector(".video-toolbar-right")) {
@@ -494,12 +315,9 @@ function styleScriptButton(
       : `${BUTTON_BASE_STYLE}background:#fb7299;margin-right:16px;`;
 }
 
-// ===== 点击 =====
-
 function handleScriptButtonClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
-  // 阅读视图开着时按钮已被自查摘除，这里兜底不重复触发。
   if (isReaderViewOpen() || isReaderMode()) {
     return;
   }
@@ -525,11 +343,6 @@ function handleScriptButtonClick(event: MouseEvent): void {
     showFailure();
   }
 }
-
-// ===== 启动（模块求值末尾） =====
-//
-// 01 快路径：装载即首轮注入 + 常速自查节拍。必须置于求值末尾——上面的自查
-// 状态（brokenTicks 等）与锚点阶段声明得先就位，同步首轮注入才能跑。
 
 syncScriptButton();
 setTickInterval(REINJECT_INTERVAL_MS);

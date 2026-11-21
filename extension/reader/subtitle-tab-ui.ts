@@ -1,62 +1,3 @@
-// 字幕 tab 的模板段 + 绑定段（arch-slim-2/06：自 ui/ui-renderer.ts 下放同居）。
-//
-// 覆盖字幕 tab body 的四段壳结构：工具条（句内搜索 + 复制/导出，PR3）、转写
-// 中间态横幅（显隐由 reader/transcribe-banner.ts 驱动，「谁绑定谁拥有」裁定：
-// 横幅无事件绑定、布局上属字幕 tab 排版序列，模板随字幕 tab 叶子走；驱动逻辑
-// 不动）、字幕列表容器（分批渲染目标）、Follow playback 悬浮按钮。绑定段为对应
-// 交互接线，handler 逻辑保持各域单源：
-//   - 搜索输入/键盘 → reader/subtitle-search.ts（refresh/move 转发，重域经
-//     ui/reader-gate.ts 的 withReader 动态装载）；
-//   - 复制/导出 → 总结链 copySubtitleTranscript/downloadSubtitle（实现就在
-//     subtitle/ui.ts，零转发）；
-//   - Follow 按钮 / 列表 scroll/wheel/pointerdown/click → reader/sync.ts
-//     （noteManualReaderInteraction/onReadingSubtitleClick/resumeReaderFollowPlayback）。
-//
-// 2026-10 用户决议（原「字幕语言」下拉整条删除）已被票 subtitle-track-picker
-// 取代：选轨控件以 ui/custom-select 形态长回工具条（2026-10 图内裁定 Q13–Q20），
-// 列表严格投影 state.clip.subtitles（ASR 伪轨由 07 号票的缓存命中路径补种），
-// 形态裁定见 .scratch/tickets/subtitle-track-picker/prototypes/README.md §4/§7/§11。
-// 回归锁在 tests/reader/subtitle-track-picker.test.ts。
-//
-// 本模块是壳可静态携带的轻叶子：不 import reader 重域与总结链重实现，动态
-// 边全部在 ui/reader-gate.ts 与 subtitle/lazy.ts 内部（chunk 边不变形）。
-// 绑定随壳构建（bindUiEvents）同步执行、forceRecreate 重建后随壳重绑。
-//
-// 选轨控件的分工：**本模块持有原生 select 与交互**（模板/建壳/选项投影/change
-// 处理器/切轨状态机），渲染入口由 reader/lifecycle.ts 的 renderReadingView
-// 调用（renderReadingSubtitleTrackPicker，水合不派发 change），失败通知走
-// 调用方注入的回调（本叶子不 import reader-bus 的**通知面**——03 号票同款，落在
-// lifecycle 的 reader-bus 接线里）。
-//
-// ===== 双语字幕（票 bilingual-subtitles：01 形态 / 02 状态机 / 05 偏好与槽）=====
-// 载体（建图期 Q10）：字幕工具条另造**专用弹层**——落地为选轨组件浮层
-//（.custom-select-dropdown）里装配出来的「主/副两列 + 页脚开关 + trigger 徽标」，
-// 通用 ui/custom-select 不为它长出新概念，面板里仍只有一族 affordance。两列各由
-// 一枚原生 select + 组件壳承载（一列一个 select，组件不变式「显示 = 现值、恰一项
-// 选中」逐列成立）：
-//   - 主列 = 既有 readingSubtitleSelect 的组件浮层，六态与行为逐字不动；
-//   - 副列 = 第二枚 select 的组件壳，常驻副列（宿主与壳 display: contents，自带
-//     trigger 收起），只有列里的选项行可见。
-// 卡片骨架是**节点身份不变量**（buildBilingualCard 一次建好），落位走组件的槽位声明
-//（setCustomSelectSlots，2026-10 深化）：卡片根 + 选项行落点 + trigger 徽标各声明一次，
-// 此后组件换整批选项只摘它自己产出的 <li>，骨架全程留在浮层里、子树原样保留，故副列壳/
-// 页脚开关/监听器都不重建、列滚动位置也不被销毁；渲染只改状态与文案，不搬节点、
-// 不快照滚动位置、不 poke 组件内部节点。
-// 形态度量照抄 01 号票原型 README §4/§7 的 A 变体（实测 300.22×315 卡片、右锚、
-// 双列各 140.11、trigger 定宽 120px + 徽标、页脚固定在滚动区外、空态文案不参与
-// 列宽、单轨态说明进列表区），规则在 entry/styles/bilingual-subtitles.css。
-// 状态位（02 号票第 8 条）：全局偏好 = settings.bilingualSubtitles +
-// settings.secondarySubtitleLang（进键面 ⇒ 跨设备同步 + 归一化）；per-video =
-// clip.secondarySubtitle 槽（id/url/body/state）。DOM 只投影 state，不反解。
-//
-// 与既有纪律的两处衔接（本叶子不新增机制）：
-//   - 偏好落盘走 reader-bus 的 persistReaderSettingsThroughSeam（readerTheme 同款
-//     「偏好改了立即落盘」的路径；reader 域不得静态 import core/runtime.js）；
-//   - 跨上下文收敛自持一份 watchStorageKeys 订阅（entry/content.ts 播放器 AI 开关
-//     的 { sync: [...] } 形）：键面取自 reader/presentation-fields.ts 的派生清单
-//     （双语两键已登记进表），订阅后才不会出现
-//     「另一标签页开了双语、这边控件还停在旧态」。
-
 import { byId } from "../shared/dom-utils.js";
 import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -83,15 +24,12 @@ import {
   projectReaderFollowUi,
   subtitleScrollFollow
 } from "./subtitle-scroll-follow.js";
-// 阅读域设置键面（主表派生）：双语两键的收敛订阅从它取，不手抄键数组。
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
-// 副轨（双语第二路轨）的目标解析、六态列模型、装载事务与同轨/偏好控制：本叶子只做
-// DOM 投影与在飞禁用。
 import {
   clearSecondarySubtitleIfShadowedByMain,
   exitAiRefineAndLoadNativeSecondary,
@@ -118,20 +56,11 @@ import {
 import type { AsrTranslationView } from "./asr-translation.js";
 import { beginReaderAsrSetupFlow } from "./setup-resume.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../live/interpret-subtitle-preferences.js";
-// 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
-//（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
-// change 处理器（主列 finally / 副列 settled 与同轨防呆的同步收尾）。
 import { playTrackSwitchAnimation } from "./track-switch-animation.js";
-// 相位 → 横幅文案表的单源在 transcribe-banner.ts（驱动方与文案同居）；模板只
-// 借用转写相位的两条串做初始内容（唯一可见相位见该模块注释）。转写中判定同源
-//（core/reader-transcribing.js 的再导出），本模块的 transcribing 态用它。
 import { TRANSCRIBE_BANNER_COPY, isReaderTranscribing } from "./transcribe-banner.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { removeSubtitleItemHighlight } from "./subtitle-highlights-ui.js";
 
-// 双语字幕表随本叶子走（ui/custom-select.ts 顶挂 ensureCustomSelectStyles 同款先例：
-// 组件/样式与消费者同居，不依赖设置抽屉或阅读主表的装载时机）。求值顺序有要求：
-// 上面的 import 已先求值（组件表已挂），本表因此排在它之后，同特异性规则靠后者胜。
 ensureBilingualSubtitleStyles();
 
 export function buildSubtitleTabBodyHtml(): string {
@@ -213,45 +142,12 @@ export function buildSubtitleTabBodyHtml(): string {
   `;
 }
 
-// ===== 选轨控件（票 subtitle-track-picker/08）=====
-//
-// 原生 select 是唯一值源，ui/custom-select 是唯一可见 affordance（Q3：同一面板
-// 内不出现两族 affordance）。四条外部入口用法（组件侧边界，05/10 号票 + 2026-10 深化）：
-//   - 换整批选项 → 写原生 select.innerHTML 再 rebuildCustomSelectOptions（壳不
-//     重建，写在 trigger 上的 disabled/aria-busy 状态不被抹）；
-//   - 写当前值 → setCustomSelectValue（不派发 change，水合专用）；
-//   - 禁用/忙碌 → setCustomSelectState（消费者不 poke trigger 节点）；
-//   - 浮层槽位 → setCustomSelectSlots（卡片根 / 选项行落点 / trigger 徽标各声明一次，
-//     组件换项时保留这些节点；消费者不搬节点、不快照滚动位置）。
-//
-// 六态（03 号票裁定，共用同一个控件状态机，不各写一套显示分支）：
-//   default       有轨 → 选项 = clip.subtitles，trigger = 当前轨裸语言名；
-//   open          展开浮层 = 同一批选项（组件自持，本模块不额外分支）；
-//   empty         无轨且非转写 → 哨兵 + 禁用（哨兵文案按 fetchState 取值：
-//                 "loading" → 「抓取中…」，否则 → 「暂无字幕」，见下方常量）；
-//   transcribing  转写进行中 → 哨兵「转写中…」+ 禁用；
-//   busy          切轨请求在飞 → trigger 乐观显示目标轨名，disabled + aria-busy，
-//                 **列表保留旧轨**（正文也是旧轨，等接受事务的 subtitle-ready
-//                 驱动整体重渲）；
-//   revert        切轨失败 → trigger 回退到 state 里仍在的旧轨，经调用方注入的
-//                 notice 回调报错（state 未变，控件不得自说自话）。
-//
-// 切轨代次/连点由「禁用」消解（Q13：不新造代次机制）：一次只有一个请求在飞。
 const SUBTITLE_TRACK_SENTINEL_VALUE = "";
 const SUBTITLE_TRACK_EMPTY_TEXT = "暂无字幕";
 const SUBTITLE_TRACK_TRANSCRIBING_TEXT = "转写中…";
-// 抓取窗口的哨兵（2026-10-06 用户报告：切视频那一瞬间控件闪一下「暂无字幕」）：
-// 抓取中 clip.subtitles 必然为空（切视频先 reset 清空、结果到手才写回），此时说
-// 「暂无字幕」是断言了尚不知道的事。信号用既有的 subtitleFetchState === "loading"
-// ——列表空态占位同一判据（subtitle/core.ts 的 getReadingSubtitlePlaceholderText
-// 在同一相位出「正在加载字幕...」）。抓取全程都在 loading 态下（refreshClip 一次
-// 抓取只有一个 loading 窗口），无需新事件。
 const SUBTITLE_TRACK_LOADING_TEXT = "抓取中…";
 
-// trigger 的可访问字段名（裸语言名的字段名走 aria-label，02 号票 Q19）：
-// select 上的 aria-label 是组件拼 trigger 可访问名的第三条来路（4508233）。
 const SUBTITLE_TRACK_FIELD_LABEL = "字幕轨";
-
 
 function findTrackValueById(trackId: string): string {
   const select = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
@@ -262,12 +158,6 @@ function findTrackValueById(trackId: string): string {
   return option?.value || "";
 }
 
-// 选项行 HTML 的唯一产地（主列 renderReadingSubtitleTrackPicker 与副列
-// writeSecondaryOptions 共用）：value = 轨道 URL、data-id = 轨道身份、data-lang = lan、
-// dir="auto" 随行方向解析（阿拉伯语行右对齐，LTR 行外观不变）、[AI] 后缀按「列表内
-// 来源不唯一才标」的判据。marked 由调用侧按自己那份轨集算（副列先滤掉 ASR 伪轨，
-// 两处的标记集合因此不同），selected 也由调用侧按各自判据给出：主列「第一项」
-//（水合前的视图默认），副列「URL 相等」。
 function buildSubtitleTrackOptionHtml(track: SubtitleTrack, marked: boolean, selected: boolean): string {
   const bareLabel = resolveSubtitleTrackLabel(track);
   const text = formatSubtitleTrackOptionLabel(track, marked);
@@ -312,7 +202,6 @@ function resolveAiRefineToolbarAction(tracks: SubtitleTrack[]): AiRefineToolbarA
   return { kind: "manual-refine", label: "改用 AI 重新精翻" };
 }
 
-// 唯一取数点：主列三态与双语卡片所需的全部事实。
 export function selectSubtitleToolbarFacts(switchInFlight: string | null = null): SubtitleToolbarFacts {
   const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
   return {
@@ -337,10 +226,6 @@ export function selectSubtitleToolbarFacts(switchInFlight: string | null = null)
   };
 }
 
-// 渲染入口（renderReadingView 调用，切轨收尾也复用）：把事实投影到控件。幂等：每次
-// 重渲都整批换选项 + 按现值重派生显示（组件侧「显示 = 现值」不变式）；转写态与抓取
-// 态由事实带入（优先级见下）。失败通知仍走调用方注入的回调（本叶子不经
-// reader-bus 的**通知面**）。
 export interface SubtitleToolbarContext {
   onTrackChange?: (select: HTMLSelectElement) => void;
   onNotice?: SubtitleTrackNotice;
@@ -355,31 +240,16 @@ export function renderReadingSubtitleTrackPicker(
   if (!select) {
     return;
   }
-  // 取数在「工具条在场」之后：工具条缺席时（其它渲染路径）不读 state 袋。
   const facts = selectFacts();
-  // 先把选项写进原生 select，再建壳：initCustomSelect 会按现值铺一次项集，
-  // 顺序反过来（先建壳再写选项）会白铺一次空集。
   const tracks = facts.tracks;
   const segmented = tracks.length > 0;
-  // 双语量（02 号票第 8 条：状态位 → 投影，DOM 不反解）：
-  //   bilingual   = 全局偏好的开关值（页脚开关的 data-on / aria-checked）；
-  //   switchDisabled = 「本视频只有一条可装载轨」⇒ 开关禁用 + 说明进列表区（Q7）；
-  //   dual        = 实际生效的双列布局（开关开着且本视频可配对）。
   const dual = facts.bilingual && !facts.switchDisabled;
-  // 三态（empty / transcribing / busy）共用同一条禁用判据；busy 另有 aria-busy。
   const transcribing = facts.transcribing;
-  // 抓取中（切视频/刷新抓取的空窗）：判据是既有的 fetchState 相位，不新造信号。
-  // 取值优先级 **转写中 > 抓取中 > 暂无字幕**，顺序不可换——ASR 转写期间
-  // subtitleFetchState 仍是 "loading"（无字幕出口的逆事务 commitNoSubtitle 要等
-  // maybeRunAsrFallback 走完才落 "empty"，见 subtitle/fetcher.ts 的 finishNoSubtitle），
-  // 把 loading 判在转写之前，转写中态会被写成「抓取中…」，与面板横幅两说。
   const loading = facts.loading;
   const disabled = !segmented || transcribing;
   const marked = facts.marked;
 
   if (!segmented) {
-    // 哨兵选项（10 号票 §9c）：组件在「没有选项」时 trigger 是空按钮，且
-    // 「暂无字幕」「转写中…」「抓取中…」必须由调用侧塞成选项才显示得出来。
     const sentinel = transcribing
       ? SUBTITLE_TRACK_TRANSCRIBING_TEXT
       : loading
@@ -392,10 +262,6 @@ export function renderReadingSubtitleTrackPicker(
       .join("");
   }
 
-  // 建壳（首次渲染时执行；之后是 no-op）：模板初值只有原生 select（工具条的
-  // 直接子节点），组件把 wrapper 插在 select 当前位置并把 select 移入壳内。
-  // 判据是「有没有壳」而不是「没初始化过」——壳落在哪条路径都只有一个 owner。
-  // change 接线随建壳走（组件的 onChange）：壳重建 = 新节点 + 新壳 + 新监听器。
   if (context?.onTrackChange) {
     (select as unknown as Record<string, unknown>).__biliscript_track_change = context.onTrackChange;
   }
@@ -412,30 +278,16 @@ export function renderReadingSubtitleTrackPicker(
 
   rebuildCustomSelectOptions(select);
 
-  // 双语卡片装配：主列选项行的落点由下面 projectBilingualPicker 的槽位声明给出
-  //（双语关时卡片 = 「单列 + 页脚开关」）。
   projectBilingualPicker(facts, context);
 
-  // 值必须**无条件**写一次：上面整批重建选项会把原生选中态打回「重建后的 DOM
-  // 决定的那一项」，漏掉这次写值，在飞期到达的重渲就会把 trigger 从乐观目标轨
-  // 拉回旧轨（2026-10-06 实测：busy 期间 renderReadingView 一次 → trigger 回旧轨）。
-  // 在飞期间写的值是乐观目标轨（Q13），其余时候按 state 的当前轨。
   setCustomSelectValue(select, facts.switchInFlight ?? findTrackValueById(facts.selectedTrackId));
 
-  // 状态机（六态里的 empty / transcribing / busy 三态都由这里收敛）：**无条件**写全
-  // 一次，不手工绕开收敛——在飞折进判据，投影算出的正是切轨那一刻写的乐观态那一组值，
-  // 故在飞期间的重渲解不掉乐观 trigger 与禁用（2026-10-06 实测：若不收敛，切成功后
-  // trigger.disabled 恒 true）。
-  // 双语开关不影响本列：主列的可点性只由主轨相位决定（02 号票 Q9：副轨在飞/失败
-  // 不阻塞主轨；反之亦然）。
   setCustomSelectState(select, {
     disabled: disabled || facts.switchInFlight !== null,
     busy: facts.switchInFlight !== null
   });
 }
 
-// 选轨结果通知回调（由 reader/lifecycle 经 createSubtitleToolbar 构造注入）：失败时经
-// reader-bus 的 "status" 通道报错（Q14：与抓取同通道、同序收敛，不另开提示面）。
 export type SubtitleTrackNotice = (text: string) => void;
 
 export interface SubtitleToolbarDeps {
@@ -447,20 +299,10 @@ export interface SubtitleToolbar {
   bindEvents: () => void;
 }
 
-// 相位订阅（转写中间态的第三处消费点，与横幅同源同一订阅总线；绑一次）：只服务
-// asr-* 三条转写相位——`subtitle-ready` 相位不驱动任何渲染（渲染归 reader-bus 的
-// subtitle-ready 通知，见 shared/subtitle-status-bus.ts 的相位清单），订阅到它只会
-// 与那一路通知重复重渲。asr-transcribing 期间不会再有任何渲染通知（fetcher.ts 的注释
-// 已说明），只靠 renderReadingView 驱动的投影会一直停在发起转写前的那一态——面板横幅
-// 写着「转写中」，控件却还写「暂无字幕」，两处两说。故控件自己订阅转写相位收敛；
-// asr-done / asr-failed 是同一条转写链的收尾相位，投影据此从转写态退回常态。
 const TRACK_PICKER_PHASES = new Set(["asr-transcribing", "asr-done", "asr-failed"]);
 
 let activeSubtitleToolbar: SubtitleToolbar | null = null;
 
-// 票 04：字幕工具条深 module 工厂。
-// notice 回调、在飞轨 switchInFlight 与相位/偏好订阅全部收进实例闭包；
-// 实例生命周期由 reader 域装载（lifecycle.ts）保证跨壳重建存活。
 export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleToolbar {
   let switchInFlight: string | null = null;
   const onNotice = deps.onNotice;
@@ -474,12 +316,7 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
     });
   }
 
-  // change 处理器：只装载，不直调渲染。重渲/同步由接受事务的 subtitle-ready 通知
-  // 驱动（唯一 emit 点，见 subtitle/commit.ts）——这里补调 renderReadingView 即
-  // 双渲染（被删测试锁过的既有约束，09 号票重新钉住）。收尾只收敛本控件
-  // （renderReadingSubtitleTrackPicker 只碰工具条这一处 DOM，不是整体重渲）。
   function handleTrackPickerChange(select: HTMLSelectElement): void {
-    // 禁用期（空态 / 转写中 / 在飞）的 change 一律忽略：控件本就不可用。
     if (select.disabled) {
       return;
     }
@@ -492,15 +329,6 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       },
       state.clip.subtitles
     );
-    // 哨兵项与「不可装载的行」不发起切换。本仓唯一的空值轨是 ASR 伪轨（subtitleUrl
-    // 为空，而链的 loadSubtitle 对空 URL 直接抛「字幕 URL 为空。」）；它的正文缓存键
-    // 是 provider/model/language 复合键，只有 asr 域能重建，故本控件不做「切回 ASR
-    // 轨」。此时组件已经写值并派发了 change，必须立刻按 state 收敛回当前轨——否则
-    // trigger 停在用户点的那一行、正文却还是旧轨，正是本次要消灭的「控件与 state
-    // 两说」。
-    // 生产可达性：ASR 回退只从「无轨出口」进入（fetcher 的 finishNoSubtitle），而每轮
-    // 抓取都会 setSubtitles(全量轨)，故伪轨只在自己是当前轨时出现在列表里——混源列表
-    // 目前不可达（见票 08 的 resolution：真出现时另立票做「重建 ASR 轨」）。
     if (!target.url) {
       logWarn("[BILISCRIPT] subtitle track is not switchable (no url)", {
         id: target.id
@@ -508,7 +336,6 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       render();
       return;
     }
-    // 乐观显示目标轨（trigger 立即反映用户选择），随后置 busy + 禁用。
     switchInFlight = target.url;
     setCustomSelectValue(select, target.url);
     setCustomSelectState(select, { disabled: true, busy: true });
@@ -523,12 +350,7 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
           target.id
         );
         switched = true;
-        // 成功路径不改控件：接受事务的 subtitle-ready 通知驱动 renderReadingView，
-        // 那一轮渲染会在 switchInFlight 仍置位时保留乐观 trigger（正文与列表已换），
-        // 随后的 finally 收尾收敛控件并补一次进场动画。
       } catch (error) {
-        // 失败回退（Q14）：state 未变，控件必须反映 state。回退动作不在这里手写
-        // ——统一交给 finally 的那次收敛（按 state 投影），一个收尾入口。
         onNotice?.(`字幕切换失败：${getErrorMessage(error)}`);
         logWarn("[BILISCRIPT] failed to switch subtitle track", error);
       } finally {
@@ -587,50 +409,16 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
   return toolbar;
 }
 
-// ===== 双语字幕：页脚开关 + 主/副两列（票 bilingual-subtitles/06；形态 01 / 状态机 02 / 槽与偏好 05）=====
-//
-// 卡片结构（类名与度量见 entry/styles/bilingual-subtitles.css）：
-//   ul.custom-select-dropdown                              ← 组件浮层本体 = 卡片容器
-//                                                             （收起态由它的 hidden 属性管）
-//     li.biliscript-bilingual-popover                      ← 卡片根（display: contents）
-//       div.biliscript-bilingual-main                       ← 滚动区（硬约束 §5.2）
-//         div.biliscript-bilingual-cols
-//           div.biliscript-bilingual-col[data-col="main"]    ← 主列（+ 单轨态说明行）
-//           div.biliscript-bilingual-col[data-col="sub"]      ← 副列（双语态才在场；收起走
-//                                                                 hidden：列首说明行（①② 两套
-//                                                                 空态）+ 重试行 + 语言列表）
-//       div.biliscript-bilingual-footer                      ← 固定页脚：双语字幕 + 状态提示
-//                                                                 （③ 主副同轨）+ 开关
-//
-// 组件不变式逐列成立：一列一枚原生 select，值 = 该列的轨道 URL（与主列既有口径一致），
-// data-id = 轨道身份、data-lang = lan；显示由组件按现值派生。副列那枚组件壳常驻副列
-//（宿主与壳 display: contents，自带 trigger 收起），组件侧零概念（Q10）。
-
 const SUBTITLE_BILINGUAL_SWITCH_LABEL = "双语字幕";
 const SUBTITLE_BILINGUAL_BADGE_TEXT = "双语";
 const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
-// 副列值源的原生 select：id 表（shared/dom-ids.ts）不在本次改动面内，故本叶子自持
-// 一个常量 id（诊断与用例按 id 取副列值源；骨架重建时新 select 仍用它）。
 const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-// 副列的两套空态文案、页脚提示与语言名拼法随六态判定住在
-// reader/secondary-subtitle.ts 的 resolveSecondaryColumnView（文案与产生点同居）。
-// 本叶子只出这两条自己的 DOM 文案：重试行与单轨提示。
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
-// 副列列首标题：CC 视频列的是第二条轨，伪轨视频列的是译文目标语言（票
-// asr-panel-translation）。骨架节点不变，只换文案。
 const SUB_HEAD_TEXT_TRACK = "副字幕";
 const SUB_HEAD_TEXT_TRANSLATION = "译文";
 
-// 副列在飞值不再自持：装载事务的登记在 reader/secondary-subtitle.ts（唯一一份），
-// 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见
-// resolveSecondaryColumnView.busy 与 projectSecondaryLoad。
-
-
-// 副列可列的真轨：**只列有 subtitleUrl 的轨**（02 号票第 4 条）。ASR 伪轨
-//（lan: asr-*、subtitleUrl: ""）是「主轨的兜底」，不是可对照的第二语言，从入口
-// 消除；主列一字不动（仍含伪轨，六态与列表投影不变）。
 function loadableSecondaryTracks(tracks: SubtitleTrack[]): SubtitleTrack[] {
   return tracks.filter((track) => String(track.subtitleUrl || "").trim().length > 0);
 }
@@ -639,20 +427,10 @@ function currentTracks(): SubtitleTrack[] {
   return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
 }
 
-// 仅当视频无任何可用轨道（既无真轨也无 ASR 伪轨）时禁用双语开关；
-// 单轨 CC、纯中文/繁简同族轨均允许开启双语（自动进入同族过滤的 AI 译文副轨模式）。
 function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {
   return loadableSecondaryTracks(tracks).length === 0 && !hasAsrPseudoTrack(tracks);
 }
 
-// 目标轨与「为什么没有目标」都由 reader/secondary-subtitle.ts 的 resolveSecondaryTarget
-// 投影（两级匹配 + 排除主轨 + 只考虑真轨，与自动装载/改选/重试同一份实现），六态文案由
-// 同模块的 resolveSecondaryColumnView 出模型——本叶子不自己匹配、也不自己判态。
-
-// 卡片骨架（双语弹层的节点身份不变量）。骨架的落位与选项行落点都交给组件的槽位声明
-//（setCustomSelectSlots，2026-10 深化）：组件换整批选项只摘它自己产出的 <li>，骨架
-// 全程留在浮层里——子树原样保留，副列壳、页脚开关、监听器都不重建，列滚动位置也不被
-// 销毁。骨架建立后只改状态与文案，不再造节点（Q10：组件侧零概念）。
 interface BilingualCardNodes {
   mainSelect: HTMLSelectElement;
   pickerWrapper: HTMLElement;
@@ -667,10 +445,8 @@ interface BilingualCardNodes {
   secondaryHost: HTMLElement;
   secondarySelect: HTMLSelectElement;
   empty: HTMLElement;
-  // 页脚状态提示位（③ 主副同轨；2026-10-06 用户裁决：放「双语字幕」右边，不进副列列表）
   footerNote: HTMLElement;
   toggle: HTMLButtonElement;
-  // trigger 插位（双语徽标）：建卡时建好，双语态经槽位声明交给组件落位
   badge: HTMLElement;
   context?: SubtitleToolbarContext;
 }
@@ -684,10 +460,6 @@ function buildColumnHead(text: string): HTMLElement {
   return head;
 }
 
-// 认领卡片骨架。pickerWrapper 身份变了 = 壳被整块重建过（reader 面板 forceRecreate），
-// 旧骨架连同旧 select 一并作废，重建一份。骨架的**落位**不在这里做（也不需要在换项
-// 时做）：它是槽位声明的事（见 projectBilingualPicker 的 setCustomSelectSlots），组件
-// 换项时同样保留——本叶子不再按引用搬卡片。
 function ensureBilingualCard(): BilingualCardNodes | null {
   const mainSelect = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
   const pickerWrapper = mainSelect?.closest<HTMLElement>(".biliscript-reading-track-picker") ?? null;
@@ -717,8 +489,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   mainCol.dataset.col = "main";
   const mainHead = buildColumnHead("主字幕");
   mainHead.hidden = true;
-  // 单轨态（开关禁用）的说明进**列表区**、不进页脚（硬约束 §5.4：页脚只容纳
-  //「双语字幕 + 开关」，说明文案长度不可控；零轨时不叠这行，主列哨兵已说明）。
   const hint = document.createElement("div");
   hint.className = "biliscript-bilingual-hint";
   hint.textContent = SINGLE_TRACK_HINT_TEXT;
@@ -737,7 +507,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   aiRefine.className = "biliscript-bilingual-ai-refine";
   aiRefine.hidden = true;
   aiRefine.addEventListener("click", handleAiRefineClick);
-  // 失败态的重试行（02 号票 Q6：重试入口唯一在副列，只重抓这一条副轨）。
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "biliscript-bilingual-retry";
@@ -762,7 +531,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   const label = document.createElement("span");
   label.className = "biliscript-bilingual-footer-label";
   label.textContent = SUBTITLE_BILINGUAL_SWITCH_LABEL;
-  // 页脚状态提示位（③ 主副同轨）：紧挨「双语字幕」四个字，开关仍在最右（度量见 CSS）。
   const footerNote = document.createElement("span");
   footerNote.className = "biliscript-bilingual-footer-note";
   footerNote.hidden = true;
@@ -780,11 +548,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   badge.textContent = SUBTITLE_BILINGUAL_BADGE_TEXT;
 
   root.append(main, footer);
-  // 卡片根的落位不在这里：它是槽位声明里的 extras（见 projectBilingualPicker 的
-  // setCustomSelectSlots），由组件按声明装进浮层本体（[hidden] 收起态与
-  // `:has(> .biliscript-bilingual-popover)` 的度量规则都按它直接挂在浮层本体下写）。
-  // 副列的值源：一枚原生 select + 组件壳（壳插在 select 当前位置并把 select 收进壳内，
-  // 与主列同款）。壳常驻副列（display: contents），不随渲染搬动；change 接线随建壳走。
   initCustomSelect(secondarySelect, "custom-select-wrapper biliscript-bilingual-secondary-picker", {
     onChange: handleSecondaryTrackPickerChange
   });
@@ -808,8 +571,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   };
 }
 
-// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按事实里的六态
-// 模型落语言列表/占位/重试行，页脚开关按偏好事实投影。
 function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleToolbarContext): void {
   const nodes = ensureBilingualCard();
   if (!nodes) {
@@ -822,10 +583,6 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   const dual = facts.bilingual && !facts.switchDisabled;
   const model = facts.secondaryColumn;
   const translation = facts.asrTranslation;
-  // 槽位声明（第四条外部入口，2026-10 深化）：卡片根、选项行落点与 trigger 徽标一次
-  // 声明给组件——组件换整批选项只摘它自己产出的 <li>，卡片骨架全程留在浮层里（列滚动
-  // 位置因此不被销毁），徽标在 trigger 里的落点（值区之后、箭头之前）与它接的
-  // aria-describedby 也由组件负责。本叶子不再按引用搬卡片、不再读组件内部节点。
   setCustomSelectSlots(nodes.mainSelect, {
     extras: [nodes.root],
     optionsHost: nodes.mainList,
@@ -881,8 +638,6 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   } else if (dual) {
     writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
     setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
-    // 状态一律无条件写全一次：在飞折进 model.busy（在飞登记 + 槽 loading 两条信号），
-    // 投影算出的正是装载起步那一刻写的乐观态那一组值，故在飞期间的重渲解不掉乐观禁用。
     setCustomSelectState(nodes.secondarySelect, { disabled: model.busy, busy: model.busy });
   } else {
     writeSecondaryOptions(nodes.secondarySelect, [], "");
@@ -895,16 +650,12 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   nodes.toggle.disabled = facts.switchDisabled;
 }
 
-// 副列选项行的原生投影（与主列同一个产地 buildSubtitleTrackOptionHtml：value = URL、
-// data-id = 轨道身份、data-lang = lan、dir="auto"，选中判据是「URL 相等」）。
 function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: SubtitleTrack[], selectedUrl: string): void {
   if (!select) {
     return;
   }
   const secondaryTracks = loadableSecondaryTracks(tracks);
   if (secondaryTracks.length === 0) {
-    // 无真轨可列（双语关 / 本视频只有一条轨，此时副列整块 hidden）：值源留空，
-    // 列首的说明行（不出双列时那条单轨说明）承担文案，不铺一行假选项。
     select.innerHTML = "";
   } else {
     const marked = shouldMarkAiSubtitleTracks(secondaryTracks);
@@ -918,10 +669,6 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
   rebuildCustomSelectOptions(select);
 }
 
-// 译文场景的副列选项行（票 asr-panel-translation）：与轨行同一形状——value = 目标
-// 语言词表值、data-id = 副轨槽身份 `translate-<lang>`、data-lang = 同一串，选中判据是
-// 「语言相等」。词表只有一份（live/interpret-subtitle-preferences），与播放器「字幕」
-// 浮层的语言列表同源，故两处显示的语言名不会各写一套。
 function writeTranslationOptions(
   select: HTMLSelectElement | null,
   selectedLang: string,
@@ -939,16 +686,6 @@ function writeTranslationOptions(
   rebuildCustomSelectOptions(select);
 }
 
-// 副轨装载事务的 DOM 投影（开关打开 / 副列改选 / 重试共用一条入口）。判定与装载全在
-// reader/secondary-subtitle.ts（目标解析、三重守卫、在飞登记、ensureSummarizeChain →
-// loadSecondarySubtitle）；本叶子只管两拍投影：
-//   - 起步：本列当场写乐观目标值 + 禁用（「副轨的选中就是目标」，失败不回退目标——
-//     02 号票 Q3；错误态由装载器写进槽，本列据此出重试行）；
-//   - 落定：清在飞后必须由这里再收敛一次——副轨到站的 "secondary-subtitle-ready" 重渲
-//     发生在事务落定**之前**（那时在飞仍置位，投影有意不动本列状态），不在这里收，
-//     本列就永久停在「禁用 + 忙碌」。成功路径的正文/选中行由那条通知负责，本拍不碰。
-//   - 失败：槽已置 error（弹层副列占位即重试入口），这里只补一句状态行旁白
-//（与主列失败同一条 notice 通道；仓内无 toast）。
 function projectSecondaryLoad(outcome: SecondaryEnsureOutcome): void {
   if (outcome.kind !== "started") {
     return;
@@ -969,10 +706,6 @@ function projectSecondaryLoad(outcome: SecondaryEnsureOutcome): void {
   });
 }
 
-// 页脚双语开关与副列改选/重试：状态迁移、同轨防呆、持久化与列表重渲通知均收在
-// reader/secondary-subtitle.ts，本叶子只承接 DOM 事件并投影本控件状态与进场动画。
-// 伪轨视频（票 asr-panel-translation）走同一条开关：开关打开 = 显式动作 ⇒ 立刻按当前
-// 目标语言开始/补齐译文；关掉 = 停止显示并中止在飞翻译（已落盘分片保留）。
 function handleBilingualSwitchClick(event: Event): void {
   const toggle = event.currentTarget as HTMLButtonElement | null;
   if (toggle?.disabled) {
@@ -1053,23 +786,10 @@ function handleAiRefineClick(event: Event): void {
 }
 
 export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {
-  // 转写相位订阅与双语偏好订阅并入工具条实例事件绑定（深 module 实例持有）
   const toolbar =
     (toolbarOrDeps && "bindEvents" in toolbarOrDeps ? toolbarOrDeps : toolbarOrDeps?.toolbar) ?? activeSubtitleToolbar;
   toolbar?.bindEvents();
   const readingSearchInput = byId(ids.readingSearchInput) as HTMLInputElement;
-  // ===== PR3 句内搜索（输入/键盘/上下条）：搜索状态与高亮逻辑在
-  // reader/subtitle-search.ts（重域：补渲染走分批渲染状态机），交互回调经
-  // ui/reader-gate 的 withReader 装载后转发（首次输入多一次本地动态 import，
-  // 其后命中缓存 promise，与滚动/点击回调同款）。
-  //
-  // input 路径 180ms trailing 防抖：逐键的全量流水线（清高亮→matchAll→逐命中
-  // DOM 重建→smooth scroll）聚簇为停顿后一次。防抖状态挂本函数闭包（随壳
-  // forceRecreate 重建自然重置，与 handleReaderManualScroll 先例同款）。防抖只
-  // 包 input 事件；Enter/Escape/prev/next 先冲刷未兑现的防抖再动作——
-  // moveReadingSubtitleSearch 读实例闭包 matches（不读输入框），不冲刷就会在
-  // 旧词的匹配上导航。重渲重放路径（lifecycle 渲染尾部 refresh({scroll:false})）
-  // 不走防抖，高亮即时恢复。
   const SEARCH_DEBOUNCE_MS = 180;
   let searchDebounceTimer: number | null = null;
   const searchRefresh = () => {
@@ -1106,7 +826,6 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
         reader.moveReadingSubtitleSearch(event.shiftKey ? -1 : 1);
         return;
       }
-      // Escape：清输入恢复原文本（焦点留在输入框便于再次输入）
       readingSearchInput.value = "";
       reader.refreshReadingSubtitleSearch({ scroll: false });
       readingSearchInput.focus({ preventScroll: true });
@@ -1160,9 +879,6 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   docWithSearchShortcut.__biliscriptSubtitleSearchShortcut = onDocumentSearchShortcut;
   document.addEventListener("keydown", onDocumentSearchShortcut);
 
-  // ===== PR3 复制 / 导出（纯接线，逻辑在总结链 subtitle/ui.ts） =====
-  // 复制 = 字幕纯文本（copySubtitleTranscript，buildTxt 管线，transcript 语义）；
-  // 导出 = SRT/TXT（downloadSubtitle，按 downloadFormat 设置）。
   let subtitleCopyInFlight = false;
   let subtitleExportInFlight = false;
   byId(ids.readingCopySubtitleBtn).addEventListener("click", async () => {
@@ -1215,14 +931,10 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     }
   });
 
-  // ===== PR3 Follow playback 悬浮按钮 =====
-  // 显隐由 data-biliscript-reader-follow 的 CSS 驱动；点击恢复跟随并跳回当前句
-  //（resumeReaderFollowPlayback，不改播放进度）。
   byId(ids.readingFollowBtn).addEventListener("click", () => {
     withReader("resume reader follow", (reader) => reader.resumeReaderFollowPlayback());
   });
 
-  // ===== 字幕列表交互（手动滚动即时暂停跟随 + 点句跳播恢复；状态机在 subtitle-scroll-follow.ts） =====
   const subtitleList = byId(ids.readingSubtitleList);
   const syncManualFollowUi = () => {
     projectReaderFollowUi(subtitleScrollFollow.getMode());
@@ -1322,7 +1034,6 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   window.addEventListener("blur", onScrollPointerRelease, { passive: true });
   let retryFetchInFlight = false;
   subtitleList.addEventListener("click", (event) => {
-    // 配置类无字幕空态「前往设置」：直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。
     const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
     if (actionNode instanceof HTMLElement) {
       const action = actionNode.dataset.subtitleAction;

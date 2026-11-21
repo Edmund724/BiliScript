@@ -1,32 +1,3 @@
-// reader/shell.ts — 阅读壳唯一事务（GLOSSARY.md「阅读壳」词条的代码落点，
-// 工单 .scratch/tickets/arch-slim/issues/02-reader-shell.md）。
-//
-// 进入与退出 文摘面板阅读形态各只剩一条路：enterReaderShell（按意图三档
-// open 进入 / restore 恢复 / chat 进对话）与 exitReaderShell（逆事务）。
-// 八步无闪变时序（suppressUntil → 摘播放器快捷按钮 → resolveReaderEntryUrl →
-// ensureUiReady → replaceReaderModeUrl → ensureReaderStyles → 翻 body/html
-// 门控属性 → enterReaderMode）与 restore 档 shell 完好性自查只存在于本文件，
-// 唯一性由 tests/reader/shell-sequence.test.ts 扫描断言把关。
-//
-// 挂在现有 ensureReaderDomain 接缝后：arch-slim-2/09 起本模块改为动态 chunk
-//（message-handler 的 reading-view 分支经 reader/lazy-shell.js 动态装载；
-// ui-renderer 关闭按钮、script-button 守卫判定是动态 chunk 内的静态委托），
-// 不再借道常驻包。reader 重符号一律经 lazy-* 动态装载边取用，不把重域拖进
-// 常驻图。依赖方向：shell → lazy-*（动态边）+ 各常驻叶子，无环。
-//
-// 三个消费面：
-//   - entry/message-handler.ts：reader-enter / reader-restore / reader-close
-//     三个消息分支退化成一两行委托（经 reader/lazy-shell.js）；
-//   - ui/ui-renderer.ts：文摘面板关闭按钮的关闭链退化为 exitReaderShell 委托；
-//   - ui/script-button.ts：定时自查的失同步判定改用 isReaderShellIntact
-//    （原本地手抄的同一判定收口为唯一实现）。
-//
-// 另有 enterReaderShellOnUrlNavigation：URL 跳转编排（bindUrlChangeHandler）的
-// 进入入口。页内跳转到 biliscript_reader=1 地址而视图未开时走它——与消息意图三档共
-// 享同一条进入链（runReaderEntrySequence 唯一实现），但无 player-ai 前奏
-// （URL 跳转没有用户点击在先，不抑制也不摘 AI 悬浮按钮，与收口前行为逐字
-// 一致），并把「进入前播报」「失败口径」作为编排侧参数注入。
-
 import { suppressUntil } from "../ai/player-ai-state.js";
 import { buildReaderModeUrl, replaceReaderModeUrl } from "../bilibili/reader-url.js";
 import {
@@ -57,17 +28,10 @@ export type ReaderShellIntent = "open" | "restore" | "chat";
 export interface EnterReaderShellOptions {
   readerUrl: string;
   intent: ReaderShellIntent;
-  /** chat 档专用：非空 = 激活对话 tab 后按会话状态发送快捷提示词；空 = 只定位/聚焦 */
   prompt?: string;
   settingsTarget?: LiveSettingsTarget;
 }
 
-// 空 readerUrl 的语义是「已在阅读模式内，只聚焦/激活」。但 background 的
-// player-ai / reading-chat 链在视图未开时也传空串（triggerReaderModeInTab 的
-// 空 readerUrl 参数）——此时必须用当前地址兜底构造阅读 URL，否则 URL 改写、
-// 阅读表与 data-biliscript-reader-mode 门控全被跳过，enterReaderMode 落在无样式的
-// 半进入态（页面布局微变但阅读模式不出现）。拼法单源在 bilibili/reader-url.ts
-// 的 buildReaderModeUrl（arch-slim-2/03，原与 ui/script-button.ts 各抄一份）。
 function resolveReaderEntryUrl(readerUrl: string): string {
   if (readerUrl || isReaderViewOpen()) {
     return readerUrl;
@@ -75,20 +39,6 @@ function resolveReaderEntryUrl(readerUrl: string): string {
   return buildReaderModeUrl(location.href);
 }
 
-// ===== 唯一进入链（八步时序的后六步；前两步按入口前奏补齐） =====
-//
-// ensureUiReady（壳就绪）→ beforeEntry（restore 档的失同步自查在此插，见下）→
-// resolveReaderEntryUrl → replaceReaderModeUrl → 挂阅读表并等加载 → 翻
-// body/html 门控属性 → 刷新关闭态计算样式 → enterReaderMode（视图未开才进）。
-//
-// 无闪变不变式：先挂阅读表再翻属性——门控属性是样式生效开关，表提前挂不会
-// 误伤普通页面；进入前等 link 加载并刷新关闭态，缓存重开也执行 @starting-style。
-//
-// beforeEntry 供 restore 档插入「壳完好性自查 + 失整先收敛」：closeReadingView
-// 要取壳节点，必须排在 ensureUiReady 之后（收敛前先把壳补回来），故不能放在
-// 本链之外。错误不在此捕获——ensureUiReady / enterReaderMode 失败统一抛给各
-// 公开入口的兜底口径（消息意图档记日志、导航入口写状态栏），与收口前各分支
-// 的失败语义一致。
 interface ReaderEntrySequenceOptions {
   readerUrl: string;
   intent?: ReaderShellIntent;
@@ -96,25 +46,12 @@ interface ReaderEntrySequenceOptions {
   triggerRect?: DOMRect | null;
 }
 
-// ===== 进入/退出事务单飞队列 =====
-//
-// 为什么要排队：进入链的 enterReaderMode 恢复持久值标签（经标签激活属主
-// reader/script-tab-activation），chat 档在进入事务内激活对话 tab——不排队的话，
-// 后到事务会盖掉先到事务的 tab 写手（工单：AI 键偶发进的是字幕 tab）。事务在本模块
-// 收口成单飞队列：后到事务等先到事务收敛（含失败）后再起跑，chat 档的对话
-// 激活因此在进入事务收敛后落地（race 防护语义所在；属主的激活串行队列是第二层
-// 兜底——并发意图串行化，最终状态 = 最后意图）。退出事务同队列：进入中收到
-// close 顺延执行，enter/exiting 不交错。
-// 复用 reader/serial-queue.ts 提供的单飞队列，持有独立实例（不与激活链共用）。
 const shellTransactionQueue = createSerialQueue();
 
 function runReaderEntryExclusive(run: () => Promise<void>): Promise<void> {
   return shellTransactionQueue.enqueue(run);
 }
 
-// 进入事务骨架（消息意图三档与 URL 跳转入口共用）：事务体内先把 closed 抬进
-// entering，失败回退 closed——状态机不能卡在 entering。open 态重入（聚焦/chat
-// 档视图已开）不重复抬态，失败时维持 open 原状。
 function runReaderShellEnterTransaction(
   run: () => Promise<void>,
   onEnterFailed: (error: unknown) => void
@@ -135,15 +72,11 @@ function runReaderShellEnterTransaction(
 }
 
 async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Promise<void> {
-  // 候选03：先确保 UI 壳存在，再设置阅读模式属性并进入重域。ensureUiReady
-  // 经 ui/lazy-ui 惰性构建 UI 壳，与后续 reader 操作串成同一 promise 链，
-  // 避免并发触发导致壳构建两次。
   await ensureUiReady();
   await options.beforeEntry?.();
   const readerUrl = resolveReaderEntryUrl(options.readerUrl);
   if (readerUrl) {
     replaceReaderModeUrl(readerUrl);
-    // S3：先挂阅读表再翻属性（无闪变时序，见上方不变式注）
     await ensureReaderStyles();
     applyPrePaintReaderTheme(state.settings);
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
@@ -154,8 +87,6 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     }
   }
   if (!isReaderViewOpen()) {
-    // 候选02：enterReaderMode 属 reader 重域，经 ensureReaderDomain 装载后
-    // 进入（点击路径的本地动态装载对用户无感）。
     const reader = await ensureReaderDomain();
     await reader.enterReaderMode(
       options.intent === "restore" ? "restore" : "open",
@@ -203,10 +134,6 @@ async function closeReaderViewAfterTransition(reader: ReaderExitDomain): Promise
   reader.closeReadingView();
 }
 
-// restore 档的失同步自愈（进入链前收敛）：状态开着而壳失整时先走退出事务把
-// 失同步状态清干净（readingViewOpen 卡 true、script 按钮被压住的那档故障），
-// 再交给进入链重开。收敛失败只记日志不阻断（与收口前处理器口径一致）；重开
-// 会话态由各 tab 的恢复路径接管（对话从会话历史恢复、概览读缓存）。
 async function restoreSelfHealBeforeEntry(): Promise<void> {
   if (!isReaderViewOpen() || isReaderShellIntact()) {
     return;
@@ -219,24 +146,18 @@ async function restoreSelfHealBeforeEntry(): Promise<void> {
   }
 }
 
-// 前奏二的静默实现（fire-and-forget）：装载与摘按钮失败都不外抛。
 async function removePlayerAiQuickButtonQuietly(): Promise<void> {
   try {
     const playerAi = await loadPlayerAi();
     await playerAi.removePlayerAiQuickActionButton();
   } catch {
-    // 静默：摘按钮失败不阻断阅读模式打开。
   }
 }
 
-// 进入事务（三档意图）。返回的 promise 在事务收敛后落定；失败按档位记日志并
-// 继续向上拒绝，消息处理器据此回传真实结果，实际触发入口负责可见反馈。
 export function enterReaderShell(options: EnterReaderShellOptions): Promise<void> {
   const { intent } = options;
-  // 消息载荷的收敛口径沿用收口前处理器：readerUrl / prompt 先 trim（空白视为空）
   const readerUrl = String(options.readerUrl || "").trim();
   const prompt = String(options.prompt || "").trim();
-  // 各档失败保留原日志文案，同时由事务骨架向上拒绝。
   const onFailed = (error: unknown): void => {
     logWarn(
       intent === "open"
@@ -254,15 +175,8 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       document.getElementById("biliscript-player-ai-quick-action")
   );
 
-  // 前奏一（八步第 1 步）：抑制 player-ai 快捷按钮 2.5s（等阅读模式 URL 翻转
-  // 与重域装载完成，防止过渡期重复触发）。restore 档同样抑制（与收口前一致）。
-  // 前奏在排队外同步执行：抑制窗口按点击时刻起算，不随后到事务延后。
   suppressUntil(Date.now() + 2500);
 
-  // 前奏二（八步第 2 步）：摘播放器快捷按钮。restore 档不摘（失同步自愈与
-  // 用户点击无关）。原为同步 remove；懒加载后「未加载 ⇒ 无按钮」可直接跳过，
-  // 已加载时经 promise 移除（延后一个 tick，视觉无差异）。失败静默：移除
-  // 按钮失败不应阻断阅读模式打开，且 suppressedUntil 已保证按钮短期不再弹出。
   if (intent !== "restore" && isPlayerAiLoaded()) {
     void removePlayerAiQuickButtonQuietly();
   }
@@ -274,11 +188,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       triggerRect: launchTriggerRect
     });
     if (intent === "chat") {
-      // 进入事务收敛后激活对话 tab（带 prompt 时另按会话状态发送快捷提示词）。两条
-      // 分支都经标签激活属主收口（runQuickActionPrompt 内部同样调它）：状态位/
-      // 持久化 + DOM 投影 + 对话组合根激活一处落地。
       if (prompt) {
-        // 快捷动作路径传 consumeIntent:false（与快捷发送互不踩踏，不消费待解释意图）
         const chat = await ensureReaderChatTab();
         await chat.runQuickActionPrompt(prompt);
       } else {
@@ -293,15 +203,9 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
 
 export interface EnterReaderShellOnUrlNavigationOptions {
   readerUrl: string;
-  /** 进入失败的编排侧口径；缺省记日志 */
   onEnterFailed?: (error: unknown) => void;
 }
 
-// URL 跳转编排入口（entry/message-handler.ts 的 bindUrlChangeHandler）：popstate/
-// hashchange/biliscript:urlchange 落在 biliscript_reader=1 地址而视图未开时走本入口。与消息
-// 意图三档共享同一条进入链（runReaderEntrySequence 唯一实现），但无 player-ai
-// 前奏——URL 跳转没有用户点击在先，不抑制也不摘 AI 悬浮按钮（按钮同步由编排
-// 自身的 schedulePlayerAiQuickActionSync 负责，与收口前行为一致）。
 export function enterReaderShellOnUrlNavigation(
   options: EnterReaderShellOnUrlNavigationOptions
 ): Promise<void> {
@@ -317,33 +221,20 @@ export function enterReaderShellOnUrlNavigation(
   }, onEnterFailed);
 }
 
-// 退出事务：URL 收敛 → 启动收回 → 等过渡 → closeReadingView 收尾 → 摘阅读表。
-// 收回期间保留门控属性、几何变量和主题，动画结束后才拆定位宿主与呈现属性。
-// 与进入事务同队列串行：entering 中收到 close 时排在进入事务之后顺延执行。
 export function exitReaderShell(): Promise<void> {
   return runReaderEntryExclusive(async () => {
-    // 视图未开（state closed，如一次失败的进入事务之后点关闭）不做状态迁移，
-    // 但保留 URL 收敛/摘表/事件——直达进入失败后的「关闭」仍要清掉 biliscript_reader
-    // 地址与残留样式，否则 script-button 的 URL 自查会反复重触发进入。
     if (getReaderShellState() !== "closed") {
       transitionReaderShell("exiting");
     }
-    // URL 改写保持同步语义（与收口前一致地先收敛地址栏）；非阅读模式 URL 不改
-    // 写（页内跳转后关闭按钮可能落在普通地址上）。改写失败向上抛：消息路径据
-    // 此按错误回包，且不会继续执行关闭（与收口前 try/catch 短路一致）。
     if (isReaderMode()) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
     }
     const reader = await ensureReaderDomain();
     await closeReaderViewAfterTransition(reader);
-    // 收回完成后再摘表；过渡期间样式与几何坐标保持在位。
     removeReaderStyles();
-    // 退出完成通知：经进程内强类型事件总线通知 script-button 恢复常速自查并立即补回按钮。
     contentEventBus.emit("reader:closed");
     reader.restoreReadingViewFocus();
   }).catch((error) => {
-    // 退出事务失败回退：exiting 回 open（视图仍在开着），不能卡在 exiting。
-    // 失败继续向上抛——消息路径按结果回包、关闭按钮链自行接（与收口前一致）。
     if (getReaderShellState() === "exiting") {
       transitionReaderShell("open");
       logWarnAlways("[BILISCRIPT] reading shell exit transaction failed, state rolled back to open", error);

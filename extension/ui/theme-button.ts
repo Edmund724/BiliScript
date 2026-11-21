@@ -1,6 +1,3 @@
-// ui/theme-button.ts — header 主题按钮（太阳/月亮）图标与文案的单点。
-// 图标映射解析后的明暗（light=太阳、dark=月亮），提示文案同时反映自动跟随模式
-//（跟随 B 站 / 跟随系统）与当前解析结果，降低模式切换的认知负担。
 import { state } from "../core/state.js";
 import { ids } from "../reader/state.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";

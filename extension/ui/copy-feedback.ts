@@ -1,9 +1,3 @@
-// extension/ui/copy-feedback.ts
-// 复制成功瞬态反馈控制器：
-// 按钮点击复制成功后，把图标置换为对勾并设置 .is-copied 状态类与已复制无障碍文案，
-// 2000ms（行业主流基准时长）后平滑复原为原图标与文案。
-// 内部使用 WeakMap 维护各按钮的定时器，重入触发时重置倒计时，天然无内存泄露。
-
 import { READING_CHECK_ICON } from "./reading-icons.js";
 
 export const DEFAULT_COPY_FEEDBACK_MS = 2000;
@@ -49,8 +43,6 @@ export function flashCopySuccess(
   copyTimers.set(btn, timer);
 }
 
-// 复制/导出失败的就地反馈：保留原图标，仅以 .is-copy-failed 着危险色并换无障碍文案，
-// 与成功态共用同一计时器表，两态互相覆盖时只剩最后一次的复原倒计时。
 export function flashCopyFailure(
   btn: HTMLElement,
   options: { originalLabel?: string; failedLabel?: string; durationMs?: number } = {}

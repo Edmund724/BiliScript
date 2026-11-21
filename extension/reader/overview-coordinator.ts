@@ -1,14 +1,3 @@
-// 概览协调器深 module：createOverviewCoordinator(deps) 工厂，生产装配点在 reader/overview.ts。
-// 协调面：触发口径 × 并发闸门 × 相位机 × wait ticker。
-// 单向依赖呈现层（reader/overview-ui.ts），UI 侧只吃快照、不反向依赖本协调器。
-//
-// 核心纪律（单源收敛于此，调用点不复述）：
-//  1. 去重：inflight 编排 promise 复用（同 key 不重跑）+ generatedFor 身份校验（换片/换轨旧产物退场并换血）；
-//  2. 诚实空态：无字幕（subtitleBody 为空）不触发生成，展示诚实空态；
-//  3. 重复触发安全：ready/partial/error/cancelled 态不自动重跑，重试需显式 forceRefresh。
-//  4. 闸门：视图打开时（isReadingViewOpen）才驱动真实 DOM 渲染，关闭时静默；
-//  5. 生成进度纪律：generating 期间进度通知与每秒 wait ticker 均就地刷新状态条文案，不整块重渲以保留选区、焦点与滚动位置。
-
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
@@ -43,21 +32,13 @@ export interface ReaderOverviewSnapshot {
 }
 
 export interface ReaderOverviewCoordinator {
-  /** 触发概览生成（fire-and-forget；返回编排 promise 供测试/去重方 await） */
   trigger(options?: { forceRefresh?: boolean }): Promise<void>;
-  /** 取消进行中的生成 */
   cancel(): void;
-  /** 概览相位或产物变化时通知（不含每秒进度）；返回退订函数 */
   subscribe(listener: () => void): () => void;
-  /** 会话收尾：状态与产物引用归位（不取消进行中生成） */
   reset(): void;
-  /** 当前相位查询（含当前 clip 身份自愈对账） */
   getPhase(): ReaderOverviewPhase;
-  /** 投影用快照（相位 + 文案 + 产物引用 + 状态条文本） */
   getSnapshot(): ReaderOverviewSnapshot;
-  /** 主动驱动一次渲染（将当前快照投影到 DOM） */
   render(): void;
-  /** 概览 tab 切换入口（收敛渲染 + 未生成时自动触发） */
   ensureTab(): void;
 }
 
@@ -84,26 +65,15 @@ interface OverviewClipSource {
 }
 
 export interface CreateOverviewCoordinatorDeps {
-  /** 当前 clip 读取（身份键/上下文/字幕体的真源） */
   getClip(): OverviewClipSource;
-  /** 阅读视图开关（渲染闸门） */
   isReadingViewOpen(): boolean;
-  /** 解析当前启用的 AI 平台（含 apiKey/baseUrl/model） */
   resolveProvider(): Promise<AiProvider>;
-  /** 概览管线动态装载（chunk 锚点：调用点保持 import() 按需装载，不得静态 import） */
   loadAnalysis(): Promise<typeof import("../ai/analysis.js")>;
-  /** 费用确认弹窗 */
   confirm(options: ConfirmDialogOptions): Promise<boolean>;
-  /** 注册 UI 点击分派对应的协调动作 */
   registerUiActions(actions: OverviewUiActions): void;
-  /**
-   * 首配续跑支持：概览「去设置」动作经 begin 发起跳转并携带有效性与恢复回调。
-   * 缺省 = 不支持（伴看侧无头协调器等非阅读视图装配）。
-   */
   setupResume?: {
     begin(request: OverviewSetupRequest): void;
   };
-  /** 无字幕配置空态「前往设置」的打开出口（装配方直达 ASR 平台编辑或自动转写开关，票 04） */
   openTranscribeSettings?: () => void;
   now(): number;
   setInterval: typeof setInterval;
@@ -145,11 +115,7 @@ export function createOverviewCoordinator(
   let inflightAbort: ReaderOverviewInflightAbort | null = null;
   let waitTicker: ReturnType<typeof setInterval> | null = null;
   let cancelRequested = false;
-  // 任务代次（票 01 首配续跑校验）：每次概览任务实际起跑递增一次。意图记录时的
-  // 代次与续跑时不一致 = 设置期间概览又起过新一轮，旧续跑意图作废。
   let taskEpoch = 0;
-  // 伴看等外部消费方的变更订阅：只在相位/产物/错误变化时扇出，进度文案不进签名
-  // （每秒变化会把会话指令刷成噪声）。签名去重让 cancel/reset 的重复写点天然幂等。
   const changeListeners = new Set<() => void>();
   let lastNotifiedSignature = "";
 
@@ -169,7 +135,6 @@ export function createOverviewCoordinator(
       try {
         listener();
       } catch {
-        // 订阅方异常不得打断协调器状态机
       }
     }
   }
@@ -227,10 +192,6 @@ export function createOverviewCoordinator(
     };
   }
 
-  // ============================================================
-  // 渲染闸门与快照投影
-  // ============================================================
-
   function renderReadingOverviewNow(): void {
     renderReadingOverview(getReaderOverviewSnapshot());
   }
@@ -240,10 +201,6 @@ export function createOverviewCoordinator(
       renderReadingOverviewNow();
     }
   }
-
-  // ============================================================
-  // 相位写点收口（同形写点共用；清空集定死）
-  // ============================================================
 
   function clearOverviewProduct(phase: "empty" | "idle"): void {
     stopWaitTicker();
@@ -268,10 +225,6 @@ export function createOverviewCoordinator(
     clearOverviewProduct("idle");
   }
 
-  // 渲染前与相位读取前把状态收敛到与当前视频/字幕轨一致：
-  //   - 字幕体为空 → empty（诚实空态，转写中给出预期文案）；
-  //   - 字幕从无到有 → empty 退场回 idle（等下次触发）；
-  //   - generatedFor 与当前身份不一致 → 旧产物退场（换轨/切分P/重抓不串片）。
   function syncOverviewPhaseToClip(): void {
     if (getClipBody().length === 0) {
       if (overview.phase !== "empty") {
@@ -287,10 +240,6 @@ export function createOverviewCoordinator(
       dropOverviewProduct();
     }
   }
-
-  // ============================================================
-  // 等待计时与 ticker
-  // ============================================================
 
   function waitingNoteText(): string {
     const slot = inflightAbort;
@@ -337,10 +286,6 @@ export function createOverviewCoordinator(
     stopWaitTicker();
     waitTicker = deps.setInterval(tickWaitNote, 1000);
   }
-
-  // ============================================================
-  // 协调器窄接口实现
-  // ============================================================
 
   function cancelReaderOverview(): void {
     if (overview.phase !== "generating") {
@@ -410,7 +355,6 @@ export function createOverviewCoordinator(
       try {
         await run;
       } catch {
-        // 保证清理执行
       } finally {
         cleanup();
       }
@@ -521,7 +465,6 @@ export function createOverviewCoordinator(
     void triggerReaderOverviewGeneration();
   }
 
-  // 注册 UI 点击分派对应的协调动作（单向依赖：呈现不 import 协调器，由协调器挂接）
   deps.registerUiActions({
     retry: () => {
       void triggerReaderOverviewGeneration({ forceRefresh: true });

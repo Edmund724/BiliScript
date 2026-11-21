@@ -1,17 +1,3 @@
-// extension/ui/model-picker.ts
-// 可搜索模型组合框（createModelCombobox）与平台行异步拉取适配器（wireModelPicker）：
-//   - createModelCombobox 统一承接引导页（entry/onboarding.ts）与设置/编辑 Modal
-//     （wireModelPicker）共用的可搜索模型下拉：选项渲染、ARIA（role="option" /
-//     aria-selected / aria-expanded）、搜索过滤、键盘漫游（ArrowDown 展开 / Home / End /
-//     Space / Enter / Tab / Esc）、计数尾行、外点收起与 dispose 清理。
-//   - wireModelPicker 为平台行（AI / ASR）薄适配层：点击 toggle 先按手势同步链申请
-//     baseUrl 域名 host 权限，再拉取模型列表并喂给组合框。
-//
-// DOM 契约沿用 AI 侧既有类名（ai-provider-model-wrapper / -toggle /
-// -dropdown / -option / -message / -error / -loading / -count），reader.css
-// 样式与组件自持的捕获期外点收起逻辑对两侧同时生效。只有输入框类名按行型注入
-//（ai-provider-model / asr-provider-model），供收集/探针逻辑按行型取值。
-
 import { escapeHtml } from "../shared/string-utils.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import {
@@ -54,21 +40,13 @@ export interface ModelComboboxConfig {
   searchPlaceholder?: string;
   searchAriaLabel?: string;
   emptyMessage?: string;
-  /** 可选共享外点收起控制器（如平台行模块级单实例）；省略时组合框自建并在 dispose 时销毁。 */
   dismissal?: OutsideClickDismissalController;
-  /** 点击 toggle 是否由组合框直接开合（默认 true；异步拉取适配器传 false 自行编排点击）。 */
   bindToggleClick?: boolean;
-  /** 选中模型并收起下拉后触发。 */
   onSelect?: (modelId: string) => void;
-  /** 用户编辑主输入框触发。 */
   onInput?: () => void;
-  /** 下拉由开转关时触发。 */
   onClose?: () => void;
-  /** 输入框聚焦且下拉关闭时按 ArrowDown 的动作，默认打开下拉。 */
   onArrowDownOpen?: () => void;
-  /** 选中选项后是否将焦点归还主输入框（默认 false）。 */
   focusInputOnSelect?: boolean;
-  /** 外部中止信号：中止时自动 dispose。 */
   signal?: AbortSignal;
 }
 
@@ -331,7 +309,6 @@ export interface ModelPickerFieldOptions {
   inputClass: string;
   placeholder: string;
   value: string;
-  // 关联 label 与字段错误（省略 = 不写 id，行内复用同一控件的旧调用方不受影响）
   inputId?: string;
 }
 
@@ -395,7 +372,6 @@ export function wireModelPicker(
     dismissal: modelDropdownDismissal,
     bindToggleClick: false,
     onSelect: () => {
-      // 选值即输入：draft 模型（provider-editor 片 3）靠 input 事件回写真源
       modelInput.dispatchEvent(new Event("input", { bubbles: true }));
     },
     onInput: cancelInFlight,
@@ -443,8 +419,6 @@ export function wireModelPicker(
       !toggle.isConnected || !dropdown.isConnected || generation !== fetchGeneration || !combobox.isOpen();
 
     try {
-      // 手势同步链：本次点击直达代申请（此前零 await，见 tests/ui/
-      // options-save-gesture.test.ts 的调用方扫描），拒绝则只在下拉内提示。
       const permission = await requestProviderOriginsViaBackground([baseUrl]);
       if (isStale()) return;
       if (!permission.ok) {

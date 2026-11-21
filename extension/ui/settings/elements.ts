@@ -1,24 +1,11 @@
-// ui/settings/elements.ts — 设置抽屉 DOM 元素收集、分区渲染隔离与反馈/防抖原语。
-
 import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./dom-ids.js";
 
-// ===== 分区渲染隔离 =====
-// .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
-// 校验错误显示/保存重渲等分区内部变更的 style/layout 失效圈在分区内，不上溯
-// 阅读壳与宿主 B 站页面。
-// 不取 paint containment：paint 会把后代裁剪到分区 padding box，而本面板弹层
-// （custom-select-dropdown，absolute top:100%+6px）刻意溢出分区边界盖过相邻卡片；
-// layout containment 建立的堆叠上下文由 reader-settings-rows.css 的
-// .biliscript-set-group:has(...) 规则在展开下拉时整区抬升配对。
 export function applySectionContainment(host: HTMLElement): void {
   host.querySelectorAll<HTMLElement>(".biliscript-set-group").forEach((group) => {
     group.style.contain = "layout style";
   });
 }
 
-// ===== 元素收集（模板渲染后按 id 取自宿主容器） =====
-// 查询 id 全部取自 dom-ids.ts 的 SETTINGS_PANEL_DOM_IDS（id 词汇表单一声明，
-// 模板属性同源）；byIdIn 入参类型即该表值域，写不出表外 id。
 export function collectElements(host: HTMLElement) {
   const dom = SETTINGS_PANEL_DOM_IDS;
   const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>

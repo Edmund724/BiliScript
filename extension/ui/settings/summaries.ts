@@ -1,5 +1,3 @@
-// ui/settings/summaries.ts — 设置总览摘要的纯状态派生与 DOM 写回。
-
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
 import {

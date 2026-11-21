@@ -1,7 +1,3 @@
-// Reader 排版/设置呈现层：启动路径必需的常驻微模块。
-//
-// 收拢启动路径必需的轻呈现函数：阅读视图的排版应用（applyReadingViewPresentation）、
-// 设置水合（hydrateReaderStateFromSettings）与外部主题同步（syncReaderExternalTheme）。
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";

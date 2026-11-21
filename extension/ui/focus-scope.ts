@@ -1,11 +1,3 @@
-// extension/ui/focus-scope.ts
-// 面板内弹层的共享外壳、键盘焦点约束与归还、同级节点 inert 隔离与设置抽屉收起观察：
-// Tab / Shift+Tab 在当前容器内环绕，容器打开期间焦点被拉回容器，关闭 / 取消后
-// 把焦点还给打开前仍有效的触发控件。
-//
-// 叠层的让位规则由调用方经 isActive / isTopLayer 注入：下层弹层在确认框等上层
-// 弹层打开时整体停手，一次键盘或外点输入只结算最上层。
-
 import { ids } from "../shared/dom-ids.js";
 import {
   animateTriggerEnter,
@@ -24,11 +16,8 @@ const FOCUSABLE_SELECTOR = [
 ].join(",");
 
 export interface FocusScopeOptions {
-  // 打开时先聚焦的节点（缺省为容器自身；容器需 tabindex=-1）
   initialFocus?: HTMLElement | null;
-  // 关闭后归还焦点的目标（缺省 = 打开前的 document.activeElement）
   returnFocus?: HTMLElement | null;
-  // 上层弹层打开时返回 false：本层暂停约束与归还
   isActive?: () => boolean;
 }
 
@@ -54,7 +43,6 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
   );
 }
 
-// 打开前焦点在 body / document 上时不算有效触发控件：关闭后不归还到这些节点。
 function captureReturnTarget(explicit: HTMLElement | null | undefined): HTMLElement | null {
   if (explicit) return explicit;
   const active = document.activeElement;
@@ -63,8 +51,6 @@ function captureReturnTarget(explicit: HTMLElement | null | undefined): HTMLElem
   return active;
 }
 
-// 隔离同级容器：把宿主父容器下除本宿主外、尚未处于 inert 态的同级节点置为 inert，
-// 返回幂等恢复函数（支持多层弹层叠加时逐层隔离与恢复，不误解开底层隔离）。
 export function isolateHostSiblings(host: HTMLElement): () => void {
   const parent = host.parentElement;
   if (!parent) return () => {};
@@ -168,7 +154,6 @@ export interface PanelModalShell {
   dispose(restoreFocus?: boolean): void;
 }
 
-// 盯 #biliscript-reading-settings-panel 的 hidden 属性，设置抽屉收起时联动结算上层弹层。
 export function observeSettingsPanelHidden(onHidden: () => void): () => void {
   const panel = document.getElementById(ids.readingSettingsPanel);
   if (!panel || typeof MutationObserver === "undefined") {
@@ -266,7 +251,6 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
       stopObservingHidden();
       document.removeEventListener("click", onDocumentClickCapture, true);
       document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-      // 先解除同级 inert 再归还焦点，避免 returnTarget 仍处于 inert 无法接收焦点。
       restoreSiblings();
       focusScope?.dispose(restoreFocus);
       if (dialog) {

@@ -1,6 +1,3 @@
-// extension/reader/subtitle-highlights-ui.ts
-// 字幕列表原位高亮标示与一键撤销（轻量呈现：无额外抽屉，数据真源在 notes/highlights-store.ts）。
-
 import { state } from "../core/state.js";
 import {
   loadVideoHighlights,
@@ -102,7 +99,6 @@ export async function refreshSubtitleHighlightsFromStore(): Promise<void> {
     return;
   }
   const items = await loadVideoHighlights(videoKey);
-  // 若加载期间已换视频则丢弃过期回执
   if (videoKey !== currentHighlightVideoKey()) {
     return;
   }

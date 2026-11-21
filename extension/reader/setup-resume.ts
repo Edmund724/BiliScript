@@ -1,11 +1,3 @@
-// extension/reader/setup-resume.ts — 阅读侧 AI / ASR 首配跳转与恢复统一协调模块。
-//
-// 收口概览、解释卡、对话与 ASR 四个首配入口的单飞保护、动态加载代次守卫、
-// 一次性恢复槽与失效清理：
-// - AI（overview / explain / chat）：直接将 errorClass 透传给 openReaderAiSetup，
-//   保存成功后仅当 isStillValid() 仍为真时触发一次恢复，取消或失效时按原因清理；
-// - ASR：提供单飞入口与页面内存视频身份令牌，供开关落盘或平台保存后重新触发字幕链。
-
 import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
 import type { AsrSetupKind } from "../asr/asr-setup.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";

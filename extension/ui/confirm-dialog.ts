@@ -1,13 +1,3 @@
-// extension/ui/confirm-dialog.ts
-// 面板内二次确认弹层（in-page confirm）：宿主挂 #biliscript-reading-view 直下，
-// mask + role=dialog 居中卡片，确保扩展停靠侧边时弹窗落在面板可视区内。
-//
-// 可访问性：可见标题经 aria-labelledby、说明经 aria-describedby 关联；默认焦点
-// 落在「取消」而不是破坏性的确认键。关闭/取消后焦点归还打开前仍有效的控件。
-//
-// 叠层关系：宿主 z-index 高于 provider-editor-host（50 > 40）；确认期间下层
-// 弹层按 isConfirmDialogOpen 让位，由本层承接遮罩点击 / Esc / 外点与抽屉收起。
-
 import { ids } from "../shared/dom-ids.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { mountPanelModalShell, type PanelModalShell } from "./focus-scope.js";
