@@ -408,7 +408,7 @@ describe("wait ticker（假 now + 捕获 interval 回调）", () => {
     expect(h.coordinator.getSnapshot().stripText).toBe("");
   });
 
-  it("等待计时只改状态条文案节点，不重建整块 DOM（ADR-0010）", async () => {
+  it("等待计时只改状态条文案节点，不重建整块 DOM", async () => {
     const h = makeHarness();
     h.setReadingViewOpen(true);
     document.body.innerHTML = `<div id="${ids.readingOverviewBody}"></div>`;

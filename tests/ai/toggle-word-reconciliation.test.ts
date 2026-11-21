@@ -176,7 +176,7 @@ describe("开关词两处字面的静态对账（形状表 ↔ Messages 出口�
     ]);
   });
 
-  it("跨方言替换逐格钉住：enable_thinking 三家的 Messages 侧是**有据的原生替换**（ADR-0014 决定 2）", () => {
+  it("跨方言替换逐格钉住：enable_thinking 三家的 Messages 侧是**有据的原生替换**（ADR-0008）", () => {
     const substitutions = reconcileAll().flatMap(({ key, exitKind, provenance, verdict }) =>
       verdict.state === "dialect-substitution"
         ? [{ key, exitKind, provenance, platformWord: verdict.platformWord, messagesWord: verdict.messagesWord }]

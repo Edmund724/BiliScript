@@ -153,7 +153,7 @@ describe("isSubtitleFetchFailed（抓取失败拦截）", () => {
   });
 });
 
-describe("wantsWaitNotice（即时等待提示，ADR-0017 决定 6 的冻结口径）", () => {
+describe("wantsWaitNotice（即时等待提示，ADR-0011 冻结口径）", () => {
   it("clip loading 且字幕体为空：显示等待提示", () => {
     expect(wantsWaitNotice(readinessFromClip(clip({ subtitleFetchState: "loading" })))).toBe(true);
   });

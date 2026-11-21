@@ -7,7 +7,7 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 ### 实时伴看
 
 **实时伴看**:
-在观看视频过程中，与 AI 语音助手建立低延迟双工交互，共同理解视频画面与声音，提供随看随聊的伴随式对话体验。视频页由播放器内伴看浮窗主承载（全屏与非全屏共用），会话独立于文摘面板生命周期（关闭面板不销毁伴看）；入口在播放器控制栏与对话面板空态发送键，启动时中止在途面板文本流；对话面板打开时展示伴看状态条，并将文本模型委派记录保存为独立只读「伴看记录」历史条目。ADR-0026。
+在观看视频过程中，与 AI 语音助手建立低延迟双工交互，共同理解视频画面与声音，提供随看随聊的伴随式对话体验。视频页由播放器内伴看浮窗主承载（全屏与非全屏共用），会话独立于文摘面板生命周期（关闭面板不销毁伴看）；入口在播放器控制栏与对话面板空态发送键，启动时中止在途面板文本流；对话面板打开时展示伴看状态条，并将文本模型委派记录保存为独立只读「伴看记录」历史条目。ADR-0016。
 代码名：`live/live-companion-session.ts` / `live/live-overlay-binding.ts` / `live/player-live-toggle.ts` / `live/player-notice.ts` / `reader/chat-live-status.ts` / `reader/chat-live-text-records.ts`
 _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
 
@@ -22,7 +22,7 @@ _Avoid_: 伴看面板、全屏浮窗（不再限于全屏）
 _Avoid_: 同声传译、同传；把译文写入 `clip.subtitles` 或把原生 CC 主轨篡改为 `asr` 伪轨
 
 **直播间伴看**:
-在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂伴看浮窗与播放器内的开关按钮，不出现文摘面板，设置通过按需伴看设置对话框就地配置。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。
+在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂伴看浮窗与播放器内的开关按钮，不出现文摘面板，设置通过按需伴看设置对话框就地配置。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0016。
 代码名：`live/live-room-entry.ts` / `live/live-overlay-binding.ts` / `live/live-room-settings.ts` / `MossLiveRoomContext` / `isLiveRoomPage` / `parseLiveRoomId`
 _Avoid_: 直播面板、直播总结、把房间号当 `bvid` 用
 
@@ -89,10 +89,10 @@ _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 
 **字幕预抓取**:
 进入视频页即起跑的字幕抓取，不等用户打开文摘面板或点 AI 键。起跑点两处：content script 载入与 SPA 换片；起跑时序与既有自动抓取同一语义（先等视频元数据，再经总结链装载发刷新请求），复用的是「字幕接受」同一条事务链。字幕列表请求兼作可用性探测：无字幕的视频只多这一次列表请求，不进入 ASR 转写（ASR 保持用户触发）。是否起跑由共享守卫「字幕在手或在飞」判定：字幕体已落账且视频身份匹配当前页，或抓取相位为 loading / ready 时不起跑；失败静默，不写页面提示。抓取失败留下的 error 态由发送闸在发送前重试一次，仍失败则拦截发送。
 代码名：`ensureSubtitlePrefetch` / `startSubtitlePrefetch`（entry/message-handler.ts）/ `isSubtitleInHandOrInFlight`（subtitle/subtitle-in-hand.ts）
-_Avoid_: 预热、预取（quick-prompts 的 warmUpInitialQuickPrompts 已占用「预热」）；把预抓取当成会触发 ASR 的路径；给预抓取单开设置开关（见 ADR-0017）
+_Avoid_: 预热、预取（quick-prompts 的 warmUpInitialQuickPrompts 已占用「预热」）；把预抓取当成会触发 ASR 的路径；给预抓取单开设置开关（见 ADR-0011）
 
 **文摘面板**:
-阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。贴栏态以右缘为锚，独立位移与缩放开合；浮层态保持居中并原位缩放；restore 与减少动态偏好均跳过过渡。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 = `reader/script-tab-activation.ts` 的 `activateScriptTab`：状态位 → 持久化写穿 → `project-tab` 投影命令 → 二级激活，同处一条串行队列；壳侧 `setReaderScriptTab` 只做 DOM 投影）。
+阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。贴栏态以右缘为锚，独立位移与缩放开合；浮层态保持居中并原位缩放；restore 与减少动态偏好均跳过过渡。ADR-0003。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 = `reader/script-tab-activation.ts` 的 `activateScriptTab`：状态位 → 持久化写穿 → `project-tab` 投影命令 → 二级激活，同处一条串行队列；壳侧 `setReaderScriptTab` 只做 DOM 投影）。
 代码名：`#biliscript-reading-view` / `#biliscript-reading-script-panel` / `reader/script-host.ts` / `--biliscript-script-*` / `data-biliscript-script-float` / `readingActiveScriptTab` / `activateScriptTab` / `project-tab` / `reportTabIntent` / `customPanelWidthEnabled` / `customPanelWidth` / `autoOpenReader`
 口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 文摘面板）
 _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 DOM class 取当前标签
@@ -162,7 +162,7 @@ _Avoid_: 把重置做成带框文字键、偏离默认值时不更新禁用与�
 ### 总结流程
 
 **成稿笔记**:
-AI 总结阶梯（ADR-0001）的内部中间产物——素材在预算内一次成稿、超预算经「分段 + 归并」后成稿的完整 Markdown 总结，用于追问时的常驻压缩上下文，不是面向用户的笔记功能。产品已无笔记功能（原 Frontmatter 笔记导出 2026-09 删除）；`notes/` 目录仅承担字幕导出渲染（Markdown/SRT/TXT）。
+AI 总结阶梯（ADR-0012）的内部中间产物——素材在预算内一次成稿、超预算经「分段 + 归并」后成稿的完整 Markdown 总结，用于追问时的常驻压缩上下文，不是面向用户的笔记功能。产品已无笔记功能（原 Frontmatter 笔记导出 2026-09 删除）；`notes/` 目录仅承担字幕导出渲染（Markdown/SRT/TXT）。
 代码名：`ai/followup-context.js` 的 `hasFinalNote`（判定已成稿）/ `notes/render.js` 的 `buildMarkdown`（导出渲染）
 _Avoid_: 总结、摘要、回答；也不要再引入「保存笔记 / 笔记库」这类用户功能命名
 
@@ -182,7 +182,7 @@ _Avoid_: 小总结、chunk 摘要
 
 **归并**:
 把多段小结按下一条「素材预算」合并成更接近成稿材料的层叠操作。
-代码名：`ai/reduce.js` / `shouldReduce` / `buildReduceGroups` / `buildReducePrompt` / `reduceSummaries` / `REDUCE_GROUP_INPUT_CHARS` / `REDUCE_TRIGGER_CHARS`——归并 = Map-Reduce 的 Reduce 阶段（ADR-0001）。
+代码名：`ai/reduce.js` / `shouldReduce` / `buildReduceGroups` / `buildReducePrompt` / `reduceSummaries` / `REDUCE_GROUP_INPUT_CHARS` / `REDUCE_TRIGGER_CHARS`——归并 = Map-Reduce 的 Reduce 阶段（ADR-0012）。
 _Avoid_: 合并、merge
 
 **素材预算**:
@@ -222,7 +222,7 @@ _Avoid_: 缓存摘要、记忆、上下文摘要
 _Avoid_: 手抄多趟解析链、第二份解析实现
 
 **平台协议**:
-AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-ai，落地三种）：OpenAI compatible（chat completions）、Anthropic（messages）、Gemini 原生（generateContent / streamGenerateContent，见 [ADR-0018](docs/adr/0018-gemini-native-protocol.md)）。每个 AI 平台记录带一个协议字段，存量记录缺省读作 OpenAI compatible。
+AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-ai，落地三种）：OpenAI compatible（chat completions）、Anthropic（messages）、Gemini 原生（generateContent / streamGenerateContent，见 [ADR-0009](docs/adr/0009-gemini-native-protocol.md)）。每个 AI 平台记录带一个协议字段，存量记录缺省读作 OpenAI compatible。
 代码名：`AiProtocol`（`"openai" | "anthropic" | "gemini"`）/ provider 的 `protocol` 字段；唯一读路径 `resolveAdapter`（`PROTOCOL_ADAPTERS` 注册表），缺字段/未知值兜底 openai，不得旁路直读 protocol 字段
 _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-protocol 词根）混用
 
@@ -232,7 +232,7 @@ _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-pro
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
 **平台怪癖词表**:
-协议线格式层面的平台差异（请求体字段名、思考词汇、消息历史要求、会话头、流式哨兵）的**唯一主人**：稳定键 + 语义 + 适用协议 + 线格式取值，借 pi-ai `compat` 的命名与语义设计、**不借其数据**（[ADR-0009](docs/adr/0009-model-catalog-borrow-not-embed.md)「借」清单；ADR 换代后该清单由 [ADR-0013](docs/adr/0013-upstream-model-facts-borrow-not-embed.md) 沿用）。纯叶零 import（只 type-import 词表叶 `AiProtocol`），不拖入分发表与 adapters。「该平台开哪些怪癖」在 `PLATFORM_QUIRKS` 一处声明；「该协议 adapter 接纳哪些怪癖」由 `ProtocolAdapter.consumes` 自陈（「接纳」= 该协议线格式栈对怪癖负责，兑现形态三种：adapter 内实现 / 卫星模块 thinking-profiles·thinking-wire-map·plan-thinking·preset-headers 实现 / 显式登记的有意缺口），两侧由 `validateCompatVocab` 在测试期对账——声明了没人接纳（死声明）与接纳了没声明（漏登记）都报错；平台侧另查平台 id 是真实 AI 预设、怪癖绑定的协议该平台登记了端点（否则是构造性死声明）。**校验不进运行时**。对账只到「端点存不存在」，**不按记录当前选的协议收窄**——设置 UI 的协议下拉对任何预设都无条件渲染三种协议，绑在另一条通道上的怪癖只是不生效、不是违规。**查表口径统一**经 `ai/platform-quirk-id.ts` 的 `resolvePlatformQuirkId`（presetId 主路径、baseUrl host 兜底，对 custom/直填 baseUrl 的平台也认得出；键成员资格 = `PLATFORM_QUIRKS` 的键）——识别器在词表叶外，词表叶的零 import 契约不破；不得拿 thinking 的 `resolveThinkingProviderId` 当词表识别口径（键空间不同：`PROVIDERS ⊋ PLATFORM_QUIRKS`，siliconflow 有思考档位但无怪癖声明）。模型血统事实（哪档发什么字段）不在词表：三层分工里词表只占**名词层**——档位事实（某模型有哪些档位）的第一事实源是构建期编译产物 `ai/catalog/models-dev-thinking.generated.ts`（`VALUESETS` 值集表 / `ASSIGNMENTS` 指派表 / `MODEL_ID_ALIASES` 别名表，查表入口 `lookupThinkingFact`），由 `ai/thinking-profiles.ts` 解析成本仓档位规则、并补产品语义与上游未覆盖处的兜底（`thinkingClass`、off 级联、`streamOnly`、UNKNOWN 哨兵不发参；指派表查不到该 id（用户自填 / 上游缺口 / 非 reasoning）时用手写 `EXCEPTIONS` / `TAXONOMY` / `unknownClass` 兜底产出档位），这套词汇在本协议请求体里的写法是 `ai/thinking-wire-map.ts`（线格式映射表），组装（取档位事实 → 按本协议算行入参 → 取表）的落点是思考装配边 `ai/plan-thinking.ts`，adapter 只把边产出并入请求体，词表只登记它们与协议栈之间的缝隙，不复制事实、不承载写法。
+协议线格式层面的平台差异（请求体字段名、思考词汇、消息历史要求、会话头、流式哨兵）的**唯一主人**：稳定键 + 语义 + 适用协议 + 线格式取值，借社区 `compat` 词表的命名与语义设计、**不借其运行时与数据**（见 [ADR-0007](docs/adr/0007-upstream-model-facts-snapshot.md)）。纯叶零 import（只 type-import 词表叶 `AiProtocol`），不拖入分发表与 adapters。「该平台开哪些怪癖」在 `PLATFORM_QUIRKS` 一处声明；「该协议 adapter 接纳哪些怪癖」由 `ProtocolAdapter.consumes` 自陈（「接纳」= 该协议线格式栈对怪癖负责，兑现形态三种：adapter 内实现 / 卫星模块 thinking-profiles·thinking-wire-map·plan-thinking·preset-headers 实现 / 显式登记的有意缺口），两侧由 `validateCompatVocab` 在测试期对账——声明了没人接纳（死声明）与接纳了没声明（漏登记）都报错；平台侧另查平台 id 是真实 AI 预设、怪癖绑定的协议该平台登记了端点（否则是构造性死声明）。**校验不进运行时**。对账只到「端点存不存在」，**不按记录当前选的协议收窄**——设置 UI 的协议下拉对任何预设都无条件渲染三种协议，绑在另一条通道上的怪癖只是不生效、不是违规。**查表口径统一**经 `ai/platform-quirk-id.ts` 的 `resolvePlatformQuirkId`（presetId 主路径、baseUrl host 兜底，对 custom/直填 baseUrl 的平台也认得出；键成员资格 = `PLATFORM_QUIRKS` 的键）——识别器在词表叶外，词表叶的零 import 契约不破；不得拿 thinking 的 `resolveThinkingProviderId` 当词表识别口径（键空间不同：`PROVIDERS ⊋ PLATFORM_QUIRKS`，siliconflow 有思考档位但无怪癖声明）。模型血统事实（哪档发什么字段）不在词表：三层分工里词表只占**名词层**——档位事实（某模型有哪些档位）的第一事实源是构建期编译产物 `ai/catalog/models-dev-thinking.generated.ts`（`VALUESETS` 值集表 / `ASSIGNMENTS` 指派表 / `MODEL_ID_ALIASES` 别名表，查表入口 `lookupThinkingFact`），由 `ai/thinking-profiles.ts` 解析成本仓档位规则、并补产品语义与上游未覆盖处的兜底（`thinkingClass`、off 级联、`streamOnly`、UNKNOWN 哨兵不发参；指派表查不到该 id（用户自填 / 上游缺口 / 非 reasoning）时用手写 `EXCEPTIONS` / `TAXONOMY` / `unknownClass` 兜底产出档位），这套词汇在本协议请求体里的写法是 `ai/thinking-wire-map.ts`（线格式映射表），组装（取档位事实 → 按本协议算行入参 → 取表）的落点是思考装配边 `ai/plan-thinking.ts`，adapter 只把边产出并入请求体，词表只登记它们与协议栈之间的缝隙，不复制事实、不承载写法。
 代码名：`COMPAT_QUIRKS` / `PLATFORM_QUIRKS` / `hasPlatformQuirk` / `quirkWireValue` / `validateCompatVocab`（`ai/compat-vocab.ts`）/ `resolvePlatformQuirkId`（`ai/platform-quirk-id.ts`）/ `ProtocolAdapter.consumes`（`ai/protocol-adapter.ts`）
 _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai 的 compat 值开运行时入口、把模型血统事实搬进词表、词表叶里 value-import 协议栈、拿 thinking 的 `resolveThinkingProviderId` 查词表
 
@@ -242,7 +242,7 @@ _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai �
 _Avoid_: 在 adapter 里回抄线格式取值、让血统表输出协议字段名、把线格式写成字符串表达式（表达式引擎）、在血统表里按协议分支、在 Messages 通道发 `thinking.budget_tokens`（本扩展一律不自造思考预算）
 
 **平台请求代发**:
-扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求形态分工：**SW 代发**（探针 / 选区解释 / 联网搜索 / AI·ASR 模型列表各非流式短请求链）单档 15s 覆盖整段请求（响应头 + 正文）且超时真中止，受 MV3 service worker 生命周期约束，只服务非流式短请求；**offscreen 代发**（概览链与快速提问生成，一请求一端口、无超时、一律分块回吐）服务流式请求与分钟级长请求（ADR-0010）。通道选择是各链的静态装配，不做运行时选择或回落。联网搜索的链级预算 30s，由链持有。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。两发送端同签名（fetch 兼容），能力差异由 `ProviderTransport.supportsStreaming` 自报（SW false / offscreen true）；host 权限预检不属于该契约（SW 侧真门 / content 经 SW 代查）。
+扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求形态分工：**SW 代发**（探针 / 选区解释 / 联网搜索 / AI·ASR 模型列表各非流式短请求链）单档 15s 覆盖整段请求（响应头 + 正文）且超时真中止，受 MV3 service worker 生命周期约束，只服务非流式短请求；**offscreen 代发**（概览链与快速提问生成，一请求一端口、无超时、一律分块回吐）服务流式请求与分钟级长请求（ADR-0005）。通道选择是各链的静态装配，不做运行时选择或回落。联网搜索的链级预算 30s，由链持有。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。两发送端同签名（fetch 兼容），能力差异由 `ProviderTransport.supportsStreaming` 自报（SW false / offscreen true）；host 权限预检不属于该契约（SW 侧真门 / content 经 SW 代查）。
 代码名：`providerFetchViaBackground` / `handleProviderHttpRequest`（SW 代发）；`providerFetchViaOffscreen` / `attachProviderHttpPort` / `PROVIDER_HTTP_OFFSCREEN_PORT_NAME`（offscreen 代发）；能力契约 `ProviderTransport` / `supportsStreaming`；两条通道共用的公共件叶 `provider-http-shared.ts`（URL 提取 / Headers 归一 / 中止形状 / 接收端预检与 fetch init / 出向载荷单源 / 能力契约，零运行时依赖）
 _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发；按运行时策略在两条通道间切换或回落
 
@@ -293,7 +293,7 @@ _Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `Off
 
 ### 模型目录（model-catalog）
 
-设置页平台编辑 Modal 里的**只读**模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。数据来自**构建期**从 models.dev（`https://models.dev/api.json`）抓取并裁剪出的零依赖叶子产物（12 家上游 / 578 个模型；产物头记裁剪子集的 `contentHash` 与逐家 `doc` + 模型数），不是运行时依赖；决策、pin 口径与反例证据见 [ADR-0013](docs/adr/0013-upstream-model-facts-borrow-not-embed.md)（取代 ADR-0009）。
+设置页平台编辑 Modal 里的**只读**模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。数据来自**构建期**从 models.dev（`https://models.dev/api.json`）抓取并裁剪出的零依赖叶子产物（12 家上游 / 578 个模型；产物头记裁剪子集的 `contentHash` 与逐家 `doc` + 模型数），不是运行时依赖；决策、pin 口径与反例证据见 [ADR-0007](docs/adr/0007-upstream-model-facts-snapshot.md)。
 
 六条不变式（每条都能当判据用，锚点是实际实现/测试位置）：
 
@@ -361,11 +361,11 @@ _Avoid_: 发送前检查、发送前置条件散落各调用点、按输入框�
 _Avoid_: 重渲消息区、逐条 append 重建、绕过世代号直接清场、让回放等待在途回合（结构死锁方向）
 
 **两阶段单跳混合召回**:
-长视频（超 30 分钟或超 200k 字符）下多轮 AI 对话的渐进式上下文召回架构（ADR-0027）：严格限制每次提问最多单跳路由（不依赖多轮原生 Tool Calling 循环，兼容 OpenAI / Anthropic / Gemini / ModelScope 协议）。阶段 A 同步执行本地 L0 BM25 词法检索，并在视频已有 L1 目录缓存（offscreen 经 `segment-cache` 消息族的 `load-l1-index` 向 SW 宿主读取）且非简单寒暄时，并发发起极简非流式路由请求（`thinkingLevel: "off"`，带短超时）判定：宏观问题直接标记 `direct-answer` 无需展开，细节问题输出最多 1～2 个章节时间区间及补充检索词；阶段 B 将选定区间字幕与 BM25 命中扩窗字幕按时间顺序去重合并（`mergeL0ContextWindows`），连同常驻 L1 目录送入主对话流式生成。路由超时、限流（429）或返回非预期格式时自动静默降级为「L1 目录 + 本地 BM25 Top 扩窗」。若提问涉及画面/板书/图表且已启用视频关键帧能力，优先复用召回命中的核心时间戳触发关键帧采样，并与思考强度调节及免 Key 联网搜索正交兼容。
+长视频（超 30 分钟或超 200k 字符）下多轮 AI 对话的渐进式上下文召回架构（ADR-0012）：严格限制每次提问最多单跳路由（不依赖多轮原生 Tool Calling 循环，兼容 OpenAI / Anthropic / Gemini / ModelScope 协议）。阶段 A 同步执行本地 L0 BM25 词法检索，并在视频已有 L1 目录缓存（offscreen 经 `segment-cache` 消息族的 `load-l1-index` 向 SW 宿主读取）且非简单寒暄时，并发发起极简非流式路由请求（`thinkingLevel: "off"`，带短超时）判定：宏观问题直接标记 `direct-answer` 无需展开，细节问题输出最多 1～2 个章节时间区间及补充检索词；阶段 B 将选定区间字幕与 BM25 命中扩窗字幕按时间顺序去重合并（`mergeL0ContextWindows`），连同常驻 L1 目录送入主对话流式生成。路由超时、限流（429）或返回非预期格式时自动静默降级为「L1 目录 + 本地 BM25 Top 扩窗」。若提问涉及画面/板书/图表且已启用视频关键帧能力，优先复用召回命中的核心时间戳触发关键帧采样，并与思考强度调节及免 Key 联网搜索正交兼容。
 代码名：`ai/chat-hybrid-retrieval.ts`（`resolveLongVideoHybridContext` / `mergeL0ContextWindows` / `parseL1RouterOutput` / `doesPromptNeedVisualFrame`）/ `ai/l1-directory.ts`（零存储依赖 L1 纯模块）/ `ai/l0-bm25.ts` / `ai/ladder.ts`（`runLadderChat`）/ `segment-cache` 的 `load-l1-index` op
 _Avoid_: 多轮 Agent 自主检索循环、引入本地向量库或第三方分词依赖、在 offscreen 直接访问 `chrome.storage`
 
 **交互锚点直通**:
-两阶段单跳混合召回的免路由快速路径（Fast Path，ADR-0027）：当用户触发划词解释（`explain-selection`，来自 `reader/explain-intent.ts` 的待解释意图）、问题中包含显式时间戳，或针对当前播放进度（`playbackCursorSeconds`）作指代性提问时，跳过阶段 A 模型路由请求，直接以目标时间戳或选中字幕行号为中心抽取 L0 前后扩窗原始字幕与所属 L1 章节摘要，零额外首字延迟直入流式回答（超预算视频亦跳过成本护栏与 Map-Reduce）。
+两阶段单跳混合召回的免路由快速路径（Fast Path，ADR-0012）：当用户触发划词解释（`explain-selection`，来自 `reader/explain-intent.ts` 的待解释意图）、问题中包含显式时间戳，或针对当前播放进度（`playbackCursorSeconds`）作指代性提问时，跳过阶段 A 模型路由请求，直接以目标时间戳或选中字幕行号为中心抽取 L0 前后扩窗原始字幕与所属 L1 章节摘要，零额外首字延迟直入流式回答（超预算视频亦跳过成本护栏与 Map-Reduce）。
 代码名：`detectInteractionAnchorPlan` / `buildFastPathContext`（`ai/chat-hybrid-retrieval.ts`）/ `InteractionAnchorHint`（`chat/chat-runtime.ts`、`reader/explain-intent.ts`）/ `playbackCursorSeconds`（`shared/messaging-protocol.ts`、`reader/chat-tab.ts`）
 _Avoid_: 对划词解释或时间戳追问发起二次路由请求、触发全量 Map-Reduce 归约

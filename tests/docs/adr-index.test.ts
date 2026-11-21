@@ -12,103 +12,56 @@ const adrFiles = (): string[] =>
     .filter((name) => /^\d{4}-.+\.md$/.test(name))
     .sort();
 
-const indexRows = (): { id: string; line: string }[] =>
+const indexRows = (): { id: string; file: string; line: string }[] =>
   read(README)
     .split("\n")
     .map((line) => line.trim())
-    .map((line) => ({ line, id: (line.match(/^\|\s*\[?(\d{4})/) ?? [])[1] }))
-    .filter((row): row is { line: string; id: string } => Boolean(row.id));
+    .map((line) => {
+      const match = line.match(/^\|\s*\[(\d{4})\]\(([^)]+)\)/);
+      return match ? { id: match[1], file: match[2], line } : null;
+    })
+    .filter((row): row is { id: string; file: string; line: string } => row !== null);
 
-const firstLineAfterTitle = (text: string): string => {
+const firstNonEmptyLineAfterTitle = (text: string): string => {
   const lines = text.split("\n");
   const titleAt = lines.findIndex((line) => line.startsWith("# "));
-  for (let i = titleAt + 1; i < lines.length; i += 1) {
-    if (lines[i].trim()) return lines[i].trim();
-  }
-  return "";
+  return (
+    lines
+      .slice(titleAt + 1)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 };
 
-const revisionBlocks = (text: string): number =>
-  text.split("\n").filter((line) => /^##\s*修订/.test(line.trim())).length;
-
-const declaredRevisionCounts = (text: string): number[] =>
-  [...text.matchAll(/(\d+)\s*(?:处|条|次)修订/g)].map((match) => Number(match[1]));
-
 describe("docs/adr 体例守卫", () => {
-  it("每篇 ADR 都在 README 索引里被提到", () => {
-    const index = read(README);
-    expect(adrFiles().length).toBeGreaterThan(0);
-    const missing = adrFiles().filter((name) => !index.includes(name));
-    expect(missing, `下列 ADR 未登记进 docs/adr/README.md 索引：${missing.join("、")}`).toEqual([]);
-  });
-
-  it("README 索引表里的每个编号要么有对应 MD，要么该行标了「已退役」", () => {
+  it("ADR 文件与 README 索引表一一对应且从 0001 起连续编号", () => {
     const files = adrFiles();
     const rows = indexRows();
-    expect(rows.length).toBeGreaterThan(0);
-    const broken = rows
-      .filter((row) => !files.some((name) => name.startsWith(`${row.id}-`)))
-      .filter((row) => !row.line.includes("已退役"))
-      .map((row) => row.id);
-    expect(broken, `索引表编号既无 MD 又未标「已退役」：${broken.join("、")}`).toEqual([]);
-  });
-
-  it("任何 ADR 正文都不含 .scratch/", () => {
-    const offenders = adrFiles().filter((name) => read(join(ADR_DIR, name)).includes(".scratch/"));
-    expect(offenders, `下列 ADR 正文回引了不可解析的 .scratch/ 路径：${offenders.join("、")}`).toEqual([]);
-  });
-
-  it("每篇 ADR 首行（标题后第一条非空行）是状态行", () => {
-    expect(adrFiles().length).toBeGreaterThan(0);
-    const offenders = adrFiles()
-      .filter((name) => !firstLineAfterTitle(read(join(ADR_DIR, name))).includes("> 状态："));
-    expect(offenders, `下列 ADR 标题后首条非空行不是「> 状态：…」：${offenders.join("、")}`).toEqual([]);
-  });
-
-  it("声明的修订处数与文末「## 修订」块数一致（状态行 / 索引行）", () => {
-    const files = adrFiles();
     expect(files.length).toBeGreaterThan(0);
-    const offenders: string[] = [];
-    let declaredSites = 0;
-    const check = (site: string, declared: number[], blocks: number) => {
-      declaredSites += declared.length;
-      for (const count of declared) {
-        if (count !== blocks) {
-          offenders.push(`${site} 声明 ${count} 处修订，实际 ${blocks} 个「## 修订」块`);
-        }
-      }
-    };
-    for (const name of files) {
-      const text = read(join(ADR_DIR, name));
-      check(`${name} 状态行`, declaredRevisionCounts(firstLineAfterTitle(text)), revisionBlocks(text));
-    }
-    for (const row of indexRows()) {
-      const name = files.find((file) => file.startsWith(`${row.id}-`));
-      if (!name) continue;
-      check(`README 索引 ${row.id} 行`, declaredRevisionCounts(row.line), revisionBlocks(read(join(ADR_DIR, name))));
-    }
-    expect(declaredSites, "没有任何 ADR 在状态行或索引行声明修订处数，守卫已空转").toBeGreaterThan(0);
-    expect(offenders, `修订处数声明漂移：\n${offenders.join("\n")}`).toEqual([]);
+    expect(rows.map((row) => row.file)).toEqual(files);
+    const expectedIds = files.map((_, index) => String(index + 1).padStart(4, "0"));
+    expect(rows.map((row) => row.id)).toEqual(expectedIds);
+    expect(files.map((name) => name.slice(0, 4))).toEqual(expectedIds);
   });
 
-  it("修订处数判据能识别漂移（合成样本）", () => {
-    const drifted = [
-      "# 某篇",
-      "",
-      "> 状态：有效｜2 处修订：甲；乙",
-      "",
-      "正文",
-      "",
-      "## 修订（A）",
-      "",
-      "## 修订（B）",
-      "",
-      "## 修订（C）",
-      ""
-    ].join("\n");
-    expect(declaredRevisionCounts(firstLineAfterTitle(drifted))).toEqual([2]);
-    expect(revisionBlocks(drifted)).toBe(3);
-    expect(declaredRevisionCounts("> 状态：有效｜见 ADR-0006")).toEqual([]);
-    expect(revisionBlocks("> 状态：有效")).toBe(0);
+  it("任何 ADR 正文都不含不可解析的 .scratch/ 路径", () => {
+    const offenders = adrFiles().filter((name) => read(join(ADR_DIR, name)).includes(".scratch/"));
+    expect(offenders, `下列 ADR 正文回引了 .scratch/ 路径：${offenders.join("、")}`).toEqual([]);
+  });
+
+  it("每篇 ADR 标题与首条状态行符合统一当前态体例", () => {
+    const files = adrFiles();
+    const badTitles = files.filter((name) => !read(join(ADR_DIR, name)).startsWith(`# ADR-${name.slice(0, 4)}：`));
+    expect(badTitles, `下列 ADR 标题未以「# ADR-XXXX：」开头：${badTitles.join("、")}`).toEqual([]);
+    const badStatus = files.filter((name) => firstNonEmptyLineAfterTitle(read(join(ADR_DIR, name))) !== "> 状态：有效");
+    expect(badStatus, `下列 ADR 状态行不是「> 状态：有效」：${badStatus.join("、")}`).toEqual([]);
+  });
+
+  it("任何 ADR 正文不保留历史「## 修订 / ## 补注」追加块或已淘汰状态", () => {
+    const offenders = adrFiles().filter((name) => {
+      const text = read(join(ADR_DIR, name));
+      return /^##\s*(?:修订|补注|\d{4}-\d{2}-\d{2}\s*修订)/m.test(text) || /superseded|已退役/i.test(text);
+    });
+    expect(offenders, `下列 ADR 仍残留历史修订块或淘汰标记：${offenders.join("、")}`).toEqual([]);
   });
 });

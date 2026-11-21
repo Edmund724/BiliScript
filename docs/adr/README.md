@@ -1,83 +1,51 @@
 # ADR 索引与体例
 
-`docs/adr/` 收录本仓已裁决的架构决策。一篇 ADR 记一条裁决：当时的事实、被否决的备选、以及裁决生效后必须一并接受的代价。本文是这套文档的入口——索引表给出每篇的一句话身份，「审查红线」把已经裁过的事项钉死，「体例规则」规定文档失效时该改哪里。
+`docs/adr/` 收录本仓现行有效的跨模块架构裁决（逆转成本高、无上下文易被误改、存在真实权衡的硬边界）。索引表提供全部决策入口，「审查红线」集中列出架构评审与 AI 代理严禁重提的已否决方向。
 
 ## 索引表
 
-| 编号 | 标题（简称） | 状态 | 关系 |
-| --- | --- | --- | --- |
-| [0001](0001-long-video-summarization-map-reduce.md) | 长视频总结阶梯 + Map-Reduce | 有效 | 2 处修订：预算抬至 200k 字符；补预算口径与「窗口 ≥256k」使用前提 |
-| [0002](0002-chrome-only.md) | 扩展仅支持 Chrome | 被取代 | 见 ADR-0028（正文保留为历史） |
-| [0003](0003-background-no-runtime-lazy.md) | background 不做运行时惰性加载 | 有效 | — |
-| [0004](0004-shadow-dom-boundary.md) | Shadow DOM 适用边界：不迁 | 裁决有效，但事实依据 2 已失效 | 见 ADR-0006 |
-| [0005](0005-state-bag-write-discipline.md) | 状态袋写纪律 | 有效 | 并入原 ADR-0011 |
-| [0006](0006-script-host-panel.md) | 阅读模式采用右栏 文摘面板 | 有效 | 取代整页接管路线 |
-| [0007](0007-settings-dropdown-custom-select.md) | 设置页下拉统一 custom-select | 有效 | 带重开条件；4 处修订：A1 出路被弹层外观否决、补 a11y 三处修复；外部写值收口 setCustomSelectValue（显示从现值派生）+ 调用点清单校正；组件表随组件走（阅读工具条第二消费面）+ 名字认 aria-label + 外部写入口扩为三条；外部写入口扩为四条（setCustomSelectSlots 槽位声明，重铺不毁滚动成组件不变式） |
-| [0008](0008-content-two-round-build.md) | content 两轮构建与双实例纪律 | 有效 | — |
-| [0009](0009-model-catalog-borrow-not-embed.md) | 模型目录只借 pi-ai 数据不内置运行时 | 被取代 | 见 ADR-0013（正文保留为历史；反例证据由 0013 引用） |
-| [0010](0010-overview-fetch-offscreen-relay.md) | 概览请求改由 offscreen 代发 | 有效 | 输出预算部分已由 ADR-0012 收口 |
-| 0011 | —— | 已退役 | 并入 ADR-0005「适用范围二」，编号不复用 |
-| [0012](0012-output-budget-wide-default-retreat-learned-cap.md) | 输出上限给宽、被拒退回、学过就记住 | 有效 | — |
-| [0013](0013-upstream-model-facts-borrow-not-embed.md) | 上游模型事实以 models.dev 构建期快照为源 | 有效 | 取代 ADR-0009；覆盖 UI 目录 + 请求塑形两个域 |
-| [0014](0014-thinking-off-wire-scope.md) | 思考线格式作用域：档位集合协议无关、off 写法维持全局归一 | 有效 | 与 ADR-0013 决定 3（平台定线格式方言）同域；与「让 protocol 参与目录查表」红线的边界见正文「后果」 |
-| [0015](0015-thinking-default-tier.md) | 思考「不干预」档 default 与出厂默认 | 有效 | 补上 ADR-0014 口径 ③ 缺的那一格（无实发档可写时写什么）；档位词表由一张变两张 |
-| [0016](0016-secondary-subtitle-slot-and-transaction.md) | 双语副轨独立成槽，走并列事务与独立通知 kind | 有效 | 与 ADR-0005 同域（状态袋写纪律）；推翻「派生内容指纹不加副轨输入」的早期口径，改认副轨 body 引用 |
-| [0017](0017-subtitle-prefetch-on-video-page.md) | 字幕预抓取：进视频页即抓，替代完全懒加载 | 有效 | 改「字幕接受」链的起跑时机；发送闸补 error 重试与拦截（GateOutcome 第三个 kind） |
-| [0018](0018-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 generateContext） | 有效 | 推翻 GLOSSARY.md 既有 Avoid 裁决（见正文背景） |
-| [0019](0019-settings-toggle-custom-drawn-boundary.md) | 设置抽屉布尔开关自绘 toggle-switch，操作型复选框保持原生 | 有效 | 自绘控件边界（持久设置布尔开关可自绘）；推翻 reader-settings-shell.css「不引入自定义替代控件」旧约定 |
-| [0020](0020-dropdown-popover-spring-motion.md) | 下拉与弹层控件统一 @starting-style 离散过渡展开与淡出 | 有效 | 统一四类下拉/弹层控件开合手感；纯 CSS allow-discrete 单源驱动 |
-| [0021](0021-continuous-corner-squircle.md) | 全量矩形圆角容器与控件统一采用 corner-shape: superellipse(1.25) 连续圆角 | 有效 | 覆盖 ABCD 四类非胶囊/非正圆圆角规则与 Canvas 金句卡导出；曲线统一走 --biliscript-corner-shape 语义令牌，胶囊与正圆显式声明 round；取 1.25 而非 squircle(2)，后者观感上圆角变小；保持既有 border-radius 半径令牌不变 |
-| [0022](0022-reader-domain-wide-type-and-dual-access.md) | reader 域入口保留宽类型面与双访问通道 | 有效 | gate 供常驻/壳侧动态访问，域内同步直 import；不收窄 ReaderDomain，不改字符串分发 |
-| [0023](0023-live-websocket-offscreen-dnr.md) | 实时伴看 WebSocket 承载于 offscreen 文档，配 DNR 注入握手头与 ws/wss 权限 | 有效 | 规避 SW WebSocket 绕过 DNR（crbug/40815149）与无 AudioContext 限制；DNR 同时覆写 Authorization 与 Origin，权限成对覆盖 http(s)/ws(s) |
-| [0024](0024-live-room-overlay-only.md) | 直播间实时伴看只挂浮窗，不加载文摘面板 | 有效 | 1 处修订：允许直播间就地按需伴看设置对话框与非全屏浮窗；房间号为会话身份；入口为独立懒加载 chunk；与 ADR-0006 并存 |
-| [0025](0025-asr-pseudo-track-translation-second-path.md) | 伪轨视频的双语第二路是译文，走独立的批量翻译链 | 有效 | 判据为伪轨身份而非轨数；译文只进副轨槽、不进轨列表；目标语言与 `id_translate-<lang>` 缓存与实时字幕翻译共用；整片 60 秒分片批量、片级容错、显式动作才花钱 |
-| [0026](0026-live-companion-overlay-only.md) | 视频页实时伴看由浮窗主承载，面板仅保留状态条、伴看记录与设置同源 | 有效 | 独立伴看会话属主；全屏/非全屏共用浮窗（首次展开、支持左右边缘吸附）；面板保留空态开启键、状态条、只读伴看文本记录与设置分区 |
-| [0027](0027-long-video-state-relay-and-hybrid-retrieval.md) | 长视频采用滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回 | 有效 | 零向量库/Embedding/第三方分词依赖；L0 词法层 + L1 章节目录层；单跳路由与降级链；对齐 PRIVACY.md 与体积守卫 |
-| [0028](0028-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 有效 | 取代 ADR-0002；双目标构建分离（dist + dist-firefox）；Event Page 隐藏 iframe 承载 offscreen；28 个预设常驻域 + 自定义域弹窗授权；首期门控隐藏 tts 与 live |
-| [0029](0029-message-registry-and-inpage-dispatch.md) | 单源消息注册表（BACKGROUND_MESSAGE_REGISTRY）、SW 路由与同帧内页分发槽 | 有效 | 编译期 satisfies 穷尽对齐、Map 防原型链键碰撞、OFFSCREEN_ONLY 发件校验与同帧 ui->shared<-entry 内页分发 |
-| [0030](0030-split-key-storage-and-sw-snapshot-invalidation.md) | 密钥与配置分离存储、SW 只读快照双失效及分片原子缓存索引 | 有效 | sync 存配置 / local 存密钥与高亮；官方 HTTPS 凭据引用；无 write-through + 内联/onChanged 双失效；冒号分键原子 LRU |
-| [0031](0031-extension-origin-idb-v2-and-offscreen-binary-containment.md) | 扩展源 IndexedDB v2 统一存储与 Offscreen 二进制隔离边界 | 有效 | 补充 ADR-0023（OFFSCREEN_CREATE_REASONS=["BLOBS"]）；扩展源 IDB v2 + 写前删懒迁移；ASR 音频/密钥隔离与 10-moof ADTS 流式解码 |
-| [0032](0032-reader-acyclic-layering-and-shell-lifecycle.md) | 文摘阅读域四层无环架构、双阶惰性分包与无闪烁壳生命周期 | 有效 | reader-bus 四层 DAG 与反转意图通道；未加载即 no-op 卸载短路；stylesheet 门控、inert/aria-hidden 退场序与滚动禁用重采样 |
-| [0033](0033-subtitle-pipeline-and-asr-lifecycle-isolation.md) | 字幕流水线单源签名、ASR 任务跨导航隔离与游标优先翻译调度 | 有效 | 补充 ADR-0025；id_str 精度与去噪签名；activeAsrTranscribes 跨 fetchRunId 隔离；无时间戳 boundary-v3；90s 游标优先调度 |
-| [0034](0034-chat-turn-lifecycle-and-replay-dag.md) | 对话回合生命周期、发送闸单向等待 DAG 与流式上下文隔离 | 有效 | sendGate->replay->settled 单向 DAG；延迟 pre-port stop + 4s 看门狗；contextData/liveContextData 双轨；offscreen 单槽与 30–50ms 批传 |
-| [0035](0035-web-search-fallback-chain-and-privacy-gate.md) | 联网搜索隐私授权闸、无状态冷却机与多协议适配边界 | 有效 | 退订仅认 true->false；storage 持久化冷却机；PlatformKey/PLATFORM_QUIRKS 双键空间；7 操作 ProtocolAdapter 与 FNV-1a UUIDv4 |
-| [0036](0036-cross-browser-ui-rendering-and-interaction-invariants.md) | 跨引擎 UI 渲染、零 Webfont MathML/Mermaid 与无障碍交互不变量 | 有效 | 补充 ADR-0019/0020/0021；MathML-only + flex 等式对齐；XrayWrapper/inert/分数缩放守卫；同步 Promise<Blob> 保剪贴板手势 |
-| [0037](0037-build-pipeline-slim-stubs-and-layer-boundaries.md) | 构建期 Mermaid 裁剪替身、Firefox MV3 显式 CSP、跨层依赖边界与模型目录零嵌入校验 | 有效 | 补充 ADR-0013/0014/0028；Mermaid 裁剪与 d3/iconify/marked 替身；手写 .d.ts 与无环分层；models.dev 对账与词法禁注释门禁 |
-| [0038](0038-light-dom-css-specificity-and-live-streaming-invariants.md) | Light DOM 宿主样式隔离不变量、Live 音频预分离与流式滚动豁免 | 有效 | 补充 ADR-0004/0007/0021/0023/0026/0028/0034/0036；特指度与盒模型/层叠上下文；纯麦/视频分路与 MOSS 丢弃配对；流式 c-v 保留 |
-
-编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
+| 编号 | 标题 | 核心边界 |
+| --- | --- | --- |
+| [0001](0001-background-no-runtime-lazy.md) | background 禁运行时惰性加载与 256KB 静态图守卫 | 后台 `splitting: false`，体积靠 minify 与静态拆链；动态 `import()` 仅限页面环境 |
+| [0002](0002-state-bag-write-discipline.md) | 状态袋维持页面单例与 `Readonly` 写门禁 | `core/state` 与 `chat-state` 不按目录拆碎散字段、不改构造注入（DI），写门禁由 `tsc` 兜底 |
+| [0003](0003-light-dom-script-panel.md) | Light DOM 右栏文摘面板、几何降级链与宿主碰撞边界 | 不迁 Shadow DOM、不搬宿主节点；右栏锚点三级降级；防宿主 `[hidden] !important` 与控制栏 `createOverflowCheck` 塌陷 |
+| [0004](0004-content-two-round-build-and-reader-gate.md) | Content 两轮构建、双实例共享槽与懒域宽类型门面 | 首帧常驻 2 请求；共享可变态挂 `globalThis` 槽并承接同帧消息分发；`ReaderDomain` 维持宽类型双通道 |
+| [0005](0005-provider-http-dual-relay.md) | 跨上下文 AI 请求双代发通道与宿主权限代查 | 禁页面源直发；SW 15s 短代发 vs Offscreen 流式分块长代发（配 2s 活性确认）；权限统一经后台真门预检 |
+| [0006](0006-output-budget-wide-default-retreat-learned-cap.md) | 输出上限宽默认、平台拒收退回与会话内学习上限 | 三层单源预算；仅 `anthropic` 声明默认 `32768`；超限 400 无感退回 `8192` 并按会话内存记忆 |
+| [0007](0007-upstream-model-facts-snapshot.md) | 上游模型事实以 `models.dev` 构建期快照为源 | UI 目录与思考值集共用构建期零依赖快照；不嵌入第三方 LLM SDK 运行时；`protocol` 不参与目录查表 |
+| [0008](0008-thinking-tiers-and-wire-maps.md) | 思考档位双词表、协议无关事实层与三协议线格式出口表 | `default`（不干预）与 7 档强度阶梯分表隔离；档位事实协议无关；Messages 侧三张显式出口表且禁自造 `budget_tokens` |
+| [0009](0009-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 `generateContent`） | 手写零依赖原生 SSE 适配器保 `thoughtSignature` 与函数配对；仅落离散 `thinkingLevel`，不做数值预算轨 |
+| [0010](0010-bilingual-secondary-subtitle-and-translation.md) | 双语副轨独立槽、并列接受事务与 AI 译文游标调度 | `clip.secondarySubtitle` 与 `secondary-subtitle-ready` 隔离副作用；原生去同族配对，AI 译文走 `boundary-v3` 与 90s 游标优先调度 |
+| [0011](0011-subtitle-prefetch-and-asr-isolation.md) | 视频页字幕预抓取、发送闸重试与 ASR 跨导航/分段流式隔离 | 进视频页即预抓原生字幕（禁自动 ASR）；发送闸重试拦截 `error`；在途 ASR 与 `fetchRunId` 解耦；Offscreen 10-moof 分段解码防 OOM |
+| [0012](0012-long-video-state-relay-and-hybrid-retrieval.md) | 长视频阶梯预算、滑动状态接力总结、单跳混合召回与 Map-Reduce 兜底 | 200k 阶梯与三级溢出回落；零向量/分词依赖；概览超预算走状态接力，对话优先 L1+BM25 单跳召回，Map-Reduce 仅作冷兜底 |
+| [0013](0013-chat-turn-dag-and-dual-context.md) | 对话回合单向等待 DAG、延迟停止看门狗与双轨上下文隔离 | `settled <- switch`、`replay <- sendGate`、`replay` 零等待防死锁；建连延迟 `stop` + 4s 看门狗；`contextData` 与 `liveContextData` 分离 |
+| [0014](0014-web-search-privacy-gate-and-cooldown.md) | 联网搜索隐私授权闸、哈希缓存跨上下文共享与 SW 持久化冷却 | 显式授权与 `true -> false` 退订清缓存；哈希缓存开放给页面划词卡与 Offscreen 共享；冷却账本持久化防 SW 休眠清零 |
+| [0015](0015-live-websocket-offscreen-dnr.md) | 实时伴看 Offscreen WebSocket 承载与 DNR 握手头注入 | WS 固定在 `["BLOBS"]` Offscreen 发起；SW 以 DNR 规则 `9002` 覆写鉴权头与 `Origin`；权限成对覆盖 `http(s)` 与 `ws(s)` |
+| [0016](0016-live-companion-overlay-hosts.md) | 实时伴看浮窗主承载架构：视频页与直播间双宿主边界 | 双端共用跨全屏吸附浮窗；视频页会话独立于面板并保留状态条与只读记录；直播间走独立 `live-room` 懒包且禁页面工具 |
+| [0017](0017-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 清单派生 Event Page、28 常驻域与显式 CSP（防本机连接强升 HTTPS）；隐藏 `iframe` 承载 Offscreen；禁裸写标准滚动条 |
+| [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
+| [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算 |
 
 ## 审查红线
 
-架构评审（含 AI 代理）不得再提议下列事项。每条都是正文里已经写死的「不再提议」，出处按原文摘引；重开只按正文列明的条件成立。
+架构评审（含 AI 代理）不得再提议下列已裁死事项；重开仅在对应正文列明的前提成立时有效：
 
-- **ADR-0003：不得提议 SW 运行时惰性化**（动态 `import()` 惰性化只允许在页面环境使用）。
-  「后果」原文：「架构评审（含 AI 代理）不得再提议 SW 运行时惰性化，除非 crbug/40760920 落地（重开条件）。」
-- **ADR-0005：不得提议 reader/clip/ui 与 chat 散字段的状态归属搬迁与全域收敛**。
-  「共同约束」原文：「架构评审（含 AI 代理）不得再提议 reader/clip/ui 或 chat 散字段的归属搬迁与全域收敛。」
-- **ADR-0008：不得提议 content 单轮化或 seam external**。
-  「后果」原文：「常驻请求结构（2 请求）是体验瓶颈期间，架构评审（含 AI 代理）不得再提议单轮化或 seam external。」
-- **ADR-0013：不得把原始上游数据接进请求链或运行时、不得用 UI 目录产物回填 `thinking-profiles.ts`、不得让 `protocol` 参与目录查表**（取代 ADR-0009 的同名红线）。
-  「后果」原文：「架构评审（含 AI 代理）不得再提议：把**原始**上游数据接进请求链或运行时；用 **UI 目录产物**回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。重开条件见决定 2。」
-- **ADR-0014：不得提议「为消除转写而按协议拆分档位事实」**（写法层以协议为键不属此列；重开条件＝某平台两通道的 off 或档位词被证实不同形，见正文决定 5）。
-  「后果」原文：「架构评审（含 AI 代理）不得再提议「为消除转写而按协议拆分档位事实」，除非重开条件成立。」
-- **ADR-0015：不得提议把 `default` 并入强度阶梯**（它会污染 clamp 序），**也不得以「条目 ≤1」为由隐藏零档行的一级行**（用户裁定零档行也要能主动选）。
-  「后果」原文：「词表从一张变两张，新增档位值时必须同时问『它进不进 clamp 序』——这是本 ADR 的唯一新增纪律。」显示理由见决定 2。
-- **ADR-0022：不得提议收窄 ReaderDomain 或统一 reader 域双访问通道**。
-  「后果」原文：「架构评审不得再提议收窄 `ReaderDomain`、统一这两条访问通道或改用字符串分发。」
-- **ADR-0023：不得提议将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script**（SW 内发起的 WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
-  「后果」原文：「架构评审（含 AI 代理）不得再提议将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script。」
-- **ADR-0028：不得将 `<all_urls>` 移入常驻 `host_permissions`，也不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`**（取代 ADR-0002）。
-  「后果」原文：「架构评审（含 AI 代理）不得提议将 `<all_urls>` 或 `https://*/*` 移入任一端的常驻 `host_permissions`……不得在未包裹 `@supports (-moz-appearance: none)` 的选择器上裸写 `scrollbar-width` 或 `scrollbar-color`。」
+- **ADR-0001：不得提议后台运行时惰性化**（动态 `import()` 仅限页面环境；重开条件：`crbug/40760920` 落地）。
+- **ADR-0002：不得提议 `reader` / `clip` / `ui` 或 `chat` 散字段的归属搬迁、全域收敛或模块级单例改构造注入（DI）**。
+- **ADR-0004：常驻请求结构（2 请求）仍是体验瓶颈期间，不得提议 Content 单轮化或 `seam external`；不得提议收窄 `ReaderDomain`、统一 reader 域双访问通道或改用字符串分发**。
+- **ADR-0007：不得把原始上游数据或第三方 LLM SDK 接进请求链或运行时，不得用 UI 目录产物回填 `thinking-profiles.ts`，也不得让 `protocol` 参与目录查表**。
+- **ADR-0008：不得为消除映射而按协议拆分模型档位事实表；不得把 `default`（不干预档）并入强度阶梯 `AI_THINKING_LEVELS`；不得以「可选条目 ≤ 1」为由隐藏零档模型的思考强度行**。
+- **ADR-0012：不得引入本地向量库、Embedding 模型或第三方分词词典依赖，也不得将长视频字幕召回构建为多轮自主检索 Agent 循环**。
+- **ADR-0015：不得将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script**（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
+- **ADR-0017：不得将 `<all_urls>` 或 `https://*/*` 移入任一端常驻 `host_permissions`；不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`；二期立项前不得在 Firefox 暴露未验收的 `live` 或 `tts` 入口**。
 
-红线只覆盖「已被否决过的方向」，不是「本文没写就不许做」；没裁过的事按常规评审走。
+红线只覆盖已被否决过的方向，未裁决事项按常规架构评审走。
 
 ## 体例规则
 
-1. **事实细节失效（行号 / 字节数 / DOM id / 文件名），或「留待下一轮评审」类未决陈述被裁决后就地删或就地标「（已作废，见文末修订）」**：这类失效不靠文末修订注兜。读者按正文施工时不会先翻到文末，行号与 id 抄错就是照着错的做；已裁决的未决句留在正文里，会把已经定的事重新读成悬念。
-2. **口径补充、常量调整用文末「## 修订（日期：…）」追加块，正文不动**：正文是裁决当时的事实快照，修订注记的是「此后发生了什么」，两者叠加才是全貌。若在篇首状态行或本索引的关系列写了「N 处修订：……」，N 必须等于该篇文末的修订块数（不写处数不判，写了就不能漂）。
-3. **裁决被推翻或被取代：新开一篇 + 旧篇标 Superseded，不用修订注**：换了主人的裁决该有新的主人；一篇里躺着两个互相抵消的结论，读者分不出哪个算数。
-4. **证据引用必须仓库内可解析**：提交哈希（先例 `commit 24f63e2`）或正文内实测数据（先例 0009 / 0010 / 0012）。不得指向 `.scratch/`——它被 `.gitignore:24` 忽略、随时清空，长证据确有保留需要时才落 `docs/adr/evidence/<编号>/`。
-5. **每篇正文首行加一行块引用状态行**，格式 `> 状态：有效｜……`，退役篇写 `> 状态：已退役（并入 ADR-0005）`：索引表之外的第二个入口——单看一篇也要能立刻知道它还算不算数。
+1. **只记高逆转成本、反直觉权衡的架构边界**：局部 UI 样式参数、常规组件封装以及已由 TypeScript 类型或测试自解释的实现细节不立 ADR。一篇 ADR 聚焦单一架构域，不拼凑无关主题。
+2. **仅描述当前状态，直接覆盖维护**：策略演进、模块改名或常量调整时直接就地更新正文，**禁止追加文末 `## 修订` / `## 补注` 历史块、工单流水账或过时方案对比**；被彻底推翻的 ADR 直接删除并同步更新索引与引用。
+3. **证据引用必须仓库内可解析**：引用真实源码路径、构建守卫或实测结论，严禁指向被 `.gitignore` 忽略的 `.scratch/` 路径。
+4. **统一篇首状态行**：每篇标题后首条非空行固定写 `> 状态：有效`。
 
-规则 1~4 里可机械判定的部分（索引覆盖、编号落文件或标已退役、正文无 `.scratch/`、状态行在场、声明的修订处数与文末修订块数一致）已写成断言，见 `tests/docs/adr-index.test.ts`。
+机械可判定的体例约束（连续编号与索引双向对齐、无 `.scratch/` 引用、篇首状态行一致、零历史修订/补注块）由 `tests/docs/adr-index.test.ts` 自动守卫。

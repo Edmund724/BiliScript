@@ -327,7 +327,7 @@ describe("⑧ 视图不搬事实主人（源码级判据）", () => {
     }
   });
 
-  it("目录身份不因协议登记而变（protocol 不参与目录查表，ADR-0013）", () => {
+  it("目录身份不因协议登记而变（protocol 不参与目录查表，ADR-0007）", () => {
     const plain: AiProviderPreset = {
       id: "probeai-plain",
       name: "Probe AI",

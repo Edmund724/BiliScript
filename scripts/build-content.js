@@ -552,7 +552,7 @@ function assertDualInstanceAllowlist() {
   }
   details.push(...markerMismatches);
   console.error(
-    "Self-check failed: 双实例纪律对账未过（约定见 docs/adr/0008，守卫头注）：\n  " +
+    "Self-check failed: 双实例纪律对账未过（约定见 docs/adr/0004-content-two-round-build-and-reader-gate.md）：\n  " +
       details.join("\n  ")
   );
   process.exitCode = 1;

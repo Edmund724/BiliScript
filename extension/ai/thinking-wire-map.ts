@@ -188,7 +188,7 @@ export const MESSAGES_TIER_EXIT: Record<PlatformKey, MessagesTierExitCell> = {
     kind: "non-messages",
     provenance: {
       level: "构造性不适用",
-      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages 档位出口表（ADR-0018 / spec 决策 13）"
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages 档位出口表（ADR-0009）"
     }
   }
 };
@@ -321,7 +321,7 @@ export const MESSAGES_OFF_EXIT: Record<PlatformKey, MessagesOffExitCell> = {
     kind: "non-messages",
     provenance: {
       level: "构造性不适用",
-      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages off 出口表（ADR-0018 / spec 决策 13）"
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages off 出口表（ADR-0009）"
     }
   }
 };
@@ -448,7 +448,7 @@ export const MESSAGES_ON_EXIT: Record<PlatformKey, MessagesOnExitCell> = {
     kind: "non-messages",
     provenance: {
       level: "构造性不适用",
-      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages on 出口表（ADR-0018 / spec 决策 13）"
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages on 出口表（ADR-0009）"
     }
   }
 };

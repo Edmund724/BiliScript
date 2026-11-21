@@ -15,15 +15,14 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 Architecture review — human or AI — must not re-propose the directions below. They are 已裁死 across separate ADR bodies, so reading only the ADR that "looks relevant" misses the others. Check all of them before writing a proposal:
 
-- **ADR-0003**: SW 运行时惰性化（重开条件：crbug/40760920 落地）。
-- **ADR-0005**: reader/clip/ui 或 chat 散字段的归属搬迁与全域收敛。
-- **ADR-0008**: 常驻请求结构仍是体验瓶颈期间，content 单轮化 / seam external。
-- **ADR-0013**（取代 ADR-0009）：把原始上游数据接进请求链或运行时；用 UI 目录产物回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。
-- **ADR-0014**: 为消除「转写」而按协议拆分档位事实（重开条件：某平台两通道的 off / 档位词被证实不同形）。写法层以协议为键不属于此列。
-- **ADR-0015**: 把 `default`（不干预档）并入强度阶梯 `AI_THINKING_LEVELS`；以「可选条目 ≤1」为由隐藏零档行的一级行（用户裁定零档行也要能主动选）。
-- **ADR-0022**: 收窄 `ReaderDomain`、统一 reader 域双访问通道或改用字符串分发。
-- **ADR-0023**: 将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
-- **ADR-0028**（取代 ADR-0002）：将 `<all_urls>` / `https://*/*` 移入常驻 `host_permissions`；在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` 或 `scrollbar-color`；二期立项前在 Firefox 暴露半成品 `live` 或 `tts` 入口。
+- **ADR-0001**: 后台运行时惰性化（重开条件：`crbug/40760920` 落地）。
+- **ADR-0002**: `reader` / `clip` / `ui` 或 `chat` 散字段的归属搬迁、全域收敛与模块级单例改构造注入（DI）。
+- **ADR-0004**: 常驻请求结构仍是体验瓶颈期间，Content 单轮化 / `seam external`；收窄 `ReaderDomain`、统一 reader 域双访问通道或改用字符串分发。
+- **ADR-0007**: 把原始上游数据或第三方 LLM SDK 接进请求链或运行时；用 UI 目录产物回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。
+- **ADR-0008**: 为消除映射而按协议拆分模型档位事实表；把 `default`（不干预档）并入强度阶梯 `AI_THINKING_LEVELS`；以「可选条目 ≤ 1」为由隐藏零档模型的思考强度行。
+- **ADR-0012**: 引入本地向量库、Embedding 模型或第三方分词依赖；将长视频字幕召回构建为多轮自主检索 Agent 循环。
+- **ADR-0015**: 将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
+- **ADR-0017**: 将 `<all_urls>` / `https://*/*` 移入常驻 `host_permissions`；在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` 或 `scrollbar-color`；二期立项前在 Firefox 暴露未验收的 `live` 或 `tts` 入口。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 
@@ -36,8 +35,8 @@ Single-context repo (this repo):
 ├── GLOSSARY.md
 ├── docs/adr/
 │   ├── README.md
-│   ├── 0001-long-video-summarization-map-reduce.md
-│   └── 0002-chrome-only.md
+│   ├── 0001-background-no-runtime-lazy.md
+│   └── 0002-state-bag-write-discipline.md
 └── extension/
 ```
 
@@ -51,4 +50,4 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR-0006 (整页接管退役), but worth reopening because…_
+> _Contradicts ADR-0003 (Light DOM 右栏文摘面板), but worth reopening because…_

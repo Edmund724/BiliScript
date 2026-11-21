@@ -352,7 +352,7 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     ).toEqual({ thinking: { type: "disabled" } });
   });
 
-  it("级联不受本表影响：表只回答「off 写点存在时的出口」，档位级联仍在解析层（ADR-0014 决定 4）", () => {
+  it("级联不受本表影响：表只回答「off 写点存在时的出口」，档位级联仍在解析层（ADR-0008）", () => {
     expect(
       anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun", effortVocabularyOnly: true }).fields
     ).toEqual({ output_config: { effort: "low" } });

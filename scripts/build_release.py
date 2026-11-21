@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""双目标发布打包（ADR-0028）：依次构建 Chromium（dist/）与 Firefox（dist-firefox/），
+"""双目标发布打包（ADR-0017）：依次构建 Chromium（dist/）与 Firefox（dist-firefox/），
 校验版本一致性与体积预算，并产出三份发布压缩包到 release/：
   - BiliScript-v{version}-Chromium.zip
   - BiliScript-v{version}-Firefox.zip

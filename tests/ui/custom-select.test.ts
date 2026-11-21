@@ -112,7 +112,7 @@ function labelledbyText(node: Element): string {
     .join(" ");
 }
 
-describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验）", () => {
+describe("custom-select 无障碍接线", () => {
   it("隐藏的原生 select 退出 Tab 序与无障碍树，值源不变", async () => {
     installMessageBus();
     const host = await mountPanel();
