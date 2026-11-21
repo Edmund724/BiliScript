@@ -25,10 +25,8 @@ export async function bgFetchJson<T = unknown>(url: string): Promise<T> {
     credentials: "include",
     cache: "no-store"
   };
-  if ((headers as unknown as { size: number }).size > 0) {
-    options.headers = headers;
-  }
   if (isBiliRequest) {
+    options.headers = headers;
     options.referrer = "https://www.bilibili.com/";
     options.referrerPolicy = "strict-origin-when-cross-origin";
   }

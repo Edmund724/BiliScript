@@ -42,9 +42,9 @@ function mainPayload() {
     code: 0,
     data: {
       replies: [plainRoot],
-      top: null,
+      top: { upper: pinnedRoot },
       top_replies: [pinnedRoot],
-      upper: { top: pinnedRoot }
+      upper: { mid: 1001 }
     }
   };
 }
@@ -104,7 +104,7 @@ describe("fetchHotCommentsJson：楼中楼续篇补抓", () => {
     const transport = fakeTransport([
       [
         mainMatch,
-        { code: 0, data: { replies: [plainRoot], top: null, top_replies: [], upper: { top: null } } }
+        { code: 0, data: { replies: [plainRoot], top: null, top_replies: [], upper: { mid: 1001 } } }
       ],
       [subMatch, subReplyPayload()]
     ]);

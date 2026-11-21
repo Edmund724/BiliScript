@@ -113,46 +113,58 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
   });
 
-  it("原生服务端工具（名字带日期版本后缀）不翻译：server-tools 限制点", () => {
+  it("标记为 execution: \"server\" 的服务端工具不翻译，带日期后缀的客户端工具正常翻译：server-tools 限制点", () => {
     const body = anthropicBody({
       ...base,
       messages: [],
       tools: [
-        { type: "function", function: { name: "web_search_20250305", description: "原生", parameters: { type: "object" } } },
+        { type: "function", execution: "server", function: { name: "web_search_20250305", description: "原生", parameters: { type: "object" } } },
+        { type: "function", function: { name: "custom_20250305", description: "客户端带日期", parameters: { type: "object" } } },
         { type: "function", function: { name: "web_search", description: "客户端", parameters: { type: "object" } } }
       ]
     });
-    expect(body.tools).toEqual([{ name: "web_search", description: "客户端", input_schema: { type: "object" } }]);
+    expect(body.tools).toEqual([
+      { name: "custom_20250305", description: "客户端带日期", input_schema: { type: "object" } },
+      { name: "web_search", description: "客户端", input_schema: { type: "object" } }
+    ]);
     const onlyNative = anthropicBody({
       ...base,
       messages: [],
-      tools: [{ type: "function", function: { name: "web_search_20250305", description: "原生", parameters: { type: "object" } } }]
+      tools: [{ type: "function", execution: "server", function: { name: "web_search_20250305", description: "原生", parameters: { type: "object" } } }]
     });
     expect(onlyNative.tools).toBeUndefined();
     expect(onlyNative.tool_choice).toBeUndefined();
   });
 
-  it("assistant tool_calls → tool_use 块；arguments 非 JSON 兜底 { query: 原文 }（限制点 4）", () => {
+  it("assistant tool_calls → tool_use 块；合法 JSON 对象原样透传，非 JSON/非对象兜底 { query: 原文 }（限制点 4）", () => {
     const body = anthropicBody({
       ...base,
       messages: [
         { role: "assistant", content: "让我查一下", tool_calls: [
           { id: "tu_1", type: "function", function: { name: "web_search", arguments: "not-json" } },
-          { id: "tu_2", type: "function", function: { name: "web_search", arguments: "{\"query\":\"abc\"}" } }
+          { id: "tu_2", type: "function", function: { name: "web_search", arguments: "{\"query\":\"abc\"}" } },
+          { id: "tu_3", type: "function", function: { name: "capture_video_frame_at_time", arguments: "{\"targetTime\":12.5}" } },
+          { id: "tu_4", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }
         ] },
         { role: "tool", tool_call_id: "tu_1", content: "r1" },
-        { role: "tool", tool_call_id: "tu_2", content: "r2" }
+        { role: "tool", tool_call_id: "tu_2", content: "r2" },
+        { role: "tool", tool_call_id: "tu_3", content: "r3" },
+        { role: "tool", tool_call_id: "tu_4", content: "r4" }
       ]
     });
     expect(body.messages).toEqual([
       { role: "assistant", content: [
         { type: "text", text: "让我查一下" },
         { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "not-json" } },
-        { type: "tool_use", id: "tu_2", name: "web_search", input: { query: "abc" } }
+        { type: "tool_use", id: "tu_2", name: "web_search", input: { query: "abc" } },
+        { type: "tool_use", id: "tu_3", name: "capture_video_frame_at_time", input: { targetTime: 12.5 } },
+        { type: "tool_use", id: "tu_4", name: "fetch_hot_comments", input: {} }
       ] },
       { role: "user", content: [
         { type: "tool_result", tool_use_id: "tu_1", content: "r1" },
-        { type: "tool_result", tool_use_id: "tu_2", content: "r2" }
+        { type: "tool_result", tool_use_id: "tu_2", content: "r2" },
+        { type: "tool_result", tool_use_id: "tu_3", content: "r3" },
+        { type: "tool_result", tool_use_id: "tu_4", content: "r4" }
       ] }
     ]);
   });

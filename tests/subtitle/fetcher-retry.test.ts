@@ -174,4 +174,18 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     expect(uiStatus.setStatus).toHaveBeenLastCalledWith("抓取失败：字幕文件为空。");
     expect(state.clip.subtitleFetchState).toBe("error");
   });
+
+  it("refreshClip 默认命中本地字幕缓存；显式 forceRefresh: true 才绕过缓存走网络", async () => {
+    gateway.fetchSubtitleBundle.mockResolvedValue({ tracks: [oldTrack], chapters: [] });
+    gateway.contentFetchJson.mockResolvedValue({ body: goodBody });
+
+    await expect(fetcher.refreshClip()).resolves.toBeUndefined();
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1);
+
+    await expect(fetcher.refreshClip()).resolves.toBeUndefined();
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1);
+
+    await expect(fetcher.refreshClip({ forceRefresh: true })).resolves.toBeUndefined();
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
+  });
 });

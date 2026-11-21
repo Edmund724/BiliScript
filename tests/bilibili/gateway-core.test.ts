@@ -8,13 +8,14 @@ import { bgFetchJson, isBiliUrl } from "../../extension/bilibili/gateway-core.js
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.resolve(here, "../../extension/bilibili/gateway-core.ts"), "utf8");
 
-class FakeHeaders extends Map<string, string | null> {
+class FakeHeaders {
+  private readonly entries = new Map<string, string>();
   set(key: string, value: string) {
-    super.set(String(key).toLowerCase(), value);
+    this.entries.set(String(key).toLowerCase(), value);
     return this;
   }
   get(key: string): string | null {
-    return super.get(String(key).toLowerCase()) ?? null;
+    return this.entries.get(String(key).toLowerCase()) ?? null;
   }
 }
 

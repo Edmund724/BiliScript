@@ -598,6 +598,10 @@ describe("LiveSessionTracker tab takeover and rule ownership", () => {
     expect(clearAuthRule).not.toHaveBeenCalled();
     expect(tracker.getActiveRuleOwner()).toBe("comp-1");
 
+    await tracker.cleanup("", clearAuthRule);
+    expect(clearAuthRule).not.toHaveBeenCalled();
+    expect(tracker.getActiveRuleOwner()).toBe("comp-1");
+
     await tracker.cleanup("comp-1", clearAuthRule);
     expect(clearAuthRule).toHaveBeenCalledTimes(1);
     expect(tracker.getActiveRuleOwner()).toBeNull();

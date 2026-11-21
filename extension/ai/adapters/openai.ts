@@ -47,8 +47,13 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
 export function buildChatRequestBody({ model, messages, stream = false, thinkingWire, maxTokens, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
-    body.tools = tools;
-    body.tool_choice = "auto";
+    const clientTools = tools
+      .filter((t) => t.execution !== "server")
+      .map((t) => ({ type: t.type, function: t.function }));
+    if (clientTools.length) {
+      body.tools = clientTools;
+      body.tool_choice = "auto";
+    }
   }
   Object.assign(body, thinkingWire.fields);
   if (maxTokens != null) {

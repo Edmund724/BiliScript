@@ -58,15 +58,13 @@ function replyRpidKey(item: unknown): string | null {
 
 function mergedReplyItems(payload: unknown): unknown[] {
   const data = (payload as { data?: unknown })?.data as
-    | { top?: unknown; top_replies?: unknown; upper?: unknown; replies?: unknown }
+    | { top?: unknown; top_replies?: unknown; replies?: unknown }
     | null
     | undefined;
 
   const merged: unknown[] = [
-    ...toReplyList(data?.top),
     ...toReplyList((data?.top as { upper?: unknown } | null | undefined)?.upper),
     ...toReplyList(data?.top_replies),
-    ...toReplyList((data?.upper as { top?: unknown } | null | undefined)?.top),
     ...toReplyList(data?.replies)
   ];
 

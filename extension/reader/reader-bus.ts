@@ -11,7 +11,7 @@ export type ReaderPresenterEvent =
 
 export type ReaderPresenterHandler = (event: ReaderPresenterEvent) => void;
 
-type SubtitleRefreshHandler = () => unknown;
+type SubtitleRefreshHandler = (options?: { forceRefresh?: boolean }) => unknown;
 type SettingsPersistHandler = () => void;
 type UiCommandHandler = (name: string, payload?: unknown) => void;
 type TabIntentHandler = (tab: ReaderScriptTab) => void;
@@ -219,13 +219,13 @@ export function subscribeSubtitleRefresh(handler: SubtitleRefreshHandler) {
   };
 }
 
-export function requestSubtitleRefresh(): Promise<unknown> {
+export function requestSubtitleRefresh(options?: { forceRefresh?: boolean }): Promise<unknown> {
   const handler = resolveSeamHandler("subtitleRefresh");
   if (!handler) {
     return Promise.resolve(undefined);
   }
   try {
-    return Promise.resolve(handler());
+    return Promise.resolve(handler(options));
   } catch (error) {
     logWarn("[BILISCRIPT] subtitle refresh handler failed", { error });
     return Promise.resolve(undefined);

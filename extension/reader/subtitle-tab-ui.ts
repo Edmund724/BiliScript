@@ -337,6 +337,7 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       return;
     }
     switchInFlight = target.url;
+    const expectedRunId = state.clip.fetchRunId;
     setCustomSelectValue(select, target.url);
     setCustomSelectState(select, { disabled: true, busy: true });
     let switched = false;
@@ -346,7 +347,7 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
         await chain.loadSubtitle(
           target.url,
           target.lang,
-          state.clip.fetchRunId,
+          expectedRunId,
           target.id
         );
         switched = true;
@@ -1059,7 +1060,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
         }
         retryFetchInFlight = true;
         void ensureSummarizeChain()
-          .then((chain) => chain.refreshClip())
+          .then((chain) => chain.refreshClip({ forceRefresh: true }))
           .catch((error) => logWarn("[BILISCRIPT] retry fetch clip failed", error))
           .finally(() => {
             retryFetchInFlight = false;

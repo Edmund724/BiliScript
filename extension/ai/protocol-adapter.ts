@@ -9,6 +9,7 @@ import type { CompatQuirk } from "./compat-vocab.js";
 
 export interface ChatToolDefinition {
   type: "function";
+  execution?: "client" | "server";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 

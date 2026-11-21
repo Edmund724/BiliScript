@@ -332,14 +332,7 @@ export function runOverviewAnalysis(
         inflightOverviews.delete(finalKey);
       }
     };
-    void (async () => {
-      try {
-        await promise;
-      } catch {
-      } finally {
-        cleanup();
-      }
-    })();
+    void promise.then(cleanup, cleanup);
   }
   return promise;
 }

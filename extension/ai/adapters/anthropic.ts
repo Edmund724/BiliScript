@@ -12,6 +12,16 @@ function extractSystem(messages: ChatMessage[]): { system: string | undefined; r
   };
 }
 
+function parseToolInput(rawArguments: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(rawArguments);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {}
+  return { query: rawArguments };
+}
+
 function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
   const out: unknown[] = [];
   for (const message of messages) {
@@ -19,7 +29,7 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
       const blocks: unknown[] = [];
       if (message.content) blocks.push({ type: "text", text: message.content });
       for (const call of message.tool_calls) {
-        blocks.push({ type: "tool_use", id: call.id, name: call.function.name, input: parseToolArgs(call.function.arguments) });
+        blocks.push({ type: "tool_use", id: call.id, name: call.function.name, input: parseToolInput(call.function.arguments) });
       }
       out.push({ role: "assistant", content: blocks });
     } else if (message.role === "tool") {
@@ -48,12 +58,10 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
   return out;
 }
 
-const NATIVE_TOOL_NAME = /_\d{8}$/;
-
 function toAnthropicTools(tools: ChatRequest["tools"]): unknown[] | undefined {
   if (!tools?.length) return undefined;
   const translated = tools
-    .filter((t) => !NATIVE_TOOL_NAME.test(t.function.name))
+    .filter((t) => t.execution !== "server")
     .map((t) => ({
       name: t.function.name,
       description: t.function.description,
@@ -195,7 +203,7 @@ export const anthropicAdapter: ProtocolAdapter = {
         const line = rawLine.trim();
         if (!line.startsWith("data:")) continue;
         const data = line.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
+        if (!data) continue;
 
         let event: AnthropicStreamEvent;
         try {

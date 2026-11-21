@@ -238,7 +238,7 @@ export async function chatCompletion({
   };
 
   let lastFailure: { kind: "fetch" | "http" | "stream"; error: Error } | null = null;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     if (lastFailure) {
       onRetry?.({ attempt, maxRetries, kind: lastFailure.kind, error: lastFailure.error });
       if (stream && lastFailure.kind === "stream") {
@@ -329,5 +329,4 @@ export async function chatCompletion({
     }
     return parsed.content;
   }
-  throw lastFailure?.error || new Error("chatCompletion 未能完成");
 }

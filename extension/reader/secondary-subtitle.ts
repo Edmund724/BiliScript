@@ -157,12 +157,13 @@ export function isSecondarySubtitleLoadInFlight(): boolean {
 
 function startSecondaryLoad(target: SecondaryTarget, forceRefresh: boolean): SecondaryEnsureOutcome {
   const token = ++loadToken;
+  const expectedRunId = state.clip.fetchRunId;
   inFlightLoads.add(token);
   const settled = (async (): Promise<SecondaryLoadSettlement> => {
     let error: unknown = null;
     try {
       const chain = await ensureSummarizeChain();
-      await chain.loadSecondarySubtitle(target.url, target.lang, state.clip.fetchRunId, target.id, forceRefresh);
+      await chain.loadSecondarySubtitle(target.url, target.lang, expectedRunId, target.id, forceRefresh);
     } catch (failure) {
       error = failure;
       logWarn("[BILISCRIPT] failed to load secondary subtitle", failure);

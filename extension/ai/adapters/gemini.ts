@@ -1,8 +1,11 @@
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { formatModelListHttpError } from "./http-error.js";
+import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { CompatQuirk } from "../compat-vocab.js";
+
+export { parseToolArgs };
 
 export const GEMINI_ERROR_FINISH_REASONS = new Set([
   "SAFETY",
@@ -92,17 +95,6 @@ export function buildGeminiEndpoint(baseUrl: string, options?: { model?: string;
   const model = (options?.model ?? "{model}").replace(/^models\//, "");
   const action = options?.stream === false ? "generateContent" : "streamGenerateContent?alt=sse";
   return `${cleanBaseUrl}/v1beta/models/${model}:${action}`;
-}
-export function parseToolArgs(rawArguments: string): { query: string } {
-  try {
-    const parsed = JSON.parse(rawArguments);
-    if (parsed && typeof parsed === "object" && typeof (parsed as any).query === "string") {
-      return { query: (parsed as any).query };
-    }
-    return { query: rawArguments };
-  } catch {
-    return { query: rawArguments };
-  }
 }
 
 export function isGemini3OrHigher(model: string): boolean {
@@ -254,7 +246,7 @@ export function convertGeminiMessages(
 
       if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
         for (const call of msg.tool_calls) {
-          if (parts.some((p) => p.functionCall && (p.functionCall as any).id === call.id)) {
+          if (parts.some((p) => p.functionCall && (p.functionCall as { id?: unknown }).id === call.id)) {
             continue;
           }
           let args: Record<string, unknown> = {};
@@ -435,6 +427,30 @@ export function buildGeminiRequestBody(request: ChatRequest): Record<string, unk
   return body;
 }
 
+interface GeminiStreamPart {
+  text?: unknown;
+  thought?: unknown;
+  thoughtSignature?: unknown;
+  functionCall?: {
+    id?: unknown;
+    name?: unknown;
+    args?: unknown;
+  };
+}
+
+interface GeminiStreamCandidate {
+  finishReason?: string;
+  content?: {
+    parts?: GeminiStreamPart[];
+  };
+}
+
+interface GeminiStreamChunk {
+  error?: unknown;
+  usageMetadata?: unknown;
+  candidates?: GeminiStreamCandidate[];
+}
+
 export async function drainGeminiSseStream(response: Response, ctx: DrainContext): Promise<DrainResult> {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -454,9 +470,11 @@ export async function drainGeminiSseStream(response: Response, ctx: DrainContext
     const data = line.slice(5).trim();
     if (!data) return;
 
-    let parsed: any;
+    let parsed: GeminiStreamChunk;
     try {
-      parsed = JSON.parse(data);
+      const raw: unknown = JSON.parse(data);
+      if (!raw || typeof raw !== "object") return;
+      parsed = raw as GeminiStreamChunk;
     } catch {
       return;
     }

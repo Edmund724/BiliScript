@@ -20,9 +20,9 @@ function mainPayload(data: Record<string, unknown> = {}) {
     code: 0,
     data: {
       replies: normalReplies,
-      top: null,
+      top: { upper: pinnedReply },
       top_replies: [pinnedReply],
-      upper: { top: pinnedReply },
+      upper: { mid: 1001 },
       ...data
     }
   };
@@ -41,9 +41,9 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     expect(comments[0]).toEqual({ uname: "硅谷101", like: 520, message: "00:00 开场\n05:12 正题" });
   });
 
-  it("data.top 为单条对象（不是数组）：也收，且排在普通评论之前", () => {
+  it("data.top.upper 为单条对象（top_replies 为空）：也收，且排在普通评论之前", () => {
     const comments = mergeHotCommentsFromPayload(
-      mainPayload({ top: pinnedReply, top_replies: [], upper: { top: null } })
+      mainPayload({ top: { upper: pinnedReply }, top_replies: [] })
     );
 
     expect(comments.map((item) => item.message)).toEqual([
@@ -54,10 +54,10 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     ]);
   });
 
-  it("data.upper.top 为单条对象：也收（不与 replies 混序）", () => {
+  it("data.top.upper 与 top_replies 同时存在不同置顶时均收且置于 replies 前", () => {
     const upperPinned = { rpid: 999, member: { uname: "UP主" }, like: 1, content: { message: "UP 置顶" } };
     const comments = mergeHotCommentsFromPayload(
-      mainPayload({ top: null, top_replies: [], upper: { top: upperPinned } })
+      mainPayload({ top: { upper: upperPinned }, top_replies: [] })
     );
 
     expect(comments.map((item) => item.message)).toEqual(["UP 置顶", "第一条", "第二条", "第三条"]);
@@ -74,9 +74,9 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     expect(comments.filter((item) => item.message === "replies 里的同一置顶条")).toEqual([]);
   });
 
-  it("top 与 upper.top 同 rpid：只留一条", () => {
+  it("top.upper 与 top_replies 同 rpid：只留一条", () => {
     const comments = mergeHotCommentsFromPayload(
-      mainPayload({ top: pinnedReply, top_replies: [], upper: { top: pinnedReply } })
+      mainPayload({ top: { upper: pinnedReply }, top_replies: [pinnedReply] })
     );
 
     expect(comments).toHaveLength(4);
@@ -97,7 +97,7 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     expect(mergeHotCommentsFromPayload({ data: "oops" })).toEqual([]);
     expect(mergeHotCommentsFromPayload({ data: { replies: "oops", top_replies: 42, top: "x", upper: 5 } })).toEqual([]);
     expect(mergeHotCommentsFromPayload({ data: { replies: [] } })).toEqual([]);
-    expect(mergeHotCommentsFromPayload({ data: { top: [], upper: { top: [] } } })).toEqual([]);
+    expect(mergeHotCommentsFromPayload({ data: { top: [], upper: { mid: 1 } } })).toEqual([]);
   });
 
   it("数组里混入 null/非对象/无 message 项：跳过，不产生空条目", () => {
@@ -122,7 +122,7 @@ describe("热评全文通道：不截断", () => {
         replies: [],
         top: null,
         top_replies: [{ rpid: 1, member: { uname: "硅谷101" }, like: 520, content: { message: longMessage } }],
-        upper: { top: null }
+        upper: { mid: 1001 }
       }
     };
   }

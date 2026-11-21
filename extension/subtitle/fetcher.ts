@@ -133,7 +133,7 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   }
 }
 
-export async function refreshClip(): Promise<void> {
+export async function refreshClip(options?: { forceRefresh?: boolean }): Promise<void> {
   const runId = state.clip.fetchRunId + 1;
   clipState.setFetchRunId(runId);
   try {
@@ -184,7 +184,7 @@ export async function refreshClip(): Promise<void> {
       );
     }
 
-    const forceRefresh = true;
+    const forceRefresh = options?.forceRefresh === true;
     const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
 
     const preferred = await selectSubtitleTrack(runId, accessBlocker);

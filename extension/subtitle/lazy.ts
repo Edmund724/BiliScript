@@ -6,7 +6,7 @@ import type {
 } from "./asr-translation.js";
 
 export interface SummarizeChain {
-  refreshClip(): Promise<void>;
+  refreshClip(options?: { forceRefresh?: boolean }): Promise<void>;
   loadSubtitle(
     url: string,
     lang: string,

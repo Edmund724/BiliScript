@@ -69,7 +69,7 @@ export const COMPAT_QUIRKS = {
     protocols: ["anthropic"]
   },
   serverToolsNotTranslated: {
-    summary: "Anthropic 原生服务端工具（名字带日期版本后缀，如 web_search_20250305）不走 tool 循环，adapter 只翻译客户端 function 工具。",
+    summary: "标记为 execution: \"server\" 的服务端工具不走客户端 tool 循环，adapter 只翻译客户端 function 工具。",
     protocols: ["anthropic"]
   },
 

@@ -93,4 +93,39 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
     expect(() => lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" })).not.toThrow();
     await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
   });
+
+  it("ensureSummarizeChain 挂起期间切视频递增 fetchRunId：向 loadSecondarySubtitle 传递发起时的旧 runId", async () => {
+    setBilingual(true, "en-US");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+    const lazyModule = await import("../../extension/subtitle/lazy.js");
+    let releaseChain!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseChain = resolve;
+    });
+    vi.mocked(lazyModule.ensureSummarizeChain).mockImplementationOnce(async () => {
+      await gate;
+      return {
+        refreshClip: vi.fn(),
+        loadSubtitle: vi.fn(),
+        loadSecondarySubtitle: lazy.loadSecondarySubtitle,
+        resetClipState: vi.fn(),
+        ensureAsrTranslation: vi.fn(),
+        copySubtitleTranscript: vi.fn(),
+        downloadSubtitle: vi.fn()
+      };
+    });
+
+    lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" });
+    clipState.setFetchRunId(4);
+    releaseChain();
+
+    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
+    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
+      EN_TRACK.subtitleUrl,
+      EN_TRACK.lanDoc,
+      3,
+      EN_TRACK.id,
+      false
+    );
+  });
 });

@@ -371,18 +371,19 @@ export class LiveSessionTracker {
   }
 
   async cleanup(
-    sessionId?: string,
+    sessionId: string,
     clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
   ): Promise<LiveSessionCleanupResult> {
     const targetSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
+    if (!targetSessionId) {
+      return { ok: true };
+    }
     try {
-      if (targetSessionId) {
-        if (this.latestRequestedOwner && this.latestRequestedOwner !== targetSessionId) {
-          return { ok: true };
-        }
-        if (this.activeRuleOwner && this.activeRuleOwner !== targetSessionId) {
-          return { ok: true };
-        }
+      if (this.latestRequestedOwner && this.latestRequestedOwner !== targetSessionId) {
+        return { ok: true };
+      }
+      if (this.activeRuleOwner && this.activeRuleOwner !== targetSessionId) {
+        return { ok: true };
       }
       this.latestRequestedOwner = null;
       this.activeRuleOwner = null;

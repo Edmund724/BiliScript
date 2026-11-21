@@ -709,8 +709,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       return;
     }
 
-    if (!retry) {
-    }
     const attempt = textToolCoordinator.startAttempt({
       callId,
       retry,
