@@ -1,5 +1,3 @@
-// 把 content.js 传来的 context 拼成 chat messages，并提供建议 chip 模板。
-
 import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
@@ -10,24 +8,14 @@ interface BuildMessagesInput {
   userPrompt?: unknown;
   history?: unknown[];
   systemPrompt?: unknown;
-  // 联网搜索管线（spec §2.5）：开启时保留历史中的 assistant(tool_calls) 与 tool
-  // 消息（多轮追问保持工具上下文，OpenAI 协议合法）；关闭时整体丢弃——无 tools
-  // 的请求里出现 tool 消息部分平台会报 4xx。
   includeToolHistory?: boolean;
-  // 图片输入（image-input 路线 B）：本轮用户消息的图片，挂在本函数现造的末条
-  // user 消息上；缺失/空数组时不带字段——无图消息的请求体逐字节不变。
   images?: ImagePart[];
 }
 
-// 更早图片的占位文案（04 号票用词）：content 保持 string（路线 B），只是把图片
-// 字段换成一句人话——模型仍知道「那里原本有图」，但不再重复支付图片 token。
 function formatImagePlaceholder(count: number): string {
   return count === 1 ? "[用户曾发送一张图片]" : `[用户曾发送 ${count} 张图片]`;
 }
 
-// 历史重发策略（image-input 04 号票）：只保留最近一条用户消息的图片，更早的
-// 图片在请求组装时摘掉并追加文本占位。本轮自己带图时（hasCurrentImages），
-// 「最近一条用户消息」就是本轮这条，历史里的图片全部换成占位。
 function replaceEarlierImages(historyMessages: ChatMessage[], hasCurrentImages: boolean): ChatMessage[] {
   let keepIndex = -1;
   if (!hasCurrentImages) {
@@ -53,8 +41,6 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
   const ctx = context || {};
   const sections: string[] = [];
 
-  // 用户自定义系统提示词是主人格，排第一位（清空时回落内置默认——那条本身就是
-  // 完整人设）；标题/字幕等数据段随后，不再有独立的内置 mini 人设。
   const customSystemPrompt = String(systemPrompt || "").trim();
   sections.push(customSystemPrompt || DEFAULT_AI_SYSTEM_PROMPT);
 
@@ -63,11 +49,6 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
   );
 
-  // 字幕只以 subtitleBody（原始条目）入协议，发送物由此现场渲染，与预算判定同源。
-  // includeTimestampInBody 由 payload 透传（context-resolver / content 侧设置），
-  // 缺失时 buildSubtitlePrompt 默认 true（与历史默认一致）。
-  // 追问压缩路径的发送物是「分段小结 + 成稿笔记」而非逐字字幕，标签如实分流：
-  // 误标「字幕全文」会让模型对时间戳引用与原话类问题过度自信。
   const hybridRetrieval = String(ctx.hybridRetrievalMarkdown || "");
   const compressedSummary = String(ctx.compressedSummaryMarkdown || "");
   const subtitleText =
@@ -96,8 +77,6 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     historyMessages = history.filter(function (m: unknown) {
       const item = m as { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown };
       if (!item) return false;
-      // 联网轮（spec §2.5）：assistant(tool_calls) 与 tool 消息原样透传，
-      // 多轮追问保持工具上下文。
       if (includeToolHistory) {
         if (item.role === "assistant" && Array.isArray(item.tool_calls) && item.tool_calls.length) {
           return true;
@@ -106,21 +85,14 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
           return true;
         }
       }
-      // 关闭时（无 tools 轮）：tool 消息与空正文 assistant(tool_calls) 丢弃
-      //（OpenAI 协议下无 tools 的 tool_calls 消息非法）；带正文的 assistant
-      // 保留为普通 assistant。
       if (item.role === "tool") return false;
       if (item.role === "assistant" && !item.content && item.tool_calls != null) return false;
       return (item.role === "user" || item.role === "assistant") && typeof item.content === "string";
     }) as ChatMessage[];
   }
 
-  // 历史重发（image-input 04 号票）：只留最近一条用户消息的图片，更早的换成
-  // 文本占位（见 replaceEarlierImages）；本轮带图时历史里的图片全部让位。
   historyMessages = replaceEarlierImages(historyMessages, Boolean(images?.length));
 
-  // 本轮 user 消息：图片（image-input 路线 B）挂在这条上（也是「最近一条用户
-  // 消息的图片」——上面的历史重发策略据此让位）。
   const frameContextNote = String(ctx.frameContextNote || "").trim();
   const promptText = String(userPrompt || "");
   const userMessage: ChatMessage = {

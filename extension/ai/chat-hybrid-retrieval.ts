@@ -1,12 +1,3 @@
-// extension/ai/chat-hybrid-retrieval.ts
-// 长视频多轮 AI 对话「L1 目录路由 + 本地 BM25 词法兜底」两阶段单跳渐进式召回与交互锚点直通（ADR-0027）：
-// 1. 交互锚点免路由直通（Fast Path）：划词解释 / 显式时间戳 / 当前播放进度附近提问直接抽 L0 扩窗 + 所属 L1 章节摘要；
-// 2. 两阶段单跳混合召回（Stage A 双路定位 + Stage B 去重组装）：不依赖原生 Tool Calling，兼容 OpenAI/Anthropic/Gemini/ModelScope；
-// 3. 路由超时 / 免费接口限流 / 非预期格式静默降级为「L1 目录 + 本地 BM25 Top 扩窗结果」，绝不报错卡死；
-// 4. 视觉/画面类提问返回召回命中的核心时间戳区间，供外部联动视频关键帧采样。
-//
-// 约束：零 chrome/DOM/storage/cache-lru 依赖，可安全进 offscreen ladder chunk。
-
 import { formatClock, parseClock, parseTimestampSeconds, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError, makeAbortedError } from "../shared/error-helpers.js";
 import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
@@ -103,10 +94,6 @@ export function doesPromptNeedVisualFrame(prompt: unknown): boolean {
   return VISUAL_DEICTIC_RE.test(text);
 }
 
-/**
- * 判定当前视频是否属于长视频混合召回适用范围：
- * 总字符数超 200k 预算线，或字幕时间跨度 / 视频时长超过 30 分钟（1800 秒）。
- */
 export function isLongVideoForHybridChat(
   l0Lines: readonly L0SubtitleLine[],
   context?: LongVideoChatContextInput | null
@@ -149,10 +136,6 @@ function shouldUsePlaybackCursorAnchor(
   return PLAYBACK_DEICTIC_RE.test(prompt) || VISUAL_DEICTIC_RE.test(prompt);
 }
 
-/**
- * 交互锚点直通探测（Fast Path）：
- * 优先级：划词解释意图 > 显式时间戳 > 当前播放进度指代提问。
- */
 export function detectInteractionAnchorPlan(input: {
   userPrompt: string;
   interactionAnchor?: InteractionAnchorHint | null;
@@ -341,9 +324,6 @@ function clampWindowsToBudget(
   return { windows, injectedChars, truncated };
 }
 
-/**
- * 将多路召回（如 L1 路由章节窗口 + 本地 BM25 扩窗）得到的字幕窗口按时间顺序去重合并。
- */
 export function mergeL0ContextWindows(
   allLines: readonly L0SubtitleLine[],
   windowGroups: ReadonlyArray<readonly L0ContextWindow[]>,
@@ -417,10 +397,6 @@ export interface FastPathResolutionResult {
   hybridRetrievalMarkdown: string;
 }
 
-/**
- * 交互锚点免路由直通（Fast Path）：
- * 直接以锚点时间戳 / 选中行号为中心拉取 L0 前后扩窗字幕 + 所属 L1 章节摘要。
- */
 export function buildFastPathContext(input: {
   allLines: readonly L0SubtitleLine[];
   plan: InteractionAnchorRoutePlan;
@@ -464,7 +440,6 @@ export function buildFastPathContext(input: {
     sections.push(`## 全片简介\n${l1Index.globalSummary}`);
   }
 
-  // 收集所属 L1 章节摘要（无 L1 索引时退回视频自带章节标题）
   const ownerChapterLines: string[] = [];
   const seenChapters = new Set<string>();
   const l1Chapters = l1Index?.chapters ?? [];
@@ -543,10 +518,6 @@ function findFallbackChapterForTime(
     to: Number.isFinite(owner.to) && owner.to > owner.from ? owner.to : owner.from
   };
 }
-
-// ============================================================
-// 阶段 A：L1 目录极简非流式路由与容错解析
-// ============================================================
 
 const L1_ROUTER_SYSTEM_PROMPT = [
   "你是长视频问答的章节路由器。阅读下方 L1 章节目录和用户问题，仅输出一个 JSON 对象（禁止输出思考过程、Markdown 解释或多余文字）。",
@@ -693,10 +664,6 @@ export type ParsedL1RouteResult =
   | { ok: true; plan: HybridSingleHopRoutePlan }
   | { ok: false; reason: "router-invalid-output" };
 
-/**
- * 容错解析阶段 A 路由器的非流式返回，兼容推理模型 `<think>`、围栏与字段别名；
- * 非预期格式返回 `{ ok: false, reason: "router-invalid-output" }` 触发静默降级。
- */
 export function parseL1RouterOutput(
   rawText: unknown,
   l1Index: L1VideoIndexCacheRecord
@@ -840,8 +807,6 @@ function collectRoutedRangeWindows(input: {
     };
   }
 
-  // 先检查选定章节区间总字幕量：若在 ROUTED_RANGE_MAX_CHARS 内直接完整展开，零词法漏召；
-  // 若章节本身很长，则结合路由补充词与章节 keyEntities 在区间内做 BM25 精排扩窗。
   let rangeTotalChars = 0;
   for (const line of allLines) {
     if (ranges.some((r) => line.to >= r.from && line.from <= r.to)) {
@@ -857,7 +822,6 @@ function collectRoutedRangeWindows(input: {
         directWindows.push(win);
       }
     }
-    // 也跑一次区间内 BM25 以便拿到最相关句子时间戳供关键帧采样复用
     const scoped = bm25Index.search({
       query: userPrompt,
       terms: plan.lexicalTerms,
@@ -899,7 +863,6 @@ function collectRoutedRangeWindows(input: {
     };
   }
 
-  // 若区间内词法零命中（如抽象概括提问），直接取各选定章节前段原始字幕兜底
   const perRangeCap = Math.max(2000, Math.floor(ROUTED_RANGE_MAX_CHARS / ranges.length));
   const fallbackWindows: L0ContextWindow[] = [];
   for (const r of ranges) {
@@ -981,13 +944,6 @@ function buildHybridMarkdown(input: {
   return sections.join("\n\n");
 }
 
-/**
- * 长视频多轮 AI 对话渐进式单跳召回主入口（ADR-0027）：
- * 1. Fast Path：划词解释 / 显式时间戳 / 当前播放进度直接抽 L0 扩窗 + 所属章节摘要；
- * 2. Stage A：同步执行本地 BM25；若已有 L1 目录缓存且非简单寒暄，并行发起极简非流式 L1 路由；
- * 3. Stage B：路由区间 L0 + 本地 BM25 扩窗按时间顺序去重合并，连同常驻 L1 目录生成回答上下文；
- * 4. 频控 / 超时 / 非法输出自动静默降级为「L1 目录 + 本地 BM25 Top 扩窗」。
- */
 export async function resolveLongVideoHybridContext(
   input: ResolveLongVideoHybridContextInput
 ): Promise<LongVideoHybridResolution> {
@@ -1012,7 +968,6 @@ export async function resolveLongVideoHybridContext(
     l0Lines.length > 0 ? Math.ceil(l0Lines[l0Lines.length - 1].to) : 0
   );
 
-  // 1. 交互锚点免路由直通（Fast Path）
   const fastPathPlan = detectInteractionAnchorPlan({
     userPrompt,
     interactionAnchor,
@@ -1041,7 +996,6 @@ export async function resolveLongVideoHybridContext(
 
   const l1DirectoryPrompt = l1Index ? serializeL1DirectoryPrompt(l1Index) : "";
 
-  // 2. 简单寒暄：免路由、免检索，仅带 L1 目录或紧凑摘要直接流式回答
   if (isSimpleGreetingPrompt(userPrompt)) {
     return {
       mode: "direct-answer",
@@ -1057,7 +1011,6 @@ export async function resolveLongVideoHybridContext(
     };
   }
 
-  // 3. 阶段 A：同步执行本地 BM25；同时若已有 L1 目录缓存，并行发起极简非流式路由请求
   const bm25Index = createL0Bm25Index(l0Lines, { chapters: l1Index?.chapters });
   const bm25Result: L0LexicalSearchResult = bm25Index.search({
     query: userPrompt,
@@ -1088,7 +1041,6 @@ export async function resolveLongVideoHybridContext(
     };
   }
 
-  // 发起极简非流式 L1 路由（带独立短超时，绝不阻塞主对话；父 signal 中止仍严格上抛）
   const routerController = new AbortController();
   let timedOut = false;
   const onParentAbort = () => routerController.abort();
@@ -1136,7 +1088,6 @@ export async function resolveLongVideoHybridContext(
     signal?.removeEventListener("abort", onParentAbort);
   }
 
-  // 4. 阶段 B：根据路由结论去重组装上下文（降级路径自动回落「L1 目录 + 本地 BM25 Top 扩窗」）
   if (!parsedRoute) {
     const degradedMerged = mergeL0ContextWindows(l0Lines, [bm25Windows], {
       maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
@@ -1172,7 +1123,6 @@ export async function resolveLongVideoHybridContext(
     };
   }
 
-  // 选定章节时间区间 + 本地 BM25 扩窗双路去重合并
   const routed = collectRoutedRangeWindows({
     allLines: l0Lines,
     bm25Index,

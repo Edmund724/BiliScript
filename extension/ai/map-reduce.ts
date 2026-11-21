@@ -1,16 +1,3 @@
-// 「Map-Reduce 编排」模块：超预算视频（>200k 字符）端到端出成稿。
-// 阶梯：预算内单次（02 streamChat）；超出走本模块——按 01 的分段计划切段，
-// 逐段（串行）生成分段小结，再一次性交给成稿调用输出正文（clamp ≤16k）。
-// 模型调用统一经 ai/completion.js 接缝（非流式、默认无重试，保持现状）；
-// context-length 溢出（err.overflow=true）触发编排级兜底：自动按 0.5 倍收紧
-// 入口侧预算（单段输入 / 归并组输入）整轮重跑一次——预算假设（模型上下文窗口
-// ≥ 预算常量）被打破时的自愈，仅一轮：仍溢出则带明确文案抛出。重跑独立于
-// 池层重试（pool 对 overflow 不重试，避免同素材浪费重发）。
-// 跑在 offscreen 文档，经 port 向侧边栏回吐进度 notice 与最终正文 token；
-// 全程可中止（复用 AbortController）；04 缓存命中可跳过 map 调用。
-// prompt 措辞对齐蓝本 .scratch/video-to-note/backend/llm_summarizer.py：
-// 分段小结忠实压缩保留时间点与事实，成稿面向收藏/复习、不补外部知识。
-
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { formatSegmentHeading, formatSegmentItem } from "./subtitle-prompt.js";
 import { buildBudgetPlan, FINAL_OUTPUT_CHARS, SEGMENT_SUMMARY_CHARS, SEGMENT_INPUT_CHARS, REDUCE_GROUP_INPUT_CHARS } from "./budgeter.js";
@@ -19,37 +6,21 @@ import { runCachedMap } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
-// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
-// port 回吐的消息联合单源在 chat/protocol.ts（ticket 08）：原「StreamChatEvent |
-// { type: string; data?: string; reason?: string }」手抄变体删除，改引协议联合。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 
-// 单条字幕项渲染上限（防御性截断，避免个别超长项撑爆小结请求）。
 const MAX_ITEM_CHARS = 4000;
 
-// 笔记编辑系统提示词单源（arch-slim-2/03，原两处逐字手抄）：分段小结、成稿与
-// 归并三次模型调用共用（F5：归并阶段此前走更薄的兜底，口径分叉，收单源）。
-// ASR 提示行（F4）：与概览管线同吃一份 ASR 字幕，逐字错字不修正会一路传染到
-// 小结缓存、成稿与追问检索。字节冻结（spec 拍板「静态提示词字节不动」），改前先过
-// tests/ai 蓝本对齐断言。
 const NOTE_EDITOR_SYSTEM_PROMPT =
   "你是视频笔记编辑。忠实理解语境与作者意图，允许结合上下文保守修正明显的口误、笔误和语音转写错误。" +
   "字幕是自动语音识别（ASR）生成的：同音错别字多，人名、品牌名与术语尤其易错——按视频标题与上下文推断本字后再写入笔记，但不要改写原意。";
 
-// 溢出放宽预算重跑：收紧比例与用户可见文案（重跑发起 / 重跑仍溢出）。
 const OVERFLOW_RETRY_BUDGET_SCALE = 0.5;
 const OVERFLOW_RETRY_NOTICE = "模型上下文不足，已自动调低单段素材量并重试";
 const OVERFLOW_STILL_MESSAGE = "该视频素材在调低分段量后仍超出模型上下文，请更换上下文窗口更大的模型后重试";
 
-// 注入协作形状单源（arch-review-2026-09 候选 2 第一步）：取 ai/completion.js
-// chatCompletion 的函数类型本身，不再手抄窄面入参（旧手抄版少了 stream /
-// onEvent / fetchImpl 等字段，靠 as unknown as 硬转）。
 type ChatCompletionImpl = typeof chatCompletion;
 
-/**
- * 进度文案纯函数：percent = round(index / total * 100)。
- */
 export function buildProgressNotice(index: number | unknown, total: number | unknown): string {
   const safeTotal = Math.max(1, Number(total) || 1);
   const safeIndex = Math.min(Math.max(1, Number(index) || 1), safeTotal);
@@ -57,11 +28,6 @@ export function buildProgressNotice(index: number | unknown, total: number | unk
   return `正在整理第 ${safeIndex}/${safeTotal} 段（${percent}%）`;
 }
 
-/**
- * 分段小结 prompt（本域术语是「分段小结」/ segment；上游蓝本函数名叫 _chunk_prompt）：
- * 对齐蓝本 _chunk_prompt 措辞——视频标题 + 第 index/N 个连续片段 +
- * 忠实压缩（保留重要事实、例子、论证关系与原有时间点），不做评价、不补外部知识。
- */
 function buildSegmentPrompt({ title, index, total, items }: { title: string; index: number; total: number; items: unknown[] }): string {
   const segmentLines = (Array.isArray(items) ? items : []).map((item) => {
     const text = formatSegmentItem(item);
@@ -78,11 +44,6 @@ function buildSegmentPrompt({ title, index, total, items }: { title: string; ind
 ${segmentLines.join("\n")}`;
 }
 
-/**
- * 成稿 prompt：对齐蓝本 _note_prompt——产出面向收藏/复习的 Markdown 视频笔记，
- * 忠实复原脉络/观点/依据/时间点，不补外部知识，标题 `# 视频笔记：《{title}》`。
- * 材料中每条小结以 `### 片段 i` 标注。
- */
 function buildNotePrompt({ title, material }: { title: string; material: string }): string {
   return `写一份翔实、自然的 Markdown 视频笔记。完整复原内容脉络、具体例子、核心观点及其依据，
 并在有帮助时加入关键时间点。不要加入外部知识或评价。信息点要齐全，长视频不要过度压缩；
@@ -97,9 +58,6 @@ function buildNotePrompt({ title, material }: { title: string; material: string 
 ${material}`;
 }
 
-/**
- * 把所有分段小结汇总为一份成稿材料：每条前面 `### 片段 i` 标注。
- */
 function buildMaterial(summaries: unknown[]): string {
   const list = Array.isArray(summaries) ? summaries : [];
   return list
@@ -113,7 +71,6 @@ interface SummarizeSegmentInput {
   segment: BudgetPlanSegment;
   total: number;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   chatCompletionImpl: ChatCompletionImpl;
   segmentCache: SegmentCacheOps;
@@ -121,15 +78,6 @@ interface SummarizeSegmentInput {
   budgetScale?: number | unknown;
 }
 
-/**
- * 单段小结（未命中路径）：构造 prompt 调模型并落盘。缓存命中短路归并发层的
- * runCachedMap，命中即跳过本函数。
- * budgetScale：本轮预算档（默认 1）——小结缓存 key 按档隔离（防段边界漂移后命中
- * 错位小结）。段缓存读写经 segmentCache 注入缝（宿主迁 SW，缺省实现为 segmentCacheProxy）。
- * 返回小结字符串；中止（signal.aborted）时抛出标记 aborted 的错误，由上层统一收束。
- * 小结落盘经段缓存的 LRU 淘汰写入；淘汰后重试仍失败时经 notifyCacheWriteError 上浮
- * （编排层保证整个运行期只提示一次），不再中断编排。
- */
 async function summarizeSegment({
   provider,
   context,
@@ -163,7 +111,6 @@ async function summarizeSegment({
   });
 
   const trimmed = String(summary || "").trim();
-  // 小结 ≤10k 保留（约 20%）；超出时尾部截断兜底（本票不做归并，靠此 clamp 保预算）
   const clamped = trimmed.length > SEGMENT_SUMMARY_CHARS ? trimmed.slice(0, SEGMENT_SUMMARY_CHARS) : trimmed;
   const savedSummary = await segmentCache.saveSummary({ context, segmentIndex: segment.index, budgetScale, summary: clamped });
   if (savedSummary && savedSummary.ok === false && typeof notifyCacheWriteError === "function") {
@@ -178,7 +125,6 @@ interface OrchestrateMapReduceInput {
   plan?: BudgetPlan | null;
   port?: ChatPort | null;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   onProgress?: (notice: string) => void;
   chatCompletion?: ChatCompletionImpl;
@@ -191,15 +137,6 @@ interface MapReduceResult {
   aborted: boolean;
 }
 
-/**
- * 编排主函数：
- * 切片 → 逐段小结（runCachedMap 有界并发）→ 成稿（shouldReduce 为真先归并）→ 回吐正文。
- * 溢出兜底：任一阶段模型调用抛带 .overflow 标记的错误时，按 0.5 倍收紧入口侧预算
- * （单段输入 / 归并组输入）整轮重跑一次——重跑用新预算重切段，小结缓存 key 按档
- * 隔离（非常态档不会命中常态档的小结，段边界漂移不串内容）。重跑仍溢出则带明确
- * 文案抛出；中止（aborted）在任何阶段都收束为 stopped 回吐，不触发重跑。
- * 返回 { draft, segmentSummaries, aborted }；aborted 时已回吐内容不串数据、不再 post done。
- */
 export async function orchestrateMapReduce({
   provider,
   context,
@@ -218,15 +155,11 @@ export async function orchestrateMapReduce({
     }
   };
 
-  // 中止收束：回吐 stopped（对齐 streamChat 的停止 UX），不 post done，不抛错误；
-  // 已完成的小结（部分结果）随 aborted 结果带出。
   const abortReturn = (segmentSummaries: string[] = []): MapReduceResult => {
     post({ type: "stopped", reason: "已停止生成" });
     return { draft: "", segmentSummaries, aborted: true };
   };
 
-  // 缓存写入最终失败（LRU 淘汰后重试仍失败）的 user-visible 上浮：复用 Map-Reduce
-  // 协议既有的 notice 通道，整个运行期只提示一次（后续失败仅 logError，不打扰）。
   let cacheWriteNoticeShown = false;
   const notifyCacheWriteError = () => {
     if (cacheWriteNoticeShown) {
@@ -241,12 +174,6 @@ export async function orchestrateMapReduce({
     injectedPlan: BudgetPlan | null | undefined;
   }
 
-  /**
-   * 单轮编排：按 budgetScale 切段 → 逐段小结 → 归并 → 成稿 → 回吐。
-   * injectedPlan：首轮用调用方注入的 plan（ladder 按常态预算预生成，成本护栏
-   * 文案与其一致）；重跑必须重算（预算已收紧，段边界与调用数都变了）。
-   * abort 返回 { aborted: true }；溢出与其他错误 throw，由外层分流。
-   */
   const runOnce = async ({ budgetScale, injectedPlan }: RunOnceInput): Promise<MapReduceResult> => {
     const resolvedPlan =
       injectedPlan ||
@@ -263,8 +190,6 @@ export async function orchestrateMapReduce({
     const segments = Array.isArray(resolvedPlan.segments) ? resolvedPlan.segments : [];
     const total = segments.length;
 
-    // 按原始下标累积的小结（并发完成序可乱，写回位置不乱）；中止时随 aborted
-    // 结果带出已完成的部分。
     const segmentSummaries: string[] = [];
 
     const emitProgress = (index: number) => {
@@ -281,9 +206,6 @@ export async function orchestrateMapReduce({
 
     let done: { segment: BudgetPlanSegment; summary: string }[];
     try {
-      // 查缓存 → 命中短路归 runCachedMap；rawsave 时机、abort 检查与缓存写失败
-      // 「通知一次不中断」都是本管线收束差异，留在 summarizeSegment（run 闭包）里
-      // ——删除测试否决了 runner 统一持有落盘的方案（候选 2 原方案否决点）。
       done = await runCachedMap({
         items: segments,
         loadCached: async (segment) => {
@@ -322,7 +244,6 @@ export async function orchestrateMapReduce({
       return abortReturn(segmentSummaries);
     }
 
-    // 成稿材料：所有小结汇总；shouldReduce 为真先走归并（07 填空后生效）。
     let materialSummaries = done.map((r) => r?.summary || "").filter((s) => s != null);
     if (shouldReduce(resolvedPlan) && materialSummaries.length > 1) {
       let merged;
@@ -347,7 +268,6 @@ export async function orchestrateMapReduce({
           onProgress: emitNotice
         });
       } catch (e) {
-        // 归并阶段的中止同样收束为 stopped（此前该阶段 abort 会漏成 port error）。
         if (isAbortedMarkerError(e) || signal?.aborted) {
           return abortReturn(segmentSummaries);
         }
@@ -386,7 +306,6 @@ export async function orchestrateMapReduce({
       return abortReturn(segmentSummaries);
     }
 
-    // 成稿 clamp 到 FINAL_OUTPUT_CHARS（16000）以内
     if (draft.length > FINAL_OUTPUT_CHARS) {
       draft = draft.slice(0, FINAL_OUTPUT_CHARS);
     }
@@ -405,7 +324,6 @@ export async function orchestrateMapReduce({
     if (!(e as { overflow?: boolean })?.overflow) {
       throw e;
     }
-    // 溢出兜底：放宽预算（收紧单段/归并组输入至 0.5 倍）整轮重跑一次。
     post({ type: "notice", data: OVERFLOW_RETRY_NOTICE });
     try {
       return await runOnce({ budgetScale: OVERFLOW_RETRY_BUDGET_SCALE, injectedPlan: null });

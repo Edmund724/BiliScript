@@ -1,11 +1,3 @@
-// extension/ai/subtitle-translate-config.ts
-// 字幕翻译平台解析叶：平台列表 + 密钥 + 设置 → 本次翻译使用的平台与模型。
-//
-// 纯查表、零请求：不引 completion / protocol-adapter / adapters，故可被
-// Service Worker 常驻侧（core/provider-handlers 的 resolve-subtitle-translate-provider）
-// 静态引用。请求装配（buildSubtitleTranslateRequest / translateSubtitleItems）
-// 留在 ai/subtitle-translate.ts，只允许页面/offscreen 侧按需加载。
-
 import type { Settings } from "../core/defaults.js";
 import { MISSING_PROVIDER_KEY_MESSAGE } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -96,9 +88,6 @@ export const INDEX_TRANSLATE_BUILTIN_PROVIDER: ProviderListEntry = {
   protocol: "openai"
 };
 
-/**
- * 判断平台/解析结果是否为内置 Bilibili Index-Translate 通道（按 id / presetId / baseUrl 域名识别）。
- */
 export function isIndexTranslateProvider(
   provider?: { id?: unknown; presetId?: unknown; baseUrl?: unknown } | null
 ): boolean {
@@ -121,9 +110,6 @@ export function isIndexTranslateProvider(
   }
 }
 
-/**
- * 构造内置 Bilibili Index-Translate 通道的运行时解析结果（免 Key、支持三档模型枚举，默认 Index-Translate-35B-A3B）。
- */
 export function createIndexTranslateResolution(model?: string): SubtitleTranslateProviderResolution {
   const effectiveModel = normalizeIndexTranslateModel(model);
   return {
@@ -143,9 +129,6 @@ export interface SubtitleTranslateSettingsInput {
   subtitleTranslateGlossary?: unknown;
 }
 
-/**
- * 从设置对象中读取并解析字幕翻译术语表。
- */
 export function resolveSubtitleTranslateGlossary(
   settings?: SubtitleTranslateSettingsInput | null
 ): SubtitleGlossaryEntry[] {
@@ -155,12 +138,6 @@ export function resolveSubtitleTranslateGlossary(
   return parseSubtitleGlossary(raw);
 }
 
-/**
- * 纯函数：根据已保存平台列表、密钥字典与设置，解析字幕翻译应使用的 AI 平台与模型。
- * - 默认与内置通道：未指定平台或指定 `bilibili-index-translate` 时，直接使用免 Key 的内置 Index-Translate 通道；
- * - 专属自定义平台：指定了自定义平台 id 且处于启用状态时精确匹配，需要 Key 却缺失时抛出可读错误；
- * - 平滑回落：指定的自定义平台已被删除或禁用时，平滑回落至内置 Index-Translate 默认模型（并标记 `isFallback: true`）。
- */
 export function resolveSubtitleTranslateProviderConfig(
   providers: ProviderListEntry[],
   keys: Record<string, string>,
@@ -235,10 +212,6 @@ export interface ResolveSubtitleTranslateProviderDeps {
   loadKeys?: () => Promise<Record<string, string>>;
 }
 
-/**
- * 异步解析字幕翻译运行时配置（依赖注入或经 runtime 消息向 SW 请求）。
- * 驻留零 completion/adapter 依赖叶，供 interpret-session-controller 可用性检查在不加载翻译协议栈的前提下复用。
- */
 export async function resolveSubtitleTranslateProvider(
   deps?: ResolveSubtitleTranslateProviderDeps
 ): Promise<SubtitleTranslateProviderResolution> {

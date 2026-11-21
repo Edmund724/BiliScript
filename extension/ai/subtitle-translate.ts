@@ -1,12 +1,3 @@
-// extension/ai/subtitle-translate.ts
-// 字幕翻译双通道协议与请求装配（平台解析在零请求叶 ai/subtitle-translate-config.ts，
-// 纯编解码与容错原语在 subtitle/boundary-protocol.ts）：
-//
-// 1. 粗粒度/碎句轨（`ai-*` 轨、无标点轨、`asr` 伪轨）：走 `boundary-v3` 索引区间联合断句 + 翻译协议，
-//    配合截断 JSON 抢救 → 连续无跳号前缀提取 → 最多 1 次 Tail Retry → 本地规则降级闭环；
-// 2. 人工精校 CC 字幕轨：走 JSON 数组严格 ID 对齐批量翻译协议，具备截断 JSON 抢救与最多 1 次漏行单补；
-// 3. 请求装配固定将思考档位设为关闭（`thinkingLevel: "off"`），降低首字延迟与 token 成本。
-
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
 import type { ProviderTransport } from "../core/provider-http-shared.js";
 import {
@@ -133,17 +124,9 @@ export interface SubtitleTranslateRequestInput {
   fetchImpl?: ProviderTransport;
   onEvent?: ChatCompletionInput["onEvent"];
   onStreamReset?: ChatCompletionInput["onStreamReset"];
-  /** 外部传入的任何思考档位将被显式忽略，强制收敛为 "off"。 */
   thinkingLevel?: unknown;
 }
 
-/**
- * 装配字幕翻译模型请求：
- * 默认开启流式（`stream: true`）并固定将思考档位设为关闭（`off`），不继承对话面板的高思考强度档位，
- * 降低首字延迟与 token 消耗；传输默认走 offscreen 代发通道以绕过页面 CORS 预检。
- * 对内置 Bilibili Index-Translate 通道额外显式注入 `temperature: 0` 与
- * `chat_template_kwargs: { enable_thinking: false }`。
- */
 export function buildSubtitleTranslateRequest(
   input: SubtitleTranslateRequestInput
 ): ChatCompletionInput {
@@ -174,7 +157,6 @@ export function buildSubtitleTranslateRequest(
     fetchImpl: input.fetchImpl ?? providerFetchViaOffscreen,
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),
     ...(input.onStreamReset ? { onStreamReset: input.onStreamReset } : {}),
-    // 固定将思考档位设为关闭（off），不继承对话面板的高思考强度档位
     thinkingLevel: "off"
   };
 }
@@ -201,9 +183,6 @@ export function resolveTargetLangDisplayName(lang: string): string {
     : lang;
 }
 
-/**
- * 兼容旧版序号行编码：`1. 第一句话\n2. 第二句话`
- */
 export function formatSubtitleNumberedLines(items: Array<{ content?: unknown }>): string {
   return (items || [])
     .map((item, idx) => `${idx + 1}. ${String(item?.content || "").trim()}`)
@@ -214,9 +193,6 @@ export interface ParseSubtitleNumberedLinesOptions {
   fallbackToOriginal?: boolean;
 }
 
-/**
- * 兼容旧版序号行解析：从「序号. 译文」按原数组长度 1:1 对齐时间轴。
- */
 export function parseSubtitleNumberedLines(
   response: string,
   originalItems: SubtitleBodyItem[],
@@ -260,13 +236,9 @@ export function parseSubtitleNumberedLines(
 }
 
 export interface BuildBoundaryTranslateMessagesOptions {
-  /** 仅请求输出 ids + translation，省去原文回显字段（适用于 Index-Translate 等翻译专用模型）。 */
   omitTextField?: boolean;
 }
 
-/**
- * `boundary-v3` 联合断句 + 翻译 System/User Prompt 装配（支持可选注入 title/description/summary/glossary/previousLines）。
- */
 export function buildBoundaryTranslateMessages(
   events: readonly AtomicSubtitleEvent[],
   targetLang: string,
@@ -298,9 +270,6 @@ export function buildBoundaryTranslateMessages(
   ];
 }
 
-/**
- * 人工精校 CC 字幕批量 JSON 严格 ID 对齐翻译 Prompt 装配。
- */
 export function buildCcTranslateMessages(
   items: ReadonlyArray<{ content?: unknown }>,
   targetLang: string,
@@ -324,9 +293,6 @@ export function buildCcTranslateMessages(
   ];
 }
 
-/**
- * 默认字幕翻译消息构造入口（人工精校 CC 批量 JSON 协议）。
- */
 export function buildSubtitleTranslateMessages(
   items: SubtitleBodyItem[],
   targetLang: string,
@@ -344,9 +310,6 @@ export interface SubtitleProtocolRouteInput {
   events?: readonly AtomicSubtitleEvent[];
 }
 
-/**
- * 判定当前字幕轨应采用 `boundary-v3`（`ai-*` 轨、无标点轨、`asr` 伪轨）还是 `cc-json`（人工精校 CC 轨）。
- */
 export function resolveSubtitleTranslateProtocolMode({
   mode = "auto",
   selectedSubtitleId = "",
@@ -588,7 +551,6 @@ async function runStreamWithFallback(
       throw err;
     }
 
-    // 流式异常无感降级：清空流式解析缓冲后无缝回退调用一次非流式 stream: false
     args.onStreamReset?.();
     throwIfAborted(args.signal);
     return invoke(false);
@@ -626,7 +588,6 @@ async function invokeTranslationLlm(
     channel = {
       executeAttempt: (attempt) => runWithIndexTranslateRetry(attempt, retryOpts),
       nonStreamRetries: 0,
-      // 限流/网络/服务端错误或 412 风控拦截在重试后直接以清晰错误上抛，不再无延迟重复撞击
       shouldSkipStreamFallback: (err) =>
         isIndexTranslateRetryableError(err) || getHttpStatusFromError(err) === 412
     };
@@ -765,7 +726,6 @@ async function translateCcBatchWithRetry(args: {
         if (exec.signal?.aborted) {
           throw err;
         }
-        // 单补请求失败时保留首轮已对齐结果，不中断整批字幕
       }
     }
   }
@@ -827,13 +787,11 @@ async function translateBoundaryChunkWithRecovery(args: {
     onCueReady
   });
 
-  // 第 1 重 & 第 2 重：截断 JSON 抢救 + 连续无跳号前缀回填
   const salvagedPrimary = salvageTruncatedSubtitleJson(primaryRaw);
   let cues: BoundaryCue[] = salvagedPrimary
     ? mapBoundaryGroupsToCues(salvagedPrimary, chunkEvents, sourceLang)
     : [];
 
-  // 第 3 重（Tail Retry）：首轮部分覆盖时，对尾部未覆盖切片最多发起 1 次补算请求
   const coveredEnd = cues.length > 0 ? cues[cues.length - 1].endIndex : -1;
   if (coveredEnd >= 0 && coveredEnd < chunkEvents.length - 1) {
     throwIfAborted(exec.signal);
@@ -873,11 +831,9 @@ async function translateBoundaryChunkWithRecovery(args: {
       if (exec.signal?.aborted) {
         throw err;
       }
-      // Tail Retry 失败时进入第 4 重本地规则降级
     }
   }
 
-  // 第 4 重（一致性守卫与本地规则降级）
   const finalized = await finalizeAiCues(cues, chunkEvents, {
     sourceLang,
     fallbackToOriginal,
@@ -944,7 +900,6 @@ async function resolveTrackContextSetup(
         ? null
         : await readCachedL1VideoIndex();
 
-  // 仅在轨道级解析一次静态语境与整片摘要；时间窗置空以把逐分片 L1 章节匹配延迟到批循环内。
   const baseContext = await resolveRuntimeSubtitleContext({
     ...input,
     items: undefined,
@@ -1056,10 +1011,6 @@ async function runRollingTranslationBatches<TBatch extends SubtitleTimeItemHint>
   };
 }
 
-/**
- * 双通道字幕翻译主入口：
- * 返回协议模式 `mode`、重组后的主轨 `items` 与对齐的译文副轨 `translations`。
- */
 export async function translateSubtitleTrack(
   input: TranslateSubtitleItemsInput
 ): Promise<TranslateSubtitleTrackResult> {
@@ -1145,7 +1096,6 @@ export async function translateSubtitleTrack(
     });
   }
 
-  // 人工精校 CC 字幕：严格 ID 对齐批量 JSON 协议
   const batches = splitCcItemsIntoBatches(items, maxChunkChars);
   return runRollingTranslationBatches({
     mode: "cc-json",
@@ -1192,12 +1142,6 @@ function attachDualChannelMetadata(
   return arr as TranslatedSubtitleItemsArray;
 }
 
-/**
- * 兼容旧函数签名的字幕翻译核心入口：
- * 返回译文条目数组 `SubtitleBodyItem[]`（兼容现有副轨调用方），
- * 同时在返回值上挂载不可枚举属性 `items`（重组后的主轨）与 `translations`（对齐译文副轨），
- * 以便上层双语视图按需读取更新。
- */
 export async function translateSubtitleItems(
   input: TranslateSubtitleItemsInput
 ): Promise<TranslatedSubtitleItemsArray> {

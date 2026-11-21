@@ -1,12 +1,3 @@
-// extension/ai/subtitle-context.ts
-// 字幕翻译语境提取、简介清洗、概览摘要/L1 章节索引复用、跨块前情提要与按需术语过滤。
-//
-// 职责：
-// 1. 从已加载的视频元数据（VideoMeta / clipState）提取主标题、多 P 拼接标题、UP 主与清洗截断后的简介；
-// 2. 零额外 API 开销复用概览内存快照、整份概览缓存及长视频 L1 章节目录索引（含当前章节主旨与消歧实体）；
-// 3. 维护紧邻上一分块末尾最多 2 条只读双语前情对照；
-// 4. 委托 shared/subtitle-glossary 对用户自定义术语表做大小写不敏感匹配过滤，保证用户术语规则优先级高于参考实体。
-
 import { state } from "../core/state.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";
 import {
@@ -94,16 +85,10 @@ function normalizeSingleLine(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-/**
- * UTF-16 代理对安全截断，保证返回值长度不超过 maxChars。
- */
 export function truncateTextSafe(text: string, maxChars: number): string {
   return truncateWithEllipsis(text, maxChars);
 }
 
-/**
- * 组合视频主标题与分 P 标题：仅多 P 视频（或显式传入且未标记单 P 的分 P 标题）且与主标题不同时拼接。
- */
 export function formatMultiPartTitle(
   rawTitle: unknown,
   rawPartTitle?: unknown,
@@ -138,9 +123,6 @@ const DANGLING_LABEL_PREFIX =
   /^(?:项目|课程|视频|相关|参考|原文)?(?:源码|地址|链接|网址|资料|仓库|官网|传送门)\s*[:：]\s*$/i;
 const EMPTY_WRAPPER_PATTERN = /\(\s*\)|\[\s*\]|【\s*】|（\s*）/g;
 
-/**
- * 清洗视频简介中的 URL 与无关抽奖/引流文案，并安全截断至指定字符上限（默认 400）。
- */
 export function cleanVideoDescription(
   rawDescription: unknown,
   maxChars = SUBTITLE_CONTEXT_DESCRIPTION_MAX_CHARS
@@ -175,9 +157,6 @@ export function cleanVideoDescription(
   return truncateTextSafe(cleaned, maxChars);
 }
 
-/**
- * 从视频元数据 / clipState 中提取静态语境（零额外 API 调用）。
- */
 export function extractVideoStaticContext(
   input: VideoStaticContextInput | null | undefined
 ): VideoStaticContext {
@@ -200,9 +179,6 @@ export function extractVideoStaticContext(
   return { title, ownerName, description };
 }
 
-/**
- * 将「概览」产物（全文摘要 + 章节概要）压缩为适合注入翻译上下文的简本。
- */
 export function formatOverviewSummaryBrief(
   analysis: OverviewSummarySourceInput | null | undefined,
   maxChars = SUBTITLE_CONTEXT_SUMMARY_MAX_CHARS
@@ -266,18 +242,12 @@ async function readCachedStorageOverviewArtifacts(
   };
 }
 
-/**
- * 读取当前视频已缓存的长视频 L1 章节目录索引（经 `ai/l1-chapter-index.ts` 优先命中内存 LRU，未命中再读 local，零 LLM 请求）。
- */
 export async function readCachedL1VideoIndex(
   input: ReadCachedOverviewSummaryInput | null = state.clip
 ): Promise<L1VideoIndexCacheRecord | null> {
   return readCachedClipL1Index(input);
 }
 
-/**
- * 读取当前视频已生成的概览摘要缓存（优先内存快照，次选整份概览缓存，再次回落 L1 章节索引缓存），零额外 LLM 请求。
- */
 export async function readCachedOverviewSummary(
   input: ReadCachedOverviewSummaryInput | null | undefined
 ): Promise<string> {
@@ -295,7 +265,6 @@ export async function readCachedOverviewSummary(
   const bvid = String(input.bvid ?? "").trim();
   const cid = String(input.cid ?? "").trim();
 
-  // 内存快照：仅当身份与当前 clip 对齐时直接复用，避免跨片串用。
   if (
     (!bvid || bvid === state.clip.bvid) &&
     (!cid || cid === state.clip.cid)
@@ -314,9 +283,6 @@ export async function readCachedOverviewSummary(
   return formatL1IndexSummaryBrief(l1Index);
 }
 
-/**
- * 归一化前情对照条数（仅保留原文与译文均非空的最后 N 条）。
- */
 export function normalizePreviousLines(
   lines: readonly SubtitlePreviousLine[] | null | undefined,
   maxLines = SUBTITLE_CONTEXT_PREVIOUS_LINES_MAX
@@ -335,9 +301,6 @@ export function normalizePreviousLines(
   return valid.slice(-maxLines);
 }
 
-/**
- * 从已完成翻译的原文/译文条目中提取末尾最多 2 条双语对照。
- */
 export function extractPreviousBilingualLines(
   items: readonly SubtitleBodyItem[] | null | undefined,
   translations: readonly SubtitleBodyItem[] | null | undefined,
@@ -358,9 +321,6 @@ export function extractPreviousBilingualLines(
   return collected.reverse();
 }
 
-/**
- * 从按时间片累加的原文与译文集合中，按时间点提取紧邻当前分块之前末尾最多 2 条双语对照。
- */
 export function extractPreviousBilingualLinesBeforeTime(
   primaryItems: readonly SubtitleBodyItem[] | null | undefined,
   translatedItems: readonly SubtitleBodyItem[] | null | undefined,
@@ -524,7 +484,6 @@ function collectOverlappingL1Chapters(
   if (chapters.length === 0) {
     return [];
   }
-  // 右端点做微小内缩，避免紧邻分片边界（如 [0, 60) 的 60s 边界）误命中下一章
   const probeEnd = toSec > fromSec ? Math.max(fromSec, toSec - 0.001) : fromSec;
   const startCh = findL1ChapterForTime(chapters, fromSec);
   const endCh = findL1ChapterForTime(chapters, probeEnd);
@@ -539,11 +498,6 @@ function collectOverlappingL1Chapters(
   return chapters.slice(startPos, endPos + 1);
 }
 
-/**
- * 基于已缓存的 L1 章节目录索引与当前分块时间窗口，定位所属章节并提取：
- * 1) 简洁单行当前章节主旨（title + coreThesis）；
- * 2) 已消歧的关键实体词（排除用户显式术语表已覆盖的词条，保证用户规则绝对优先）。
- */
 export function resolveL1ChapterTranslateContext(
   input: ResolveL1ChapterContextInput | null | undefined
 ): L1ChapterTranslateContext {
@@ -590,9 +544,6 @@ export function resolveL1ChapterTranslateContext(
   };
 }
 
-/**
- * 将术语条目列表格式化为 Prompt 文本（支持指定译文与强制保留原词）。
- */
 export function formatGlossaryEntries(
   entries: readonly SubtitleGlossaryEntry[]
 ): string {
@@ -612,10 +563,6 @@ export function formatGlossaryEntries(
     .join("\n");
 }
 
-/**
- * 构造注入 System Prompt 的 `# Context` 与 `# Glossary` 段落。
- * 若传入 `options.chunkText`，则仅注入在该分块原文中命中的术语；未传时保留传入的全部术语条目。
- */
 export function buildSubtitleContextPromptBlock(
   context?: SubtitleTranslatePromptContext | null,
   options?: { chunkText?: string }
@@ -693,9 +640,6 @@ export function buildSubtitleContextPromptBlock(
   return `\n\n${sections.join("\n\n")}`;
 }
 
-/**
- * 基于全局上下文与当前分块原文构造单次分块请求使用的裁剪版上下文（按需过滤术语 + 注入跨块前情）。
- */
 export function buildChunkSubtitleContext(
   baseContext: SubtitleTranslatePromptContext | undefined,
   chunkText: string,
@@ -747,10 +691,6 @@ export interface ResolveRuntimeSubtitleContextInput extends SubtitleTranslatePro
   items?: ReadonlyArray<SubtitleTimeItemHint>;
 }
 
-/**
- * 解析当前视频字幕翻译上下文：
- * 显式传入字段优先；缺省字段自动从 state.clip、概览/L1 缓存与 state.settings.subtitleTranslateGlossary 补充。
- */
 export async function resolveRuntimeSubtitleContext(
   input: ResolveRuntimeSubtitleContextInput = {}
 ): Promise<SubtitleTranslatePromptContext | undefined> {

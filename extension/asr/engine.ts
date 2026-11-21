@@ -1,44 +1,11 @@
-// extension/asr/engine.ts
-// ASR 转写调度引擎：活队列 + 逐片重试 + 失败计数 + 中止探针。纯调度模块——
-// 不触 UI/DOM，不 import entry/pages/subtitle 与 adapters/，transcribe 由接线层
-// 注入（adapters/openai-transcriptions.js 的组装归 ②-2 的 offscreen 接线层）。
-//
-// 为 ②-2 准备：把转写搬进 offscreen document 与解码同 context，解码过程中
-// chunk 陆续产出（活队列 push 喂入），每片完成即经 onChunkResult 交付（接线层
-// 拿到就往 port 发 chunk-result，不等全部完成），页面只收转写文本。
-//
-// 调度模式与旧 pipeline.js runWithConcurrency（固定批次：全部解码完 → 一次性
-// 建 task 数组，该函数已随转写迁出页面而删除）的差异：push(chunk) 可在运行中
-// 持续喂入，解码与转写流水线重叠；并发上限取 shared/offscreen-constants.js 的
-// ASR_CONCURRENCY（offscreen 接线层 ASR_ADAPTERS 注入同一常量）；close() 是
-// 流结束标记——之后不再接受新 chunk，排队与在途片全部消化后 resolve 汇总。
-//
-// 单片语义（原 pipeline.js transcribeChunk，随调度引擎保留在此）：
-//   - retryAsync(task, 2, 500)：isRetryableNetworkError 或 error.retryable===true
-//     才重试，指数退避上限 5000ms（shared/error-helpers 实现）；
-//   - 进度：onProgress thunk 交给注入的 transcribe（接线层透传给适配器，适配器
-//     每次请求后调用），文案 `语音识别中 ${chunk.index + 1} 片…`，接线层经
-//     port 原样中继给页面；
-//   - 返回形状：{ ...result, durationSec: chunk.durationSec }——mergeChunkResults
-//     的单片输入契约（text / segments[{start,end,text}] / 可选 _asrDiag）；
-//   - pipeline 的 ensureActive() 后置守卫在 offscreen 侧由 isAborted() 轮询替代：
-//     置真后停止调度新片，已完成的片结果仍交付（成果不丢）。
-//
-// 失败口径（Q8a）：重试耗尽仍失败的片跳过并计数，不中止整条管线——与
-// mergeChunkResults 对 Error 结果静默跳过的口径一致；close() 汇总
-// completedChunks / failedChunks / failures。
-
 import { getErrorMessage, isRetryableNetworkError, retryAsync } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { ASR_MAX_PENDING_CHUNKS } from "./protocol.js";
 
-// 每片重试参数：与原 pipeline.js transcribeChunk 的 retryAsync(task, 2, 500) 一致
 export const DEFAULT_RETRIES = 2;
 export const DEFAULT_RETRY_DELAY_MS = 500;
 
-// 适配器单片转写结果的合并输入契约（text / segments[{start,end,text}] /
-// 可选 _asrDiag）；segments 缺省表示该平台无句级时间戳
 export interface AsrTranscribeSegment {
   start: number;
   end: number;
@@ -58,9 +25,6 @@ export interface AsrTranscribeResult {
   _asrDiag?: unknown;
 }
 
-// 调度引擎消费的单片形状：index/durationSec 由引擎与合并逻辑使用；
-// startSec/overlapLeadSec/wavBlob 是透传字段（引擎自身不消费，随对象原样交给注入的
-// transcribe）——与 chunker.WavChunk 结构同构，切片产出可直接 push。
 export interface TranscribeChunk {
   index: number;
   startSec: number;
@@ -69,8 +33,6 @@ export interface TranscribeChunk {
   wavBlob: Blob;
 }
 
-// 注入的逐片转写函数：(chunk, { onProgress }) => Promise<result>（multipart/
-// adapter 组装在接线层）。onProgress thunk 由引擎组装（文案自带 chunk.index）。
 export type TranscribeFn = (
   chunk: TranscribeChunk,
   ctx: { onProgress: (text: string) => void }
@@ -90,48 +52,31 @@ export interface TranscriptionEngineOptions {
   onChunkResult?: (chunk: TranscribeChunk, result: AsrTranscribeResult & { durationSec: number }) => void;
   onProgress?: (text: string) => void;
   concurrency?: number;
-  // 活队列（已接受未启动）的最大深度：排队片每片 WAV 常驻内存，深度上限即
-  // 内存上限（asr/protocol.js ASR_MAX_PENDING_CHUNKS）。超限 push 返回 false
-  // （不接受、不计数），消费方负责停止新增工作并报可读错误；<=0 表示不设上限。
   maxPendingChunks?: number;
   retries?: number;
   retryDelayMs?: number;
 }
 
-// 单片失败明细（诊断用）
 export interface TranscriptionEngineFailure {
   chunk: TranscribeChunk;
   error: unknown;
 }
 
-// close() 的结算汇总：accepted = completed + failed + droppedByAbort
 export interface TranscriptionEngineSummary {
   acceptedChunks: number;
   completedChunks: number;
   failedChunks: number;
   droppedByAbort: number;
   failures: TranscriptionEngineFailure[];
-  // 代表失败：优先首个**不可重试**的确定性失败（isRetryableNetworkError 的
-  // 否定），没有才取首个失败，无失败为 null。failures[] 仍是原样的追加序列、
-  // 计数语义不变——本字段只解决「要带哪一个失败过界」：只看 failures[0] 会让
-  // 排在前面的网络抖动（可重试、重试耗尽）淹没真正的 401。
   representativeFailure: TranscriptionEngineFailure | null;
   aborted: boolean;
 }
 
 export interface TranscriptionEngine {
-  // 活队列喂入：并发未满立即启动，否则排队；返回 false 表示拒绝
-  // （close() 已调用、isAborted() 已置真——断连后无需再喂，或排队深度已达
-  // maxPendingChunks 上限——消费方应停止新增工作并报可读错误）。
   push(chunk: TranscribeChunk): boolean;
-  // 流结束标记：此后 push 一律拒绝；未中止时排队片与在途片继续消化，全部
-  // 结束后 resolve 同一个 summary（重复 close 返回同一 promise）。
   close(): Promise<TranscriptionEngineSummary>;
 }
 
-// 逐片转写（含重试）。transcribe 为注入的转写函数：(chunk, { onProgress }) =>
-// Promise<result>（result: { text, segments?, _asrDiag? }，multipart/adapter
-// 组装在接线层）。重试耗尽仍失败 → 上抛（调度层捕获计数，不中止管线）。
 export async function transcribeChunk({
   chunk,
   transcribe,
@@ -150,29 +95,6 @@ export async function transcribeChunk({
   return { ...result, durationSec: chunk.durationSec };
 }
 
-// createTranscriptionEngine({ transcribe, isAborted, onChunkResult, onProgress,
-//   concurrency, retries, retryDelayMs }) → { push, close }
-//
-//   push(chunk) → boolean
-//     活队列喂入：并发未满立即启动，否则排队；返回 false 表示拒绝
-//     （close() 已调用、isAborted() 已置真，或排队深度已达 maxPendingChunks
-//     上限——消费方停止新增工作并报可读错误，工单 04）。
-//   close() → Promise<summary>
-//     流结束标记：此后 push 一律拒绝；未中止时排队片与在途片继续消化，全部
-//     结束后 resolve 同一个 summary（重复 close 返回同一 promise）：
-//     {
-//       acceptedChunks,  // push 实际接受的片数
-//       completedChunks, // 转写成功片数（含重试后成功）
-//       failedChunks,    // 重试耗尽仍失败、跳过计数的片数（Q8a）
-//       droppedByAbort,  // 中止后未启动即丢弃的排队片数
-//       failures,        // [{ chunk, error }] 失败片明细（诊断用）
-//       representativeFailure, // 代表失败：首个不可重试失败，否则首个失败，无则 null
-//       aborted          // 结算时 isAborted() 的取值
-//     }
-//   isAborted() 须单调：一旦置真不再回退（offscreen 的 aborted 标志语义，
-//   port.onDisconnect 置位后取消）。**引擎不自己决定中止**：isAborted 是只读
-//   注入，置位责任在接线层（entry/offscreen-asr.js 的 transcribe 闭包——首个
-//   不可重试失败即置位，票 05），引擎只消费它（push 拒绝 + 排队片丢弃清点）。
 export function createTranscriptionEngine({
   transcribe,
   isAborted,
@@ -188,7 +110,6 @@ export function createTranscriptionEngine({
   }
   const aborted: () => boolean = typeof isAborted === "function" ? isAborted : () => false;
   const limit = Number(concurrency) > 0 ? Math.floor(Number(concurrency)) : ASR_CONCURRENCY;
-  // 排队深度上限（<=0 不设上限）：push 时检查 queue.length，超限拒绝
   const maxPending = Number(maxPendingChunks) > 0 ? Math.floor(Number(maxPendingChunks)) : Infinity;
 
   const queue: TranscribeChunk[] = [];
@@ -214,9 +135,6 @@ export function createTranscriptionEngine({
     };
   }
 
-  // 代表失败选择（票 03 Q3）：首个不可重试的确定性失败优先，没有才退到首个
-  // 失败。判据复用 shared/error-helpers 的 isRetryableNetworkError——与重试层、
-  // 与票 05 的「确定性失败即中止」同一口径，全仓不许出现第二套可重试性判定。
   function pickRepresentativeFailure(): TranscriptionEngineFailure | null {
     if (failures.length === 0) {
       return null;
@@ -224,9 +142,6 @@ export function createTranscriptionEngine({
     return failures.find((failure) => !isRetryableNetworkError(failure.error)) || failures[0];
   }
 
-  // 调度循环：并发有空位且队列非空就启动下一片；已中止则剩余排队片全部
-  // 丢弃并清点（acceptedChunks 不回退——close 汇总经 droppedByAbort 如实
-  // 报告差额：accepted = completed + failed + droppedByAbort）。
   function drain(): void {
     while (inFlight < limit && queue.length > 0) {
       if (aborted()) {
@@ -240,7 +155,6 @@ export function createTranscriptionEngine({
     }
   }
 
-  // close 已调用且无在途 → 结算（closeResolve 置空防重复 resolve）。
   function settleIfDone(): void {
     if (!closeResolve || inFlight > 0) {
       return;
@@ -257,7 +171,6 @@ export function createTranscriptionEngine({
       onProgress?.(`语音识别已完成 ${completedChunks} 片…`);
       deliver(chunk, result);
     } catch (error) {
-      // 重试耗尽仍失败：跳过并计数，不中止整条管线（Q8a 口径）
       failedChunks += 1;
       failures.push({ chunk, error });
       logWarn("[BILISCRIPT] asr chunk transcription failed, skipping", {
@@ -271,8 +184,6 @@ export function createTranscriptionEngine({
     }
   }
 
-  // 逐片交付：成功即回调。回调异常（如 port 已断开时 postMessage 抛错）
-  // 不影响调度与计数——片本身已转写成功。
   function deliver(chunk: TranscribeChunk, result: AsrTranscribeResult & { durationSec: number }): void {
     if (typeof onChunkResult !== "function") {
       return;
@@ -280,7 +191,6 @@ export function createTranscriptionEngine({
     try {
       onChunkResult(chunk, result);
     } catch {
-      // 交付失败不影响调度
     }
   }
 
@@ -288,8 +198,6 @@ export function createTranscriptionEngine({
     if (closed || aborted()) {
       return false;
     }
-    // 待处理分片上限：排队深度到顶即拒绝（不接受、不计数、不排队）——
-    // 返回 false 由消费方停止新增工作并报可读错误（工单 04）。
     if (queue.length >= maxPending) {
       return false;
     }

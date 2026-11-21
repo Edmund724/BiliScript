@@ -1,24 +1,3 @@
-// ai/completion.ts — AI chat 单一 fetch 点的 core 骨架（multi-protocol-ai 缝，
-// spec 契约章）：对外签名、重试循环（流式 2 / 非流式 0）、中止收束、
-// isContextLengthOverflow 判定、探针语义（成功 = response.ok 不读体）、读流
-// 中断重试 + stream-reset 代际信号，全部留在这里不动。
-// 随协议变化的事（endpoint / authHeaders / buildBody / extractErrorDetail /
-// drainStream / parseResponse）委托 ProtocolAdapter（protocol-adapter.ts 注册表，
-// resolveAdapter 单点解析，缺字段/未知值兜底 openai——存量记录零变化）；
-// 思考线格式（本协议的思考字段 + 输出上限参数名）由本点调一次思考装配边
-//（planThinkingWire）装配、随 ChatRequest 注入，adapter 只把产出并入请求体。
-// 编排层（client 流式 / map-reduce 非流式 / tool-loop）面对统一 ChatMessage[] 与
-// StreamChatEvent，零改动。OpenAI 兼容行为整体迁入 adapters/openai.ts。
-// 纯协议层约束：不 import port/DOM/offscreen 任何东西——流式增量经 onEvent
-// 回调吐出，port 回吐留在调用方适配器；完成值与错误走返回/throw。
-//
-// 错误模型（house style 类型化标记，唯一写点在本文件）：
-// - context-length 溢出 → makeOverflowError（err.overflow = true，不重试）
-// - 中止 → makeAbortedError（err.aborted = true，不重试）
-// - 网络/HTTP 失败 → err.status（HTTP 状态）/ err.cause（原始抛出物）
-//   结构化字段，err.retryable 与 isRetryableNetworkError 语义一致；
-//   重试触发条件与旧 client 现状一致：fetch 抛错与非溢出 !response.ok
-//   （及流式读流中断）都重试，与状态码无关。
 import { makeAbortedError, isRetryableNetworkError, isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { clampToLearnedMaxTokens, noteLearnedMaxTokens } from "./learned-budget.js";
 import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
@@ -34,32 +13,19 @@ import { presetRequestHeaders } from "./preset-headers.js";
 import { noteUsageSample } from "./usage-stats.js";
 import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent } from "./types.js";
-// 未归一的档位外部值的声明面（词表叶；本层只透传进思考装配边，不判不归）。
-// 纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
-// 传输能力契约（纯类型引入：能力叶零运行时依赖，见 core/provider-http-shared.ts）。
 import type { ProviderTransport } from "../core/provider-http-shared.js";
 
 interface OverflowError extends Error {
   overflow: true;
 }
 
-/**
- * 溢出错误工厂：err.overflow = true 的唯一写点。
- * message 沿用触发场景的原始文案（HTTP 详情 / 预算回落提示），供日志排查；
- * 消费方按 err.overflow 标记分流（ladder 转 Map-Reduce 或报错），不读 message。
- */
 export function makeOverflowError(message = "上下文超出模型限制"): OverflowError {
   const error = new Error(message) as OverflowError;
   error.overflow = true;
   return error;
 }
 
-/**
- * 判定一段错误文案是否属于 context-length 溢出（纯函数，判据族收口于 error-text-norms.ts）。
- * 粗判：命中常见溢出子串，或「长度/上下文/令牌」语义 + 「超限」语义同时出现。
- * 非溢出错误（401/404/500/网络错误/限流等）返回 false，仍走既有重试/报错路径。
- */
 export function isContextLengthOverflow(detailOrError: unknown): boolean {
   const text = normalizeErrorText(detailOrError);
   if (!text) return false;
@@ -76,8 +42,6 @@ interface HttpError extends Error {
   retryable: boolean;
 }
 
-// HTTP 非 2xx 错误：文案与 formatProbeHttpError 同型（detail 截前 200 字符），
-// 附 status 结构化字段与 retryable 语义（408/429/≥500 可重试）。
 function makeHttpError(status: number, detail: string): HttpError {
   const error = new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`) as HttpError;
   error.status = status;
@@ -90,8 +54,6 @@ interface NetworkError extends Error {
   retryable: boolean;
 }
 
-// 网络层（fetch 抛错）错误：文案对齐旧实现的「网络错误：」前缀；
-// 原始抛出物挂 cause（探针适配层据此拼「无法连接：…」），retryable 语义同上。
 function makeNetworkError(cause: unknown): NetworkError {
   const causeLike = cause as { message?: unknown } | undefined;
   const error = new Error(`网络错误：${causeLike?.message || cause}`) as NetworkError;
@@ -100,8 +62,6 @@ function makeNetworkError(cause: unknown): NetworkError {
   return error;
 }
 
-// 重试默认策略：流式 2 次（保持旧 client MAX_STREAM_RETRIES=2 现状）；
-// 非流式/探针 0（map-reduce 与探针现状无重试；是否给归并链路开重试是后续独立决定）。
 function defaultRetries(stream: boolean): number {
   return stream ? 2 : 0;
 }
@@ -120,21 +80,11 @@ interface ChatCompletionToolResult {
   toolCalls: ChatToolCall[];
 }
 
-// 导出（arch-review-2026-09 候选 2 第一步）：协作形状单源——编排层注入缝
-// （analysis-orchestrate / map-reduce）与测试 fake 一律引用本类型，不再手抄。
 export interface ChatCompletionInput {
-  // provider 记录形状：presetId 是 preset 词表键（core/ai-provider-store 归一化
-  // 缺省 "custom"），思考参数查表的平台识别主路径——02 号票穿线，未命中（custom/
-  // 旧记录）回落 baseUrl host 推断。protocol 是平台协议字段（multi-protocol-ai），
-  // 缺省/未知值经 resolveAdapter 兜底 openai，存量记录零变化。
-  // sessionId 是本轮所属会话的稳定标识（宿主填 chat 会话 id），只喂
-  // preset-headers 的平台会话头；无会话的调用（探针/解释）不填。
   provider: ProviderRequest;
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传进思考装配边 planThinkingWire；归一施加点在解析入口，
-  // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
   thinkingLevel?: ThinkingLevelInput;
   retries?: number;
   probe?: boolean;
@@ -142,70 +92,15 @@ export interface ChatCompletionInput {
   temperature?: number;
   extraBody?: Record<string, unknown>;
   headers?: Record<string, string>;
-  // 联网搜索管线（spec §2.1）：传入即注入 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: RetryPayload) => void;
   onStreamReset?: () => void;
-  // 流式成功后、返回值收束前回报本次映射后的 finishReason（"length" = 输出被
-  // max_tokens 截断）。返回形状被向后兼容用例锁死为 { done: true }（无 tool_calls
-  // 时），截断感知因此走这条回调，而不是改返回形状。
   onFinishReason?: (reason: string | null) => void;
   retryDelayMs?: number;
-  // 传输注入点：缺省全局 fetch。代发通道自报 supportsStreaming（见
-  // core/provider-http-shared.ts 的 ProviderTransport），stream 与本能力冲突时
-  // 在发请求前失败。
   fetchImpl?: ProviderTransport;
 }
 
-/**
- * chat 单一入口（流式与非流式合一，probe 为探针特化）。
- * 参数：
- * - provider: { baseUrl, apiKey, model, presetId?, protocol?, sessionId? }；baseUrl 去尾斜杠。
- *   protocol 经 resolveAdapter 解析为 ProtocolAdapter：端点 / 鉴权头 / 请求体
- *   （协议特化结构、tools 透传）随 adapter 组装；缺省/未知值兜底 openai（存量行为
- *   零变化）。思考线格式（思考字段 + 输出上限参数名）由本点调思考装配边
- *   planThinkingWire 一次装配、随 ChatRequest 注入 adapter。sessionId 只经
- *   preset-headers 变成平台会话头。
- * - messages: OpenAI 消息数组（编排层词表，adapter 内翻译；组装留在调用方）。
- * - stream: 流式增量经 onEvent 吐出，成功返回 { done: true }；
- *   非流式成功返回聚合 content（非字符串回落空串，adapter.parseResponse 兜底）。
- *   解析出 tool_calls（联网搜索管线，spec §2.1）时改返回
- *   { done: true, finishReason, assistantContent, toolCalls }——流式与非流式都由
- *   adapter 聚合返回；无 tools 调用方返回值形状不变。
- * - probe: 探针模式——body 强制 token 上限参数（默认 1），成功判定 = response.ok
- *   且不读响应体（某些兼容网关在 max_tokens:1 下返回非 JSON 体，不视为失败）。
- * - retries: 重试次数，默认流式 2 / 非流式 0；退避线性 retryDelayMs × attempt。
- *   溢出/中止不重试；重试前的用户可见提示经 onRetry({ attempt, maxRetries, kind, error })，
- *   kind: "fetch"（网络抛错）| "http"（非溢出 !response.ok）| "stream"（读流中断）。
- * - onStreamReset: 流式专用——读流中断（kind=stream）重试时，在新流任何事件吐出
- *   前调用一次。重试从头生成、已吐事件无法撤回且新流不保证前缀一致，渲染层
- *   收到该信号应清空本条消息的流式缓冲整体重放（避免两代流拼接成重复文本）。
- *   fetch/http 阶段的失败未吐过任何事件，不触发。
- * - onFinishReason: 流式成功收束前调用一次，回报映射后的 finishReason——"length"
- *   即输出被 max_tokens 截断（Anthropic 的 stop_reason=max_tokens 与 OpenAI 的
- *   finish_reason=length 都归到这个值），调用方据此提示「回答没答完」。只回报，
- *   不改返回形状，也不重试。
- * - headers: 额外请求头（探针的 Accept 等）；Content-Type 固定 JSON，
- *   同键不覆盖调用方注入（Authorization 由 adapter.authHeaders 提供、平台预设头
- *   由 preset-headers 提供，两者都可被 extraHeaders 覆盖）——对齐旧「已存在时
- *   不重复注入」语义。
- * - thinkingLevel / maxTokens / signal / fetchImpl（默认 globalThis.fetch）；
- *   思考线格式由本点的装配边调用按平台×模型查表产出（thinking-profiles +
- *   线格式映射表），adapter 只并入，不再自持查表。
- *   maxTokens 缺省时取 adapter.defaultMaxTokens（输出上限必填的协议，
- *   ai/output-budget.ts 单源）；若平台按「超出上限」拒收（Anthropic 比较式 /
- *   「valid range」等），core 自动退回 CONSERVATIVE_MAX_TOKENS 重发一次，不消耗
- *   重试次数也不报 onRetry——见 output-budget.ts 的取舍说明。
- * 错误模型见文件头注释；HTTP 错误 detail 经 adapter.extractErrorDetail 提取、
- * core 统一加 `[协议名] ` 前缀并截前 200 字符（spec：错误归一化，调用层零改动）。
- */
-/**
- * 请求构造校验单点（arch-slim-3/09）：baseUrl 归一（去空白/去尾斜杠）+ 基础
- * 字段校验的唯一实现，同两条错误文案（"baseUrl 未配置"/"模型未配置"）单点
- * 维护。chatCompletion 直接消费返回值；client 的 port 适配层 catch 后转
- * port 回吐。
- */
 export function validateProviderBasics(
   provider?: { baseUrl?: unknown; model?: unknown } | null
 ): { baseUrl: string; model: string } {
@@ -242,20 +137,12 @@ export async function chatCompletion({
 }: ChatCompletionInput): Promise<string | { done: true } | ChatCompletionToolResult> {
   const { baseUrl, model } = validateProviderBasics(provider);
 
-  // 传输能力守卫：SW 代发自报 supportsStreaming=false（一次性回文本），流式
-  // 调用方拿到的是「收全才到达」的假流；未声明能力（缺省 fetch / 测试替身）
-  // 视为未知，不据此拒绝。
   if (stream && fetchImpl.supportsStreaming === false) {
     throw new Error("当前传输通道不支持流式响应");
   }
 
-  // 协议解析单点（multi-protocol-ai）：存量记录缺 protocol 字段 / 未知值 →
-  // openai adapter，行为零变化。
   const adapter = resolveAdapter(provider.protocol);
 
-  // 思考线格式装配（思考装配边 planThinkingWire 的唯一调用点）：protocol 取
-  // resolveAdapter 的解析结论，与请求同一来源；档位外部值原样交给装配边
-  //（归一施加点在解析层），产出随 ChatRequest 注入，adapter 只并入请求体。
   const thinkingWire = planThinkingWire({
     protocol: adapter.protocol,
     model,
@@ -268,10 +155,6 @@ export async function chatCompletion({
 
   const maxRetries = retries ?? defaultRetries(stream);
 
-  // 鉴权头形状由 adapter.authHeaders 全权负责（各协议不同：Bearer / x-api-key
-  // 等）；平台预设额外要求的头（preset-headers 单点，如 Opencode Go 的
-  // x-opencode-session）随后合并；extraHeaders 同键优先（对齐旧「Authorization
-  // 已存在时不重复注入」），Content-Type 固定 JSON。
   const headers: Record<string, string> = {
     ...adapter.authHeaders(provider.apiKey),
     ...presetRequestHeaders(provider),
@@ -279,19 +162,12 @@ export async function chatCompletion({
     "Content-Type": "application/json"
   };
 
-  // 本轮生效的输出上限：调用方显式值优先；未指定时取 adapter 声明的兜底
-  // （输出上限必填的协议才有，如 anthropic 的 max_tokens；openai 系为 null =
-  // 不发字段、由平台默认决定）。再夹一层「会话学到的平台上限」（learned-budget.ts）
-  // ——平台拒过大预算时，后续请求直接用已验证可用的值，不再各撞一次 400。
-  // adapter 内对必填参数仍留一层同源兜底；这里显式解析是为了让退避路径知道
-  // 发出的是多少。
   const budgetScope = { baseUrl, model };
   let effectiveMaxTokens = clampToLearnedMaxTokens(
     probe ? (maxTokens ?? 1) : (maxTokens ?? adapter.defaultMaxTokens ?? null),
     budgetScope
   );
 
-  // 请求体按当前生效上限组装；退回保守值后要整份重装，故抽成函数。
   const buildBody = (): Record<string, unknown> => {
     const built = adapter.buildBody({
       model,
@@ -311,13 +187,6 @@ export async function chatCompletion({
   };
   let body = buildBody();
 
-  // 响应 usage 采样点（ai-usage-telemetry T2）：流式与非流式两条成功返回路径共用
-  // 这一处，不各写一份。分子口径 = 本次请求 messages[].content 的字符合计（含
-  // system/instructions），刻意不用整份 JSON body 长度——JSON 语法与 tools 定义会
-  // 污染比值。分子含 prompt 开销（system 指令、分段前情等都由 messages 承载），故
-  // 由此换出的 token 数倾向偏高，属保守方向。作用域键与 learned-budget 同源：就是
-  // 上面那一个 budgetScope（(baseUrl, model)），不在此另拼一份。usage 缺失即不记
-  // 样本；采样纯内存、不上浮给调用方（无新增对外 API）。
   const noteResponseUsage = (usage: ChatUsage | undefined): void => {
     if (!usage) {
       return;
@@ -332,18 +201,11 @@ export async function chatCompletion({
     });
   };
 
-  // 错误 detail 归一（协议 error envelope 解析进 adapter，如 OpenAI 的
-  // error.message；core 统一加 `[协议名] ` 前缀并截前 200 字符，spec：归一化到
-  // 现有错误形状、调用层零改动）：HTTP 失败路径的判定与抛错文案共用一份。
   const errorDetail = (bodyText: string): string => {
     const extracted = adapter.extractErrorDetail(bodyText);
     return extracted ? `[${adapter.protocol}] ${extracted}`.slice(0, 200) : "";
   };
 
-  // 单次发送（含「输出上限被平台拒收 → 退回保守值重发一次」的自动降级）：网络层
-  // 抛错原样上抛给外层重试分支，非 2xx 的响应体读一次随结果带回（外层判定还要用）。
-  // 退回不是失败重试——不消耗外层重试次数、不报 onRetry（对用户无感）；sentBudget
-  // 落到保守值后不再退，故至多重发一次。
   const sendOnce = async (): Promise<{ response: Response; bodyText: string }> => {
     let sentBudget = effectiveMaxTokens;
     let retreatedTo: number | null = null;
@@ -355,8 +217,6 @@ export async function chatCompletion({
         signal
       });
       if (response.ok) {
-        // 「退回保守值之后仍然成功」= 平台上限的确切证据，记进会话内存：同平台
-        // 后续请求直接按它发，不再各撞一次 400（learning 纪律见 learned-budget.ts）。
         if (retreatedTo != null) {
           noteLearnedMaxTokens(budgetScope, retreatedTo);
         }
@@ -377,13 +237,10 @@ export async function chatCompletion({
     }
   };
 
-  // 上一次失败（kind + 错误）：attempt > 0 时经 onRetry 上报后再退避重试。
   let lastFailure: { kind: "fetch" | "http" | "stream"; error: Error } | null = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (lastFailure) {
       onRetry?.({ attempt, maxRetries, kind: lastFailure.kind, error: lastFailure.error });
-      // 读流中断后的重试流从头生成：在新流任何事件吐出前发代际重置信号，
-      // 渲染层据此清空缓冲整体重放（fetch/http 失败未吐过事件，无需重置）。
       if (stream && lastFailure.kind === "stream") {
         onStreamReset?.();
       }
@@ -396,7 +253,6 @@ export async function chatCompletion({
     try {
       ({ response, bodyText } = await sendOnce());
     } catch (e) {
-      // 中止（真实 signal 中止 / 注入实现抛出的中止标记 / AbortError）统一收束。
       if (signal?.aborted || isAbortedMarkerError(e) || isAbortNamedError(e)) {
         throw makeAbortedError();
       }
@@ -410,11 +266,7 @@ export async function chatCompletion({
 
     if (!response.ok) {
       const detail = errorDetail(bodyText);
-      // 输出上限给大了（平台硬拒；sendOnce 里已试过退回保守值，走到这里=无可退）：
-      // 按普通 HTTP 错误抛出，不冒充上下文溢出——「上下文过长」提示与 Map-Reduce
-      // 分流都指错方向。
       if (!isOutputBudgetTooLarge(detail) && isContextLengthOverflow(detail)) {
-        // context-length 溢出：不重试，带 overflow 标记抛出供调用方分流。
         throw makeOverflowError(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
       }
       const error = makeHttpError(response.status, detail);
@@ -425,7 +277,6 @@ export async function chatCompletion({
       continue;
     }
 
-    // 探针成功判定 = response.ok，不读响应体（对齐旧 probeAiChatCompletion）。
     if (probe) {
       return "";
     }
@@ -445,7 +296,6 @@ export async function chatCompletion({
         lastFailure = { kind: "stream", error };
         continue;
       }
-      // 截断感知出口（返回形状不变）：reason="length" 即 max_tokens 命中。
       onFinishReason?.(streamResult.finishReason);
       noteResponseUsage(streamResult.usage);
       if (streamResult.toolCalls.length) {
@@ -469,7 +319,6 @@ export async function chatCompletion({
     const parsed = adapter.parseResponse(json);
     noteResponseUsage(parsed.usage);
     if (parsed.toolCalls.length) {
-      // 非流式 tool_calls（后续解释链接入用）：adapter 已宽容归一为 ChatToolCall[]。
       return {
         done: true,
         finishReason: parsed.finishReason,
@@ -480,6 +329,5 @@ export async function chatCompletion({
     }
     return parsed.content;
   }
-  // 循环内最后一次失败必 throw，此处不可达；防御性兜底满足控制流分析。
   throw lastFailure?.error || new Error("chatCompletion 未能完成");
 }

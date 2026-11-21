@@ -1,68 +1,37 @@
-// ai/protocol-adapter.ts — 平台协议的开放注册表（multi-protocol-ai，spec 契约章）。
-// ProtocolAdapter 层收敛在 completion.ts 唯一 fetch 点一侧：编排层（阶梯/归并/
-// 工具循环）面对统一 ChatMessage[] 入参与 StreamChatEvent 出参，零改动。
-// 每个 adapter 只负责七件随协议变化的事：endpoint / authHeaders / buildBody /
-// extractErrorDetail / drainStream / parseResponse / listModels；重试循环、中止收束、
-// 溢出判定、探针语义留在 core（completion.ts）不动。
-// 注册表开放：加第四种协议（Gemini 等）= 实现一个 ProtocolAdapter + 登记一行，
-// core 零改动。
 import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
-// 思考线格式产出的声明面（线格式映射表的出参类型；表本身是零运行时 import 的纯叶，
-// 本引入是纯类型：无运行时依赖边，SW 静态图安全）。
 import type { ThinkingWireOutput } from "./thinking-wire-map.js";
 
-// 词表叶 re-export：类型消费者沿用本模块路径，不感知拆分。分发表键以
-// Record<AiProtocol, ...> 注解强制覆盖词表叶（单源，禁止第二份词表）。
 export type { AiProtocol } from "./protocol-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 
-// 平台怪癖词表（compat-vocab 票）：怪癖键的语义与适用协议以词表单源为准，
-// adapter 只在 consumes 里自陈"我接纳哪些键"，对账在测试期（词表叶零依赖，
-// 不拖入 adapters/分发表）。
 export type { CompatQuirk } from "./compat-vocab.js";
 import type { CompatQuirk } from "./compat-vocab.js";
 
-// tools 定义沿用 OpenAI 风格形状（编排层词表，adapter 内翻译为协议线格式）。
 export interface ChatToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
-// 能力声明：被有意不支持/压平的能力用稳定键显式列出（spec「被有意不支持的
-// 能力」逐条落入 unsupported）。UI 与 tool-loop 只读结构化字段，不解析说明文案。
 export interface ProtocolCapabilities {
-  /** tool-loop（联网搜索）是否可用；false 时 tool-loop 摘除 tools 重发（现状兜底） */
   tools: boolean;
-  /** 思考档位查表（thinking-profiles）是否可用 */
   thinkingProfiles: boolean;
-  /** 被有意不支持的能力：稳定键 → 给人读的说明 */
   unsupported: Record<string, string>;
 }
 
-// core 组装好的、与协议无关的调用意图。
 export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   stream: boolean;
-  // 思考线格式产出（思考装配边 ai/plan-thinking.ts 的出参）：由唯一 fetch 点
-  //（completion.ts，resolveAdapter 之后）一次装配、随本请求注入。adapter 只取
-  // fields 并入请求体、按 tokenParam 写输出上限字段——装配（档位事实查表 →
-  // 行入参 → 线格式映射表）不在 adapter 层。
   thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
   tools?: ChatToolDefinition[];
 }
 
-// drainStream/parseResponse 的聚合产物：与旧 DrainSseStreamResult 同型，
-// 调用方（client 流式 / map-reduce 非流式 / tool-loop）消费形状不变。
 export interface DrainResult {
   content: string;
   toolCalls: ChatToolCall[];
   finishReason: string | null;
-  // 响应 usage（ai-usage-telemetry T1，可选）：各 adapter 按自身协议形状解析归一，
-  // 平台未给/形状不符即缺省——缺省即今天的行为，判定路径零变化。
   usage?: ChatUsage;
-  /** Gemini thinking 签名（thoughtSignature）：原样保留供后续回放 */
   thoughtSignature?: string;
 }
 
@@ -71,21 +40,12 @@ export interface DrainContext {
   onEvent?: (event: StreamChatEvent) => void;
 }
 
-// ===== 模型列表拉取（models.list 协议知识归 adapter） =====
-
-// content 壳（ai/provider-models.ts）交给 adapter 的调用意图：baseUrl 为表单原始值，
-// 归一化（去尾斜杠 / 削版本段）随各 adapter 的端点规则在 adapter 内做；apiKey 已由
-// 壳完成回落解析（表单重输优先、按 providerId 代查已存 Key）。
 export interface ListModelsInput {
   baseUrl: string;
   apiKey?: string;
-  /** 传输注入点：缺省全局 fetch；content 壳注入 SW 代发（core/provider-http.ts），
-   * 单请求 15s 超时由代发通道承担，adapter 不自持定时器。 */
   fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
-// 返回契约与设置弹窗「获取可用模型」消费面逐字段一致：HTTP 错误在 adapter 内
-// 格式化为 error 文案；网络 / 解析抛错上抛，由壳塑形（「无法解析模型列表」等）。
 export interface ListModelsResult {
   ok: boolean;
   models?: string[];
@@ -95,62 +55,25 @@ export interface ListModelsResult {
 export interface ProtocolAdapter {
   readonly protocol: AiProtocol;
 
-  /**
-   * 调用方未指定输出上限时本协议会实际发出的值（输出上限参数必填的协议才声明，
-   * 如 anthropic 的 max_tokens；可选参数协议不声明 = 不发字段、由平台默认决定）。
-   * 取值单源在 ai/output-budget.ts：core 以它为「本轮生效上限」，平台按超上限
-   * 拒绝时据此退回保守值重发（completion.ts 的唯一 fetch 点）。
-   */
   readonly defaultMaxTokens?: number;
 
   readonly capabilities: ProtocolCapabilities;
-  /**
-   * 本 adapter 接纳的平台怪癖（compat-vocab 词表的稳定键，语义与适用协议
-   * 以词表单源为准）。声明侧是词表、接纳侧是这里，测试期由
-   * `validateCompatVocab` 对账——声明了没人接纳 / 接纳了没声明都报错。
-   * 这是纯自陈，不参与请求构造（行为零变化）。
-   *
-   * 「接纳」= 本协议线格式栈对该怪癖负责，兑现形态有三种：① adapter 内
-   * 实现（如 authHeaderScheme 在 authHeaders）；② 卫星模块实现、adapter
-   * 挂名负责（如 sessionHeader 由 preset-headers 按词表派生；
-   * thinkingFormat / probeOmitsThinking /
-   * thinkingDisabledMustBeExplicit /
-   * effortVocabMessages 由 thinking-wire-map 的线格式映射兑现）；③ 显式登记的
-   * 有意缺口（如 thinkingSignatureNotReplayed 刻意不回传，同时落
-   * capabilities.unsupported）。
-   */
   readonly consumes: readonly CompatQuirk[];
 
-  /** 端点路径（baseUrl 已去尾斜杠；代理平台路径以官方文档为准） */
   endpoint(baseUrl: string, options?: { model?: string; stream?: boolean }): string;
 
-  /** 鉴权头全集；core 与 extraHeaders 合并时同键不覆盖调用方注入 */
   authHeaders(apiKey: string | undefined): Record<string, string>;
 
-  /** 请求体组装：并入 core 装配注入的思考线格式产出（thinkingWire 的 fields +
-   *  tokenParam 分流），以及协议特化结构（system 剥出 / tool 翻译 / store 等）。
-   *  probe 特化（maxTokens=1）由 core 代劳。 */
   buildBody(request: ChatRequest): Record<string, unknown>;
 
-  /** HTTP 错误体 → detail 文案（core 统一加 `[协议名] ` 前缀与 200 字符截断） */
   extractErrorDetail(bodyText: string): string;
 
-  /** 流式：读 SSE，经 onEvent 吐归一 StreamChatEvent，返回聚合结果。
-   *  中止抛 makeAbortedError；流内协议错误吐 error 事件或抛错（可重试语义同 core）。 */
   drainStream(response: Response, ctx: DrainContext): Promise<DrainResult>;
 
-  /** 非流式：响应 JSON → 聚合结果（map-reduce 消费） */
   parseResponse(json: unknown): DrainResult;
 
-  /** 模型列表拉取（设置「获取可用模型」弹窗的数据源）：端点 / 鉴权 / 分页 / 条目过滤
-   *  随协议分叉（OpenAI 兼容 `${baseUrl}/v1/models` + Bearer；Gemini 原生
-   *  `/v1beta/models` + x-goog-api-key + pageToken 分页 + generateContent 过滤），
-   *  全部藏在 adapter 实现里。HTTP 错误在此格式化为 `HTTP <status>: <body截断>`；
-   *  网络 / 解析抛错上抛由 content 壳塑形。 */
   listModels(input: ListModelsInput): Promise<ListModelsResult>;
 }
-
-// ---- 注册表 ----
 
 import { openaiAdapter } from "./adapters/openai.js";
 import { anthropicAdapter } from "./adapters/anthropic.js";
@@ -162,8 +85,6 @@ export const PROTOCOL_ADAPTERS: Record<AiProtocol, ProtocolAdapter> = {
   gemini: geminiAdapter
 };
 
-// 协议解析单点：存量记录缺 protocol 字段 / 未知值 → openai（行为零变化兜底）。
-// 设置 UI 写入协议字段；读路径只经此处，禁止散落的 if-else。
 export function resolveAdapter(protocol: unknown): ProtocolAdapter {
   if (typeof protocol === "string" && protocol in PROTOCOL_ADAPTERS) {
     return PROTOCOL_ADAPTERS[protocol as AiProtocol];
@@ -171,10 +92,6 @@ export function resolveAdapter(protocol: unknown): ProtocolAdapter {
   return PROTOCOL_ADAPTERS.openai;
 }
 
-// ===== 设置 UI 消费词表 =====
-
-// 编辑 Modal 协议下拉的选项词表（展示名给人读；值即 AiProtocol）。
-// 新增协议 = 注册表登记一行 + 此处加一个选项。
 export const PROTOCOL_OPTIONS: ReadonlyArray<{ value: AiProtocol; label: string }> = [
   { value: "openai", label: "OpenAI Chat Completions" },
   { value: "anthropic", label: "Anthropic Messages" },

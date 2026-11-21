@@ -1,12 +1,3 @@
-// extension/ai/l0-bm25.ts
-// L0 词法基础原语与本地轻量 BM25 词法检索引擎（ADR-0027）：
-// - 使用浏览器原生 Intl.Segmenter（granularity: "word"）切分中英混合与数字词元；
-// - 内置精简常见中英文停用词过滤（中文停用词复用 ./stop-words.ts 单源）；
-// - 局部文本相似度（bigram Dice + 词元重合）、章节标题匹配与 L0 行号/时间戳二分定位、秒级时间戳容错解析；
-// - 纯 TypeScript 内存级 Okapi BM25 倒排索引，支持时间区间过滤与 Top-K 召回；
-// - 命中行前后扩窗（支持 N 句或 M 秒窗口）与重叠/相邻时间片段去重合并。
-// 零外部依赖、零 chrome/DOM/storage 依赖。
-
 import { parseClock } from "../shared/clock-text.js";
 import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { STOP_WORDS } from "./stop-words.js";
@@ -27,14 +18,12 @@ const DEFAULT_TOP_K = 6;
 const DEFAULT_WINDOW_RADIUS_LINES = 2;
 const DEFAULT_MERGE_GAP_SECONDS = 1;
 
-// 补充多字中文高频功能词/代词（单字/基础停用词复用 ./stop-words.ts）
 const ZH_EXTRA_STOP_WORDS: ReadonlySet<string> = new Set([
   "我们", "你们", "他们", "她们", "它们", "大家", "自己",
   "这里", "那里", "哪里", "这样", "那样", "这么", "那么",
   "一种", "一个", "一些", "首先", "其次", "另外", "如果"
 ]);
 
-// 精简常见英文停用词（中文停用词复用 ./stop-words.ts）
 const EN_STOP_WORDS: ReadonlySet<string> = new Set([
   "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
   "can", "could", "did", "do", "does", "doing", "done", "for", "from", "had",
@@ -56,10 +45,6 @@ function isStopWord(token: string): boolean {
   return ZH_STOP_WORDS.has(token) || EN_STOP_WORDS.has(token);
 }
 
-/**
- * 使用浏览器原生 `Intl.Segmenter({ granularity: "word" })` 切分中英混合及数字词元，
- * 统一转小写并过滤标点、空白与常见中英文停用词。
- */
 export function tokenizeLexicalText(text: unknown): string[] {
   const raw = String(text ?? "").trim();
   if (!raw) {
@@ -82,7 +67,6 @@ export function tokenizeLexicalText(text: unknown): string[] {
     return tokens;
   }
 
-  // 非标准环境兜底切分：按连续 ASCII 字母数字串或单字切分
   const fallbackMatches = raw.toLowerCase().match(/[a-z0-9]+(?:[._-][a-z0-9]+)*|\p{L}|\p{N}/gu);
   if (!fallbackMatches) {
     return [];
@@ -96,7 +80,6 @@ export function tokenizeLexicalText(text: unknown): string[] {
   return tokens;
 }
 
-/** 将字幕体输入归一化为按 `from` 升序、具备 0-based `lineNumber` 的 `L0SubtitleLine[]`。 */
 export function normalizeL0SubtitleLines(
   items: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown; lineNumber?: unknown }> | null | undefined
 ): L0SubtitleLine[] {
@@ -128,11 +111,8 @@ export function normalizeL0SubtitleLines(
 }
 
 export interface ExpandAndMergeOptions {
-  /** 向前后扩展的字幕行数半径（N 句，默认 2） */
   windowRadiusLines?: number;
-  /** 向前后扩展的时间窗口半径（M 秒，可选；传入时取行扩展与秒扩展的并集） */
   windowRadiusSeconds?: number;
-  /** 相邻窗口允许合并的最大时间间隔（秒，默认 0，即首尾相接或行号相邻即合并） */
   mergeGapSeconds?: number;
 }
 
@@ -154,10 +134,6 @@ function normalizeForSimilarity(text: unknown): string {
   return String(text ?? "").toLowerCase().replace(STRIP_FOR_SIM_RE, "");
 }
 
-/**
- * 章节名匹配：prompt 规整（小写、去空白与标点）后包含某章节 title 即命中。
- * 返回命中的章节项数组（原样引用输入元素）；空/无效输入返回 []，永不抛错。
- */
 export function matchChapterByTitle(prompt: unknown, chapters: readonly unknown[]): ChapterItem[] {
   try {
     const needle = normalizeForSimilarity(prompt);
@@ -187,9 +163,6 @@ function extractBigrams(norm: string): Set<string> {
   return grams;
 }
 
-/**
- * 计算模型提示片段与候选 L0 字幕行的局部相似度（0..1），用于行号轻微偏移与锚点容错对齐。
- */
 export function computeLocalTextSimilarity(hint: string, candidate: string): number {
   const normHint = normalizeForSimilarity(hint);
   const normCand = normalizeForSimilarity(candidate);
@@ -228,10 +201,6 @@ export function computeLocalTextSimilarity(hint: string, candidate: string): num
   return Math.max(dice, dice * 0.6 + tokenOverlap * 0.4);
 }
 
-/**
- * 解析非负秒级时间戳：支持数字、纯数字字符串（向下取整）或 `M:SS` / `H:MM:SS` 时刻文本；
- * 非法或负值返回 `null`。
- */
 export function parseL0SecondsValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
     return Math.floor(value);
@@ -253,9 +222,6 @@ export function parseL0SecondsValue(value: unknown): number | null {
   return null;
 }
 
-/**
- * 按 0-based `lineNumber` 在按行号升序排列的 `L0SubtitleLine[]` 中定位数组下标；未命中返回 `-1`。
- */
 export function findLineIndexByLineNumber(lines: readonly L0SubtitleLine[], lineNumber: number): number {
   if (!Array.isArray(lines) || lines.length === 0 || typeof lineNumber !== "number" || !Number.isFinite(lineNumber)) {
     return -1;
@@ -285,9 +251,6 @@ export function findLineIndexByLineNumber(lines: readonly L0SubtitleLine[], line
   return -1;
 }
 
-/**
- * 二分定位覆盖 `targetSeconds` 或起始时间距离最近的 L0 字幕行下标；空列表或非法时间戳返回 `-1`。
- */
 export function findNearestLineIndexBySeconds(
   lines: readonly L0SubtitleLine[],
   targetSeconds: number
@@ -342,11 +305,6 @@ function expandSpanForAnchor(
   return { startIdx, endIdx };
 }
 
-/**
- * 命中行前后扩窗与时间戳去重合并：
- * 支持按命中行向前后扩展 N 句（`windowRadiusLines`）或 M 秒（`windowRadiusSeconds`），
- * 并将重叠或相邻的区间合并为按序连续、无重复行的 `L0ContextWindow[]`。
- */
 export function expandAndMergeHitWindows(
   lines: readonly L0SubtitleLine[],
   anchors: readonly (number | HitAnchorInput)[],
@@ -389,7 +347,6 @@ export function expandAndMergeHitWindows(
   for (let i = 1; i < spans.length; i += 1) {
     const next = spans[i];
     const current = merged[merged.length - 1];
-    // 重叠行直接合并；紧邻行或时间间隔不超过 mergeGapSeconds 的相邻片段合并（避免跨长静音误并）
     const overlapsByLine = next.startIdx <= current.endIdx;
     const touchesByTime = lines[next.startIdx].from <= lines[current.endIdx].to + mergeGapSeconds;
 
@@ -500,10 +457,6 @@ function computeWindowChars(window: L0ContextWindow): number {
   return chars;
 }
 
-/**
- * 构建纯内存级 L0 BM25 倒排索引。
- * 兼容传入已归一化的 `L0SubtitleLine[]` 或原始 `{ from, to, content }[]`。
- */
 export function createL0Bm25Index(
   rawLines: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown; lineNumber?: unknown }> | null | undefined,
   options: CreateL0Bm25IndexOptions = {}
@@ -544,7 +497,6 @@ export function createL0Bm25Index(
   const idfMap = new Map<string, number>();
   for (const [term, postings] of invertedIndex.entries()) {
     const df = postings.length;
-    // 非负 Okapi BM25 IDF（Lucene 风格加 1 平滑），保证高频词不产生负分
     const idf = Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
     idfMap.set(term, idf);
   }
@@ -587,7 +539,6 @@ export function createL0Bm25Index(
           ? Math.floor(Number(opts.maxInjectedChars))
           : Number.POSITIVE_INFINITY;
 
-      // 计算命中文档的 BM25 分数
       const scores = new Map<number, number>();
       const matchedMap = new Map<number, string[]>();
 
@@ -642,7 +593,6 @@ export function createL0Bm25Index(
         .sort((a, bScore) => bScore.score - a.score || a.line.lineNumber - bScore.line.lineNumber)
         .slice(0, topK);
 
-      // 若存在总字符预算限制，按排名顺序逐步纳入命中并执行扩窗合并，超出即停止
       let selectedRanked = ranked;
       let mergedWindows = expandAndMergeHitWindows(
         lines,
@@ -674,7 +624,6 @@ export function createL0Bm25Index(
             accepted.push(item);
             acceptedWindows = candidateWindows;
             if (candidateChars > maxInjectedChars) {
-              // 单条首命中也超过预算时按窗口行裁剪兜底
               const singleWin = candidateWindows[0];
               if (singleWin) {
                 const keptLines: L0SubtitleLine[] = [];
@@ -738,11 +687,6 @@ export function createL0Bm25Index(
   };
 }
 
-/**
- * 轻量 Token 估算（零外部依赖）：
- * 中文/CJK 按约 1.2 字符/Token 上界保守估算（不低估中文消费），
- * ASCII/数字按约 3.5 字符/Token 估算。
- */
 export function estimateCompactPromptTokens(text: string): number {
   if (!text) {
     return 0;

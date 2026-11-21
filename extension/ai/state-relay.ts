@@ -1,7 +1,3 @@
-// extension/ai/state-relay.ts
-// 长视频「滑动状态卡接力 + 10～15 分钟平滑窗口切分 + L0 金句逐字回填 + 容错解析」核心算法模块（ADR-0027）。
-// 约束：纯 TypeScript 算法模块，零 chrome/DOM/storage 依赖，零第三方依赖。
-
 import { formatClock, parseClock } from "../shared/clock-text.js";
 import { truncateWithEllipsis } from "../shared/text-primitives.js";
 import { joinSubtitleText } from "../subtitle/text-classification.js";
@@ -25,17 +21,11 @@ import {
   type StateRelayCard
 } from "./long-video-hybrid-types.js";
 
-/** 时长分流阈值：字幕覆盖跨度超过 30 分钟（1800s）即进入状态卡接力分段。 */
 export const OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS = LONG_VIDEO_DURATION_THRESHOLD_SECONDS;
-/** 字符分流阈值：与 ADR-0001 / ADR-0027 素材预算 200k 字符保持同源。 */
 export const OVERVIEW_RELAY_CHARS_THRESHOLD = MATERIAL_BUDGET_CHARS;
-/** 5 分钟（300s）语音转写分片对齐基准。 */
 export const ASR_ALIGN_UNIT_SECONDS = 300;
-/** 标准接力窗口目标时长：15 分钟（3 × 300s）。 */
 export const RELAY_WINDOW_TARGET_SECONDS = 900;
-/** 最小接力窗口时长：10 分钟（2 × 300s），避免尾部碎窗。 */
 export const RELAY_WINDOW_MIN_SECONDS = 600;
-/** 单窗最大字符上限（防止超高语速字幕撑爆单次请求窗口）。 */
 export const RELAY_WINDOW_MAX_CHARS = SEGMENT_INPUT_CHARS;
 
 const RELAY_OVERLAP_MAX_LINES = 4;
@@ -52,21 +42,13 @@ const STATE_CARD_PROMPT_MAX_CHARS = 220;
 const STATE_CARD_PROMPT_MAX_TOKENS = 160;
 
 export interface StateRelayWindow {
-  /** 0-based 窗口序号 */
   windowIndex: number;
-  /** 本窗口负责的起始时间戳（秒） */
   fromSeconds: number;
-  /** 本窗口负责的结束时间戳（秒） */
   toSeconds: number;
-  /** 本窗口起始 L0 行号（含） */
   startLineNumber: number;
-  /** 本窗口结束 L0 行号（含） */
   endLineNumber: number;
-  /** 本窗口总字符数 */
   chars: number;
-  /** 本窗口负责开章挑句的 L0 原始字幕行 */
   lines: readonly L0SubtitleLine[];
-  /** 上一窗口末尾的极短前情只读字幕行 */
   overlapLines: readonly L0SubtitleLine[];
 }
 
@@ -124,9 +106,6 @@ function extractChapterStarts(chapters?: ReadonlyArray<{ from?: unknown }>): num
   return [...new Set(starts)].sort((a, b) => a - b);
 }
 
-/**
- * 为当前窗口计算与 5 分钟（300s）转写分片边界平滑对齐的目标结束时间（落在 10～15 分钟区间内）。
- */
 function chooseWindowTargetEnd(
   windowStartSec: number,
   totalEndSec: number,
@@ -142,7 +121,6 @@ function chooseWindowTargetEnd(
 
   let plannedEnd: number;
   if (remaining <= targetSec + minSec) {
-    // 剩余 15~25 分钟时均分到 5 分钟网格，避免尾部出现几分钟的碎窗
     const rawMid = windowStartSec + remaining / 2;
     const snapped = Math.round(rawMid / alignUnit) * alignUnit;
     plannedEnd = Math.min(windowStartSec + targetSec, Math.max(windowStartSec + minSec, snapped));
@@ -152,7 +130,6 @@ function chooseWindowTargetEnd(
     plannedEnd = snapped >= windowStartSec + minSec ? snapped : rawTarget;
   }
 
-  // 若官方章节边界恰好在目标结束时间 ±120s 内且满足最小窗口要求，优先对齐官方章节
   for (const start of chapterStarts) {
     if (
       start >= windowStartSec + minSec &&
@@ -166,9 +143,6 @@ function chooseWindowTargetEnd(
   return plannedEnd;
 }
 
-/**
- * 按 10～15 分钟窗口切分 L0 字幕（对齐 5 分钟语音转写边界，并受单窗字符上限约束）。
- */
 export function buildRelayWindows(
   lines: readonly L0SubtitleLine[],
   options: BuildRelayWindowsOptions = {}
@@ -206,12 +180,10 @@ export function buildRelayWindows(
       const line = lines[cursor];
       const lineChars = line.content.length;
 
-      // 字符上限保护：密集语音场景下绝不撑爆单窗上下文
       if (chunk.length > 0 && chunkChars + lineChars > maxChars) {
         break;
       }
 
-      // 若已达到最小窗口跨度且进入新章节或跨越目标 5 分钟对齐切点，则收窗
       if (chunk.length > 0) {
         const crossedTarget = line.from >= targetEndSec && (line.from - windowStartSec >= minSec || targetEndSec < totalEndSec);
         const crossedChapter =
@@ -269,10 +241,6 @@ function pickOverlapLines(prevLines: readonly L0SubtitleLine[]): L0SubtitleLine[
   return picked;
 }
 
-/**
- * 概览分流判据：字幕覆盖跨度 > 30 分钟（1800s）或总字符 > 200,000 时启用状态卡接力分段，
- * 其余常规短视频走单次直通流程。
- */
 export function decideOverviewRelaySplit(
   rawLines: readonly L0SubtitleLine[] | ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown }>,
   options: DecideOverviewRelayOptions = {}
@@ -296,9 +264,6 @@ export function decideOverviewRelaySplit(
   };
 }
 
-/**
- * 渲染带明确 L0 行号与时间戳的字幕文本：`#12 [2:30] 字幕正文`。
- */
 export function renderL0LinesWithNumbers(lines: readonly L0SubtitleLine[]): string {
   if (!Array.isArray(lines) || lines.length === 0) {
     return "";
@@ -351,9 +316,6 @@ function formatStateCardLines(
   return lines.join("\n");
 }
 
-/**
- * 将前序状态卡序列化为紧凑（约 100 Token）的上下文提示块，分级裁剪确保跨多段绝不膨胀。
- */
 export function serializeStateRelayCard(card: StateRelayCard | null | undefined): string {
   if (!card) {
     return "";
@@ -375,10 +337,6 @@ export function serializeStateRelayCard(card: StateRelayCard | null | undefined)
   }
   return formatStateCardLines(card, tiers[tiers.length - 1]).slice(0, STATE_CARD_PROMPT_MAX_CHARS);
 }
-
-// ============================================================
-// 文本清理与容错字段解析（适配 ModelScope 免费接口与小参数模型）
-// ============================================================
 
 function parseLineNumberToken(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
@@ -486,10 +444,6 @@ function parseStringArray(value: unknown, maxItems: number, maxItemLen: number):
   return out;
 }
 
-// ============================================================
-// L0 金句逐字回填（相似度打分与行定位原语见 ./l0-bm25.ts）
-// ============================================================
-
 function joinL0RangeContent(slice: readonly L0SubtitleLine[]): string {
   let acc = "";
   for (const line of slice) {
@@ -498,10 +452,6 @@ function joinL0RangeContent(slice: readonly L0SubtitleLine[]): string {
   return acc.trim();
 }
 
-/**
- * 根据模型输出的行号区间或时间戳，直接从 L0 原始字幕回填逐字原话；
- * 若模型输出行号存在轻微偏移，结合 hint 文本在邻近行范围内做相似度容错对齐。
- */
 export function backfillQuoteFromL0(
   allLines: readonly L0SubtitleLine[],
   rawQuote: unknown,
@@ -524,12 +474,10 @@ export function backfillQuoteFromL0(
       ? Math.min(allLines.length - 1, Math.max(minIdx, findLineIndexByLineNumber(allLines, bounds.maxLineNumber)))
       : allLines.length - 1;
 
-  // 1. 显式行号区间主路径 + 轻微偏移容错对齐
   if (range) {
     const sIdx = findLineIndexByLineNumber(allLines, range.startLine);
     const eIdx = findLineIndexByLineNumber(allLines, range.endLine);
     if (sIdx >= 0 && eIdx >= sIdx) {
-      // 防止越界选中前情只读行
       if (bounds?.minLineNumber !== undefined && allLines[sIdx].lineNumber < bounds.minLineNumber) {
         return null;
       }
@@ -580,7 +528,6 @@ export function backfillQuoteFromL0(
     }
   }
 
-  // 2. 无行号（或行号越界）时按时间戳 + 局部相似度回退对齐到 L0
   if (timestampSec === null && !hintText) {
     return null;
   }
@@ -614,7 +561,6 @@ export function backfillQuoteFromL0(
       const end = Math.min(maxIdx, i + span - 1);
       const text = joinL0RangeContent(allLines.slice(i, end + 1));
       const sim = computeLocalTextSimilarity(hintText, text);
-      // 相似度优先，时间近度辅助消歧
       const rank = sim * 100 - timeDist * 0.2 - (span - 1) * 2;
       if (rank > bestRank) {
         bestRank = rank;
@@ -625,7 +571,6 @@ export function backfillQuoteFromL0(
     }
   }
 
-  // 若 45 秒内无候选但有 hintText，放宽到当前窗口全范围检索
   if (bestStart < 0 && hintText) {
     for (let i = minIdx; i <= maxIdx; i += 1) {
       const sim = computeLocalTextSimilarity(hintText, allLines[i].content);
@@ -652,10 +597,6 @@ export function backfillQuoteFromL0(
   };
 }
 
-// ============================================================
-// 状态卡解析与防膨胀归一化
-// ============================================================
-
 function resolveCardInput(rawSource: Record<string, unknown>): Record<string, unknown> | null {
   const candidates = [
     rawSource.nextStateCard,
@@ -679,7 +620,6 @@ function mergeUniqueBounded(
 ): string[] {
   const merged: string[] = [];
   const seen = new Set<string>();
-  // 新产出优先保留（或后入覆盖尾部），保持最新关键信息在窗口内
   for (const item of [...next, ...prev]) {
     const clean = clampText(item, maxLen);
     if (!clean || seen.has(clean)) {
@@ -790,9 +730,6 @@ function buildNextStateCard(
   };
 }
 
-/**
- * 单窗调用彻底失败时的状态卡接力兜底：保留前序论点、术语与未闭合悬念，只推进时间与行号游标。
- */
 export function advanceFallbackStateCard(
   previousCard: StateRelayCard | null,
   window: StateRelayWindow
@@ -809,10 +746,6 @@ export function advanceFallbackStateCard(
     collectedQuoteCount: previousCard?.collectedQuoteCount ?? 0
   };
 }
-
-// ============================================================
-// 纯文本 / 畸形输出启发式兜底解析
-// ============================================================
 
 function fallbackParseRelayText(
   cleanedText: string,
@@ -868,14 +801,6 @@ export interface ParseStateRelayOutputContext {
   titlesOnly?: boolean;
 }
 
-/**
- * 容错解析单窗口的模型结构化输出，完成：
- * 1. `<think>` 剥除、围栏提取、截断 JSON 修复；
- * 2. 章节字段别名兼容与时间戳/行号归位；
- * 3. L0 原始字幕金句逐字回填（带轻微偏移相似度容错）；
- * 4. 更新并裁剪下一段滑动状态卡（保持 ~100 Token 有界）；
- * 5. 完全非 JSON 时触发文本启发式兜底，绝不因格式偏差中断生成。
- */
 export function parseStateRelayOutput(
   rawText: unknown,
   ctx: ParseStateRelayOutputContext
@@ -1018,7 +943,6 @@ export function parseStateRelayOutput(
   }
   quotes.sort((a, b) => a.from - b.from || a.lineNumber - b.lineNumber);
 
-  // 将金句行号回绑到本段内章节节点
   for (const quote of quotes) {
     let ownerIdx = -1;
     for (let i = 0; i < parsedChapters.length; i += 1) {
@@ -1063,10 +987,6 @@ export function parseStateRelayOutput(
   };
 }
 
-/**
- * 合并各接力窗口的章节节点与 L0 回填金句，应用分章计划（graft）并生成最终兼容 UI 的
- * AnalysisChapter[] / AnalysisQuote[] 与完整的 L1ChapterNode[] / L1QuoteRef[]。
- */
 export function mergeRelayOutcomes(
   steps: readonly RawRelayStepData[],
   chapterPlan: Pick<ChapterPlan, "graft" | "hasGivenChapters" | "titlesOnly">,
@@ -1210,10 +1130,6 @@ function findNearestEntities(
   return [...bestEntities];
 }
 
-/**
- * 容错解析收尾全片简介响应：支持 JSON `{ summary }`、markdown 围栏、`<think>` 剥除，
- * 以及小模型未按 JSON 输出时的纯文本直取兜底。
- */
 export function parseRelayFinalSummary(rawText: unknown): string {
   const cleaned = stripModelReasoningAndFences(rawText);
   if (!cleaned) {
@@ -1229,7 +1145,6 @@ export function parseRelayFinalSummary(rawText: unknown): string {
       }
     }
   } catch {
-    // 非 JSON 纯文本输出时直接兜底抽取自然段
   }
   const plain = cleaned
     .replace(/^```[\w]*\s*/i, "")

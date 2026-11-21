@@ -1,21 +1,8 @@
-// 「概览数据管线」三片之校验/合并（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数、零 import；
-// 对外经 analysis.ts 壳再导出）。适配纯函数整搬自 .scratch/bilibili-script/lib/ai.js，
-// 产出归一化为本仓库字段名：{ summary, chapters: {from,to,title,summary,missingSummary?}[],
-// quotes: {from,content}[], failedRanges?: {from,to}[], summaryFailed?: boolean }。
-
-// ============================================================
-// 类型与常量
-// ============================================================
-
 export interface AnalysisChapter {
   from: number;
   to: number;
   title: string;
   summary: string;
-  /**
-   * 本应生成说明的给定章节缺说明时置真，UI 据此显示占位与重跑入口。
-   * 密集时间轴（titlesOnly）的空串是设计内行为，不打标。
-   */
   missingSummary?: boolean;
 }
 
@@ -29,7 +16,6 @@ interface AnalysisFailureRange {
   to: number;
 }
 
-/** 概览产物；failedRanges 记录字幕分段失败，summaryFailed 记录全片简介归并失败。 */
 export interface OverviewAnalysis {
   summary: string;
   chapters: AnalysisChapter[];
@@ -43,22 +29,6 @@ const MAX_ANALYSIS_QUOTES = 50;
 const MAX_OVERVIEW_SUMMARY_CHARS = 2000;
 const MAX_CHAPTER_SUMMARY_CHARS = 600;
 
-// ============================================================
-// 适配纯函数（整搬自参考仓库 lib/ai.js，产出字段名归一化为本仓库形状）。
-// 通用 JSON 防线（repairTruncatedJson / parseLooseJson）已独立为 ./json-repair.ts
-// （arch-slim-2/08），本模块只保留概览 shape 专属的校验/合并；时长变量与
-// 输出 token 估算随提示词装配在 analysis-prompts.ts。
-
-/**
- * 把模型输出当作不可信数据重建一遍（整搬 lib/ai.js:116-172，字段名归一化）：
- * - 模型编造超出视频时长的时间戳是常态，越界条目直接丢掉；
- * - 显示用的时间戳从校验过的秒数反推（formatClock），模型给的
- *   timestamp 字符串一律不采信；
- * - 分段路径下段边界 = validateAnalysis 的 minSeconds：模型偶尔会为「前情回顾」
- *   里的内容也开章节/挑金句，那不归本段管，越下界的直接丢掉。
- * 产出 chapters 的 to = 下一章 from（末章 = maxTimestampSeconds），
- * quotes 按 from 升序；章节/金句数量按上限裁剪。
- */
 export function validateAnalysis(analysis: unknown, maxSeconds: unknown, minSeconds: unknown = 0): OverviewAnalysis {
   const max = Number(maxSeconds);
   const safeMax = Number.isFinite(max) && max > 0 ? max : Number.MAX_SAFE_INTEGER;
@@ -115,10 +85,6 @@ export function validateAnalysis(analysis: unknown, maxSeconds: unknown, minSeco
   };
 }
 
-/**
- * 合并各段章节与金句并去重。段简介保留在各 part 中，由编排层另行归并成全片简介。
- * 入参各 part 均已经 validateAnalysis 校验，这里不再重跑全量校验。
- */
 export function mergeAnalyses(parts: unknown): OverviewAnalysis {
   const chapters: AnalysisChapter[] = [];
   const quotes: AnalysisQuote[] = [];
@@ -157,15 +123,6 @@ export function mergeAnalyses(parts: unknown): OverviewAnalysis {
   };
 }
 
-/**
- * 把金句按时间戳归入章节，形成「章节 → 金句」的层次结构（整搬 lib/ai.js:380-403，
- * 字段名归一化）。不依赖模型显式给出归属：章节与金句的时间戳都出自同一份字幕、
- * 同一个模型，归类的误差很小。章节需按时间升序（validateAnalysis / 稿件归一化
- * 已保证）。金句落到最后一个 from <= 自己时间戳的章节；落在第一章之前的归为
- * orphan，由消费方决定怎么展示（单列「其他金句」比硬塞进最近的章节诚实）。
- * 两条路径（AI 分章 / 自带章节）的产物都是扁平 chapters + quotes，归章统一
- * 由本函数在消费端完成，UI 不区分来源。
- */
 export function groupQuotesIntoChapters(
   chapters: AnalysisChapter[],
   quotes: AnalysisQuote[]

@@ -1,12 +1,3 @@
-// ai/adapters/openai.ts — OpenAI compatible 协议适配器（multi-protocol-ai）。
-// 现有 completion.ts 的 OpenAI 行为迁入本文件，列举项逐字节不变：
-// OPENAI_CHAT_PATH / buildChatRequestBody（并入 core 注入的思考线格式产出 +
-// tokenParam 分流 + tools 透传）/ drainSseStream（data:-only 行解析、[DONE] 跳过、
-// tool-call-fragment 按 index 聚合）/ 非流式 choices 提取。唯一新增 extractErrorDetail
-//（错误 envelope 提取）——spec 错误归一化要求，core 统一加 `[协议名] ` 前缀与
-// 200 字符截断。
-// core（completion.ts）只留重试/中止/溢出/探针骨架。
-// 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { formatModelListHttpError } from "./http-error.js";
@@ -14,25 +5,17 @@ import type { ThinkingWireOutput } from "../thinking-wire-map.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 
-// OpenAI 兼容协议 chat 路径。
-// 覆盖 OpenAI / DeepSeek / Qwen / Zhipu / Kimi / MiniMax / Mimo / Opencode Go / OpenRouter / Stepfun / Ollama（OpenAI 兼容模式）等。
 export const OPENAI_CHAT_PATH = "/chat/completions";
 
 interface BuildChatRequestBodyInput {
   model: string;
   messages: ChatRequest["messages"];
   stream?: boolean;
-  // 思考线格式产出（思考装配边 ai/plan-thinking.ts 的出参）：由唯一 fetch 点
-  //（completion.ts）装配、随 ChatRequest 注入。本函数只取 fields 并入请求体、
-  // 按 tokenParam 写输出上限字段。
   thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
-  // 联网搜索管线：传入即随请求体带 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
 }
 
-// 带图消息的线格式（image-input 路线 B）：content 从字符串翻成 text / image_url
-// 块数组；无图消息保持字符串，线形状与改动前逐字节一致。
 type ChatContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
@@ -41,11 +24,6 @@ interface WireMessage extends Omit<ChatMessage, "content" | "images"> {
   content: string | ChatContentPart[];
 }
 
-// type 而非 interface：对象字面量类型可隐式赋给 Record<string, unknown>
-//（adapter.buildBody 的返回签名），interface 无此隐式索引签名。
-// 思考字段名与 token 上限参数名不在此逐字列出：它们是思考装配边（ai/plan-thinking.ts）
-// 出参的键，取值来自线格式映射表的 openai 行，adapter 不回抄线格式取值
-//（对账见 tests/ai/thinking-wire-map.test.ts）。
 type ChatRequestBody = {
   model: string;
   messages: WireMessage[];
@@ -54,10 +32,6 @@ type ChatRequestBody = {
   tool_choice?: "auto";
 } & Record<string, unknown>;
 
-// 消息翻译（怪癖 contentPartsAsArray，语义见 compat-vocab）：带 images 的消息把
-// content 翻成 content parts（text 块 + 每张图一个 image_url 块，url 为
-// data:<mime>;base64,<b64>）；text 块仅在正文非空时发出——空 text 块部分兼容端点会
-// 400。无图消息的线形状与改动前逐字节一致（images 字段不上线，是个纯本地字段）。
 function toWireMessages(messages: ChatMessage[]): WireMessage[] {
   return messages.map(({ images, ...message }) => {
     if (!images?.length) return message;
@@ -70,20 +44,6 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
   });
 }
 
-/**
- * 构造 chat/completions 请求体（纯函数，便于单测；请求构造单点）。
- * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
- * 思考字段与输出上限参数名来自入参 thinkingWire——思考装配边
- *（ai/plan-thinking.ts 的 planThinkingWire）的出参，由唯一 fetch 点
- *（completion.ts）装配注入；本函数只并入，查不到事实（unknown / noFields
- * 哨兵）或缺档时产出本就是空 fields——软失败优于硬 400。
- * 出参的 tokenParam（04 token 参数映射，见怪癖 maxTokensField）是输出上限参数名的
- * 唯一来源：openai-reasoning 系写 max_completion_tokens，其余类与 unknown 维持 max_tokens
- * 现状。探针不发思考字段由请求侧归一承担（探针不传档位 → 不干预 → 空 patch，
- * 施加点在装配边链路），本函数不做协议外的特判。
- * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
- * 无图消息原字段原值透传。
- */
 export function buildChatRequestBody({ model, messages, stream = false, thinkingWire, maxTokens, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
@@ -92,18 +52,11 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   }
   Object.assign(body, thinkingWire.fields);
   if (maxTokens != null) {
-    // 怪癖 maxTokensField（语义见 compat-vocab）：token 上限参数名随装配边出参——openai-reasoning
-    // 系不认 max_tokens（严格 400），写 max_completion_tokens；其余类与 unknown 维持 max_tokens
-    // 现状。探针（maxTokens 默认 1）与概览/分析的估算预算（含空正文加倍重试）同走此接缝，
-    // 自动生效、无需调用方特判。
     body[thinkingWire.tokenParam] = maxTokens;
   }
   return body;
 }
 
-// 从 arguments JSON 宽容解析 query（spec §2.2 的 args 形状）：对象带 query 字符串
-// 直取；其余（含非 JSON / 非对象）以原文包 { query } 兜底，工具调用方总有词可搜。
-// tool-loop 回填 tool 消息时复用同一解析（收口单源）。
 export function parseToolArgs(rawArguments: string): { query: string } {
   try {
     const parsed = JSON.parse(rawArguments) as { query?: unknown };
@@ -114,28 +67,12 @@ export function parseToolArgs(rawArguments: string): { query: string } {
   return { query: rawArguments };
 }
 
-/**
- * 读取并解析单个 SSE 响应，逐事件经 onEvent 吐出（不依赖 port/DOM）。
- * 手动 buffer 按行切、data: 前缀、[DONE] 跳过；解析出的事件（reasoning/content）
- * 归一为 { type: "token" | "reasoning", data }（port 协议词表，适配层可直透）。
- * 联网搜索扩展（怪癖 toolCallFragmentsByIndex，语义见 compat-vocab）：
- * delta.tool_calls 分片按 index 聚合（id/name/arguments 跨 chunk
- * 拼接），流结束时逐条吐 onEvent({ type: "tool-call", name, args: { query } })
- * （spec §2.2 聚合后发出），并随返回值带回聚合结果。
- * 中止时抛 makeAbortedError，由调用方统一收束。
- * 产物形状即契约 DrainResult：content 为 content 增量拼接（tool 轮 assistant
- * 消息回填用）；toolCalls 为按 index 聚合的 tool_calls；finishReason 取最后一个
- * finish 事件（"stop" | "tool_calls" | ...，缺失为 null）；usage 取最后一个非空的
- * usage 块（形状归一在 sse-parser.parseOpenAiUsage），平台未给即缺省。
- */
 async function drainSseStream({ response, signal, onEvent }: { response: Response } & DrainContext): Promise<DrainResult> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
   let finishReason: string | null = null;
-  // 响应 usage（ai-usage-telemetry T1）：同一流可能出现多次（DeepSeek 等在
-  // [DONE] 前最后一个块给出），取最后一个非空；空/形状不符的块不覆盖已有值。
   let usage: ChatUsage | undefined;
   const fragments = new Map<number, { id: string; name: string; args: string }>();
 
@@ -182,7 +119,6 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
     }
   }
 
-  // 聚合的 tool_calls 按流内顺序（index 升序）吐 tool-call 事件并随结果带回。
   const toolCalls: ChatToolCall[] = [...fragments.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([index, fragment]) => ({
@@ -196,14 +132,6 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
   return { content, toolCalls, finishReason, ...(usage ? { usage } : {}) };
 }
 
-// ===== 模型列表拉取（OpenAI 兼容形状） =====
-
-// GET `${baseUrl}/v1/models` + Bearer（缺 key 裸 GET，怪癖 bearerOptionalWithoutKey
-// 同款语义）：OpenAI compatible 协议的 models.list 形状。anthropic adapter 的
-// listModels 复用本实现——Messages 通道无 models.list 端点，设置弹窗对 anthropic
-// 协议已把探测地址跟随到预设的 OpenAI 端点（provider-editor-fetch-dialog.ts），
-// 行为与归位前「非 gemini 一律 openai 形状」逐字节一致。baseUrl 归一（trim +
-// 去尾斜杠 + 削 /v1 尾）在此单源。HTTP 错误在此格式化；网络 / 解析抛错上抛给壳。
 export async function listOpenAiCompatibleModels({ baseUrl, apiKey, fetchImpl }: ListModelsInput): Promise<ListModelsResult> {
   const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -234,12 +162,6 @@ export const openaiAdapter: ProtocolAdapter = {
     unsupported: {}
   },
 
-  // 平台怪癖自陈（语义与适用协议见 compat-vocab 词表单源）：
-  // maxTokensField（token 上限参数名）/ thinkingFormat（思考词汇三套）/
-  // streamingOnlyThinkingOff（关思考仅流式）/
-  // contentPartsAsArray（带图消息 content 翻块数组）/ toolCallFragmentsByIndex（分片按 index 聚合）/
-  // sessionHeader（会话头由 preset-headers 按词表派生）/
-  // bearerOptionalWithoutKey（空 key 不注入 Authorization）。
   consumes: [
     "maxTokensField",
     "thinkingFormat",
@@ -255,14 +177,10 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   authHeaders(apiKey: string | undefined): Record<string, string> {
-    // 怪癖 bearerOptionalWithoutKey（语义见 compat-vocab）：Bearer 仅在 apiKey
-    // 存在时注入（requiresKey=false 的平台允许空 key）。
     return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
   },
 
   buildBody(request: ChatRequest): Record<string, unknown> {
-    // 迁入现有 buildChatRequestBody：并入 core 注入的思考线格式产出（tokenParam 分流：
-    // openai-reasoning 系写 max_completion_tokens）+ tools 透传。行为与迁移前逐字节一致。
     return buildChatRequestBody({
       model: request.model,
       messages: request.messages,
@@ -274,7 +192,6 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   extractErrorDetail(bodyText: string): string {
-    // OpenAI error envelope：{ error: { message, type, ... } }；缺失回落整段 body。
     try {
       const parsed = JSON.parse(bodyText) as { error?: { message?: unknown } };
       if (typeof parsed.error?.message === "string") return parsed.error.message;
@@ -287,8 +204,6 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   parseResponse(json: unknown): DrainResult {
-    // 迁入现有非流式提取：choices[0].message.content / tool_calls 宽容归一。
-    // 顶层 usage 走 sse-parser 的同一映射（字段名单源，与流式路径一致）。
     const data = json as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: unknown }>; usage?: unknown };
     const choice = data?.choices?.[0];
     const content = choice?.message?.content;

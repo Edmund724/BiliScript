@@ -1,10 +1,3 @@
-// 段缓存 SW 端消息 handler：storage 真实宿主是 SW，
-// offscreen（Map-Reduce / 追问链）的段缓存读写经 runtime 消息落到此处，
-// 直调 ./segment-cache.js 单源——键位装配（segmentCacheKeyFields → 族键）也在
-// SW 完成，offscreen 侧不 import segment-cache（ladder chunk 不含 cache-lru）。
-// 本模块包含本族声明与 op 分支体；handler 壳与 withOkResponse 信封单源在
-// core/storage-message-family.ts，组合根只登记工厂实例。
-
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import {
   buildSegmentSummaryCacheKey,
@@ -17,8 +10,6 @@ import {
 } from "./segment-cache.js";
 import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
 
-// 回包形参按本条消息收型（段缓存响应形状），返回 void——segment-cache 登记为
-// async，回包时机归注册表 reply、入口 resolveReplyKeepOpen 兑现。
 export function createSegmentCacheHandler(): (
   message: SegmentCacheMessage,
   sender: unknown,

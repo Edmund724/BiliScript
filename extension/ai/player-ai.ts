@@ -13,14 +13,10 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
 import { state } from "../core/state.js";
-// playerAi 状态微模块（随 ai 域内聚）：本模块独占读写，不再经 core/state。
 import { playerAiState } from "./player-ai-state.js";
 import { isVisibleReaderControl } from "../shared/dom-utils.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
-// 耗时日志走 shared/logging 的 Always 直出口（工单 button-injection-stability
-// 决议：默认开启——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
-// S3 分层：播放器 AI 样式随本动态 chunk 挂载（节点创建前就绪，见文件尾注释）
 import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-injector.js";
 import { decidePlayerAiQuickAction } from "./player-ai-mount-decision.js";
 import {
@@ -38,24 +34,8 @@ import {
 } from "../bilibili/host-adapter.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 
-// ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
-//
-// 为什么在模块级挂：样式必须「节点创建前就绪」——startPlayerAiQuickAction 的
-// schedulePlayerAiQuickActionSync() 会创建 #biliscript-player-ai-quick-action，若样式
-// 尚未注入，首次 sync 创建出的节点会以无样式状态挂到播放器上，直到下一个
-// sync（resize/滚动/观察器回调）才带样式，形成闪变。模块一旦装载（本文件
-// 求值）即挂表，start 与创建节点之间无需等待样式就绪——节点创建前样式已注入。
-// link 是异步加载，但样式数据会被浏览器缓存：后续每次 start（设置关→开）
-// 重挂即同步生效，不闪变。
-//
-// 为什么 remove 在 stop：stopPlayerAiQuickAction 会移除按钮，随模块关闭把
-// 样式一并摘掉；下次 start 重挂。幂等：模块未装载时本文件不会执行，mounted
-// Map 防重复挂。
 ensurePlayerAiStyles();
 
-// 帧内快车道剩余帧数（工单 button-injection-stability/03）：首挂载前的 retry
-// 走 requestAnimationFrame 而不是退避定时器——播放器容器已出现但尚未完成
-// 布局/被显隐门挡住的窗口只有几帧，定时器路径要等满 100ms 起步的退避拍。
 const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
@@ -150,13 +130,9 @@ const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () =
   }
 });
 
-// 注入耗时观测（工单 button-injection-stability/01 可观测，默认开启）：模块
-// 求值到 AI 键首次挂载的耗时，只记一次。
 const MODULE_BOOT_AT = Date.now();
 let mountTimingLogged = false;
 
-// 生命周期作用域：observer、layout 监听与游标监听各自经 DisposableContext 统一
-// 托管，stop 或重绑时一次 dispose() 回收（绝不直接 disconnect 共享 MutationObserver）。
 let playerAiObserverScope: DisposableContext | null = null;
 let playerAiLayoutScope: DisposableContext | null = null;
 interface CursorSync {
@@ -166,34 +142,15 @@ interface CursorSync {
 }
 let playerAiQuickActionCursorSync: CursorSync | null = null;
 
-// 已挂载就位记录（性能工单）：sync 挂载成功时记下 (wrap, host)。
-// 背景：播放中 B 站进度条 width 与弹幕持续改动播放器子树，回调排 rAF 后 sync
-// 每帧都要全量跑宿主复判与挂载结构检查（多个 querySelectorAll + 逐候选读
-// aria-label / title / data-text / textContent / className，候选可达数百）。
-// 按钮已挂载且宿主未变时该判定结果稳定，跳过它——这份记录就是跳过的依据。
 let playerAiQuickActionMountedWrap: HTMLElement | null = null;
 let playerAiQuickActionMountedHost: HTMLElement | null = null;
 
-// 字幕控件校准信号（工单 first-button-ux/01）：控件不再是挂载硬门，降级为
-// 「首次就绪后一次性位置复校」——控制条水合可能改变容器几何导致按钮漂移，
-// 复校把挂载路径全量重跑一遍（宿主复判 + 视觉重写）。每个装载窗口只在首次
-// 控件就绪时跑一次（stop 时随生命周期复位，见 stopPlayerAiQuickAction）；
-// 未校准前每次 sync 都要扫控件（装载窗口内的固有开销，控件就绪即停）。
 let playerAiSubtitleControlCalibrated = false;
 
-// 样式常量提升到模块级：挂载时写入与「是否已在位」的幂等探测共用同一组值。
-// 三个值都是常量，不随全屏/宽屏等播放器状态变化（现状也是每次写同一组字面量）；
-// 写在 wrap/button 自身的 inline style 上，特异性高于祖先的继承值。
 const PLAYER_AI_HIT_SIZE_PX = 36;
 const PLAYER_AI_ICON_SIZE_PX = 26;
 const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 
-// 「已就位」：按钮与 wrap 仍在记录的原位，且宿主判定结果仍是记录的那个。
-// 宿主用现有 findPlayerAiQuickActionHost() 复判而非另设近似——锚点判定语义是
-// 红线，只有原判定说「还是它」才允许跳过。宿主切换（全屏/宽屏换容器）时复判
-// 结果变化，落回全量路径重挂到新宿主，按钮样式按现状跟着重同步。
-// 任一不成立都落回全量路径——按钮被 B 站重渲染摘掉、宿主被替换、wrap 被移走
-// 都是失同步，必须走原 rAF / 退避兜底补回。
 function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
   if (!supportsLiveCompanion()) {
     return true;
@@ -240,10 +197,6 @@ function isPlayerAiQuickActionMountedStable(): boolean {
   return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
 }
 
-// 按钮内联变量是否已在位：逐值读取比值写入便宜，稳定态零写入；被外部抹掉时
-// 抹除本身就是属性变更（观察记录），下一拍探测到缺失即补回，视觉不漂移。
-// 只探测三个变量里对视觉影响最大的两个尺寸/色值+命中区，覆盖「内联被清空」
-// 这一现实场景；逐像素等价不是本路径的目标（漏判最多是一次多余的幂等写）。
 function isPlayerAiQuickActionVisualsCurrent(button: HTMLElement): boolean {
   const wrap = button.parentElement;
   if (button.style.getPropertyValue("--biliscript-player-ai-action-icon-size") !== `${PLAYER_AI_ICON_SIZE_PX}px`) {
@@ -258,10 +211,6 @@ function isPlayerAiQuickActionVisualsCurrent(button: HTMLElement): boolean {
   );
 }
 
-// 属性记录（进度条 width / class 抖动）与全量 sync 的共用入口：已就位就只
-// 校准按钮样式（幂等探测，值在位时零写入），不碰校准扫描、挂载结构与新建节点；
-// 返回 false 表示未就位，调用方按各自口径落回全量路径（观察器侧排一次帧内
-// 快车道，sync 侧继续往下走完整流程）——装载窗口的行为与短路前一致。
 function tryRefreshPlayerAiQuickActionVisuals(): boolean {
   if (!isPlayerAiQuickActionMountedStable()) {
     return false;
@@ -283,40 +232,24 @@ export function resetPlayerAiQuickActionRetryCount(): void {
   playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 }
 
-// 显式启动入口：绑定 layout 监听并挂 observer。bind/observe 各自带幂等守卫
-// （layoutBound / observer 槽位），重复调用不会重复绑。
 export function startPlayerAiQuickAction(): void {
   bindPlayerAiQuickActionLayoutEvents();
   startPlayerAiQuickActionObserver();
-  // observer 只在 DOM 变化时回调，初始挂载需要主动 sync 一次。走帧内快车道
-  // （delayMs=0 → rAF）而不是 120ms 定时器：播放器容器通常已就绪，差的是它
-  // 完成布局的那一帧——等一帧即挂，定时器路径在首载负载下会被拖到 200ms+。
   schedulePlayerAiQuickActionSync(0);
 }
 
-// 显式停止入口：断开 observer、摘除全部本模块监听（含挂在宿主元素上的游标
-// 监听，修复移除→重建时的泄漏）、清理 retry 定时器与计数并移除按钮。
 export function stopPlayerAiQuickAction(): void {
-  // S3：先摘样式再移除按钮——按钮在样式摘除的瞬间仍按旧规则渲染，摘除后
-  // 节点立即被移除，无可见中间态；下次 start 重挂（mounted Map 幂等）。
   removePlayerAiStyles();
   if (playerAiObserverScope) {
-    // 退订共享容器调度器（不直调共享 observer.disconnect()，避免影响同容器其它订阅方）
     playerAiObserverScope.dispose();
     playerAiObserverScope = null;
   }
   playerAiState.setObserver(null);
   unbindPlayerAiQuickActionLayoutEvents();
   unbindPlayerAiQuickActionCursorSync();
-  // retry 复用 sync 定时器（schedulePlayerAiQuickActionRetry → scheduleSync），
-  // 清掉挂起句柄（rAF 或定时器，见 cancelPlayerAiQuickActionSync）与计数，
-  // 避免 stop 后残留回调再次尝试挂按钮。
   cancelPlayerAiQuickActionSync();
   resetPlayerAiQuickActionRetryCount();
   removePlayerAiQuickActionButton();
-  // 校准标志随生命周期复位：SPA 换视频后控制条重新水合，容器几何可能再次
-  // 变化，新装载窗口应重新获得一次性复校保护，而不是只校准内容脚本存活期内
-  // 的第一个视频。
   playerAiSubtitleControlCalibrated = false;
   liveQuickActionToggleHandler.reset();
   liveQuickActionTargetButton = null;
@@ -327,15 +260,10 @@ export function startPlayerAiQuickActionObserver(): void {
     return;
   }
 
-  // 记录分流（性能工单）：childList 用于挂载/摘除与结构变化的发现，必须走
-  // 全量 sync（delayMs=0 的帧内快车道）；纯属性记录（播放中进度条 width、
-  // 弹幕、B 站自己的 class 抖动都落在 subtree 的 style/class 上）在按钮已就位
-  // 时走轻量路径，未就位（装载窗口）仍落回全量 sync，行为与短路前一致。
   const sync = (records: MutationRecord[] = []) => {
     if (!records.some((record) => record.type === "childList") && tryRefreshPlayerAiQuickActionVisuals()) {
       return;
     }
-    // 0 → 帧内快车道（rAF）：DOM 变化后等一帧让 rect 落定即挂，避免 120ms 防抖
     schedulePlayerAiQuickActionSync(0);
   };
 
@@ -382,17 +310,9 @@ function unbindPlayerAiQuickActionLayoutEvents(): void {
   playerAiState.setLayoutBound(false);
 }
 
-// 挂载同步的调度器（delayMs === 0 走帧内快车道）：0 用 requestAnimationFrame，
-// 其余用 setTimeout。为什么快车道必要：首挂载必须等播放器完成布局，而合成帧
-// 之后就能拿到正确 rect，比任何 ≥100ms 的退避拍都快一个量级；实测首挂载的
-// setTimeout(120) 在页面首载负载下会被拖到 200–400ms。同步槽位以符号区分两种
-// 句柄（正数 = setTimeout id，负数 = rAF id），保持 state 单一槽位不变。
 export function schedulePlayerAiQuickActionSync(delayMs = 120): void {
   cancelPlayerAiQuickActionSync();
   if (delayMs === 0) {
-    // rAF 句柄另挂到 window 上：用例间 vi.resetModules() 换注册表后，上一注册表
-    // 排的帧仍会在下一用例的 fake 时钟里开火（本文件头注记的残留时钟问题），
-    // beforeEach 需要能按 id 取消上一注册表的帧。
     const rafId = window.requestAnimationFrame(() => {
       playerAiState.setSyncTimer(0);
       syncPlayerAiQuickActionButton();
@@ -421,17 +341,11 @@ function cancelPlayerAiQuickActionSync(): void {
 }
 
 function schedulePlayerAiQuickActionRetry(): void {
-  // 帧内快车道（工单 button-injection-stability/03）：宿主控件/播放器容器的
-  // 就绪窗口只有几帧，先用 rAF 逐帧重试（预算 20 帧 ≈330ms），预算耗尽再回落到
-  // 退避定时器，避免长时间不可见时逐帧空转。
   if (playerAiQuickActionFrameRetriesLeft > 0) {
     playerAiQuickActionFrameRetriesLeft -= 1;
     schedulePlayerAiQuickActionSync(0);
     return;
   }
-  // 退避节奏加密（工单 button-injection-stability/01）：首拍 100ms、步进
-  // +100ms、封顶 1s（原 260ms 起步 / 2.5s 封顶——播放器容器未就绪时按钮最坏
-  // 以 2.5s 步长干等）。宿主门语义不变，只加密重试节拍。
   const delay = Math.min(100 * (playerAiQuickActionRetryCount + 1), 1000);
   playerAiQuickActionRetryCount += 1;
   schedulePlayerAiQuickActionSync(delay);
@@ -560,12 +474,9 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   mountPlayerLiveQuickAction(playerHost);
   mountPlayerInterpretQuickAction(playerHost);
 
-  // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
   playerAiQuickActionMountedWrap = wrap;
   playerAiQuickActionMountedHost = playerHost;
   playerAiQuickActionRetryCount = 0;
-  // 挂载成功即补满帧内快车道预算：下次「宿主重新就绪」（SPA 换片、阅读模式
-  // 进出后的重挂）同样从逐帧重试开始，不用等退避拍。
   playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
   if (!mountTimingLogged) {
     mountTimingLogged = true;
@@ -576,14 +487,12 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
 }
 
 function syncPlayerAiQuickActionButton(): void {
-  // 取输入
   const enabled = Boolean(state.settings?.enablePlayerAiQuickAction);
   const calibrated = playerAiSubtitleControlCalibrated;
   const hasSubtitleControl = enabled && !calibrated ? Boolean(findPlayerSubtitleControlNode()) : false;
   const mountedStable = enabled ? isPlayerAiQuickActionMountedStable() : false;
   const host = enabled ? findPlayerAiQuickActionHost() : null;
 
-  // 判定意图（纯函数，零 DOM 依赖）
   const decision = decidePlayerAiQuickAction({
     enabled,
     calibrated,
@@ -592,22 +501,18 @@ function syncPlayerAiQuickActionButton(): void {
     hasHost: Boolean(host)
   });
 
-  // 执行意图
   switch (decision) {
     case "none":
-      // 工单 08 决议 2：按钮常驻（阅读模式内/外都显示），仅设置开关门控挂载。
       removePlayerAiQuickActionButton();
       return;
 
     case "refresh-visuals":
-      // 已就位短路（性能工单）：只留幂等的视觉校准（值已在位则零写入）。
       tryRefreshPlayerAiQuickActionVisuals();
       playerAiQuickActionRetryCount = 0;
       playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
       return;
 
     case "unmount-retry": {
-      // 宿主缺失路径（拆按钮 + 清记录 + 退避重试）。
       const existing = document.getElementById("biliscript-player-ai-quick-action");
       const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
       existingWrap?.remove();
@@ -618,8 +523,6 @@ function syncPlayerAiQuickActionButton(): void {
     }
 
     case "recalibrate":
-      // 字幕控件校准信号（工单 first-button-ux/01）：未校准且控件已就绪 → 一次性
-      // 复校（清就位记录，全量重判宿主 + 重写视觉）。
       playerAiSubtitleControlCalibrated = true;
       clearPlayerAiQuickActionMountRecord();
       if (host) {
@@ -636,7 +539,6 @@ function syncPlayerAiQuickActionButton(): void {
 }
 
 export function removePlayerAiQuickActionButton(): void {
-  // 就位记录同步清空：按钮已摘，下次 sync 必须重跑完整路径才能补回。
   clearPlayerAiQuickActionMountRecord();
   if (playerAiState.playerAiQuickActionCursorHideTimer) {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
@@ -658,7 +560,6 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
   if (!host) {
     return;
   }
-  // 防重挂守卫语义保持：同一 host + 同一 wrap 不重复绑
   if (
     playerAiQuickActionCursorSync &&
     playerAiQuickActionCursorSync.host === host &&
@@ -666,8 +567,6 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
   ) {
     return;
   }
-  // 按钮移除重建会生成新 wrap（旧闭包仍挂在 host 上），换 host 或重建时
-  // 先摘掉旧监听再绑新的，否则每次移除→重建泄漏 4 个闭包监听
   unbindPlayerAiQuickActionCursorSync();
   const hideForIdle = () => {
     playerAiState.setCursorHideTimer(0);
@@ -711,8 +610,6 @@ function unbindPlayerAiQuickActionCursorSync(): void {
   playerAiQuickActionCursorSync = null;
 }
 
-// 字幕控件探测：工单 first-button-ux/01 起只服务校准信号（首次就绪一次性
-// 复校），不再是挂载硬门——宿主门（findPlayerAiQuickActionHost）过即挂。
 function findPlayerSubtitleControlNode(): Element | null {
   const controlRoots = Array.from(
     document.querySelectorAll(PLAYER_SUBTITLE_CONTROL_ROOTS_SELECTOR)
@@ -737,9 +634,6 @@ function isPlayerSubtitleControlNode(node: unknown): boolean {
   if (!(node instanceof Element)) {
     return false;
   }
-  // 本扩展自挂的播放器控件不算字幕控件：解读按钮自身就带「字幕」语义与
-  // bpx-player-ctrl-subtitle 类名，若计入则挂载完成后的下一次 sync 会把自己
-  // 刚挂的按钮误判成 B 站控制条水合，校准在控件真正就绪前就被消耗掉。
   if (node.closest("[data-biliscript-extension-node]")) {
     return false;
   }
@@ -808,8 +702,6 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
       throw new Error("AI 按钮未开启");
     }
     await exitPlayerFullscreenIfNeeded();
-    // 阅读模式外点击 = background 触发进入阅读模式；阅读模式内点击 = 直接定位
-    // 对话 tab。回包等待进入与定位完成，不把命令受理当作定位成功。
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");

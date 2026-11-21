@@ -1,7 +1,3 @@
-// conversation.ts
-// 会话生命周期 + 上下文 key 计算的纯函数模块（Candidate 7 抽取）。
-// 作为经典脚本加载，不依赖任何外部状态或 Chrome API。
-
 import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import type { AiContext } from "./types.js";
 export type { AiContext };
@@ -13,8 +9,6 @@ import {
 } from "../live/live-text-tool-history.js";
 
 export const MAX_SAVED_CONVERSATIONS = 60;
-
-// ============ 上下文 key ============
 
 interface BuildContextKeyPayload {
   bvid?: unknown;
@@ -51,11 +45,6 @@ function normalizeContextUrlForKey(value: unknown): string {
   }
 }
 
-// ============ 会话规范化 ============
-
-// 会话消息：基础形状 { role, content } 上条件透传联网搜索的 tool 字段
-//（spec §2.5，tool 轮消息从历史重建）——与 conversation-store 的
-// normalizeHistoryMessage 同一透传语义，读取与持久化两处共用。
 interface ConversationMessage {
   role: string;
   content: string;
@@ -67,10 +56,6 @@ interface ConversationMessage {
   stopped?: boolean;
 }
 
-// 图片白名单透传（image-input 路线 B，04 号票落盘策略）：数组非空且每项 mime/data
-// 均为非空字符串才保留，非法项丢弃（同 tool_calls 的宽容归一）；全被丢弃或字段
-// 缺失时返回 undefined——旧持久化记录零变化。conversation-store 加载侧复用同一
-// 判定，避免「什么算合法图片」出现第二份。
 export function normalizeImageParts(value: unknown): ImagePart[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const parts = value.filter((item): item is ImagePart => {
@@ -80,12 +65,6 @@ export function normalizeImageParts(value: unknown): ImagePart[] | undefined {
   return parts.length ? parts : undefined;
 }
 
-// 落盘保留策略（image-input 04 号票）：一个会话最多留最近一张图——最后一条带图
-// 消息的最后一张，其余图片整条摘掉，最坏体积被压到每会话 ≤1MB。
-// 这里**不写文本占位**：占位是请求组装期的事（ai/context 的 buildMessages），
-// 写进 content 会让历史消息在界面上显示出占位文本。
-// 非保留位一律摘掉 images 字段（含非法项 / 空数组）：与加载侧的白名单同向——
-// 落盘记录里的 images 要么是那一张有效图，要么不存在。除 images 外的字段原样。
 export function retainLatestImage<T extends object>(messages: T[]): T[] {
   const fields = messages.map((message) => (message as { images?: unknown }).images);
   let keepIndex = -1;
@@ -96,7 +75,6 @@ export function retainLatestImage<T extends object>(messages: T[]): T[] {
     }
   }
   if (!fields.some((value) => value !== undefined)) {
-    // 全无 images 字段：原数组原样返回（旧记录零变化，不做无谓拷贝）。
     return messages;
   }
   return messages.map((message, index) => {
@@ -202,13 +180,6 @@ export function resolveConversationStorageKey(rawKey: unknown, contextRef: AiCon
   return String(rawKey || "").trim();
 }
 
-// ============ 上下文引用 ============
-
-// AI 上下文 ref 单一构造器：15 字段（14 个视频身份/字幕轨字段 + chapters）。
-// 原三份手写挑选清单（context-resolver 的解析入参归一化、会话持久化 contextRef、
-// 占位上下文）统一收敛于此；bvid 缺失时从 url 回落提取；chapters 为数组时
-// 透传、缺失/非法时 undefined（消费方均以 Array.isArray 容忍，旧持久化会话
-// 的 ref 无此字段也自然落到 undefined）。
 export function buildAiContextRef(context: unknown): AiContext {
   const value = context && typeof context === "object" ? (context as Record<string, unknown>) : {};
   const url = String(value.url || "").trim();
@@ -240,8 +211,6 @@ export function buildContextPlaceholder(ref: unknown): AiContext | null {
     hotComments: []
   };
 }
-
-// ============ 标题 ============
 
 export function buildConversationTitle(context: AiContext | null | undefined): string {
   const rawTitle = String(context?.title || "当前页面").trim() || "当前页面";
@@ -306,8 +275,6 @@ function extractConversationPageSuffix(context: AiContext | { url?: string; page
   return pageIndex > 1 ? `-P${pageIndex}` : "";
 }
 
-// ============ ID / 时间 ============
-
 export function generateConversationId(): string {
   return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -321,8 +288,6 @@ export function formatConversationTimestamp(value: unknown): string {
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
-
-// ============ 匹配 / 比较 ============
 
 export function doesConversationMatchCurrentContext(
   conversation: { kind?: unknown; contextKey?: unknown; contextRef?: unknown; contextUrl?: unknown } | null | undefined,

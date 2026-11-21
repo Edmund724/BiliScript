@@ -1,33 +1,17 @@
-// 「概览数据管线」三片之编排（arch-slim-3 #11 自 ai/analysis.ts 切出；ADR-0027 升级）：
-// 分章来源裁定、短视频单发直通、超长视频滑动状态卡接力 + L0 行号金句回填 + L1 章节目录固化、
-// 两级缓存接线、成本护栏与 inflightOverviews promise 复用（全仓唯一的 analysis 模块态）。
-// 对外经 analysis.ts 壳再导出。
-
-// source key（轨身份编码单点）归键位叶 subtitle/source-key；纯签名与归一化归 subtitle/signature。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createAiArtifactFamily } from "../subtitle/ai-artifact-cache.js";
-// 概览请求的传输层（overview-offscreen-transport）：content 直发服从网页 CORS，
-// 平台网关的预检白名单不含 Anthropic 的 x-api-key / anthropic-version（实测
-// ModelScope），故概览的每一次调用都经 offscreen 代发（长请求宿主，见模块头注）。
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
 import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
-// 空正文重试的触发判定与预算（empty-text-retry.ts，与 chat 链同源）。
 import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
-// 「加倍重跑还值不值得发」的判定（learned-budget.ts）：平台学到的上限已到顶时，
-// 加倍请求会与上一次完全相同，重跑只是白花一次调用。
 import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
 import { budgetScaleSuffix } from "./segment-cache.js";
-// 段缓存键位字段清单与命名投影的单源（零依赖叶，候选 5）：概览族的键位装配不再手抄
-// 字段名或强转口径，与 SW 段缓存装配 / offscreen 出站点 / 协议载荷类型同一份表。
 import { segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
-// 成本护栏 token 数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与阶梯链
-// （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
 import { estimateTokensFromChars } from "./usage-stats.js";
 import { validateAnalysis, type OverviewAnalysis } from "./analysis-validate.js";
 import {
@@ -41,8 +25,6 @@ import {
   STATE_RELAY_SYSTEM_PROMPT,
   type BuiltAnalysisPrompt
 } from "./analysis-prompts.js";
-// 分章计划单源（arch-review-2026-09 候选 2）：来源裁定的解释、越界过滤、切段输入与
-// 末章界全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
 import { resolveChapterPlan, flagMissingChapterSummaries, type ChapterPlan } from "./chapter-plan.js";
 import { normalizeL0SubtitleLines } from "./l0-bm25.js";
 import {
@@ -67,16 +49,9 @@ import {
 } from "./state-relay.js";
 import type { L0SubtitleLine, L1ChapterNode, L1QuoteRef, StateRelayCard } from "./long-video-hybrid-types.js";
 import type { ChatMessage, ProviderRequest } from "./types.js";
-// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 
-// 概览分段产物缓存键前缀（键形与 biliscript_lvs_summary_ 同族：…+ 段序号 [+ 预算代]）。
-// 两族（整份概览产物在 ai/l1-chapter-index.ts）均已注册进 core/cache-lru.ts 的 CACHE_FAMILIES。
 const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
-
-// ============================================================
-// 缓存（扩展源 IndexedDB `ai_artifacts` + SW RPC + 懒迁移；读取失败静默返回 null）
-// ============================================================
 
 interface RelaySegmentCacheEntry extends OverviewAnalysis {
   relayVersion: 1;
@@ -106,10 +81,6 @@ const analysisSegmentFamily = createAiArtifactFamily<OverviewAnalysis>({
   logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
-/**
- * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]，
- * 尾部再挂字幕签名），仅族前缀不同——产物不共享、键位机制共享。
- */
 export function buildAnalysisSegmentCacheKey(
   context: Record<string, unknown> | undefined | null,
   segmentIndex: number | string | unknown,
@@ -122,10 +93,6 @@ export function buildAnalysisSegmentCacheKey(
   );
 }
 
-// ============================================================
-// 编排入口：双路径分派 + promise 复用 + 成本护栏 + L1 缓存固化
-// ============================================================
-
 type ChatCompletionFn = typeof _chatCompletion;
 
 interface TokenProgressState {
@@ -137,20 +104,16 @@ type BuildCostGuardNoticeFn = typeof _buildCostGuardNotice;
 
 interface RunOverviewAnalysisArgs {
   provider: ProviderRequest;
-  /** AI 上下文（AiContext 形状）：bvid/cid/字幕轨三键位 + title/author/videoDescription + subtitleBody/chapters。 */
   context: Record<string, unknown>;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
-  /** 跳过整份缓存读取重新生成（分段缓存仍复用——重试只重跑未落盘段）。 */
   forceRefresh?: boolean;
 }
 
 interface RunOverviewAnalysisDeps {
   chatCompletion?: ChatCompletionFn;
   buildCostGuardNotice?: BuildCostGuardNoticeFn;
-  /** 成本护栏确认钩子（≥5 次调用时）；未注入则不阻塞、直接生成。 */
   askCostGuard?: (message: string) => Promise<unknown>;
-  /** 分段进度回调（可选，数据层无 port）。 */
   onProgress?: (notice: string) => void;
 }
 
@@ -166,9 +129,6 @@ function makeEmptyAnalysisError(): Error {
   return new Error("模型没有产出有效的简介、章节或金句，请重试。");
 }
 
-/**
- * 流式模型请求统一入口（传输钉死 offscreen 代发，含空正文与 finish_reason=length 加倍重试）。
- */
 async function requestStreamedAnalysisText({
   provider,
   systemPrompt,
@@ -340,13 +300,6 @@ async function ensureL1IndexOnCacheHit({
   }
 }
 
-/**
- * 概览生成编排入口：
- * 1. 分流阈值判定：常规短视频（字幕跨度 ≤30 分钟且 ≤200k 字符）维持单次直通流程，结束后顺带构建 L1 缓存；
- *    超长视频按 10～15 分钟（对齐 5 分钟转写分片边界）切窗并执行「滑动状态卡串行接力 + L0 行号原文回填」。
- * 2. 轻量收尾汇总：仅基于各段汇总的 L1 章节节点与最终状态卡提炼全片总体简介，并固化 L1 缓存。
- * 3. 容错与断点续跑：单窗失败不中断整体生成（推进降级状态卡并记录 failedRanges）；每窗结果落段缓存供重试复用。
- */
 export function runOverviewAnalysis(
   { provider, context, signal, thinkingLevel, forceRefresh = false }: RunOverviewAnalysisArgs,
   deps: RunOverviewAnalysisDeps = {}
@@ -383,7 +336,6 @@ export function runOverviewAnalysis(
       try {
         await promise;
       } catch {
-        // 拒绝在此收口，仅保证清理执行。
       } finally {
         cleanup();
       }
@@ -445,7 +397,6 @@ async function executeOverviewRun({
     budgetChapters: chapterPlan.budgetChapters
   });
 
-  // —— 短视频单次直通路径（保持原有流程并在完成后顺带固化 L1 缓存）——
   if (!relayDecision.shouldRelay) {
     const startSeconds = Math.max(0, Math.floor(Number(normalizedItems[0]?.from) || 0));
     const built = buildAnalysisPrompt({
@@ -482,7 +433,6 @@ async function executeOverviewRun({
     return analysis;
   }
 
-  // —— 超长视频：10～15 分钟平滑窗口 + 滑动状态卡串行接力 + L0 行号原文回填 ——
   const windows = relayDecision.windows;
   if (typeof askCostGuard === "function") {
     await runCostGuard({
@@ -614,7 +564,6 @@ async function executeOverviewRun({
     ...(failedRanges.length > 0 ? { failedRanges } : {})
   };
 
-  // —— 轻量收尾汇总：仅基于 L1 章节节点与最终状态卡提炼全片脉络 ——
   onProgress?.("正在生成全片简介…");
   try {
     const summaryBuilt = buildStateRelayFinalSummaryPrompt({

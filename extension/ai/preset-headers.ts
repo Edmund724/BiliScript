@@ -1,19 +1,3 @@
-// ai/preset-headers.ts — 平台预设额外要求的请求头（查表单点）。
-//
-// 平台会话头的**事实主人在 compat-vocab 词表**（怪癖 sessionHeader）：本模块只
-// 取头名并填值，不再自建「哪个平台要什么头」的名单——新增要会话头的平台 =
-// 词表 PLATFORM_QUIRKS 里加一行。
-//
-// Opencode Go：官方文档「Where can I use it?」要求客户端在 x-opencode-session 里
-// 给每个对话一个稳定会话 id（供平台做路由与 prompt 缓存），不带这个头请求不被
-// 接受。completion.ts（唯一 fetch 点）是唯一消费点。
-//
-// 会话 id 的来源是宿主给的会话身份（provider.sessionId = chat 会话 id，见
-// entry/offscreen.ts 的接线与 chat/chat-runtime.ts 的物化）：同一会话跨轮、
-// 跨重载映射到同一个 id（确定性派生，不引入随机），新会话得到新 id——正对
-// 「每个对话一个稳定会话 id」。没有会话身份的调用（选区解释、连通性探针、
-// 旧宿主）现造一个随机 id：这些调用本身就不构成「一个对话」。
-
 import { fnv1a32 } from "../shared/text-primitives.js";
 import { quirkWireValue } from "./compat-vocab.js";
 import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
@@ -24,7 +8,6 @@ export interface PresetHeaderInput {
   sessionId?: unknown;
 }
 
-// 该预设要求的额外请求头；无要求返回空对象（调用方展开合并）。
 export function presetRequestHeaders(provider?: PresetHeaderInput | null): Record<string, string> {
   const header = quirkWireValue(resolvePlatformQuirkId(provider?.presetId, provider?.baseUrl), "sessionHeader");
   if (!header) {
@@ -33,16 +16,11 @@ export function presetRequestHeaders(provider?: PresetHeaderInput | null): Recor
   return { [header]: sessionIdFor(provider?.sessionId) };
 }
 
-// 会话 id：有身份则确定性映射成 UUID 形状，无身份则随机一个。不直接拿会话 id
-// 文本当值——平台文档示例与各已适配客户端（Hermes / Codex / Claude Code）给的
-// 都是 UUID，形状没对上不值当赌一把。
 export function sessionIdFor(identity: unknown): string {
   const normalized = String(identity || "").trim();
   return normalized ? uuidFromSeed(normalized) : randomUuid();
 }
 
-// 确定性派生：FNV-1a 取四个不同种子填满 16 字节（同输入恒同输出，不同输入
-// 实际不可区分到同一结果），再置 UUIDv4 的版本/变体位收口形状。
 const SESSION_SEEDS = [0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f] as const;
 
 function uuidFromSeed(input: string): string {
@@ -57,9 +35,6 @@ function uuidFromSeed(input: string): string {
   return asUuid(bytes);
 }
 
-// 随机 id：crypto.getRandomValues 在非安全上下文（页面为 http 的极端情形）仍可用，
-// 故不依赖只在安全上下文存在的 crypto.randomUUID；取不到实现时退到 Math.random
-// ——会话 id 是标识不是凭据，不需要密码学强度。
 function randomUuid(): string {
   const bytes = new Uint8Array(16);
   const webCrypto = globalThis.crypto;
@@ -74,7 +49,6 @@ function randomUuid(): string {
 }
 
 function asUuid(bytes: Uint8Array): string {
-  // UUIDv4 的版本/变体位（形状对齐平台示例与各已适配客户端）。
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex: string[] = [];

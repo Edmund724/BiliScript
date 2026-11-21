@@ -1,22 +1,10 @@
-// ladder.ts — 聊天「阶梯」分派策略（ADR-0001）的深模块：
-// 预算内单次流式 → 超预算 Map-Reduce 分段编排（含追问压缩、成本护栏）→
-// 单次溢出转 Map-Reduce 重试一次。所有依赖经 deps 注入（含 postMessage
-// 所用的 port），便于在无 chrome 环境下逐分支注入 fake 做测试。
-// offscreen.js 只负责接线：abort controller、空闲超时、cost-guard Promise 簿记。
-// 溢出语义（候选 03 起）：streamChat 仅在 context-length 溢出时抛带
-// .overflow 标记的错误，本模块 catch 查标记分流；其余失败经 port error 回吐。
-// 素材预算判定的唯一入口即本模块分派前的 buildBudgetPlan（client 不再重判）。
 import { streamChat as _streamChat } from "./client.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
-// 成本护栏数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与概览链
-// （analysis-orchestrate）共用同一实现，禁止两处各算一份。
 import { estimateTokensFromChars } from "./usage-stats.js";
-// 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
-// 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
 import { normalizeImageParts } from "./conversation.js";
 import { loadL1IndexViaProxy } from "./segment-cache-proxy.js";
 import { normalizeL0SubtitleLines } from "./l0-bm25.js";
@@ -31,7 +19,6 @@ import type { chatCompletion as ChatCompletionFn } from "./completion.js";
 import { formatClock } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
-// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ImagePart, ProviderRequest } from "./types.js";
 import type { FetchHotCommentsFn } from "./tool-loop.js";
@@ -46,23 +33,11 @@ export interface ChatMsg {
   context?: ChatContext;
   history?: ChatMessage[];
   prompt?: string;
-  // 档位偏好：**未归一的外部值**——端口载荷（wire 值是外部输入，按设计宽容解析：合法档位 /
-  // 缺省 / 脏值都可能到）。本层只透传，归一施加点在请求侧的两个解析入口
-  // （resolveThinkingProfile / resolveThinkingAdjustment，见 ai/thinking-levels.ts 的
-  // ThinkingLevelInput）：链上再归一次 = 二次归一，解析入口「未归一外部值」的声明失真。
   thinkingLevel?: ThinkingLevelInput;
-  // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
-  // 压缩后的 WebP base64）。port 载荷宽容解析（normalizeImageParts 白名单）。
   images?: unknown;
   [key: string]: unknown;
 }
 
-// provider 在本模块只被读两个字段——baseUrl / model，用于成本护栏数字的作用域键
-// （ai/usage-stats.ts 学到的实测 chars→token 比按 (baseUrl, model) 分桶，与
-// learned-budget 同源）；其余字段原样透传给 deps，本模块从不读。id/apiKey 是给
-// 调用方看的文档性声明，承重的是索引签名。刻意不换成 types.ts 的
-// ProviderRequest——本文件的 deps 契约用结构化窄面，让注入的 fake 少填字段
-// （同下文 BuildBudgetPlanFn 的刻意不合并先例）。
 export interface ChatProvider {
   id?: string;
   apiKey?: string;
@@ -75,13 +50,9 @@ export interface ChatPort {
   postMessage(message: unknown): void;
 }
 
-// ladder deps 契约的预算计划窄面：mode 必选，估算字段可选（注入方假实现只给
-// mode 也能过编译）。字段名单源自 ai/types 的同名全量定义，经 Pick 单源收窄。
 export type BudgetPlan = Pick<import("./types.js").BudgetPlan, "mode"> &
   Partial<Pick<import("./types.js").BudgetPlan, "estimatedCalls" | "estimatedTokens" | "totalChars">>;
 
-// executeSearch 的窄面（ai/tool-loop.ts 的 ToolLoopSearchOutcome 同形，此处
-// 结构化窄面，测试注入方少填字段也能过编译）。
 export interface WebSearchRuntime {
   maxToolCalls: number;
   executeSearch: (query: string) => Promise<{ results: unknown[]; platform: string }>;
@@ -92,15 +63,11 @@ export interface StreamChatArgs {
   context: ChatContext;
   userPrompt: string;
   history: ChatMessage[];
-  // 图片输入（image-input 路线 B）：本轮用户消息的图片（无图时 undefined）。
   userImages?: ImagePart[];
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   port: ChatPort;
   signal: AbortSignal | null;
   onActivity?: () => void;
-  // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop 的工具循环；Map-Reduce
-  // 归约轮剥离 + notice，追问压缩与单次路径透传。
   webSearch?: WebSearchRuntime;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   fetchHotComments?: FetchHotCommentsFn;
@@ -111,11 +78,9 @@ export type StreamChatFn = (args: StreamChatArgs) => Promise<unknown>;
 export interface OrchestrateMapReduceArgs {
   provider: ChatProvider;
   context: ChatContext;
-  // null = 不注入调用方预算计划，由 map-reduce 现场重算（单次路径溢出重转用）。
   plan: BudgetPlan | null;
   port: ChatPort;
   signal: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   onProgress: (notice: string) => void;
 }
@@ -130,20 +95,6 @@ export interface ResolveFollowupContextArgs {
 
 export type ResolveFollowupContextFn = (args: ResolveFollowupContextArgs) => Promise<ChatContext | null>;
 
-// 以下两个注入函数类型与 CostGuardNotice 仅本模块的 deps 契约使用（arch-slim-2/08
-// 裁定：与 ai/analysis.ts 的同名私有声明形状不同——本侧严格（必选参数/number 档）、
-// analysis 侧宽松（可选属性/unknown 档，供测试 fake 少填字段），刻意不合并、各自
-// 私有，消除「同名平行导出」）。
-//
-// 2026-10-02 重评估（B2 卡片重提「10 deps 中 6 个假想 seam」，并称重开 09 候选 5）：
-// 结论不采纳拆缝。保留依据：六条带缺省缝（streamChat / orchestrateMapReduce /
-// resolveFollowupContext / buildBudgetPlan / buildCostGuardNotice / trimRecentTurns）
-// 每条都有测试 adapter 驱动真实分支（tests/ai/ladder.test.ts、tests/ai/cost-guard-scope
-// 刻意跑真实 buildBudgetPlan/buildCostGuardNotice）；onActivity 是 ladder → streamChat
-// 调用结构的必然透传（本模块只转发，不自身调用），非假想缝。强收的负收益：18+5 例测试
-// 须改 vi.mock，`as unknown as` 从生产 4 处挪到测试更多处，窄面「让注入 fake 少填字段」
-// 的价值一并丧失。不再重开的条件：仅当某条缝出现第二个生产 adapter（而非测试 adapter）
-// 时再评估。
 type BuildBudgetPlanFn = (args: { body: unknown[]; chapters: unknown[] }) => BudgetPlan;
 
 interface CostGuardNotice {
@@ -160,8 +111,6 @@ export interface RunLadderChatArgs {
   provider: ChatProvider;
   port: ChatPort;
   signal: AbortSignal | null;
-  // 联网搜索运行时（spec §2.3）：offscreen 在 webSearchEnabled 且已配置激活
-  // 平台时注入；undefined = 本轮无联网（toggle 关 / 未配置 / 解析失败）。
   webSearch?: WebSearchRuntime;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   fetchHotComments?: FetchHotCommentsFn;
@@ -177,10 +126,7 @@ export interface RunLadderChatDeps {
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
   onActivity?: () => void;
   pauseIdleTimeout?: () => void;
-  // 08 票 SW 保活缝：运行期间持有 offscreen → SW 长连端口防冷启动，
-  // 缺省真实 acquire（无 chrome 环境返回 null，跳过保活）。
   acquireSwKeepalive?: () => SwKeepaliveHandle | null;
-  // ADR-0027：L1 目录读取缝（缺省经 segmentCacheProxy 到 SW 宿主）与阶段 A 路由器缝
   loadL1Index?: (context: ChatContext) => Promise<L1VideoIndexCacheRecord | null>;
   routeChatCompletion?: typeof ChatCompletionFn;
   routerTimeoutMs?: number;
@@ -303,19 +249,6 @@ async function preCaptureVisualFramesIfNeeded(input: {
   }
 }
 
-/**
- * 执行阶梯分派。args：
- * - msg: offscreen-chat 端口收到的 chat 消息（context / history / prompt / thinkingLevel）
- * - provider: 已注入 apiKey 的 provider 对象
- * - port: 回吐 notice / error / stopped 的端口
- * - signal: 本次请求的 AbortSignal（由 offscreen 的 abort controller 提供）
- * deps：streamChat / orchestrateMapReduce / resolveFollowupContext / buildBudgetPlan /
- *       buildCostGuardNotice / trimRecentTurns / askCostGuard，以及两个簿记回调：
- * - onActivity(): 收到流式活动时重挂空闲超时（offscreen.armIdleTimeout）
- * - pauseIdleTimeout(): 等待用户成本确认期间暂停空闲超时计时
- * 全部可注入（默认用真实模块），便于在无 chrome 环境下逐分支注入 fake 做测试；
- * askCostGuard 依赖 offscreen 的 Promise 簿记，必须由 offscreen 注入。
- */
 export async function runLadderChat(
   { msg, provider, port, signal, webSearch, captureCurrentVideoFrame, fetchHotComments }: RunLadderChatArgs,
   deps: RunLadderChatDeps
@@ -329,19 +262,12 @@ export async function runLadderChat(
   const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
 
-  // 08 票 SW 保活：本次运行（单次流式 / Map-Reduce / 追问压缩）全程持有
-  // offscreen → SW 长连端口，防段缓存消息反复冷启动 SW（30s 空闲回收）；
-  // 覆盖成本护栏等待与追问小结加载，结束/异常经 finally 释放。
   const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
   try {
-    // 阶梯分派：预算内（≤200k 字符）走单次流式；超预算走 Map-Reduce 分段编排。
     const plan = buildBudgetPlan({
       body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
       chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
     });
-    // 图片输入（image-input 路线 B）：本轮用户消息的图片经白名单归一后随两条
-    // streamChat 路径（追问压缩 / 单次）下发；非法项丢弃、空则 undefined。
-    // Map-Reduce 主路径不进 history、各段现造 user 消息，图片不参与（04 号票）。
     const userImages = normalizeImageParts(msg.images);
     const l0Lines = normalizeL0SubtitleLines(
       Array.isArray(msg.context?.subtitleBody)
@@ -357,7 +283,6 @@ export async function runLadderChat(
     const rawHistory = Array.isArray(msg.history) ? msg.history : [];
     const userPrompt = msg.prompt || "";
 
-    // 统一长视频渐进式单跳流式执行封装（Fast Path 与 Stage A+B 共用）
     const runHybridStreamTurn = async (args: {
       baseContext: ChatContext;
       l1Index: L1VideoIndexCacheRecord | null;
@@ -415,7 +340,6 @@ export async function runLadderChat(
       }
     };
 
-    // 1. 交互锚点免路由直通（Fast Path）：划词解释 / 显式时间戳 / 当前播放进度
     if (isLongVideo && l0Lines.length > 0) {
       const fastPathPlan = detectInteractionAnchorPlan({
         userPrompt,
@@ -436,7 +360,6 @@ export async function runLadderChat(
     }
 
     if (plan.mode === "map-reduce") {
-      // 超预算长视频：优先尝试 L1 缓存与已有分段追问上下文，命中则走两阶段单跳混合召回
       if (l0Lines.length > 0) {
         const [l1Index, followupContext] = await Promise.all([
           loadL1Index(msg.context || {}).catch(() => null),
@@ -460,17 +383,11 @@ export async function runLadderChat(
         }
       }
 
-      // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。顺序
-      //（预估 → 判定 → 询问 → 拒绝）由 ai/cost-guard.ts 的 runCostGuard 单源，本链只
-      // 注入自己的询问与拒绝出口。token 数字由本次字符数经唯一换算函数得出（有实测比
-      // 用实测比、无样本回落 CHAR_PER_TOKEN）；它纯展示——shouldPrompt 只看调用数，
-      // 判定路径零变化。
       const declined = await runCostGuard({
         estimatedCalls: plan.estimatedCalls,
         estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
         buildNotice: buildCostGuardNotice,
         ask: async (message) => {
-          // 等待用户成本确认期间暂停空闲超时计时（确实要问时才走到这里）。
           pauseIdleTimeout?.();
           return askCostGuard(port, message);
         },
@@ -482,11 +399,7 @@ export async function runLadderChat(
         return;
       }
 
-      // 编排期间整体暂停空闲超时：Map-Reduce 全部为非流式 chatCompletion，段调用
-      // 期间没有任何流式活动可重挂 90 秒窗口，慢模型单段超窗会误杀整个运行（根治
-      // [90s-idle] 诊断）。进度仍逐段回吐；真正挂死由用户「停止」兜底。
       pauseIdleTimeout?.();
-      // 联网开关开启时归约轮静默禁用搜索（spec Q12：归约轮不联网）。
       if (webSearch) {
         port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
       }
@@ -498,14 +411,12 @@ export async function runLadderChat(
         signal,
         thinkingLevel: msg.thinkingLevel,
         onProgress: function (notice: string) {
-          // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
           port.postMessage({ type: "notice", data: notice });
         }
       });
       return;
     }
 
-    // 预算内长视频（如 30 分钟~5 小时）且已有 L1 目录缓存：升级为两阶段单跳混合召回
     if (isLongVideo && l0Lines.length > 0) {
       const l1Index = await loadL1Index(msg.context || {}).catch(() => null);
       if (l1Index) {
@@ -517,9 +428,6 @@ export async function runLadderChat(
       }
     }
 
-    // 单次路径 context-length 溢出 → 自动转 Map-Reduce 重试一次
-    //（仅一次：map-reduce 各调用自身更短，再溢出就抛出错误；abort controller 复用，stop 仍可中止）。
-    // streamChat 仅在 HTTP context-length 溢出时抛带 .overflow 标记的错误。
     try {
       await streamChat({
         provider,
@@ -539,24 +447,18 @@ export async function runLadderChat(
       if (!(e as { overflow?: boolean }).overflow) {
         throw e;
       }
-      // 编排期间整体暂停空闲超时（语义同上方 map-reduce 主路径）。
       pauseIdleTimeout?.();
-      // 溢出转 Map-Reduce 同为归约轮：静默禁用搜索 + notice（spec Q12）。
       if (webSearch) {
         port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
       }
       await orchestrateMapReduce({
         provider,
         context: msg.context || {},
-        // 不复用 single 档的 plan：它的 segments 为空，原样注入会让 Map-Reduce
-        // 首轮跳过重算、直接产出空草稿（小窗口模型真实溢出而预算判定为 single
-        // 时的典型故障）。传 null 由 map-reduce 现场重算。
         plan: null,
         port,
         signal,
         thinkingLevel: msg.thinkingLevel,
         onProgress: function (notice: string) {
-          // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
           port.postMessage({ type: "notice", data: notice });
         }
       });

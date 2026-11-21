@@ -1,9 +1,3 @@
-// extension/ai/context-resolver.ts
-// AI 对话上下文的纯网络路径适配器：仅在「无页面 / 无标签页」场景被消费，
-// 经 bgFetchJson 拉取视频元信息/分 P/字幕轨与正文/章节，复用 bilibili/video-api 与
-// subtitle/body 完成分P解析、候选回退、时长校验与缓存读写，再交付
-// core/context-payload 的 createFetchedContextPayload 组装。
-
 import {
   fetchVideoMeta,
   fetchSubtitleBundle,
@@ -20,8 +14,6 @@ import { createFetchedContextPayload } from "../core/context-payload.js";
 import type { ChapterItem, SubtitleBodyItem, SubtitleOption } from "../core/state.js";
 import { buildAiContextRef } from "./conversation.js";
 import type { AiContext } from "./types.js";
-
-// ===== 上下文解析 =====
 
 function resolveQueryPageIndex(ref: AiContext): number {
   const urlPage = extractPageIndexFromUrl(ref.url || "");

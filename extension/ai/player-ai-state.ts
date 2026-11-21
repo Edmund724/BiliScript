@@ -1,9 +1,3 @@
-// ===== Player-AI state =====
-//
-// playerAi 状态微模块（随 ai 域内聚，自 core/state.ts 平移）：player-ai.js
-// 动态 chunk 独占读写；reader/shell.ts 的 enterReaderShell 在进入阅读模式时经
-// suppressUntil 抑制快捷按钮弹出，无需加载整个 player-ai chunk。
-
 type PlayerAiBusinessState = {
   playerAiQuickActionObserver: MutationObserver | null;
   playerAiQuickActionLayoutBound: boolean;
@@ -40,8 +34,6 @@ export const playerAiState: PlayerAiStateWritable = {
   setSuppressedUntil(value) { this.playerAiQuickActionSuppressedUntil = value; }
 };
 
-// reader-enter 的意图级写入点：抑制快捷按钮 2.5s（等阅读模式
-// URL 翻转与重域装载完成）。message-handler 只应表达意图，不碰具体槽位。
 export function suppressUntil(timestamp: number): void {
   playerAiState.setSuppressedUntil(timestamp);
 }

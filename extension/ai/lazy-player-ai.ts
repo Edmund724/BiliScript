@@ -1,33 +1,4 @@
-// ai/player-ai.ts 的按需加载器（候选4 分包；arch-slim-2/09 自 core/ 搬回 ai/：
-// 加载器跟随被加载模块的目录，subtitle/lazy.ts 先例）。
-//
-// 为什么惰性：player-ai 只在设置 enablePlayerAiQuickAction 开启时才有职责
-// （挂 observer、layout 监听、播放器快捷按钮）。该设置默认开启（2026-09 起，
-// core/defaults.ts；此前的默认 false 时代它对未开启用户从不出现），关闭态
-// 用户模块零装载、chunk 不下载——分包收益保留给关闭态。分包前它随单文件
-// bundle 常驻；分包后这里成为动态
-// import 边，esbuild 会把它连同其专属依赖切进 entry/chunks/，只在首次
-// start 需要时才下载。
-//
-// 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对
-// 路径按扩展自身 URL 解析（bootstrap 已用 chrome.runtime.getURL 的绝对路径
-// 拉起主包），无需也不应再经 getURL 拼绝对路径。
-//
-// 失败语义：加载失败清空缓存 promise，允许下次触发重试（例如扩展刚更新、
-// 旧 chunk 404 的过渡窗口内先失败、刷新设置开关后可恢复）。
-//
-// 「未加载」的语义约定（消费方依赖它做等价性判断）：模块未加载 ⇒ 快捷按钮
-// 从未挂上 ⇒ 一切「移除按钮 / 同步按钮」的请求都是 no-op，消费方据此跳过
-// 调用即可（stop/remove/sync 的幂等性由该不变量保证）。
-//
-// 加载器本体收拢于 shared/lazy-import.ts 的 createLazyLoader（与
-// reader/lazy-reader.ts、subtitle/lazy.ts、subtitle/fetcher.ts 的 ASR 回退装载
-// 同款），本模块保留仓库既有导出名。
-//
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
-// 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
-// 消费方实际调用的 player-ai 面：start/stop 供 content 的启停适配，remove 供
-// reader 壳关闭阅读视图，schedule/resetRetry 供设置变更后的快捷按钮同步。
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 interface PlayerAiDomain {
   startPlayerAiQuickAction(): void;
   stopPlayerAiQuickAction(): void;
@@ -40,13 +11,10 @@ import { createLazyLoader } from "../shared/lazy-import.js";
 
 const loader = createLazyLoader<PlayerAiDomain>(() => import("./player-ai.js"));
 
-// 按需加载 ai/player-ai.ts，同一文档内重复调用共享同一 promise。
 export function loadPlayerAi(): Promise<PlayerAiDomain> {
   return loader.load();
 }
 
-// 模块是否已存在加载请求（含仍在加载中）。消费方用它区分「未加载可跳过」
-// 与「已加载/加载中需继续走异步路径」。
 export function isPlayerAiLoaded(): boolean {
   return loader.isLoaded();
 }

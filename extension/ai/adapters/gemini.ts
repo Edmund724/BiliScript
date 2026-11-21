@@ -1,5 +1,3 @@
-// ai/adapters/gemini.ts — Gemini 原生 generateContent 协议适配器（ADR-0018）。
-// 手撸 fetch + SSE 逐块解析，零新增依赖，天然支持 AbortSignal。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { formatModelListHttpError } from "./http-error.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
@@ -21,7 +19,6 @@ export const GEMINI_ERROR_FINISH_REASONS = new Set([
   "FINISH_REASON_UNSPECIFIED"
 ]);
 
-/** finishReason 映射（借 pi-ai mapStopReason） */
 export function mapGeminiFinishReason(reason: string): string {
   switch (reason) {
     case "STOP":
@@ -36,7 +33,6 @@ export function mapGeminiFinishReason(reason: string): string {
   }
 }
 
-/** 429 错误分类：看 error.status/code 字段分流 quota 终态与限流，不只正则 message */
 export type GeminiErrorCategory = "quota" | "rate_limit" | "other";
 
 export function classifyGeminiError(bodyText: string): GeminiErrorCategory {
@@ -59,7 +55,6 @@ export function classifyGeminiError(bodyText: string): GeminiErrorCategory {
   return "other";
 }
 
-/** HTTP 错误体提取：按 { error: { code, message, status } } 提取 */
 export function extractGeminiErrorDetail(bodyText: string): string {
   try {
     const parsed = JSON.parse(bodyText) as {
@@ -74,7 +69,6 @@ export function extractGeminiErrorDetail(bodyText: string): string {
   return bodyText;
 }
 
-/** 响应 usage 采集：input = promptTokenCount - cachedContentTokenCount，output = candidatesTokenCount + thoughtsTokenCount */
 export function parseGeminiUsage(metadata: unknown): ChatUsage | undefined {
   if (!metadata || typeof metadata !== "object") return undefined;
   const m = metadata as Record<string, unknown>;
@@ -93,14 +87,12 @@ export function parseGeminiUsage(metadata: unknown): ChatUsage | undefined {
   return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
-/** 端点拼装：baseUrl 为 host 根，去尾部版本段避免 /v1beta/v1beta */
 export function buildGeminiEndpoint(baseUrl: string, options?: { model?: string; stream?: boolean }): string {
   const cleanBaseUrl = baseUrl.replace(/\/+$/, "").replace(/\/v1beta$/, "");
   const model = (options?.model ?? "{model}").replace(/^models\//, "");
   const action = options?.stream === false ? "generateContent" : "streamGenerateContent?alt=sse";
   return `${cleanBaseUrl}/v1beta/models/${model}:${action}`;
 }
-/** 宽容解析 tool query（用于 tool-call 事件） */
 export function parseToolArgs(rawArguments: string): { query: string } {
   try {
     const parsed = JSON.parse(rawArguments);
@@ -113,19 +105,16 @@ export function parseToolArgs(rawArguments: string): { query: string } {
   }
 }
 
-/** 主版本 ≥3 模型判断（按 pi-ai 口径，仅 gemini 主版本 ≥3 回放 id） */
 export function isGemini3OrHigher(model: string): boolean {
   const clean = model.replace(/^models\//, "");
   return /^(gemini-[3-9]|gemini-[1-9][0-9]|gemma-[4-9])/i.test(clean);
 }
 
-/** 清洗 id 为 [A-Za-z0-9_-] 且 ≤64 字符 */
 export function sanitizeGeminiCallId(id: string): string {
   const cleaned = id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
   return cleaned || "call_0";
 }
 
-/** 工具声明与配置转换：camelCase 强要求、parametersJsonSchema 完整 JSON Schema */
 export function toGeminiToolsAndConfig(tools: ChatToolDefinition[] | undefined): {
   tools?: Array<{ functionDeclarations: Array<{ name: string; description: string; parametersJsonSchema: Record<string, unknown> }> }>;
   toolConfig?: { functionCallingConfig: { mode: "AUTO" } };
@@ -155,7 +144,6 @@ interface PendingCall {
   responded: boolean;
 }
 
-/** 历史角色转换与严格交替合并、1:1 配对校验 */
 export function convertGeminiMessages(
   messages: ChatMessage[],
   model: string
@@ -165,7 +153,6 @@ export function convertGeminiMessages(
 } {
   const isG3 = isGemini3OrHigher(model);
 
-  // 1. 提取顶层首条 system 消息作为 systemInstruction（仅在遇到非 system 消息之前）
   let systemInstruction: { parts: Array<{ text: string }> } | undefined;
   let topSystemIdx = -1;
   for (let i = 0; i < messages.length; i++) {
@@ -183,7 +170,6 @@ export function convertGeminiMessages(
     }
   }
 
-  // 2. 遍历消息并处理 1:1 配对与角色转换
   const intermediateTurns: Array<{
     role: "user" | "model";
     parts: Array<Record<string, unknown>>;
@@ -193,7 +179,6 @@ export function convertGeminiMessages(
   let hasEncounteredNonSystem = false;
 
   for (let i = 0; i < messages.length; i++) {
-    // 忽略被提取为 systemInstruction 的顶层首条 system 消息
     if (i === topSystemIdx) {
       continue;
     }
@@ -204,7 +189,6 @@ export function convertGeminiMessages(
       if (!hasEncounteredNonSystem) {
         continue;
       }
-      // 中段 system 消息：包进 user turn
       if (typeof msg.content === "string" && msg.content !== "") {
         intermediateTurns.push({
           role: "user",
@@ -217,7 +201,6 @@ export function convertGeminiMessages(
     hasEncounteredNonSystem = true;
 
     if (msg.role === "assistant") {
-      // 遇到新的 assistant (model) 消息前，上轮 calls 必须全部已响应
       const unresponded = pendingCalls.find((c) => !c.responded);
       if (unresponded) {
         throw new Error(`Gemini 工具响应与调用未 1:1 配对: 工具调用 '${unresponded.name}' 缺失响应`);
@@ -259,7 +242,6 @@ export function convertGeminiMessages(
           }
         }
       } else {
-        // 先放文本或思考
         if (msg.thoughtSignature) {
           parts.push({
             ...(typeof msg.content === "string" ? { text: msg.content } : { text: "" }),
@@ -270,7 +252,6 @@ export function convertGeminiMessages(
         }
       }
 
-      // 再放 tool_calls（兼容 parts 只存放了 thought/text 的 assistant 消息）
       if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
         for (const call of msg.tool_calls) {
           if (parts.some((p) => p.functionCall && (p.functionCall as any).id === call.id)) {
@@ -304,7 +285,6 @@ export function convertGeminiMessages(
         intermediateTurns.push({ role: "model", parts });
       }
     } else if (msg.role === "tool") {
-      // 工具响应必须配对前一轮 call
       if (pendingCalls.length === 0) {
         throw new Error("Gemini 工具响应与调用未 1:1 配对: 收到多余的工具响应（未发起调用）");
       }
@@ -352,7 +332,6 @@ export function convertGeminiMessages(
         parts: [{ functionResponse: fr }]
       });
     } else {
-      // user 角色
       const parts: Array<Record<string, unknown>> = [];
       if (Array.isArray(msg.parts) && msg.parts.length > 0) {
         for (const rawPart of msg.parts) {
@@ -389,13 +368,11 @@ export function convertGeminiMessages(
     }
   }
 
-  // 3. 所有消息遍历完毕后，检查是否还有未响应的 call
   const unresponded = pendingCalls.find((c) => !c.responded);
   if (unresponded) {
     throw new Error(`Gemini 工具响应与调用未 1:1 配对: 工具调用 '${unresponded.name}' 缺失响应`);
   }
 
-  // 4. user/model 严格交替与合并：连续同角色合并
   const contents: Array<{ role: "user" | "model"; parts: Array<Record<string, unknown>> }> = [];
 
   for (const turn of intermediateTurns) {
@@ -406,7 +383,6 @@ export function convertGeminiMessages(
     }
   }
 
-  // 针对每个 user turn，将 functionResponse 排在最前面，其余 parts 保持相对顺序
   for (const content of contents) {
     if (content.role === "user") {
       const funcResponses: Array<Record<string, unknown>> = [];
@@ -425,9 +401,6 @@ export function convertGeminiMessages(
   return { systemInstruction, contents };
 }
 
-/** 请求体组装：camelCase 强要求（systemInstruction 顶层且只取首条、maxOutputTokens 落 generationConfig、工具配置）。
- *  思考线格式产出（thinkingConfig / 上限参数名）由 core 经思考装配边注入（request.thinkingWire），
- *  本函数只并入 generationConfig。 */
 export function buildGeminiRequestBody(request: ChatRequest): Record<string, unknown> {
   const { systemInstruction, contents } = convertGeminiMessages(request.messages, request.model);
 
@@ -643,16 +616,6 @@ export function parseGeminiResponse(json: unknown): DrainResult {
   };
 }
 
-// ===== 模型列表拉取（Gemini 原生 models.list） =====
-
-// GET `${baseUrl}/v1beta/models` + x-goog-api-key：Google 端点不认 Bearer 形式的
-// API Key（会当 OAuth 2 token 解析并回 401），鉴权头与 chat 通道同源（本文件
-// adapter 的 authHeaders）。baseUrl 归一复用 buildGeminiEndpoint 同款规则
-// （去尾斜杠 + 削 /v1beta 尾段；/v1 尾段按归位前行为一并削掉）。响应形状
-// `{ models: [{ name: "models/…", supportedGenerationMethods }], nextPageToken }`：
-// pageToken 分页循环（至多 10 程，与归位前一致，分页按程计不加总上限），只留
-// supportedGenerationMethods 含 generateContent 的条目（滤掉 embedding/aqa 等非
-// 对话模型），剥 models/ 前缀。HTTP 错误在此格式化；网络 / 解析抛错上抛给壳。
 export async function listGeminiModels({ baseUrl, apiKey, fetchImpl }: ListModelsInput): Promise<ListModelsResult> {
   const modelsBaseUrl = String(baseUrl || "")
     .trim()

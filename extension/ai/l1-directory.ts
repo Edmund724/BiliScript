@@ -1,11 +1,3 @@
-// extension/ai/l1-directory.ts
-// L1 章节目录索引纯算法与 Prompt 序列化模块（ADR-0027）：
-// - 从视频自带时间轴（OutlineChapter[]）或 AI 概览产物（OverviewAnalysis）构建 L1VideoIndexCacheRecord；
-// - 将精选金句锚定至 L0 原始字幕行号并聚合回章节节点；
-// - 提供多层渐进压缩的紧凑 Prompt 序列化，控制长视频全片目录 <= 1200 字符/Token；
-// - 提供按秒级时间戳定位所属 L1 章节节点的纯查询函数。
-// 约束：零 chrome/DOM/storage/cache-lru 依赖，可安全进入 offscreen ladder chunk 与 SW。
-
 import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
@@ -54,13 +46,9 @@ export interface BuildL1VideoIndexInput {
   subtitleSignature: string;
   videoDuration?: number;
   globalSummary?: string;
-  /** 原始字幕行（用于金句行号锚定与章节行号区间映射） */
   lines?: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown; lineNumber?: unknown }>;
-  /** 章节输入：支持视频自带时间轴 OutlineChapter[]、AI OverviewAnalysis.chapters 或混合 L1ChapterInput[] */
   chapters?: ReadonlyArray<L1ChapterInput | OutlineChapter | AnalysisChapter>;
-  /** 精选金句输入 */
   quotes?: ReadonlyArray<L1QuoteInput | AnalysisQuote>;
-  /** 直接从 OverviewAnalysis 构建（缺省 globalSummary / chapters / quotes 时回落取它） */
   overviewAnalysis?: OverviewAnalysis | null;
   now?: number;
 }
@@ -134,7 +122,6 @@ function findNearestL0LineNumber(lines: readonly L0SubtitleLine[], targetFrom: n
   const quoteTokens = new Set(tokenizeLexicalText(quoteContent));
   const bestIdx = findNearestTimedLineIndex(lines, targetFrom, {
     scoreLine: (line, distance) => {
-      // 优先时间接近（30 秒内给予强权重），同区间内再看词元重合度
       let overlap = 0;
       if (quoteTokens.size > 0 && distance <= 30) {
         for (const token of tokenizeLexicalText(line.content)) {
@@ -161,7 +148,6 @@ function findOwnerChapterIndex(chapters: readonly L1ChapterNode[], seconds: numb
   return owner;
 }
 
-/** 按时间戳（秒）定位所属 L1 章节节点；位于首章前时返回 undefined（若首章即覆盖则命中首章）。 */
 export function findL1ChapterForTime(
   chapters: readonly L1ChapterNode[] | null | undefined,
   seconds: number
@@ -177,7 +163,6 @@ export function findL1ChapterForTime(
       return ch;
     }
   }
-  // 兜底：选最后一个起点不晚于 target 的章节
   let candidate: L1ChapterNode | null = null;
   for (const ch of chapters) {
     if (ch.from <= target) {
@@ -189,9 +174,6 @@ export function findL1ChapterForTime(
   return candidate;
 }
 
-/**
- * 从视频自带时间轴目录或 AI 概览章节/金句结构构建规范化的 L1 章节目录索引记录。
- */
 export function buildL1VideoIndex(input: BuildL1VideoIndexInput): L1VideoIndexCacheRecord {
   const now = Number.isFinite(Number(input.now)) ? Math.floor(Number(input.now)) : Date.now();
   const lines = normalizeL0SubtitleLines(input.lines);
@@ -201,7 +183,6 @@ export function buildL1VideoIndex(input: BuildL1VideoIndexInput): L1VideoIndexCa
   const rawQuotes = input.quotes ?? overview?.quotes ?? [];
   const globalSummary = String(input.globalSummary ?? overview?.summary ?? "").trim();
 
-  // 归一化章节并按 from 升序去重
   const parsedChapters: Array<{
     from: number;
     explicitTo?: number;
@@ -275,7 +256,6 @@ export function buildL1VideoIndex(input: BuildL1VideoIndexInput): L1VideoIndexCa
     };
   });
 
-  // 归一化精选金句并锚定至 L0 行号与章节序号
   const quotes: L1QuoteRef[] = [];
   const chapterQuoteSets = chapters.map((ch) => new Set<number>(ch.quoteLineNumbers));
 
@@ -326,10 +306,6 @@ export function buildL1VideoIndex(input: BuildL1VideoIndexInput): L1VideoIndexCa
   };
 }
 
-// ============================================================
-// L1 紧凑 Prompt 序列化（预算上限控制 <= 1200 字符 / Token）
-// ============================================================
-
 export interface SerializeL1PromptOptions {
   maxTokens?: number;
   maxChars?: number;
@@ -362,10 +338,6 @@ function fitsBudget(text: string, maxChars: number, maxTokens: number): boolean 
   return text.length <= maxChars && estimateCompactPromptTokens(text) <= maxTokens;
 }
 
-/**
- * 将 L1 索引序列化为适合常驻对话上下文的紧凑目录文本，
- * 通过多级渐进压缩严格将长视频全片目录控制在 `maxTokens`（默认 1200）与 `maxChars`（默认 1200）以内。
- */
 export function serializeL1DirectoryPrompt(
   index: Pick<L1VideoIndexCacheRecord, "globalSummary" | "chapters" | "videoDuration"> | null | undefined,
   options: SerializeL1PromptOptions = {}
@@ -384,7 +356,6 @@ export function serializeL1DirectoryPrompt(
   const maxEnd = chapters.reduce((max, ch) => Math.max(max, ch.to, ch.from), Number(index.videoDuration) || 0);
   const withHours = shouldUseHoursForRange(0, maxEnd);
 
-  // 档位 1：完整信息（标题 + 核心论点 + 最多 3 个关键词 + 金句行号）
   const tier1 = renderPromptLines(
     globalSummary,
     chapters.map((ch) => {
@@ -407,7 +378,6 @@ export function serializeL1DirectoryPrompt(
     return tier1;
   }
 
-  // 档位 2：压缩摘要与实体（去金句行号，保留标题 + 短论点 + 最多 2 个实体）
   const tier2 = renderPromptLines(
     globalSummary,
     chapters.map((ch) => {
@@ -427,7 +397,6 @@ export function serializeL1DirectoryPrompt(
     return tier2;
   }
 
-  // 档位 3：仅保留所有章节起止时间与短标题
   const tier3 = renderPromptLines(
     globalSummary,
     chapters.map((ch) => `${formatChapterRange(ch.from, ch.to, withHours)} ${clampSingleLine(ch.title, 32)}`),
@@ -437,7 +406,6 @@ export function serializeL1DirectoryPrompt(
     return tier3;
   }
 
-  // 档位 4：超多章节（如 80~100 章时间轴）按预算自适应桶大小合并相邻章节，保证覆盖全片头尾且严格不超预算
   const summaryPrefix = globalSummary ? `全片简介：${clampSingleLine(globalSummary, 72)}\n` : "";
   const header = `${summaryPrefix}章节目录：\n`;
   const effectiveLimit = Math.min(maxChars, maxTokens);
@@ -472,7 +440,6 @@ export function serializeL1DirectoryPrompt(
   return candidate;
 }
 
-/** 校验落盘数据是否符合 L1VideoIndexCacheRecord 结构。 */
 export function isL1VideoIndexCacheRecord(value: unknown): value is L1VideoIndexCacheRecord {
   if (!value || typeof value !== "object") {
     return false;
@@ -491,7 +458,6 @@ export function isL1VideoIndexCacheRecord(value: unknown): value is L1VideoIndex
   );
 }
 
-/** 从 `{ index, timestamp }` 缓存封包中拆包并校验 L1VideoIndexCacheRecord。 */
 export function unwrapL1IndexEnvelope(raw: unknown): L1VideoIndexCacheRecord | null {
   if (!raw || typeof raw !== "object") {
     return null;

@@ -1,29 +1,11 @@
-// 「预算器」纯函数模块：把字幕正文字符数保守估成 token，并产出「阶梯」判定与分段计划。
-// 决策记录见 ADR-0001（docs/adr/0001-long-video-summarization-map-reduce.md；
-// 2026-09-06 抬线修订见该文末尾）。
-// 不接 UI、不发请求、不依赖 Chrome API，供 Map-Reduce 编排与预算内单次路径共用。
-// 常量（素材预算 / 单段输入 / 分段小结 / 归并组输入 / 成稿输出 / 系数）集中在此作为单一事实来源。
-
 import type { BudgetPlan, BudgetPlanSegment, ChapterItem, SubtitleBodyItem } from "./types.js";
 
-// 字符 → token 系数：每字符≈1 token。只用于成本护栏的展示数字，不参与任何判定——
-// 「阶梯」比的是字符数与 MATERIAL_BUDGET_CHARS（下方常量）。它的"保守"属于 200k 字符
-// 预算对 256k 窗口的拟合前提，不是"宁可早进 Map-Reduce"（系数进不了那个判定）。
-// 换成实测比例要等按窗口自适应预算那轮，见 ADR-0001「使用前提」条的重开条件。
 export const CHAR_PER_TOKEN = 1.0;
-// 素材预算（200k 字符 ≈ 256k 窗口 − 16k 输出 − 余量）：预算内一次成稿，7h 级
-// 长视频必单发；超出（15h+ 级或更小窗口模型）即进入分段 + 归并，由溢出回落
-// 链路（ladder 自动转 Map-Reduce）兜底。抬线决策见 ADR-0001 文末修订。
 export const MATERIAL_BUDGET_CHARS = 200000;
-// 单段输入：分段写入小结的原始字幕字符上限。
 export const SEGMENT_INPUT_CHARS = 50000;
-// 分段小结 ≤10k（20% 保留）。
 export const SEGMENT_SUMMARY_CHARS = 10000;
-// 归并组输入：每层归并把若干小结塞进同一份素材（≤100k）。
 export const REDUCE_GROUP_INPUT_CHARS = 100000;
-// 成稿输出 ≤16k。
 export const FINAL_OUTPUT_CHARS = 16000;
-// 归并触发线：原始字幕 >500k 时才触发归并层（此时段数 ≥11）。
 export const REDUCE_TRIGGER_CHARS = 500000;
 
 interface BudgeterInputItem {
@@ -45,20 +27,15 @@ interface BuildBudgetPlanOptions {
   reduceGroupInputChars?: number | string;
 }
 
-// 每个归并组最多容纳的段数：归并组输入 / 单条小结上限。
-// 随归并组输入参数化（溢出放宽预算重跑时组输入减半，每组条数相应减半）。
 function segmentsPerReduceGroup(reduceGroupInputChars: number): number {
   return Math.floor(reduceGroupInputChars / SEGMENT_SUMMARY_CHARS);
 }
 
-// 保守地把时间戳转成数值；非有限值（undefined/NaN 等）回落到 0。
 function toSeconds(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
-// 估 token（仅供展示：成本护栏的数字；不参与阶梯判定）：非字符串 / 空串返回 0；
-// 其余 = 字符数 × CHAR_PER_TOKEN。
 export function estimateTokens(text: unknown): number {
   if (typeof text !== "string" || text.length === 0) {
     return 0;
@@ -66,8 +43,6 @@ export function estimateTokens(text: unknown): number {
   return text.length * CHAR_PER_TOKEN;
 }
 
-// 归并调用数估算：每层把 ≤ 每组段数条小结归并为一条，累加各层的分组数
-// （即实际归并调用次数）。例：11 段 → 第 1 层 ceil(11/10)=2 组(2 次) → 第 2 层 ceil(2/10)=1 组(1 次)，共 3 次。
 function estimateReduceCalls(segmentCount: number, reduceGroupInputChars: number): number {
   let calls = 0;
   let n = segmentCount;
@@ -78,8 +53,6 @@ function estimateReduceCalls(segmentCount: number, reduceGroupInputChars: number
   return calls;
 }
 
-// 沿字幕项顺序累积字符到单段输入预算；遇到章节边界（上一条在上一章、本条已进入
-// chapter.from 之后）时在前一条处收段，让新段对齐到章节起点——不要求字幕与章节时间戳逐秒相等。
 function splitByBudget(
   items: BudgeterInputItem[],
   chapterStarts: number[],
@@ -90,7 +63,6 @@ function splitByBudget(
   let prevFrom: number | null = null;
 
   for (const item of items) {
-    // 跨入新章节：prevFrom < chapter.from <= item.from 时，在前一条处切开对齐。
     const prevFromValue = prevFrom;
     const crossesIntoChapter =
       current !== null &&
@@ -111,7 +83,6 @@ function splitByBudget(
     current.to = item.to;
     prevFrom = item.from;
 
-    // 累积到单段输入预算即收段。
     if (current.chars >= segmentInputChars) {
       segments.push(current);
       current = null;
@@ -131,14 +102,6 @@ function splitByBudget(
   }));
 }
 
-// 产出预算计划：估 token → 判模式（single / map-reduce）→ 分段计划与调用次数预估。
-// body 字幕项 { from, to, content }（秒级时间戳 + 文本）；chapters { from, to, title }。
-// options 供溢出放宽预算重跑（map-reduce 编排）收紧入口侧预算：
-// - segmentInputChars：单段原始字幕输入上限（默认 SEGMENT_INPUT_CHARS）。
-// - reduceGroupInputChars：归并组输入上限（默认 REDUCE_GROUP_INPUT_CHARS），
-//   随 plan.reduceGroupInputChars 带出，供归并层（reduceSummaries）消费。
-// 模式判定（200k 线）与归并触发线（500k 线）不随 options 变：二者本质是
-// 「材料体量 ≈ 输入 20%」的出口侧语义，与单段/单组输入多大（入口侧）无关。
 export function buildBudgetPlan(
   { body = [], chapters = [] }: { body?: unknown[]; chapters?: unknown[] } = {},
   options: BuildBudgetPlanOptions = {}
@@ -152,7 +115,6 @@ export function buildBudgetPlan(
   const bodyItems = Array.isArray(body) ? body : [];
   const chapterItems = Array.isArray(chapters) ? chapters : [];
 
-  // 规整字幕项：跳过 trim 后为空的 content；只累计 content 文本长度（不含时间戳/标题）。
   const items: BudgeterInputItem[] = [];
   let totalChars = 0;
   for (const item of bodyItems) {

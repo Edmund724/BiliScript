@@ -1,7 +1,3 @@
-// extension/ai/adapters/http-error.ts
-// 模型列表拉取的 HTTP 错误摘要格式化：提取 JSON 错误说明、过滤 HTML/裸 JSON 噪声，
-// 并为 401/403/404/429/5xx 提供可读中文提示。
-
 function extractJsonMessage(trimmed: string): string {
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
     return "";

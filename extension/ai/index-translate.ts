@@ -1,9 +1,3 @@
-// extension/ai/index-translate.ts
-// 内置 Bilibili Index-Translate 免 Key 翻译通道的运行时适配原语：
-//   1. `<think>...</think>` 兜底清洗（整段清洗 + 流式状态机过滤，防止偶发思维链污染 JSON 解析）；
-//   2. 并发与速率限制器（默认最多 2 路并发、每 1000ms 窗口不超过 3 次请求，适配公网免费接口限流）；
-//   3. HTTP 429 / 网络抖动 / 5xx 指数退避重试与可读错误格式化（配合共享冷却窗口与 AbortSignal 中止）。
-
 import {
   isAbortNamedError,
   isAbortedMarkerError,
@@ -60,11 +54,6 @@ export function sleepWithAbort(ms: number, signal?: AbortSignal | null): Promise
   });
 }
 
-/**
- * 兜底清洗模型返回文本中的 `<think>...</think>` 思维链块（大小写不敏感）。
- * - 移除所有闭合的 `<think>...</think>` 块；
- * - 若因截断残留未闭合 `<think>...` 块，一并剔除后裁剪首尾空白。
- */
 export function stripThinkBlocks(text: string): string {
   return String(text || "")
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
@@ -89,11 +78,6 @@ function trailingTagPrefixLength(text: string, tag: string): number {
   return 0;
 }
 
-/**
- * 创建流式 `<think>...</think>` 过滤器：
- * 在 SSE token 分片到达时即时屏蔽思维链内容，仅向消费方（如流式 JSON 解析器）吐出正文，
- * 并正确处理 `<think>` / `</think>` 跨分片被切开的边界。
- */
 export function createThinkBlockStreamFilter(
   onText: (cleanChunk: string) => void
 ): ThinkBlockStreamFilter {
@@ -173,12 +157,6 @@ export interface IndexTranslateRateLimiter {
   };
 }
 
-/**
- * 创建 Index-Translate 通道限流器：
- * - 限制同时在飞的并发请求数（默认 <= 2）；
- * - 滑动时间窗限制请求频率（默认每 1000ms 最多 3 次，<= 3 req/s）；
- * - 支持 429 全局冷却广播，避免并发分片在限流期集中重试。
- */
 export function createIndexTranslateRateLimiter(
   options: IndexTranslateRateLimiterOptions = {}
 ): IndexTranslateRateLimiter {
@@ -271,7 +249,6 @@ export function createIndexTranslateRateLimiter(
       return Promise.reject(makeAbortError(signal));
     }
     const run = acquireChain.then(() => acquireSingle(signal));
-    // 保持 FIFO 队列不因单次中止/失败而阻塞后续请求
     acquireChain = run.catch(() => {});
     return run;
   }
@@ -440,10 +417,6 @@ export function formatIndexTranslateError(error: unknown): Error {
   return formatted;
 }
 
-/**
- * 在 Index-Translate 限流器保护下执行请求，遇到 HTTP 429 或网络抖动时做指数退避重试，
- * 并在重试耗尽或不可恢复失败时抛出清晰可读的错误提示。
- */
 export async function runWithIndexTranslateRetry<T>(
   task: () => Promise<T>,
   options: IndexTranslateRetryOptions = {}

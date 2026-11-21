@@ -1,12 +1,3 @@
-// extension/ai/l1-chapter-index.ts
-// L1 章节目录索引与整份概览产物的统一缓存身份与本机持久化模块（ADR-0003 / ADR-0027）：
-// - 纯构建/序列化/校验/封包拆包逻辑住在 ./l1-directory.ts（零存储依赖，可供 offscreen/SW 共用）；
-// - 本文件统一收口：
-//   1) `biliscript_lvs_l1_index_`（含 16 条内存有界 LRU）与 `biliscript_lvs_analysis_final_` 两个缓存族
-//      （落扩展源 IndexedDB `ai_artifacts`，每族保留最近 100 个视频；内容脚本经 SW `subtitle-cache` RPC 访问）；
-//   2) clip / AiContext 的分章来源 + 字幕签名 + 双族键位归一（buildClipOverviewIdentity）；
-//   3) 单趟批量读取整份概览产物与内存 LRU 命中的 L1 章节目录（readCachedClipOverviewArtifacts / readCachedClipL1Index）。
-
 import { type CacheSaveResult } from "../core/cache-lru.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import { logError } from "../shared/logging.js";
@@ -58,7 +49,6 @@ export type {
   SerializeL1PromptOptions
 };
 
-// 整份概览结果缓存键前缀（键形：前缀 + bvid + cid + 字幕轨 source key + 字幕签名）。
 export const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
 
 export function isOverviewShape(value: unknown): value is OverviewAnalysis {
@@ -86,10 +76,6 @@ const l1IndexFamily = createAiArtifactFamily<L1VideoIndexCacheRecord>({
   logFailure: (info) => logError("[BILISCRIPT] failed to save L1 chapter index cache after eviction", info)
 });
 
-/**
- * 整份概览结果缓存键：bvid + cid + 字幕轨 source key + 字幕签名。
- * 签名随字幕内容（条数/首末时间戳/文本量）与轨道变化，重抓字幕/换轨/切分P 自然 miss。
- */
 export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | undefined | null, signature: unknown): string {
   return analysisFinalFamily.key(segmentCacheKeyStringFields(context), String(signature ?? ""));
 }
@@ -107,7 +93,6 @@ export interface L1IndexKeyInput {
   subtitleSignature: string;
 }
 
-/** 构造 L1 索引唯一缓存键（按视频 bvid/cid + 字幕轨身份 + 字幕签名隔离）。 */
 export function buildL1IndexCacheKey(input: L1IndexKeyInput): string {
   return l1IndexFamily.key(
     {
@@ -149,10 +134,6 @@ export interface ClipOverviewIdentity {
   hasCacheIdentity: boolean;
 }
 
-/**
- * 统一归一 clipState（description / selectedSubtitleLang）与 AiContext（videoDescription / subtitleLang）
- * 的身份字段，单源推导分章来源、字幕签名与概览/L1 双族缓存键。
- */
 export function buildClipOverviewIdentity(
   input: ClipOverviewIdentityInput | null | undefined
 ): ClipOverviewIdentity {
@@ -229,13 +210,6 @@ export interface CreateL1IndexCacheStoreOptions {
   persistRemove?: (key: string) => Promise<void>;
 }
 
-/**
- * 创建 L1 章节目录缓存管理器：
- * 1. 内存层为有界 LRU Map（默认 16 条），保证同会话热查询零 IPC/IDB 往返；
- * 2. 持久化层落扩展源 IndexedDB `ai_artifacts`（绝不进 `chrome.storage.sync`，不含凭据），
- *    内容脚本经 SW `subtitle-cache` RPC 读写，读未命中时按先写后删懒迁移旧 `chrome.storage.local`，
- *    由 `subtitle/idb-store.ts` 统一维持 L1 索引最近 100 个视频的 LRU 淘汰。
- */
 export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions = {}): L1IndexCacheStore {
   const maxMemoryEntries = Math.max(
     1,
@@ -252,7 +226,6 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
     if (!hit) {
       return null;
     }
-    // 刷新 LRU 近期性
     memoryCache.delete(key);
     memoryCache.set(key, hit);
     return hit;
@@ -350,9 +323,6 @@ export const clearL1IndexMemoryCache = () => defaultL1Store.clearMemory();
 export const clearL1IndexMemoryForVideo = (bvid: string, cid?: string) =>
   defaultL1Store.clearMemoryByVideo(bvid, cid);
 
-/**
- * 按 clip / AiContext 身份读取已缓存的 L1 章节目录索引（优先命中 16 条内存 LRU，未命中再查 IDB/RPC 并回填 LRU）。
- */
 export async function readCachedClipL1Index(
   input: ClipOverviewIdentityInput | null | undefined
 ): Promise<L1VideoIndexCacheRecord | null> {
@@ -368,10 +338,6 @@ export interface CachedClipOverviewArtifacts {
   l1Index: L1VideoIndexCacheRecord | null;
 }
 
-/**
- * 单趟批量读取当前视频的整份概览产物（`analysisFinal`）与 L1 章节目录（`l1Index`）：
- * 若 L1 已命中内存 LRU，仅向 IDB/RPC 读取 `finalKey`；否则单趟批量读取两键并回填内存 LRU。
- */
 export async function readCachedClipOverviewArtifacts(
   input: ClipOverviewIdentityInput | null | undefined
 ): Promise<CachedClipOverviewArtifacts> {

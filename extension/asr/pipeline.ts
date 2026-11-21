@@ -1,17 +1,3 @@
-// extension/asr/pipeline.ts
-// ASR 管线编排（调用侧只做编排不碰音频字节）：取音轨 → offscreen 下载/
-// 解码/切片/逐片转写（转写引擎与解码同 context，跨 port 只传文本结果）→
-// 时间戳加片偏移合并为 B 站字幕格式 [{from,to,content}]。
-//
-// 调用侧不感知 provider/Key：平台选择、Key 组装、语言档位全部在 offscreen
-// 侧完成（entry/offscreen-asr.js 直调 background 的 get-asr-runtime-config），
-// 调度引擎（asr/engine.js，活队列 + 逐片重试 + 失败计数）也在 offscreen。
-// 页面回退决策由上游 fallback 承担；本模块负责取音轨地址、发任务、收文本结果、
-// 合并与空结果诊断，页面与后台 Agent 桥接共用。
-//
-// 本模块不做任何过期守卫：转写与视频切换解耦（切走视频任务照跑、成果照落
-// 缓存），中止只剩真断连（调用方关闭/扩展重载 → port disconnect）。
-
 import { getSourceAudioUrl } from "./audio-source.js";
 import type { JsonTransport } from "../bilibili/gateway-core.js";
 import { createOffscreenChunkHost } from "./offscreen-bridge.page.js";
@@ -21,11 +7,8 @@ import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
 import { isNonSpeechSegment, joinSubtitleText } from "../subtitle/text-classification.js";
 
-// 中英文句末标点（。！？!?… 以及非小数点的英文句号 .）与换行符正则，保留紧随其后的闭合引号/括号
 const SENTENCE_DELIMITER_RE = /(?:[。！？!?…]+|\.+(?!\d)(?=\s|$|["'”’」』）\)\]]))["'”’」』）\)\]]*|\r?\n+/g;
-// 跨分片尾句未闭合判据：句末终止标点（含全角/半角闭合引号与括号）
 const SENTENCE_END_PUNCT_RE = /[。！？.!?…]["'”’」』）\)\]]*$/;
-// 重叠区归一化字符流：剔除空白、标点与符号
 const STRIP_NORM_RE = /[\s\p{P}\p{S}]/u;
 const NO_SPACE_CHAR_RE =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Tibetan}]/u;
@@ -38,7 +21,6 @@ const MAX_NORM_OVERLAP_CHARS = 48;
 const STITCH_BOUNDARY_GAP_SEC = 0.45;
 const STITCH_MAX_DURATION_SEC = 10;
 
-// 合并过短碎句（默认长度 < 4 字符，如单字或纯语气助词加标点）
 export function mergeShortSentences(sentences: string[], minChars = 4): string[] {
   if (sentences.length <= 1 || minChars <= 0) {
     return sentences;
@@ -49,10 +31,8 @@ export function mergeShortSentences(sentences: string[], minChars = 4): string[]
     if (merged.length === 0) {
       merged.push(s);
     } else if (s.length < minChars) {
-      // 当前句过短：合入前一句
       merged[merged.length - 1] = joinSubtitleText(merged[merged.length - 1], s);
     } else if (merged[merged.length - 1].length < minChars) {
-      // 前一句（首句）过短：把当前句合入前一句
       merged[merged.length - 1] = joinSubtitleText(merged[merged.length - 1], s);
     } else {
       merged.push(s);
@@ -62,7 +42,6 @@ export function mergeShortSentences(sentences: string[], minChars = 4): string[]
   return merged;
 }
 
-// 按中英文句末标点与换行切分句子，并合并过短碎句
 export function splitTextIntoSentences(text: string, minChars = 4): string[] {
   const trimmed = String(text || "").trim();
   if (!trimmed) {
@@ -92,7 +71,6 @@ export function splitTextIntoSentences(text: string, minChars = 4): string[] {
   return mergeShortSentences(rawSentences, minChars);
 }
 
-// 纯文本按字符长度比例在 [startSec, startSec + durationSec] 线性插值分配 {from, to}
 export function interpolateSentenceTimestamps({
   sentences,
   startSec,
@@ -153,11 +131,6 @@ function clampChunkTime(startSec: number, relSec: number, chunkDur: number): num
   return chunkDur > 0 ? Math.min(abs, Number(startSec) + chunkDur) : abs;
 }
 
-// 把单片的转写结果合成 {from,to,content}[]：
-//   有有效 segments → 每条 = startSec + seg.start/end，to 不超过片末边界（若同时携带 words 则透传词级时间戳）；
-//   无 segments 但有 words → 按词级时间戳输出（由下游断句合并）；
-//   无 segments 且无 words → 按句末标点与换行切分句子并合并碎句，按字符长度在起止时间窗内线性插值。
-// 空白片段返回 []。
 export function synthesizeChunk({ startSec, durationSec, result }: {
   startSec: number;
   durationSec: number;
@@ -407,7 +380,6 @@ function alignMatchToWordBoundaries(
   let endT = rawStartT + rawLen;
   let endH = rawStartH + rawLen;
 
-  // 若左边界切在英文/数字单词内部，向后收缩到词边界
   while (startT < endT && startH < endH) {
     const leftInsideT =
       startT > 0 &&
@@ -424,7 +396,6 @@ function alignMatchToWordBoundaries(
     startH += 1;
   }
 
-  // 若右边界切在英文/数字单词内部，向前收缩到词边界
   while (endT > startT && endH > startH) {
     const rightInsideT =
       endT < tNorm.length &&
@@ -551,8 +522,6 @@ function findBestOverlapMatch(
   return bestResult;
 }
 
-// 相邻重叠分片去重：对前片末尾 1.8s 与后片开头 1.8s 内的片段做时间戳交集与
-// 归一化文本前后缀最长公共子串比对，剔除重复识别词句并在中间时间点平滑衔接。
 function deduplicateOverlapBetweenChunks(
   prevRecord: AsrChunkRecord,
   prevItems: RichSubtitleItem[],
@@ -594,7 +563,6 @@ function deduplicateOverlapBetweenChunks(
       const tStream = buildNormalizedStream(tailSlice);
       const hStream = buildNormalizedStream(headSlice);
 
-      // 若前片在匹配串之后还有边界残损字（tTailSlack > 0），截除该尾缀并同步维护 words
       if (match.tTailSlack > 0 && match.tEnd > 0) {
         const lastRef = tStream.refs[match.tEnd - 1];
         const keepCount = tailStartIdx + lastRef.itemIdx + 1;
@@ -630,7 +598,6 @@ function deduplicateOverlapBetweenChunks(
         }
       }
 
-      // 裁除后片头部已被前片覆盖的重复文本并同步维护 words
       if (match.hEnd >= hStream.norm.length) {
         for (let i = 0; i < headEndIdx; i += 1) {
           if (outNext[i].to > droppedHeadMaxTo) {
@@ -734,9 +701,6 @@ function findFirstNonSpeechExcludedIdx(items: RichSubtitleItem[]): number {
   return -1;
 }
 
-// 跨分片未闭合尾句缝合（借鉴 kiss-translator 软边界思想）：
-// 若第 k 片末条非音效片段末尾无句末标点、距右边界 < 0.45s，且第 k+1 片首条非音效
-// 片段距左边界 < 0.45s、合并后总时长 <= 10s，则自动缝合为一条完整跨片字幕。
 function stitchUnclosedTrailingSentence(
   prevRecord: AsrChunkRecord,
   prevItems: RichSubtitleItem[],
@@ -804,7 +768,6 @@ function stitchUnclosedTrailingSentence(
     to: stitchedTo,
     content: joinSubtitleText(prevItem.content, nextItem.content)
   };
-  // 仅当两侧同时携带 words 时拼接词时间戳，避免下游 expandCoarseEvents 只展开半句
   if (prevItem.words?.length && nextItem.words?.length) {
     stitchedItem.words = [
       ...prevItem.words.map((w) => ({ ...w })),
@@ -850,8 +813,6 @@ function itemsEqual(a: RichSubtitleItem[] | undefined, b: RichSubtitleItem[]): b
   return true;
 }
 
-// 按 chunkIndex 有序组装已就绪分片：先在各相邻已就绪分片间执行重叠去重与跨片
-// 未闭合尾句缝合，再输出按时间单调不重叠的最终合并数组。
 function assembleOrderedChunks(records: AsrChunkRecord[]): {
   mergedItems: SubtitleItem[];
   chunkItems: Map<number, SubtitleItem[]>;
@@ -918,8 +879,6 @@ function assembleOrderedChunks(records: AsrChunkRecord[]): {
   return { mergedItems, chunkItems };
 }
 
-// 有序合并视图管理器：10 并发乱序到达时增量暂存已就绪分片，并在相邻分片齐备时
-// 自动重算重叠去重与跨片尾句缝合，返回受影响的分片索引以便下游无感更新。
 export function createProgressiveChunkMerger(): {
   push(record: AsrChunkRecord): AsrProgressiveMergeSnapshot;
   getSnapshot(): AsrProgressiveMergeSnapshot;
@@ -967,22 +926,10 @@ export function createProgressiveChunkMerger(): {
   };
 }
 
-// 全部片段合成 → 重叠区去重 + 跨片未闭合尾句缝合 → 按 from 单调不重叠排序。
-// chunkResults 为按片记录 [{ index, startSec, durationSec, overlapLeadSec?, result }]；
-// 转写失败片 / 解码失败段不在其中（offscreen 引擎跳过并计数），不参与合并。
 export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
   return assembleOrderedChunks(chunkResults).mergedItems;
 }
 
-// ===== 主入口 =====
-
-// runAsrPipeline 的入参：bvid/cid 取音轨；onProgress 中继状态文案；
-// chunkHost 为可选注入的任务宿主（测试传合成宿主，生产默认走
-// createOffscreenChunkHost）；onEmptyDiagnostic 承接空结果诊断文案。
-// 单次转写尝试的失败面结果（整轮自动重试判定用；声明唯一住在 asr/protocol，
-// 此处转出原类型名以供既有 import 点）：totalChunks 为产出片数、failedChunks 为
-// 转写失败跳过片数、elapsedMs 为本次尝试墙钟耗时，外加片级失败摘要的 wire 字段
-// （「有则带键」，未携带失败信号时这三个键不出现）。
 export type { AsrAttemptOutcome };
 
 export interface RunAsrPipelineArgs {
@@ -1001,12 +948,6 @@ export interface RunAsrPipelineArgs {
   signal?: AbortSignal | null;
 }
 
-// runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmptyDiagnostic })
-// → [{from,to,content}]（空数组表示未识别到语音内容）。
-// 不做任何过期守卫（runId/视频键复核均已移除）：调用方（asr/fallback）自行
-// 决定 UI 应用时机，转写本身与视频切换解耦，跑完即返回。chunkHost 为可选
-// 注入的任务宿主（测试传合成宿主，生产默认走 createOffscreenChunkHost：
-// offscreen 文档内下载+解码+切片+逐片转写，每片完成即回传文本结果）。
 export async function runAsrPipeline({
   bvid,
   cid,
@@ -1021,13 +962,9 @@ export async function runAsrPipeline({
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
 
-  // 取音轨：playurl 依赖浏览器登录态，页面与 SW 分别经注入传输请求。
   onProgress?.("无字幕轨，正在获取音频流…");
   const source = await getSourceAudioUrl({ bvid, cid }, sourceTransport);
 
-  // offscreen 文档内完成下载 → 解码 → 切片 → 逐片转写（engine 并发调度），
-  // 每片完成即把文本结果经 port 发回；音频字节与 API Key 都不出 offscreen。
-  // 防盗链规则由 prepare 阶段在 background 加上。
   onProgress?.("音频下载与解码中…");
   const progressiveMerger = createProgressiveChunkMerger();
   const hostResult = await host({
@@ -1042,19 +979,14 @@ export async function runAsrPipeline({
         try {
           onChunkResult(record, items, snapshot);
         } catch {
-          // ignore
         }
       }
     }
   });
-  // 失败字段不再解构：片级失败摘要经协议模块的判定 → 投影读出（宿主结果形状见
-  // asr/protocol.js 的 AsrFailureFields）。
   const { results, totalChunks, skippedSegments, failedChunks } = hostResult;
 
   const merged = mergeChunkResults(results);
   if (merged.length === 0 && typeof onEmptyDiagnostic === "function") {
-    // 空结果诊断：静音场景已在解码层显式报错，剩下的事件级证据随适配器
-    // 诊断字段上来，失败计数（转写失败片 / 解码失败跳过段）一并拼进文案。
     const diagnostics = results
       .map((r) => r?.result?._asrDiag)
       .filter(Boolean)
@@ -1078,13 +1010,8 @@ export async function runAsrPipeline({
     try {
       onEmptyDiagnostic(diagText.slice(0, 400));
     } catch {
-      // 诊断回调异常不影响主流程
     }
   }
-  // 失败面结果上报（整轮自动重试判定用，fallback 空结果分支消费）：每次尝试
-  // 完成都会调用，非空结果同样上报（failedChunks 反映片失败计数）。片级失败
-  // 摘要经判定 → 投影产出（键缺失即无失败信号，不补 undefined——fallback 按
-  // 有无 kind 区分「说得出原因」与「归 asr-unknown」）。
   if (typeof onAttemptOutcome === "function") {
     onAttemptOutcome({
       totalChunks: Number(totalChunks) > 0 ? Number(totalChunks) : results.length,

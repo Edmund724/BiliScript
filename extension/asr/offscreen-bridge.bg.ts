@@ -1,5 +1,3 @@
-// Offscreen media background handlers delegating document & DNR lifecycle to core/offscreen-host.ts.
-
 import {
   BILI_MEDIA_CDN_DOMAINS,
   BILI_MEDIA_ORIGIN_PAGE,
@@ -43,7 +41,6 @@ function toErrorText(error: unknown): string {
   return String((error as { message?: string } | null)?.message || error);
 }
 
-/** Clears all pooled Bilibili media session rules and resets rule ledger state. */
 export async function reapAllSessionRules(): Promise<void> {
   await reapAllBiliMediaSessionRules();
 }
@@ -61,7 +58,6 @@ async function prepareOffscreenMediaTask(
   }
 }
 
-/** Handles ASR offscreen decode preparation (ensure offscreen document + audio-xhr DNR rule). */
 export async function handleAsrDecodePrepare(
   _message: unknown,
   sender: MessageSender,
@@ -70,7 +66,6 @@ export async function handleAsrDecodePrepare(
   await prepareOffscreenMediaTask(sender, sendResponse, "audio-xhr");
 }
 
-/** Handles video frame capture preparation (ensure offscreen document + video-media DNR rule). */
 export async function handleVideoFramePrepare(
   _message: unknown,
   sender: MessageSender,
@@ -79,7 +74,6 @@ export async function handleVideoFramePrepare(
   await prepareOffscreenMediaTask(sender, sendResponse, "video-media");
 }
 
-/** Handles cleanup of a task-scoped Bilibili media DNR rule after verifying sender ownership. */
 export async function handleAsrDecodeCleanup(
   message: unknown,
   sender: MessageSender,
@@ -96,7 +90,6 @@ export async function handleAsrDecodeCleanup(
   }
 }
 
-/** Executes offscreen document self-close on behalf of verified offscreen senders. */
 export async function handleOffscreenRequestClose(
   message: unknown,
   sender: MessageSender,

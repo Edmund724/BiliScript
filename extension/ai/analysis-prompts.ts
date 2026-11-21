@@ -1,6 +1,3 @@
-// 概览提示词装配：系统提示词全静态，变量全部放在用户提示词侧。
-// 单次路径直接产出全片简介；分段路径先产出段简介，再归并成全片简介。
-
 import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { formatClock } from "../shared/clock-text.js";
 import type { OutlineChapter } from "../shared/chapter-outline.js";
@@ -13,13 +10,6 @@ import {
 import type { L1ChapterNode, StateRelayCard } from "./long-video-hybrid-types.js";
 import type { SubtitleBodyItem } from "./types.js";
 
-// ============================================================
-// 系统提示词（全静态，逐字节可前缀缓存；变量全部在用户提示词侧）
-// ============================================================
-
-// 两份系统提示词逐字共享的「ASR 纠错块」（工单 arch-slim/03 提取）：金句挑选
-// 标准 + ASR 字幕两大特点 + 金句纠错打磨。只此一份声明，两份提示词拼接引用；
-// 合成串由 tests/ai/analysis-prompt-freeze.test.ts 冻结断言逐字节把关。
 const ASR_CORRECTION_BLOCK = `金句要挑这几类：
 - 反直觉的观点，或者跟常识拧着来的判断
 - 让人「原来如此」的事实、数据、冷知识
@@ -38,8 +28,6 @@ B 站的 AI 字幕有两个特点，会直接影响你的工作：
 - 保留说话人本来的意思和用词风格，只做可读性打磨，**不要概括、不要缩写、不要添加他没说过的内容**
 - 如果某段实在识别得太糟、无法还原原意，就别选它当金句`;
 
-// 两份系统提示词逐字共享的「时间戳教学块」：字幕行格式、取时间戳的规则与
-// 秒数换算示例。只此一份声明，两份提示词拼接引用。
 const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 字幕的格式严格如下：
 [0:00] 大家好今天我们来聊聊这个话题
@@ -67,7 +55,6 @@ const OVERVIEW_INTRO_BLOCK = `⚠️ 关于顶层 summary ⚠️
 const CHAPTER_SUMMARY_BLOCK = `每章的 summary 用一句话说明本章具体讲了什么，尽量不超过 60 字。
 补充标题没有说清的内容，不要只是换一种说法重复标题。`;
 
-// 现成章节目录由用户消息注入，模型只许照抄边界与标题、补写 summary。
 const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
 用户消息里如果给出「视频章节/简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
 **章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
@@ -76,7 +63,6 @@ const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
 目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
 前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。`;
 
-// 导出仅测试面：冻结断言逐字节比对合成串。
 export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：简介 + 章节 + 金句。
 
 你需要给出：
@@ -127,7 +113,6 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
-// 稀疏时间轴与官方章节共用：照抄目录，补写总体简介与逐章说明，并挑选金句。
 export const GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
 
 你需要给出：
@@ -177,7 +162,6 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
-// 密集时间轴保留原目录，只生成总体简介与金句，不补逐章说明。
 export const OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
 
 你需要给出：
@@ -229,11 +213,6 @@ export const ANALYSIS_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请根
 输出 JSON（不要加 markdown 代码围栏）：
 {"summary": "全片简介（2～3 句，约 80～150 字）"}`;
 
-
-// 用户提示词模板：整搬参考仓库 prompts/analysis.md「用户提示词」代码块。
-// {rangeNote} / {contextNote} 不分块时为空串（与参考实现一致，留空行）。
-// {lateThresholdLine} 由装配侧按「有无现成章节目录」二选一：无目录给硬门槛，
-// 有目录声明门槛不适用（F2 决议：目录权威优先，两条互斥指令不再同时出现）。
 const ANALYSIS_USER_TEMPLATE = `视频标题：{videoTitle}
 UP 主：{ownerName}
 {rangeNote}
@@ -246,23 +225,12 @@ UP 主：{ownerName}
 字幕：
 {transcriptText}`;
 
-// ============================================================
-// 小工具（渲染 / 模板填充；签名族已迁 subtitle/cache.ts）
-// ============================================================
-
-/**
- * 字幕正文 → 模型可读文本：每行 `[M:SS] 内容`（对齐系统提示词的字幕格式教学）。
- * 本模块是概览管线的单一渲染收口：预算按 body 判定（buildBudgetPlan），
- * 发送物由这里从同一份 body（段 items）现场渲染，预算量与实际消耗同源。
- */
 function renderAnalysisTranscript(items: unknown): string {
   return normalizeSubtitleItems(items)
     .map((item) => `[${formatClock(item?.from)}] ${String(item?.content ?? "").trim()}`)
     .join("\n");
 }
 
-// 取一组字幕项末尾约 minChars 个字（至少一条），用作下一段的前情回顾；
-// 至少给一条，否则正好卡在切点的那句话反而是最缺上下文的一句。
 export function tailItems(items: unknown, minChars: number): SubtitleBodyItem[] {
   const list = normalizeSubtitleItems(items);
   if (!list.length || minChars <= 0) return [];
@@ -276,8 +244,6 @@ export function tailItems(items: unknown, minChars: number): SubtitleBodyItem[] 
   return tail;
 }
 
-// {变量} 填充：split/join 全量替换（对齐参考仓库 extractPromptSection 的做法），
-// 值为空时留空（模板行变空行，与参考实现的产出逐字节同形）。
 function fillTemplate(template: string, vars: Record<string, unknown>): string {
   let out = template;
   for (const [key, value] of Object.entries(vars)) {
@@ -286,15 +252,8 @@ function fillTemplate(template: string, vars: Record<string, unknown>): string {
   return out;
 }
 
-// 「最后一章必须晚于 75%」硬门槛比例（对齐参考仓库 ai.js:193-194，逼模型覆盖全片）。
 const ANALYSIS_LATE_THRESHOLD_RATIO = 0.75;
 
-/**
- * 时长变量：元数据时长有时缺失或不准，取「传入时长」与「字幕末条时间戳」的
- * 较大值。durationSeconds 传本段结束秒（分段路径）或视频时长（单次路径）。
- * 「最后一章必须晚于 75%」这条硬门槛，是逼模型覆盖全片而不是把章节全堆在
- * 开头最有效的一招（整搬 analysisTimingVariables 思路，结构化入参免正则反解析）。
- */
 function analysisTimingVariables(
   items: unknown,
   durationSeconds: unknown
@@ -310,22 +269,11 @@ function analysisTimingVariables(
   };
 }
 
-/**
- * 按输入长度估算输出 token 上限（整搬 lib/ai.js:202-210）。max_tokens 是上限
- * 而非配额，给宽不花钱；但给窄必然截断——旧的 ceiling 8192 与 ADR-0001 的
- * 「分段小结 ≤10k / 成稿 ≤16k」意图脱节：5 万字的段按 ratio 0.5 本应拿 25k，却被
- * 砍到 8k，截断后靠 json-repair 静默救回（用户拿到缺章的概览）。
- * 现 ceiling 与协议兜底同源（ai/output-budget.ts 的 DEFAULT_MAX_TOKENS）；「超过
- * 模型自身上限」的那一半风险由 core 的退避路径接住（completion.ts，ADR-0012）。
- * 概览是摘要，产出远小于原文：调用方按 ratio 0.5、floor 2048 传入（对齐
- * 参考仓库 analyzeChunk），前情回顾只进输入不进输出。
- */
 export function estimateOutputTokens(
   inputChars: unknown,
   { ratio = 1, floor = 1024, ceiling = DEFAULT_MAX_TOKENS }: { ratio?: number; floor?: number; ceiling?: number } = {}
 ): number {
   const chars = Number.isFinite(Number(inputChars)) && Number(inputChars) > 0 ? Number(inputChars) : 0;
-  // 中文约一字一 token；固定量留给 JSON 结构与转义字符。
   const estimated = Math.ceil(chars * ratio) + 512;
   return Math.min(
     Math.ceil(Number(ceiling) || DEFAULT_MAX_TOKENS),
@@ -333,20 +281,6 @@ export function estimateOutputTokens(
   );
 }
 
-// ============================================================
-// 用户提示词装配（单一渲染收口：变量全部在这里从 body / 段 items 现场装配）
-// ============================================================
-
-// 目录解析（parseChapterOutline / hotCommentsText / OutlineChapter）已下沉
-// shared/chapter-outline.ts 叶子：reader 概览 tab 的身份键要用同一份裁定，而它
-// 不得静态引 AI 管线（build-content 装载图守卫）。
-
-/**
- * 现成章节目录 → 用户提示词注入块。有空目录返回空串（模板行变空行），
- * 有目录时给出「边界照抄、只补大意」的硬约束（措辞与系统提示词的
- * 「现成章节目录」节呼应）。titlesOnly（密集时间轴）时指令换成
- * 「只保留标题、不写逐章说明」，与 OUTLINE_QUOTES_SYSTEM_PROMPT 呼应。
- */
 function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOnly?: boolean): string {
   if (!Array.isArray(outline) || outline.length === 0) {
     return "";
@@ -368,31 +302,22 @@ interface BuildAnalysisPromptInput {
   title?: unknown;
   ownerName?: unknown;
   videoDescription?: unknown;
-  /** 本段（或全部）字幕项 { from, to, content }（秒级时间戳）。 */
   items?: unknown;
-  /** 前情回顾：上一段结尾字幕项；第一段与不分块时为空。 */
   contextItems?: unknown;
-  /** 元数据时长（秒）；分段路径传本段结束秒，让时长变量收敛在本段区间内。 */
   videoDuration?: unknown;
-  /** 本段起始秒（用户提示词的「第 N 秒」与校验下界同源）。 */
   startSeconds?: unknown;
-  /** 分段信息（1-based）；与 totalSegments 一起 >1 时产出 rangeNote。 */
   segmentIndex?: unknown;
   totalSegments?: unknown;
-  /** 给定章节目录（简介/评论时间轴或 B 站官方章节）；非空时章节照抄目录、只补 summary。 */
   chapterOutline?: OutlineChapter[];
-  /** 密集时间轴只保留标题，模型生成总体简介与金句，不补逐章说明。 */
   titlesOnly?: boolean;
 }
 
 export interface BuiltAnalysisPrompt {
   prompt: string;
   timing: ReturnType<typeof analysisTimingVariables>;
-  /** 字幕正文渲染产物长度（输出 token 估算的输入，前情回顾不计入）。 */
   transcriptChars: number;
 }
 
-// rangeNote / contextNote 措辞整搬参考仓库 lib/analysis-service.js analyzeChunk。
 function buildRangeNote(
   segmentIndex: unknown,
   totalSegments: unknown,
@@ -419,12 +344,6 @@ function buildContextNote(contextItems: unknown): string {
   return `\n前情回顾（上一段的结尾，只用来理解本段承接什么，不要为它开章节或挑金句）：\n${text}\n`;
 }
 
-/**
- * 概览用户提示词装配：单次路径与分段路径每段共用同一份模板；有给定章节目录时
- * 模板注入「现成章节目录」块并把后段门槛换成「不适用」（目录权威优先）。
- * 输入与素材预算判定（buildBudgetPlan 的 body / 段 items）同源；时长变量按本段
- * 区间算（videoDuration 传段尾秒或视频时长），让模型只覆盖这一段。
- */
 function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
   const items = normalizeSubtitleItems(input.items);
   const timing = analysisTimingVariables(items, input.videoDuration);
@@ -454,10 +373,6 @@ function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAna
   return { prompt, timing, transcriptChars: transcriptText.length };
 }
 
-/**
- * 用户提示词（单次路径与分段路径的每段共用）。章节由谁也由系统提示词决定：
- * 有给定目录时是「照抄目录 + 补 summary」，没有时是自由分章 + 后段门槛。
- */
 export function buildAnalysisPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
   return buildAnalysisUserPrompt(input);
 }
@@ -490,10 +405,6 @@ export function buildAnalysisSummaryPrompt(
     transcriptChars: prompt.length
   };
 }
-
-// ============================================================
-// 长视频滑动状态卡接力提示词（ADR-0027）
-// ============================================================
 
 const STATE_RELAY_QUOTE_LINE_BLOCK = `金句挑选与行号规则：
 - 每小时字幕约挑选 3-5 条高光金句（本段通常 0-2 条，重质不重量）。

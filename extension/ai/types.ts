@@ -1,21 +1,14 @@
-// AI 域共享类型（08 票迁移）。
-// 只放纯类型与常量型字面量，不依赖运行时模块，供 ai/ 内部各模块复用。
-
 import type { AiProtocol } from "./protocol-adapter.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
-// OpenAI 兼容 tool_calls 结构（联网搜索管线，spec §2.1）：assistant 消息随带
-// tool_calls，tool 消息以 tool_call_id 回填结果。arguments 为 JSON 字符串原文。
 export interface ChatToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
 }
 
-// 图片输入（image-input 路线 B）：content 保持 string，图片并列挂在 images 上。
-// data 为 base64 原文（不含 `data:` 前缀），前缀/字段名随协议由各 adapter 组装。
 export interface ImagePart {
   mime: string;
   data: string;
@@ -31,20 +24,15 @@ export type CaptureCurrentVideoFrame = (targetTime?: number, signal?: AbortSigna
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
-  // 带图消息才有的字段（无图消息不带，请求体形状逐字节不变）。
   images?: ImagePart[];
-  // 仅 assistant(tool_calls) / tool 消息使用；无 tools 的普通消息不带字段。
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
-  // Gemini 原生 parts 与思考签名（thoughtSignature）：多块保留与原样回放
   thoughtSignature?: string;
   parts?: unknown[];
   thinking?: string;
   stopped?: boolean;
 }
 
-// 响应 usage 采集（ai-usage-telemetry T1）：字段名随协议，由各 adapter 解析后归一
-// （core 不认协议形状）。缺失 / 形状不符 / 非有限数一律缺省该字段——不报错、不降级。
 export interface ChatUsage {
   inputTokens?: number;
   outputTokens?: number;
@@ -79,17 +67,10 @@ export interface AiProvider {
   model?: string;
   requiresKey?: boolean;
   enabled?: boolean;
-  // 平台协议（multi-protocol-ai）：缺省/未知值经 resolveAdapter 兜底 openai，
-  // 存量记录零变化。
   protocol?: AiProtocol;
   [key: string]: unknown;
 }
 
-// 「请求就绪 provider」：编排链各环节（completion / map-reduce /
-// analysis-orchestrate / tool-loop）统一入参形状，六个字段全可选（缺省由
-// resolveAdapter / preset 查表兜底）。与存储记录 AiProvider 区分：后者是
-// chrome.storage 里的落盘记录（带 id/enabled/任意扩展键），本类型只描述
-// 一次请求真正会读的字段。
 export interface ProviderRequest {
   baseUrl?: string;
   apiKey?: string;
@@ -151,8 +132,6 @@ export interface SseEvent {
   data: string;
 }
 
-// tool_calls SSE 片段（联网搜索管线）：同一 tool call 的 id/name/arguments 可能
-// 跨多个 chunk 分片到达，聚合由消费方（completion 的 drainSseStream）按 index 拼接。
 export interface SseToolCallFragmentEvent {
   type: "tool-call-fragment";
   index: number;
@@ -161,14 +140,11 @@ export interface SseToolCallFragmentEvent {
   argsFragment: string;
 }
 
-// 单条 SSE chunk 携带的 finish_reason（"stop" | "tool_calls" | ...）。
 export interface SseFinishEvent {
   type: "finish";
   reason: string;
 }
 
-// tool_calls 流聚合完成后逐条吐出（spec §2.2）：args 从 arguments JSON 宽容解析，
-// 非对象 JSON 以原文包 { query } 兜底。
 export interface StreamToolCallEvent {
   type: "tool-call";
   name: string;

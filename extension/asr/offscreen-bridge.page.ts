@@ -1,11 +1,3 @@
-// ASR offscreen 通道的调用侧客户端：两类任务共用同一个 "asr-decode" 端口——
-// ① createOffscreenChunkHost：一次发起「下载 + 解码 + 切片 + 转写」，音频字节与
-//    API Key 全程不出 offscreen（offscreen 自己 fetch、自己取配置），调用侧只收逐片
-//    文本结果；页面与后台 Agent 桥接均可发起，后者注入 SW 内 prepare/cleanup；
-// ② probeAsrProviderViaOffscreen：连通性探针，把草稿 provider 交给 offscreen 的真
-//    适配器跑一次（端口上表现为 asr-probe 动作，见 asr/protocol.js）。
-// 协议常量与契约注释唯一地址见 asr/protocol.js。
-
 import { consumeRuntimeLastError, sendRuntimeMessage, sendOffloadMessage } from "../shared/messaging.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
 import {
@@ -33,10 +25,6 @@ import type {
   AsrFailureFields
 } from "./protocol.js";
 
-// ===== 页面侧任务契约类型 =====
-
-// 适配器单片结果（port 透传的 JSON；叶子字段保持 unknown，页面侧只做
-// 防御性读取——字段语义见 asr/protocol.js 的 chunk-result 注释）
 export interface AsrChunkResult {
   text?: unknown;
   segments?: Array<{ start?: unknown; end?: unknown; text?: unknown }>;
@@ -45,7 +33,6 @@ export interface AsrChunkResult {
   durationSec?: unknown;
 }
 
-// 单片记录（offscreen 桥 done 后按片 index 排序）
 export interface AsrChunkRecord {
   index: number;
   startSec: number;
@@ -54,7 +41,6 @@ export interface AsrChunkRecord {
   result: AsrChunkResult | null;
 }
 
-// 任务入参：audioUrl 可缺省（音轨条目无 baseUrl 时由 offscreen 侧报错兜底）
 export interface OffscreenChunkHostArgs {
   audioUrl: string | undefined;
   backupUrls?: string[];
@@ -63,12 +49,6 @@ export interface OffscreenChunkHostArgs {
   signal?: AbortSignal | null;
 }
 
-// 任务结果：results 为按片 index 排序的单片记录；totalChunks 为产出片数，
-// skippedSegments 为解码失败跳过的段数，failedChunks 为转写失败跳过的片数
-// （Q8a 口径：个别失败不整体失败，全部段解码失败零片产出才算整体失败，
-// 见 asr/protocol.js）。三个 failed* 字段是片级失败摘要，由协议模块的
-// AsrFailureFields 派生，**只在终态消息携带时出现**（键不存在 = 无失败信号；
-// 页面侧按严格形状断言，不能凭空多出 undefined 键）。
 export interface OffscreenChunkHostResult extends AsrFailureFields {
   results: AsrChunkRecord[];
   totalChunks: number;
@@ -76,15 +56,6 @@ export interface OffscreenChunkHostResult extends AsrFailureFields {
   failedChunks: number;
 }
 
-// 页面侧客户端契约：
-//   async ({ audioUrl, backupUrls, onProgress? }) =>
-//     { results, totalChunks, skippedSegments, failedChunks }
-//     results 为按片 index 排序的 [{ index, startSec, durationSec, result }]，
-//     result 是适配器单片结果 { text, segments?, _asrDiag? }（Q8a 口径与
-//     完整结果形状见 asr/protocol.js）。
-// onProgress 中继 offscreen 引擎产出的进度文本。失败 reject 带用户可读文案；
-// 成功失败都会发 cleanup 清 dnr 规则（带上 prepare 响应带回的 ruleId，只清
-// 本任务这条，不碰并发任务的）。
 export type OffscreenChunkHost = (args: OffscreenChunkHostArgs) => Promise<OffscreenChunkHostResult>;
 
 export interface OffscreenChunkHostDeps {
@@ -133,7 +104,6 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
         try {
           port.disconnect();
         } catch {
-          // ignore
         }
         cleanup();
         callback(value);
@@ -150,11 +120,9 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
         const msg = rawMsg as AsrPortMessageLike | null;
         if (!msg || typeof msg !== "object" || done) return;
         if (msg.type === ASR_MSG_PROGRESS) {
-          // offscreen 引擎产出的进度文本（语音识别中 N 片…）原样中继
           try {
             onProgress?.(String(msg.text || ""));
           } catch {
-            // 进度回调异常不影响收包
           }
           return;
         }
@@ -172,7 +140,6 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
           try {
             onChunkResult?.(record);
           } catch {
-            // chunk 回调异常不影响收包
           }
           return;
         }
@@ -181,9 +148,6 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
           skippedSegments = Number(msg.skippedSegments) || 0;
           failedChunks = Number(msg.failedChunks) || 0;
           results.sort((a, b) => a.index - b.index);
-          // 片级失败摘要：判定（类别为唯一存在判据）→ 投影（**有则附、无则不加**）
-          // ——下游 asr/pipeline 与 fallback 按键是否存在判定「有无失败信号」，
-          // 凭空多出 undefined 键会让形状断言失真。
           finish(resolve, {
             results,
             totalChunks,
@@ -198,13 +162,9 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
           if (msg.code) {
             error.code = msg.code;
           }
-          // 结构化原因（asr-skip 的 "asr-disabled" / "no-asr-config"）随错误
-          // 对象透传，最终落 clipState.noSubtitleReason（asr/fallback.js）
           if (msg.reason) {
             error.reason = msg.reason;
           }
-          // 管线级失败类别（音轨下载/解码/切片/域名未授权/baseUrl 未配置）同款
-          // 透传：归类点据 kind 落 noSubtitleReason，未携带则归 asr-unknown
           if (msg.kind) {
             error.kind = msg.kind;
           }
@@ -229,10 +189,6 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
   };
 }
 
-// ===== 平台连通性探针（页面侧客户端） =====
-
-// 探针入参：草稿 provider 的可变字段（Key 随任务过去——探针要能测「填了但还没
-// 保存」的 Key）。
 export interface AsrProbeInput {
   type: string;
   baseUrl: string;
@@ -241,23 +197,9 @@ export interface AsrProbeInput {
   language?: string;
 }
 
-// 探针没等到回执时的两处可读文案：端口断连（offscreen 文档未就绪 / 已回收）与超时。
-// 两者一律以失败收口——测试按钮宁可报错，也不把「没等到」显示成连接成功。
 const PROBE_DISCONNECTED_MESSAGE = "探针通道已断开（转写服务未就绪或已回收），请重试";
 const PROBE_TIMEOUT_MESSAGE = `探针超时（${ASR_PROBE_TIMEOUT_MS / 1000} 秒无响应），请重试`;
 
-// 连通性探针：把草稿 provider 交给 offscreen 的真适配器跑一次静音转写，与实际
-// 转写同一条链（权限预检 / 请求构造 / 失败分类全在 offscreen 侧，见 asr/protocol.js）。
-// 页面侧自己发 fetch 做不到忠实：content script 没有 chrome.permissions（权限门
-// 必然 fail-open），且其 fetch 受网页 CORS 约束、与扩展文档里「只受 host 权限
-// 约束」的真出口不是一回事。
-//
-// 与解码链的差别只有两处：① 不经 offload-task 的 prepare/cleanup——探针不发音轨
-// 请求，不需要防盗链 dnr 规则，故也不会占掉一个规则 id；offscreen 文档经
-// "ensure-offscreen-chat" 幂等自愈（同一个文档，探针与解码共用三条通道）；② 只等
-// 一条 probe-result 回执，超时/断连都以可读文案收口。
-// 返回 { ok, error? }；error 为可直接展示的文案（未授权提示 / 平台 HTTP 报文 /
-// 通道故障），本层不改写。
 export async function probeAsrProviderViaOffscreen(
   input: AsrProbeInput
 ): Promise<{ ok: boolean; error?: string }> {
@@ -267,7 +209,6 @@ export async function probeAsrProviderViaOffscreen(
       return { ok: false, error: ensured.error || "转写服务启动失败" };
     }
   } catch {
-    // 自愈消息失败不短路：下面的端口断连会兜底成可读错误
   }
   const port = chrome.runtime.connect({ name: ASR_DECODE_PORT_NAME });
   try {
@@ -279,17 +220,13 @@ export async function probeAsrProviderViaOffscreen(
   } catch (error) {
     return { ok: false, error: getErrorMessage(error) };
   } finally {
-    // 成功、失败、超时三条路径都断端口：探针不该在 offscreen 侧留活连接
     try {
       port.disconnect();
     } catch {
-      // 已断连：忽略
     }
   }
 }
 
-// 等 offscreen 的唯一一条探针回执。端口断连（无回执）以错误拒绝，超时由外层的
-// withTimeout 兜底——两条路径都不会把「没等到」兑现成通过。
 function waitProbeResult(
   port: chrome.runtime.Port,
   input: AsrProbeInput
@@ -299,7 +236,6 @@ function waitProbeResult(
     port.onMessage.addListener((rawMsg) => {
       if (settled) return;
       const msg = rawMsg as AsrProbeResultMessage | null;
-      // 只认探针回执：同端口上还可能流过解码通道的消息（探针与真跑并发时）
       if (!msg || msg.type !== ASR_MSG_PROBE_RESULT) return;
       settled = true;
       resolve(msg.ok ? { ok: true } : { ok: false, error: msg.error || "转写请求失败" });
