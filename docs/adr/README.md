@@ -42,6 +42,8 @@
 | [0034](0034-chat-turn-lifecycle-and-replay-dag.md) | 对话回合生命周期、发送闸单向等待 DAG 与流式上下文隔离 | 有效 | sendGate->replay->settled 单向 DAG；延迟 pre-port stop + 4s 看门狗；contextData/liveContextData 双轨；offscreen 单槽与 30–50ms 批传 |
 | [0035](0035-web-search-fallback-chain-and-privacy-gate.md) | 联网搜索隐私授权闸、无状态冷却机与多协议适配边界 | 有效 | 退订仅认 true->false；storage 持久化冷却机；PlatformKey/PLATFORM_QUIRKS 双键空间；7 操作 ProtocolAdapter 与 FNV-1a UUIDv4 |
 | [0036](0036-cross-browser-ui-rendering-and-interaction-invariants.md) | 跨引擎 UI 渲染、零 Webfont MathML/Mermaid 与无障碍交互不变量 | 有效 | 补充 ADR-0019/0020/0021；MathML-only + flex 等式对齐；XrayWrapper/inert/分数缩放守卫；同步 Promise<Blob> 保剪贴板手势 |
+| [0037](0037-build-pipeline-slim-stubs-and-layer-boundaries.md) | 构建期 Mermaid 裁剪替身、Firefox MV3 显式 CSP、跨层依赖边界与模型目录零嵌入校验 | 有效 | 补充 ADR-0013/0014/0028；Mermaid 裁剪与 d3/iconify/marked 替身；手写 .d.ts 与无环分层；models.dev 对账与词法禁注释门禁 |
+| [0038](0038-light-dom-css-specificity-and-live-streaming-invariants.md) | Light DOM 宿主样式隔离不变量、Live 音频预分离与流式滚动豁免 | 有效 | 补充 ADR-0004/0007/0021/0023/0026/0028/0034/0036；特指度与盒模型/层叠上下文；纯麦/视频分路与 MOSS 丢弃配对；流式 c-v 保留 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 

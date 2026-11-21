@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { checkNoComments, isAllowedDirective, scanComments } from "../scripts/check-no-comments.mjs";
+import {
+  checkNoComments,
+  isAllowedDirective,
+  RATCHET_EXEMPT_FILES,
+  RATCHET_EXEMPT_PREFIXES,
+  scanComments,
+  scanCssComments
+} from "../scripts/check-no-comments.mjs";
 
 describe("no-comments guard", () => {
-  it("reports zero disallowed comments across non-exempt repository TS files", () => {
+  it("reports zero disallowed comments across all repository code, .d.ts, and CSS files", () => {
+    expect(RATCHET_EXEMPT_FILES.size).toBe(0);
+    expect(RATCHET_EXEMPT_PREFIXES).toEqual([]);
     const result = checkNoComments(process.cwd());
     expect(result.filesChecked).toBeGreaterThan(0);
     expect(result.violations).toEqual([]);
@@ -15,7 +24,8 @@ describe("no-comments guard", () => {
       "// @ts-expect-error\nconst x: number = 'a';",
       "// @ts-ignore legacy\nconst x = 1;",
       "// @ts-nocheck\nconst x = 1;",
-      "// BILISCRIPT_DUAL_INSTANCE_STATEFUL extra prose not allowed\nconst x = 1;"
+      "// BILISCRIPT_DUAL_INSTANCE_STATEFUL extra prose not allowed\nconst x = 1;",
+      `// ${"@vitest-environment"} invalid\nconst x = 1;`
     ];
     for (const sample of samples) {
       const comments = scanComments(sample);
@@ -24,11 +34,14 @@ describe("no-comments guard", () => {
     }
   });
 
-  it("allows whitelisted machine directives and explained @ts-expect-error", () => {
+  it("allows whitelisted machine directives, @vitest-environment, and explained @ts-expect-error", () => {
     const samples = [
       "#!/usr/bin/env node\nconst x = 1;",
       "/// <reference types=\"chrome\" />\nconst x = 1;",
       "// BILISCRIPT_DUAL_INSTANCE_STATEFUL\nconst x = 1;",
+      `// ${"@vitest-environment"} node\nconst x = 1;`,
+      `// ${"@vitest-environment"} jsdom\r\nconst x = 1;`,
+      `/* ${"@vitest-environment"} jsdom */\nconst x = 1;`,
       "/* @jsxImportSource react */\nconst x = 1;",
       "/* @vite-ignore */\nconst x = 1;",
       "/* v8 ignore next */\nconst x = 1;",
@@ -55,5 +68,22 @@ describe("no-comments guard", () => {
       "const div = 10 / 2;"
     ].join("\n");
     expect(scanComments(code)).toEqual([]);
+  });
+
+  it("scans CSS comments while skipping quoted strings, allowing @license and blocking regular CSS comments", () => {
+    const cleanCss = [
+      "/* @license MIT - github-markdown-css v5.9.0 */",
+      ".a::before { content: \"/* not a comment */ \\\" /* still string */\"; }",
+      ".b { background: url('https://example.com/a/*b*/.png'); }"
+    ].join("\n");
+    const allowed = scanCssComments(cleanCss);
+    expect(allowed.length).toBe(1);
+    expect(isAllowedDirective(allowed[0])).toBe(true);
+
+    const dirtyCss = ".a { color: red; }\n/* disallowed css comment */\n.b { color: blue; }";
+    const blocked = scanCssComments(dirtyCss);
+    expect(blocked.length).toBe(1);
+    expect(blocked[0].standalone).toBe(true);
+    expect(isAllowedDirective(blocked[0])).toBe(false);
   });
 });
