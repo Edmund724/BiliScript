@@ -16,14 +16,14 @@ export interface HotComment {
   like: number;
   message: string;
   /**
-   * 楼中楼续篇正文（置顶目录评论的第二段目录），仅目录解析消费
-   * （shared/chapter-outline 的 hotCommentsText）；聊天工具结果只用 message。
+   * 楼中楼续篇正文 (置顶目录评论的第二段目录)，仅目录解析消费
+   * (shared/chapter-outline 的 hotCommentsText)；聊天工具结果只用 message。
    * 无续篇时不出现该字段。
    */
   subMessages?: string[];
 }
 
-// 热评数据通道保存正文全文（F1）：置顶长评论是章节目录的载体，任何截断都会把
+// 热评数据通道保存正文全文 (F1)：置顶长评论是章节目录的载体，任何截断都会把
 // 目录行拦腰切断。聊天工具结果的 500 字截断由 ai/tool-loop.ts 单独负责。
 export function normalizeHotComments(comments: unknown, limit = 20): HotComment[] {
   if (!Array.isArray(comments)) {
@@ -63,7 +63,7 @@ function isReplyObject(value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// rpid 缺失/类型不对时返回 null（该条不参与去重，原样保留，宁可多不可丢）。
+// rpid 缺失/类型不对时返回 null (该条不参与去重，原样保留，宁可多不可丢)。
 function replyRpidKey(item: unknown): string | null {
   const rpid = (item as { rpid?: unknown })?.rpid;
   if (typeof rpid === "number" && Number.isFinite(rpid)) {
@@ -75,27 +75,28 @@ function replyRpidKey(item: unknown): string | null {
   return null;
 }
 
-// 热评接口（x/v2/reply/main）的置顶评论不在 data.replies 里，实抓 payload
-// （BV1q9He6SEyX，2026-10-06，tests/fixtures/bilibili/bv1q9he6seyx-reply-main.json）
+// 热评接口 (x/v2/reply/main) 的置顶评论不在 data.replies 里，实抓 payload
+// (BV1q9He6SEyX, 2026-10-06, tests/fixtures/bilibili/bv1q9he6seyx-reply-main.json)
 // 的形状是：
-//   data.top          = { admin, upper, vote } 容器，置顶评论在 data.top.upper
-//   data.top_replies  = [置顶评论]（与 data.top.upper 同一 rpid，同一条）
-//   data.upper        = { mid }，**没有 top**（旧注释写的 data.upper.top 是错的）
-//   data.replies      = 普通评论
-// 只读 replies 会整条漏掉置顶目录；容器 data.top 本身会被当成一条无正文的评论
-// 进 merged（normalizeHotComments 的空正文过滤掉，不影响产物），dedup 保证
-// top.upper 与 top_replies 只出一条。
+//   data.top         = { admin, upper, vote } 容器，置顶评论在 data.top.upper
+//   data.top_replies = [置顶评论] (与 data.top.upper 同一 rpid，同一条)
+//   data.upper       = { mid }
+//   data.replies     = 普通评论
+// 合并 data.top.upper、data.top_replies、data.replies 并按 rpid 去重，
+// 保证置顶评论前置且 top.upper 与 top_replies 只出一条。
 function mergedReplyItems(payload: unknown): unknown[] {
   const data = (payload as { data?: unknown })?.data as
-    | { top?: unknown; top_replies?: unknown; upper?: unknown; replies?: unknown }
+    | {
+        top?: { upper?: unknown } | null;
+        top_replies?: unknown;
+        replies?: unknown;
+      }
     | null
     | undefined;
 
   const merged: unknown[] = [
-    ...toReplyList(data?.top),
-    ...toReplyList((data?.top as { upper?: unknown } | null | undefined)?.upper),
+    ...toReplyList(data?.top?.upper),
     ...toReplyList(data?.top_replies),
-    ...toReplyList((data?.upper as { top?: unknown } | null | undefined)?.top),
     ...toReplyList(data?.replies)
   ];
 
@@ -119,8 +120,8 @@ function replyContentMessage(item: unknown): string {
 }
 
 /**
- * 楼中楼续篇补抓目标（F3）：mergedReplyItems 里**正文含时间戳行**的顶层评论 rpid。
- * 置顶目录评论常把「后半段目录」发在自己的楼中楼里，只为这类评论拉续篇——
+ * 楼中楼续篇补抓目标 (F3)：mergedReplyItems 里**正文含时间戳行**的顶层评论 rpid。
+ * 置顶目录评论常把「后半段目录」发在自己的楼中楼里，只为这类评论拉续篇—
  * 精准覆盖且省请求，其余评论零请求。
  */
 export function subReplyRootIds(payload: unknown): (number | string)[] {
@@ -140,8 +141,8 @@ export function highLikedReplyRootIds(payload: unknown, limit = 5): (number | st
 }
 
 /**
- * x/v2/reply/reply 响应 → 楼中楼续篇正文列表（按接口顺序，trim 后去空）。
- * 只取子评论正文（data.replies[]），不取 data.root 回显。
+ * x/v2/reply/reply 响应 → 楼中楼续篇正文列表 (按接口顺序，trim 后去空)。
+ * 只取子评论正文 (data.replies[])，不取 data.root 回显。
  */
 export function subReplyMessages(payload: unknown): string[] {
   const data = (payload as { data?: unknown })?.data as { replies?: unknown } | null | undefined;
@@ -150,14 +151,14 @@ export function subReplyMessages(payload: unknown): string[] {
     .filter(Boolean);
 }
 
-/** 楼中楼续篇输入：root 顶层评论 rpid + 该评论下的续篇正文（按序）。 */
+/** 楼中楼续篇输入：root 顶层评论 rpid + 该评论下的续篇正文 (按序)。 */
 export interface SubReplyInput {
   root: number | string;
   messages: string[];
 }
 
-// 归一 + limit 裁剪走既有 normalizeHotComments；subReplies（可选）按 rpid 把楼中楼
-// 续篇正文挂到对应顶层评论的 subMessages 上（无续篇不落字段）。
+// 归一 + limit 裁剪走既有 normalizeHotComments；subReplies (可选) 按 rpid 把楼中楼
+// 续篇正文挂到对应顶层评论的 subMessages 上 (无续篇不落字段)。
 export function mergeHotCommentsFromPayload(
   payload: unknown,
   limit = 20,
@@ -247,16 +248,16 @@ export function buildBiliApiError(payload: unknown, fallbackMessage: string): Bi
 
 function isRetryableError(code: number | string | undefined): boolean {
   // -509: 请求过于频繁
-  // -3: 参数错误（可能是临时性的）
+  // -3: 参数错误 (可能是临时性的)
   // 其他负数错误码也可能是临时性的
   return code === -509 || code === -3 || (typeof code === "number" && code < 0);
 }
 
-// 热评接口的业务错误码 → 人话错误（返回 null 表示 payload 没有报错，照常解析）。
-// 为什么不能沿用 buildBiliApiError：热评接口出错时 message 就是裸码（"-352"），
+// 热评接口的业务错误码 -> 人话错误 (返回 null 表示 payload 没有报错，照常解析)。
+// 为什么不能沿用 buildBiliApiError：热评接口出错时 message 就是裸码 ("-352")，
 // 直接抛出去用户看不懂。为什么不能静默折成空数组：空评论区与「拉不到」在用户侧
 // 长得一模一样——都是「没有评论目录」，但后者让概览整段退回 AI 自由分章，
-// 必须能出声（subtitle/core 的 refreshHotComments 把这条错误写进状态行）。
+// 必须能出声 (subtitle/core 的 refreshHotComments 把这条错误写进状态行)。
 // -352 = B 站风控校验失败：未登录裸请求或请求过密时整段置顶目录都拿不到。
 export function buildHotCommentsApiError(payload: unknown): BiliApiError | null {
   const code = (payload as { code?: unknown })?.code;
@@ -265,9 +266,9 @@ export function buildHotCommentsApiError(payload: unknown): BiliApiError | null 
   }
   const message =
     code === -352
-      ? "B 站风控校验失败（-352），拿不到热评目录"
+      ? "B 站风控校验失败 (-352)，拿不到热评目录"
       : code === -404
-        ? "评论不存在或已关闭（-404）"
+        ? "评论不存在或已关闭 (-404)"
         : `热评接口返回错误码 ${code}`;
   const error = new Error(message) as BiliApiError;
   error.code = code;
