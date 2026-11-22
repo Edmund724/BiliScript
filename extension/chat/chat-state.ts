@@ -1,6 +1,9 @@
-import type { AiContext, ImagePart } from "../ai/types.js";
+import type { AiContext } from "../ai/types.js";
 import { buildContextKey } from "../ai/conversation.js";
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
+import type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
+
+export type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
 
 export type ChatSessionContextSnapshot = AiContext;
 
@@ -26,31 +29,6 @@ export interface CurrentConversationMeta {
   pinnedContext?: boolean;
   contextRef?: AiContext | null;
   resolvedContext?: AiContext | null;
-}
-
-export interface ChatSessionMessage {
-  role: string;
-  content: string;
-  images?: ImagePart[];
-  contextKey?: string;
-  tool_calls?: unknown;
-  tool_call_id?: string;
-  thinking?: string;
-  stopped?: boolean;
-}
-
-export interface ChatSessionSavedConversation {
-  id: string;
-  title: string;
-  contextKey: string;
-  contextTitle: string;
-  contextUrl: string;
-  isVideoContext: boolean;
-  createdAt: number;
-  updatedAt: number;
-  contextRef: unknown;
-  messages: unknown[];
-  [key: string]: unknown;
 }
 
 type ChatSessionGuardedState = {

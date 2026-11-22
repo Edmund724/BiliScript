@@ -2,6 +2,7 @@ import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-share
 import type { AiContext } from "./types.js";
 export type { AiContext };
 import type { ChapterItem, HotComment, ImagePart } from "./types.js";
+import type { ChatSessionMessage, OrdinaryConversation } from "../chat/conversation-types.js";
 import {
   isLiveTextToolHistoryEntry,
   normalizeLiveTextToolHistoryEntry,
@@ -45,17 +46,6 @@ function normalizeContextUrlForKey(value: unknown): string {
   }
 }
 
-interface ConversationMessage {
-  role: string;
-  content: string;
-  images?: ImagePart[];
-  contextKey?: string;
-  tool_calls?: unknown[];
-  tool_call_id?: string;
-  thinking?: string;
-  stopped?: boolean;
-}
-
 export function normalizeImageParts(value: unknown): ImagePart[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const parts = value.filter((item): item is ImagePart => {
@@ -91,21 +81,7 @@ export function retainLatestImage<T extends object>(messages: T[]): T[] {
   });
 }
 
-interface NormalizedConversation {
-  id: string;
-  title: string;
-  contextKey: string;
-  contextTitle: string;
-  contextUrl: string;
-  isVideoContext: boolean;
-  createdAt: number;
-  updatedAt: number;
-  contextRef: AiContext;
-  messages: ConversationMessage[];
-  [key: string]: unknown;
-}
-
-export function normalizeConversations(value: unknown): Array<NormalizedConversation | LiveTextToolHistoryEntry> {
+export function normalizeConversations(value: unknown): Array<OrdinaryConversation | LiveTextToolHistoryEntry> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -118,7 +94,7 @@ export function normalizeConversations(value: unknown): Array<NormalizedConversa
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
             .map((msg: { role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
-              const base: ConversationMessage = { role: String(msg.role), content: String(msg.content) };
+              const base: ChatSessionMessage = { role: String(msg.role), content: String(msg.content) };
               const images = normalizeImageParts(msg.images);
               if (images) {
                 base.images = images;
@@ -150,7 +126,7 @@ export function normalizeConversations(value: unknown): Array<NormalizedConversa
       const contextTitle = String(item?.contextTitle || "").trim();
       const contextRef = buildAiContextRef(item?.contextRef || item?.contextSnapshot || item);
       const contextUrl = String(item?.contextUrl || "").trim();
-      return {
+      const normalized: OrdinaryConversation = {
         id,
         title: normalizeConversationTitle(item?.title, contextTitle, contextRef, contextUrl),
         contextKey: resolveConversationStorageKey(item?.contextKey, contextRef, contextUrl),
@@ -162,8 +138,9 @@ export function normalizeConversations(value: unknown): Array<NormalizedConversa
         contextRef,
         messages
       };
+      return normalized;
     })
-    .filter((item): item is NormalizedConversation | LiveTextToolHistoryEntry => Boolean(item))
+    .filter((item): item is OrdinaryConversation | LiveTextToolHistoryEntry => Boolean(item))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, MAX_SAVED_CONVERSATIONS);
 }

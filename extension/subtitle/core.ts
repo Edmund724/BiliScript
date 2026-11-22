@@ -12,7 +12,6 @@ import {
   buildSrt,
   buildTxt
 } from "../notes/render.js";
-import type { State } from "../core/state.js";
 
 export interface ReadingSubtitleItem {
   index: number;
@@ -194,7 +193,7 @@ export function rebuildDerivedContent(): void {
     return;
   }
   const secondaryFor = createSecondaryLineResolver();
-  clipState.setMarkdown(buildMarkdown(state as State, body, state.settings, secondaryFor));
+  clipState.setMarkdown(buildMarkdown(state.clip, body, state.settings, secondaryFor));
   clipState.setSrt(buildSrt(body, secondaryFor, state.settings));
   clipState.setTxt(buildTxt(body, state.settings, secondaryFor));
 }

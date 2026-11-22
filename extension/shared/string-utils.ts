@@ -38,7 +38,7 @@ export function decodeHtmlEntities(value: unknown): string {
   );
 }
 
-export function formatTimestamp(seconds: number | string, forSrt = false): string {
+export function formatTimestamp(seconds: unknown, forSrt = false): string {
   const safe = Number(seconds) || 0;
   const msTotal = Math.max(0, Math.floor(safe * 1000));
   const hour = Math.floor(msTotal / 3600000);

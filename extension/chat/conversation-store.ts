@@ -13,13 +13,11 @@ import {
 } from "../ai/conversation.js";
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
-import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import {
   HISTORY_STORAGE_KEY,
   readConversationHistory,
-  updateConversationHistory,
-  type StoredConversation
+  updateConversationHistory
 } from "./conversation-storage.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
@@ -30,26 +28,15 @@ import {
   chatSessionState,
   detachConversationIdentity,
   pinCurrentContextKey,
-  setSavedConversations,
-  type ChatSessionMessage,
-  type ChatSessionSavedConversation
+  setSavedConversations
 } from "./chat-state.js";
+import type {
+  ChatSessionMessage,
+  ChatSessionSavedConversation,
+  OrdinaryConversation
+} from "./conversation-types.js";
 
-export interface Conversation {
-  id: string;
-  title: string;
-  contextKey: string;
-  contextTitle: string;
-  contextUrl: string;
-  isVideoContext: boolean;
-  createdAt: number;
-  updatedAt: number;
-  contextRef: AiContext;
-  messages: ChatSessionMessage[];
-  kind?: "live-text-tool";
-  records?: LiveTextToolRecord[];
-  [key: string]: unknown;
-}
+export type Conversation = ChatSessionSavedConversation;
 
 function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   const base: ChatSessionMessage = { role: item.role, content: String(item.content || "") };
@@ -87,7 +74,6 @@ export interface ConversationMeta {
   pinnedContext: boolean;
   contextRef: AiContext | null;
   resolvedContext?: AiContext | null;
-  [key: string]: unknown;
 }
 
 export interface StorageArea {
@@ -232,7 +218,7 @@ export async function cleanExpiredConversations(
   if (!targetStorage) {
     return { prunedCount: 0, kept: [] };
   }
-  const list = await readConversationHistory(targetStorage) as Conversation[];
+  const list = await readConversationHistory(targetStorage);
   const initial = filterExpiredConversations(list, now, retentionMs);
   let kept = initial.kept;
   let prunedCount = initial.prunedCount;
@@ -243,7 +229,7 @@ export async function cleanExpiredConversations(
       prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
       prunedCount = filtered.prunedCount;
       return filtered.kept;
-    }) as Conversation[];
+    });
     if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
       detachConversationIdentity();
       applyLiveContextToMain();
@@ -275,10 +261,10 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   function saved(): Conversation[] {
-    return chatSessionState.savedConversations as Conversation[];
+    return chatSessionState.savedConversations;
   }
-  function commitSaved(next: Conversation[] | ReturnType<typeof normalizeConversations>): void {
-    setSavedConversations(next as Conversation[]);
+  function commitSaved(next: Conversation[]): void {
+    setSavedConversations(next);
   }
 
   function detachCurrent(): void {
@@ -307,7 +293,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   async function loadAll(): Promise<void> {
-    let normalized = storage ? await readConversationHistory(storage) as Conversation[] : [];
+    let normalized = storage ? await readConversationHistory(storage) : [];
     const isCleanEnabled = await checkCleanOlderThan30DaysEnabled();
     if (isCleanEnabled) {
       const initial = filterExpiredConversations(normalized);
@@ -317,7 +303,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
           const filtered = filterExpiredConversations(current);
           prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
           return filtered.kept;
-        }) as Conversation[] : initial.kept;
+        }) : initial.kept;
         if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
           detachCurrent();
           repopulateLive();
@@ -328,7 +314,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange({});
   }
 
-  async function hydrateConversationPage(conversation: Conversation): Promise<boolean> {
+  async function hydrateConversationPage(conversation: OrdinaryConversation): Promise<boolean> {
     const contextRef = conversation.contextRef || null;
     if (!contextRef?.bvid || !contextRef?.cid) {
       return false;
@@ -382,15 +368,13 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return true;
   }
 
-  async function saveHydratedConversation(hydrated: Conversation): Promise<void> {
+  async function saveHydratedConversation(hydrated: OrdinaryConversation): Promise<void> {
     if (storage) {
       await updateConversationHistory(storage, (current) => {
         const hasTarget = current.some((item) => !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id);
         if (hasTarget) {
           return current.map((item) =>
-            !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id
-              ? (hydrated as StoredConversation)
-              : item
+            !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id ? hydrated : item
           );
         }
         const localOrdinary = saved().filter((item) => !isLiveTextToolHistoryEntry(item));
@@ -399,19 +383,19 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
           (item) => !isLiveTextToolHistoryEntry(item) && !localIds.has(item.id)
         );
         const mergedOrdinary = [...localOrdinary, ...extraCurrentOrdinary].slice(0, maxSavedConversations);
-        return [...mergedOrdinary, ...current.filter(isLiveTextToolHistoryEntry)] as StoredConversation[];
+        return [...mergedOrdinary, ...current.filter(isLiveTextToolHistoryEntry)];
       });
     }
     emitChange({});
   }
 
-  async function savePersistedConversation(nextConversation: Conversation): Promise<void> {
+  async function savePersistedConversation(nextConversation: OrdinaryConversation): Promise<void> {
     if (storage) {
       await updateConversationHistory(storage, (current) => {
         const currentOrdinary = current.filter((item) => !isLiveTextToolHistoryEntry(item));
         const liveEntries = current.filter(isLiveTextToolHistoryEntry);
         const mergedOrdinary = [
-          nextConversation as StoredConversation,
+          nextConversation,
           ...currentOrdinary.filter((item) => item.id !== nextConversation.id)
         ].slice(0, maxSavedConversations);
         return [...mergedOrdinary, ...liveEntries];
@@ -427,7 +411,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const latest = conversations.find((item) =>
       doesConversationMatchCurrentContext(item, currentRef, targetContextKey)
     );
-    if (!latest) {
+    if (!latest || isLiveTextToolHistoryEntry(latest)) {
       detachCurrent();
       return false;
     }
@@ -438,7 +422,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return true;
   }
 
-  function apply(conversation: Conversation | null | undefined, change: ConversationChange = {}): void {
+  function apply(conversation: OrdinaryConversation | null | undefined, change: ConversationChange = {}): void {
     if (!conversation) {
       return;
     }
@@ -524,7 +508,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         if (storage) {
           await updateConversationHistory(storage, (current) => {
             const next = current.filter((item) => item.id !== id);
-            next.splice(Math.min(index, next.length), 0, conversation as StoredConversation);
+            next.splice(Math.min(index, next.length), 0, conversation);
             return next;
           });
         }
@@ -591,7 +575,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       };
       applyConversationIdentity({ id: currentId, meta });
     }
-    const nextConversation: Conversation = {
+    const nextConversation: OrdinaryConversation = {
       id: currentId,
       title: meta?.title || buildConversationTitle(context),
       contextKey: String(meta?.contextKey || chatSessionState.currentContextKey || "").trim(),
@@ -736,8 +720,8 @@ function areSavedConversationsEquivalent(
     ) {
       return false;
     }
-    const aRecords = Array.isArray(a.records) ? a.records.length : -1;
-    const bRecords = Array.isArray(b.records) ? b.records.length : -1;
+    const aRecords = isLiveTextToolHistoryEntry(a) && Array.isArray(a.records) ? a.records.length : -1;
+    const bRecords = isLiveTextToolHistoryEntry(b) && Array.isArray(b.records) ? b.records.length : -1;
     if (aRecords !== bRecords) {
       return false;
     }
@@ -746,7 +730,7 @@ function areSavedConversationsEquivalent(
 }
 
 export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
-  const next = normalizeConversations(rawValue) as Conversation[];
+  const next = normalizeConversations(rawValue);
   if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
     return false;
   }

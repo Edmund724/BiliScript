@@ -305,7 +305,7 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
   const results: CommandPaletteItem[] = [];
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   const chapters = normalizeChapters(state.clip.chapters || []);
-  const withHours = shouldShowHoursInNote(state, body);
+  const withHours = shouldShowHoursInNote(state.clip, body);
   const trimmed = String(query || "").trim();
 
   const parsedSec = parseTimestampQuery(trimmed);

@@ -545,7 +545,7 @@ export function bindReadingExplainEvents(): void {
 
     if (action === "copy-timestamp") {
       const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
-      const withHours = shouldShowHoursInNote(state, body);
+      const withHours = shouldShowHoursInNote(state.clip, body);
       const copyText = formatSelectionTimestampCopy(snapshot.selection, snapshot.from, withHours);
       void (async () => {
         try {

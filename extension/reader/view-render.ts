@@ -59,7 +59,7 @@ function projectReadingSubtitleList(): void {
   cancelReadingSubtitleAppend();
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   const subtitleItems = getReadingSubtitleItems();
-  const withHours = shouldShowHoursInNote(state, body);
+  const withHours = shouldShowHoursInNote(state.clip, body);
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   subtitleScrollFollow.guardLayoutReset();

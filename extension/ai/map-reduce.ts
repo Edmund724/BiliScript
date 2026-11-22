@@ -5,7 +5,7 @@ import { chatCompletion } from "./completion.js";
 import { runCachedMap } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
-import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
+import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest, SubtitleBodyItem } from "./types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 
@@ -28,7 +28,7 @@ export function buildProgressNotice(index: number | unknown, total: number | unk
   return `正在整理第 ${safeIndex}/${safeTotal} 段（${percent}%）`;
 }
 
-function buildSegmentPrompt({ title, index, total, items }: { title: string; index: number; total: number; items: unknown[] }): string {
+function buildSegmentPrompt({ title, index, total, items }: { title: string; index: number; total: number; items: readonly SubtitleBodyItem[] }): string {
   const segmentLines = (Array.isArray(items) ? items : []).map((item) => {
     const text = formatSegmentItem(item);
     return text.length > MAX_ITEM_CHARS ? text.slice(0, MAX_ITEM_CHARS) + "…" : text;

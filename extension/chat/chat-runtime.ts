@@ -334,7 +334,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     } else if (msg.type === "cost-guard") {
       const confirmCostGuard = deps.confirmCostGuard || ((message: string) => confirmDialog({ message, confirmText: "继续" }));
       const replyPort = port;
-      void Promise.resolve(confirmCostGuard(String(msg.data?.message || "预计会有多次调用，是否继续？"))).then((ok) => {
+      const guardMessage =
+        typeof msg.data?.message === "string" && msg.data.message
+          ? msg.data.message
+          : "预计会有多次调用，是否继续？";
+      void Promise.resolve(confirmCostGuard(guardMessage)).then((ok) => {
         try {
           replyPort?.postMessage({ action: "cost-guard-confirm", ok: Boolean(ok) });
         } catch {

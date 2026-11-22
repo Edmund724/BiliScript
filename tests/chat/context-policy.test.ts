@@ -107,10 +107,10 @@ describe("resolveLoadContextAction — error 分类", () => {
     expect(plan.clearContext).toBe(true);
   });
 
-  it("error 字段为非字符串真值时原样透传（不做 String 化）", () => {
+  it("error 字段为非字符串真值时规范化为通用兜底文案", () => {
     const weirdError = { code: 7 };
     const plan = resolveLoadContextAction(liveInput({ response: { ok: false, error: weirdError } }));
-    expect(plan.message).toBe(weirdError);
+    expect(plan.message).toBe(CONTEXT_READ_FAILED_MESSAGE);
   });
 
   it("ok=false 且无 error 字段 → 兜底通用文案", () => {

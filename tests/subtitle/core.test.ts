@@ -344,6 +344,19 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     expect(state.clip.srt).toBe("");
     expect(state.clip.txt).toBe("");
   });
+
+  it("rebuildDerivedContent 从 state.clip 读取简介、章节与时长，不丢失元数据", () => {
+    state.clip.setDescription("视频简介内容");
+    state.clip.setChapters([{ title: "序章", from: 0, to: 10 }]);
+    state.clip.setVideoDuration(3600);
+    state.clip.setSubtitleBody(BODY);
+    state.setSettings({ ...state.settings, includeTimestampInBody: true });
+
+    rebuildDerivedContent();
+    expect(state.clip.markdown).toContain("## 简介\n\n视频简介内容");
+    expect(state.clip.markdown).toContain("## 章节\n\n- `0:00:00` 序章");
+    expect(state.clip.markdown).toContain("### 序章 `0:00:00`");
+  });
 });
 
 describe("refreshHotComments：不受笔记导出设置门控", () => {

@@ -1,36 +1,27 @@
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
-import type { State } from "../core/state.js";
 
-interface NoteRenderMeta {
-  title?: unknown;
-  aid?: unknown;
-  bvid?: unknown;
-  cid?: unknown;
-  author?: unknown;
-  uploadDate?: unknown;
-  selectedSubtitleLang?: unknown;
+export interface NoteRenderMeta {
   description?: unknown;
   videoDuration?: unknown;
   chapters?: unknown[];
-  hotComments?: unknown[];
 }
 
-interface SubtitleBodyItemLike {
+export interface SubtitleBodyItemLike {
   from?: unknown;
   to?: unknown;
   content?: unknown;
 }
 
-interface NoteRenderSettings {
+export interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
   bilingualDisplayOrder?: "original-first" | "translation-first";
 }
 
 export type SecondaryLineResolver = (item: SubtitleBodyItemLike) => string | null;
 
-export function buildSubtitleSectionLines(body: unknown[] | null | undefined, chapters: unknown[] | null | undefined, settings: NoteRenderSettings, withHours: boolean, secondaryFor?: SecondaryLineResolver): string[] {
-  const items = (body || []) as SubtitleBodyItemLike[];
+export function buildSubtitleSectionLines(body: readonly SubtitleBodyItemLike[] | null | undefined, chapters: unknown[] | null | undefined, settings: NoteRenderSettings, withHours: boolean, secondaryFor?: SecondaryLineResolver): string[] {
+  const items = body || [];
   const subtitleItems = items
     .map((item, index) => ({
       ...item,
@@ -125,23 +116,22 @@ function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSett
   const topText = translationFirst ? secondary : text;
   const bottomText = translationFirst ? text : secondary;
   const firstLine = settings.includeTimestampInBody
-    ? `\`${formatClock(item.from as number, { hours: withHours })}\` ${topText}`
+    ? `\`${formatClock(item.from, { hours: withHours })}\` ${topText}`
     : topText;
   return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
 }
 
-export function shouldShowHoursInNote(meta: NoteRenderMeta | State | null | undefined, body: unknown[] | null | undefined): boolean {
-  const m = (meta || {}) as NoteRenderMeta;
-  const items = (body || []) as SubtitleBodyItemLike[];
+export function shouldShowHoursInNote(meta: NoteRenderMeta | null | undefined, body: readonly SubtitleBodyItemLike[] | null | undefined): boolean {
+  const items = body || [];
   const subtitleMaxTo = items.reduce((max, item) => {
     const to = Number(item?.to || 0);
     return Number.isFinite(to) && to > max ? to : max;
   }, 0);
-  const chapterMaxTo = normalizeChapters(m?.chapters || []).reduce((max, item) => {
+  const chapterMaxTo = normalizeChapters(meta?.chapters || []).reduce((max, item) => {
     const from = Number(item?.from || 0) || 0;
     const to = Number(item?.to || 0) || 0;
     return Math.max(max, from, to);
   }, 0);
-  const duration = Number(m?.videoDuration || 0) || 0;
+  const duration = Number(meta?.videoDuration || 0) || 0;
   return shouldUseHours(Math.max(subtitleMaxTo, chapterMaxTo, duration));
 }

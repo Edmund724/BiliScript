@@ -2,25 +2,14 @@ import { type Settings } from "../core/defaults.js";
 import { formatTimestamp } from "../shared/string-utils.js";
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
-import { buildSubtitleSectionLines, shouldShowHoursInNote, type SecondaryLineResolver } from "./section-lines.js";
-import { type State } from "../core/state.js";
-
-interface NoteRenderMeta {
-  description?: unknown;
-  videoDuration?: unknown;
-  chapters?: unknown[];
-}
-
-interface SubtitleBodyItemLike {
-  from?: unknown;
-  to?: unknown;
-  content?: unknown;
-}
-
-interface NoteRenderSettings {
-  includeTimestampInBody?: boolean;
-  bilingualDisplayOrder?: "original-first" | "translation-first";
-}
+import {
+  buildSubtitleSectionLines,
+  shouldShowHoursInNote,
+  type NoteRenderMeta,
+  type NoteRenderSettings,
+  type SecondaryLineResolver,
+  type SubtitleBodyItemLike
+} from "./section-lines.js";
 
 function buildChapterLines(chapters: unknown[] | null | undefined, withHours = false): string[] {
   const chapterItems = normalizeChapters(chapters);
@@ -34,19 +23,23 @@ function buildChapterLines(chapters: unknown[] | null | undefined, withHours = f
   });
 }
 
-export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | null | undefined, settings: Settings, secondaryFor?: SecondaryLineResolver): string {
-  const m = meta as NoteRenderMeta;
-  const compactWithHours = shouldShowHoursInNote(m, body);
-  const chapterLines = buildChapterLines(m.chapters || [], compactWithHours);
+export function buildMarkdown(
+  meta: NoteRenderMeta,
+  body: readonly SubtitleBodyItemLike[] | null | undefined,
+  settings: Settings,
+  secondaryFor?: SecondaryLineResolver
+): string {
+  const compactWithHours = shouldShowHoursInNote(meta, body);
+  const chapterLines = buildChapterLines(meta.chapters || [], compactWithHours);
   const subtitleSectionLines = buildSubtitleSectionLines(
     body,
-    m.chapters || [],
+    meta.chapters || [],
     settings,
     compactWithHours,
     secondaryFor
   );
 
-  const intro = String(m.description || "").trim();
+  const intro = String(meta.description || "").trim();
 
   const lines: string[] = [];
   if (intro) {
@@ -63,15 +56,15 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
 }
 
 export function buildSrt(
-  body: SubtitleBodyItemLike[] | null | undefined,
+  body: readonly SubtitleBodyItemLike[] | null | undefined,
   secondaryFor?: SecondaryLineResolver,
   settings?: NoteRenderSettings
 ): string {
   const translationFirst = settings?.bilingualDisplayOrder === "translation-first";
   return (body || [])
     .map((item, index) => {
-      const from = formatTimestamp(item.from as number, true);
-      const to = formatTimestamp(item.to as number, true);
+      const from = formatTimestamp(item.from, true);
+      const to = formatTimestamp(item.to, true);
       const text = String(item.content || "").trim();
       const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
       const cueBody = secondary
@@ -91,7 +84,7 @@ export interface BuildVttOptions {
 }
 
 export function buildVtt(
-  body: SubtitleBodyItemLike[] | null | undefined,
+  body: readonly SubtitleBodyItemLike[] | null | undefined,
   secondaryFor?: SecondaryLineResolver,
   settings?: NoteRenderSettings,
   options?: BuildVttOptions
@@ -119,8 +112,8 @@ export function buildVtt(
     if (!cueBody) {
       continue;
     }
-    const from = formatTimestamp(item?.from as number, false);
-    const to = formatTimestamp(item?.to as number, false);
+    const from = formatTimestamp(item?.from, false);
+    const to = formatTimestamp(item?.to, false);
     cues.push(`${from} --> ${to}\n${cueBody}`);
   }
 
@@ -130,7 +123,7 @@ export function buildVtt(
   return `WEBVTT\n\n${cues.join("\n\n")}`;
 }
 
-export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings, secondaryFor?: SecondaryLineResolver): string {
+export function buildTxt(body: readonly SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings, secondaryFor?: SecondaryLineResolver): string {
   const withHours = shouldShowHoursInSubtitle(body);
   const translationFirst = settings?.bilingualDisplayOrder === "translation-first";
   return (body || [])
@@ -143,7 +136,7 @@ export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settin
       const topText = secondary && translationFirst ? secondary : text;
       const bottomText = secondary && translationFirst ? text : secondary;
       const firstLine = settings?.includeTimestampInBody
-        ? `${formatClock(item.from as number, { hours: withHours })} ${topText}`
+        ? `${formatClock(item.from, { hours: withHours })} ${topText}`
         : topText;
       return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
     })
@@ -151,7 +144,7 @@ export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settin
     .join("\n");
 }
 
-function shouldShowHoursInSubtitle(body: SubtitleBodyItemLike[] | null | undefined): boolean {
+function shouldShowHoursInSubtitle(body: readonly SubtitleBodyItemLike[] | null | undefined): boolean {
   const maxTo = (body || []).reduce((max, item) => {
     const to = Number(item?.to || 0);
     return Number.isFinite(to) && to > max ? to : max;

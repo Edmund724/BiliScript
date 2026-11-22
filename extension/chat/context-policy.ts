@@ -22,7 +22,7 @@ export interface LoadContextPlan {
   action: (typeof LOAD_CONTEXT_ACTION)[keyof typeof LOAD_CONTEXT_ACTION];
   clearContext?: boolean;
   resetView?: boolean;
-  message?: unknown;
+  message?: string;
   returnValue: boolean;
 }
 
@@ -73,11 +73,14 @@ export function resolveLoadContextAction({
   }
 
   if (!response?.ok || !response.payload) {
+    const rawError = response?.error;
+    const message =
+      typeof rawError === "string" && rawError ? rawError : CONTEXT_READ_FAILED_MESSAGE;
     return {
       action: LOAD_CONTEXT_ACTION.ERROR,
       clearContext: !hasPinnedConversation,
       resetView: !silent && !hasPinnedConversation && !isLiveActive,
-      message: response?.error || CONTEXT_READ_FAILED_MESSAGE,
+      message,
       returnValue: false
     };
   }

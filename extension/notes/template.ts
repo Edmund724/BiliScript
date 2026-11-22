@@ -2,7 +2,14 @@ import { formatClock } from "../shared/clock-text.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
-import { buildSubtitleSectionLines, shouldShowHoursInNote, type SecondaryLineResolver } from "./section-lines.js";
+import {
+  buildSubtitleSectionLines,
+  shouldShowHoursInNote,
+  type NoteRenderMeta,
+  type NoteRenderSettings,
+  type SecondaryLineResolver,
+  type SubtitleBodyItemLike
+} from "./section-lines.js";
 import { DEFAULT_NOTE_TEMPLATE } from "./template-defaults.js";
 import type { NoteHighlightItem } from "./highlights-store.js";
 
@@ -36,21 +43,15 @@ export interface NoteTemplateVariables {
 export type NoteTemplateVariableKey = keyof NoteTemplateVariables;
 
 export interface BuildNoteTemplateVariablesInput {
-  meta: {
+  meta: NoteRenderMeta & {
     title?: unknown;
     bvid?: unknown;
     author?: unknown;
     url?: unknown;
     uploadDate?: unknown;
-    description?: unknown;
-    videoDuration?: unknown;
-    chapters?: unknown[];
   };
-  body?: unknown[] | null;
-  settings?: {
-    includeTimestampInBody?: boolean;
-    bilingualDisplayOrder?: "original-first" | "translation-first";
-  };
+  body?: readonly SubtitleBodyItemLike[] | null;
+  settings?: NoteRenderSettings;
   secondaryFor?: SecondaryLineResolver;
   overview?: {
     summary?: unknown;

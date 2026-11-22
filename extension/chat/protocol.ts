@@ -23,7 +23,7 @@ type PortNoticeEvent = StreamNoticeEvent & { code?: "truncated" };
 
 export interface ChatCostGuardEvent {
   type: "cost-guard";
-  data?: { message?: unknown };
+  data?: { message?: string };
 }
 
 export interface ChatTokenBatchEvent {

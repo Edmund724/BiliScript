@@ -1,20 +1,25 @@
 import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
-import { buildSubtitleSectionLines, shouldShowHoursInNote } from "../notes/section-lines.js";
-import type { ChapterItem, SubtitleBodyItem } from "./types.js";
+import {
+  buildSubtitleSectionLines,
+  shouldShowHoursInNote,
+  type NoteRenderMeta,
+  type SubtitleBodyItemLike
+} from "../notes/section-lines.js";
+import type { ChapterItem } from "./types.js";
 
 export function formatSegmentHeading(index: number): string {
   return `### 片段 ${index + 1}`;
 }
 
-export function formatSegmentItem(item: unknown): string {
-  const content = String(item && (item as { content?: unknown }).content != null ? (item as { content?: unknown }).content : "").trim();
-  const from = Number(item && (item as { from?: unknown }).from) || 0;
-  const to = Number(item && (item as { to?: unknown }).to) || from;
+export function formatSegmentItem(item: SubtitleBodyItemLike | null | undefined): string {
+  const content = String(item && item.content != null ? item.content : "").trim();
+  const from = Number(item?.from) || 0;
+  const to = Number(item?.to) || from;
   const withHours = shouldUseHoursForRange(from, to);
   return `[${formatClock(from, { hours: withHours })}-${formatClock(to, { hours: withHours })}] ${content}`;
 }
 
-interface AiConversationMeta {
+interface AiConversationMeta extends NoteRenderMeta {
   chapters?: ChapterItem[] | unknown[];
   videoDuration?: number | unknown;
 }
@@ -25,7 +30,7 @@ interface AiConversationSettings {
 
 export function buildAiConversationMarkdown(
   meta: AiConversationMeta,
-  body: unknown[],
+  body: readonly SubtitleBodyItemLike[],
   settings: AiConversationSettings
 ): string {
   const includeTimestampInBody = settings?.includeTimestampInBody !== false;
@@ -50,7 +55,7 @@ export function buildAiConversationMarkdown(
 }
 
 interface BuildSubtitlePromptInput {
-  body?: unknown[];
+  body?: readonly SubtitleBodyItemLike[];
   chapters?: unknown[];
   videoDuration?: number | unknown;
   includeTimestampInBody?: boolean | unknown;

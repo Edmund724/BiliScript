@@ -1,4 +1,11 @@
-import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
+import {
+  CONTEXT_READ_FAILED_MESSAGE,
+  LOAD_CONTEXT_ACTION,
+  NO_TAB_MESSAGE,
+  isPinnedContextStrict,
+  resolveLoadContextAction,
+  resolveNoTabPlan
+} from "./context-policy.js";
 import { buildContextKey, type AiContext } from "../ai/conversation.js";
 import {
   applyContextSnapshot,
@@ -46,7 +53,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (plan.resetView) {
-        deps.requestViewReset({ kind: "state", html: plan.message as string });
+        deps.requestViewReset({ kind: "state", html: plan.message ?? NO_TAB_MESSAGE });
       }
       return plan.returnValue;
     }
@@ -76,7 +83,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (plan.resetView) {
-        deps.requestViewReset({ kind: "state", html: plan.message as string });
+        deps.requestViewReset({ kind: "state", html: plan.message ?? CONTEXT_READ_FAILED_MESSAGE });
       }
       return plan.returnValue;
     }

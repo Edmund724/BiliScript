@@ -229,7 +229,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     return "";
   }
 
-  const withHours = shouldShowHoursInNote(state, getClipBody());
+  const withHours = shouldShowHoursInNote(state.clip, getClipBody());
   const chapters = (Array.isArray(analysis.chapters) ? analysis.chapters : []).filter(
     (item) => item && String(item.title || "").trim()
   );
@@ -381,7 +381,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
 async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
   const seconds = Number(quoteEl.dataset.seconds) || 0;
   const content = quoteEl.dataset.quote || "";
-  const withHours = shouldShowHoursInNote(state, getClipBody());
+  const withHours = shouldShowHoursInNote(state.clip, getClipBody());
   const text = `${formatClock(seconds, { hours: withHours })} 「${content}」`;
   if (!content) {
     flashCopyFailure(quoteEl, { originalLabel: "复制该金句" });
