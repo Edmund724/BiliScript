@@ -5,14 +5,17 @@ import {
   OUTLINE_QUOTES_SYSTEM_PROMPT
 } from "./analysis-prompts.js";
 import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter, type OverviewAnalysis } from "./analysis-validate.js";
+import type { AiContext } from "./types.js";
 import type { ChapterSource, ChapterSourceKind, OutlineChapter } from "../shared/chapter-outline.js";
 
 const MAX_OUTLINE_CHAPTERS_WITH_SUMMARIES = 9;
 
+export type ChapterPlanContext = Pick<AiContext, "title" | "author" | "videoDescription" | "videoDuration">;
+
 export interface ChapterPlanPromptVars {
-  title: unknown;
-  ownerName: unknown;
-  videoDescription: unknown;
+  title: string | undefined;
+  ownerName: string | undefined;
+  videoDescription: string | undefined;
   chapterOutline: OutlineChapter[];
   titlesOnly: boolean;
 }
@@ -39,7 +42,7 @@ export function resolveChapterPlan({
   body
 }: {
   chapterSource: ChapterSource;
-  context?: Record<string, unknown> | null;
+  context?: ChapterPlanContext | null;
   body?: unknown[];
 }): ChapterPlan {
   const ctx = context || {};
@@ -136,7 +139,7 @@ function takeNearestSummary(remaining: AnalysisChapter[], from: number): string 
   return bestIndex < 0 ? "" : String(remaining.splice(bestIndex, 1)[0]?.summary ?? "");
 }
 
-function resolveEndSeconds(ctx: Record<string, unknown>, body: unknown[]): number {
+function resolveEndSeconds(ctx: ChapterPlanContext, body: unknown[]): number {
   const items = normalizeSubtitleItems(body);
   const last = items.length ? items[items.length - 1] : null;
   const lastSeconds = last ? Math.max(0, Math.floor(Number(last?.to) || Number(last?.from) || 0)) : 0;

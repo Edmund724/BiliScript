@@ -16,21 +16,27 @@ import {
   type InteractionAnchorHint
 } from "./chat-hybrid-retrieval.js";
 import type { chatCompletion as ChatCompletionFn } from "./completion.js";
+import type { ChatPort } from "../chat/protocol.js";
+import type { WebSearchRuntime } from "../search/search-runtime.js";
 import { formatClock } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
-import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ImagePart, ProviderRequest } from "./types.js";
+import type {
+  AiContext,
+  AiProvider,
+  BudgetPlan,
+  CaptureCurrentVideoFrame,
+  CapturedVideoFrame,
+  ChatMessage,
+  ImagePart
+} from "./types.js";
 import type { FetchHotCommentsFn } from "./tool-loop.js";
 
-export interface ChatContext {
-  subtitleBody?: unknown[];
-  chapters?: unknown[];
-  [key: string]: unknown;
-}
+export type ChatContext = AiContext;
 
 export interface ChatMsg {
-  context?: ChatContext;
+  context?: AiContext;
   history?: ChatMessage[];
   prompt?: string;
   thinkingLevel?: ThinkingLevelInput;
@@ -38,77 +44,18 @@ export interface ChatMsg {
   [key: string]: unknown;
 }
 
-export interface ChatProvider {
-  id?: string;
-  apiKey?: string;
-  baseUrl?: unknown;
-  model?: unknown;
-  [key: string]: unknown;
-}
+export type ChatProvider = AiProvider;
+export type { ChatPort, BudgetPlan, WebSearchRuntime };
 
-export interface ChatPort {
-  postMessage(message: unknown): void;
-}
-
-export type BudgetPlan = Pick<import("./types.js").BudgetPlan, "mode"> &
-  Partial<Pick<import("./types.js").BudgetPlan, "estimatedCalls" | "estimatedTokens" | "totalChars">>;
-
-export interface WebSearchRuntime {
-  maxToolCalls: number;
-  executeSearch: (query: string) => Promise<{ results: unknown[]; platform: string }>;
-}
-
-export interface StreamChatArgs {
-  provider: ChatProvider;
-  context: ChatContext;
-  userPrompt: string;
-  history: ChatMessage[];
-  userImages?: ImagePart[];
-  thinkingLevel?: ThinkingLevelInput;
-  port: ChatPort;
-  signal: AbortSignal | null;
-  onActivity?: () => void;
-  webSearch?: WebSearchRuntime;
-  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
-  fetchHotComments?: FetchHotCommentsFn;
-}
-
-export type StreamChatFn = (args: StreamChatArgs) => Promise<unknown>;
-
-export interface OrchestrateMapReduceArgs {
-  provider: ChatProvider;
-  context: ChatContext;
-  plan: BudgetPlan | null;
-  port: ChatPort;
-  signal: AbortSignal | null;
-  thinkingLevel?: ThinkingLevelInput;
-  onProgress: (notice: string) => void;
-}
-
-export type OrchestrateMapReduceFn = (args: OrchestrateMapReduceArgs) => Promise<unknown>;
-
-export interface ResolveFollowupContextArgs {
-  context: ChatContext;
-  plan: BudgetPlan;
-  history: ChatMessage[];
-}
-
-export type ResolveFollowupContextFn = (args: ResolveFollowupContextArgs) => Promise<ChatContext | null>;
-
-type BuildBudgetPlanFn = (args: { body: unknown[]; chapters: unknown[] }) => BudgetPlan;
-
-interface CostGuardNotice {
-  shouldPrompt: boolean;
-  message: string;
-}
-
-type BuildCostGuardNoticeFn = (args: { estimatedCalls?: number; estimatedTokens?: number }) => CostGuardNotice;
-
-export type TrimRecentTurnsFn = (history?: ChatMessage[]) => ChatMessage[];
+export type StreamChatFn = typeof _streamChat;
+export type StreamChatArgs = Parameters<typeof _streamChat>[0];
+export type OrchestrateMapReduceFn = typeof _orchestrateMapReduce;
+export type ResolveFollowupContextFn = typeof _resolveFollowupContext;
+export type TrimRecentTurnsFn = typeof _trimRecentTurns;
 
 export interface RunLadderChatArgs {
   msg: ChatMsg;
-  provider: ChatProvider;
+  provider: AiProvider;
   port: ChatPort;
   signal: AbortSignal | null;
   webSearch?: WebSearchRuntime;
@@ -117,24 +64,24 @@ export interface RunLadderChatArgs {
 }
 
 export interface RunLadderChatDeps {
-  streamChat?: StreamChatFn;
-  orchestrateMapReduce?: OrchestrateMapReduceFn;
-  resolveFollowupContext?: ResolveFollowupContextFn;
-  buildBudgetPlan?: BuildBudgetPlanFn;
-  buildCostGuardNotice?: BuildCostGuardNoticeFn;
-  trimRecentTurns?: TrimRecentTurnsFn;
+  streamChat?: typeof _streamChat;
+  orchestrateMapReduce?: typeof _orchestrateMapReduce;
+  resolveFollowupContext?: typeof _resolveFollowupContext;
+  buildBudgetPlan?: typeof _buildBudgetPlan;
+  buildCostGuardNotice?: typeof _buildCostGuardNotice;
+  trimRecentTurns?: typeof _trimRecentTurns;
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
   onActivity?: () => void;
   pauseIdleTimeout?: () => void;
   acquireSwKeepalive?: () => SwKeepaliveHandle | null;
-  loadL1Index?: (context: ChatContext) => Promise<L1VideoIndexCacheRecord | null>;
+  loadL1Index?: (context: AiContext) => Promise<L1VideoIndexCacheRecord | null>;
   routeChatCompletion?: typeof ChatCompletionFn;
   routerTimeoutMs?: number;
 }
 
-function defaultLoadL1Index(context: ChatContext): Promise<L1VideoIndexCacheRecord | null> {
+function defaultLoadL1Index(context: AiContext): Promise<L1VideoIndexCacheRecord | null> {
   if (context?.l1Index && typeof context.l1Index === "object") {
-    return Promise.resolve(context.l1Index as L1VideoIndexCacheRecord);
+    return Promise.resolve(context.l1Index);
   }
   if (!context?.bvid || !context?.cid) {
     return Promise.resolve(null);
@@ -253,12 +200,12 @@ export async function runLadderChat(
   { msg, provider, port, signal, webSearch, captureCurrentVideoFrame, fetchHotComments }: RunLadderChatArgs,
   deps: RunLadderChatDeps
 ): Promise<void> {
-  const streamChat: StreamChatFn = deps.streamChat ?? (_streamChat as unknown as StreamChatFn);
-  const orchestrateMapReduce: OrchestrateMapReduceFn = deps.orchestrateMapReduce ?? (_orchestrateMapReduce as unknown as OrchestrateMapReduceFn);
-  const resolveFollowupContext: ResolveFollowupContextFn = deps.resolveFollowupContext ?? (_resolveFollowupContext as unknown as ResolveFollowupContextFn);
-  const buildBudgetPlan: BuildBudgetPlanFn = deps.buildBudgetPlan ?? _buildBudgetPlan;
-  const buildCostGuardNotice: BuildCostGuardNoticeFn = deps.buildCostGuardNotice ?? _buildCostGuardNotice;
-  const trimRecentTurns: TrimRecentTurnsFn = deps.trimRecentTurns ?? (_trimRecentTurns as unknown as TrimRecentTurnsFn);
+  const streamChat = deps.streamChat ?? _streamChat;
+  const orchestrateMapReduce = deps.orchestrateMapReduce ?? _orchestrateMapReduce;
+  const resolveFollowupContext = deps.resolveFollowupContext ?? _resolveFollowupContext;
+  const buildBudgetPlan = deps.buildBudgetPlan ?? _buildBudgetPlan;
+  const buildCostGuardNotice = deps.buildCostGuardNotice ?? _buildCostGuardNotice;
+  const trimRecentTurns = deps.trimRecentTurns ?? _trimRecentTurns;
   const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
 
@@ -270,9 +217,7 @@ export async function runLadderChat(
     });
     const userImages = normalizeImageParts(msg.images);
     const l0Lines = normalizeL0SubtitleLines(
-      Array.isArray(msg.context?.subtitleBody)
-        ? (msg.context.subtitleBody as Array<{ from?: unknown; to?: unknown; content?: unknown }>)
-        : []
+      Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : []
     );
     const isLongVideo = plan.mode === "map-reduce" || isLongVideoForHybridChat(l0Lines, msg.context);
     const interactionAnchor = asInteractionAnchorHint(msg.interactionAnchor);
@@ -296,7 +241,7 @@ export async function runLadderChat(
         compressedSummaryMarkdown: args.compressedSummaryMarkdown,
         interactionAnchor,
         playbackCursorSeconds,
-        provider: provider as ProviderRequest,
+        provider,
         signal,
         routeChatCompletion: deps.routeChatCompletion,
         routerTimeoutMs: deps.routerTimeoutMs
@@ -345,9 +290,7 @@ export async function runLadderChat(
         userPrompt,
         interactionAnchor,
         playbackCursorSeconds,
-        chapters: Array.isArray(msg.context?.chapters)
-          ? (msg.context.chapters as Array<{ title?: unknown; from?: unknown; to?: unknown }>)
-          : []
+        chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
       });
       if (fastPathPlan) {
         const l1Index = await loadL1Index(msg.context || {}).catch(() => null);

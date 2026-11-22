@@ -3,7 +3,7 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
-import type { AiProvider } from "../../extension/ai/types.js";
+import type { AiProvider, ChapterItem } from "../../extension/ai/types.js";
 import type { OverviewUiActions } from "../../extension/reader/overview-ui.js";
 import type { AiSetupSession, AiSetupTarget } from "../../extension/ui/settings-panel.js";
 import {
@@ -84,7 +84,7 @@ function seedClip() {
     selectedSubtitleId: "sub-1",
     selectedSubtitleUrl: "https://subtitle.test/1",
     subtitleBody: [...BODY],
-    chapters: [] as unknown[]
+    chapters: [] as ChapterItem[]
   };
 }
 

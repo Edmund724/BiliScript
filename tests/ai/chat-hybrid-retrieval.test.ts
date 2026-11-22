@@ -12,7 +12,7 @@ import {
 } from "../../extension/ai/chat-hybrid-retrieval.js";
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
 import { normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
-import { runLadderChat } from "../../extension/ai/ladder.js";
+import { runLadderChat, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { createExplainIntentController, setPendingExplainIntent } from "../../extension/reader/explain-intent.js";
 import type { L0ContextWindow, L1VideoIndexCacheRecord } from "../../extension/ai/long-video-hybrid-types.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
@@ -464,7 +464,7 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
   it("视觉/板书类提问复用召回核心时间戳触发关键帧采样，且与 thinkingLevel / webSearch 互不冲突", async () => {
     const { rawBody, l1Index } = buildLongVideoFixture();
     const portMessages: Array<Record<string, unknown>> = [];
-    const port = { postMessage: (m: unknown) => portMessages.push(m as Record<string, unknown>) };
+    const port = { postMessage: (m: unknown) => { portMessages.push(m as Record<string, unknown>); } };
     const streamCalls: Array<Record<string, unknown>> = [];
     const routeSpy = vi.fn(async () =>
       JSON.stringify({ mode: "expand", ranges: [{ from: "0:00", to: "15:00" }], terms: ["板书", "FlashAttention"] })
@@ -500,7 +500,7 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
         routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
         streamChat: vi.fn(async (args) => {
           streamCalls.push(args as unknown as Record<string, unknown>);
-          return { done: true };
+          return { done: true as const };
         }),
         askCostGuard: vi.fn(async () => true)
       }
@@ -532,8 +532,8 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
       content: i === 20 ? "关键锚点段落内容" : "填充字符".repeat(260)
     }));
     const askCostGuard = vi.fn(async () => false);
-    const orchestrateMapReduce = vi.fn();
-    const streamChat = vi.fn<(args: { context: Record<string, unknown> }) => Promise<{ done: true }>>(async () => ({ done: true }));
+    const orchestrateMapReduce = vi.fn<NonNullable<RunLadderChatDeps["orchestrateMapReduce"]>>();
+    const streamChat = vi.fn<NonNullable<RunLadderChatDeps["streamChat"]>>(async () => ({ done: true }));
     const routeSpy = vi.fn();
 
     await runLadderChat(
@@ -561,6 +561,6 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
     expect(orchestrateMapReduce).not.toHaveBeenCalled();
     expect(routeSpy).not.toHaveBeenCalled();
     expect(streamChat).toHaveBeenCalledTimes(1);
-    expect((streamChat.mock.calls[0][0] as { context: Record<string, unknown> }).context.hybridRetrievalMarkdown).toContain("关键锚点段落内容");
+    expect(streamChat.mock.calls[0][0].context?.hybridRetrievalMarkdown).toContain("关键锚点段落内容");
   });
 });

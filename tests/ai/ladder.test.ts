@@ -1,47 +1,91 @@
 import { describe, expect, it, vi } from "vitest";
-import { runLadderChat, type ChatMsg, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
+import {
+  runLadderChat,
+  type BudgetPlan,
+  type ChatMsg,
+  type ChatPort,
+  type OrchestrateMapReduceFn,
+  type ResolveFollowupContextFn,
+  type RunLadderChatDeps,
+  type StreamChatArgs,
+  type StreamChatFn,
+  type TrimRecentTurnsFn,
+  type WebSearchRuntime
+} from "../../extension/ai/ladder.js";
+import type { ChatPortMessage } from "../../extension/chat/protocol.js";
 import { makeOverflowError } from "../../extension/ai/completion.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 
-interface PortMessage {
-  type?: string;
-  data?: unknown;
-  reason?: string;
-  error?: string;
-}
+type MapReduceResult = Awaited<ReturnType<OrchestrateMapReduceFn>>;
 
-function makePort() {
-  const messages: PortMessage[] = [];
+function makePort(): ChatPort & { messages: ChatPortMessage[] } {
+  const messages: ChatPortMessage[] = [];
   return {
     messages,
-    postMessage(m: PortMessage) {
+    postMessage(m: ChatPortMessage) {
       messages.push(m);
     }
   };
 }
 
+function makeBudgetPlan(overrides: Partial<BudgetPlan> = {}): BudgetPlan {
+  return {
+    totalChars: 0,
+    estimatedTokens: 0,
+    mode: "single",
+    segments: [],
+    estimatedCalls: 1,
+    needsReduce: false,
+    reduceGroupInputChars: 100000,
+    ...overrides
+  };
+}
+
+function makeMapReduceResult(overrides: Partial<MapReduceResult> = {}): MapReduceResult {
+  return {
+    draft: "",
+    segmentSummaries: [],
+    aborted: false,
+    ...overrides
+  };
+}
+
+function makeWebSearchRuntime(): WebSearchRuntime {
+  return {
+    maxToolCalls: 5,
+    executeSearch: async () => ({ results: [], platform: "Tavily" })
+  };
+}
+
 function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
-  const calls = { streamChat: [] as any[], mapReduce: [] as any[], followup: [] as any[], guard: [] as any[] };
-  const deps = {
-    streamChat: vi.fn(async (args) => {
+  const calls = {
+    streamChat: [] as StreamChatArgs[],
+    mapReduce: [] as Parameters<OrchestrateMapReduceFn>[0][],
+    followup: [] as Parameters<ResolveFollowupContextFn>[0][]
+  };
+  const deps: RunLadderChatDeps = {
+    streamChat: vi.fn<StreamChatFn>(async (args) => {
       calls.streamChat.push(args);
-      return "ok";
+      return { done: true };
     }),
-    orchestrateMapReduce: vi.fn(async (args) => {
+    orchestrateMapReduce: vi.fn<OrchestrateMapReduceFn>(async (args) => {
       calls.mapReduce.push(args);
-      return "ok";
+      return makeMapReduceResult();
     }),
-    resolveFollowupContext: vi.fn(async (args) => {
+    resolveFollowupContext: vi.fn<ResolveFollowupContextFn>(async (args) => {
       calls.followup.push(args);
       return null;
     }),
-    buildBudgetPlan: vi.fn((): { mode: "single" | "map-reduce" } => ({ mode: "single" })),
-    buildCostGuardNotice: vi.fn(() => ({ shouldPrompt: false, message: "" })),
-    trimRecentTurns: vi.fn((history) => (history || []).slice(-2)),
-    askCostGuard: vi.fn(async () => true),
+    buildBudgetPlan: vi.fn<NonNullable<RunLadderChatDeps["buildBudgetPlan"]>>(() => makeBudgetPlan()),
+    buildCostGuardNotice: vi.fn<NonNullable<RunLadderChatDeps["buildCostGuardNotice"]>>(() => ({
+      shouldPrompt: false,
+      message: ""
+    })),
+    trimRecentTurns: vi.fn<TrimRecentTurnsFn>((history) => (Array.isArray(history) ? history.slice(-2) : [])),
+    askCostGuard: vi.fn<RunLadderChatDeps["askCostGuard"]>(async () => true),
     onActivity: vi.fn(),
     pauseIdleTimeout: vi.fn(),
-    acquireSwKeepalive: undefined as RunLadderChatDeps["acquireSwKeepalive"],
+    acquireSwKeepalive: undefined,
     ...overrides
   };
   return { deps, calls };
@@ -82,7 +126,7 @@ describe("runLadderChat 分派", () => {
     const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
     const followupFn = vi.fn(async () => ({ kind: "followup", compressedSummaryMarkdown: "压缩摘要内容" }));
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: followupFn
     });
 
@@ -96,7 +140,7 @@ describe("runLadderChat 分派", () => {
       kind: "followup",
       subtitleBody: []
     });
-    expect(calls.streamChat[0].context.hybridRetrievalMarkdown).toContain("压缩摘要内容");
+    expect(calls.streamChat[0].context?.hybridRetrievalMarkdown).toContain("压缩摘要内容");
     expect(calls.mapReduce).toHaveLength(0);
     expect(port.messages).toHaveLength(0);
   });
@@ -105,7 +149,7 @@ describe("runLadderChat 分派", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 }),
       buildCostGuardNotice: () => ({ shouldPrompt: true, message: "预计约 8 次调用" })
     });
 
@@ -122,7 +166,7 @@ describe("runLadderChat 分派", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       buildCostGuardNotice: () => ({ shouldPrompt: true, message: "预计约 8 次调用" }),
       askCostGuard: vi.fn(async () => false)
     });
@@ -154,7 +198,7 @@ describe("runLadderChat 分派", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ kind: "followup" })),
       streamChat: vi.fn(async () => {
         throw makeOverflowError();
@@ -204,7 +248,7 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => null),
       buildCostGuardNotice: () => ({ shouldPrompt: true, message: "确认？" }),
       askCostGuard: vi.fn(async () => true)
@@ -253,7 +297,7 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps();
-    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    const webSearch = makeWebSearchRuntime();
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(calls.streamChat[0].webSearch).toBe(webSearch);
   });
@@ -262,22 +306,22 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
     });
-    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    const webSearch = makeWebSearchRuntime();
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(calls.streamChat[0].webSearch).toBe(webSearch);
-    expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
+    expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(false);
   });
 
   it("Map-Reduce 归约轮：notice「本轮不联网」+ 不传 webSearch", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
     });
-    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    const webSearch = makeWebSearchRuntime();
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
     expect(calls.mapReduce.length).toBe(1);
@@ -287,12 +331,12 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "single" }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "single" }),
       streamChat: vi.fn(async () => {
         throw Object.assign(new Error("overflow"), { overflow: true });
       })
     });
-    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    const webSearch = makeWebSearchRuntime();
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
     expect(calls.mapReduce.length).toBe(1);
@@ -303,10 +347,10 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
     });
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
-    expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
+    expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(false);
   });
 });
 
@@ -352,7 +396,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
     });
 
@@ -364,7 +408,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
 
     const overflowPort = makePort();
     const overflowDeps = makeDeps({
-      buildBudgetPlan: () => ({ mode: "single" }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "single" }),
       streamChat: vi.fn(async () => {
         throw makeOverflowError("overflow");
       })
@@ -374,7 +418,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
       overflowDeps.deps
     );
     expect(overflowDeps.calls.mapReduce).toHaveLength(1);
-    expect(overflowDeps.calls.mapReduce[0].userImages).toBeUndefined();
+    expect(overflowDeps.calls.mapReduce[0]).not.toHaveProperty("userImages");
     expect(overflowDeps.calls.mapReduce[0].plan).toBeNull();
   });
 });
@@ -411,7 +455,7 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     const msg = { ...makeMsg(), thinkingLevel: dirty };
 
     const followup = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
     });
     await runLadderChat(
@@ -421,7 +465,7 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     expect(followup.calls.streamChat[0].thinkingLevel).toBe(dirty);
 
     const main = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => null)
     });
     await runLadderChat(
@@ -431,7 +475,7 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     expect(main.calls.mapReduce[0].thinkingLevel).toBe(dirty);
 
     const overflow = makeDeps({
-      buildBudgetPlan: () => ({ mode: "single" }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "single" }),
       streamChat: vi.fn(async () => {
         throw makeOverflowError();
       })
@@ -453,8 +497,9 @@ describe("L0+L1 混合路径与无 L0 行回退", () => {
       cid: "1",
       compressedSummaryMarkdown: "## 分段小结\n\n### 片段 1\n纯摘要\n\n## 成稿笔记\n\n笔记正文"
     }));
+    const expectedPlan = makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 });
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => expectedPlan,
       resolveFollowupContext
     });
 
@@ -478,18 +523,18 @@ describe("L0+L1 混合路径与无 L0 行回退", () => {
 
     expect(resolveFollowupContext).toHaveBeenCalledWith({
       context: expect.objectContaining({ bvid: "BV1l0", cid: "1" }),
-      plan: { mode: "map-reduce", estimatedCalls: 8 },
+      plan: expectedPlan,
       history: makeMsg().history
     });
     expect(calls.streamChat).toHaveLength(1);
-    expect(calls.streamChat[0].context.hybridRetrievalMarkdown).toContain("纯摘要");
+    expect(calls.streamChat[0].context?.hybridRetrievalMarkdown).toContain("纯摘要");
   });
 
   it("map-reduce 且无有效 L0 字幕行时，跳过追问回退并直接进入 Map-Reduce 编排", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 4 })
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 4 })
     });
 
     await runLadderChat(

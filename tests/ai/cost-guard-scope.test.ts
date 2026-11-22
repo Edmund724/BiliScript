@@ -21,7 +21,7 @@ function tokenNumberOf(message: string): number {
 
 async function runLadderGuard(subtitleChars: number, provider: ChainProvider) {
   const guardMessages: string[] = [];
-  const streamChat = vi.fn(async () => "ok");
+  const streamChat = vi.fn(async () => ({ done: true as const }));
   await runLadderChat(
     {
       msg: { context: { subtitleBody: makeSubtitleBody(subtitleChars), chapters: [] }, prompt: "总结" },

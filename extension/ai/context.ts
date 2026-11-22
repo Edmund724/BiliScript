@@ -1,7 +1,7 @@
 import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
-import type { AiContext, ChatMessage, ImagePart } from "./types.js";
+import type { AiContext, ChatMessage, ChatToolCall, ImagePart, ThinkingBlock } from "./types.js";
 
 interface BuildMessagesInput {
   context?: AiContext | null;
@@ -10,6 +10,83 @@ interface BuildMessagesInput {
   systemPrompt?: unknown;
   includeToolHistory?: boolean;
   images?: ImagePart[];
+}
+
+function isChatToolCall(value: unknown): value is ChatToolCall {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  const fn = item.function as Record<string, unknown> | undefined;
+  return (
+    typeof item.id === "string" &&
+    item.type === "function" &&
+    Boolean(fn && typeof fn === "object" && typeof fn.name === "string" && typeof fn.arguments === "string")
+  );
+}
+
+function isThinkingBlock(value: unknown): value is ThinkingBlock {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  if (item.type === "thinking") {
+    return typeof item.thinking === "string" && typeof item.signature === "string";
+  }
+  if (item.type === "redacted_thinking") {
+    return typeof item.data === "string";
+  }
+  return false;
+}
+
+function pickOptionalMessageFields(item: Record<string, unknown>): Partial<ChatMessage> {
+  const extra: Partial<ChatMessage> = {};
+  const images = normalizeImageParts(item.images);
+  if (images) extra.images = images;
+  if (typeof item.thoughtSignature === "string") extra.thoughtSignature = item.thoughtSignature;
+  if (Array.isArray(item.thinkingBlocks)) {
+    const blocks = item.thinkingBlocks.filter(isThinkingBlock);
+    if (blocks.length) extra.thinkingBlocks = blocks;
+  }
+  if (Array.isArray(item.parts)) extra.parts = item.parts;
+  if (typeof item.thinking === "string") extra.thinking = item.thinking;
+  if (typeof item.stopped === "boolean") extra.stopped = item.stopped;
+  return extra;
+}
+
+function projectHistoryMessage(raw: unknown, includeToolHistory: boolean): ChatMessage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const role = item.role;
+
+  if (includeToolHistory) {
+    if (role === "assistant" && Array.isArray(item.tool_calls)) {
+      const toolCalls = item.tool_calls.filter(isChatToolCall);
+      if (toolCalls.length > 0) {
+        return {
+          role: "assistant",
+          content: typeof item.content === "string" ? item.content : "",
+          tool_calls: toolCalls,
+          ...pickOptionalMessageFields(item)
+        };
+      }
+    }
+    if (role === "tool" && typeof item.tool_call_id === "string" && typeof item.content === "string") {
+      return {
+        role: "tool",
+        content: item.content,
+        tool_call_id: item.tool_call_id,
+        ...pickOptionalMessageFields(item)
+      };
+    }
+  }
+
+  if (role === "tool") return null;
+  if (role === "assistant" && !item.content && item.tool_calls != null) return null;
+  if ((role === "user" || role === "assistant") && typeof item.content === "string") {
+    return {
+      role,
+      content: item.content,
+      ...pickOptionalMessageFields(item)
+    };
+  }
+  return null;
 }
 
 function formatImagePlaceholder(count: number): string {
@@ -72,24 +149,12 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     sections.push("（暂无字幕）");
   }
 
-  let historyMessages: ChatMessage[] = [];
-  if (Array.isArray(history)) {
-    historyMessages = history.filter(function (m: unknown) {
-      const item = m as { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown };
-      if (!item) return false;
-      if (includeToolHistory) {
-        if (item.role === "assistant" && Array.isArray(item.tool_calls) && item.tool_calls.length) {
-          return true;
-        }
-        if (item.role === "tool" && typeof item.tool_call_id === "string" && typeof item.content === "string") {
-          return true;
-        }
-      }
-      if (item.role === "tool") return false;
-      if (item.role === "assistant" && !item.content && item.tool_calls != null) return false;
-      return (item.role === "user" || item.role === "assistant") && typeof item.content === "string";
-    }) as ChatMessage[];
-  }
+  let historyMessages: ChatMessage[] = Array.isArray(history)
+    ? history.flatMap((m) => {
+        const projected = projectHistoryMessage(m, Boolean(includeToolHistory));
+        return projected ? [projected] : [];
+      })
+    : [];
 
   historyMessages = replaceEarlierImages(historyMessages, Boolean(images?.length));
 

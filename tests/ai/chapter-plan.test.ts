@@ -5,7 +5,11 @@ import {
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
   OUTLINE_QUOTES_SYSTEM_PROMPT
 } from "../../extension/ai/analysis-prompts.js";
-import { resolveChapterPlan, flagMissingChapterSummaries } from "../../extension/ai/chapter-plan.js";
+import {
+  resolveChapterPlan,
+  flagMissingChapterSummaries,
+  type ChapterPlanContext
+} from "../../extension/ai/chapter-plan.js";
 import { resolveChapterSource } from "../../extension/shared/chapter-outline.js";
 
 const COMMENT_TIMELINE = "00:00 评论区开场\n01:40 评论区正题\n04:20 评论区收尾";
@@ -14,7 +18,7 @@ const MANUSCRIPT_CHAPTERS = [
   { from: 100, to: 300, title: "官方正题" }
 ];
 
-function makeContext(overrides: Record<string, unknown> = {}) {
+function makeContext(overrides: ChapterPlanContext = {}): ChapterPlanContext {
   return {
     title: "测试视频",
     author: "UP 主甲",

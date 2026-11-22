@@ -1,7 +1,7 @@
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
-import type { AiProvider } from "../ai/types.js";
+import type { AiContext, AiProvider, ChapterItem, HotComment } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import type { SubtitleBodyItem } from "../core/state.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
@@ -55,13 +55,13 @@ interface OverviewClipSource {
   title: string;
   author: string;
   description: string;
-  hotComments: unknown[];
+  hotComments: HotComment[];
   videoDuration: number;
   selectedSubtitleLang: string;
   selectedSubtitleId: string;
   selectedSubtitleUrl: string;
   subtitleBody: SubtitleBodyItem[];
-  chapters: unknown[];
+  chapters: ChapterItem[];
 }
 
 export interface CreateOverviewCoordinatorDeps {
@@ -173,7 +173,7 @@ export function createOverviewCoordinator(
     return `${clip.bvid}|${clip.cid}|${signature}`;
   }
 
-  function buildOverviewContext(): Record<string, unknown> {
+  function buildOverviewContext(): AiContext {
     const clip = deps.getClip();
     return {
       bvid: clip.bvid,

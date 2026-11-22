@@ -114,4 +114,51 @@ describe("buildMessages images", () => {
     expect(system).not.toContain("这是楼中楼");
     expect(system).not.toContain("热门评论");
   });
+
+  it("includeToolHistory=false 时丢弃 tool 与空正文 tool_calls，并从带正文 assistant 剥除 tool_calls 属性", () => {
+    const toolCalls = [
+      { id: "call_1", type: "function" as const, function: { name: "web_search", arguments: '{"query":"q"}' } }
+    ];
+    const assistantWithContentAndTools = {
+      role: "assistant" as const,
+      content: "我先帮你查一下。",
+      tool_calls: toolCalls
+    };
+    const messages = buildMessages({
+      userPrompt: "继续",
+      includeToolHistory: false,
+      history: [
+        { role: "user", content: "先问一句" },
+        { role: "assistant", content: "", tool_calls: toolCalls },
+        { role: "tool", tool_call_id: "call_1", content: "[]" },
+        assistantWithContentAndTools,
+        { role: "tool", tool_call_id: "call_1", content: '[{"title":"t"}]' },
+        { role: "assistant", content: "这是最终回答" }
+      ]
+    });
+
+    expect(messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "assistant", "user"]);
+    expect(messages[2]).toEqual({ role: "assistant", content: "我先帮你查一下。" });
+    expect("tool_calls" in messages[2]).toBe(false);
+    expect(messages[2].tool_calls).toBeUndefined();
+    expect(assistantWithContentAndTools.tool_calls).toEqual(toolCalls);
+    expect(messages[3]).toEqual({ role: "assistant", content: "这是最终回答" });
+  });
+
+  it("includeToolHistory=true 时保留带正文与空正文的 assistant(tool_calls) 及 tool 消息", () => {
+    const toolCalls = [
+      { id: "call_2", type: "function" as const, function: { name: "web_search", arguments: '{"query":"q2"}' } }
+    ];
+    const messages = buildMessages({
+      userPrompt: "追问",
+      includeToolHistory: true,
+      history: [
+        { role: "assistant", content: "先搜一下", tool_calls: toolCalls },
+        { role: "tool", tool_call_id: "call_2", content: "[]" }
+      ]
+    });
+
+    expect(messages[1]).toEqual({ role: "assistant", content: "先搜一下", tool_calls: toolCalls });
+    expect(messages[2]).toEqual({ role: "tool", tool_call_id: "call_2", content: "[]" });
+  });
 });

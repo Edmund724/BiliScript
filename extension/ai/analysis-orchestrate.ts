@@ -48,7 +48,7 @@ import {
   type RawRelayStepData
 } from "./state-relay.js";
 import type { L0SubtitleLine, L1ChapterNode, L1QuoteRef, StateRelayCard } from "./long-video-hybrid-types.js";
-import type { ChatMessage, ProviderRequest } from "./types.js";
+import type { AiContext, ChatMessage, ProviderRequest, StreamChatEvent } from "./types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 
 const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
@@ -82,7 +82,7 @@ const analysisSegmentFamily = createAiArtifactFamily<OverviewAnalysis>({
 });
 
 export function buildAnalysisSegmentCacheKey(
-  context: Record<string, unknown> | undefined | null,
+  context: AiContext | undefined | null,
   segmentIndex: number | string | unknown,
   signature: unknown,
   budgetScale: number | string | unknown = 1
@@ -102,9 +102,9 @@ interface TokenProgressState {
 
 type BuildCostGuardNoticeFn = typeof _buildCostGuardNotice;
 
-interface RunOverviewAnalysisArgs {
+export interface RunOverviewAnalysisArgs {
   provider: ProviderRequest;
-  context: Record<string, unknown>;
+  context: AiContext;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh?: boolean;
@@ -160,12 +160,11 @@ async function requestStreamedAnalysisText({
   let text = "";
   let reasoningChars = 0;
 
-  const onEvent = (event: unknown): void => {
-    const streamEvent = event as { type?: string; data?: unknown } | null;
-    if (streamEvent?.type === "token") {
-      text += String(streamEvent.data ?? "");
-    } else if (streamEvent?.type === "reasoning") {
-      reasoningChars += String(streamEvent.data ?? "").length;
+  const onEvent = (event: StreamChatEvent): void => {
+    if (event.type === "token") {
+      text += event.data;
+    } else if (event.type === "reasoning") {
+      reasoningChars += event.data.length;
     } else {
       return;
     }
@@ -335,7 +334,7 @@ export function runOverviewAnalysis(
 
 interface ExecuteOverviewRunArgs {
   provider: ProviderRequest;
-  ctx: Record<string, unknown>;
+  ctx: AiContext;
   identity: ClipOverviewIdentity;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;

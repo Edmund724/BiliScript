@@ -68,6 +68,8 @@ export interface AiProvider {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  presetId?: string;
+  sessionId?: string;
   requiresKey?: boolean;
   enabled?: boolean;
   protocol?: AiProtocol;
@@ -88,6 +90,8 @@ export interface AiContext {
   url?: string;
   author?: string;
   uploadDate?: string;
+  description?: string;
+  videoDescription?: string;
   bvid?: string;
   cid?: string;
   aid?: string;
@@ -97,6 +101,7 @@ export interface AiContext {
   subtitleFetchState?: SubtitleFetchState;
   noSubtitleReason?: NoSubtitleReason;
   subtitleLang?: string;
+  selectedSubtitleLang?: string;
   selectedSubtitleId?: string;
   selectedSubtitleUrl?: string;
   chapters?: ChapterItem[];

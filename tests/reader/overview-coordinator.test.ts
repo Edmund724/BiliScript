@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
-import type { AiProvider } from "../../extension/ai/types.js";
+import type { AiProvider, ChapterItem } from "../../extension/ai/types.js";
 import { ids } from "../../extension/reader/state.js";
 import {
   createOverviewCoordinator,
@@ -87,7 +87,7 @@ function seedClip() {
     selectedSubtitleId: "sub-1",
     selectedSubtitleUrl: "https://subtitle.test/1",
     subtitleBody: [...BODY],
-    chapters: [] as unknown[]
+    chapters: [] as ChapterItem[]
   };
 }
 

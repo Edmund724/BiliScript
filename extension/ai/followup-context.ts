@@ -1,6 +1,6 @@
 import { formatSegmentHeading } from "./subtitle-prompt.js";
 import { segmentCacheProxy } from "./segment-cache-proxy.js";
-import type { BudgetPlan, BudgetPlanSegment } from "./types.js";
+import type { AiContext, BudgetPlan, BudgetPlanSegment } from "./types.js";
 
 export const RECENT_TURNS_DEFAULT = 6;
 
@@ -101,7 +101,7 @@ export function lastAssistantContent(history: unknown = []): string {
 }
 
 interface ResolveFollowupContextInput {
-  context?: Record<string, unknown>;
+  context?: AiContext;
   plan?: BudgetPlan | null;
   history?: unknown[];
   loadSummaries?: typeof loadSegmentSummaries;
@@ -114,7 +114,7 @@ export async function resolveFollowupContext({
   history = [],
   loadSummaries = loadSegmentSummaries,
   loadStoredSummaries = (input) => segmentCacheProxy.loadStoredSummaries(input)
-}: ResolveFollowupContextInput = {}): Promise<Record<string, unknown> | null> {
+}: ResolveFollowupContextInput = {}): Promise<AiContext | null> {
   if (plan?.mode !== "map-reduce") {
     return null;
   }
