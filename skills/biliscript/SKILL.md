@@ -1,5 +1,6 @@
 ---
 name: biliscript
+disable-model-invocation: true
 description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、热门评论和关键帧，用于视频总结、问答、内容分析与多模态理解。用户要求分析 B 站视频、BV 号或 bilibili.com 链接，或查看当前视频的字幕、评论、画面时使用。
 ---
 
