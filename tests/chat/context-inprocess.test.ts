@@ -3,7 +3,7 @@ import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
-import type { AiContext } from "../../extension/ai/types.js";
+import type { AiContext, HotComment } from "../../extension/ai/types.js";
 import type { ClipState } from "../../extension/core/state.js";
 
 const { gatewayMock } = vi.hoisted(() => ({
@@ -30,7 +30,7 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
 const CONTEXT_KEY = "video:BV1test000000|101";
-const HOT_COMMENTS = [{ uname: "热评君", message: "前方高能" }];
+const HOT_COMMENTS: HotComment[] = [{ uname: "热评君", like: 0, message: "前方高能" }];
 
 type ClipRef = { current: Partial<ClipState> };
 
@@ -81,7 +81,7 @@ function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
   };
 }
 
-function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { hotComments?: unknown[] } = {}) {
+function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { hotComments?: HotComment[] } = {}) {
   const fetchHotComments = vi.fn(async () => hotComments);
   const fetchContext = createInProcessContextFetch({
     clip: () => clipRef.current,

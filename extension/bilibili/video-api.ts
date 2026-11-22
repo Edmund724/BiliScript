@@ -1,6 +1,11 @@
 import { formatLocalDate } from "../shared/utils.js";
 import { getErrorMessage, toReadableText } from "../shared/error-helpers.js";
 import { logInfo, logWarn } from "../shared/logging.js";
+import type {
+  Chapter,
+  SubtitleTrack,
+  SubtitleTrackOrigin
+} from "../shared/video-dto.js";
 import type { JsonTransport } from "./gateway-core.js";
 import {
   buildSubtitleInfoRequests,
@@ -161,23 +166,11 @@ export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Pr
   };
 }
 
-export type SubtitleTrackOrigin = "bilibili" | "asr";
-
-export interface SubtitleTrack {
-  id: string;
-  lan: string;
-  lanDoc: string;
-  subtitleUrl: string;
-  source: string;
-  origin?: SubtitleTrackOrigin;
-}
-
-export interface Chapter {
-  title: string;
-  from: number;
-  to: number;
-  source: string;
-}
+export type {
+  Chapter,
+  SubtitleTrack,
+  SubtitleTrackOrigin
+} from "../shared/video-dto.js";
 
 export interface SubtitleBundleResult {
   tracks: SubtitleTrack[];
@@ -246,11 +239,11 @@ async function fetchSubtitleBundleInner(
     }
 
     const data = (payload as { data?: Record<string, unknown> }).data;
-    const chapters = mapChaptersFromPlayerData(data) as Chapter[];
+    const chapters = mapChaptersFromPlayerData(data);
     const subtitles = mapSubtitleTracks(
       ((data as { subtitle?: { subtitles?: unknown } } | undefined)?.subtitle?.subtitles || []) as unknown[],
       request.source
-    ) as SubtitleTrack[];
+    );
     const withUrl = subtitles.filter((item) => item.subtitleUrl);
     const upowerBlocked = isUpowerBlockedPayload(data);
     const loginRequired = isLoginRequiredPayload(data);

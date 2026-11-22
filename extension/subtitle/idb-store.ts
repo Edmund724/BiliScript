@@ -1,4 +1,4 @@
-import type { SubtitleBodyItem } from "../ai/types.js";
+import type { SubtitleBodyItem, SubtitleWord } from "../shared/video-dto.js";
 import { isAsrVariantSourceKey } from "./source-key.js";
 
 export const SUBTITLE_IDB_NAME = "biliscript-subtitle-store";
@@ -358,7 +358,31 @@ export function sanitizeMonolingualItems(items: readonly unknown[]): SubtitleBod
       content
     };
     if (Array.isArray(candidate.words) && candidate.words.length > 0) {
-      item.words = candidate.words.map((w) => ({ ...(w as Record<string, unknown>) }));
+      const sanitizedWords: SubtitleWord[] = [];
+      for (const rawWord of candidate.words) {
+        if (!rawWord || typeof rawWord !== "object") {
+          continue;
+        }
+        const w = rawWord as {
+          word?: unknown;
+          text?: unknown;
+          start?: unknown;
+          end?: unknown;
+          startMs?: unknown;
+          endMs?: unknown;
+        };
+        const out: SubtitleWord = {};
+        if (typeof w.word === "string") out.word = w.word;
+        if (typeof w.text === "string") out.text = w.text;
+        if (typeof w.start === "number" && Number.isFinite(w.start)) out.start = w.start;
+        if (typeof w.end === "number" && Number.isFinite(w.end)) out.end = w.end;
+        if (typeof w.startMs === "number" && Number.isFinite(w.startMs)) out.startMs = w.startMs;
+        if (typeof w.endMs === "number" && Number.isFinite(w.endMs)) out.endMs = w.endMs;
+        sanitizedWords.push(out);
+      }
+      if (sanitizedWords.length > 0) {
+        item.words = sanitizedWords;
+      }
     }
     result.push(item);
   }

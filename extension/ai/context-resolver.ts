@@ -11,7 +11,7 @@ import {
 import { loadPreferredNativeSubtitle } from "../subtitle/body.js";
 import { getMergedSettings } from "../core/settings-store.js";
 import { createFetchedContextPayload } from "../core/context-payload.js";
-import type { ChapterItem, SubtitleBodyItem, SubtitleOption } from "../core/state.js";
+import type { SubtitleBodyItem } from "../core/state.js";
 import { buildAiContextRef } from "./conversation.js";
 import type { AiContext } from "./types.js";
 
@@ -92,11 +92,11 @@ export async function resolveAiConversationContext(contextRef: unknown): Promise
     selectedSubtitleId,
     selectedSubtitleUrl,
     subtitleLang,
-    subtitleOptions: loaded.tracks as unknown as SubtitleOption[],
-    chapters: subtitleBundle.chapters as unknown as ChapterItem[],
+    subtitleOptions: loaded.tracks,
+    chapters: subtitleBundle.chapters,
     settings
   });
-  return { ...payload, isVideoContext: true } as unknown as AiContext;
+  return { ...payload, isVideoContext: true };
 }
 
 export async function resolveAiConversationPageRef(contextRef: unknown): Promise<{

@@ -281,7 +281,7 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     clipState.setSelectedSubtitleLang("中文");
     clipState.setSubtitleBody(UNSORTED_BODY);
     clipState.setSubtitleFetchState("ready");
-    clipState.setHotComments([{ content: "热评", like: 1 }]);
+    clipState.setHotComments([{ uname: "测试用户", message: "热评", like: 1 }]);
     clipState.setMarkdown("# 笔记");
     clipState.setSrt("1\n00:00:00,000 --> 00:00:01,000 你好");
     clipState.setTxt("你好");

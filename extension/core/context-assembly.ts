@@ -7,7 +7,7 @@ import {
   computeContextStateSignature
 } from "./context-payload.js";
 import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
-import type { ClipState } from "./state.js";
+import type { ClipState, HotComment } from "./state.js";
 
 export type ContextFetchPayload = AiContext | { unchanged: true };
 
@@ -27,11 +27,11 @@ export interface InProcessContextFetchDeps {
   clip?: () => Partial<ClipState>;
   settings?: () => Partial<Settings>;
   url?: () => string;
-  fetchHotComments?: () => Promise<unknown[]>;
+  fetchHotComments?: () => Promise<HotComment[]>;
   verifyPageIdentity?: boolean;
 }
 
-async function defaultFetchHotComments(): Promise<unknown[]> {
+async function defaultFetchHotComments(): Promise<HotComment[]> {
   return (await fetchHotCommentsWithLedger()).comments;
 }
 
@@ -63,11 +63,11 @@ export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}
     if (!forceRefresh && ifSignature && ifSignature === signature) {
       return { kind: "payload", tabUrl, payload: { unchanged: true } };
     }
-    const hotComments = (await fetchHotComments()) as AiContext["hotComments"];
+    const hotComments = await fetchHotComments();
     return {
       kind: "payload",
       tabUrl,
-      payload: { ...payload, hotComments, isVideoContext: true, signature } as unknown as ContextFetchPayload
+      payload: { ...payload, hotComments, isVideoContext: true, signature }
     };
   };
 }
@@ -102,7 +102,7 @@ export interface InProcessPinnedContextResolverDeps {
   clip?: () => Partial<ClipState>;
   settings?: () => Partial<Settings>;
   url?: () => string;
-  fetchHotComments?: () => Promise<unknown[]>;
+  fetchHotComments?: () => Promise<HotComment[]>;
   resolveNetwork: (contextRef: unknown) => Promise<Record<string, unknown>>;
 }
 

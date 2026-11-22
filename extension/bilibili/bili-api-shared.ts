@@ -1,12 +1,8 @@
 import { toReadableText } from "../shared/error-helpers.js";
 import { hasOutlineTimestampLine } from "../shared/chapter-outline.js";
+import type { HotComment } from "../shared/video-dto.js";
 
-export interface HotComment {
-  uname: string;
-  like: number;
-  message: string;
-  subMessages?: string[];
-}
+export type { HotComment } from "../shared/video-dto.js";
 
 export function normalizeHotComments(comments: unknown, limit = 20): HotComment[] {
   if (!Array.isArray(comments)) {

@@ -20,13 +20,13 @@ const GOOD_BODY = [
   { from: 1.5, to: 290, content: "Second" }
 ];
 const TOO_SHORT_BODY = [{ from: 0, to: 10, content: "过短" }];
-const TRACK: SubtitleTrack = {
+const TRACK = {
   id: "sub-en",
   lan: "ai-en",
   lanDoc: "English",
   subtitleUrl: "https://i0.hdslb.com/en.json",
   source: "player-wbi-v2"
-};
+} satisfies SubtitleTrack;
 
 let body: typeof import("../../extension/subtitle/body.js");
 let cache: MockedObject<typeof import("../../extension/subtitle/cache.js")>;

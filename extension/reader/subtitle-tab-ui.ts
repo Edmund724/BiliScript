@@ -209,7 +209,7 @@ function resolveAiRefineToolbarAction(tracks: SubtitleTrack[]): AiRefineToolbarA
 }
 
 export function selectSubtitleToolbarFacts(switchInFlight: string | null = null): SubtitleToolbarFacts {
-  const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+  const tracks = state.clip.subtitles || [];
   return {
     tracks,
     bilingual: state.settings.bilingualSubtitles === true,
@@ -456,7 +456,7 @@ function loadableSecondaryTracks(tracks: SubtitleTrack[]): SubtitleTrack[] {
 }
 
 function currentTracks(): SubtitleTrack[] {
-  return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+  return state.clip.subtitles || [];
 }
 
 function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {

@@ -1,8 +1,6 @@
-export interface SubtitleBodyItem {
-  from: number;
-  to: number;
-  content: string;
-}
+import type { SubtitleBodyItem } from "../shared/video-dto.js";
+
+export type { SubtitleBodyItem } from "../shared/video-dto.js";
 
 export type SubtitleBody = SubtitleBodyItem[];
 

@@ -119,7 +119,7 @@ function seedReadyContext(): void {
   state.clip.aid = "7100";
   state.clip.subtitleFetchState = "ready";
   state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
-  state.clip.subtitles = [{ lan: "zh", subtitleUrl: "https://example.com/subtitle.json" }];
+  state.clip.subtitles = [{ id: "s1", lan: "zh", subtitleUrl: "https://example.com/subtitle.json" }];
 }
 
 function statusElement(): HTMLElement {

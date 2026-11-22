@@ -1,39 +1,27 @@
 // BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
 import { logWarnAlways } from "../shared/logging.js";
+import type {
+  ChapterItem,
+  HotComment,
+  NoSubtitleReason,
+  SubtitleBodyItem,
+  SubtitleFetchState,
+  SubtitleOption,
+  SubtitleTrack,
+  SubtitleTrackOrigin
+} from "../shared/video-dto.js";
 
-export type SubtitleFetchState = "idle" | "loading" | "ready" | "error" | "empty";
-
-export type NoSubtitleReason =
-  | null
-  | "upower-exclusive"
-  | "bili-login-required"
-  | "no-asr-config"
-  | "asr-disabled"
-  | "asr-auth"
-  | "asr-quota"
-  | "asr-ratelimit"
-  | "asr-network"
-  | "asr-media"
-  | "asr-server"
-  | "asr-unknown"
-  | "asr-empty";
-
-export type SubtitleOption = {
-  id?: string;
-  subtitleUrl?: string;
-  lan?: string;
-  lanDoc?: string;
-  source?: string;
-  origin?: "bilibili" | "asr";
-  [key: string]: unknown;
-};
-
-export type SubtitleBodyItem = {
-  from: number;
-  to: number;
-  content: string;
-};
+export type {
+  ChapterItem,
+  HotComment,
+  NoSubtitleReason,
+  SubtitleBodyItem,
+  SubtitleFetchState,
+  SubtitleOption,
+  SubtitleTrack,
+  SubtitleTrackOrigin
+} from "../shared/video-dto.js";
 
 export type SecondarySubtitleState = "idle" | "loading" | "ready" | "error";
 
@@ -47,12 +35,6 @@ export interface SecondarySubtitle {
 export function emptySecondarySubtitle(): SecondarySubtitle {
   return { id: "", url: "", body: [], state: "idle" };
 }
-
-export type ChapterItem = {
-  title: string;
-  from: number;
-  to?: number;
-};
 
 export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 
@@ -141,7 +123,7 @@ type ClipBusinessState = {
   noSubtitleDetail: string;
   secondarySubtitle: SecondarySubtitle;
   chapters: ChapterItem[];
-  hotComments: unknown[];
+  hotComments: HotComment[];
   hotCommentsNotice: string;
   markdown: string;
   srt: string;
@@ -178,7 +160,7 @@ type ClipSetters = {
   markSecondarySubtitleError(): void;
   clearSecondarySubtitle(): void;
   setChapters(value: ChapterItem[]): void;
-  setHotComments(value: unknown[]): void;
+  setHotComments(value: HotComment[]): void;
   setHotCommentsNotice(value: string): void;
   setMarkdown(value: string): void;
   setSrt(value: string): void;

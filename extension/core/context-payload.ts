@@ -1,6 +1,13 @@
-import type { ClipState, NoSubtitleReason, SubtitleFetchState, SubtitleBodyItem, SubtitleOption, ChapterItem } from "./state.js";
+import type {
+  ClipState,
+  ChapterItem,
+  HotComment,
+  NoSubtitleReason,
+  SubtitleBodyItem,
+  SubtitleFetchState,
+  SubtitleOption
+} from "./state.js";
 import type { Settings } from "./defaults.js";
-import type { SubtitleTrack as GatewaySubtitleTrack, VideoMeta, VideoPage } from "../bilibili/gateway.js";
 
 export type ReaderContextPayload = {
   url: string | undefined;
@@ -23,7 +30,7 @@ export type ReaderContextPayload = {
   selectedSubtitleUrl: string;
   subtitleOptions: SubtitleOption[];
   chapters: ChapterItem[];
-  hotComments: unknown[];
+  hotComments: HotComment[];
 };
 
 export const READER_CONTEXT_PAYLOAD_FIELDS: readonly (keyof ReaderContextPayload)[] = Object.freeze([
@@ -72,7 +79,7 @@ export function createReaderContextPayload({
     pageIndex: Number(c.pageIndex) > 0 ? Number(c.pageIndex) : 1,
     pageCount: Number(c.pageCount) > 0 ? Number(c.pageCount) : 0,
     pageTitle: c.pageTitle || "",
-    subtitleBody: body as SubtitleBodyItem[],
+    subtitleBody: body,
     videoDuration: Number(c.videoDuration || 0) || 0,
     includeTimestampInBody: settings?.includeTimestampInBody !== false,
     subtitleFetchState: c.subtitleFetchState || "idle",
@@ -81,7 +88,7 @@ export function createReaderContextPayload({
     selectedSubtitleId: c.selectedSubtitleId || "",
     selectedSubtitleUrl: c.selectedSubtitleUrl || "",
     subtitleOptions: c.subtitles || [],
-    chapters: Array.isArray(c.chapters) ? (c.chapters as ChapterItem[]) : [],
+    chapters: Array.isArray(c.chapters) ? c.chapters : [],
     hotComments: []
   };
   return payload;

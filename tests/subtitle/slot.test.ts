@@ -96,7 +96,7 @@ function seedDirtyClipState() {
   clipState.setTitle("测试脏视频标题");
   clipState.setAuthor("测试脏UP主");
   clipState.setChapters([{ title: "章1", from: 0 }]);
-  clipState.setHotComments(["热评1"]);
+  clipState.setHotComments([{ uname: "测试用户", like: 1, message: "热评1" }]);
   clipState.setMarkdown("# 脏 Markdown");
   clipState.setSrt("1\n00:00:00,000 --> 00:00:01,000\n脏SRT");
   clipState.setTxt("0:00 脏TXT");
@@ -186,7 +186,7 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.title).toBe("测试脏视频标题");
       expect(clipState.author).toBe("测试脏UP主");
       expect(clipState.chapters).toEqual([{ title: "章1", from: 0 }]);
-      expect(clipState.hotComments).toEqual(["热评1"]);
+      expect(clipState.hotComments).toEqual([{ uname: "测试用户", like: 1, message: "热评1" }]);
       expect(clipState.markdown).toBe("# 脏 Markdown");
       expect(clipState.srt).toBe("1\n00:00:00,000 --> 00:00:01,000\n脏SRT");
       expect(clipState.txt).toBe("0:00 脏TXT");

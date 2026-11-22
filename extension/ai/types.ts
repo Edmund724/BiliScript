@@ -1,5 +1,24 @@
 import type { AiProtocol } from "./protocol-adapter.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import type {
+  ChapterItem,
+  HotComment,
+  NoSubtitleReason,
+  SubtitleBodyItem,
+  SubtitleFetchState,
+  SubtitleOption,
+  SubtitleTrack
+} from "../shared/video-dto.js";
+
+export type {
+  ChapterItem,
+  HotComment,
+  NoSubtitleReason,
+  SubtitleBodyItem,
+  SubtitleFetchState,
+  SubtitleOption,
+  SubtitleTrack
+} from "../shared/video-dto.js";
 
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
@@ -44,27 +63,6 @@ export interface ChatUsage {
   reasoningTokens?: number;
 }
 
-export interface SubtitleBodyItem {
-  from: number;
-  to: number;
-  content: string;
-  [key: string]: unknown;
-}
-
-export interface ChapterItem {
-  title: string;
-  from: number;
-  to: number;
-  [key: string]: unknown;
-}
-
-export interface HotComment {
-  uname?: string;
-  like?: number;
-  message?: string;
-  [key: string]: unknown;
-}
-
 export interface AiProvider {
   id?: string;
   baseUrl?: string;
@@ -96,6 +94,8 @@ export interface AiContext {
   pageIndex?: number;
   pageCount?: number;
   pageTitle?: string;
+  subtitleFetchState?: SubtitleFetchState;
+  noSubtitleReason?: NoSubtitleReason;
   subtitleLang?: string;
   selectedSubtitleId?: string;
   selectedSubtitleUrl?: string;
@@ -103,9 +103,10 @@ export interface AiContext {
   videoDuration?: number;
   includeTimestampInBody?: boolean;
   subtitleBody?: SubtitleBodyItem[];
-  subtitleOptions?: Array<{ id: string; url: string; lang: string }>;
+  subtitleOptions?: SubtitleOption[];
   hotComments?: HotComment[];
   isVideoContext?: boolean;
+  signature?: string;
   compressedSummaryMarkdown?: string;
   hybridRetrievalMarkdown?: string;
   frameContextNote?: string;

@@ -42,45 +42,45 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   };
 });
 
-const EN_CC_TRACK: SubtitleTrack = {
+const EN_CC_TRACK = {
   id: "cc-en",
   lan: "en-US",
   lanDoc: "English",
   subtitleUrl: "https://sub.test/cc-en.json",
   source: "player"
-};
+} satisfies SubtitleTrack;
 
-const ZH_CC_TRACK: SubtitleTrack = {
+const ZH_CC_TRACK = {
   id: "cc-zh",
   lan: "zh-CN",
   lanDoc: "中文（简体）",
   subtitleUrl: "https://sub.test/cc-zh.json",
   source: "player"
-};
+} satisfies SubtitleTrack;
 
-const ZH_HANS_TRACK: SubtitleTrack = {
+const ZH_HANS_TRACK = {
   id: "cc-zh-hans",
   lan: "zh-Hans",
   lanDoc: "中文（简体）",
   subtitleUrl: "https://sub.test/zh-hans.json",
   source: "player"
-};
+} satisfies SubtitleTrack;
 
-const ZH_HANT_TRACK: SubtitleTrack = {
+const ZH_HANT_TRACK = {
   id: "cc-zh-hant",
   lan: "zh-Hant",
   lanDoc: "中文（繁體）",
   subtitleUrl: "https://sub.test/zh-hant.json",
   source: "player"
-};
+} satisfies SubtitleTrack;
 
-const AI_ZH_TRACK: SubtitleTrack = {
+const AI_ZH_TRACK = {
   id: "bili-ai-zh",
   lan: "ai-zh",
   lanDoc: "中文",
   subtitleUrl: "https://sub.test/ai-zh.json",
   source: "player"
-};
+} satisfies SubtitleTrack;
 
 const EN_BODY = [
   { from: 0.0, to: 2.4, content: "Welcome to GPU architecture." },

@@ -54,7 +54,7 @@ describe("readinessFromSnapshot（上下文快照入口）", () => {
 
   it("状态字段缺失或联合外脏值：折算 idle（与 payload 工厂的缺省口径一致）", () => {
     expect(readinessFromSnapshot({ subtitleBody: [] })!.fetchState).toBe("idle");
-    expect(readinessFromSnapshot({ subtitleFetchState: "junk", subtitleBody: [] })!.fetchState).toBe("idle");
+    expect(readinessFromSnapshot(JSON.parse('{"subtitleFetchState":"junk","subtitleBody":[]}'))!.fetchState).toBe("idle");
   });
 
   it("字幕体字段异常（非数组）：折算为空体", () => {

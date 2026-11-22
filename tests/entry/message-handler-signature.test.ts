@@ -370,7 +370,10 @@ describe("context-payload 形状快照与签名三分类对账", () => {
         { from: 0, to: 5, content: "完全不同的内容" },
         { from: 5, to: 9, content: "另一条不同的内容" }
       ],
-      subtitleOptions: [{ id: "s9x" }, { id: "s8x" }],
+      subtitleOptions: [
+        { id: "s9x", lan: "zh", subtitleUrl: "https://example.com/s9x.json" },
+        { id: "s8x", lan: "en", subtitleUrl: "https://example.com/s8x.json" }
+      ],
       chapters: [{ title: "另一章节", from: 5, to: 55 }]
     };
     expect(computeContextStateSignature(mutated)).toBe(base);

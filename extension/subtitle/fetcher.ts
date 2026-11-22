@@ -4,7 +4,7 @@ import {
   clipState,
   triggerSubtitleSessionBoundary
 } from "../core/state.js";
-import type { SubtitleBodyItem, SubtitleOption } from "../core/state.js";
+import type { SubtitleBodyItem } from "../core/state.js";
 import { extractBvid, computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import {
@@ -156,7 +156,7 @@ async function resolveRetainedAsrTrack({
 }: {
   runId: number;
   sameClip: boolean;
-  prevAsrTrack: SubtitleOption | null;
+  prevAsrTrack: SubtitleTrack | null;
   accessBlocker: BiliSubtitleAccessBlocker | null;
 }): Promise<SubtitleTrack | null> {
   if (accessBlocker) {
@@ -311,8 +311,8 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
           ? [retainedAsrTrack]
           : [];
 
-    clipState.setSubtitles(mergedTracks as unknown as SubtitleOption[]);
-    clipState.setChapters(normalizeChapters(subtitleBundle.chapters) as import("../core/state.js").ChapterItem[]);
+    clipState.setSubtitles(mergedTracks);
+    clipState.setChapters(normalizeChapters(subtitleBundle.chapters));
     if (shouldDebugLog()) {
       logInfo(
         "[BILISCRIPT] chapters",
@@ -347,7 +347,7 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
         hasNativeTracks: nativeTracks.length > 0
       });
       if (!asrLoaded && nativeTracks.length > 0) {
-        clipState.setSubtitles(nativeTracks as unknown as SubtitleOption[]);
+        clipState.setSubtitles(nativeTracks);
         const nativePreferred = pickPreferredSubtitle(nativeTracks, {
           previousUrl: state.clip.selectedSubtitleUrl,
           previousLang: state.clip.selectedSubtitleLang
@@ -376,7 +376,7 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
     }
 
     const nativeCandidates = buildSubtitleCandidates(
-      (state.clip.subtitles as unknown as SubtitleTrack[]).filter(isLoadableNativeTrack),
+      state.clip.subtitles.filter(isLoadableNativeTrack),
       preferred
     );
     const selected = await loadNativeCandidatesWithRetry({
@@ -541,10 +541,8 @@ async function retryWithFreshBundle({
   ensureRunActive(runId, state.clip.fetchRunId);
   const existingAsr = (state.clip.subtitles || []).find((track) => isAsrSubtitleTrack(track));
   const freshNative = normalizeSubtitleTracks(bundle.tracks);
-  clipState.setSubtitles(
-    (existingAsr ? [...freshNative, existingAsr] : freshNative) as unknown as SubtitleOption[]
-  );
-  clipState.setChapters(normalizeChapters(bundle.chapters) as import("../core/state.js").ChapterItem[]);
+  clipState.setSubtitles(existingAsr ? [...freshNative, existingAsr] : freshNative);
+  clipState.setChapters(normalizeChapters(bundle.chapters));
   const retryPreferred = pickPreferredSubtitle(freshNative, {
     previousId: preferred.id,
     previousUrl: preferred.subtitleUrl,

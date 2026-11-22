@@ -56,7 +56,7 @@ export interface EnsureSecondaryOptions {
 }
 
 function currentTracks(): SubtitleTrack[] {
-  return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+  return state.clip.subtitles || [];
 }
 
 export function resolveSecondaryTarget(ref?: SecondaryTrackRef): SecondaryTargetResolution {

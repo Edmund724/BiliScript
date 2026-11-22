@@ -142,7 +142,7 @@ describe("AiContext 装配链单源：两路径对拍", () => {
     expect(network.hotComments).toEqual([]);
     expect(Object.keys(readerPayload())).not.toContain("isVideoContext");
 
-    const HOT_COMMENTS = [{ uname: "热评君", message: "前方高能" }];
+    const HOT_COMMENTS = [{ uname: "热评君", like: 0, message: "前方高能" }];
     const fetchContext = createInProcessContextFetch({
       clip: () => CLIP_FACTS,
       settings: () => ({ includeTimestampInBody: true }),
