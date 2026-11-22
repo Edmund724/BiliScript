@@ -9,6 +9,7 @@ import {
 } from "../../extension/ui/trigger-motion.js";
 import { closeConfirmDialog, confirmDialog } from "../../extension/ui/confirm-dialog.js";
 import { closeQuoteShareModal, openQuoteShareModal } from "../../extension/reader/quote-share-modal.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
 
 function createFakeAnimation() {
   const listeners = new Map<string, Set<() => void>>();
@@ -68,6 +69,7 @@ describe("trigger-motion", () => {
   });
 
   afterEach(() => {
+    registerDebugGate(() => false);
     closeConfirmDialog();
     closeQuoteShareModal({ restoreFocus: false });
     window.matchMedia = origMatchMedia;
@@ -219,5 +221,45 @@ describe("trigger-motion", () => {
     expect(quoteDialog.style.transformOrigin).toBe("-100px -65px");
     createdAnims.at(-2)!.finish();
     expect(readingView.querySelector(".biliscript-quote-share-host")).toBeNull();
+  });
+
+  it("logs unexpected WAAPI errors via logWarn and still completes exit cleanup", () => {
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const badAnim = {
+      cancel: vi.fn(() => {
+        throw new Error("cancel failed");
+      }),
+      addEventListener: vi.fn()
+    };
+    const animateMock = vi.fn().mockReturnValueOnce(badAnim as unknown as Animation);
+    HTMLElement.prototype.animate = animateMock as unknown as typeof HTMLElement.prototype.animate;
+
+    const host = document.createElement("div");
+    const target = document.createElement("div");
+    host.appendChild(target);
+    document.body.appendChild(host);
+
+    animateTriggerEnter({ target, fallbackOrigin: "center" });
+    animateMock.mockImplementationOnce(() => {
+      throw new Error("animate failed");
+    });
+
+    const onFinish = vi.fn();
+    animateTriggerExit({ target, host, fallbackOrigin: "center", onFinish });
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(host.hasAttribute("data-biliscript-closing")).toBe(false);
+    expect(host.inert).toBe(false);
+    expect(host.hasAttribute("aria-hidden")).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[BILISCRIPT] trigger-motion animation cancel failed",
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[BILISCRIPT] trigger-motion animation failed",
+      expect.any(Error)
+    );
   });
 });

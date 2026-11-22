@@ -41,8 +41,7 @@ async function mountDialog(options: { presetId: string; baseUrl: string; models:
       protocol: "openai",
       models: [],
       model: ""
-    },
-    baselineDraft: null
+    }
   });
   const state = await import("../../extension/ui/provider-editor-state.js");
   const catalog = await import("../../extension/ui/provider-editor-catalog.js");
@@ -215,6 +214,36 @@ describe("模型行元数据", () => {
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     catalog.addModelRow("deepseek-v4-pro");
     expect(metaSlot(dialog, 0).textContent).toBe("1M思考");
+  });
+
+  it("仅以 session draft 为真源：跳过未同步到 draft 的裸 DOM 修改，且默认以 draft 克隆建立基线", async () => {
+    const { dialog, catalog, state } = await mountDialog({
+      presetId: "custom",
+      baseUrl: "",
+      models: ["mimo-v2.5"]
+    });
+    expect(state.state.baselineDraft).toEqual({
+      presetId: "custom",
+      name: "",
+      baseUrl: "",
+      apiKey: "",
+      protocol: "openai",
+      models: [],
+      model: ""
+    });
+
+    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
+    dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value = "deepseek";
+    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = MIMO_BASE_URL;
+    catalog.refreshModelCatalogMeta();
+    expect(metaSlot(dialog, 0).hidden).toBe(true);
+
+    state.editDraft((draft) => {
+      draft.baseUrl = MIMO_BASE_URL;
+    });
+    catalog.refreshModelCatalogMeta();
+    expect(metaSlot(dialog, 0).hidden).toBe(false);
+    expect(metaSlot(dialog, 0).textContent).toBe("1M思考图片");
   });
 });
 

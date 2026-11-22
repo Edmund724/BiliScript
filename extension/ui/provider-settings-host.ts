@@ -67,7 +67,7 @@ export interface OpenProviderEditorRequest {
   setupSession?: OpenProviderEditorSession;
   restore?: {
     initialDraft: EditorDraft;
-    baselineDraft: EditorDraftView | null;
+    baselineDraft: EditorDraftView;
   };
   setupContextBanner?: string | null;
   initialStatus?: { message: string; isError?: boolean } | null;

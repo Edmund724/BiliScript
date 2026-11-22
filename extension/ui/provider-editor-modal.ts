@@ -987,17 +987,17 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
 export interface ProviderEditorDraftStash {
   editingId: string;
   draft: EditorDraft;
-  baseline: EditorDraft | null;
+  baseline: EditorDraft;
 }
 
 export function stashProviderEditorDraft(kind: "live" | "search"): ProviderEditorDraftStash | null {
-  if (!state.open || state.kind !== kind || !state.draft || !state.host) {
+  if (!state.open || state.kind !== kind || !state.draft || !state.baselineDraft || !state.host) {
     return null;
   }
   return {
     editingId: state.editingId,
     draft: cloneDraft(state.draft),
-    baseline: state.baselineDraft ? cloneDraft(state.baselineDraft) : null
+    baseline: cloneDraft(state.baselineDraft)
   };
 }
 

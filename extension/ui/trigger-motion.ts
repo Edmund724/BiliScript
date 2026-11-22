@@ -1,3 +1,5 @@
+import { logWarn } from "../shared/logging.js";
+
 export interface TriggerEnterOptions {
   target: HTMLElement;
   trigger?: Element | DOMRect | null;
@@ -87,15 +89,21 @@ export function computeRelativeOrigin(
   return `${Math.round(ox)}px ${Math.round(oy)}px`;
 }
 
+function cancelAnimations(animations: readonly Animation[]): void {
+  for (const anim of animations) {
+    try {
+      anim.cancel();
+    } catch (error) {
+      logWarn("[BILISCRIPT] trigger-motion animation cancel failed", error);
+    }
+  }
+}
+
 function cancelActiveAnimations(el: HTMLElement | null | undefined): void {
   if (!el) return;
   const list = activeAnimations.get(el);
   if (list) {
-    for (const anim of list) {
-      try {
-        anim.cancel();
-      } catch {}
-    }
+    cancelAnimations(list);
     activeAnimations.delete(el);
   }
 }
@@ -106,6 +114,21 @@ function trackAnimation(el: HTMLElement, anim: Animation): void {
     list.push(anim);
   } else {
     activeAnimations.set(el, [anim]);
+  }
+}
+
+function startAnimation(
+  el: HTMLElement,
+  keyframes: Keyframe[],
+  options: KeyframeAnimationOptions
+): Animation | null {
+  try {
+    const anim = el.animate(keyframes, options);
+    trackAnimation(el, anim);
+    return anim;
+  } catch (error) {
+    logWarn("[BILISCRIPT] trigger-motion animation failed", error);
+    return null;
   }
 }
 
@@ -167,26 +190,21 @@ export function animateTriggerEnter(options: TriggerEnterOptions): DOMRect | nul
     return resolvedRect;
   }
 
-  try {
-    const anim = target.animate(
-      [
-        { opacity: 0, scale: String(fromScale) },
-        { opacity: 1, scale: "1" }
-      ],
-      { duration: durationMs, easing, fill: "none" }
-    );
-    trackAnimation(target, anim);
-  } catch {
-  }
+  startAnimation(
+    target,
+    [
+      { opacity: 0, scale: String(fromScale) },
+      { opacity: 1, scale: "1" }
+    ],
+    { duration: durationMs, easing, fill: "none" }
+  );
 
   if (mask && typeof mask.animate === "function") {
-    try {
-      const maskAnim = mask.animate(
-        [{ opacity: 0 }, { opacity: 1 }],
-        { duration: Math.min(durationMs, 160), easing: "ease-out", fill: "none" }
-      );
-      trackAnimation(mask, maskAnim);
-    } catch {}
+    startAnimation(
+      mask,
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: Math.min(durationMs, 160), easing: "ease-out", fill: "none" }
+    );
   }
 
   return resolvedRect;
@@ -253,11 +271,7 @@ export function animateTriggerExit(options: TriggerExitOptions): void {
       fallbackTimer = 0;
     }
     exitCleanups.delete(closingEl);
-    for (const anim of animations) {
-      try {
-        anim.cancel();
-      } catch {}
-    }
+    cancelAnimations(animations);
     activeAnimations.delete(target);
     if (mask) activeAnimations.delete(mask);
     closingEl.removeAttribute("data-biliscript-closing");
@@ -269,28 +283,30 @@ export function animateTriggerExit(options: TriggerExitOptions): void {
 
   exitCleanups.set(closingEl, finish);
 
-  try {
-    const anim = target.animate(
-      [
-        { opacity: Number(startOpacity) || 1, scale: startScale },
-        { opacity: 0, scale: String(toScale) }
-      ],
-      { duration: durationMs, easing, fill: "forwards" }
-    );
-    animations.push(anim);
-    trackAnimation(target, anim);
-    if (mask && typeof mask.animate === "function") {
-      const maskAnim = mask.animate(
-        [{ opacity: Number(startMaskOpacity) || 1 }, { opacity: 0 }],
-        { duration: durationMs, easing: "ease-out", fill: "forwards" }
-      );
-      animations.push(maskAnim);
-      trackAnimation(mask, maskAnim);
-    }
-    anim.addEventListener("finish", finish, { once: true });
-    anim.addEventListener("cancel", finish, { once: true });
-    fallbackTimer = window.setTimeout(finish, durationMs + 80);
-  } catch {
+  const anim = startAnimation(
+    target,
+    [
+      { opacity: Number(startOpacity) || 1, scale: startScale },
+      { opacity: 0, scale: String(toScale) }
+    ],
+    { duration: durationMs, easing, fill: "forwards" }
+  );
+  if (!anim) {
     finish();
+    return;
   }
+  animations.push(anim);
+  if (mask && typeof mask.animate === "function") {
+    const maskAnim = startAnimation(
+      mask,
+      [{ opacity: Number(startMaskOpacity) || 1 }, { opacity: 0 }],
+      { duration: durationMs, easing: "ease-out", fill: "forwards" }
+    );
+    if (maskAnim) {
+      animations.push(maskAnim);
+    }
+  }
+  anim.addEventListener("finish", finish, { once: true });
+  anim.addEventListener("cancel", finish, { once: true });
+  fallbackTimer = window.setTimeout(finish, durationMs + 80);
 }

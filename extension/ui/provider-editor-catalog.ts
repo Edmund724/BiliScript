@@ -3,7 +3,7 @@ import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
-import { captureSession, editDraft, getDialog, readField, runIfCurrent, state } from "./provider-editor-state.js";
+import { captureSession, editDraft, getDialog, runIfCurrent, state } from "./provider-editor-state.js";
 import { isSavedKeyReconfirmRequired, renderProjection } from "./provider-editor-projection.js";
 import { loadModelCatalog, loadedModelCatalog } from "./lazy-model-catalog.js";
 
@@ -200,18 +200,22 @@ function fillMetaSlot(slot: HTMLElement, meta: CatalogModelMeta | null): void {
 
 export function refreshModelCatalogMeta(): void {
   const host = state.host;
-  if (!host) return;
-  const catalog = loadedModelCatalog();
   const draft = state.draft;
-  const presetId =
-    draft?.presetId ?? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value ?? "";
-  const baseUrl = draft ? draft.baseUrl.trim() : readField(".provider-editor-baseurl");
+  if (!host || !draft) return;
+  const catalog = loadedModelCatalog();
+  const presetId = draft.presetId;
+  const baseUrl = draft.baseUrl.trim();
+  const modelList = getDialog()?.querySelector<HTMLElement>(".provider-editor-model-list");
+  const modelRows = modelList ? Array.from(modelList.children) : [];
   host.querySelectorAll<HTMLElement>("[data-model-meta]").forEach((slot) => {
     const row = slot.closest<HTMLElement>(".provider-editor-model-row, .provider-editor-fetch-item");
-    const modelId =
-      row?.querySelector<HTMLInputElement>(".provider-editor-model-id")?.value.trim() ||
-      row?.dataset.modelId ||
-      "";
+    let modelId = "";
+    if (row?.classList.contains("provider-editor-model-row")) {
+      const index = modelRows.indexOf(row);
+      modelId = index >= 0 ? String(draft.models[index] ?? "").trim() : "";
+    } else {
+      modelId = row?.dataset.modelId || "";
+    }
     fillMetaSlot(slot, catalog && modelId ? catalog.lookupCatalogMeta(presetId, baseUrl, modelId) : null);
   });
 }

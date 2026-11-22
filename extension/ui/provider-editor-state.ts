@@ -82,7 +82,7 @@ export interface ProviderEditorOpenOptions {
   onSessionEnd?: (() => void) | null;
   cancelLabel?: string;
   initialDraft?: EditorDraft;
-  baselineDraft?: EditorDraftView | null;
+  baselineDraft?: EditorDraftView;
   linkedCredential?: LinkedCredentialAction | null;
   resolveLinkedCredential?: ((draft: EditorDraftView) => LinkedCredentialAction | null) | null;
   setupContextBanner?: string | null;
@@ -158,7 +158,7 @@ export interface EditorSessionInit {
   openPresetId?: string;
   hasSavedKey?: boolean;
   draft: EditorDraft;
-  baselineDraft?: EditorDraftView | null;
+  baselineDraft?: EditorDraftView;
   firstSetup?: boolean;
   onAfterSave?: (() => void) | null;
   onSessionEnd?: (() => void) | null;
@@ -186,7 +186,7 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.resolveLinkedCredential = init.resolveLinkedCredential ?? null;
   bag.setupContextBanner = init.setupContextBanner?.trim() || null;
   bag.draft = init.draft;
-  bag.baselineDraft = init.baselineDraft === undefined ? cloneDraft(init.draft) : init.baselineDraft;
+  bag.baselineDraft = cloneDraft(init.baselineDraft ?? init.draft);
   bag.voices = [];
   bag.voicesLoaded = false;
 }
@@ -360,9 +360,4 @@ export function runWithOriginPreflight<T>(
 export function getDialog(): HTMLElement | null {
   if (!state.host) return null;
   return state.host.querySelector<HTMLElement>(".provider-editor-dialog");
-}
-
-export function readField(selector: string): string {
-  const input = getDialog()?.querySelector<HTMLInputElement>(selector);
-  return String(input?.value || "").trim();
 }
