@@ -3,10 +3,16 @@ import { logInfo } from "./logging.js";
 
 interface BiliscriptErrorLike {
   code?: unknown;
-  retryable?: boolean;
+  retryable?: unknown;
   status?: unknown;
   message?: unknown;
-  aborted?: boolean;
+  aborted?: unknown;
+  name?: unknown;
+  cancelled?: unknown;
+}
+
+function isErrorObject(value: unknown): value is BiliscriptErrorLike {
+  return typeof value === "object" && value !== null;
 }
 
 export function toReadableText(value: unknown, fallback = ""): string {
@@ -38,22 +44,21 @@ export function toReadableText(value: unknown, fallback = ""): string {
 }
 
 export function getErrorMessage(error: unknown, fallback = "未知错误"): string {
-  const err = error as BiliscriptErrorLike;
-  const code = toReadableText(err?.code, "");
-  const message = toReadableText(err?.message, "");
-  if (message) {
-    return code ? `${message} (code: ${code})` : message;
-  }
-  if (code) {
-    return `code: ${code}`;
+  if (isErrorObject(error)) {
+    const code = toReadableText(error.code, "");
+    const message = toReadableText(error.message, "");
+    if (message) {
+      return code ? `${message} (code: ${code})` : message;
+    }
+    if (code) {
+      return `code: ${code}`;
+    }
   }
   return toReadableText(error, fallback);
 }
 
 export function makeStaleRunError(): Error & { code: string } {
-  const error = new Error("Stale refresh run") as Error & { code: string };
-  error.code = "STALE_RUN";
-  return error;
+  return Object.assign(new Error("Stale refresh run"), { code: "STALE_RUN" });
 }
 
 export function ensureRunActive(runId: string | number, expectedRunId: string | number): void {
@@ -63,12 +68,11 @@ export function ensureRunActive(runId: string | number, expectedRunId: string | 
 }
 
 export function isStaleRunError(error: unknown): boolean {
-  return (error as BiliscriptErrorLike)?.code === "STALE_RUN";
+  return isErrorObject(error) && error.code === "STALE_RUN";
 }
 
 export function isRetryableNetworkError(error: unknown): boolean {
-  const err = error as BiliscriptErrorLike;
-  const status = Number(err?.status);
+  const status = isErrorObject(error) ? Number(error.status) : NaN;
   if (Number.isFinite(status) && status > 0) {
     return status === 408 || status === 429 || status >= 500;
   }
@@ -101,7 +105,7 @@ export async function retryAsync<T>(task: () => Promise<T>, retries = 1, delayMs
       return await task();
     } catch (error) {
       lastError = error;
-      const err = error as BiliscriptErrorLike;
+      const err = isErrorObject(error) ? error : null;
       const isNetworkError = isRetryableNetworkError(error);
       const isRetryable = err?.retryable === true;
       if (!isNetworkError && !isRetryable) {
@@ -142,24 +146,22 @@ export function withTimeout<T>(
 }
 
 export function makeAbortedError(message = "已停止生成"): Error & { aborted: true } {
-  const err = new Error(message) as Error & { aborted?: boolean };
-  err.aborted = true;
-  return err as Error & { aborted: true };
+  return Object.assign(new Error(message), { aborted: true as const });
 }
 
 export function isAbortedMarkerError(error: unknown): boolean {
-  return (error as { aborted?: unknown } | null | undefined)?.aborted === true;
+  return isErrorObject(error) && error.aborted === true;
 }
 
 export function isAbortNamedError(error: unknown): boolean {
-  return (error as { name?: unknown } | null | undefined)?.name === "AbortError";
+  return isErrorObject(error) && error.name === "AbortError";
 }
 
 export function isCancelledError(error: unknown): boolean {
-  return (error as { cancelled?: unknown } | null | undefined)?.cancelled === true;
+  return isErrorObject(error) && error.cancelled === true;
 }
 
 export function isExtensionContextInvalidated(error: unknown): boolean {
-  const msg = String((error as BiliscriptErrorLike)?.message || "");
+  const msg = isErrorObject(error) ? String(error.message || "") : "";
   return msg.includes("Extension context invalidated");
 }

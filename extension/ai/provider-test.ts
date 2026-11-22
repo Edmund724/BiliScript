@@ -1,5 +1,5 @@
 import { chatCompletion } from "./completion.js";
-import type { AiProtocol } from "./protocol-adapter.js";
+import { resolveAdapter } from "./protocol-adapter.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatProbeConnectionError } from "../core/provider-store.js";
 import { aiProviderStore } from "../core/ai-provider-store.js";
@@ -62,7 +62,7 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
 
   try {
     await chatCompletion({
-      provider: { baseUrl, apiKey, model, presetId, protocol: protocol as AiProtocol | undefined },
+      provider: { baseUrl, apiKey, model, presetId, protocol: resolveAdapter(protocol).protocol },
       messages: [{ role: "user", content: "ping" }],
       probe: true,
       headers: requestHeaders,

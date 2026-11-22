@@ -19,7 +19,7 @@ type PlayerAiSetters = {
 export type PlayerAiState = Readonly<PlayerAiBusinessState> & PlayerAiSetters;
 type PlayerAiStateWritable = PlayerAiBusinessState & PlayerAiSetters;
 
-export const playerAiState: PlayerAiStateWritable = {
+const localPlayerAiState: PlayerAiStateWritable = {
   playerAiQuickActionObserver: null,
   playerAiQuickActionLayoutBound: false,
   playerAiQuickActionSyncTimer: 0,
@@ -33,6 +33,8 @@ export const playerAiState: PlayerAiStateWritable = {
   setSubmitting(value) { this.playerAiQuickActionSubmitting = value; },
   setSuppressedUntil(value) { this.playerAiQuickActionSuppressedUntil = value; }
 };
+
+export const playerAiState: PlayerAiState = localPlayerAiState;
 
 export function suppressUntil(timestamp: number): void {
   playerAiState.setSuppressedUntil(timestamp);

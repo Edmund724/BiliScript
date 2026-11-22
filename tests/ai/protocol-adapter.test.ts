@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
-import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
+import { AI_PROTOCOLS, isAiProtocol } from "../../extension/ai/protocol-vocab.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
 
 afterEach(() => {
@@ -20,6 +20,16 @@ describe("resolveAdapter（协议解析单点）", () => {
 
   it("gemini 协议解析为 geminiAdapter", () => {
     expect(resolveAdapter("gemini")).toBe(PROTOCOL_ADAPTERS.gemini);
+  });
+
+  it("原型链键名（toString / constructor / valueOf / hasOwnProperty / __proto__）不被误判且兜底 openai", () => {
+    for (const proto of AI_PROTOCOLS) {
+      expect(isAiProtocol(proto), proto).toBe(true);
+    }
+    for (const value of ["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"]) {
+      expect(isAiProtocol(value), value).toBe(false);
+      expect(resolveAdapter(value), value).toBe(PROTOCOL_ADAPTERS.openai);
+    }
   });
 });
 

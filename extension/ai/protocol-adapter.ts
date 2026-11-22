@@ -1,8 +1,8 @@
 import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent, ThinkingBlock } from "./types.js";
 import type { ThinkingWireOutput } from "./thinking-wire-map.js";
 
-export type { AiProtocol } from "./protocol-vocab.js";
-import type { AiProtocol } from "./protocol-vocab.js";
+export { isAiProtocol, type AiProtocol } from "./protocol-vocab.js";
+import { isAiProtocol, type AiProtocol } from "./protocol-vocab.js";
 
 export type { CompatQuirk } from "./compat-vocab.js";
 import type { CompatQuirk } from "./compat-vocab.js";
@@ -88,8 +88,8 @@ export const PROTOCOL_ADAPTERS: Record<AiProtocol, ProtocolAdapter> = {
 };
 
 export function resolveAdapter(protocol: unknown): ProtocolAdapter {
-  if (typeof protocol === "string" && protocol in PROTOCOL_ADAPTERS) {
-    return PROTOCOL_ADAPTERS[protocol as AiProtocol];
+  if (isAiProtocol(protocol)) {
+    return PROTOCOL_ADAPTERS[protocol];
   }
   return PROTOCOL_ADAPTERS.openai;
 }

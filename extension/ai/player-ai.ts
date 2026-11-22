@@ -595,7 +595,6 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
   scope.addListener(host, "mouseenter", showForCursorActivity, { passive: true });
   scope.addListener(host, "mouseleave", hideImmediately, { passive: true });
   playerAiQuickActionCursorSync = { host, wrap, scope };
-  (wrap as HTMLElement & { __biliscriptPlayerAiCursorHost?: HTMLElement }).__biliscriptPlayerAiCursorHost = host;
 }
 
 function unbindPlayerAiQuickActionCursorSync(): void {

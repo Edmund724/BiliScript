@@ -332,9 +332,11 @@ interface StateBundle {
   sessionBoundaryHooks: Set<SubtitleSessionBoundaryHook>;
 }
 
-const STATE_SLOT_KEY = "__BILISCRIPT_STATE__";
+declare global {
+  var __BILISCRIPT_STATE__: StateBundle | undefined;
+}
 
-const stateBundle: StateBundle = ((globalThis as unknown as Record<string, StateBundle | undefined>)[STATE_SLOT_KEY] ??= {
+const stateBundle: StateBundle = (globalThis.__BILISCRIPT_STATE__ ??= {
   readerState: localReaderState,
   clipState: localClipState,
   uiState: localUiState,

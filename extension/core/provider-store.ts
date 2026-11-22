@@ -53,16 +53,20 @@ export function createProviderStore<T extends ProviderBase>({
     }
   }
 
+  async function loadRawProviders(): Promise<T[]> {
+    const syncData = await chrome.storage.sync.get([listStorageKey]);
+    const list: unknown[] = Array.isArray(syncData[listStorageKey]) ? syncData[listStorageKey] : [];
+    return list
+      .map(normalizeProvider)
+      .filter((p): p is T => Boolean(p));
+  }
+
   async function loadProviders(): Promise<Array<T & { hasSavedKey: boolean }>> {
-    const [syncData, keys] = await Promise.all([
-      chrome.storage.sync.get([listStorageKey]),
+    const [list, keys] = await Promise.all([
+      loadRawProviders(),
       loadKeys()
     ]);
-    const list = Array.isArray(syncData[listStorageKey]) ? syncData[listStorageKey] : [];
-    return (list as unknown[])
-      .map(normalizeProvider)
-      .filter((p): p is T => Boolean(p))
-      .map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
+    return list.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
   }
 
   async function saveProviders(items: unknown[]): Promise<Array<T & { hasSavedKey: boolean }>> {
@@ -86,13 +90,8 @@ export function createProviderStore<T extends ProviderBase>({
   }
 
   async function deleteProvider(providerId: string): Promise<Array<T & { hasSavedKey: boolean }>> {
-    const list = await loadProviders();
-    const next = list
-      .filter((p) => p.id !== providerId)
-      .map((p) => {
-        const { hasSavedKey: _omit, ...rest } = p;
-        return rest as unknown as T;
-      });
+    const list = await loadRawProviders();
+    const next = list.filter((p) => p.id !== providerId);
     await chrome.storage.sync.set({ [listStorageKey]: next });
     const keys = await loadKeys();
     if (keys && providerId in keys) {
