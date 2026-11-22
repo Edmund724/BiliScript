@@ -8,19 +8,14 @@ import type {
   SendResponse
 } from "./messaging-protocol.js";
 
-interface Runtime {
-  sendMessage(message: unknown, responseCallback?: (response: unknown) => void): void;
-  lastError?: { message?: string };
-}
-
 export function sendRuntimeMessage<M extends BackgroundMessage | ContentScriptMessage>(
   message: M
 ): Promise<ResponseOf<M>> {
   return new Promise((resolve, reject) => {
     try {
-      (chrome.runtime as Runtime).sendMessage(message, (resp) => {
-        if ((chrome.runtime as Runtime).lastError) {
-          reject(new Error((chrome.runtime as Runtime).lastError?.message));
+      chrome.runtime.sendMessage(message, (resp) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
           return;
         }
         resolve(resp as ResponseOf<M>);
@@ -31,14 +26,16 @@ export function sendRuntimeMessage<M extends BackgroundMessage | ContentScriptMe
   });
 }
 
+export async function sendRuntimeMessagePromise<M extends BackgroundMessage | ContentScriptMessage>(
+  message: M
+): Promise<ResponseOf<M>> {
+  return (await chrome.runtime.sendMessage(message)) as ResponseOf<M>;
+}
+
 export function sendOffloadMessage(
   message: OffloadTaskMessage
 ): Promise<OffloadTaskResponse> {
   return sendRuntimeMessage(message);
-}
-
-interface PostMessageLikePort {
-  postMessage(message: unknown): void;
 }
 
 type ContentMessageDispatcher = (rawMessage: unknown, sendResponse: SendResponse) => boolean;
@@ -53,15 +50,15 @@ export function registerContentScriptDispatcher(dispatcher: ContentMessageDispat
   dispatcherHost()[DISPATCHER_SLOT_KEY] = dispatcher;
 }
 
-export function dispatchContentScriptMessage(
-  rawMessage: unknown,
-  sendResponse: SendResponse
+export function dispatchContentScriptMessage<M extends ContentScriptMessage>(
+  message: M,
+  sendResponse: (response?: ResponseOf<M>) => void
 ): boolean {
   const dispatcher = dispatcherHost()[DISPATCHER_SLOT_KEY];
-  return dispatcher ? dispatcher(rawMessage, sendResponse) : false;
+  return dispatcher ? dispatcher(message, sendResponse as SendResponse) : false;
 }
 
-export function safePostMessage(port: PostMessageLikePort, message: unknown): void {
+export function safePostMessage(port: Pick<chrome.runtime.Port, "postMessage">, message: unknown): void {
   try {
     port.postMessage(message);
   } catch {
@@ -69,5 +66,5 @@ export function safePostMessage(port: PostMessageLikePort, message: unknown): vo
 }
 
 export function consumeRuntimeLastError(): string | undefined {
-  return (globalThis.chrome?.runtime as Runtime | undefined)?.lastError?.message;
+  return globalThis.chrome?.runtime?.lastError?.message;
 }

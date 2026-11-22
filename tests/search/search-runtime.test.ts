@@ -8,6 +8,7 @@ import type {
   ResolveSearchProviderResponse,
   SearchCacheMessage,
   SearchCacheResponse,
+  SearchChainCandidate,
   SearchHealthMessage
 } from "../../extension/shared/messaging-protocol.js";
 
@@ -22,7 +23,7 @@ const CHAIN_OK: ResolveSearchProviderResponse = {
   maxToolCalls: 3
 };
 
-const FIRECRAWL_CANDIDATE = {
+const FIRECRAWL_CANDIDATE: SearchChainCandidate = {
   provider: {
     id: "search_firecrawl",
     presetId: "firecrawl",

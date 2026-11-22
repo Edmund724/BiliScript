@@ -1,7 +1,6 @@
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
-import type { ReaderEnterResponse } from "../shared/messaging-protocol.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { isReaderShellIntact } from "../reader/shell-intact.js";
 import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "./panel-preload.js";
@@ -333,9 +332,8 @@ function handleScriptButtonClick(event: MouseEvent): void {
   const dispatched = dispatchContentScriptMessage(
     { type: "reader-enter", readerUrl: buildReaderModeUrl(location.href) },
     (response) => {
-      const result = response as ReaderEnterResponse | undefined;
-      if (!result?.ok) {
-        showFailure(result?.error);
+      if (!response?.ok) {
+        showFailure(response?.error);
       }
     }
   );

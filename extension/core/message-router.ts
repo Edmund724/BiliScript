@@ -10,11 +10,18 @@ import {
 } from "../shared/messaging-protocol.js";
 
 export type MessageSenderLike = MessageSender;
+export type MessageHandlerReturn = MessageReplyDecision | boolean | void;
 export type MessageHandlerLike = (
   message: unknown,
   sender: MessageSenderLike,
   sendResponse: SendResponse
-) => void;
+) => MessageHandlerReturn;
+
+type NormalizedMessageHandler = (
+  message: unknown,
+  sender: MessageSenderLike | undefined,
+  sendResponse: SendResponse
+) => MessageHandlerReturn;
 
 export interface MessageRouterOptions {
   handlers: BackgroundMessageHandlers | Record<string, MessageHandlerLike>;
@@ -37,22 +44,30 @@ type RegistrationLike = {
 
 const ILLEGAL_PAYLOAD_MESSAGE = "消息载荷不合法";
 
+function normalizeHandlers(
+  handlers: MessageRouterOptions["handlers"]
+): Map<string, NormalizedMessageHandler> {
+  const table = new Map<string, NormalizedMessageHandler>();
+  for (const [type, handler] of Object.entries(handlers)) {
+    if (typeof handler === "function") {
+      table.set(type, handler as NormalizedMessageHandler);
+    }
+  }
+  return table;
+}
+
 export function createMessageRouter(options: MessageRouterOptions): MessageRouter {
   const { handlers, senders, rejectionMessage, registry = BACKGROUND_MESSAGE_REGISTRY } = options;
 
-  const handlerTable = new Map<string, MessageHandlerLike>(
-    Object.entries(handlers) as [string, MessageHandlerLike][]
-  );
-  const registrationTable = new Map<string, RegistrationLike>(
-    Object.entries(registry as Record<string, RegistrationLike>)
-  );
+  const handlerTable = normalizeHandlers(handlers);
+  const registrationTable = new Map<string, RegistrationLike>(Object.entries(registry));
 
   return (rawMessage, rawSender, sendResponse) => {
-    if (!rawMessage || typeof rawMessage !== "object") {
+    if (!rawMessage || typeof rawMessage !== "object" || !("type" in rawMessage)) {
       return false;
     }
 
-    const rawType = (rawMessage as { type?: unknown }).type;
+    const rawType = rawMessage.type;
     if (typeof rawType !== "string") {
       return false;
     }
@@ -65,7 +80,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
 
     const senderLabel = registration?.sender;
     const allowSender = senderLabel === undefined ? undefined : senders?.[senderLabel];
-    if (allowSender && !allowSender(rawSender as MessageSenderLike)) {
+    if (allowSender && !allowSender(rawSender ?? {})) {
       sendResponse({ ok: false, error: rejectionMessage });
       return false;
     }
@@ -76,15 +91,13 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       return false;
     }
 
-    const invoke = handler as (
-      message: unknown,
-      sender: MessageSenderLike | undefined,
-      sendResponse: SendResponse
-    ) => unknown;
-    const handlerResult = invoke(rawMessage, rawSender, sendResponse);
+    const handlerResult = handler(rawMessage, rawSender, sendResponse);
 
-    return registration
-      ? resolveReplyKeepOpen(registration.reply, handlerResult as MessageReplyDecision | void)
-      : Boolean(handlerResult);
+    if (!registration) {
+      return Boolean(handlerResult);
+    }
+    const decision: MessageReplyDecision | void =
+      handlerResult === "hold" || handlerResult === "answered" ? handlerResult : undefined;
+    return resolveReplyKeepOpen(registration.reply, decision);
   };
 }

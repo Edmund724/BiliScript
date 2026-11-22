@@ -23,7 +23,7 @@ describe("shared/messaging 页内分发原语", () => {
     registerContentScriptDispatcher(dispatcher);
     expect((globalThis as Record<string, unknown>)[SLOT_KEY]).toBe(dispatcher);
     const sendResponse = vi.fn();
-    const message = { type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1?biliscript_reader=1" };
+    const message = { type: "reader-enter" as const, readerUrl: "https://www.bilibili.com/video/BV1?biliscript_reader=1" };
     expect(dispatchContentScriptMessage(message, sendResponse)).toBe(true);
     expect(dispatcher).toHaveBeenCalledWith(message, sendResponse);
   });

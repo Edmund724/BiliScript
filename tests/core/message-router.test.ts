@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "../../extension/asr/protocol.js";
-import { createMessageRouter, type MessageRouterOptions } from "../../extension/core/message-router.js";
+import { createMessageRouter, type MessageHandlerLike, type MessageRouterOptions } from "../../extension/core/message-router.js";
 import {
   BACKGROUND_MESSAGE_REGISTRY,
   OFFSCREEN_ONLY_MESSAGE_TYPES,
@@ -23,9 +23,7 @@ const tabSender = (id = 7): MessageSender => ({
 const isOffscreenLike = (sender: MessageSender): boolean =>
   !sender?.tab && sender?.url === OFFSCREEN_DOCUMENT_URL;
 
-type TestHandler = (message: unknown, sender: MessageSender, sendResponse: SendResponse) => unknown;
-
-function swRouter(handlers: Record<string, TestHandler>) {
+function swRouter(handlers: Record<string, MessageHandlerLike>) {
   return createMessageRouter({
     handlers,
     senders: { offscreen: isOffscreenLike },
@@ -171,7 +169,7 @@ describe("消息 router：payload 形状守卫（注册表 shape 判据）", () 
 
 describe("消息 router：回包口径（注册表 reply 派生）", () => {
   it("async（get-settings）：恒持有通道，handler 返回值不参与判定", () => {
-    const handler = vi.fn(() => "answered");
+    const handler = vi.fn(() => "answered" as const);
     const router = swRouter({ "get-settings": handler });
     const sendResponse = vi.fn();
 
@@ -196,7 +194,7 @@ describe("消息 router：回包口径（注册表 reply 派生）", () => {
   it("branch（request-provider-origins 的同步分支）：单次同步回包 + 返回 false", () => {
     const handler = vi.fn((_message: unknown, _sender: MessageSender, respond: SendResponse) => {
       respond({ ok: true });
-      return "answered";
+      return "answered" as const;
     });
     const router = swRouter({ "request-provider-origins": handler });
     const sendResponse = vi.fn();
@@ -209,7 +207,7 @@ describe("消息 router：回包口径（注册表 reply 派生）", () => {
   });
 
   it("branch（转异步分支）：handler 返回 \"hold\" 即持有通道", () => {
-    const handler = vi.fn(() => "hold");
+    const handler = vi.fn(() => "hold" as const);
     const router = swRouter({ "request-provider-origins": handler });
     const sendResponse = vi.fn();
 

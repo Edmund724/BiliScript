@@ -18,9 +18,11 @@ export const SEARCH_ADAPTERS: Record<SearchProviderType, SearchAdapter> = {
   deepseek: deepseekAdapter
 };
 
+const SEARCH_ADAPTER_MAP: ReadonlyMap<string, SearchAdapter> = new Map(Object.entries(SEARCH_ADAPTERS));
+
 export function resolveSearchAdapter(type: unknown): SearchAdapter {
-  if (typeof type === "string" && type in SEARCH_ADAPTERS) {
-    return SEARCH_ADAPTERS[type as SearchProviderType];
+  if (typeof type === "string") {
+    return SEARCH_ADAPTER_MAP.get(type) ?? SEARCH_ADAPTERS.tavily;
   }
   return SEARCH_ADAPTERS.tavily;
 }

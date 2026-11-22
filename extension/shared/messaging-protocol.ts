@@ -1,5 +1,11 @@
 import type { Settings } from "../core/defaults.js";
-import type { AiProviderPreset, AsrProviderPreset, SearchProviderAccess, SearchProviderPreset } from "../core/presets.js";
+import type {
+  AiProviderPreset,
+  AsrProviderPreset,
+  SearchProviderAccess,
+  SearchProviderPreset,
+  SearchProviderType
+} from "../core/presets.js";
 import type { AiProvider, CapturedVideoFrame, ImagePart, SubtitleBodyItem } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
@@ -431,7 +437,14 @@ export type LiveSessionCleanupResponse = {
 export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
 
 export type SearchChainCandidate = {
-  provider: { id: string; presetId: string; name: string; type: string; baseUrl: string; access?: SearchProviderAccess };
+  provider: {
+    id: string;
+    presetId: string;
+    name: string;
+    type: SearchProviderType;
+    baseUrl: string;
+    access?: SearchProviderAccess;
+  };
   apiKey: string;
 };
 
@@ -689,9 +702,13 @@ export type BackgroundMessageRegistration<
 
 type BackgroundMessageRegistrationArgument<M extends BackgroundMessage, Mode extends MessageReplyMode> = {
   reply: Mode;
-  shape?: (message: M) => boolean;
+  shape?: (message: Partial<Record<keyof M, unknown>>) => boolean;
   sender?: SenderLabel;
 };
+
+function isMessageRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && typeof value === "object";
+}
 
 function registerBackgroundMessage<M extends BackgroundMessage, R>(
   registration: BackgroundMessageRegistrationArgument<M, "async">
@@ -705,7 +722,14 @@ function registerBackgroundMessage<M extends BackgroundMessage, R>(
 function registerBackgroundMessage<M extends BackgroundMessage, R>(
   registration: BackgroundMessageRegistrationArgument<M, MessageReplyMode>
 ): BackgroundMessageRegistration<M, R> {
-  return registration as BackgroundMessageRegistration<M, R>;
+  const { shape, ...rest } = registration;
+  if (!shape) {
+    return rest;
+  }
+  return {
+    ...rest,
+    shape: (message) => isMessageRecord(message) && shape(message)
+  };
 }
 
 function isProvidersArrayOrAbsent(message: {

@@ -1,4 +1,4 @@
-import { sendRuntimeMessage } from "../shared/messaging.js";
+import { sendRuntimeMessage, sendRuntimeMessagePromise } from "../shared/messaging.js";
 import type { CheckProviderOriginMessage, CheckProviderOriginResponse } from "../shared/messaging-protocol.js";
 
 export const HOST_PERMISSION_HINT = "该平台域名未授权，请在保存时允许权限";
@@ -203,10 +203,7 @@ export async function hasHostPermissionViaBackground(target: unknown): Promise<b
 }
 
 export async function checkHostPermissionFromOffscreen(target: unknown): Promise<HostPermissionResult> {
-  return checkProviderOriginViaSW(
-    target,
-    async (message) => (await chrome.runtime.sendMessage(message)) as Partial<CheckProviderOriginResponse> | null | undefined
-  );
+  return checkProviderOriginViaSW(target, sendRuntimeMessagePromise);
 }
 
 export async function hasHostPermissionFromOffscreen(target: unknown): Promise<boolean> {

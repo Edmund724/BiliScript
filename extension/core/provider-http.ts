@@ -1,4 +1,5 @@
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import type { ProviderHttpMessage } from "../shared/messaging-protocol.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import { extractOriginFromBaseUrl, HOST_PERMISSION_HINT, hasHostPermission } from "./host-permissions.js";
 import {
@@ -12,12 +13,7 @@ import {
   type ProviderTransport
 } from "./provider-http-shared.js";
 
-export interface ProviderHttpRequestMessage {
-  url?: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-}
+export type ProviderHttpRequestMessage = Omit<ProviderHttpMessage, "type">;
 
 export interface ProviderHttpRequestResult {
   ok: boolean;

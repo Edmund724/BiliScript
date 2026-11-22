@@ -1,4 +1,4 @@
-import { type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
+import { type SearchProviderPreset } from "../core/presets.js";
 import { makeAbortError } from "../core/provider-http-shared.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { type SearchMode } from "../core/search-mode.js";
@@ -204,7 +204,7 @@ function defaultChainExecute(deps: ExecuteSearchChainDeps) {
   return (candidate: SearchChainCandidate, query: string, signal?: AbortSignal | null) =>
     executeWebSearch(
       {
-        type: candidate.provider.type as SearchProviderType,
+        type: candidate.provider.type,
         baseUrl: candidate.provider.baseUrl,
         apiKey: candidate.apiKey
       },
