@@ -102,7 +102,7 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
     expect(deps.seek).not.toHaveBeenCalled();
   });
 
-  it("时间戳胶囊吸收外围括号 [04:12] / 【04:12】 并返回去重引用计数", () => {
+  it("时间戳链接剥离外围括号 [04:12] / 【04:12】 并返回去重引用计数", () => {
     const deps = makeDeps();
     const container = document.createElement("div");
     container.textContent = "开场见 [04:12]，补充见 【04:12】 与 08:30。";
@@ -112,8 +112,8 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
     const buttons = [...container.querySelectorAll<HTMLButtonElement>(".chat-timestamp-link")];
 
     expect(uniqueCount).toBe(2);
-    expect(buttons.map((btn) => btn.textContent)).toEqual(["[04:12]", "[04:12]", "[08:30]"]);
-    expect(container.textContent).toBe("开场见 [04:12]，补充见 [04:12] 与 [08:30]。");
+    expect(buttons.map((btn) => btn.textContent)).toEqual(["04:12", "04:12", "08:30"]);
+    expect(container.textContent).toBe("开场见 04:12，补充见 04:12 与 08:30。");
     container.remove();
   });
 

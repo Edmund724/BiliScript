@@ -315,7 +315,7 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
       button.type = "button";
       button.className = "chat-timestamp-link";
       button.dataset.timestampSeconds = String(seconds);
-      button.textContent = `[${timestamp}]`;
+      button.textContent = timestamp;
       button.setAttribute("aria-label", `跳转到视频 ${timestamp}`);
       if (!deps.getSubtitlePreview) {
         button.setAttribute("title", `跳转到 ${timestamp}`);

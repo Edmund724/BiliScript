@@ -580,6 +580,6 @@ describe("AI 对话实时伴看状态区", () => {
       endedAt: 2
     });
     const tsBtn = recordsRoot.querySelector<HTMLButtonElement>(".chat-live-tool-record-markdown .chat-timestamp-link");
-    expect(tsBtn?.textContent).toBe("[01:02]");
+    expect(tsBtn?.textContent).toBe("01:02");
   });
 });
