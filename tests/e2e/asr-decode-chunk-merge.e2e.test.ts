@@ -5,15 +5,13 @@ import { resetModuleState } from "../setup.js";
 import type { WavChunk } from "../../extension/asr/chunker.js";
 import type { AsrChunkRecord, OffscreenChunkHost } from "../../extension/asr/offscreen-bridge.page.js";
 
-const readBinary = readFileSync as unknown as (path: string) => Uint8Array;
-
 const ASR_FIXTURE_DIR = join(process.cwd(), "tests", "asr", "fixtures");
 const BILI_FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "bilibili");
 const PLATFORM_FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "asr");
 const ARTIFACT_DIR = join(process.cwd(), ".scratch", "tickets", "test-suite-trim", "artifacts");
 
-const SMALL_FMP4 = new Uint8Array(readBinary(join(ASR_FIXTURE_DIR, "fmp4-audio-sample.bin")));
-const BIG_FMP4 = new Uint8Array(readBinary(join(ASR_FIXTURE_DIR, "fmp4-1mb.bin")));
+const SMALL_FMP4 = new Uint8Array(readFileSync(join(ASR_FIXTURE_DIR, "fmp4-audio-sample.bin")));
+const BIG_FMP4 = new Uint8Array(readFileSync(join(ASR_FIXTURE_DIR, "fmp4-1mb.bin")));
 
 const PLAYURL_DASH = JSON.parse(
   readFileSync(join(BILI_FIXTURE_DIR, "bv1q9he6seyx-playurl-dash-audio.json"), "utf8")

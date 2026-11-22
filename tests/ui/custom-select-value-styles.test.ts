@@ -169,15 +169,28 @@ describe("选项行方向（10 号票第 4 条：text-align: left → start）",
     expect(optionBlock![0]).not.toMatch(/text-align:\s*left/);
   });
 
-  it("computed：注入真实表后选项行的 text-align 为 start（dir=auto 的 RTL 行随之靠右）", async () => {
+  it("computed：注入真实表后选项行的 text-align 为 start（option.dir 镜像到浮层 <li> 与值区并在重建后保留）", async () => {
     injectComponentStyles();
-    const select = mountSelect('<select id="trackSelect" aria-label="字幕语言"><option value="ai-ar">العربية</option></select>', "trackSelect");
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    const select = mountSelect(
+      '<select id="trackSelect" aria-label="字幕语言"><option value="ai-ar" dir="auto">العربية</option><option value="zh">中文</option></select>',
+      "trackSelect"
+    );
+    const { initCustomSelect, rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
 
-    const option = select.closest(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-option")!;
-    option.setAttribute("dir", "auto");
+    const wrapper = select.closest(".custom-select-wrapper")!;
+    const option = wrapper.querySelector<HTMLElement>(".custom-select-option")!;
+    const valueSpan = wrapper.querySelector<HTMLElement>(".custom-select-value")!;
+    expect(option.dir).toBe("auto");
+    expect(option.getAttribute("dir")).toBe("auto");
+    expect(valueSpan.dir).toBe("auto");
     expect(window.getComputedStyle(option).textAlign).toBe("start");
+
+    select.innerHTML = '<option value="he" dir="rtl">עברית</option>';
+    rebuildCustomSelectOptions(select);
+    const rebuilt = wrapper.querySelector<HTMLElement>(".custom-select-option")!;
+    expect(rebuilt.dir).toBe("rtl");
+    expect(valueSpan.dir).toBe("rtl");
   });
 });
 

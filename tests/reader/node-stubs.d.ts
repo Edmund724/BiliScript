@@ -3,7 +3,13 @@ declare module "node:fs" {
     name: string;
     isDirectory(): boolean;
   }
-  export function readFileSync(path: string, options?: { encoding?: string } | string): string;
+  export interface Buffer extends Uint8Array {}
+  export function readFileSync(path: string, options?: { encoding?: null } | null): Buffer;
+  export function readFileSync(path: string, options: { encoding: string } | string): string;
+  export function readFileSync(
+    path: string,
+    options?: { encoding?: string | null } | string | null
+  ): string | Buffer;
   export function readdirSync(path: string): string[];
   export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
   export function statSync(path: string): { isDirectory(): boolean };

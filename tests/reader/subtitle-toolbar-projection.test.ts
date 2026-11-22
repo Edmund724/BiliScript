@@ -230,6 +230,7 @@ describe("主列：三态与优先级", () => {
 
     expect(mainRows().map((row) => row.textContent)).toEqual(SAMPLE_TRACKS.map((track) => track.lanDoc));
     expect(mainRows().map((row) => row.dataset.value)).toEqual(optionValues());
+    expect(mainRows().every((row) => row.dir === "auto")).toBe(true);
   });
 });
 

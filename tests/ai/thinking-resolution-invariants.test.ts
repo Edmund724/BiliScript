@@ -57,23 +57,43 @@ describe("applyClassRule 全表联合不变量（CLASSES × 档位词表 × stre
   });
 });
 
-describe("行为冻结：稀疏档规则 × 非流式 × 强度档偏好（登记格）", () => {
+describe("稀疏 streamOnly off 规则 × 非流式 × 档位偏好边界", () => {
   const sparse: ClassRule = {
     thinkingClass: "hybrid",
     off: { vocabulary: enableThinking(false), streamOnly: true },
     high: { vocabulary: reasoningEffort("high") }
   };
 
-  it("非流式：clamp 落 off、写点被阻断 → 不发字段，且不置 off 级联标记", () => {
+  const offOnly: ClassRule = {
+    thinkingClass: "hybrid",
+    off: { vocabulary: enableThinking(false), streamOnly: true }
+  };
+
+  it("非流式：off 被 streamOnly 阻断后，强度档偏好跳过 off 落可用档 high，不置 off 级联标记", () => {
     const resolution = applyClassRule(sparse, "minimal", false);
 
-    expect(resolution.effectiveLevel).toBe("off");
-    expect(resolution.vocabulary).toEqual({ kind: "noFields" });
-    expect(openaiVocabularyFields(resolution.vocabulary)).toEqual({});
+    expect(resolution.effectiveLevel).toBe("high");
+    expect(resolution.vocabulary).toEqual(reasoningEffort("high"));
+    expect(openaiVocabularyFields(resolution.vocabulary)).toEqual({ reasoning_effort: "high" });
     expect(resolution.tokenParam).toBeUndefined();
     expect(resolution.offUnavailable).toBe(false);
     expect(resolution.offFallback).toBeNull();
     expect(resolution.thinkingClass).toBe("hybrid");
+  });
+
+  it("非流式且无非 off 档位：无载荷时 effectiveLevel 统一落 default", () => {
+    const minimalRes = applyClassRule(offOnly, "minimal", false);
+    expect(minimalRes.effectiveLevel).toBe("default");
+    expect(minimalRes.vocabulary).toEqual({ kind: "noFields" });
+    expect(openaiVocabularyFields(minimalRes.vocabulary)).toEqual({});
+    expect(minimalRes.offUnavailable).toBe(false);
+    expect(minimalRes.offFallback).toBeNull();
+
+    const offRes = applyClassRule(offOnly, "off", false);
+    expect(offRes.effectiveLevel).toBe("default");
+    expect(offRes.vocabulary).toEqual({ kind: "noFields" });
+    expect(offRes.offUnavailable).toBe(true);
+    expect(offRes.offFallback).toBeNull();
   });
 
   it("流式对照：同一个 off 写点本次可用 → 发 enable_thinking:false（实发档仍是 off）", () => {

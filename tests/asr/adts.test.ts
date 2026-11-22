@@ -9,9 +9,8 @@ import {
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
+  readFileSync(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
 
 function buildMinimalFmp4(asc = [0x11, 0x90]) {
@@ -133,7 +132,7 @@ describe("adtsFromFmp4", () => {
 
 describe("真实 1MB 样本（26 对 moof/mdat）", () => {
   const big = new Uint8Array(
-    readFileBytes(join(__dirname, "fixtures", "fmp4-1mb.bin"))
+    readFileSync(join(__dirname, "fixtures", "fmp4-1mb.bin"))
   );
   it("提取的 ADTS 段总帧数 > 3000 且字节流无断点", () => {
     const asc = parseAudioSpecificConfig(big);

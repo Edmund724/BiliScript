@@ -1,14 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { resetModuleState } from "../setup.js";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "../../extension/asr/protocol.js";
 import { formatAsrFailureDetail } from "../../extension/core/asr-failure-notice.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const AUDIO_FIXTURE = buildFmp4WithTwoSegments();
 
 const FTYP_SIZE = 32;

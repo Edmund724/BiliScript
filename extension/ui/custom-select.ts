@@ -517,6 +517,9 @@ function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
   if (option.dataset.triggerLabel) {
     li.dataset.triggerLabel = option.dataset.triggerLabel;
   }
+  if (option.dir) {
+    li.dir = option.dir;
+  }
   li.textContent = option.textContent || option.value;
   li.setAttribute("role", "option");
   li.tabIndex = -1;
@@ -624,6 +627,7 @@ export function initCustomSelect(
 
   const syncDisplayFromValue = (): void => {
     const option = optionNodes.find((o) => o.dataset.value === select.value);
+    const active = option ?? optionNodes[0];
     if (option) {
       valueSpan.textContent = option.dataset.triggerLabel || option.textContent || "";
       markSelected(option);
@@ -633,6 +637,11 @@ export function initCustomSelect(
         o.dataset.selected = "false";
         o.setAttribute("aria-selected", "false");
       });
+    }
+    if (active?.dir) {
+      valueSpan.dir = active.dir;
+    } else {
+      valueSpan.removeAttribute("dir");
     }
     syncLabelBasedName();
   };

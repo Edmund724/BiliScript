@@ -273,6 +273,7 @@ describe("08 选轨控件：列表 ≡ clip.subtitles", () => {
     shell.renderReadingView();
 
     expect([...selectNode().options].every((option) => option.dir === "auto")).toBe(true);
+    expect(listItems().every((item) => item.dir === "auto")).toBe(true);
     expect(selectNode().options[4].textContent).toBe("العربية");
     expect(triggerText()).toBe("中文");
     expect(triggerText()).not.toContain("字幕");

@@ -10,11 +10,10 @@ import {
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
+  readFileSync(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
-const big = new Uint8Array(readFileBytes(join(__dirname, "fixtures", "fmp4-1mb.bin")));
+const big = new Uint8Array(readFileSync(join(__dirname, "fixtures", "fmp4-1mb.bin")));
 
 function collectViaExtractor(bytes: Uint8Array, config: AdtsExtractorConfig): Uint8Array[] {
   const extractor = createAdtsExtractor(config);

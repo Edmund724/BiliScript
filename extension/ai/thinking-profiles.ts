@@ -494,10 +494,8 @@ type ClassRuleDecision = "default" | "off-usable" | "never" | "off-cascade" | "t
 export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, stream: boolean): ThinkingResolution {
   const available = availableLevelsOf(rule);
   const offPatch = streamEnabledPatch(rule.off, stream);
-  const effective = clampThinkingLevel(
-    level,
-    level === "off" && !offPatch ? available.filter((tier) => tier !== "off") : available
-  );
+  const usable = available.filter((tier) => Boolean(streamEnabledPatch(patchForLevel(rule, tier), stream)));
+  const effective = clampThinkingLevel(level, usable);
 
   let decision: ClassRuleDecision;
   let candidate: ThinkingVocabulary | undefined;
@@ -522,8 +520,9 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, strea
   const vocabulary = candidate && carriesPayload(candidate) ? candidate : NO_FIELDS;
   const hasPayload = carriesPayload(vocabulary);
   const offCascade = decision === "off-cascade";
+  const effectiveLevel = hasPayload ? effective : "default";
   return withTokenParam(
-    resolutionOf(vocabulary, level, effective, {
+    resolutionOf(vocabulary, level, effectiveLevel, {
       offUnavailable: offCascade,
       offFallback: offCascade && hasPayload ? "low" : null,
       thinkingClass: rule.thinkingClass

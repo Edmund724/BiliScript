@@ -7,9 +7,8 @@ import { adtsFromFmp4, parseAudioSpecificConfig } from "../../extension/asr/adts
 import { ASR_DOWNLOAD_LIMIT_MESSAGE, MAX_AUDIO_BYTES } from "../../extension/asr/protocol.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileBytes(join(__dirname, "../asr/fixtures", "fmp4-audio-sample.bin"))
+  readFileSync(join(__dirname, "../asr/fixtures", "fmp4-audio-sample.bin"))
 );
 const asc = parseAudioSpecificConfig(fixture) || {};
 
