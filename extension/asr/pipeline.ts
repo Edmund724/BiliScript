@@ -6,6 +6,7 @@ import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
 import { isNonSpeechSegment, joinSubtitleText } from "../subtitle/text-classification.js";
+import { logWarn } from "../shared/logging.js";
 
 const SENTENCE_DELIMITER_RE = /(?:[。！？!?…]+|\.+(?!\d)(?=\s|$|["'”’」』）\)\]]))["'”’」』）\)\]]*|\r?\n+/g;
 const SENTENCE_END_PUNCT_RE = /[。！？.!?…]["'”’」』）\)\]]*$/;
@@ -978,7 +979,11 @@ export async function runAsrPipeline({
         const items = snapshot.chunkItems.get(Number(record.index) || 0) ?? [];
         try {
           onChunkResult(record, items, snapshot);
-        } catch {
+        } catch (error) {
+          logWarn("[BILISCRIPT] asr onChunkResult callback failed", {
+            chunkIndex: record.index,
+            error
+          });
         }
       }
     }

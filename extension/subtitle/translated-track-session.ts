@@ -11,6 +11,7 @@ import {
   type SubtitleTranslatePromptContext
 } from "../ai/subtitle-context.js";
 import { logWarn } from "../shared/logging.js";
+import { isStaleRunError } from "../shared/error-helpers.js";
 import {
   buildTranslationSignature,
   flushSubtitleCache,
@@ -339,16 +340,27 @@ export function createTranslatedTrackSession(
     return sortSubtitleItemsByFrom(merged);
   }
 
+  function warnUnlessStaleRun(
+    message: string,
+    detail: Record<string, unknown>,
+    error: unknown
+  ): void {
+    if (!isStaleRunError(error)) {
+      logWarn(message, { ...detail, error });
+    }
+  }
+
   function enqueuePersist(
     task: () => Promise<void>
   ): Promise<void> {
-    persistQueue = persistQueue.then(async () => {
+    const next = persistQueue.catch(() => {}).then(async () => {
       if (isStale()) {
         return;
       }
       await task();
     });
-    return persistQueue;
+    persistQueue = next;
+    return next;
   }
 
   async function persistSecondarySnapshot(
@@ -624,7 +636,13 @@ export function createTranslatedTrackSession(
                 if (!isStale()) {
                   deps.onAfterStreamingAccept?.();
                 }
-              }).catch(() => {});
+              }).catch((err) => {
+                warnUnlessStaleRun(
+                  "[BILISCRIPT] failed to accept streaming secondary subtitle",
+                  { bvid, cid, chunkIndex },
+                  err
+                );
+              });
             }
           }
         });
@@ -695,7 +713,7 @@ export function createTranslatedTrackSession(
                 });
               } else {
                 hasUnflushedStreamingCues = false;
-                await saveTranslatedSubtitleTrack({
+                const saveResult = await saveTranslatedSubtitleTrack({
                   bvid,
                   cid,
                   sourceTrackKey: sourceKey,
@@ -705,6 +723,14 @@ export function createTranslatedTrackSession(
                   items: [],
                   replaceRange: { from: chunkFromSec, to: chunkToSec }
                 });
+                if (saveResult && saveResult.ok === false) {
+                  logWarn("[BILISCRIPT] failed to rollback translated subtitle cache", {
+                    bvid,
+                    cid,
+                    chunkIndex,
+                    error: saveResult.error
+                  });
+                }
               }
             }
             await acceptSecondarySubtitle({
@@ -713,7 +739,13 @@ export function createTranslatedTrackSession(
               subtitleUrl: "",
               runId
             });
-          }).catch(() => {});
+          }).catch((err) => {
+            warnUnlessStaleRun(
+              "[BILISCRIPT] failed to rollback translated subtitle chunk",
+              { bvid, cid, chunkIndex },
+              err
+            );
+          });
         }
         throw err;
       }

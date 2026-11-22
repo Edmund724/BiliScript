@@ -13,8 +13,10 @@ import {
   getAsrFailureNotice
 } from "../../extension/core/asr-failure-notice.js";
 import { refreshHotComments, refreshDerivedContent } from "../../extension/subtitle/core.js";
+import { saveSegmentedSubtitleTrack } from "../../extension/subtitle/cache.js";
 import { notifyReaderPresenter } from "../../extension/reader/reader-bus.js";
 import { getSubtitleStatusPhase } from "../../extension/shared/subtitle-status-bus.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
 
 vi.mock("../../extension/subtitle/core.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/subtitle/core.js")>();
@@ -22,6 +24,13 @@ vi.mock("../../extension/subtitle/core.js", async (importOriginal) => {
     ...actual,
     refreshHotComments: vi.fn(async () => {}),
     refreshDerivedContent: vi.fn(async () => {})
+  };
+});
+vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
+  return {
+    ...actual,
+    saveSegmentedSubtitleTrack: vi.fn(actual.saveSegmentedSubtitleTrack)
   };
 });
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -190,6 +199,78 @@ describe("acceptSubtitle：字幕接受事务", () => {
     });
 
     expect(getSubtitleStatusPhase()).toBe("subtitle-ready");
+  });
+
+  it("saveSegmentedSubtitleTrack 返回 { ok: false } 或抛错时记录 logWarn 且不阻断字幕交付", async () => {
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      clipState.setBvid("BV1commit01");
+      clipState.setCid("101");
+
+      const okFalseError = new Error("idb quota exceeded");
+      vi.mocked(saveSegmentedSubtitleTrack).mockResolvedValueOnce({
+        ok: false,
+        error: okFalseError as never
+      });
+
+      const res1 = await acceptSubtitle({
+        body: [
+          { from: 0, to: 1, content: "第一句" },
+          { from: 1.1, to: 2.2, content: "第二句" }
+        ],
+        selectedSubtitleId: "asr",
+        selectedSubtitleUrl: "",
+        selectedSubtitleLang: "中文"
+      });
+
+      expect(res1?.length).toBeGreaterThan(0);
+      expect(state.clip.subtitleBody).toEqual(res1);
+      expect(state.clip.subtitleFetchState).toBe("ready");
+      expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] failed to save segmented subtitle track",
+        expect.objectContaining({
+          bvid: "BV1commit01",
+          cid: "101",
+          error: okFalseError
+        })
+      );
+
+      warnSpy.mockClear();
+      vi.mocked(notifyReaderPresenter).mockClear();
+
+      const thrownError = new Error("rpc disconnected");
+      vi.mocked(saveSegmentedSubtitleTrack).mockRejectedValueOnce(thrownError);
+
+      const res2 = await acceptSubtitle({
+        body: [
+          { from: 0, to: 1, content: "第三句" },
+          { from: 1.1, to: 2.2, content: "第四句" }
+        ],
+        selectedSubtitleId: "asr",
+        selectedSubtitleUrl: "",
+        selectedSubtitleLang: "中文"
+      });
+
+      expect(res2?.length).toBeGreaterThan(0);
+      expect(state.clip.subtitleBody).toEqual(res2);
+      expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] failed to save segmented subtitle track",
+        expect.objectContaining({
+          bvid: "BV1commit01",
+          cid: "101",
+          error: thrownError
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+      registerDebugGate(() => false);
+    }
   });
 });
 

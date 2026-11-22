@@ -11,6 +11,7 @@ import { slot } from "./slot.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ensureRunActive } from "../shared/error-helpers.js";
+import { logWarn } from "../shared/logging.js";
 
 export interface CommitUiCallbacks {
   setStatus(message: string): void;
@@ -87,14 +88,22 @@ export async function acceptSubtitle({
         strategy,
         lang: trackLan || selectedSubtitleLang
       });
-      await saveSegmentedSubtitleTrack({
+      const saveResult = await saveSegmentedSubtitleTrack({
         bvid: state.clip.bvid,
         cid: state.clip.cid,
         trackKey,
         segmentationSig,
         items: sortedBody
       });
-    } catch {
+      if (saveResult && !saveResult.ok) {
+        throw saveResult.error ?? saveResult;
+      }
+    } catch (error) {
+      logWarn("[BILISCRIPT] failed to save segmented subtitle track", {
+        bvid: state.clip.bvid,
+        cid: state.clip.cid,
+        error
+      });
     }
   }
   return sortedBody;

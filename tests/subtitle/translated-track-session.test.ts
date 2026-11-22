@@ -407,4 +407,206 @@ describe("createTranslatedTrackSession seam", () => {
     expect(session.getSecondaryItems()).toEqual([{ from: 0, to: 4, content: "第零块" }]);
     expect(clipState.secondarySubtitle.body).toEqual([{ from: 0, to: 4, content: "第零块" }]);
   });
+
+  it("流式 acceptSecondarySubtitle 与回滚持久化：STALE_RUN 静默忽略，非 STALE_RUN 错误记 logWarn", async () => {
+    const logging = await import("../../extension/shared/logging.js");
+    logging.registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      let emitCue!: NonNullable<TranslatedTrackTranslateInput["onCueReady"]>;
+      let resolveTranslate!: (items: SubtitleBodyItem[]) => void;
+
+      // 1. 流式 acceptSecondarySubtitle：STALE_RUN 静默忽略
+      const staleStreamSession = createTranslatedTrackSession(
+        {
+          bvid: "BV1session01",
+          cid: "100",
+          runId: 1,
+          primaryItems: [{ from: 0, to: 5, content: "Hello" }],
+          source: { isAsrSource: true, targetLang: "zh" }
+        },
+        {
+          translateItems: async (input) => {
+            emitCue = input.onCueReady!;
+            return new Promise<SubtitleBodyItem[]>((resolve) => {
+              resolveTranslate = resolve;
+            });
+          }
+        }
+      );
+
+      const p1 = staleStreamSession.translateChunk({
+        chunkIndex: 0,
+        chunkFromSec: 0,
+        chunkToSec: 60,
+        items: [{ from: 0, to: 5, content: "Hello" }]
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      clipState.setFetchRunId(2);
+      emitCue({
+        startIndex: 0,
+        endIndex: 0,
+        from: 0,
+        to: 5,
+        text: "Hello",
+        translation: "你好"
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      // 2. 回滚持久化：STALE_RUN 静默忽略
+      clipState.setFetchRunId(1);
+      const staleRollbackSession = createTranslatedTrackSession(
+        {
+          bvid: "BV1session01",
+          cid: "100",
+          runId: 1,
+          primaryItems: [{ from: 0, to: 5, content: "Hello" }],
+          source: { isAsrSource: true, targetLang: "zh" }
+        },
+        {
+          translateItems: async (input) => {
+            input.onCueReady?.({
+              startIndex: 0,
+              endIndex: 0,
+              from: 0,
+              to: 5,
+              text: "Hello",
+              translation: "半成品"
+            });
+            clipState.setFetchRunId(2);
+            throw new Error("translate failed after run switched");
+          }
+        }
+      );
+
+      await expect(
+        staleRollbackSession.translateChunk({
+          chunkIndex: 0,
+          chunkFromSec: 0,
+          chunkToSec: 60,
+          items: [{ from: 0, to: 5, content: "Hello" }]
+        })
+      ).rejects.toThrow("translate failed after run switched");
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      resolveTranslate([]);
+      await p1.catch(() => {});
+
+      // 3. 流式持久化与回滚持久化遇到非 STALE_RUN 异常时均记录 logWarn
+      vi.resetModules();
+      vi.doMock("../../extension/subtitle/commit.js", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("../../extension/subtitle/commit.js")>();
+        return {
+          ...actual,
+          acceptSecondarySubtitle: vi
+            .fn()
+            .mockRejectedValueOnce(new Error("streaming slot write failed"))
+            .mockRejectedValueOnce(new Error("rollback slot write failed"))
+        };
+      });
+      const freshStateMod = await import("../../extension/core/state.js");
+      const freshCacheMod = await import("../../extension/subtitle/cache.js");
+      const freshSessionMod = await import("../../extension/subtitle/translated-track-session.js");
+      const freshLogging = await import("../../extension/shared/logging.js");
+      freshLogging.registerDebugGate(() => true);
+
+      freshCacheMod.configureSubtitleCacheStoreForTests(idbStore);
+      freshStateMod.state.setSettings({ ...DEFAULT_SETTINGS, subtitleTranslateModel: "Index-Translate-35B-A3B" });
+      freshStateMod.clipState.setBvid("BV1session01");
+      freshStateMod.clipState.setCid("100");
+      freshStateMod.clipState.setFetchRunId(1);
+
+      const errSession = freshSessionMod.createTranslatedTrackSession(
+        {
+          bvid: "BV1session01",
+          cid: "100",
+          runId: 1,
+          primaryItems: [{ from: 0, to: 5, content: "Hello" }],
+          source: { isAsrSource: true, targetLang: "zh" }
+        },
+        {
+          translateItems: async (input) => {
+            input.onCueReady?.({
+              startIndex: 0,
+              endIndex: 0,
+              from: 0,
+              to: 5,
+              text: "Hello",
+              translation: "半成品"
+            });
+            await vi.advanceTimersByTimeAsync(10);
+            throw new Error("500 upstream error");
+          }
+        }
+      );
+
+      await expect(
+        errSession.translateChunk({
+          chunkIndex: 0,
+          chunkFromSec: 0,
+          chunkToSec: 60,
+          items: [{ from: 0, to: 5, content: "Hello" }]
+        })
+      ).rejects.toThrow("500 upstream error");
+
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenNthCalledWith(
+        1,
+        "[BILISCRIPT] failed to accept streaming secondary subtitle",
+        expect.objectContaining({
+          bvid: "BV1session01",
+          cid: "100",
+          chunkIndex: 0,
+          error: expect.objectContaining({ message: "streaming slot write failed" })
+        })
+      );
+      expect(warnSpy).toHaveBeenNthCalledWith(
+        2,
+        "[BILISCRIPT] failed to rollback translated subtitle chunk",
+        expect.objectContaining({
+          bvid: "BV1session01",
+          cid: "100",
+          chunkIndex: 0,
+          error: expect.objectContaining({ message: "rollback slot write failed" })
+        })
+      );
+
+      // 4. 回滚写盘返回 { ok: false } 时记 logWarn 且不阻断 acceptSecondarySubtitle 回滚
+      warnSpy.mockClear();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const upsertSpy = vi
+        .spyOn(idbStore, "upsertTranslatedTrack")
+        .mockRejectedValueOnce(new Error("idb rollback disk full"));
+      try {
+        await expect(
+          errSession.translateChunk({
+            chunkIndex: 0,
+            chunkFromSec: 0,
+            chunkToSec: 60,
+            items: [{ from: 0, to: 5, content: "Hello" }]
+          })
+        ).rejects.toThrow("500 upstream error");
+
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          "[BILISCRIPT] failed to rollback translated subtitle cache",
+          expect.objectContaining({
+            bvid: "BV1session01",
+            cid: "100",
+            chunkIndex: 0,
+            error: expect.objectContaining({ message: "idb rollback disk full" })
+          })
+        );
+      } finally {
+        upsertSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    } finally {
+      vi.doUnmock("../../extension/subtitle/commit.js");
+      warnSpy.mockRestore();
+      logging.registerDebugGate(() => false);
+    }
+  });
 });

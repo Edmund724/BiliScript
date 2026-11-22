@@ -1320,4 +1320,66 @@ describe("重叠区去重与跨分片未闭合尾句缝合", () => {
       { from: 58.7, to: 62.5, content: "先讲前半句再讲后半句。" }
     ]);
   });
+
+  it("runAsrPipeline 中 onChunkResult 抛错时通过 logWarn 记录且后续分片继续交付", async () => {
+    const logging = await import("../../extension/shared/logging.js");
+    logging.registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deliveredIndices: number[] = [];
+
+    try {
+      const body = await pipeline.runAsrPipeline({
+        bvid: "BV1test",
+        cid: "101",
+        chunkHost: async ({ onChunkResult }) => {
+          const rec0 = {
+            index: 0,
+            startSec: 0,
+            durationSec: 60,
+            overlapLeadSec: 0,
+            result: {
+              text: "第一段。",
+              segments: [{ start: 1.0, end: 2.5, text: "第一段。" }]
+            }
+          };
+          const rec1 = {
+            index: 1,
+            startSec: 60,
+            durationSec: 20,
+            overlapLeadSec: 0,
+            result: {
+              text: "第二段。",
+              segments: [{ start: 0.5, end: 2.0, text: "第二段。" }]
+            }
+          };
+          onChunkResult?.(rec0);
+          onChunkResult?.(rec1);
+          return { results: [rec0, rec1], totalChunks: 2, skippedSegments: 0, failedChunks: 0 };
+        },
+        onChunkResult: (record) => {
+          deliveredIndices.push(record.index);
+          if (record.index === 0) {
+            throw new Error("ui render failed");
+          }
+        }
+      });
+
+      expect(deliveredIndices).toEqual([0, 1]);
+      expect(body).toEqual([
+        { from: 1.0, to: 2.5, content: "第一段。" },
+        { from: 60.5, to: 62.0, content: "第二段。" }
+      ]);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] asr onChunkResult callback failed",
+        expect.objectContaining({
+          chunkIndex: 0,
+          error: expect.any(Error)
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+      logging.registerDebugGate(() => false);
+    }
+  });
 });
