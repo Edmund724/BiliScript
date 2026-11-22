@@ -1,7 +1,7 @@
 import { ensureRunActive, isStaleRunError, getErrorMessage, makeStaleRunError } from "../shared/error-helpers.js";
 import { logInfo, logWarn } from "../shared/logging.js";
 import { state, clipState } from "../core/state.js";
-import type { NoSubtitleReason } from "../core/state.js";
+import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { getAsrFailureNotice, reasonFromFailureKind, buildAsrNoSubtitleMessage } from "../core/asr-failure-notice.js";
 import { resolveActiveAsrProviderId } from "./asr-provider-normalize.js";
 import { readAsrFailureSummary } from "./protocol.js";
@@ -68,11 +68,7 @@ export interface AsrProviderMeta {
   type?: string;
 }
 
-export interface SubtitleItem {
-  from: number;
-  to: number;
-  content: string;
-}
+export type SubtitleItem = SubtitleBodyItem;
 
 export interface AcceptSubtitleArgs {
   body: SubtitleItem[];
@@ -316,11 +312,11 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const cachedBody = await loadSubtitleFromCache(cacheKey);
       ensureRunActive(runId, state.clip.fetchRunId);
       if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
-        const cachedCheck = validateSubtitleByDuration(cachedBody as SubtitleItem[], state.clip.videoDuration);
+        const cachedCheck = validateSubtitleByDuration(cachedBody, state.clip.videoDuration);
         if (cachedCheck.ok) {
           seedAsrPseudoTrack(sourceLabel);
           await acceptSubtitle({
-            body: cachedBody as SubtitleItem[],
+            body: cachedBody,
             selectedSubtitleId: ASR_SUBTITLE_TRACK_ID,
             selectedSubtitleUrl: "",
             selectedSubtitleLang: sourceLabel
@@ -330,7 +326,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         }
         logWarn("[BILISCRIPT] cached asr subtitle duration mismatch, clearing cache", {
           cacheKey,
-          reason: (cachedCheck as { reason?: string }).reason
+          reason: cachedCheck.reason
         });
         await clearSubtitleCacheByKey(cacheKey);
         ensureRunActive(runId, state.clip.fetchRunId);
@@ -444,7 +440,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         }
         logWarn("[BILISCRIPT] cached asr subtitle duration mismatch, clearing cache", {
           cacheKey: cachedRecord.cacheKey,
-          reason: (cachedCheck as { reason?: string }).reason
+          reason: cachedCheck.reason
         });
         await clearSubtitleCacheByKey(cachedRecord.cacheKey);
         ensureRunActive(runId, state.clip.fetchRunId);

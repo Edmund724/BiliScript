@@ -29,7 +29,7 @@ export interface TranscribeArgs {
   durationSec?: number;
   provider: AsrProvider;
   signal?: AbortSignal | null;
-  onProgress?: (text: string) => void;
+  onProgress?: () => void;
 }
 
 interface PostTranscriptionResult {
@@ -195,10 +195,9 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
 }
 
 export async function transcribe({ wavBlob, startSec, durationSec, provider, signal, onProgress }: TranscribeArgs): Promise<TranscriptionResult> {
-  const notifyProgress = onProgress as (() => void) | undefined;
   const first = await postTranscription({ wavBlob, provider, signal, responseFormat: "verbose_json" });
   if (first.status === 0) {
-    notifyProgress?.();
+    onProgress?.();
     return {
       text: first.text,
       ...(first.segments ? { segments: first.segments } : {}),
@@ -216,7 +215,7 @@ export async function transcribe({ wavBlob, startSec, durationSec, provider, sig
 
   const second = await postTranscription({ wavBlob, provider, signal, responseFormat: "json" });
   if (second.status === 0) {
-    notifyProgress?.();
+    onProgress?.();
     return {
       text: second.text,
       ...(second.segments ? { segments: second.segments } : {}),

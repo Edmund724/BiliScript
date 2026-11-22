@@ -421,7 +421,7 @@ export async function loadRawSubtitleTrack({
     if (legacyCacheKey) {
       const migrated = await tryMigrateLegacyStorageEntry(legacyCacheKey);
       if (migrated) {
-        return migrated as SubtitleBodyItem[];
+        return migrated;
       }
     }
     return null;
@@ -590,7 +590,7 @@ export async function loadTranslatedSubtitleTrack({
     if (legacyCacheKey) {
       const migrated = await tryMigrateLegacyStorageEntry(legacyCacheKey);
       if (migrated) {
-        return migrated as SubtitleBodyItem[];
+        return migrated;
       }
     }
     return null;
@@ -716,20 +716,20 @@ export async function getSubtitlePageCacheRecord(
   return resolveActiveStore().getPageRecord(cleanBvid, cleanCid);
 }
 
-async function readLegacyChromeStorageEntry(cacheKey: string): Promise<unknown[] | null> {
+async function readLegacyChromeStorageEntry(cacheKey: string): Promise<SubtitleBodyItem[] | null> {
   if (!globalThis.chrome?.storage?.local) {
     return null;
   }
   try {
     const result = await chrome.storage.local.get(cacheKey);
-    const cached = result?.[cacheKey] as { body?: unknown } | undefined;
+    const cached = result?.[cacheKey] as { body?: SubtitleBodyItem[] } | undefined;
     return Array.isArray(cached?.body) ? cached.body : null;
   } catch {
     return null;
   }
 }
 
-async function tryMigrateLegacyStorageEntry(cacheKey: string): Promise<unknown[] | null> {
+async function tryMigrateLegacyStorageEntry(cacheKey: string): Promise<SubtitleBodyItem[] | null> {
   const legacyBody = await readLegacyChromeStorageEntry(cacheKey);
   if (!legacyBody || legacyBody.length === 0) {
     return null;
@@ -763,7 +763,7 @@ async function tryMigrateLegacyStorageEntry(cacheKey: string): Promise<unknown[]
   return legacyBody;
 }
 
-export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[] | null> {
+export async function loadSubtitleFromCache(cacheKey: string): Promise<SubtitleBodyItem[] | null> {
   try {
     const parsed = parseSubtitleCacheKey(cacheKey);
     if (!parsed) {

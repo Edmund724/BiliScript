@@ -35,7 +35,7 @@ export interface TranscribeChunk {
 
 export type TranscribeFn = (
   chunk: TranscribeChunk,
-  ctx: { onProgress: (text: string) => void }
+  ctx: { onProgress: () => void }
 ) => Promise<AsrTranscribeResult>;
 
 export interface TranscribeChunkOptions {
@@ -104,7 +104,7 @@ export function createTranscriptionEngine({
   maxPendingChunks = ASR_MAX_PENDING_CHUNKS,
   retries = DEFAULT_RETRIES,
   retryDelayMs = DEFAULT_RETRY_DELAY_MS
-}: TranscriptionEngineOptions = {} as TranscriptionEngineOptions): TranscriptionEngine {
+}: TranscriptionEngineOptions): TranscriptionEngine {
   if (typeof transcribe !== "function") {
     throw new Error("createTranscriptionEngine 需要注入 transcribe 函数");
   }

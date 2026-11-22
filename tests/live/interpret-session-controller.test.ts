@@ -24,7 +24,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
   function setupTest(overrides: {
     runAsr?: (args: any) => Promise<any>;
     translateItems?: (args: any) => Promise<SubtitleBodyItem[]>;
-    loadCache?: (key: string) => Promise<unknown[] | null>;
+    loadCache?: (key: string) => Promise<SubtitleBodyItem[] | null>;
     saveCache?: (key: string, body: unknown[]) => Promise<any>;
     clearTranslatedCache?: (args: { bvid: string; cid: string }) => Promise<string[]>;
     resolveTranslateProvider?: () => Promise<any>;
@@ -67,7 +67,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       }));
     }));
     const cacheStorage = new Map<string, unknown[]>();
-    const loadCache = overrides.loadCache || vi.fn(async (key: string) => cacheStorage.get(key) || null);
+    const loadCache = overrides.loadCache || vi.fn(async (key: string) => (cacheStorage.get(key) as SubtitleBodyItem[] | undefined) || null);
     const saveCache = overrides.saveCache || vi.fn(async (key: string, body: unknown[]) => {
       cacheStorage.set(key, body);
       return { ok: true };

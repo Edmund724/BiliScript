@@ -72,6 +72,16 @@ export function splitTextIntoSentences(text: string, minChars = 4): string[] {
   return mergeShortSentences(rawSentences, minChars);
 }
 
+export type SynthesizedWord = {
+  word: string;
+  start: number;
+  end: number;
+};
+
+export interface RichSubtitleItem extends SubtitleItem {
+  words?: SynthesizedWord[];
+}
+
 export function interpolateSentenceTimestamps({
   sentences,
   startSec,
@@ -80,7 +90,7 @@ export function interpolateSentenceTimestamps({
   sentences: string[];
   startSec: number;
   durationSec: number;
-}): SubtitleItem[] {
+}): RichSubtitleItem[] {
   if (!sentences || sentences.length === 0) {
     return [];
   }
@@ -106,7 +116,7 @@ export function interpolateSentenceTimestamps({
   const weights = sentences.map((s) => Math.max(1, s.length));
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
-  const out: SubtitleItem[] = [];
+  const out: RichSubtitleItem[] = [];
   let currentFrom = start;
   let accumulatedWeight = 0;
 
@@ -136,8 +146,8 @@ export function synthesizeChunk({ startSec, durationSec, result }: {
   startSec: number;
   durationSec: number;
   result: AsrChunkResult | null;
-}): SubtitleItem[] {
-  const out: SubtitleItem[] = [];
+}): RichSubtitleItem[] {
+  const out: RichSubtitleItem[] = [];
   const chunkDur = Number(result?.durationSec || 0) || Number(durationSec) || 0;
   const normalizedWords = Array.isArray(result?.words) && result.words.length > 0
     ? result.words
@@ -166,7 +176,7 @@ export function synthesizeChunk({ startSec, durationSec, result }: {
       const segWords = normalizedWords.length > 0
         ? normalizedWords.filter((w) => w.end > from && w.start < to)
         : [];
-      out.push(segWords.length > 0 ? { from, to, content, words: segWords } as SubtitleItem : { from, to, content });
+      out.push(segWords.length > 0 ? { from, to, content, words: segWords } : { from, to, content });
     }
   } else if (normalizedWords.length > 0) {
     for (const w of normalizedWords) {
@@ -185,16 +195,6 @@ export function synthesizeChunk({ startSec, durationSec, result }: {
   }
   return out;
 }
-
-type SynthesizedWord = {
-  word: string;
-  start: number;
-  end: number;
-};
-
-type RichSubtitleItem = SubtitleItem & {
-  words?: SynthesizedWord[];
-};
 
 function cloneRichItem(item: RichSubtitleItem): RichSubtitleItem {
   const cloned: RichSubtitleItem = {
@@ -782,8 +782,8 @@ function stitchUnclosedTrailingSentence(
 }
 
 export interface AsrProgressiveMergeSnapshot {
-  mergedItems: SubtitleItem[];
-  chunkItems: Map<number, SubtitleItem[]>;
+  mergedItems: RichSubtitleItem[];
+  chunkItems: Map<number, RichSubtitleItem[]>;
   updatedChunkIndices: number[];
 }
 
@@ -815,21 +815,21 @@ function itemsEqual(a: RichSubtitleItem[] | undefined, b: RichSubtitleItem[]): b
 }
 
 function assembleOrderedChunks(records: AsrChunkRecord[]): {
-  mergedItems: SubtitleItem[];
-  chunkItems: Map<number, SubtitleItem[]>;
+  mergedItems: RichSubtitleItem[];
+  chunkItems: Map<number, RichSubtitleItem[]>;
 } {
   const ordered = records
     .filter((record): record is AsrChunkRecord => Boolean(record && record.result))
     .slice()
     .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
 
-  const chunkItems = new Map<number, SubtitleItem[]>();
+  const chunkItems = new Map<number, RichSubtitleItem[]>();
   const synthesized: RichSubtitleItem[][] = ordered.map((record) =>
     synthesizeChunk({
       startSec: record.startSec,
       durationSec: record.durationSec,
       result: record.result
-    }) as RichSubtitleItem[]
+    })
   );
 
   for (let i = 0; i + 1 < ordered.length; i += 1) {
@@ -855,7 +855,7 @@ function assembleOrderedChunks(records: AsrChunkRecord[]): {
     synthesized[i + 1] = stitched.nextItems;
   }
 
-  const mergedItems: SubtitleItem[] = [];
+  const mergedItems: RichSubtitleItem[] = [];
   for (let i = 0; i < ordered.length; i += 1) {
     const chunkIndex = Number(ordered[i].index) || 0;
     const list = synthesized[i];
@@ -885,8 +885,8 @@ export function createProgressiveChunkMerger(): {
   getSnapshot(): AsrProgressiveMergeSnapshot;
 } {
   const received = new Map<number, AsrChunkRecord>();
-  let prevChunkItems = new Map<number, SubtitleItem[]>();
-  let latestMerged: SubtitleItem[] = [];
+  let prevChunkItems = new Map<number, RichSubtitleItem[]>();
+  let latestMerged: RichSubtitleItem[] = [];
 
   function recompute(forceIncludeIndex?: number): AsrProgressiveMergeSnapshot {
     const { mergedItems, chunkItems } = assembleOrderedChunks(Array.from(received.values()));
@@ -897,7 +897,7 @@ export function createProgressiveChunkMerger(): {
     for (const [idx, items] of chunkItems.entries()) {
       if (
         !prevChunkItems.has(idx) ||
-        !itemsEqual(prevChunkItems.get(idx) as RichSubtitleItem[] | undefined, items as RichSubtitleItem[])
+        !itemsEqual(prevChunkItems.get(idx), items)
       ) {
         updatedSet.add(idx);
       }
@@ -927,7 +927,7 @@ export function createProgressiveChunkMerger(): {
   };
 }
 
-export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
+export function mergeChunkResults(chunkResults: AsrChunkRecord[]): RichSubtitleItem[] {
   return assembleOrderedChunks(chunkResults).mergedItems;
 }
 
@@ -943,7 +943,7 @@ export interface RunAsrPipelineArgs {
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
   onChunkResult?: (
     record: AsrChunkRecord,
-    items: SubtitleItem[],
+    items: RichSubtitleItem[],
     snapshot?: AsrProgressiveMergeSnapshot
   ) => void;
   signal?: AbortSignal | null;
@@ -959,7 +959,7 @@ export async function runAsrPipeline({
   onAttemptOutcome,
   onChunkResult,
   signal
-}: RunAsrPipelineArgs): Promise<SubtitleItem[]> {
+}: RunAsrPipelineArgs): Promise<RichSubtitleItem[]> {
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
 
