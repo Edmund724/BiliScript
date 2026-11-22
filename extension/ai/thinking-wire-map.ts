@@ -17,7 +17,6 @@ export interface OpenAiWireInput extends ThinkingWireInput {
 export interface AnthropicWireInput extends ThinkingWireInput {
   probe: boolean;
   platformId?: string;
-  effortVocabularyOnly: boolean;
 }
 
 export interface GeminiWireInput extends ThinkingWireInput {
@@ -141,7 +140,7 @@ export const MESSAGES_TIER_EXIT: Record<PlatformKey, MessagesTierExitCell> = {
     provenance: {
       level: "文档",
       source:
-        "stepfun 官方字段表未列 thinking（负证据，不主张 400）：platform.stepfun.com 模型协议页；判据取 compat-vocab 的 effortVocabMessages 活值（只认 output_config.effort）"
+        "stepfun 官方字段表未列 thinking（负证据，不主张 400）：platform.stepfun.com 模型协议页；语义见 compat-vocab 的 effortVocabMessages（只认 output_config.effort）"
     }
   },
   amd: {
@@ -150,7 +149,7 @@ export const MESSAGES_TIER_EXIT: Record<PlatformKey, MessagesTierExitCell> = {
     provenance: {
       level: "实测",
       source:
-        "2026-09 实测：网关对 thinking 形状报 not supported、提示改用 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注，仓库无响应体留档）；判据取怪癖 effortVocabMessages 的活值"
+        "2026-09 实测：网关对 thinking 形状报 not supported、提示改用 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注，仓库无响应体留档）；语义见 compat-vocab 的 effortVocabMessages"
     }
   },
   minimax: {
@@ -335,10 +334,12 @@ export function messagesOffExitCell(platformId: string | undefined): MessagesOff
   return ownExitCell(MESSAGES_OFF_EXIT, String(platformId || "").trim()) ?? UNRESEARCHED_OFF_EXIT;
 }
 
-export type MessagesOnExitKind = "native" | "word" | "unresearched" | "non-messages";
+export type MessagesOnExitKind = "native" | "silent" | "word" | "unresearched" | "non-messages";
 
 export interface MessagesOnExitCell {
   kind: MessagesOnExitKind;
+  owner?: CompatQuirk;
+  reason?: string;
   fields?: Record<string, unknown>;
   provenance: MessagesExitProvenance;
 }
@@ -410,17 +411,21 @@ export const MESSAGES_ON_EXIT: Record<PlatformKey, MessagesOnExitCell> = {
     }
   },
   stepfun: {
-    kind: "native",
+    kind: "silent",
+    owner: "effortVocabMessages",
+    reason: "该端点只认 output_config.effort，发 thinking 字段直接 400（怪癖 effortVocabMessages）",
     provenance: {
       level: "文档",
-      source: "platform.stepfun.com 官方字段表未列 thinking（负证据）；该端点由怪癖 effortVocabMessages 只认 output_config.effort → 本格不可达，按原生登记"
+      source: "platform.stepfun.com 官方字段表未列 thinking（负证据）；该端点由怪癖 effortVocabMessages 只认 output_config.effort，开档静默不发 thinking"
     }
   },
   amd: {
-    kind: "native",
+    kind: "silent",
+    owner: "effortVocabMessages",
+    reason: "网关对 thinking 形状报 not supported、只收 output_config.effort（怪癖 effortVocabMessages）",
     provenance: {
       level: "实测",
-      source: "2026-09 实测：网关对 thinking 形状报 not supported、只收 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注）→ 本格不可达，按原生登记"
+      source: "2026-09 实测：网关对 thinking 形状报 not supported、只收 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注），开档静默不发 thinking"
     }
   },
   ollama: {
@@ -464,7 +469,7 @@ export function messagesOnExitCell(platformId: string | undefined): MessagesOnEx
 
 function onThinkingFields(platformId: string | undefined): Record<string, unknown> {
   const cell = messagesOnExitCell(platformId);
-  if (cell.kind === "non-messages") return {};
+  if (cell.kind === "non-messages" || cell.kind === "silent") return {};
   if (cell.kind === "word" && cell.fields) return { ...cell.fields };
   return { thinking: { type: "enabled" } };
 }
@@ -498,19 +503,12 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
 
   if (form.form === "off") {
     const cell = messagesOffExitCell(input.platformId);
-    if (cell.kind === "non-messages") return output;
-    if (cell.kind === "silent" && (cell.owner == null || input.effortVocabularyOnly)) return output;
-    if (cell.kind !== "silent" && input.effortVocabularyOnly) return output;
+    if (cell.kind === "non-messages" || cell.kind === "silent") return output;
     if (cell.kind === "word" && cell.fields) {
       Object.assign(output.fields, cell.fields);
       return output;
     }
     output.fields.thinking = { type: "disabled" };
-    return output;
-  }
-
-  if (input.effortVocabularyOnly) {
-    if (form.form === "effort") output.fields.output_config = { effort: form.word };
     return output;
   }
 

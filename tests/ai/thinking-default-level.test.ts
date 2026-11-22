@@ -103,7 +103,6 @@ describe("default 落线 = 空 patch（02 指派表逐行 + 两条通道）", ()
           const messages = THINKING_WIRE_MAPS.anthropic({
             vocabulary: profile.vocabulary,
             probe: false,
-            effortVocabularyOnly: false,
             platformId: presetId
           });
           expect(messages.fields, `${presetId}/${model} · stream=${stream}（Messages）`).toEqual({});

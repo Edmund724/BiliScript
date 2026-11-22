@@ -177,7 +177,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
       const wire = THINKING_WIRE_MAPS.anthropic({
         vocabulary: testCase.vocabulary,
         probe: false,
-        effortVocabularyOnly: false,
         platformId: "未研究过的端点"
       });
       const expected =
@@ -197,7 +196,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
       THINKING_WIRE_MAPS.anthropic({
         vocabulary: reasoningEffort("xhigh"),
         probe: false,
-        effortVocabularyOnly: false,
         platformId: "moonshot"
       }).fields
     ).toEqual({ reasoning_effort: "xhigh" });
@@ -209,7 +207,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
         THINKING_WIRE_MAPS.anthropic({
           vocabulary: testCase.vocabulary,
           probe: true,
-          effortVocabularyOnly: false,
           platformId: "deepseek"
         }).fields,
         testCase.vocabulary.kind

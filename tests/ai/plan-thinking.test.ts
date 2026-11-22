@@ -91,6 +91,48 @@ const CASES: readonly WireCase[] = [
     tokenParam: "max_tokens"
   },
   {
+    name: "anthropic · presetId 优先于冲突 baseUrl：deepseek 预设手改 stepfun 域名仍按 deepseek 出口（不穿透怪癖）",
+    facts: {
+      protocol: "anthropic",
+      model: "deepseek-v4",
+      presetId: "deepseek",
+      baseUrl: "https://api.stepfun.com/step_plan",
+      level: "high",
+      stream: true,
+      probe: false
+    },
+    fields: { output_config: { effort: "high" }, thinking: { type: "enabled" } },
+    tokenParam: "max_tokens"
+  },
+  {
+    name: "anthropic · presetId 优先于 localhost 代理：stepfun 预设指向本地反代不被 ollama 劫持",
+    facts: {
+      protocol: "anthropic",
+      model: "step-3.7-flash",
+      presetId: "stepfun",
+      baseUrl: "http://localhost:8080/v1",
+      level: "high",
+      stream: true,
+      probe: false
+    },
+    fields: { output_config: { effort: "high" } },
+    tokenParam: "max_tokens"
+  },
+  {
+    name: "anthropic · custom 预设按 baseUrl host 兜底识别为 stepfun：关思考与开档均静默不发 thinking",
+    facts: {
+      protocol: "anthropic",
+      model: "glm-4.5",
+      presetId: "custom",
+      baseUrl: "https://api.stepfun.com/step_plan",
+      level: "off",
+      stream: true,
+      probe: false
+    },
+    fields: {},
+    tokenParam: "max_tokens"
+  },
+  {
     name: "anthropic · 未登记平台的档位出口回落：只发裸 output_config.effort（不带 thinking 开关）",
     facts: { protocol: "anthropic", model: "gpt-5", ...CUSTOM, level: "high", stream: true, probe: false },
     fields: { output_config: { effort: "high" } },

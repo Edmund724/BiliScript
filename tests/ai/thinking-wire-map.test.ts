@@ -37,7 +37,6 @@ function anthropicWire(overrides: Partial<AnthropicWireInput> = {}) {
   return THINKING_WIRE_MAPS.anthropic({
     vocabulary: reasoningEffort("low"),
     probe: false,
-    effortVocabularyOnly: false,
     ...overrides
   });
 }
@@ -117,12 +116,14 @@ describe("anthropic 行：Messages 通道的写法", () => {
     }
   });
 
-  it("effort 词汇平台（怪癖 effortVocabMessages）：off 不发任何字段；开档原样出 output_config.effort", () => {
-    expect(anthropicWire({ vocabulary: reasoningEffort("none"), effortVocabularyOnly: true }).fields).toEqual({});
-    expect(anthropicWire({ vocabulary: reasoningEffort("high"), effortVocabularyOnly: true }).fields).toEqual({
-      output_config: { effort: "high" }
-    });
-    expect(anthropicWire({ vocabulary: enableThinking(true), effortVocabularyOnly: true }).fields).toEqual({});
+  it("effort 词汇平台（怪癖 effortVocabMessages）：off 与开档均静默不发 thinking；档位原样出 output_config.effort", () => {
+    for (const platformId of ["stepfun", "amd"]) {
+      expect(anthropicWire({ vocabulary: reasoningEffort("none"), platformId }).fields, `${platformId} off`).toEqual({});
+      expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId }).fields, `${platformId} effort`).toEqual({
+        output_config: { effort: "high" }
+      });
+      expect(anthropicWire({ vocabulary: enableThinking(true), platformId }).fields, `${platformId} on`).toEqual({});
+    }
   });
 
   it("全表不发 budget_tokens：开关型血统的开档只发裸 thinking:{type:enabled}", () => {
@@ -182,14 +183,16 @@ describe("anthropic 行：Messages 通道的写法", () => {
     });
   });
 
-  it("严格 effort 词汇平台（怪癖 effortVocabMessages）优先：stepfun / amd 仍是原样 effort，不发 thinking", () => {
-    expect(
-      anthropicWire({
-        vocabulary: reasoningEffort("high"),
-        platformId: "stepfun",
-        effortVocabularyOnly: true
-      }).fields
-    ).toEqual({ output_config: { effort: "high" } });
+  it("严格 effort 词汇平台（怪癖 effortVocabMessages）：stepfun / amd 仍是原样 effort，不发 thinking", () => {
+    for (const platformId of ["stepfun", "amd"]) {
+      expect(
+        anthropicWire({
+          vocabulary: reasoningEffort("high"),
+          platformId
+        }).fields,
+        platformId
+      ).toEqual({ output_config: { effort: "high" } });
+    }
   });
 
   it("开关型血统显式登记：无档位词汇，low 与 high 同为裸开档（不带上限）", () => {
@@ -320,20 +323,17 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     expect(messagesOffExitCell("toString").kind).toBe("unresearched");
   });
 
-  it("逐格实发：off 三词汇 × 表内声明（owner 格命中怪癖 → 不发；其余 → 原生）", () => {
+  it("逐格实发：off 三词汇 × 表内声明（silent / non-messages → 不发；word → 平台自有词；其余 → 原生）", () => {
     for (const platform of PLATFORM_KEYS) {
       const cell = messagesOffExitCell(platform);
-      const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
       for (const vocabulary of [reasoningEffort("none"), enableThinking(false), thinkingType("disabled")]) {
-        const out = anthropicWire({ vocabulary, platformId: platform, effortVocabularyOnly: quirkOn });
+        const out = anthropicWire({ vocabulary, platformId: platform });
         const expected =
-          cell.kind === "non-messages"
+          cell.kind === "non-messages" || cell.kind === "silent"
             ? {}
             : cell.kind === "word" && cell.fields
               ? cell.fields
-              : cell.kind === "silent" && quirkOn
-                ? {}
-                : { thinking: { type: "disabled" } };
+              : { thinking: { type: "disabled" } };
         expect(out.fields, `${platform} kind=${cell.kind} vocabulary=${vocabulary.kind}`).toEqual(expected);
       }
     }
@@ -343,18 +343,9 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     });
   });
 
-  it("行为中立：owner 的活值优先于表——手改 baseUrl 的身份错配与旧实现逐字节相同", () => {
-    expect(
-      anthropicWire({ vocabulary: reasoningEffort("none"), platformId: "ollama", effortVocabularyOnly: true }).fields
-    ).toEqual({});
-    expect(
-      anthropicWire({ vocabulary: reasoningEffort("none"), platformId: "stepfun", effortVocabularyOnly: false }).fields
-    ).toEqual({ thinking: { type: "disabled" } });
-  });
-
   it("级联不受本表影响：表只回答「off 写点存在时的出口」，档位级联仍在解析层（ADR-0008）", () => {
     expect(
-      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun", effortVocabularyOnly: true }).fields
+      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun" }).fields
     ).toEqual({ output_config: { effort: "low" } });
   });
 });
@@ -406,11 +397,9 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
   it("逐格实发：kind × 形态（effort = 档位词 + 开关；effort-bare / unresearched = 裸档位词；reasoning-effort = 顶层）", () => {
     for (const platform of PLATFORM_KEYS) {
       const cell = messagesTierExitCell(platform);
-      const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
       const out = anthropicWire({
         vocabulary: reasoningEffort("high"),
-        platformId: platform,
-        effortVocabularyOnly: quirkOn
+        platformId: platform
       });
       const onCell = messagesOnExitCell(platform);
       const onFields = onCell.kind === "word" && onCell.fields ? onCell.fields : { thinking: { type: "enabled" } };
@@ -443,16 +432,7 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
     });
   });
 
-  it("行为中立：owner 的活值优先于表——手改 baseUrl 的身份错配与建表前的全局布尔逐字节相同", () => {
-    expect(
-      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "deepseek", effortVocabularyOnly: true }).fields
-    ).toEqual({ output_config: { effort: "low" } });
-    expect(
-      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun", effortVocabularyOnly: false }).fields
-    ).toEqual({ output_config: { effort: "low" } });
-  });
-
-  it("档位表不接管开关型血统：词汇只有开关时仍是裸开档（off / 开关走各自的分支）", () => {
+  it("档位表不接管开关型血统：词汇只有开关时按开词表落线（off / 开关走各自的分支）", () => {
     expect(anthropicWire({ vocabulary: enableThinking(true), platformId: "moonshot" }).fields).toEqual({
       thinking: { type: "enabled" }
     });
@@ -462,21 +442,34 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
   });
 });
 
-describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只对 minimax 改行为", () => {
-  const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "word", "unresearched", "non-messages"];
+describe("开词出口表（MESSAGES_ON_EXIT）：逐格可审，纯查表分派", () => {
+  const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "silent", "word", "unresearched", "non-messages"];
 
-  it("三态可区分：表内只有 minimax 是平台自有词，其余按原生；未识别平台走表外兜底", () => {
+  it("五态可区分：minimax 为平台自有词、stepfun/amd 为 silent、gemini 为 non-messages，其余按原生；未识别平台走表外兜底", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
       expect(ALL_KINDS, platform).toContain(cell.kind);
+      if (cell.kind === "silent") expect(cell.reason, platform).toBeTruthy();
       if (cell.kind === "word") expect(cell.fields, platform).toBeTruthy();
     }
     expect(MESSAGES_ON_EXIT.gemini.kind).toBe("non-messages");
+    expect(MESSAGES_ON_EXIT.stepfun.kind).toBe("silent");
+    expect(MESSAGES_ON_EXIT.amd.kind).toBe("silent");
     expect(MESSAGES_ON_EXIT.minimax.kind).toBe("word");
     expect(MESSAGES_ON_EXIT.minimax.fields).toEqual({ thinking: { type: "adaptive" } });
     expect(messagesOnExitCell(undefined).kind).toBe("unresearched");
     expect(messagesOnExitCell("未登记的平台").kind).toBe("unresearched");
     expect(messagesOnExitCell("constructor").kind).toBe("unresearched");
     expect(messagesOnExitCell("toString").kind).toBe("unresearched");
+  });
+
+  it("怪癖 owner 对账：声明 owner=effortVocabMessages 的格 ≡ 词表里开该怪癖的平台（不复制键集）", () => {
+    const declared = Object.entries(MESSAGES_ON_EXIT)
+      .filter(([, cell]) => cell.owner === "effortVocabMessages")
+      .map(([platform]) => platform)
+      .sort();
+    const quirkPlatforms = PLATFORM_KEYS.filter((platform) => hasPlatformQuirk(platform, "effortVocabMessages"));
+    expect(declared).toEqual(quirkPlatforms);
+    expect(declared).toEqual(["amd", "stepfun"]);
   });
 
   it("provenance 必填：三态取值合法、出处非空（每格都答得出「凭什么」）", () => {
@@ -497,13 +490,13 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
     );
   });
 
-  it("逐格实发：word 格发平台自有词，其余发原生 enabled（两条开档入口都读本表）", () => {
+  it("逐格实发：silent / non-messages 不发、word 发平台自有词、其余发原生 enabled（两条开档入口都读本表）", () => {
     for (const platform of PLATFORM_KEYS) {
       const cell = messagesOnExitCell(platform);
-      if (cell.kind === "non-messages") {
+      if (cell.kind === "non-messages" || cell.kind === "silent") {
         expect(
           anthropicWire({ vocabulary: enableThinking(true), platformId: platform }).fields,
-          `${platform} non-messages`
+          `${platform} ${cell.kind}`
         ).toEqual({});
         continue;
       }
@@ -538,14 +531,14 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
     });
   });
 
-  it("不可达格：stepfun / amd 在 strict effort 词汇下永不读本表（开分支之前就返回）", () => {
+  it("silent 格：stepfun / amd 裸开档按表静默不发 thinking，档位只发裸 output_config.effort", () => {
     for (const platform of ["stepfun", "amd"]) {
       expect(
-        anthropicWire({ vocabulary: enableThinking(true), platformId: platform, effortVocabularyOnly: true }).fields,
+        anthropicWire({ vocabulary: enableThinking(true), platformId: platform }).fields,
         platform
       ).toEqual({});
       expect(
-        anthropicWire({ vocabulary: reasoningEffort("high"), platformId: platform, effortVocabularyOnly: true }).fields,
+        anthropicWire({ vocabulary: reasoningEffort("high"), platformId: platform }).fields,
         platform
       ).toEqual({ output_config: { effort: "high" } });
     }
@@ -562,8 +555,7 @@ describe("入参分型（宽松事实收口 01 的第 1、2 项）：每行只�
       anthropicWire({
         vocabulary: reasoningEffort("high"),
         probe: false,
-        platformId: "deepseek",
-        effortVocabularyOnly: false
+        platformId: "deepseek"
       }).fields
     ).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "high" } });
   });

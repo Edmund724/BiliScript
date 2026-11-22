@@ -1,13 +1,9 @@
 import { PLATFORM_QUIRKS } from "./compat-vocab.js";
-import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
+import { resolvePlatformId } from "./platform-identity.js";
 
 export function resolvePlatformQuirkId(presetId?: string, baseUrl?: string): string | undefined {
-  const byId = String(presetId || "").trim();
-  if (isQuirkPlatform(byId)) {
-    return byId;
-  }
-  const byHost = presetIdForHost(hostOf(String(baseUrl || "")));
-  return byHost && isQuirkPlatform(byHost) ? byHost : undefined;
+  const platformId = resolvePlatformId(presetId, baseUrl);
+  return platformId && isQuirkPlatform(platformId) ? platformId : undefined;
 }
 
 function isQuirkPlatform(id: string): boolean {

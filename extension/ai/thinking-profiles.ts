@@ -1,5 +1,5 @@
 import { PRESETS } from "../core/presets.js";
-import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
+import { resolvePlatformId } from "./platform-identity.js";
 import { isPlatformKey, type PlatformKey } from "./platform-identity-vocab.js";
 import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev-thinking.generated.js";
 
@@ -448,12 +448,8 @@ export function providerRuleFor(platformId: string | undefined): ProviderRule | 
   return isPlatformKey(id) ? PROVIDERS[id] : undefined;
 }
 
-export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): string | undefined {
-  const byId = String(presetId || "").trim();
-  if (providerRuleFor(byId)) {
-    return byId;
-  }
-  return presetIdForHost(hostOf(String(baseUrl || ""))) ?? undefined;
+export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): PlatformKey | undefined {
+  return resolvePlatformId(presetId, baseUrl);
 }
 
 function matchHandwrittenClass(model: string): string | undefined {

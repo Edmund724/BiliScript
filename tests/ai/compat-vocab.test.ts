@@ -158,4 +158,10 @@ describe("resolvePlatformQuirkId（词表查表的唯一识别口径）", () => 
     expect(resolvePlatformQuirkId("siliconflow", "https://api.siliconflow.cn/v1")).toBeUndefined();
     expect(resolvePlatformQuirkId("deepseek", "https://api.deepseek.com/v1")).toBeUndefined();
   });
+
+  it("presetId 命中已知平台时不穿透 baseUrl host：避免非怪癖预设手改域名误触发怪癖", () => {
+    expect(resolvePlatformQuirkId("deepseek", "https://api.stepfun.com/step_plan")).toBeUndefined();
+    expect(resolvePlatformQuirkId("deepseek", "https://opencode.ai/zen/go/v1")).toBeUndefined();
+    expect(resolvePlatformQuirkId("stepfun", "http://localhost:8080/v1")).toBe("stepfun");
+  });
 });

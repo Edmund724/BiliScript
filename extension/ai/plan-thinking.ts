@@ -1,6 +1,5 @@
-import { hasPlatformQuirk } from "./compat-vocab.js";
-import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
-import { resolveThinkingProfile, resolveThinkingProviderId, type ThinkingResolution } from "./thinking-profiles.js";
+import { resolvePlatformId } from "./platform-identity.js";
+import { resolveThinkingProfile, type ThinkingResolution } from "./thinking-profiles.js";
 import { THINKING_WIRE_MAPS, type ThinkingWireOutput } from "./thinking-wire-map.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
@@ -24,16 +23,11 @@ function planOpenAiRow({ thinking }: ThinkingPlanInput): ThinkingWireOutput {
   return THINKING_WIRE_MAPS.openai({ vocabulary: thinking.vocabulary, tokenParam: thinking.tokenParam });
 }
 
-function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
-  return hasPlatformQuirk(resolvePlatformQuirkId(presetId, baseUrl), "effortVocabMessages");
-}
-
 function planAnthropicRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireOutput {
   return THINKING_WIRE_MAPS.anthropic({
     vocabulary: thinking.vocabulary,
     probe: facts.probe,
-    platformId: resolveThinkingProviderId(facts.presetId, facts.baseUrl),
-    effortVocabularyOnly: usesEffortVocabulary(facts.presetId, facts.baseUrl)
+    platformId: resolvePlatformId(facts.presetId, facts.baseUrl)
   });
 }
 
