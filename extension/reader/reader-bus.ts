@@ -76,15 +76,17 @@ interface ReaderBusSlots {
   warnedMissing: Set<ReaderSeamMethod>;
 }
 
+const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
+
 declare global {
   var __BILISCRIPT_READER_BUS__: ReaderBusSlots | undefined;
 }
 
 function readerBusSlots(): ReaderBusSlots {
-  let slots = globalThis.__BILISCRIPT_READER_BUS__;
+  let slots = globalThis[READER_BUS_SLOT_KEY];
   if (!slots || !Array.isArray(slots.readers)) {
     slots = { readers: [], handlers: {}, warnedMissing: new Set() };
-    globalThis.__BILISCRIPT_READER_BUS__ = slots;
+    globalThis[READER_BUS_SLOT_KEY] = slots;
   }
   if (!slots.handlers) {
     slots.handlers = {};

@@ -1,9 +1,11 @@
 import { configDefaults, defineConfig } from "vitest/config";
 
 const includeInstallerTest = process.argv.some((arg) => arg.includes("install-agent-sh"));
+const nodeMajor = Number(process.versions.node.split(".")[0]);
 
 export default defineConfig({
   test: {
+    execArgv: nodeMajor >= 25 ? ["--no-experimental-webstorage"] : [],
     environment: "jsdom",
     environmentOptions: {
       jsdom: {

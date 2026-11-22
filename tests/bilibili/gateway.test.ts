@@ -56,7 +56,7 @@ describe("fetchSubtitleBundle：主备源回退三形态", () => {
     expect(transport).toHaveBeenCalledTimes(1);
     expect(transport.calls[0]).toContain(wbiMatch);
     expect(result.tracks).toEqual([
-      { id: "9", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/bfs/a.json", source: "player-wbi-v2" }
+      { id: "9", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/bfs/a.json", source: "player-wbi-v2", origin: "bilibili" }
     ]);
     expect(result.chapters).toEqual([
       { title: "开场", from: 0, to: 30, source: "player-view-points" },
@@ -93,7 +93,7 @@ describe("fetchSubtitleBundle：主备源回退三形态", () => {
     expect(transport.calls[0]).toContain(wbiMatch);
     expect(transport.calls[1]).toContain(v2Match);
     expect(result.tracks).toEqual([
-      { id: "8", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/bfs/b.json", source: "player-v2" }
+      { id: "8", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/bfs/b.json", source: "player-v2", origin: "bilibili" }
     ]);
     expect(result.chapters.map((c) => c.title)).toEqual(["开场", "正题"]);
   });

@@ -174,7 +174,7 @@ export function openReaderSettingsMode(): void {
 
 export function hasReaderSettingsDropdownOpen(): boolean {
   return document.querySelector(
-    ".custom-select-dropdown:not([hidden]), .ai-provider-model-dropdown:not([hidden])"
+    '.custom-select-dropdown:not([hidden]):not([data-inline="true"]), .ai-provider-model-dropdown:not([hidden])'
   ) !== null;
 }
 
