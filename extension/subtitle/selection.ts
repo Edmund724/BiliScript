@@ -1,5 +1,6 @@
 import { normalizeSubtitleUrlForCache, type RawSubtitleTrack } from "../bilibili/native-payload.js";
-import type { SubtitleTrack } from "../bilibili/gateway.js";
+import type { SubtitleTrack, SubtitleTrackOrigin } from "../bilibili/gateway.js";
+export type { SubtitleTrackOrigin } from "../bilibili/gateway.js";
 import {
   LIVE_INTERPRET_TARGET_BCP47,
   LIVE_INTERPRET_TARGET_LANG_OPTIONS,
@@ -72,16 +73,86 @@ export function isSameLangFamily(lanA: unknown, lanB: unknown): boolean {
   return Boolean(familyA && familyB && familyA === familyB);
 }
 
+export const ASR_SUBTITLE_TRACK_ID = "asr";
+
 export type SubtitleTrackKind = "manual-cc" | "bili-ai" | "asr";
 
-export function classifySubtitleTrack(
-  track: { id?: unknown; lan?: unknown; subtitleUrl?: unknown } | null | undefined
-): SubtitleTrackKind {
-  const id = String(track?.id ?? "").trim();
-  const lan = String(track?.lan ?? "").trim().toLowerCase();
-  if (id === "asr" || lan === "asr" || lan.startsWith("asr-")) {
+export interface SubtitleTrackOriginLike {
+  id?: unknown;
+  lan?: unknown;
+  subtitleUrl?: unknown;
+  source?: unknown;
+  origin?: unknown;
+}
+
+export function createAsrPseudoTrack(
+  sourceLabel: string,
+  lan: string = "asr-zh"
+): SubtitleTrack {
+  return {
+    id: ASR_SUBTITLE_TRACK_ID,
+    lan,
+    lanDoc: sourceLabel,
+    subtitleUrl: "",
+    source: "asr",
+    origin: "asr"
+  };
+}
+
+export function resolveSubtitleTrackOrigin(
+  track: SubtitleTrackOriginLike | null | undefined
+): SubtitleTrackOrigin {
+  const explicit = String(track?.origin ?? "").trim().toLowerCase();
+  if (explicit === "asr" || explicit === "bilibili") {
+    return explicit;
+  }
+  const source = String(track?.source ?? "").trim().toLowerCase();
+  if (source === "asr") {
     return "asr";
   }
+  const id = String(track?.id ?? "").trim();
+  const lan = String(track?.lan ?? "").trim().toLowerCase();
+  if (id === ASR_SUBTITLE_TRACK_ID || lan === "asr" || lan.startsWith("asr-")) {
+    return "asr";
+  }
+  return "bilibili";
+}
+
+export function isAsrSubtitleTrack(
+  track: SubtitleTrackOriginLike | null | undefined
+): boolean {
+  return resolveSubtitleTrackOrigin(track) === "asr";
+}
+
+export function upsertAsrPseudoTrack<T extends SubtitleTrackOriginLike>(
+  tracks: readonly T[] | null | undefined,
+  asrTrack: T
+): T[] {
+  const list = [...(tracks || [])];
+  const existingIndex = list.findIndex((item) => isAsrSubtitleTrack(item));
+  if (existingIndex === -1) {
+    return [asrTrack, ...list];
+  }
+  const deduped: T[] = [];
+  for (let i = 0; i < list.length; i += 1) {
+    if (i === existingIndex) {
+      deduped.push(asrTrack);
+      continue;
+    }
+    if (!isAsrSubtitleTrack(list[i])) {
+      deduped.push(list[i]);
+    }
+  }
+  return deduped;
+}
+
+export function classifySubtitleTrack(
+  track: SubtitleTrackOriginLike | null | undefined
+): SubtitleTrackKind {
+  if (isAsrSubtitleTrack(track)) {
+    return "asr";
+  }
+  const lan = String(track?.lan ?? "").trim().toLowerCase();
   if (lan.startsWith("ai-")) {
     return "bili-ai";
   }
@@ -89,9 +160,9 @@ export function classifySubtitleTrack(
 }
 
 export function isLoadableNativeTrack(
-  track: { id?: unknown; lan?: unknown; subtitleUrl?: unknown } | null | undefined
+  track: SubtitleTrackOriginLike | null | undefined
 ): boolean {
-  return classifySubtitleTrack(track) !== "asr" && String(track?.subtitleUrl ?? "").trim().length > 0;
+  return resolveSubtitleTrackOrigin(track) === "bilibili" && String(track?.subtitleUrl ?? "").trim().length > 0;
 }
 
 export function isMonolingualNativeTracks(
@@ -211,6 +282,7 @@ export interface SubtitleTrackTarget {
   id: string;
   url: string;
   lang: string;
+  origin: SubtitleTrackOrigin;
 }
 
 export interface SubtitleTrackRef {
@@ -220,6 +292,8 @@ export interface SubtitleTrackRef {
   lang?: string;
   lan?: string;
   lanDoc?: string;
+  source?: string;
+  origin?: SubtitleTrackOrigin;
 }
 
 export function findTrackByRef<T extends { id?: string; subtitleUrl?: string }>(
@@ -237,13 +311,14 @@ export function findTrackByRef<T extends { id?: string; subtitleUrl?: string }>(
 
 export function resolveTrackTarget(
   trackOrRef: SubtitleTrackRef | null | undefined,
-  tracks?: readonly { id?: string; subtitleUrl?: string; lan?: string; lanDoc?: string }[] | null
+  tracks?: readonly { id?: string; subtitleUrl?: string; lan?: string; lanDoc?: string; source?: string; origin?: SubtitleTrackOrigin }[] | null
 ): SubtitleTrackTarget {
   const resolved = tracks ? (findTrackByRef(tracks, trackOrRef) ?? trackOrRef) : trackOrRef;
   return {
     id: String(resolved?.id || ""),
     url: String(resolved?.subtitleUrl || (resolved as SubtitleTrackRef | undefined)?.url || ""),
-    lang: String(resolved?.lanDoc || resolved?.lan || (resolved as SubtitleTrackRef | undefined)?.lang || "unknown")
+    lang: String(resolved?.lanDoc || resolved?.lan || (resolved as SubtitleTrackRef | undefined)?.lang || "unknown"),
+    origin: resolveSubtitleTrackOrigin(resolved)
   };
 }
 

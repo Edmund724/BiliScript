@@ -216,7 +216,9 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       id: "asr",
       lan: "asr-zh",
       lanDoc: "自配平台转写",
-      subtitleUrl: ""
+      subtitleUrl: "",
+      source: "asr",
+      origin: "asr"
     });
     expect(state.clip.selectedSubtitleId).toBe("asr");
     expect(state.clip.selectedSubtitleLang).toBe("自配平台转写");
@@ -256,7 +258,9 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       id: "asr",
       lan: "asr-zh",
       lanDoc: "自配平台转写（中文）",
-      subtitleUrl: ""
+      subtitleUrl: "",
+      source: "asr",
+      origin: "asr"
     });
     await expect(loadSubtitleFromCache(asrCacheKey({ lang: "zh" }))).resolves.toEqual(TRANSCRIBED_BODY);
   });
@@ -297,7 +301,9 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
         id: "asr",
         lan: "asr-zh",
         lanDoc: "自配平台转写",
-        subtitleUrl: ""
+        subtitleUrl: "",
+        source: "asr",
+        origin: "asr"
       }
     ]);
     expect(state.clip.selectedSubtitleId).toBe("asr");

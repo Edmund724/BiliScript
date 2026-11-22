@@ -15,6 +15,7 @@ import {
 import {
   ASR_SOURCE_KEY_PREFIX,
   TRANSLATED_SOURCE_KEY_PREFIX,
+  isAsrVariantSourceKey,
   subtitleSourceKey,
   type TrackIdentity
 } from "./source-key.js";
@@ -47,6 +48,7 @@ import {
   type AiArtifactFamily,
   type AiArtifactRecord,
   type ClearVideoResult,
+  type RawSubtitleTrackRecord,
   type SubtitleIdbStore,
   type SubtitlePageRecord,
   type SubtitleStoreWriteInterceptor,
@@ -92,6 +94,7 @@ export {
   type AiArtifactFamily,
   type AiArtifactRecord,
   type ClearVideoResult,
+  type RawSubtitleTrackRecord,
   type SubtitleIdbStore,
   type SubtitlePageRecord,
   type SubtitleStoreWriteInterceptor,
@@ -938,6 +941,108 @@ export interface PersistAsrSubtitleOptions {
   cid: string;
   identity: TrackIdentity;
   body: unknown[];
+}
+
+export interface CachedAsrSubtitleTrack {
+  body: SubtitleBodyItem[];
+  lang: string;
+  trackKey: string;
+  cacheKey: string;
+}
+
+function extractAsrLangFromTrackKey(trackKey: string): string {
+  if (!isAsrVariantSourceKey(trackKey)) {
+    return "";
+  }
+  const rest = trackKey.slice(ASR_SOURCE_KEY_PREFIX.length);
+  const lastColon = rest.lastIndexOf(":");
+  return lastColon === -1 ? "" : rest.slice(lastColon + 1).trim();
+}
+
+export async function findCachedAsrSubtitleTrack({
+  bvid,
+  cid,
+  preferredCacheKey
+}: {
+  bvid: string;
+  cid: string;
+  preferredCacheKey?: string;
+}): Promise<CachedAsrSubtitleTrack | null> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  if (!cleanBvid || !cleanCid) {
+    return null;
+  }
+
+  if (preferredCacheKey) {
+    const preferredBody = await loadSubtitleFromCache(preferredCacheKey);
+    if (Array.isArray(preferredBody) && preferredBody.length > 0) {
+      const parsed = parseSubtitleCacheKey(preferredCacheKey);
+      const trackKey = parsed && parsed.kind === "raw" ? parsed.trackKey : "";
+      return {
+        body: preferredBody as SubtitleBodyItem[],
+        lang: extractAsrLangFromTrackKey(trackKey),
+        trackKey,
+        cacheKey: preferredCacheKey
+      };
+    }
+  }
+
+  try {
+    const page = await getSubtitlePageCacheRecord(cleanBvid, cleanCid);
+    const rawTracks = page?.rawTracks;
+    if (rawTracks) {
+      let best: RawSubtitleTrackRecord | null = null;
+      for (const record of Object.values(rawTracks)) {
+        if (!record || !Array.isArray(record.items) || record.items.length === 0) {
+          continue;
+        }
+        if (record.kind !== "asr" && !isAsrVariantSourceKey(record.trackKey)) {
+          continue;
+        }
+        if (!best || (Number(record.updatedAt) || 0) >= (Number(best.updatedAt) || 0)) {
+          best = record;
+        }
+      }
+      if (best) {
+        return {
+          body: best.items.map((item) => ({ ...item })),
+          lang: String(best.lang || extractAsrLangFromTrackKey(best.trackKey) || ""),
+          trackKey: best.trackKey,
+          cacheKey: `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${best.trackKey}`
+        };
+      }
+    }
+  } catch (error) {
+    logWarn("[BILISCRIPT] failed to inspect cached asr subtitle track", {
+      bvid: cleanBvid,
+      cid: cleanCid,
+      error
+    });
+  }
+
+  if (globalThis.chrome?.storage?.local) {
+    try {
+      const prefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
+      const legacyKeys = await listStorageKeysByPrefix(prefix);
+      for (const legacyKey of legacyKeys) {
+        const migrated = await loadSubtitleFromCache(legacyKey);
+        if (Array.isArray(migrated) && migrated.length > 0) {
+          const parsed = parseSubtitleCacheKey(legacyKey);
+          const trackKey = parsed && parsed.kind === "raw" ? parsed.trackKey : "";
+          return {
+            body: migrated as SubtitleBodyItem[],
+            lang: extractAsrLangFromTrackKey(trackKey),
+            trackKey,
+            cacheKey: legacyKey
+          };
+        }
+      }
+    } catch {
+    }
+  }
+
+  return null;
 }
 
 export async function persistAsrSubtitleToCache({

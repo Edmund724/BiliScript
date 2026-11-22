@@ -14,6 +14,11 @@ export interface SummarizeChain {
     subtitleId?: string,
     forceRefresh?: boolean
   ): Promise<void>;
+  loadAsrSubtitle(options?: {
+    runId?: number;
+    sourceLabel?: string;
+    allowTranscribe?: boolean;
+  }): Promise<void>;
   loadSecondarySubtitle(
     url: string,
     lang: string,

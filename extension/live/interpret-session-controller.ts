@@ -17,15 +17,18 @@ import {
 import { buildSecondaryAlignment } from "../subtitle/alignment.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import {
+  createAsrPseudoTrack,
   findManualForeignTrackForAiRefine,
   findSecondaryTrackByPreferredLang,
   findTrackByRef,
   getLangFamily,
+  isAsrSubtitleTrack,
   isLoadableNativeTrack,
   isMonolingualNativeTracks,
   isSameLangFamily,
   resolveTargetLang,
-  resolveTrackTarget
+  resolveTrackTarget,
+  upsertAsrPseudoTrack
 } from "../subtitle/selection.js";
 import {
   TRANSLATION_CHUNK_SEC,
@@ -421,11 +424,8 @@ export function createInterpretSessionController(
 
   function seedAsrPseudoTrackIfNeeded(label = activeAsrLabel): void {
     const existing = state.clip.subtitles || [];
-    if (!existing.some((t) => t.id === "asr")) {
-      clipState.setSubtitles([
-        { id: "asr", lan: "asr-zh", lanDoc: label, subtitleUrl: "" },
-        ...existing
-      ]);
+    if (!existing.some((t) => isAsrSubtitleTrack(t))) {
+      clipState.setSubtitles(upsertAsrPseudoTrack(existing, { ...createAsrPseudoTrack(label) }));
     }
   }
 

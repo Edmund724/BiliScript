@@ -12,8 +12,11 @@ import {
 } from "../subtitle/labels.js";
 import {
   findManualForeignTrackForAiRefine,
+  isLoadableNativeTrack,
   isMonolingualNativeTracks,
-  resolveTrackTarget
+  resolveSubtitleTrackOrigin,
+  resolveTrackTarget,
+  type SubtitleTrackOrigin
 } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 import { isReadingSubtitleBodyVisible, ids } from "./state.js";
@@ -32,6 +35,7 @@ import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 import {
   clearSecondarySubtitleIfShadowedByMain,
+  ensureSecondarySubtitleLoaded,
   exitAiRefineAndLoadNativeSecondary,
   isSecondarySubtitleLoadInFlight,
   resolveSecondaryColumnView,
@@ -48,6 +52,7 @@ import {
   ensureAsrTranslation,
   hasAsrPseudoTrack,
   isAiRefineOverrideActive,
+  isCurrentMainTrackAsr,
   isTranslationSecondaryScenario,
   resolveAsrTranslationOptions,
   resolveAsrTranslationView,
@@ -161,10 +166,11 @@ function findTrackValueById(trackId: string): string {
 function buildSubtitleTrackOptionHtml(track: SubtitleTrack, marked: boolean, selected: boolean): string {
   const bareLabel = resolveSubtitleTrackLabel(track);
   const text = formatSubtitleTrackOptionLabel(track, marked);
+  const origin = resolveSubtitleTrackOrigin(track);
   const triggerAttr = text !== bareLabel ? ` data-trigger-label="${escapeHtml(bareLabel)}"` : "";
   return `<option value="${escapeHtml(track.subtitleUrl || "")}" data-lang="${escapeHtml(
     track.lan || ""
-  )}" data-id="${escapeHtml(track.id || "")}"${triggerAttr} dir="auto"${selected ? " selected" : ""}>${escapeHtml(text)}</option>`;
+  )}" data-id="${escapeHtml(track.id || "")}" data-origin="${escapeHtml(origin)}"${triggerAttr} dir="auto"${selected ? " selected" : ""}>${escapeHtml(text)}</option>`;
 }
 
 export interface AiRefineToolbarAction {
@@ -190,7 +196,7 @@ export interface SubtitleToolbarFacts {
 
 function resolveAiRefineToolbarAction(tracks: SubtitleTrack[]): AiRefineToolbarAction | null {
   const nativeTracks = loadableSecondaryTracks(tracks);
-  if (nativeTracks.length < 2 || isMonolingualNativeTracks(tracks)) {
+  if (nativeTracks.length < 2 || isMonolingualNativeTracks(tracks) || isCurrentMainTrackAsr(tracks)) {
     return null;
   }
   if (isAiRefineOverrideActive()) {
@@ -321,51 +327,76 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       return;
     }
     const option = select.options[select.selectedIndex];
+    const rawOrigin = option?.dataset.origin;
+    const optionOrigin: SubtitleTrackOrigin | undefined =
+      rawOrigin === "asr" || rawOrigin === "bilibili" ? rawOrigin : undefined;
     const target = resolveTrackTarget(
       {
         id: option?.dataset.id,
         url: select.value,
-        lang: option?.dataset.lang
+        lang: option?.dataset.lang,
+        origin: optionOrigin
       },
       state.clip.subtitles
     );
-    if (!target.url) {
+    if (target.origin !== "asr" && !target.url) {
       logWarn("[BILISCRIPT] subtitle track is not switchable (no url)", {
         id: target.id
       });
       render();
       return;
     }
-    switchInFlight = target.url;
+    const wasTranslationScenario = isTranslationSecondaryScenario(currentTracks());
+    const optionValue = select.value;
+    switchInFlight = optionValue;
     const expectedRunId = state.clip.fetchRunId;
-    setCustomSelectValue(select, target.url);
+    setCustomSelectValue(select, optionValue);
     setCustomSelectState(select, { disabled: true, busy: true });
     let switched = false;
     void (async () => {
       try {
         const chain = await ensureSummarizeChain();
-        await chain.loadSubtitle(
-          target.url,
-          target.lang,
-          expectedRunId,
-          target.id
-        );
+        if (target.origin === "asr") {
+          await chain.loadAsrSubtitle({
+            runId: expectedRunId,
+            sourceLabel: target.lang,
+            allowTranscribe: true
+          });
+        } else {
+          await chain.loadSubtitle(
+            target.url,
+            target.lang,
+            expectedRunId,
+            target.id
+          );
+        }
         switched = true;
       } catch (error) {
         onNotice?.(`字幕切换失败：${getErrorMessage(error)}`);
         logWarn("[BILISCRIPT] failed to switch subtitle track", error);
       } finally {
         switchInFlight = null;
-        if (switched && isTranslationSecondaryScenario(currentTracks())) {
+        const nextTranslationScenario = isTranslationSecondaryScenario(currentTracks());
+        if (switched && nextTranslationScenario) {
           cancelAsrTranslation();
           state.clip.clearSecondarySubtitle();
           if (state.settings.bilingualSubtitles === true) {
             void ensureAsrTranslation("cache-only");
           }
+          render();
+        } else if (switched) {
+          if (wasTranslationScenario) {
+            cancelAsrTranslation();
+          }
+          clearSecondarySubtitleIfShadowedByMain();
+          render();
+          if (wasTranslationScenario && state.settings.bilingualSubtitles === true) {
+            projectSecondaryLoad(ensureSecondarySubtitleLoaded());
+          }
         } else {
           clearSecondarySubtitleIfShadowedByMain();
+          render();
         }
-        render();
         if (switched && state.reader.readingViewOpen) {
           playTrackSwitchAnimation(byId(ids.readingSubtitleList));
         }
@@ -421,7 +452,7 @@ const SUB_HEAD_TEXT_TRACK = "副字幕";
 const SUB_HEAD_TEXT_TRANSLATION = "译文";
 
 function loadableSecondaryTracks(tracks: SubtitleTrack[]): SubtitleTrack[] {
-  return tracks.filter((track) => String(track.subtitleUrl || "").trim().length > 0);
+  return tracks.filter(isLoadableNativeTrack);
 }
 
 function currentTracks(): SubtitleTrack[] {

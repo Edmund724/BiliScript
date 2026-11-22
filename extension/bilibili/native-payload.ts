@@ -73,7 +73,8 @@ export function mapSubtitleTracks(subtitles: unknown[], source = "unknown"): Sub
     lan: (item as RawSubtitleTrack).lan || "",
     lanDoc: (item as RawSubtitleTrack).lan_doc || "",
     subtitleUrl: normalizeSubtitleUrl((item as RawSubtitleTrack).subtitle_url || ""),
-    source
+    source,
+    origin: "bilibili"
   }));
 }
 

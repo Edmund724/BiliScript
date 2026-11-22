@@ -4,7 +4,7 @@ import {
   clipState,
   triggerSubtitleSessionBoundary
 } from "../core/state.js";
-import type { SubtitleOption } from "../core/state.js";
+import type { SubtitleBodyItem, SubtitleOption } from "../core/state.js";
 import { extractBvid, computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import {
@@ -19,8 +19,23 @@ import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
-import { normalizeSubtitleTracks, pickPreferredSubtitle, resolveTrackTarget } from "./selection.js";
-import { flushSubtitleCache } from "./cache.js";
+import {
+  ASR_SUBTITLE_TRACK_ID,
+  createAsrPseudoTrack,
+  findTrackByRef,
+  isAsrSubtitleTrack,
+  isLoadableNativeTrack,
+  normalizeSubtitleTracks,
+  pickPreferredSubtitle,
+  resolveTrackTarget
+} from "./selection.js";
+import {
+  clearSubtitleCacheByKey,
+  findCachedAsrSubtitleTrack,
+  flushSubtitleCache
+} from "./cache.js";
+import { validateSubtitleByDuration } from "./duration-validation.js";
+import { buildAsrSubtitleLabel } from "./labels.js";
 import { buildSubtitleCandidates } from "./signature.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { resolvePageContext } from "../reader/page-context.js";
@@ -133,9 +148,123 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   }
 }
 
+async function resolveRetainedAsrTrack({
+  runId,
+  sameClip,
+  prevAsrTrack,
+  accessBlocker
+}: {
+  runId: number;
+  sameClip: boolean;
+  prevAsrTrack: SubtitleOption | null;
+  accessBlocker: BiliSubtitleAccessBlocker | null;
+}): Promise<SubtitleTrack | null> {
+  if (accessBlocker) {
+    return null;
+  }
+  if (sameClip && prevAsrTrack) {
+    return createAsrPseudoTrack(
+      String(prevAsrTrack.lanDoc || prevAsrTrack.lan || buildAsrSubtitleLabel(state.settings?.asrLanguage)),
+      String(prevAsrTrack.lan || "asr-zh")
+    );
+  }
+  const cachedAsr = await findCachedAsrSubtitleTrack({
+    bvid: state.clip.bvid,
+    cid: state.clip.cid
+  });
+  ensureRunActive(runId, state.clip.fetchRunId);
+  if (!cachedAsr) {
+    return null;
+  }
+  const durationCheck = validateSubtitleByDuration(cachedAsr.body, state.clip.videoDuration);
+  if (!durationCheck.ok) {
+    logWarn("[BILISCRIPT] cached asr subtitle duration mismatch during clip refresh, clearing cache", {
+      cacheKey: cachedAsr.cacheKey,
+      reason: (durationCheck as { reason?: string }).reason
+    });
+    await clearSubtitleCacheByKey(cachedAsr.cacheKey);
+    ensureRunActive(runId, state.clip.fetchRunId);
+    return null;
+  }
+  return createAsrPseudoTrack(buildAsrSubtitleLabel(cachedAsr.lang || state.settings?.asrLanguage));
+}
+
+async function loadNativeCandidatesWithRetry({
+  candidates,
+  preferred,
+  runId,
+  forceRefresh
+}: {
+  candidates: SubtitleTrack[];
+  preferred: SubtitleTrack;
+  runId: number;
+  forceRefresh: boolean;
+}): Promise<SubtitleTrack | null> {
+  try {
+    return await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
+  } catch (error) {
+    const message = getErrorMessage(error, "");
+    if (!message.includes("HTTP") && (error as { code?: string }).code !== "SUBTITLE_DURATION_MISMATCH") {
+      throw error;
+    }
+    return retryWithFreshBundle({ retryReason: error, preferred, runId, forceRefresh });
+  }
+}
+
+async function loadRetainedAsrTrack({
+  runId,
+  track,
+  forceRefresh,
+  fallbackBody,
+  hasNativeTracks
+}: {
+  runId: number;
+  track: SubtitleTrack;
+  forceRefresh: boolean;
+  fallbackBody: SubtitleBodyItem[] | null;
+  hasNativeTracks: boolean;
+}): Promise<boolean> {
+  const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
+  const asrFallback = await loadActiveAsrFallback();
+  const result = await asrFallback.loadAsrTrack({
+    runId,
+    sourceLabel: track.lanDoc || track.lan || "",
+    allowTranscribe: false,
+    fallbackBody: !forceRefresh && fallbackBody ? fallbackBody : undefined
+  });
+  ensureRunActive(runId, state.clip.fetchRunId);
+  if (result === "done") {
+    return true;
+  }
+  if (hasNativeTracks) {
+    return false;
+  }
+  await finishNoSubtitle(runId, null);
+  return false;
+}
+
 export async function refreshClip(options?: { forceRefresh?: boolean }): Promise<void> {
   const runId = state.clip.fetchRunId + 1;
   clipState.setFetchRunId(runId);
+  const prevBvid = state.clip.bvid;
+  const prevCid = state.clip.cid;
+  const prevSubtitles = state.clip.subtitles || [];
+  const prevAsrTrack = prevSubtitles.find((track) => isAsrSubtitleTrack(track)) ?? null;
+  const prevSelectedTrack =
+    findTrackByRef(prevSubtitles, {
+      id: state.clip.selectedSubtitleId,
+      url: state.clip.selectedSubtitleUrl
+    }) ?? {
+      id: state.clip.selectedSubtitleId,
+      lan: state.clip.selectedSubtitleLang,
+      subtitleUrl: state.clip.selectedSubtitleUrl
+    };
+  const prevSelectedWasAsr = isAsrSubtitleTrack(prevSelectedTrack);
+  const prevAsrBody: SubtitleBodyItem[] | null =
+    prevSelectedWasAsr && state.clip.subtitleBody.length > 0
+      ? state.clip.subtitleBody.map((item) => ({ ...item }))
+      : null;
+
   try {
     setStatus("正在抓取视频信息...");
     clipState.setSubtitleFetchState("loading");
@@ -162,7 +291,27 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
       500
     );
     ensureRunActive(runId, state.clip.fetchRunId);
-    clipState.setSubtitles(normalizeSubtitleTracks(subtitleBundle.tracks) as unknown as SubtitleOption[]);
+
+    const forceRefresh = options?.forceRefresh === true;
+    const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
+    const sameClip = Boolean(prevBvid && prevCid && prevBvid === state.clip.bvid && prevCid === state.clip.cid);
+    const nativeTracks = normalizeSubtitleTracks(subtitleBundle.tracks);
+    const retainedAsrTrack = await resolveRetainedAsrTrack({
+      runId,
+      sameClip,
+      prevAsrTrack,
+      accessBlocker
+    });
+    const mergedTracks: SubtitleTrack[] =
+      nativeTracks.length > 0
+        ? retainedAsrTrack
+          ? [...nativeTracks, retainedAsrTrack]
+          : nativeTracks
+        : retainedAsrTrack
+          ? [retainedAsrTrack]
+          : [];
+
+    clipState.setSubtitles(mergedTracks as unknown as SubtitleOption[]);
     clipState.setChapters(normalizeChapters(subtitleBundle.chapters) as import("../core/state.js").ChapterItem[]);
     if (shouldDebugLog()) {
       logInfo(
@@ -184,27 +333,58 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
       );
     }
 
-    const forceRefresh = options?.forceRefresh === true;
-    const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
-
     const preferred = await selectSubtitleTrack(runId, accessBlocker);
     if (!preferred) {
       return;
     }
 
-    const candidates = buildSubtitleCandidates(state.clip.subtitles as unknown as SubtitleTrack[], preferred);
-    let selected: SubtitleTrack | null = null;
-
-    try {
-      selected = await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
-    } catch (error) {
-      const message = getErrorMessage(error, "");
-      if (!message.includes("HTTP") && (error as { code?: string }).code !== "SUBTITLE_DURATION_MISMATCH") {
-        throw error;
+    if (isAsrSubtitleTrack(preferred)) {
+      const asrLoaded = await loadRetainedAsrTrack({
+        runId,
+        track: preferred,
+        forceRefresh,
+        fallbackBody: !forceRefresh && sameClip ? prevAsrBody : null,
+        hasNativeTracks: nativeTracks.length > 0
+      });
+      if (!asrLoaded && nativeTracks.length > 0) {
+        clipState.setSubtitles(nativeTracks as unknown as SubtitleOption[]);
+        const nativePreferred = pickPreferredSubtitle(nativeTracks, {
+          previousUrl: state.clip.selectedSubtitleUrl,
+          previousLang: state.clip.selectedSubtitleLang
+        });
+        if (!nativePreferred) {
+          await finishNoSubtitle(runId, accessBlocker);
+          return;
+        }
+        const nativeCandidates = buildSubtitleCandidates(nativeTracks, nativePreferred);
+        const selected = await loadNativeCandidatesWithRetry({
+          candidates: nativeCandidates,
+          preferred: nativePreferred,
+          runId,
+          forceRefresh
+        });
+        ensureRunActive(runId, state.clip.fetchRunId);
+        if (selected) {
+          logInfo("[BILISCRIPT] selected subtitle track", {
+            id: selected.id,
+            lan: selected.lan,
+            lanDoc: selected.lanDoc
+          });
+        }
       }
-
-      selected = await retryWithFreshBundle({ retryReason: error, preferred, runId, forceRefresh });
+      return;
     }
+
+    const nativeCandidates = buildSubtitleCandidates(
+      (state.clip.subtitles as unknown as SubtitleTrack[]).filter(isLoadableNativeTrack),
+      preferred
+    );
+    const selected = await loadNativeCandidatesWithRetry({
+      candidates: nativeCandidates,
+      preferred,
+      runId,
+      forceRefresh
+    });
     ensureRunActive(runId, state.clip.fetchRunId);
     if (selected) {
       logInfo("[BILISCRIPT] selected subtitle track", {
@@ -323,6 +503,7 @@ async function finishNoSubtitle(
   accessBlocker: BiliSubtitleAccessBlocker | null = null
 ): Promise<void> {
   if (accessBlocker) {
+    clipState.setSubtitles([]);
     clipState.setNoSubtitleDetail("");
     await commitNoSubtitle({ noSubtitleReason: accessBlocker, runId });
     return;
@@ -332,6 +513,7 @@ async function finishNoSubtitle(
   if (asrResult === "done") {
     return;
   }
+  clipState.setSubtitles([]);
   await commitNoSubtitle({ runId });
 }
 
@@ -357,9 +539,13 @@ async function retryWithFreshBundle({
     500
   );
   ensureRunActive(runId, state.clip.fetchRunId);
-  clipState.setSubtitles(normalizeSubtitleTracks(bundle.tracks) as unknown as SubtitleOption[]);
+  const existingAsr = (state.clip.subtitles || []).find((track) => isAsrSubtitleTrack(track));
+  const freshNative = normalizeSubtitleTracks(bundle.tracks);
+  clipState.setSubtitles(
+    (existingAsr ? [...freshNative, existingAsr] : freshNative) as unknown as SubtitleOption[]
+  );
   clipState.setChapters(normalizeChapters(bundle.chapters) as import("../core/state.js").ChapterItem[]);
-  const retryPreferred = pickPreferredSubtitle(state.clip.subtitles, {
+  const retryPreferred = pickPreferredSubtitle(freshNative, {
     previousId: preferred.id,
     previousUrl: preferred.subtitleUrl,
     previousLang: preferred.lanDoc || preferred.lan || ""
@@ -367,7 +553,7 @@ async function retryWithFreshBundle({
   if (!retryPreferred) {
     throw retryReason;
   }
-  const retryCandidates = buildSubtitleCandidates(state.clip.subtitles as unknown as SubtitleTrack[], retryPreferred);
+  const retryCandidates = buildSubtitleCandidates(freshNative, retryPreferred);
   return tryLoadSubtitleCandidates(retryCandidates, runId, forceRefresh);
 }
 
@@ -430,6 +616,53 @@ export async function loadSubtitle(
         })
     }
   );
+}
+
+export interface LoadAsrSubtitleOptions {
+  runId?: number;
+  sourceLabel?: string;
+  allowTranscribe?: boolean;
+}
+
+export async function loadAsrSubtitle({
+  runId = state.clip.fetchRunId,
+  sourceLabel = "",
+  allowTranscribe = true
+}: LoadAsrSubtitleOptions = {}): Promise<void> {
+  if (runId !== undefined) {
+    ensureRunActive(runId, state.clip.fetchRunId);
+  }
+  const prevId = String(state.clip.selectedSubtitleId || "");
+  const isDifferentTrack =
+    state.clip.subtitleFetchState === "ready" &&
+    Boolean(state.clip.bvid && state.clip.cid) &&
+    prevId !== ASR_SUBTITLE_TRACK_ID;
+  if (isDifferentTrack) {
+    await triggerSubtitleSessionBoundary("source-track-switch");
+    if (runId !== undefined) {
+      ensureRunActive(runId, state.clip.fetchRunId);
+    }
+  }
+  const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
+  const asrFallback = await loadActiveAsrFallback();
+  const result = await asrFallback.loadAsrTrack({
+    runId,
+    sourceLabel,
+    allowTranscribe
+  });
+  if (runId !== undefined) {
+    ensureRunActive(runId, state.clip.fetchRunId);
+  }
+  if (result === "done") {
+    return;
+  }
+  if (result === "skip") {
+    throw new Error("未配置语音转写服务且无本地缓存，无法切换到语音转写字幕。");
+  }
+  if (result === "empty") {
+    throw new Error("语音转写未识别到有效字幕内容。");
+  }
+  throw new Error("语音转写字幕加载失败。");
 }
 
 export async function loadSecondarySubtitle(

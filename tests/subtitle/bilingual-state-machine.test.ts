@@ -300,7 +300,7 @@ describe("4. 矩阵场景 3（场景 A）：同时有人工 en-US + 人工 zh-CN
     expect(resolveProviderSpy).not.toHaveBeenCalled();
     expect(mockRuntime.llmCalls).toHaveLength(0);
     expect(mockRuntime.loadedSecondaryCalls).toEqual([
-      { id: ZH_CC_TRACK.id, url: ZH_CC_TRACK.subtitleUrl, lang: ZH_CC_TRACK.lanDoc }
+      { id: ZH_CC_TRACK.id, url: ZH_CC_TRACK.subtitleUrl, lang: ZH_CC_TRACK.lanDoc, origin: "bilibili" }
     ]);
 
     expect(secondaryContentFor(EN_BODY[1])).toBe("欢迎来到 GPU 架构课，下面来看线程束调度。");
@@ -367,7 +367,7 @@ describe("5. 矩阵场景 4（场景 C）：同时有人工 en-US + 机器 ai-zh
     const ok = await controller.start();
     expect(ok).toBe(true);
     expect(mockRuntime.loadedPrimaryCalls).toEqual([
-      { id: EN_CC_TRACK.id, url: EN_CC_TRACK.subtitleUrl, lang: EN_CC_TRACK.lanDoc }
+      { id: EN_CC_TRACK.id, url: EN_CC_TRACK.subtitleUrl, lang: EN_CC_TRACK.lanDoc, origin: "bilibili" }
     ]);
     await vi.waitFor(() => expect(mockRuntime.llmCalls).toHaveLength(1));
     expect(mockRuntime.llmCalls[0].selectedSubtitleId).toBe("cc-en");

@@ -161,12 +161,15 @@ export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Pr
   };
 }
 
+export type SubtitleTrackOrigin = "bilibili" | "asr";
+
 export interface SubtitleTrack {
   id: string;
   lan: string;
   lanDoc: string;
   subtitleUrl: string;
   source: string;
+  origin?: SubtitleTrackOrigin;
 }
 
 export interface Chapter {

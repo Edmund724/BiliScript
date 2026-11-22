@@ -95,7 +95,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
-      target: { id: CC_EN_TRACK.id, url: CC_EN_TRACK.subtitleUrl, lang: CC_EN_TRACK.lanDoc }
+      target: { id: CC_EN_TRACK.id, url: CC_EN_TRACK.subtitleUrl, lang: CC_EN_TRACK.lanDoc, origin: "bilibili" }
     });
   });
 
@@ -105,7 +105,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
-      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc }
+      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc, origin: "bilibili" }
     });
   });
 
@@ -116,13 +116,13 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
-      target: { id: "", url: "https://sub/ai-en.json", lang: "ai-en" }
+      target: { id: "", url: "https://sub/ai-en.json", lang: "ai-en", origin: "bilibili" }
     });
 
     clipState.setSubtitles([{ id: "", lan: "", subtitleUrl: "https://sub/x.json" }]);
     expect(module.resolveSecondaryTarget({ url: "https://sub/x.json" })).toEqual({
       kind: "target",
-      target: { id: "", url: "https://sub/x.json", lang: "unknown" }
+      target: { id: "", url: "https://sub/x.json", lang: "unknown", origin: "bilibili" }
     });
   });
 
@@ -158,7 +158,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
     setBilingual(true, "ai-en");
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
-      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc }
+      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc, origin: "bilibili" }
     });
   });
 
@@ -182,7 +182,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
     expect(module.resolveSecondaryTarget({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lan })).toEqual({
       kind: "target",
-      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc }
+      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc, origin: "bilibili" }
     });
   });
 
@@ -203,7 +203,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
 
     expect(module.resolveSecondaryTarget({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "ai-en" })).toEqual({
       kind: "target",
-      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "ai-en" }
+      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "ai-en", origin: "bilibili" }
     });
     expect(module.resolveSecondaryTarget({ id: "", url: "" })).toEqual({ kind: "none", reason: "no-track" });
   });
@@ -257,7 +257,8 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
     expect(outcome.target).toEqual({
       id: EN_TRACK.id,
       url: EN_TRACK.subtitleUrl,
-      lang: EN_TRACK.lanDoc
+      lang: EN_TRACK.lanDoc,
+      origin: "bilibili"
     });
     await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
     expect(lazy.calls[0]).toEqual([EN_TRACK.subtitleUrl, EN_TRACK.lanDoc, 3, EN_TRACK.id, false]);
@@ -270,7 +271,7 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
 
     const outcome = started(
       module.ensureSecondarySubtitleLoaded({
-        target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc },
+        target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc, origin: "bilibili" },
         forceRefresh: true
       })
     );
@@ -305,7 +306,7 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
     lazy.gate = null;
     const immediate = started(
       module.ensureSecondarySubtitleLoaded({
-        target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc },
+        target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc, origin: "bilibili" },
         forceRefresh: true
       })
     );
@@ -333,7 +334,7 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
 });
 
 describe("resolveSecondaryColumnView（六态：目标 × 偏好 × 槽相位 × 在飞）", () => {
-  const TARGET = { id: "sub-ja", url: "https://sub/ja.json", lang: "日本語" };
+  const TARGET = { id: "sub-ja", url: "https://sub/ja.json", lang: "日本語", origin: "bilibili" as const };
 
   function view(overrides: Partial<Parameters<SecondaryModule["resolveSecondaryColumnView"]>[0]> = {}) {
     return module.resolveSecondaryColumnView({
@@ -414,6 +415,34 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
       body: []
     });
     expect(state.settings.secondarySubtitleLang).toBe("ai-en");
+  });
+
+  it("clearSecondarySubtitleIfShadowedByMain：混源切回原生多语种时清理残留的无 URL 译文副轨槽", () => {
+    setBilingual(true, "ai-en");
+    const asrTrack = {
+      id: "asr",
+      lan: "asr-zh",
+      lanDoc: "自配平台转写（中文）",
+      subtitleUrl: "",
+      source: "asr",
+      origin: "asr" as const
+    };
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK, asrTrack]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
+    clipState.setSelectedSubtitleUrl(ZH_TRACK.subtitleUrl);
+    clipState.applySecondarySubtitle({
+      id: "translate-en",
+      url: "",
+      body: [{ from: 0, to: 5, content: "translated" }]
+    });
+
+    expect(module.clearSecondarySubtitleIfShadowedByMain()).toBe(true);
+    expect(state.clip.secondarySubtitle).toEqual({
+      state: "idle",
+      id: "",
+      url: "",
+      body: []
+    });
   });
 
   it("selectSecondarySubtitleTrack：选到主轨那一条 ⇒ 写偏好 + 清副轨槽 + 发 rerender，不发起装载", async () => {

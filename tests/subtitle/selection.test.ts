@@ -216,21 +216,40 @@ describe("resolveTrackTarget / findTrackByRef（规范轨道目标投影）", ()
     { id: "2", lan: "ai-en", lanDoc: "", subtitleUrl: "https://sub/ai-en.json" }
   ];
 
-  it("直接投影轨道：语言统一 lanDoc || lan || unknown", () => {
+  it("直接投影轨道：语言统一 lanDoc || lan || unknown，同时显式产出 origin", () => {
     expect(resolveTrackTarget(tracks[0])).toEqual({
       id: "1",
       url: "https://sub/ai-zh.json",
-      lang: "中文（自动）"
+      lang: "中文（自动）",
+      origin: "bilibili"
     });
     expect(resolveTrackTarget(tracks[1])).toEqual({
       id: "2",
       url: "https://sub/ai-en.json",
-      lang: "ai-en"
+      lang: "ai-en",
+      origin: "bilibili"
     });
     expect(resolveTrackTarget({ id: "", lan: "", lanDoc: "", subtitleUrl: "https://sub/x.json" })).toEqual({
       id: "",
       url: "https://sub/x.json",
-      lang: "unknown"
+      lang: "unknown",
+      origin: "bilibili"
+    });
+    expect(
+      resolveTrackTarget({ id: "asr", lan: "asr-zh", lanDoc: "自配平台转写（中文）", subtitleUrl: "", origin: "asr" })
+    ).toEqual({
+      id: "asr",
+      url: "",
+      lang: "自配平台转写（中文）",
+      origin: "asr"
+    });
+    expect(
+      resolveTrackTarget({ id: "bili-empty", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "", origin: "bilibili" })
+    ).toEqual({
+      id: "bili-empty",
+      url: "",
+      lang: "中文",
+      origin: "bilibili"
     });
   });
 
@@ -241,12 +260,14 @@ describe("resolveTrackTarget / findTrackByRef（规范轨道目标投影）", ()
     expect(resolveTrackTarget({ id: "1", url: "https://sub/ai-zh.json", lang: "ai-zh" }, tracks)).toEqual({
       id: "1",
       url: "https://sub/ai-zh.json",
-      lang: "中文（自动）"
+      lang: "中文（自动）",
+      origin: "bilibili"
     });
     expect(resolveTrackTarget({ id: "99", url: "https://sub/ja.json", lang: "ai-ja" }, tracks)).toEqual({
       id: "99",
       url: "https://sub/ja.json",
-      lang: "ai-ja"
+      lang: "ai-ja",
+      origin: "bilibili"
     });
   });
 });

@@ -9,10 +9,16 @@ import type { AsrAttemptOutcome } from "./protocol.js";
 import {
   getSubtitleCacheKey,
   loadSubtitleFromCache,
+  findCachedAsrSubtitleTrack,
   clearSubtitleCacheByKey,
   persistAsrSubtitleToCache
 } from "../subtitle/cache.js";
 import type { TrackIdentity } from "../subtitle/source-key.js";
+import {
+  ASR_SUBTITLE_TRACK_ID,
+  createAsrPseudoTrack,
+  upsertAsrPseudoTrack
+} from "../subtitle/selection.js";
 import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import { sleep } from "../shared/utils.js";
@@ -44,10 +50,9 @@ function setNoSubtitleReasonWithDetail(reason: NoSubtitleReason, detail: string)
 }
 
 function seedAsrPseudoTrack(sourceLabel: string): void {
-  clipState.setSubtitles([
-    { id: "asr", lan: "asr-zh", lanDoc: sourceLabel, subtitleUrl: "" },
-    ...(state.clip.subtitles || [])
-  ]);
+  clipState.setSubtitles(
+    upsertAsrPseudoTrack(state.clip.subtitles || [], { ...createAsrPseudoTrack(sourceLabel) })
+  );
 }
 
 export interface AsrSettings {
@@ -110,8 +115,18 @@ export interface ActiveAsrTranscribe {
   videoKey: string;
 }
 
+export type AsrFallbackOutcome = "skip" | "done" | "empty" | "error";
+
+export interface LoadAsrTrackOptions {
+  runId: number;
+  allowTranscribe?: boolean;
+  sourceLabel?: string;
+  fallbackBody?: SubtitleItem[];
+}
+
 export interface AsrFallback {
-  maybeRunAsrFallback: (args: { runId: number }) => Promise<"skip" | "done" | "empty" | "error">;
+  maybeRunAsrFallback: (args: { runId: number }) => Promise<AsrFallbackOutcome>;
+  loadAsrTrack: (args: LoadAsrTrackOptions) => Promise<AsrFallbackOutcome>;
   awaitActiveAsrTranscribe: (args: { runId: number; bvid: string; cid: string }) => Promise<void>;
   hasActiveAsrTranscribe: (args: { bvid: string; cid: string }) => boolean;
 }
@@ -130,7 +145,139 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
 
   const activeAsrTranscribes = new Map<string, ActiveAsrTranscribe>();
 
-  async function maybeRunAsrFallback({ runId }: { runId: number }): Promise<"skip" | "done" | "empty" | "error"> {
+  async function runOrJoinAsrTranscribe({
+    runId,
+    bvid,
+    cid,
+    videoKey,
+    cacheKey,
+    identity,
+    sourceLabel,
+    isStale,
+    statusMessage,
+    recordNoSubtitleReason
+  }: {
+    runId: number;
+    bvid: string;
+    cid: string;
+    videoKey: string;
+    cacheKey: string;
+    identity: TrackIdentity;
+    sourceLabel: string;
+    isStale: () => boolean;
+    statusMessage: string;
+    recordNoSubtitleReason: boolean;
+  }): Promise<"done" | "empty"> {
+    setStatus(statusMessage);
+    broadcastSubtitleStatus("asr-transcribing");
+
+    const active = activeAsrTranscribes.get(cacheKey);
+    if (active) {
+      const shared = await active.promise;
+      const sharedBody = shared.body;
+      if (!Array.isArray(sharedBody) || sharedBody.length === 0) {
+        if (isStale()) {
+          throw makeStaleRunError();
+        }
+        if (recordNoSubtitleReason) {
+          const { reason, detail } = classifyEmptyOutcome(shared.outcome);
+          setNoSubtitleReasonWithDetail(reason, detail);
+        }
+        return "empty";
+      }
+      return finishAsrFallback({ runId, body: sharedBody, sourceLabel });
+    }
+
+    let emptyDiag = "";
+    const runAttempt = async (): Promise<{ body: SubtitleItem[]; outcome: AsrAttemptOutcome }> => {
+      emptyDiag = "";
+      let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
+      const rawBody = await runAsrPipeline({
+        bvid,
+        cid,
+        onProgress: (msg) => {
+          if (!isStale()) {
+            setStatus(msg);
+          }
+        },
+        onEmptyDiagnostic: (diagText) => {
+          emptyDiag = diagText;
+        },
+        onAttemptOutcome: (o) => {
+          outcome = o;
+        }
+      });
+      const body = Array.isArray(rawBody) ? rawBody : [];
+      if (body.length > 0) {
+        const saveResult = await persistAsrSubtitleToCache({ bvid, cid, identity, body });
+        if (saveResult && saveResult.ok === false) {
+          logWarn("[BILISCRIPT] 语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
+        }
+      }
+      return { body, outcome };
+    };
+
+    const transcribePromise = (async () => {
+      try {
+        let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
+        let body: SubtitleItem[] = [];
+        for (let attemptNo = 0; attemptNo <= ASR_RUN_RETRIES; attemptNo += 1) {
+          const attempt = await runAttempt();
+          body = attempt.body;
+          outcome = attempt.outcome;
+          const canRetry =
+            body.length === 0 &&
+            Number(outcome.failedChunks) > 0 &&
+            Number(outcome.elapsedMs) < ASR_RETRY_MAX_ELAPSED_MS &&
+            !isStale() &&
+            attemptNo < ASR_RUN_RETRIES;
+          if (!canRetry) {
+            break;
+          }
+          setStatus("语音识别失败，正在自动重试…");
+          await sleepFor(ASR_RETRY_DELAY_MS);
+        }
+        return { body, outcome };
+      } finally {
+        activeAsrTranscribes.delete(cacheKey);
+      }
+    })();
+    activeAsrTranscribes.set(cacheKey, { promise: transcribePromise, sourceLabel, videoKey });
+
+    const { body, outcome } = await transcribePromise;
+
+    if (!Array.isArray(body) || body.length === 0) {
+      if (isStale()) {
+        logInfo("[BILISCRIPT] asr transcribe finished empty after video switch; terminal broadcast only", {
+          bvid,
+          cid,
+          ...(emptyDiag ? { diagnostic: emptyDiag } : {})
+        });
+        broadcastSubtitleStatus("asr-done");
+        throw makeStaleRunError();
+      }
+      if (recordNoSubtitleReason) {
+        const { reason, detail } = classifyEmptyOutcome(outcome);
+        setNoSubtitleReasonWithDetail(reason, detail);
+      }
+      broadcastSubtitleStatus("asr-done");
+      return "empty";
+    }
+
+    if (isStale()) {
+      logInfo("[BILISCRIPT] asr transcribe finished after video switch; result cached, UI deferred", {
+        bvid,
+        cid,
+        itemCount: body.length
+      });
+      broadcastSubtitleStatus("asr-done");
+      return "done";
+    }
+
+    return finishAsrFallback({ runId, body, sourceLabel });
+  }
+
+  async function maybeRunAsrFallback({ runId }: { runId: number }): Promise<AsrFallbackOutcome> {
     let bvid = "";
     let cid = "";
     let isStale: () => boolean = () => false;
@@ -174,7 +321,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
           seedAsrPseudoTrack(sourceLabel);
           await acceptSubtitle({
             body: cachedBody as SubtitleItem[],
-            selectedSubtitleId: "asr",
+            selectedSubtitleId: ASR_SUBTITLE_TRACK_ID,
             selectedSubtitleUrl: "",
             selectedSubtitleLang: sourceLabel
           });
@@ -189,109 +336,18 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         ensureRunActive(runId, state.clip.fetchRunId);
       }
 
-      setStatus("无字幕轨，正在使用语音转写生成字幕…");
-      broadcastSubtitleStatus("asr-transcribing");
-
-      const active = activeAsrTranscribes.get(cacheKey);
-      if (active) {
-        const shared = await active.promise;
-        const sharedBody = shared.body;
-        if (!Array.isArray(sharedBody) || sharedBody.length === 0) {
-          if (isStale()) {
-            throw makeStaleRunError();
-          }
-          const { reason, detail } = classifyEmptyOutcome(shared.outcome);
-          setNoSubtitleReasonWithDetail(reason, detail);
-          return "empty";
-        }
-        return finishAsrFallback({ runId, body: sharedBody, sourceLabel });
-      }
-
-      let emptyDiag = "";
-      const runAttempt = async (): Promise<{ body: SubtitleItem[]; outcome: AsrAttemptOutcome }> => {
-        emptyDiag = "";
-        let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
-        const rawBody = await runAsrPipeline({
-          bvid,
-          cid,
-          onProgress: (msg) => {
-            if (!isStale()) {
-              setStatus(msg);
-            }
-          },
-          onEmptyDiagnostic: (diagText) => {
-            emptyDiag = diagText;
-          },
-          onAttemptOutcome: (o) => {
-            outcome = o;
-          }
-        });
-        const body = Array.isArray(rawBody) ? rawBody : [];
-        if (body.length > 0) {
-          const saveResult = await persistAsrSubtitleToCache({ bvid, cid, identity, body });
-          if (saveResult && saveResult.ok === false) {
-            logWarn("[BILISCRIPT] 语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
-          }
-        }
-        return { body, outcome };
-      };
-
-      const transcribePromise = (async () => {
-        try {
-          let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
-          let body: SubtitleItem[] = [];
-          for (let attemptNo = 0; attemptNo <= ASR_RUN_RETRIES; attemptNo += 1) {
-            const attempt = await runAttempt();
-            body = attempt.body;
-            outcome = attempt.outcome;
-            const canRetry =
-              body.length === 0 &&
-              Number(outcome.failedChunks) > 0 &&
-              Number(outcome.elapsedMs) < ASR_RETRY_MAX_ELAPSED_MS &&
-              !isStale() &&
-              attemptNo < ASR_RUN_RETRIES;
-            if (!canRetry) {
-              break;
-            }
-            setStatus("语音识别失败，正在自动重试…");
-            await sleepFor(ASR_RETRY_DELAY_MS);
-          }
-          return { body, outcome };
-        } finally {
-          activeAsrTranscribes.delete(cacheKey);
-        }
-      })();
-      activeAsrTranscribes.set(cacheKey, { promise: transcribePromise, sourceLabel, videoKey });
-
-      const { body, outcome } = await transcribePromise;
-
-      if (!Array.isArray(body) || body.length === 0) {
-        if (isStale()) {
-          logInfo("[BILISCRIPT] asr transcribe finished empty after video switch; terminal broadcast only", {
-            bvid,
-            cid,
-            ...(emptyDiag ? { diagnostic: emptyDiag } : {})
-          });
-          broadcastSubtitleStatus("asr-done");
-          throw makeStaleRunError();
-        }
-        const { reason, detail } = classifyEmptyOutcome(outcome);
-        setNoSubtitleReasonWithDetail(reason, detail);
-        broadcastSubtitleStatus("asr-done");
-        return "empty";
-      }
-
-      if (isStale()) {
-        logInfo("[BILISCRIPT] asr transcribe finished after video switch; result cached, UI deferred", {
-          bvid,
-          cid,
-          itemCount: body.length
-        });
-        broadcastSubtitleStatus("asr-done");
-        return "done";
-      }
-
-      return finishAsrFallback({ runId, body, sourceLabel });
+      return await runOrJoinAsrTranscribe({
+        runId,
+        bvid,
+        cid,
+        videoKey,
+        cacheKey,
+        identity,
+        sourceLabel,
+        isStale,
+        statusMessage: "无字幕轨，正在使用语音转写生成字幕…",
+        recordNoSubtitleReason: true
+      });
     } catch (error) {
       if (isStaleRunError(error)) {
         throw error;
@@ -324,6 +380,135 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       setNoSubtitleReasonWithDetail(reason, "");
       broadcastSubtitleStatus("asr-failed");
       await commitNoSubtitle({ noSubtitleReason: reason });
+      return "error";
+    }
+  }
+
+  async function loadAsrTrack({
+    runId,
+    allowTranscribe = true,
+    sourceLabel: requestedLabel,
+    fallbackBody
+  }: LoadAsrTrackOptions): Promise<AsrFallbackOutcome> {
+    let bvid = "";
+    let cid = "";
+    let isStale: () => boolean = () => false;
+    try {
+      ensureRunActive(runId, state.clip.fetchRunId);
+
+      const settings = state.settings || (await getSettings());
+      ensureRunActive(runId, state.clip.fetchRunId);
+
+      const providers = await loadProviders().catch(() => []);
+      ensureRunActive(runId, state.clip.fetchRunId);
+      const providerList = Array.isArray(providers) ? providers : [];
+      const activeId = resolveActiveAsrProviderId(providerList, settings.activeAsrProviderId);
+      const activeProvider = providerList.find((p) => p.id === activeId) ?? null;
+
+      const language = String(settings.asrLanguage || "").trim() || "auto";
+      const defaultLabel = String(requestedLabel || "").trim() || buildAsrSubtitleLabel(language);
+      const model = String(activeProvider?.model || "").trim();
+      bvid = state.clip.bvid;
+      cid = state.clip.cid;
+      const videoKey = `${bvid}|${cid}`;
+      isStale = () => `${state.clip.bvid}|${state.clip.cid}` !== videoKey;
+
+      const preferredIdentity: TrackIdentity | null = activeProvider
+        ? { kind: "asr", providerId: activeId, model, lang: language }
+        : null;
+      const preferredCacheKey = preferredIdentity
+        ? getSubtitleCacheKey({ bvid, cid, identity: preferredIdentity })
+        : undefined;
+
+      const cachedRecord = await findCachedAsrSubtitleTrack({
+        bvid,
+        cid,
+        preferredCacheKey
+      });
+      ensureRunActive(runId, state.clip.fetchRunId);
+      if (cachedRecord && cachedRecord.body.length > 0) {
+        const cachedCheck = validateSubtitleByDuration(cachedRecord.body, state.clip.videoDuration);
+        if (cachedCheck.ok) {
+          const label =
+            String(requestedLabel || "").trim() ||
+            buildAsrSubtitleLabel(cachedRecord.lang || language);
+          seedAsrPseudoTrack(label);
+          await acceptSubtitle({
+            body: cachedRecord.body,
+            selectedSubtitleId: ASR_SUBTITLE_TRACK_ID,
+            selectedSubtitleUrl: "",
+            selectedSubtitleLang: label
+          });
+          setStatus("语音识别完成（缓存命中）。");
+          return "done";
+        }
+        logWarn("[BILISCRIPT] cached asr subtitle duration mismatch, clearing cache", {
+          cacheKey: cachedRecord.cacheKey,
+          reason: (cachedCheck as { reason?: string }).reason
+        });
+        await clearSubtitleCacheByKey(cachedRecord.cacheKey);
+        ensureRunActive(runId, state.clip.fetchRunId);
+      }
+
+      if (Array.isArray(fallbackBody) && fallbackBody.length > 0) {
+        const fallbackCheck = validateSubtitleByDuration(fallbackBody, state.clip.videoDuration);
+        if (fallbackCheck.ok) {
+          seedAsrPseudoTrack(defaultLabel);
+          await acceptSubtitle({
+            body: fallbackBody,
+            selectedSubtitleId: ASR_SUBTITLE_TRACK_ID,
+            selectedSubtitleUrl: "",
+            selectedSubtitleLang: defaultLabel
+          });
+          return "done";
+        }
+      }
+
+      if (!allowTranscribe || !activeProvider || !preferredIdentity || !preferredCacheKey) {
+        return "skip";
+      }
+
+      return await runOrJoinAsrTranscribe({
+        runId,
+        bvid,
+        cid,
+        videoKey,
+        cacheKey: preferredCacheKey,
+        identity: preferredIdentity,
+        sourceLabel: defaultLabel,
+        isStale,
+        statusMessage: "正在使用语音转写生成字幕…",
+        recordNoSubtitleReason: false
+      });
+    } catch (error) {
+      if (isStaleRunError(error)) {
+        throw error;
+      }
+      if (isStale()) {
+        const phase = (error as { code?: string }).code === "asr-skip" ? "asr-done" : "asr-failed";
+        logWarn("[BILISCRIPT] asr track load failed after video switch; terminal broadcast only", {
+          bvid,
+          cid,
+          phase,
+          message: getErrorMessage(error)
+        });
+        broadcastSubtitleStatus(phase);
+        throw makeStaleRunError();
+      }
+      if ((error as { code?: string }).code === "asr-skip") {
+        broadcastSubtitleStatus("asr-done");
+        return "skip";
+      }
+      const failureError = error as { kind?: unknown };
+      const reason = reasonFromFailureKind(failureError.kind);
+      logWarn("[BILISCRIPT] asr track load failed", {
+        bvid,
+        cid,
+        reason,
+        kind: failureError.kind,
+        message: getErrorMessage(error)
+      });
+      broadcastSubtitleStatus("asr-failed");
       return "error";
     }
   }
@@ -361,7 +546,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     seedAsrPseudoTrack(sourceLabel);
     await acceptSubtitle({
       body,
-      selectedSubtitleId: "asr",
+      selectedSubtitleId: ASR_SUBTITLE_TRACK_ID,
       selectedSubtitleUrl: "",
       selectedSubtitleLang: sourceLabel
     });
@@ -380,5 +565,5 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     return false;
   }
 
-  return { maybeRunAsrFallback, awaitActiveAsrTranscribe, hasActiveAsrTranscribe };
+  return { maybeRunAsrFallback, loadAsrTrack, awaitActiveAsrTranscribe, hasActiveAsrTranscribe };
 }

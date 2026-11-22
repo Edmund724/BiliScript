@@ -107,6 +107,7 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
       return {
         refreshClip: vi.fn(),
         loadSubtitle: vi.fn(),
+        loadAsrSubtitle: vi.fn(),
         loadSecondarySubtitle: lazy.loadSecondarySubtitle,
         resetClipState: vi.fn(),
         ensureAsrTranslation: vi.fn(),

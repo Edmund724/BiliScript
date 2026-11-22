@@ -201,9 +201,14 @@ export function ensureSecondarySubtitleLoaded(options?: EnsureSecondaryOptions):
 export function clearSecondarySubtitleIfShadowedByMain(): boolean {
   const slot = state.clip.secondarySubtitle;
   const tracks = currentTracks();
+  const isStaleTranslatedSlot =
+    !isTranslationSecondaryScenario(tracks) &&
+    !slot.url &&
+    (Boolean(slot.id) || slot.state !== "idle");
   const mainTrack = findTrackByRef(tracks, { id: state.clip.selectedSubtitleId, url: state.clip.selectedSubtitleUrl });
   const subTrack = slot.url ? findTrackByRef(tracks, { id: slot.id, url: slot.url }) : null;
   if (
+    !isStaleTranslatedSlot &&
     !isMainSubtitleTrack(slot, state.clip.selectedSubtitleId) &&
     !(mainTrack && subTrack && isSameLangFamily(mainTrack.lan, subTrack.lan))
   ) {

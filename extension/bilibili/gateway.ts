@@ -19,6 +19,7 @@ export type {
   VideoMetaLike,
   ResolvedVideoPage,
   VideoMeta,
+  SubtitleTrackOrigin,
   SubtitleTrack,
   Chapter
 } from "./video-api.js";

@@ -23,6 +23,9 @@ export type SubtitleOption = {
   id?: string;
   subtitleUrl?: string;
   lan?: string;
+  lanDoc?: string;
+  source?: string;
+  origin?: "bilibili" | "asr";
   [key: string]: unknown;
 };
 

@@ -13,11 +13,13 @@ import {
   findManualForeignTrackForAiRefine,
   findTrackByRef,
   getAvailableTargetLangOptions,
+  isAsrSubtitleTrack,
   isLoadableNativeTrack,
   isMonolingualNativeTracks,
   resolveTargetLang,
   resolveTargetLangBcp47,
-  resolveTrackTarget
+  resolveTrackTarget,
+  type SubtitleTrackOriginLike
 } from "../subtitle/selection.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -25,11 +27,23 @@ import { logWarn } from "../shared/logging.js";
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
 
 export function hasAsrPseudoTrack(
-  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string } | null | undefined> | null | undefined
+  tracks: ReadonlyArray<SubtitleTrackOriginLike | null | undefined> | null | undefined
 ): boolean {
-  return (tracks || []).some(
-    (track) => classifySubtitleTrack(track) === "asr" && !String(track?.subtitleUrl || "").trim()
-  );
+  return (tracks || []).some((track) => isAsrSubtitleTrack(track));
+}
+
+export function isCurrentMainTrackAsr(
+  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string; source?: string; origin?: string }> | null | undefined = state.clip.subtitles
+): boolean {
+  const selectedId = String(state.clip.selectedSubtitleId || "").trim();
+  const selectedUrl = String(state.clip.selectedSubtitleUrl || "").trim();
+  if (!selectedId && !selectedUrl) {
+    return false;
+  }
+  const current = findTrackByRef(tracks, { id: selectedId, url: selectedUrl });
+  return current
+    ? isAsrSubtitleTrack(current)
+    : isAsrSubtitleTrack({ id: selectedId, subtitleUrl: selectedUrl });
 }
 
 export function resolveCurrentMainTrackLan(
@@ -111,14 +125,17 @@ export function setAiRefineOverride(enabled: boolean): void {
 }
 
 export function isTranslationSecondaryScenario(
-  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string }> | null | undefined = state.clip.subtitles
+  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string; source?: string; origin?: string }> | null | undefined = state.clip.subtitles
 ): boolean {
   const list = tracks || [];
   const loadableNative = list.filter(isLoadableNativeTrack);
   if (isAiRefineOverrideActive() && (loadableNative.length > 0 || hasAsrPseudoTrack(list))) {
     return true;
   }
-  if (hasAsrPseudoTrack(list) && (loadableNative.length === 0 || isMonolingualNativeTracks(list))) {
+  if (
+    hasAsrPseudoTrack(list) &&
+    (loadableNative.length === 0 || isMonolingualNativeTracks(list) || isCurrentMainTrackAsr(list))
+  ) {
     return true;
   }
   return isMonolingualNativeTracks(list);

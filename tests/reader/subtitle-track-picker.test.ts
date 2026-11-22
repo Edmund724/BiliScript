@@ -6,7 +6,12 @@ import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
 
 const lazy = vi.hoisted(() => ({
   bodies: {} as Record<string, unknown[]>,
-  defaultBody: null as unknown[] | null
+  defaultBody: null as unknown[] | null,
+  asrBody: [{ from: 0, to: 10, content: "语音转写伪轨正文" }] as unknown[],
+  asrError: null as Error | null,
+  asrCalls: [] as Array<{ runId?: number; sourceLabel?: string; allowTranscribe?: boolean }>,
+  secondaryCalls: [] as Array<{ url: string; lang: string; runId: number; id: string }>,
+  translationCalls: [] as Array<{ mode: string; targetLang: string; runId?: number }>
 }));
 
 vi.mock("../../extension/subtitle/lazy.js", () => ({
@@ -21,6 +26,35 @@ vi.mock("../../extension/subtitle/lazy.js", () => ({
         selectedSubtitleLang: lang,
         runId
       });
+    },
+    loadAsrSubtitle: async (options: { runId?: number; sourceLabel?: string; allowTranscribe?: boolean } = {}) => {
+      lazy.asrCalls.push(options);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (lazy.asrError) {
+        throw lazy.asrError;
+      }
+      const { acceptSubtitle } = await import("../../extension/subtitle/commit.js");
+      await acceptSubtitle({
+        body: lazy.asrBody as never,
+        selectedSubtitleId: "asr",
+        selectedSubtitleUrl: "",
+        selectedSubtitleLang: options.sourceLabel || "自配平台转写（中文）",
+        runId: options.runId
+      });
+    },
+    loadSecondarySubtitle: async (url: string, lang: string, runId: number, subtitleId: string) => {
+      lazy.secondaryCalls.push({ url, lang, runId, id: subtitleId });
+      const { acceptSecondarySubtitle } = await import("../../extension/subtitle/commit.js");
+      await acceptSecondarySubtitle({
+        body: (lazy.bodies[lang] ?? lazy.defaultBody) as never,
+        subtitleId,
+        subtitleUrl: url,
+        runId
+      });
+    },
+    ensureAsrTranslation: async (args: { mode: string; targetLang: string; runId?: number }) => {
+      lazy.translationCalls.push({ mode: args.mode, targetLang: args.targetLang, runId: args.runId });
+      return { kind: "pending", total: 1, done: 0, failed: 0 };
     }
   }))
 }));
@@ -128,6 +162,11 @@ beforeEach(async () => {
   setLocationUrl(READER_MODE_URL);
   lazy.bodies = { "ai-zh": ZH_BODY, "ai-en": EN_BODY, 中文: ZH_BODY, English: EN_BODY };
   lazy.defaultBody = ZH_BODY;
+  lazy.asrBody = [{ from: 0, to: 10, content: "语音转写伪轨正文" }];
+  lazy.asrError = null;
+  lazy.asrCalls = [];
+  lazy.secondaryCalls = [];
+  lazy.translationCalls = [];
 
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
@@ -320,11 +359,11 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
     expect(state.clip.fetchRunId).toBe(0);
   });
 
-  it("不可装载的行（ASR 伪轨的空 URL）：不发起装载，控件立刻收敛回当前轨（不留假状态）", async () => {
+  it("不可装载的非 ASR 空 URL 轨：不发起装载，控件立刻收敛回当前轨（不留假状态）", async () => {
     loadTracks(
       [
-        { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player" },
-        { id: "asr", lan: "asr-zh", lanDoc: "自配平台转写（中文）", subtitleUrl: "", source: "asr" }
+        { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player", origin: "bilibili" },
+        { id: "broken-bili", lan: "zh-CN", lanDoc: "中文（缺 URL）", subtitleUrl: "", source: "player", origin: "bilibili" }
       ],
       "ai-en"
     );
@@ -332,7 +371,7 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
     const loadSpy = vi.mocked(lazyModule.ensureSummarizeChain);
     loadSpy.mockClear();
 
-    selectViaList("自配平台转写（中文）");
+    selectViaList("中文（缺 URL）");
     await Promise.resolve();
 
     expect(loadSpy).not.toHaveBeenCalled();
@@ -341,6 +380,116 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
     expect(trigger().disabled).toBe(false);
     expect(trigger().getAttribute("aria-busy")).toBe("false");
     expect(state.clip.selectedSubtitleId).toBe("2");
+  });
+
+  it("混源切轨往返：B 站轨 → ASR 伪轨（经 loadAsrSubtitle）→ B 站轨，三项身份与正文完整切换", async () => {
+    const mixedTracks: SubtitleTrack[] = [
+      { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player", origin: "bilibili" },
+      { id: "asr", lan: "asr-zh", lanDoc: "自配平台转写（中文）", subtitleUrl: "", source: "asr", origin: "asr" }
+    ];
+    loadTracks(mixedTracks, "ai-en");
+    shell.renderReadingView();
+    expect(state.clip.subtitleBody).toEqual(EN_BODY);
+
+    selectViaList("自配平台转写（中文）");
+
+    await vi.waitFor(() => {
+      expect(state.clip.selectedSubtitleId).toBe("asr");
+    });
+    expect(lazy.asrCalls).toEqual([
+      {
+        runId: state.clip.fetchRunId,
+        sourceLabel: "自配平台转写（中文）",
+        allowTranscribe: true
+      }
+    ]);
+    expect(state.clip.selectedSubtitleUrl).toBe("");
+    expect(state.clip.selectedSubtitleLang).toBe("自配平台转写（中文）");
+    expect(state.clip.subtitleBody).toEqual(lazy.asrBody);
+    expect(triggerText()).toBe("自配平台转写（中文）");
+    expect(trigger().disabled).toBe(false);
+
+    selectViaList("English（B 站 AI）");
+
+    await vi.waitFor(() => {
+      expect(state.clip.selectedSubtitleId).toBe("2");
+    });
+    expect(state.clip.selectedSubtitleUrl).toBe("https://sub/ai-en.json");
+    expect(state.clip.subtitleBody).toEqual(EN_BODY);
+    expect(triggerText()).toBe("English");
+  });
+
+  it("切到 ASR 伪轨失败：提示错误、保留原 B 站主轨与正文、选择器收敛回原轨", async () => {
+    lazy.asrError = new Error("未配置语音转写服务且无本地缓存");
+    loadTracks(
+      [
+        { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player", origin: "bilibili" },
+        { id: "asr", lan: "asr-zh", lanDoc: "自配平台转写（中文）", subtitleUrl: "", source: "asr", origin: "asr" }
+      ],
+      "ai-en"
+    );
+    shell.renderReadingView();
+
+    selectViaList("自配平台转写（中文）");
+
+    await vi.waitFor(() => {
+      expect(trigger().disabled).toBe(false);
+    });
+    expect(lazy.asrCalls).toHaveLength(1);
+    expect(state.clip.selectedSubtitleId).toBe("2");
+    expect(state.clip.subtitleBody).toEqual(EN_BODY);
+    expect(triggerText()).toBe("English");
+    const notice = document.getElementById(ids.readingSubtitleNotice) as HTMLElement;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain("未配置语音转写服务且无本地缓存");
+  });
+
+  it("混源多语种双语联动：切入 ASR 清原生副轨并预载译文缓存；切回 B 站轨清译文槽并自动恢复原生副轨", async () => {
+    const mixedMultiLang: SubtitleTrack[] = [
+      { id: "zh-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://sub/zh.json", source: "player", origin: "bilibili" },
+      { id: "en-1", lan: "en-US", lanDoc: "English", subtitleUrl: "https://sub/en.json", source: "player", origin: "bilibili" },
+      { id: "asr", lan: "asr-zh", lanDoc: "自配平台转写（中文）", subtitleUrl: "", source: "asr", origin: "asr" }
+    ];
+    state.setSettings({
+      ...state.settings,
+      bilingualSubtitles: true,
+      secondarySubtitleLang: "en-US"
+    });
+    loadTracks(mixedMultiLang, "zh-CN");
+    state.clip.applySecondarySubtitle({
+      id: "en-1",
+      url: "https://sub/en.json",
+      body: EN_BODY as never
+    });
+    shell.renderReadingView();
+    lazy.translationCalls = [];
+    lazy.secondaryCalls = [];
+
+    selectViaList("自配平台转写（中文）");
+
+    await vi.waitFor(() => {
+      expect(state.clip.selectedSubtitleId).toBe("asr");
+      expect(state.clip.secondarySubtitle.state).toBe("idle");
+      expect(lazy.translationCalls.some((call) => call.mode === "cache-only")).toBe(true);
+    });
+    expect(state.clip.secondarySubtitle.url).toBe("");
+
+    state.clip.applySecondarySubtitle({
+      id: "translate-en",
+      url: "",
+      body: [{ from: 0, to: 10, content: "ASR translated" }] as never
+    });
+    lazy.secondaryCalls = [];
+
+    selectViaList("中文");
+
+    await vi.waitFor(() => {
+      expect(state.clip.selectedSubtitleId).toBe("zh-1");
+      expect(state.clip.secondarySubtitle.id).toBe("en-1");
+      expect(state.clip.secondarySubtitle.state).toBe("ready");
+    });
+    expect(lazy.secondaryCalls).toHaveLength(1);
+    expect(lazy.secondaryCalls[0].id).toBe("en-1");
   });
 });
 
