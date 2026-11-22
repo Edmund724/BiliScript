@@ -19,6 +19,8 @@
     "dev": "node scripts/build.js --watch",
     "build:content": "node scripts/build-content.js",
     "build:release": "python3 scripts/build_release.py || python scripts/build_release.py",
+    "publish:amo": "node scripts/publish-amo.mjs",
+    "publish:edge": "node scripts/publish-edge.mjs",
     "catalog:sync:upstream": "node scripts/sync-models-dev-catalog.mjs",
     "catalog:sync:thinking": "node scripts/sync-models-dev-thinking.mjs",
     "catalog:sync:golden": "node scripts/sync-thinking-golden.mjs",
