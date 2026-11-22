@@ -20,8 +20,8 @@ vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
 vi.mock("../../extension/reader/lazy-reader.js", () => ({
   ensureReaderDomain: vi.fn(() => Promise.resolve({
     enterReaderMode: vi.fn(async () => {
-      const { state } = await import("../../extension/core/state.js");
-      state.reader.setViewOpen(true);
+      const { transitionReaderShell } = await import("../../extension/core/state.js");
+      transitionReaderShell("open");
     })
   }))
 }));

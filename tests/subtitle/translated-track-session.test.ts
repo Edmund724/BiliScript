@@ -2,11 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import type { SubtitleBodyItem } from "../../extension/ai/types.js";
+import type { TranslateSubtitleTrackResult } from "../../extension/ai/subtitle-translate.js";
 import type { SubtitleIdbStore } from "../../extension/subtitle/cache.js";
 import type {
   TranslateSessionChunkInput,
   TranslatedTrackTranslateInput
 } from "../../extension/subtitle/translated-track-session.js";
+
+function asTrackResult(
+  translations: SubtitleBodyItem[],
+  items: SubtitleBodyItem[] = translations
+): TranslateSubtitleTrackResult {
+  return { mode: "boundary-v3", items, translations };
+}
 
 let idbStore: SubtitleIdbStore;
 let state: (typeof import("../../extension/core/state.js"))["state"];
@@ -138,12 +146,15 @@ describe("createTranslatedTrackSession seam", () => {
         source: { isAsrSource: true, targetLang: "zh" }
       },
       {
-        translateItems: async (input) => {
+        translateTrack: async (input) => {
           capturedInputs.push(input);
-          return input.items.map((item) => ({
-            ...item,
-            content: `译:${item.content}`
-          }));
+          return asTrackResult(
+            input.items.map((item) => ({
+              ...item,
+              content: `译:${item.content}`
+            })),
+            input.items
+          );
         }
       }
     );
@@ -172,7 +183,7 @@ describe("createTranslatedTrackSession seam", () => {
   it("流式 onCueReady 即时聚合上屏与防抖缓冲，flush() 立即将流式句落入 IndexedDB", async () => {
     const streamingUpdates: Array<{ count: number; cueText: string }> = [];
     let emitCue!: NonNullable<TranslatedTrackTranslateInput["onCueReady"]>;
-    let resolveTranslate!: (items: SubtitleBodyItem[]) => void;
+    let resolveTranslate!: (result: TranslateSubtitleTrackResult) => void;
 
     const session = createTranslatedTrackSession(
       {
@@ -182,9 +193,9 @@ describe("createTranslatedTrackSession seam", () => {
         source: { isAsrSource: true, targetLang: "zh" }
       },
       {
-        translateItems: async (input) => {
+        translateTrack: async (input) => {
           emitCue = input.onCueReady!;
-          return new Promise<SubtitleBodyItem[]>((resolve) => {
+          return new Promise<TranslateSubtitleTrackResult>((resolve) => {
             resolveTranslate = resolve;
           });
         },
@@ -230,13 +241,13 @@ describe("createTranslatedTrackSession seam", () => {
       })
     ).toEqual([{ from: 0, to: 5, content: "你好" }]);
 
-    resolveTranslate([{ from: 0, to: 5, content: "你好" }]);
+    resolveTranslate(asTrackResult([{ from: 0, to: 5, content: "你好" }]));
     await pending;
   });
 
   it("invalidateChunk 与 setPrimaryChunk 递增修订版，拦截旧版流式与完成写入", async () => {
     let emitCue!: NonNullable<TranslatedTrackTranslateInput["onCueReady"]>;
-    let resolveFirst!: (items: SubtitleBodyItem[]) => void;
+    let resolveFirst!: (result: TranslateSubtitleTrackResult) => void;
 
     const session = createTranslatedTrackSession(
       {
@@ -245,9 +256,9 @@ describe("createTranslatedTrackSession seam", () => {
         source: { isAsrSource: true, targetLang: "zh" }
       },
       {
-        translateItems: async (input) => {
+        translateTrack: async (input) => {
           emitCue = input.onCueReady!;
-          return new Promise<SubtitleBodyItem[]>((resolve) => {
+          return new Promise<TranslateSubtitleTrackResult>((resolve) => {
             resolveFirst = resolve;
           });
         }
@@ -276,7 +287,7 @@ describe("createTranslatedTrackSession seam", () => {
     });
     expect(session.getSecondaryItems()).toEqual([]);
 
-    resolveFirst([{ from: 0, to: 4, content: "旧修订版终态" }]);
+    resolveFirst(asTrackResult([{ from: 0, to: 4, content: "旧修订版终态" }]));
     const firstResult = await firstRun;
     expect(firstResult).toEqual({ status: "stale-revision", items: [] });
     expect(session.isChunkDone(0)).toBe(false);
@@ -302,7 +313,7 @@ describe("createTranslatedTrackSession seam", () => {
         source: { isAsrSource: true, targetLang: "zh" }
       },
       {
-        translateItems: async (input) => {
+        translateTrack: async (input) => {
           input.onCueReady?.({
             startIndex: 0,
             endIndex: 0,
@@ -356,10 +367,10 @@ describe("createTranslatedTrackSession seam", () => {
         isStale: () => stale
       },
       {
-        translateItems: async (input) => {
+        translateTrack: async (input) => {
           callCount += 1;
           if (callCount === 1) {
-            return [{ from: 0, to: 4, content: "第零块" }];
+            return asTrackResult([{ from: 0, to: 4, content: "第零块" }]);
           }
           if (callCount === 2) {
             input.onCueReady?.({
@@ -381,7 +392,7 @@ describe("createTranslatedTrackSession seam", () => {
             text: "Chunk 2",
             translation: "过期不应写入"
           });
-          return [{ from: 120, to: 124, content: "过期不应写入" }];
+          return asTrackResult([{ from: 120, to: 124, content: "过期不应写入" }]);
         }
       }
     );
@@ -415,9 +426,8 @@ describe("createTranslatedTrackSession seam", () => {
 
     try {
       let emitCue!: NonNullable<TranslatedTrackTranslateInput["onCueReady"]>;
-      let resolveTranslate!: (items: SubtitleBodyItem[]) => void;
+      let resolveTranslate!: (result: TranslateSubtitleTrackResult) => void;
 
-      // 1. 流式 acceptSecondarySubtitle：STALE_RUN 静默忽略
       const staleStreamSession = createTranslatedTrackSession(
         {
           bvid: "BV1session01",
@@ -427,9 +437,9 @@ describe("createTranslatedTrackSession seam", () => {
           source: { isAsrSource: true, targetLang: "zh" }
         },
         {
-          translateItems: async (input) => {
+          translateTrack: async (input) => {
             emitCue = input.onCueReady!;
-            return new Promise<SubtitleBodyItem[]>((resolve) => {
+            return new Promise<TranslateSubtitleTrackResult>((resolve) => {
               resolveTranslate = resolve;
             });
           }
@@ -455,7 +465,6 @@ describe("createTranslatedTrackSession seam", () => {
       await vi.advanceTimersByTimeAsync(10);
       expect(warnSpy).not.toHaveBeenCalled();
 
-      // 2. 回滚持久化：STALE_RUN 静默忽略
       clipState.setFetchRunId(1);
       const staleRollbackSession = createTranslatedTrackSession(
         {
@@ -466,7 +475,7 @@ describe("createTranslatedTrackSession seam", () => {
           source: { isAsrSource: true, targetLang: "zh" }
         },
         {
-          translateItems: async (input) => {
+          translateTrack: async (input) => {
             input.onCueReady?.({
               startIndex: 0,
               endIndex: 0,
@@ -491,10 +500,9 @@ describe("createTranslatedTrackSession seam", () => {
       ).rejects.toThrow("translate failed after run switched");
       expect(warnSpy).not.toHaveBeenCalled();
 
-      resolveTranslate([]);
+      resolveTranslate(asTrackResult([]));
       await p1.catch(() => {});
 
-      // 3. 流式持久化与回滚持久化遇到非 STALE_RUN 异常时均记录 logWarn
       vi.resetModules();
       vi.doMock("../../extension/subtitle/commit.js", async (importOriginal) => {
         const actual = await importOriginal<typeof import("../../extension/subtitle/commit.js")>();
@@ -527,7 +535,7 @@ describe("createTranslatedTrackSession seam", () => {
           source: { isAsrSource: true, targetLang: "zh" }
         },
         {
-          translateItems: async (input) => {
+          translateTrack: async (input) => {
             input.onCueReady?.({
               startIndex: 0,
               endIndex: 0,
@@ -573,7 +581,6 @@ describe("createTranslatedTrackSession seam", () => {
         })
       );
 
-      // 4. 回滚写盘返回 { ok: false } 时记 logWarn 且不阻断 acceptSecondarySubtitle 回滚
       warnSpy.mockClear();
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const upsertSpy = vi

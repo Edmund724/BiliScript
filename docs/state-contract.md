@@ -47,8 +47,7 @@ split, and both slices are covered — every field is `Readonly` on the public t
 
 Tests that reuse the singleton inside one module epoch reset it through the test-only injection
 point `resetChatSessionStateForTests()`, and arrange preconditions through the writable handle
-`chatSessionStateForTests` (the `force-set`-for-scaffolding precedent of `readingViewOpen` above),
-instead of hand-resetting field by field. Production code must not touch either.
+`chatSessionStateForTests`, instead of hand-resetting field by field. Production code must not touch either.
 
 Plus a single flat settings object:
 
@@ -95,11 +94,10 @@ readingShellState
 
 `readingShellState` is the shell-lifecycle state machine field (`closed | entering | open | exiting`,
 single source in `core/state.ts`). Its only writer is the exported `transitionReaderShell(to)`, which
-validates the from→to edge (rejections are logged unconditionally via `logWarnAlways`) and keeps
-`readingViewOpen` as its derived boolean projection (`state === "open"`). Production write points
-(`reader/shell.ts` enter/exit transactions, `lifecycle.enterReaderMode` / `closeReadingView`) must go
-through `transitionReaderShell`, never through `setViewOpen` — that setter (and the
-`readingViewOpen` accessor itself) exists as an unvalidated force-set for test scaffolding only.
+validates the from→to edge (rejections are logged unconditionally via `logWarnAlways`) and exposes
+`readingViewOpen` as a read-only derived boolean projection (`readingShellState === "open"`). All
+write points — production (`reader/shell.ts` enter/exit transactions, `lifecycle.enterReaderMode` /
+`closeReadingView`) and test scaffolding alike — go through `transitionReaderShell`.
 
 ## Context attribution (runtime volatility)
 

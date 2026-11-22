@@ -183,58 +183,6 @@ export function resolveTargetLangDisplayName(lang: string): string {
     : lang;
 }
 
-export function formatSubtitleNumberedLines(items: Array<{ content?: unknown }>): string {
-  return (items || [])
-    .map((item, idx) => `${idx + 1}. ${String(item?.content || "").trim()}`)
-    .join("\n");
-}
-
-export interface ParseSubtitleNumberedLinesOptions {
-  fallbackToOriginal?: boolean;
-}
-
-export function parseSubtitleNumberedLines(
-  response: string,
-  originalItems: SubtitleBodyItem[],
-  options: ParseSubtitleNumberedLinesOptions = {}
-): SubtitleBodyItem[] {
-  const { fallbackToOriginal = true } = options;
-  if (!Array.isArray(originalItems) || originalItems.length === 0) {
-    return [];
-  }
-  const lines = String(response || "").split(/\r?\n/);
-  const translationMap = new Map<number, string>();
-  const linePattern = /^\s*(\d+)[\.、:：\s]+(.*)$/;
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    const match = linePattern.exec(trimmed);
-    if (match) {
-      const lineNum = Number(match[1]);
-      const content = match[2].trim();
-      if (lineNum > 0 && !translationMap.has(lineNum)) {
-        translationMap.set(lineNum, content);
-      }
-    }
-  }
-
-  return originalItems.map((item, idx) => {
-    const lineNum = idx + 1;
-    const translated = translationMap.get(lineNum);
-    return {
-      from: Number(item.from) || 0,
-      to: Number(item.to) || 0,
-      content:
-        translated && translated.length > 0
-          ? translated
-          : fallbackToOriginal
-            ? String(item.content || "").trim()
-            : ""
-    };
-  });
-}
-
 export interface BuildBoundaryTranslateMessagesOptions {
   omitTextField?: boolean;
 }
@@ -372,12 +320,6 @@ export interface TranslateSubtitleTrackResult {
   items: SubtitleBodyItem[];
   translations: SubtitleBodyItem[];
 }
-
-export type TranslatedSubtitleItemsArray = SubtitleBodyItem[] & {
-  readonly mode: SubtitleTranslateProtocolMode;
-  readonly items: SubtitleBodyItem[];
-  readonly translations: SubtitleBodyItem[];
-};
 
 const DEFAULT_MAX_CHUNK_CHARS = 1000;
 
@@ -1116,35 +1058,4 @@ export async function translateSubtitleTrack(
         onCueReady
       })
   });
-}
-
-function attachDualChannelMetadata(
-  result: TranslateSubtitleTrackResult
-): TranslatedSubtitleItemsArray {
-  const arr = [...result.translations] as SubtitleBodyItem[];
-  Object.defineProperties(arr, {
-    mode: {
-      value: result.mode,
-      enumerable: false,
-      configurable: true
-    },
-    items: {
-      value: result.items,
-      enumerable: false,
-      configurable: true
-    },
-    translations: {
-      value: result.translations,
-      enumerable: false,
-      configurable: true
-    }
-  });
-  return arr as TranslatedSubtitleItemsArray;
-}
-
-export async function translateSubtitleItems(
-  input: TranslateSubtitleItemsInput
-): Promise<TranslatedSubtitleItemsArray> {
-  const result = await translateSubtitleTrack(input);
-  return attachDualChannelMetadata(result);
 }

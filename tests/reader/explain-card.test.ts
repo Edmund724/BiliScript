@@ -24,6 +24,7 @@ vi.mock("../../extension/ai/explain.js", () => ({
 
 let state: TestState;
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
+let transitionReaderShell: (typeof import("../../extension/core/state.js"))["transitionReaderShell"];
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
@@ -76,6 +77,7 @@ async function loadModules() {
   const stateModule = await import("../../extension/core/state.js");
   state = stateModule.state as TestState;
   clipState = stateModule.clipState;
+  transitionReaderShell = stateModule.transitionReaderShell;
   reader = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
@@ -625,7 +627,7 @@ describe("面板内解释卡片", () => {
   });
 
   it("浮层与卡片点击都不触发点句跳转（播放进度不变）", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     reader.bindReadingViewVideo(video);
     video.play = () => Promise.resolve();
     video.currentTime = 5;
@@ -641,7 +643,7 @@ describe("面板内解释卡片", () => {
 
 describe("解释卡片焦点管理（M3 Stage 2 P0）", () => {
   it("打开移入卡片焦点，Tab/Shift+Tab 在弹窗内循环，Esc/关闭归还触发前焦点并防后台重渲抢焦点", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     const readingView = document.getElementById(ids.readingView) as HTMLElement | null;
     if (readingView) {
       readingView.hidden = false;
@@ -810,7 +812,7 @@ describe("选区「解释」浮层 Stage 2 边界与过滤（P1）", () => {
 
 describe("Stage 2 同步与生命周期联动闭环（P0/P1）", () => {
   it("点击折叠字幕选区不触发跳播；卡片开启时不自动滚动列表", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     reader.bindReadingViewVideo(video);
     video.play = () => Promise.resolve();
     video.currentTime = 5;

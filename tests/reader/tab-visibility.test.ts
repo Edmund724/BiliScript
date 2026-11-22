@@ -4,6 +4,7 @@ import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let reader: typeof import("../../extension/reader/index.js");
 let readerState: typeof import("../../extension/reader/state.js");
 let activation: typeof import("../../extension/reader/script-tab-activation.js");
@@ -12,7 +13,9 @@ let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   reader = await import("../../extension/reader/index.js");
   readerState = await import("../../extension/reader/state.js");
   activation = await import("../../extension/reader/script-tab-activation.js");
@@ -59,12 +62,12 @@ afterEach(async () => {
 
 describe("字幕 tab body 可见性谓词（候选 06）", () => {
   it("A. 真值表：视图开着 + 当前标签为字幕 + 设置抽屉未展开 才为真", () => {
-    state.reader.readingViewOpen = false;
+    transitionReaderShell("closed");
     readerState.setReaderActiveScriptTab("subtitle");
     state.reader.setSettingsExpanded(false);
     expect(readerState.isReadingSubtitleBodyVisible(), "视图关着").toBe(false);
 
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     expect(readerState.isReadingSubtitleBodyVisible(), "视图开着 + 字幕 + 抽屉收起").toBe(true);
 
     readerState.setReaderActiveScriptTab("overview");

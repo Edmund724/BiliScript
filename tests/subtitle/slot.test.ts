@@ -331,6 +331,22 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.subtitleFetchState).toBe("ready");
     });
 
+    it("markSecondaryError(target) 原子写入目标轨身份并直接置为 error 态，无需先经过 loading", () => {
+      install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
+      installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
+
+      markSecondaryError({ id: "translate-zh", url: "" });
+
+      expect(clipState.secondarySubtitle).toEqual({
+        id: "translate-zh",
+        url: "",
+        body: [],
+        state: "error"
+      });
+      expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
+      expect(clipState.subtitleFetchState).toBe("ready");
+    });
+
     it("clearSecondary 复位副轨为空槽，且不影响主轨", () => {
       install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
       installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);

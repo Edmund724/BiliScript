@@ -22,6 +22,7 @@ const OTHER_VIDEO_READER_URL = "https://www.bilibili.com/video/BV1test999999/?bi
 
 let state: TestState;
 let clipState: typeof import("../../extension/core/state.js").clipState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let readerUrl: typeof import("../../extension/bilibili/reader-url.js");
 let messageHandler: typeof import("../../extension/entry/message-handler.js");
 let videoIdShared: typeof import("../../extension/bilibili/video-id-shared.js");
@@ -33,6 +34,7 @@ async function loadModules() {
   const stateModule = await import("../../extension/core/state.js") as typeof import("../../extension/core/state.js");
   state = stateModule.state as TestState;
   clipState = stateModule.clipState;
+  transitionReaderShell = stateModule.transitionReaderShell;
   readerUrl = await import("../../extension/bilibili/reader-url.js");
   messageHandler = await import("../../extension/entry/message-handler.js");
   videoIdShared = await import("../../extension/bilibili/video-id-shared.js");
@@ -81,7 +83,7 @@ describe("SPA URL 变化的阅读壳分支", () => {
     expect(clipState.fetchRunId).toBe(7);
     expect(shellMocks.exitReaderShell).not.toHaveBeenCalled();
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     history.pushState(history.state, "", "https://www.bilibili.com/read/cv123/?biliscript_reader=1");
 
     await vi.waitFor(() => {
@@ -116,7 +118,7 @@ describe("replaceState 补丁与章节清空（5be8f39 嫌疑路径）", () => {
 
 describe("非支持页的 reader 页面状态", () => {
   it("即使 URL 带 reader 参数且视图状态仍开着，也清除阅读模式页面属性", () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reader-mode", "1");
     const unsupportedReaderUrl = "https://www.bilibili.com/read/cv123/?biliscript_reader=1";

@@ -8,7 +8,7 @@ import type {
   CreateAsrFallbackDeps,
   SubtitleItem
 } from "../../extension/asr/fallback.js";
-import { state, clipState } from "../../extension/core/state.js";
+import { state, clipState, transitionReaderShell } from "../../extension/core/state.js";
 import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 import {
   acceptSubtitle as realAcceptSubtitle,
@@ -268,14 +268,14 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
   it("阅读视图打开时收尾通知 reader-bus：subtitle-ready（通知职责在字幕接受事务内）", async () => {
     const handler = vi.fn();
     const unsubscribe = subscribeReaderPresenter(handler);
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
 
     await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
     expect(handler).toHaveBeenCalledWith({ kind: "subtitle-ready" });
     unsubscribe();
-    state.reader.setViewOpen(false);
+    transitionReaderShell("closed");
   });
 
   it("缓存命中（时长校验过）：不转写、不写缓存，直接 done 收尾", async () => {

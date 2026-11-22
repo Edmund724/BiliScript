@@ -26,7 +26,7 @@ import {
   readCachedOverviewSummary,
   resolveL1ChapterTranslateContext
 } from "../../extension/ai/subtitle-context.js";
-import { translateSubtitleItems } from "../../extension/ai/subtitle-translate.js";
+import { translateSubtitleTrack } from "../../extension/ai/subtitle-translate.js";
 import {
   parseSubtitleGlossary as configParseSubtitleGlossary,
   type SubtitleTranslateProviderResolution
@@ -165,7 +165,7 @@ describe("静态视频语境提取：多 P 标题组合与简介清洗截断", (
       ])
     );
 
-    await translateSubtitleItems({
+    await translateSubtitleTrack({
       items: body,
       targetLang: "zh",
       providerResolution: PROVIDER_RESOLUTION,
@@ -230,7 +230,7 @@ describe("跨分块末尾 2 条只读双语前情注入", () => {
     ]);
   });
 
-  it("translateSubtitleItems 多分块翻译时第 2 块自动携带第 1 块末尾 2 条只读上下文", async () => {
+  it("translateSubtitleTrack 多分块翻译时第 2 块自动携带第 1 块末尾 2 条只读上下文", async () => {
     const items = [
       { from: 0, to: 2, content: "Alpha." },
       { from: 2, to: 4, content: "Beta." },
@@ -250,7 +250,7 @@ describe("跨分块末尾 2 条只读双语前情注入", () => {
         JSON.stringify([{ id: "0", translation: "德尔塔。" }])
       );
 
-    await translateSubtitleItems({
+    await translateSubtitleTrack({
       items,
       targetLang: "zh",
       maxChunkChars: 18,
@@ -317,7 +317,7 @@ describe("术语表解析容错、保留原词模式与按分块原文过滤", (
     ]);
   });
 
-  it("translateSubtitleItems 按当前分块原文仅注入命中的术语及防加括号规则", async () => {
+  it("translateSubtitleTrack 按当前分块原文仅注入命中的术语及防加括号规则", async () => {
     state.setSettings({
       ...DEFAULT_SETTINGS,
       subtitleTranslateGlossary: [
@@ -341,7 +341,7 @@ describe("术语表解析容错、保留原词模式与按分块原文过滤", (
         JSON.stringify([{ id: "0", translation: "硬件光线追踪加速反射计算。" }])
       );
 
-    await translateSubtitleItems({
+    await translateSubtitleTrack({
       items,
       targetLang: "zh",
       maxChunkChars: 55,
@@ -533,7 +533,7 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
     expect(glossarySection).not.toContain("Scoreboard");
   });
 
-  it("translateSubtitleItems 多分块翻译自动从本地 L1 缓存按分块时间窗注入对应章节与参考实体", async () => {
+  it("translateSubtitleTrack 多分块翻译自动从本地 L1 缓存按分块时间窗注入对应章节与参考实体", async () => {
     const items = [
       { from: 5, to: 15, content: "CUDA uses streaming multiprocessors." },
       { from: 65, to: 75, content: "The warp scheduler feeds tensor cores." }
@@ -605,7 +605,7 @@ describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () =>
       .mockResolvedValueOnce(JSON.stringify([{ id: "0", translation: "CUDA 使用流式多处理器。" }]))
       .mockResolvedValueOnce(JSON.stringify([{ id: "0", translation: "线程束调度器驱动 Tensor Core。" }]));
 
-    await translateSubtitleItems({
+    await translateSubtitleTrack({
       items,
       targetLang: "zh",
       maxChunkChars: 40,

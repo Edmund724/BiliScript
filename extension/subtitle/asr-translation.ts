@@ -4,6 +4,7 @@ import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { logWarn } from "../shared/logging.js";
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { classifySubtitleTrack, findTrackByRef } from "./selection.js";
+import { slot } from "./slot.js";
 import {
   readCachedL1VideoIndex,
   resolveRuntimeSubtitleContext
@@ -37,8 +38,7 @@ export interface AsrTranslationResult {
 }
 
 function markSecondaryTranslationFailed(trackId: string): void {
-  clipState.markSecondarySubtitleLoading({ id: trackId, url: "" });
-  clipState.markSecondarySubtitleError();
+  slot.markSecondaryError({ id: trackId, url: "" });
 }
 
 export async function ensureAsrSecondarySubtitle(
@@ -132,7 +132,7 @@ export async function ensureAsrSecondarySubtitle(
     model: providerRes?.model,
     glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary,
     resolveProtocolMode: translateModule.resolveSubtitleTranslateProtocolMode,
-    translateItems: translateModule.translateSubtitleItems,
+    translateTrack: translateModule.translateSubtitleTrack,
     protocolItems: body
   });
   if (sigChanged) {

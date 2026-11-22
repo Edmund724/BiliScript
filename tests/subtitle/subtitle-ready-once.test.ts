@@ -80,8 +80,9 @@ describe("字幕就绪通知全程恰一次（链级防回焊锁）", () => {
     const bus = await import("../../extension/reader/reader-bus.js");
     notifyReaderPresenter = vi.mocked(bus.notifyReaderPresenter);
     notifyReaderPresenter.mockClear();
-    state = (await import("../../extension/core/state.js")).state;
-    state.reader.setViewOpen(true);
+    const stateMod = await import("../../extension/core/state.js");
+    state = stateMod.state;
+    stateMod.transitionReaderShell("open");
     fetcher = await import("../../extension/subtitle/fetcher.js");
   });
 

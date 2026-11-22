@@ -65,6 +65,7 @@ vi.mock("../../extension/ui/reader-gate.js", () => ({
 }));
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let shell: typeof import("../../extension/reader/index.js");
@@ -168,7 +169,9 @@ beforeEach(async () => {
   lazy.secondaryCalls = [];
   lazy.translationCalls = [];
 
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   ids = (await import("../../extension/reader/state.js")).ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
   shell = await import("../../extension/reader/index.js");
@@ -497,7 +500,7 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
 describe("换轨进场动画：主动换轨才播，播一次", () => {
   it("真实点击换轨 → 字幕就绪的整表重建给列表容器挂 is-track-switching；其后的常规重渲染不挂", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
     expect(list.classList.contains("is-track-switching")).toBe(false);
@@ -519,7 +522,7 @@ describe("换轨进场动画：主动换轨才播，播一次", () => {
 
   it("装载失败：不起播，之后的整表重建也不挂类", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
     vi.mocked(lazyModule.ensureSummarizeChain).mockRejectedValueOnce(new Error("网络失败"));
@@ -535,7 +538,7 @@ describe("换轨进场动画：主动换轨才播，播一次", () => {
 
   it("装载成功但视图未开：不起播（列表没有经过重建）", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
-    state.reader.readingViewOpen = false;
+    transitionReaderShell("closed");
     shell.renderReadingView();
     const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
 
@@ -623,7 +626,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
   it("loading 优先级低于转写中：ASR 转写期间 fetchState 仍是 loading，哨兵必须是「转写中…」", async () => {
     loadTracks([], "");
     state.clip.setSubtitleFetchState("loading");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(triggerText()).toBe("抓取中…");
 
@@ -647,7 +650,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
 
   it("transcribing：转写进行中 → 哨兵「转写中…」+ 禁用，与横幅同相（相位订阅驱动）", async () => {
     loadTracks([], "");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(triggerText()).toBe("暂无字幕");
 
@@ -735,7 +738,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
   it("相位订阅只服务 asr-*：发布 subtitle-ready 不重渲控件，asr-transcribing / asr-done 才触发", async () => {
     loadTracks([], "");
     state.clip.setSubtitleFetchState("loading");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(triggerText()).toBe("抓取中…");
 
@@ -845,7 +848,7 @@ describe("04 深 module 实例接缝（createSubtitleToolbar）", () => {
     const toolbar = createSubtitleToolbar();
 
     loadTracks([], "");
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     toolbar.render();
     toolbar.bindEvents();
 

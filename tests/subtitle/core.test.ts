@@ -357,6 +357,32 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     expect(state.clip.markdown).toContain("## 章节\n\n- `0:00:00` 序章");
     expect(state.clip.markdown).toContain("### 序章 `0:00:00`");
   });
+
+  it("指纹仅响应实际消费字段：热评/标题/URL 变化零重建，简介或时长变化触发重建", () => {
+    state.clip.setDescription("");
+    state.clip.setVideoDuration(60);
+    state.clip.setSubtitleBody(BODY);
+    state.setSettings({ ...state.settings, includeTimestampInBody: true });
+    ensureDerivedContent();
+
+    const setMarkdownSpy = vi.spyOn(clipState, "setMarkdown");
+    state.clip.setHotComments(HOT_COMMENTS);
+    state.clip.setTitle("变更后的标题");
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1test000000/?t=30");
+    ensureDerivedContent();
+    expect(setMarkdownSpy).not.toHaveBeenCalled();
+
+    state.clip.setDescription("新增简介");
+    ensureDerivedContent();
+    expect(setMarkdownSpy).toHaveBeenCalledTimes(1);
+    expect(state.clip.markdown).toContain("## 简介\n\n新增简介");
+
+    state.clip.setVideoDuration(3600);
+    ensureDerivedContent();
+    expect(setMarkdownSpy).toHaveBeenCalledTimes(2);
+    expect(state.clip.markdown).toContain("`0:00:00`");
+    setMarkdownSpy.mockRestore();
+  });
 });
 
 describe("refreshHotComments：不受笔记导出设置门控", () => {

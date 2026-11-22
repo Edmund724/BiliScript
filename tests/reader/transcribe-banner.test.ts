@@ -4,6 +4,7 @@ import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleto
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
@@ -13,7 +14,9 @@ let video: HTMLVideoElement;
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   bannerCopy = await import("../../extension/reader/transcribe-banner.js");
@@ -110,7 +113,7 @@ describe("转写中间态横幅", () => {
   });
 
   it("相位订阅驱动：视图开着时 publish 直接收敛横幅（lifecycle 组装根已订阅）", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
 
     expect(banner().hidden).toBe(false);
@@ -149,7 +152,7 @@ describe("转写中间态横幅", () => {
   it("sync tick 收敛进度行：onProgress 改写状态栏文本后 250ms 拍内刷新", () => {
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     shell.renderReadingView();
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.bindReadingViewVideo(video);
 
     state.ui.setStatusText("音频下载与解码中…");

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { state, clipState } from "../../extension/core/state.js";
+import { state, clipState, transitionReaderShell } from "../../extension/core/state.js";
 import {
   closeCommandPalette,
   isCommandPaletteOpen,
@@ -68,7 +68,7 @@ describe("command-palette 交互与高频动作", () => {
     mockUiCommand.mockClear();
     mockSendRuntime.mockClear();
     document.body.innerHTML = `<section id="${ids.readingView}"></section>`;
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     clipState.setSubtitleBody([
       { from: 10, to: 15, content: "开场介绍项目背景" },
       { from: 140, to: 148, content: "演示 Obsidian 模板导出工作流" }

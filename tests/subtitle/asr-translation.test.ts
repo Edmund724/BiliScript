@@ -14,7 +14,7 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
-    translateSubtitleItems: async ({
+    translateSubtitleTrack: async ({
       items,
       targetLang
     }: {
@@ -26,7 +26,11 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
       if (translator.failStarts.has(start)) {
         throw new Error("平台 429");
       }
-      return items.map((item) => ({ ...item, content: `[${targetLang}] ${item.content}` }));
+      return {
+        mode: "boundary-v3" as const,
+        items,
+        translations: items.map((item) => ({ ...item, content: `[${targetLang}] ${item.content}` }))
+      };
     }
   };
 });

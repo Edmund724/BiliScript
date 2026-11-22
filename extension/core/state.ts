@@ -39,7 +39,7 @@ export function emptySecondarySubtitle(): SecondarySubtitle {
 export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 
 type ReaderBusinessState = {
-  readingViewOpen: boolean;
+  readonly readingViewOpen: boolean;
   readingTheme: string;
   readingThemeMode: string;
   readingPalette: string;
@@ -57,7 +57,6 @@ type ReaderInternalState = {
 };
 
 type ReaderSetters = {
-  setViewOpen(value: boolean): void;
   setTheme(value: string): void;
   setThemeMode(value: string): void;
   setPalette(value: string): void;
@@ -74,7 +73,6 @@ type ReaderStateWritable = ReaderBusinessState & ReaderInternalState & ReaderSet
 const localReaderState: ReaderStateWritable = {
   readingShellState: "closed",
   get readingViewOpen() { return this.readingShellState === "open"; },
-  set readingViewOpen(value: boolean) { this.readingShellState = value ? "open" : "closed"; },
   readingTheme: "light",
   readingThemeMode: "bilibili",
   readingPalette: "flyme",
@@ -85,7 +83,6 @@ const localReaderState: ReaderStateWritable = {
   readingVideoEl: null,
   readingDocumentClickBound: false,
   readingViewReady: false,
-  setViewOpen(value) { this.readingViewOpen = value; },
   setTheme(value) { this.readingTheme = value; },
   setThemeMode(value) { this.readingThemeMode = value; },
   setPalette(value) { this.readingPalette = value; },
@@ -157,7 +154,7 @@ type ClipSetters = {
   setNoSubtitleDetail(value: string): void;
   markSecondarySubtitleLoading(value: { id: string; url: string }): void;
   applySecondarySubtitle(value: { id: string; url: string; body: SubtitleBodyItem[] }): void;
-  markSecondarySubtitleError(): void;
+  markSecondarySubtitleError(target?: { id: string; url: string }): void;
   clearSecondarySubtitle(): void;
   setChapters(value: ChapterItem[]): void;
   setHotComments(value: HotComment[]): void;
@@ -242,8 +239,10 @@ const localClipState: ClipStateWritable = {
   applySecondarySubtitle({ id, url, body }) {
     this.secondarySubtitle = { id, url, body, state: "ready" };
   },
-  markSecondarySubtitleError() {
-    this.secondarySubtitle = { ...this.secondarySubtitle, body: [], state: "error" };
+  markSecondarySubtitleError(target) {
+    this.secondarySubtitle = target
+      ? { id: target.id, url: target.url, body: [], state: "error" }
+      : { ...this.secondarySubtitle, body: [], state: "error" };
   },
   clearSecondarySubtitle() {
     this.secondarySubtitle = emptySecondarySubtitle();

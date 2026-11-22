@@ -6,7 +6,15 @@ import {
   PAUSE_TIMEOUT_MS
 } from "../../extension/live/interpret-session-controller.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
+import type { TranslateSubtitleTrackResult } from "../../extension/ai/subtitle-translate.js";
 import { contentEventBus } from "../../extension/shared/content-event-bus.js";
+
+function asTrackResult(
+  translations: SubtitleBodyItem[],
+  items: SubtitleBodyItem[] = translations
+): TranslateSubtitleTrackResult {
+  return { mode: "boundary-v3", items, translations };
+}
 
 beforeEach(() => {
   resetModuleState();
@@ -23,7 +31,7 @@ beforeEach(() => {
 describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译管线)", () => {
   function setupTest(overrides: {
     runAsr?: (args: any) => Promise<any>;
-    translateItems?: (args: any) => Promise<SubtitleBodyItem[]>;
+    translateTrack?: (args: any) => Promise<TranslateSubtitleTrackResult>;
     loadCache?: (key: string) => Promise<SubtitleBodyItem[] | null>;
     saveCache?: (key: string, body: unknown[]) => Promise<any>;
     clearTranslatedCache?: (args: { bvid: string; cid: string }) => Promise<string[]>;
@@ -59,12 +67,16 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     const onAvailabilityChange = vi.fn();
 
     const runAsr = overrides.runAsr || vi.fn(async () => []);
-    const translateItems = vi.fn(overrides.translateItems || (async ({ items }) => {
-      return (items || []).map((it: any) => ({
-        from: it.from,
-        to: it.to,
-        content: `译: ${it.content}`
-      }));
+    const translateTrack = vi.fn(overrides.translateTrack || (async ({ items }) => {
+      const list = items || [];
+      return asTrackResult(
+        list.map((it: any) => ({
+          from: it.from,
+          to: it.to,
+          content: `译: ${it.content}`
+        })),
+        list
+      );
     }));
     const cacheStorage = new Map<string, unknown[]>();
     const loadCache = overrides.loadCache || vi.fn(async (key: string) => (cacheStorage.get(key) as SubtitleBodyItem[] | undefined) || null);
@@ -97,7 +109,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       onStateChange,
       onAvailabilityChange,
       runAsr,
-      translateItems,
+      translateTrack,
       loadCache,
       saveCache,
       clearTranslatedCache,
@@ -115,7 +127,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       onStateChange,
       onAvailabilityChange,
       runAsr,
-      translateItems,
+      translateItems: translateTrack,
       loadCache,
       saveCache,
       clearTranslatedCache,
@@ -445,10 +457,14 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
       let calls = 0;
       const { controller, video, showNotice, translateItems } = setupTest({
-        translateItems: async ({ items }) => {
+        translateTrack: async ({ items }) => {
           calls += 1;
           if (calls === 1) throw new Error("rate limit");
-          return (items || []).map((it: any) => ({ ...it, content: `译: ${it.content}` }));
+          const list = items || [];
+          return asTrackResult(
+            list.map((it: any) => ({ ...it, content: `译: ${it.content}` })),
+            list
+          );
         }
       });
 
@@ -505,15 +521,15 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       ]);
       clipState.setSubtitleFetchState("ready");
 
-      const chunkResolvers = new Map<number, (items: SubtitleBodyItem[]) => void>();
+      const chunkResolvers = new Map<number, (result: TranslateSubtitleTrackResult) => void>();
       const cueEmitters = new Map<number, (cue: any) => void>();
 
       const { controller, setSubtitle } = setupTest({
         currentTime: 5,
-        translateItems: ({ items, onCueReady }: any) => {
+        translateTrack: ({ items, onCueReady }: any) => {
           const chunkIdx = Math.floor((items[0]?.from || 0) / 60);
           cueEmitters.set(chunkIdx, onCueReady);
-          return new Promise<SubtitleBodyItem[]>((resolve) => {
+          return new Promise<TranslateSubtitleTrackResult>((resolve) => {
             chunkResolvers.set(chunkIdx, resolve);
           });
         }
@@ -546,10 +562,10 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "流式译文0-首句");
       setSubtitle.mockClear();
 
-      chunkResolvers.get(0)!([
+      chunkResolvers.get(0)!(asTrackResult([
         { from: 0, to: 10, content: "流式译文0-首句" },
         { from: 12, to: 20, content: "流式译文0-后句" }
-      ]);
+      ]));
       await vi.waitFor(() => expect(cueEmitters.has(1)).toBe(true));
       setSubtitle.mockClear();
 
@@ -563,7 +579,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       });
       expect(setSubtitle).not.toHaveBeenCalled();
 
-      chunkResolvers.get(1)!([{ from: 65, to: 75, content: "流式译文1-预载" }]);
+      chunkResolvers.get(1)!(asTrackResult([{ from: 65, to: 75, content: "流式译文1-预载" }]));
       await Promise.resolve();
       await Promise.resolve();
       expect(setSubtitle).not.toHaveBeenCalled();
@@ -574,13 +590,13 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       clipState.setSubtitleFetchState("ready");
 
       let staleOnCueReady: ((cue: any) => void) | undefined;
-      let releaseChunk!: (items: SubtitleBodyItem[]) => void;
+      let releaseChunk!: (result: TranslateSubtitleTrackResult) => void;
 
       const { controller, setSubtitle } = setupTest({
         currentTime: 5,
-        translateItems: ({ onCueReady }: any) => {
+        translateTrack: ({ onCueReady }: any) => {
           staleOnCueReady = onCueReady;
-          return new Promise<SubtitleBodyItem[]>((resolve) => {
+          return new Promise<TranslateSubtitleTrackResult>((resolve) => {
             releaseChunk = resolve;
           });
         }
@@ -600,7 +616,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         text: "P0",
         translation: "过期译文"
       });
-      releaseChunk([{ from: 0, to: 10, content: "过期译文" }]);
+      releaseChunk(asTrackResult([{ from: 0, to: 10, content: "过期译文" }]));
       await Promise.resolve();
 
       expect(setSubtitle).not.toHaveBeenCalled();

@@ -28,6 +28,7 @@ type Modules = {
   ensureReaderDomain: typeof import("../../extension/reader/lazy-reader.js").ensureReaderDomain;
   isReadingSubtitleBodyVisible: typeof import("../../extension/reader/state.js").isReadingSubtitleBodyVisible;
   state: typeof import("../../extension/core/state.js").state;
+  transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
   ids: typeof import("../../extension/reader/state.js").ids;
   uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 };
@@ -71,6 +72,7 @@ beforeEach(async () => {
     ensureReaderDomain: lazyReader.ensureReaderDomain,
     isReadingSubtitleBodyVisible: readerState.isReadingSubtitleBodyVisible,
     state: coreState.state,
+    transitionReaderShell: coreState.transitionReaderShell,
     ids: readerState.ids,
     uiRenderer
   };
@@ -108,7 +110,7 @@ describe("壳命令 project-tab（纯 DOM 投影）", () => {
   });
 
   it("投影是纯 DOM：不写状态位、不落盘（两者都收口在属主）", () => {
-    m.state.reader.setViewOpen(true);
+    m.transitionReaderShell("open");
 
     m.requestUiCommand("project-tab", { tab: "overview" });
 

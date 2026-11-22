@@ -82,8 +82,9 @@ describe("ASR 转写进行中：meta 行显示 UP主", () => {
       mountReaderSkeleton(ids);
       mountPlayerChain();
     }
-    state = (await import("../../extension/core/state.js")).state;
-    state.reader.setViewOpen(openReader);
+    const stateMod = await import("../../extension/core/state.js");
+    state = stateMod.state;
+    stateMod.transitionReaderShell(openReader ? "open" : "closed");
     await import("../../extension/reader/index.js");
     const bus = await import("../../extension/reader/reader-bus.js");
     notifyReaderPresenter = vi.mocked(bus.notifyReaderPresenter);

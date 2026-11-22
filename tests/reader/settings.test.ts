@@ -4,6 +4,7 @@ import { mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState, ChromeRuntimeStub } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let presentation: typeof import("../../extension/reader/presentation.js");
 let lifecycle: typeof import("../../extension/reader/index.js");
 let initEssentials: typeof import("../../extension/reader/init-essentials.js");
@@ -13,7 +14,9 @@ let chromeStub: ChromeRuntimeStub;
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   presenter = await import("../../extension/reader/reader-bus.js");
   presentation = await import("../../extension/reader/presentation.js");
   initEssentials = await import("../../extension/reader/init-essentials.js");
@@ -286,7 +289,7 @@ describe("设置变更与 data-attribute", () => {
       return undefined;
     });
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     listener(
       { readerTheme: { newValue: "dark" } },
@@ -343,7 +346,7 @@ describe("设置变更与 data-attribute", () => {
       return undefined;
     });
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     listener({ readerPalette: { newValue: "editorial" } }, "sync");
 
@@ -401,7 +404,7 @@ describe("主题：只剩明暗一轴", () => {
   });
 
   it("设置抽屉：外观分区提供色板选择项，保存载荷落盘归一后的 readerPalette", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     const sentTypes: string[] = [];
     let saveSettingsPayload: Record<string, unknown> | null = null;
@@ -469,7 +472,7 @@ describe("主题：只剩明暗一轴", () => {
   });
 
   it("外观深链：首次装载后切换外观分区并聚焦 AI 对话子组标题", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
       if (message?.type === "get-settings") {
         callback?.({ ok: true, settings: { readerPalette: "editorial" } });
@@ -507,7 +510,7 @@ describe("主题：只剩明暗一轴", () => {
   });
 
   it("设置抽屉：色板存量值非法时装载归一回落 flyme", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     const sentTypes: string[] = [];
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
@@ -542,7 +545,7 @@ describe("主题：只剩明暗一轴", () => {
     expect(paletteSelect.value).toBe("flyme");
   });
   it("设置抽屉：文摘排版滑块与重置键渲染、滑动即时预览与重置恢复", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     const sentMessages: any[] = [];
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
@@ -672,7 +675,7 @@ describe("主题：只剩明暗一轴", () => {
   });
 
   it("设置抽屉：外观主题提供 4 档（跟随 B 站 / 跟随系统 / 浅色 / 深色）并随宿主 .dark 实时生效", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
 
     let savePayload: Record<string, unknown> | null = null;
     chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {

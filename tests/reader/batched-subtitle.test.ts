@@ -4,6 +4,7 @@ import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleto
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let video: HTMLVideoElement;
@@ -56,7 +57,9 @@ function makeBody(count: number) {
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
 }
@@ -112,7 +115,7 @@ describe("字幕列表分批渲染", () => {
 
   it("分批追加后的条目可点击跳转（容器层事件委托）", () => {
     state.clip.subtitleBody = makeBody(800);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     video.play = () => Promise.resolve();
     shell.renderReadingView();
     flushAnimationFrames();
@@ -127,7 +130,7 @@ describe("字幕列表分批渲染", () => {
 
   it("follow 跳转到未渲染区：同步补渲染到目标 index 再滚动，不依赖后续帧", () => {
     state.clip.subtitleBody = makeBody(600);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(renderedItemCount()).toBe(120);
 
@@ -148,7 +151,7 @@ describe("字幕列表分批渲染", () => {
 
   it("同步补渲染超限：只同步上屏上限条，落点区间由后续帧补齐后自愈落位", () => {
     state.clip.subtitleBody = makeBody(1500);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(renderedItemCount()).toBe(120);
 
@@ -171,7 +174,7 @@ describe("字幕列表分批渲染", () => {
 
   it("force 拍落点超出同步 flush 上限：rAF 补齐后，后续非 force tick 必须补滚动", () => {
     state.clip.subtitleBody = makeBody(1500);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
     video.currentTime = 2800;
@@ -205,7 +208,7 @@ describe("字幕列表分批渲染", () => {
 
   it("手动暂停中的激活计算照旧：不补渲染/滚动，恢复后下一拍补高亮", () => {
     state.clip.subtitleBody = makeBody(800);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
     shell.noteManualReaderInteraction(60_000);
@@ -243,7 +246,7 @@ describe("字幕列表分批渲染", () => {
 
   it("closeReadingView 取消挂起的追加任务，关闭后不再追加", () => {
     state.clip.subtitleBody = makeBody(800);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     expect(rafPending.size).toBe(2);
     shell.closeReadingView();

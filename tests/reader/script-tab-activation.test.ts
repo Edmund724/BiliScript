@@ -19,6 +19,7 @@ type Modules = {
   ensureReaderDomain: typeof import("../../extension/reader/lazy-reader.js").ensureReaderDomain;
   registerDebugGate: typeof import("../../extension/shared/logging.js").registerDebugGate;
   state: typeof import("../../extension/core/state.js").state;
+  transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 };
 
 let m: Modules;
@@ -51,7 +52,8 @@ beforeEach(async () => {
     ensureReaderChatTab: lazyChatTab.ensureReaderChatTab,
     ensureReaderDomain: lazyReader.ensureReaderDomain,
     registerDebugGate: logging.registerDebugGate,
-    state: coreState.state
+    state: coreState.state,
+    transitionReaderShell: coreState.transitionReaderShell
   };
 
   commandSpy = vi.fn<(name: string, payload?: unknown) => void>();
@@ -82,7 +84,7 @@ afterEach(() => {
 
 describe("单次激活顺序（状态位 → 持久化 → 投影 → 二级激活）", () => {
   it("投影命令：发 project-tab，载荷为标签名；状态位先于投影命令落地", async () => {
-    m.state.reader.setViewOpen(true);
+    m.transitionReaderShell("open");
     let predicateAtProjection: boolean | null = null;
     commandSpy.mockImplementation((name: string) => {
       if (name === "project-tab") {
@@ -186,7 +188,7 @@ describe("串行队列（并发意图）", () => {
       "chat-activate-end",
       "project:subtitle"
     ]);
-    m.state.reader.setViewOpen(true);
+    m.transitionReaderShell("open");
     expect(m.isReadingSubtitleBodyVisible()).toBe(true);
     expect(vi.mocked(chrome.storage.local.set)).toHaveBeenLastCalledWith({
       readerActiveScriptTab: "subtitle"

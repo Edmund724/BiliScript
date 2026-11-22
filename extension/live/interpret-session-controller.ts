@@ -40,7 +40,7 @@ import type { RunAsrPipelineArgs } from "../asr/pipeline.js";
 import { loadActiveAsrFallback } from "../asr/active-fallback.js";
 import { resolveActiveAsrRuntimeState, type AsrProviderListEntry } from "../asr/asr-setup.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
-import type { translateSubtitleItems } from "../ai/subtitle-translate.js";
+import type { translateSubtitleTrack } from "../ai/subtitle-translate.js";
 import { readCachedL1VideoIndex } from "../ai/subtitle-context.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
 import {
@@ -78,7 +78,7 @@ export interface InterpretSessionControllerDeps {
   onGenerationChange?: (generation: number) => void;
   onAvailabilityChange?: (availability: InterpretAvailability) => void;
   runAsr?: (args: RunAsrPipelineArgs) => Promise<unknown>;
-  translateItems?: (input: Parameters<typeof translateSubtitleItems>[0]) => Promise<SubtitleBodyItem[]>;
+  translateTrack?: typeof translateSubtitleTrack;
   loadCache?: typeof loadSubtitleFromCache;
   saveCache?: typeof saveSubtitleToCache;
   clearTranslatedCache?: typeof clearTranslatedSubtitleCache;
@@ -112,7 +112,7 @@ export function createInterpretSessionController(
   const clearSubtitles = deps.clearSubtitles ?? (() => {});
   const clearSubtitlesOnSeek = deps.clearSubtitlesOnSeek ?? clearSubtitles;
   const customRunAsr = deps.runAsr;
-  const customTranslateItems = deps.translateItems;
+  const customTranslateTrack = deps.translateTrack;
   const loadCache = deps.loadCache ?? loadSubtitleFromCache;
   const saveCache = deps.saveCache ?? saveSubtitleToCache;
   const clearTranslatedCache = deps.clearTranslatedCache ?? clearTranslatedSubtitleCache;
@@ -494,7 +494,7 @@ export function createInterpretSessionController(
           state.clip.cid !== cid
       },
       {
-        ...(customTranslateItems ? { translateItems: customTranslateItems } : {}),
+        ...(customTranslateTrack ? { translateTrack: customTranslateTrack } : {}),
         ...(hasCustomLoadCache ? { loadCustomCache: loadCache } : {}),
         ...(hasCustomSaveCache ? { saveCustomCache: saveCache } : {}),
         onStreamingUpdate: ({ items, cue }) => {
@@ -536,7 +536,7 @@ export function createInterpretSessionController(
     session: TranslatedTrackSession,
     protocolItems?: readonly SubtitleBodyItem[]
   ): Promise<boolean> {
-    if (customTranslateItems) {
+    if (customTranslateTrack) {
       translatorConfiguredSession = session;
       return false;
     }
@@ -549,7 +549,7 @@ export function createInterpretSessionController(
         typeof translateMod.resolveSubtitleTranslateProtocolMode === "function"
           ? translateMod.resolveSubtitleTranslateProtocolMode
           : undefined,
-      translateItems: translateMod.translateSubtitleItems,
+      translateTrack: translateMod.translateSubtitleTrack,
       protocolItems
     });
     translatorConfiguredSession = session;
@@ -568,7 +568,7 @@ export function createInterpretSessionController(
 
     const taskPromise = (async () => {
       try {
-        if (!customTranslateItems && translatorConfiguredSession !== session) {
+        if (!customTranslateTrack && translatorConfiguredSession !== session) {
           await ensureTranslatorConfigured(session, session.getPrimaryItems());
           if (isSessionStale(currentGeneration) || session.isChunkDone(chunkIndex)) {
             return;

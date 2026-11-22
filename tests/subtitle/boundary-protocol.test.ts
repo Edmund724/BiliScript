@@ -10,7 +10,6 @@ import {
 } from "../../extension/subtitle/boundary-protocol.js";
 import {
   buildBoundaryTranslateMessages,
-  translateSubtitleItems,
   translateSubtitleTrack
 } from "../../extension/ai/subtitle-translate.js";
 import type { SubtitleTranslateProviderResolution } from "../../extension/ai/subtitle-translate-config.js";
@@ -257,7 +256,7 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
         JSON.stringify([{ id: "0", translation: "碎片也很重要。" }])
       );
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [],
       events: EIGHT_EVENTS,
       sourceLang: "en",
@@ -277,13 +276,12 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
       { from: 6.8, to: 7.54, content: "Even tail" },
       { from: 7.6, to: 8.915, content: "fragments matter." }
     ]);
-    expect([...result]).toEqual([
+    expect(result.translations).toEqual([
       { from: 0.125, to: 3.105, content: "当我们设计字幕协议时，" },
       { from: 3.3, to: 6.235, content: "每个索引都必须保持严格对齐。" },
       { from: 6.8, to: 7.54, content: "哪怕是尾部" },
       { from: 7.6, to: 8.915, content: "碎片也很重要。" }
     ]);
-    expect(result.translations).toEqual([...result]);
     expect(result.items[3].from - EIGHT_EVENTS[7].startMs / 1000).toBe(0);
     expect(result.items[3].to - EIGHT_EVENTS[7].endMs / 1000).toBe(0);
   });

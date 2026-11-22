@@ -49,7 +49,7 @@ import {
 } from "../../extension/reader/shell.js";
 import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js";
 import { contentEventBus } from "../../extension/shared/content-event-bus.js";
-import { state } from "../../extension/core/state.js";
+import { state, transitionReaderShell } from "../../extension/core/state.js";
 import { playerAiState } from "../../extension/ai/player-ai-state.js";
 import { ensureReaderStyles, removeReaderStyles } from "../../extension/shared/style-injector.js";
 
@@ -68,7 +68,7 @@ function makeReaderStub() {
     focusReadingView: vi.fn(),
     beginClosingReadingView: vi.fn(() => false),
     closeReadingView: vi.fn(() => {
-      state.reader.setViewOpen(false);
+      transitionReaderShell("closed");
       state.reader.setViewReady(false);
     }),
     restoreReadingViewFocus: vi.fn()
@@ -142,7 +142,7 @@ beforeEach(() => {
   document.body.removeAttribute("data-biliscript-reader-mode");
   removeReaderStyles();
   playerAiState.setSuppressedUntil(0);
-  state.reader.setViewOpen(false);
+  transitionReaderShell("closed");
   state.reader.setViewReady(false);
   isPlayerAiLoaded.mockReturnValue(false);
   ensureReaderDomain.mockResolvedValue(makeReaderStub());
@@ -234,7 +234,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
   });
 
   it("空 readerUrl 且视图已开 → 纯聚焦语义：不改写、不翻属性、不重进", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
 
@@ -264,7 +264,7 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
     ["body 门控属性被清", { bodyAttr: false }],
     ["html 门控属性被清", { htmlAttr: false }]
   ])("状态开着而壳失整（%s）→ 先 closeReadingView 收敛再重进", async (_name, broken) => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     mountShell(broken as ShellMountOptions);
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
@@ -280,7 +280,7 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
   });
 
   it("状态开着而壳完好 → 不收敛，只按 URL 翻属性，不重进", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     mountShell();
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
@@ -304,7 +304,7 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
   });
 
   it("收敛失败（reader 域装载被拒）→ 不阻断进入链（翻属性照走）；视图状态位未收敛故不重进", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     mountShell({ open: false });
     const reader = makeReaderStub();
     ensureReaderDomain
@@ -342,7 +342,7 @@ describe("enterReaderShell：chat 档（进对话）", () => {
   });
 
   it("视图已开且无 prompt → 只定位对话 tab（consumeIntent:false），不重进", async () => {
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     mountShell();
     const reader = makeReaderStub();
     const chat = makeChatStub();

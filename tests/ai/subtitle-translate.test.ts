@@ -4,12 +4,10 @@ import {
   buildSubtitleTranslateRequest,
   createIndexTranslateRateLimiter,
   createIndexTranslateResolution,
-  formatSubtitleNumberedLines,
-  parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
   resolveSubtitleTranslateProtocolMode,
   resolveTargetLangDisplayName,
-  translateSubtitleItems
+  translateSubtitleTrack
 } from "../../extension/ai/subtitle-translate.js";
 import { providerFetchViaOffscreen } from "../../extension/core/provider-http-offscreen.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
@@ -278,62 +276,7 @@ describe("字幕翻译序号行协议", () => {
     { from: 5.0, to: 8.0, content: "Let's learn something new." }
   ];
 
-  it("formatSubtitleNumberedLines 生成严格 1..N 序号行", () => {
-    const formatted = formatSubtitleNumberedLines(originalItems);
-    expect(formatted).toBe("1. Hello world\n2. How are you today?\n3. Let's learn something new.");
-  });
-
-  it("parseSubtitleNumberedLines 解析序号行并 1:1 对齐时间戳", () => {
-    const llmOutput = "1. 你好，世界\n2. 你今天好吗？\n3. 让我们学点新东西。";
-    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
-
-    expect(parsed).toEqual([
-      { from: 0, to: 2.5, content: "你好，世界" },
-      { from: 2.5, to: 5.0, content: "你今天好吗？" },
-      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
-    ]);
-  });
-
-  it("容错支持多种标点变体（如 1、 1:）与额外前言后语", () => {
-    const llmOutput = [
-      "这是翻译结果：",
-      "1、你好，世界",
-      "2: 你今天好吗？",
-      "3. 让我们学点新东西。",
-      "希望对你有帮助！"
-    ].join("\n");
-
-    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
-    expect(parsed).toEqual([
-      { from: 0, to: 2.5, content: "你好，世界" },
-      { from: 2.5, to: 5.0, content: "你今天好吗？" },
-      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
-    ]);
-  });
-
-  it("某行缺失时自动回退原文，时间戳不偏移", () => {
-    const llmOutput = "1. 你好，世界\n3. 让我们学点新东西。";
-    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
-
-    expect(parsed).toEqual([
-      { from: 0, to: 2.5, content: "你好，世界" },
-      { from: 2.5, to: 5.0, content: "How are you today?" },
-      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
-    ]);
-  });
-
-  it("fallbackToOriginal=false 时，遗漏行返回空串而不混入原文", () => {
-    const llmOutput = "1. 你好，世界\n3. 让我们学点新东西。";
-    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems, { fallbackToOriginal: false });
-
-    expect(parsed).toEqual([
-      { from: 0, to: 2.5, content: "你好，世界" },
-      { from: 2.5, to: 5.0, content: "" },
-      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
-    ]);
-  });
-
-  it("translateSubtitleItems 对人工精校 CC 轨发送严格 ID JSON 数组并返回对齐条目及双轨元数据", async () => {
+  it("translateSubtitleTrack 对人工精校 CC 轨发送严格 ID JSON 数组并返回对齐条目及双轨元数据", async () => {
     const mockChatCompletion = vi.fn().mockResolvedValue(
       JSON.stringify([
         { id: "0", translation: "你好" },
@@ -341,7 +284,7 @@ describe("字幕翻译序号行协议", () => {
         { id: "2", translation: "学新知识" }
       ])
     );
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: originalItems,
       targetLang: "zh",
       providerResolution: {
@@ -368,11 +311,6 @@ describe("字幕翻译序号行协议", () => {
       { id: "2", text: "Let's learn something new." }
     ]);
     expect(result.mode).toBe("cc-json");
-    expect(result).toEqual([
-      { from: 0, to: 2.5, content: "你好" },
-      { from: 2.5, to: 5.0, content: "你好吗" },
-      { from: 5.0, to: 8.0, content: "学新知识" }
-    ]);
     expect(result.items).toEqual(originalItems);
     expect(result.translations).toEqual([
       { from: 0, to: 2.5, content: "你好" },
@@ -391,7 +329,7 @@ describe("字幕翻译序号行协议", () => {
         JSON.stringify([{ id: "0", translation: "你今天好吗？" }])
       );
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: originalItems,
       targetLang: "zh",
       providerResolution: {
@@ -409,14 +347,14 @@ describe("字幕翻译序号行协议", () => {
     expect(JSON.parse(mockChatCompletion.mock.calls[1][0].messages[1].content)).toEqual([
       { id: "0", text: "How are you today?" }
     ]);
-    expect(result).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2.5, content: "你好" },
       { from: 2.5, to: 5.0, content: "你今天好吗？" },
       { from: 5.0, to: 8.0, content: "学新知识" }
     ]);
   });
 
-  it("translateSubtitleItems 默认 fallbackToOriginal=false，单补后仍缺失的行返回空串而不污染共享译文缓存", async () => {
+  it("translateSubtitleTrack 默认 fallbackToOriginal=false，单补后仍缺失的行返回空串而不污染共享译文缓存", async () => {
     const mockChatCompletion = vi
       .fn()
       .mockResolvedValueOnce(
@@ -427,7 +365,7 @@ describe("字幕翻译序号行协议", () => {
       )
       .mockResolvedValueOnce("[]");
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: originalItems,
       targetLang: "zh",
       providerResolution: {
@@ -441,14 +379,14 @@ describe("字幕翻译序号行协议", () => {
       chatCompletionFn: mockChatCompletion as any
     });
 
-    expect(result).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2.5, content: "你好" },
       { from: 2.5, to: 5.0, content: "" },
       { from: 5.0, to: 8.0, content: "学新知识" }
     ]);
   });
 
-  it("translateSubtitleItems 显式开启 fallbackToOriginal=true 时回退原文", async () => {
+  it("translateSubtitleTrack 显式开启 fallbackToOriginal=true 时回退原文", async () => {
     const mockChatCompletion = vi
       .fn()
       .mockResolvedValueOnce(
@@ -459,7 +397,7 @@ describe("字幕翻译序号行协议", () => {
       )
       .mockResolvedValueOnce("[]");
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: originalItems,
       targetLang: "zh",
       fallbackToOriginal: true,
@@ -474,7 +412,7 @@ describe("字幕翻译序号行协议", () => {
       chatCompletionFn: mockChatCompletion as any
     });
 
-    expect(result).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2.5, content: "你好" },
       { from: 2.5, to: 5.0, content: "How are you today?" },
       { from: 5.0, to: 8.0, content: "学新知识" }
@@ -527,12 +465,13 @@ describe("字幕翻译序号行协议", () => {
 
   it("空列表直接返回空数组，不发起请求", async () => {
     const mockChatCompletion = vi.fn();
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [],
       targetLang: "zh",
       chatCompletionFn: mockChatCompletion as any
     });
-    expect(result).toEqual([]);
+    expect(result.translations).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(mockChatCompletion).not.toHaveBeenCalled();
   });
 });
@@ -616,7 +555,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     );
     const onCueReady = vi.fn();
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items,
       targetLang: "zh",
       providerResolution,
@@ -627,7 +566,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     expect(mockChatCompletion).toHaveBeenCalledTimes(2);
     expect(mockChatCompletion.mock.calls[0]?.[0]?.stream).toBe(true);
     expect(mockChatCompletion.mock.calls[1]?.[0]?.stream).toBe(false);
-    expect(result).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2, content: "第一句。" },
       { from: 2, to: 5, content: "第二句。" }
     ]);
@@ -641,7 +580,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     const mockChatCompletion = createAbortingStreamMock(abortError);
 
     await expect(
-      translateSubtitleItems({
+      translateSubtitleTrack({
         items: [{ from: 0, to: 2, content: "Hello world." }],
         targetLang: "zh",
         providerResolution,
@@ -674,7 +613,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
       return { done: true };
     });
 
-    const runPromise = translateSubtitleItems({
+    const runPromise = translateSubtitleTrack({
       items,
       mode: "boundary-v3",
       targetLang: "zh",
@@ -697,7 +636,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
       2,
       expect.objectContaining({ startIndex: 1, endIndex: 1, translation: "世界" })
     );
-    expect(result).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2, content: "你好" },
       { from: 2, to: 4, content: "世界" }
     ]);
@@ -708,7 +647,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
       JSON.stringify([{ id: "0", translation: "你好。" }])
     );
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [{ from: 0, to: 2, content: "Hello." }],
       targetLang: "zh",
       providerResolution: createIndexTranslateResolution(),
@@ -722,7 +661,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     expect(mockChatCompletion).toHaveBeenCalledTimes(2);
     expect(mockChatCompletion.mock.calls[0]?.[0]?.stream).toBe(true);
     expect(mockChatCompletion.mock.calls[1]?.[0]?.stream).toBe(false);
-    expect(result).toEqual([{ from: 0, to: 2, content: "你好。" }]);
+    expect(result.translations).toEqual([{ from: 0, to: 2, content: "你好。" }]);
   });
 
   it("boundary-v3 多分片滚动注入前情对照，并跨分片递增全局 onCueReady 索引", async () => {
@@ -744,7 +683,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
         })
       );
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [],
       events: [
         { text: "First chunk line.", startMs: 0, endMs: 2000 },
@@ -770,7 +709,7 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
       2,
       expect.objectContaining({ startIndex: 1, endIndex: 1, translation: "第二片字幕。" })
     );
-    expect([...result]).toEqual([
+    expect(result.translations).toEqual([
       { from: 0, to: 2, content: "第一片字幕。" },
       { from: 2, to: 4, content: "第二片字幕。" }
     ]);
@@ -827,7 +766,7 @@ describe("单源模型归一与 boundary-v3 分块 L1 章节上下文注入", ()
         })
       );
 
-    const translated = await translateSubtitleItems({
+    const translated = await translateSubtitleTrack({
       items: [],
       events: [
         { text: "Prefill fills KV Cache", startMs: 5_000, endMs: 12_000 },
@@ -871,7 +810,7 @@ describe("单源模型归一与 boundary-v3 分块 L1 章节上下文注入", ()
       .find((line) => line.startsWith("当前章节："));
     expect(secondChapterLine).toBe("当前章节：PagedAttention：显存分页管理避免碎片");
     expect(secondSys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：PagedAttention、vLLM");
-    expect(translated.map((item) => item.content)).toEqual([
+    expect(translated.translations.map((item) => item.content)).toEqual([
       "预填充阶段填充 KV Cache",
       "PagedAttention 驱动 vLLM"
     ]);

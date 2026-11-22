@@ -4,13 +4,15 @@ import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
 const mockTranslate = vi.hoisted(() => ({
-  translateSubtitleItems: vi.fn(async (input: { items: SubtitleBodyItem[]; targetLang: string }) =>
-    input.items.map((item) => ({
+  translateSubtitleTrack: vi.fn(async (input: { items: SubtitleBodyItem[]; targetLang: string }) => ({
+    mode: "cc-json" as const,
+    items: input.items,
+    translations: input.items.map((item) => ({
       from: item.from,
       to: item.to,
       content: input.targetLang === "en" ? "Hello world" : `[${input.targetLang}] ${item.content}`
     }))
-  )
+  }))
 }));
 
 vi.mock("../../extension/ai/subtitle-translate.js", async () => {
@@ -19,7 +21,7 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
-    translateSubtitleItems: mockTranslate.translateSubtitleItems
+    translateSubtitleTrack: mockTranslate.translateSubtitleTrack
   };
 });
 
@@ -78,7 +80,7 @@ describe("播放器双语字幕叠层升级验收", () => {
   beforeEach(() => {
     resetModuleState();
     document.body.innerHTML = "";
-    mockTranslate.translateSubtitleItems.mockClear();
+    mockTranslate.translateSubtitleTrack.mockClear();
   });
 
   afterEach(async () => {

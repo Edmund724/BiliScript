@@ -4,6 +4,7 @@ import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpe
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let readerState: typeof import("../../extension/reader/state.js");
@@ -14,7 +15,9 @@ let video: HTMLVideoElement;
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   shell = await import("../../extension/reader/index.js");
   readerState = await import("../../extension/reader/state.js");
   ids = readerState.ids;
@@ -100,7 +103,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("syncReadingViewPlayback：按 currentTime 切换字幕与章节高亮", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
 
     const bound = playerHost.bindReadingViewVideo(video);
@@ -120,7 +123,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("概览 tab：按概览章节边界切换高亮，暂停定位保留且不自动滚动", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     shell.renderReadingOverview({
       phase: "ready",
@@ -164,7 +167,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("video seeked 事件驱动即时同步并切换字幕高亮（暂停态 seek 兜底）", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
 
@@ -179,7 +182,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("sync tick 布局读取前置短路：稳态拍不读 rect，真实滚动拍恰读两次", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
 
@@ -200,7 +203,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("P3-1 字幕 tab 隐藏：tick 跳过高亮/滚动段，跟随态照常收敛", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
     switchReaderScriptTab("overview");
@@ -219,7 +222,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("P3-1 切回字幕 tab：下一拍补上高亮与索引（跳过的段自然收敛）", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
     switchReaderScriptTab("overview");
@@ -238,7 +241,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("P3-1 设置抽屉展开（三 tab body 被 CSS 压掉）：同样跳过滚动/高亮段", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
     state.reader.setSettingsExpanded(true);
@@ -252,7 +255,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("播放稳态仅 interval 单路驱动：timeupdate 派发不触发同步（P3 单路化锁）", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
 
@@ -276,7 +279,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("停止同步：移除事件监听与定时器", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     playerHost.bindReadingViewVideo(video);
     sync.startReadingViewSync();
     const controller = video.__biliscriptReadingSyncController;
@@ -289,7 +292,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("点击字幕跳转：选择文本时忽略，空白选区时跳转", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
     video.play = vi.fn(() => Promise.resolve());
@@ -317,7 +320,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("jumpReadingTarget：暂停时触发播放", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     playerHost.bindReadingViewVideo(video);
     video.play = vi.fn(() => Promise.resolve());
 
@@ -329,7 +332,7 @@ describe("播放同步与高亮", () => {
 
   it("updateReaderFollowState：按手动暂停状态写入 data-biliscript-reader-follow", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
 
     sync.noteManualReaderInteraction(5000);
     sync.updateReaderFollowState();
@@ -342,7 +345,7 @@ describe("播放同步与高亮", () => {
 
   it("noteManualReaderInteraction：手动交互暂停跟随（data-biliscript-reader-follow=manual）", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
 
     sync.noteManualReaderInteraction(5000);
 
@@ -350,7 +353,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("noteManualReaderInteraction 缺省无超时：手动滚动后保持 manual 态，视频播放时不被强制拉回", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
 
@@ -389,7 +392,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("短字幕容器未溢出（scrollHeight <= clientHeight + 8）：同步与恢复跟随均不滚动宿主页 window", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
 
@@ -410,7 +413,7 @@ describe("播放同步与高亮", () => {
   });
 
   it("pointerdown 时存在文本选区：随后点击收起选区即使选区已空也不触发跳播", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
     video.play = vi.fn(() => Promise.resolve());

@@ -130,10 +130,10 @@ describe("content 端 reader-toggle 处理器：开/关双向切换", () => {
   });
 
   it("侧边栏未展开时调用 enterReaderShell，已展开时调用 exitReaderShell", async () => {
-    const { state } = await import("../../extension/core/state.js");
+    const { transitionReaderShell } = await import("../../extension/core/state.js");
     const { dispatchContentScriptMessage } = await import("../../extension/entry/message-handler.js");
 
-    state.reader.setViewOpen(false);
+    transitionReaderShell("closed");
     const openResp = await new Promise<Record<string, unknown>>((resolve) => {
       dispatchContentScriptMessage(
         { type: "reader-toggle", readerUrl: VIDEO_READER_URL },
@@ -146,7 +146,7 @@ describe("content 端 reader-toggle 处理器：开/关双向切换", () => {
       intent: "open"
     });
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     const closeResp = await new Promise<Record<string, unknown>>((resolve) => {
       dispatchContentScriptMessage(
         { type: "reader-toggle", readerUrl: VIDEO_READER_URL },

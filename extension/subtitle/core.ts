@@ -1,4 +1,12 @@
-import { state, clipState } from "../core/state.js";
+import {
+  state,
+  clipState,
+  type ChapterItem,
+  type SecondarySubtitleState,
+  type State,
+  type SubtitleBodyItem
+} from "../core/state.js";
+import type { Settings } from "../core/defaults.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -198,78 +206,48 @@ export function rebuildDerivedContent(): void {
   clipState.setTxt(buildTxt(body, state.settings, secondaryFor));
 }
 
+const DERIVED_SCALAR_FIELDS = ["description", "videoDuration"] as const;
+
 interface DerivedContentCacheEntry {
-  body: unknown;
-  secondaryBody: unknown;
-  settings: unknown;
-  chapters: unknown;
-  hotComments: unknown;
-  href: string;
-  created: string;
-  bvid: string;
-  aid: string;
-  cid: string;
-  title: string;
-  author: string;
-  uploadDate: string;
+  body: readonly SubtitleBodyItem[];
+  secondaryBody: readonly SubtitleBodyItem[];
+  secondaryState: SecondarySubtitleState;
+  settings: Readonly<Settings>;
+  chapters: readonly ChapterItem[];
   description: string;
-  selectedSubtitleLang: string;
   videoDuration: number;
 }
 
-const DERIVED_SCALAR_FIELDS = [
-  "bvid",
-  "aid",
-  "cid",
-  "title",
-  "author",
-  "uploadDate",
-  "description",
-  "selectedSubtitleLang",
-  "videoDuration"
-] as const;
-
 let derivedContentCache: DerivedContentCacheEntry | null = null;
 
-function currentHref(): string {
-  return typeof location !== "undefined" ? location.href : "";
-}
-
-function captureDerivedContentInputs(): DerivedContentCacheEntry {
-  const clip = state.clip;
-  const entry = {} as Record<(typeof DERIVED_SCALAR_FIELDS)[number], string | number>;
-  for (const key of DERIVED_SCALAR_FIELDS) {
-    entry[key] = clip[key] as string | number;
-  }
+function captureDerivedContentInputs(source: Readonly<State> = state): DerivedContentCacheEntry {
+  const { clip, settings } = source;
   return {
     body: clip.subtitleBody,
     secondaryBody: clip.secondarySubtitle.body,
-    settings: state.settings,
+    secondaryState: clip.secondarySubtitle.state,
+    settings,
     chapters: clip.chapters,
-    hotComments: clip.hotComments,
-    href: currentHref(),
-    created: formatLocalDate(),
-    ...(entry as Omit<DerivedContentCacheEntry, "body" | "secondaryBody" | "settings" | "chapters" | "hotComments" | "href" | "created">)
+    description: clip.description,
+    videoDuration: clip.videoDuration
   };
 }
 
-function isDerivedContentCacheValid(): boolean {
+function isDerivedContentCacheValid(source: Readonly<State> = state): boolean {
   const cached = derivedContentCache;
   if (!cached) {
     return false;
   }
-  const clip = state.clip;
+  const { clip, settings } = source;
   if (Array.isArray(clip.subtitleBody) && clip.subtitleBody.length > 0 && (!clip.markdown || !clip.srt || !clip.txt)) {
     return false;
   }
   if (
     cached.body !== clip.subtitleBody ||
     cached.secondaryBody !== clip.secondarySubtitle.body ||
-    cached.settings !== state.settings ||
-    cached.chapters !== clip.chapters ||
-    cached.hotComments !== clip.hotComments ||
-    cached.href !== currentHref() ||
-    cached.created !== formatLocalDate()
+    cached.secondaryState !== clip.secondarySubtitle.state ||
+    cached.settings !== settings ||
+    cached.chapters !== clip.chapters
   ) {
     return false;
   }

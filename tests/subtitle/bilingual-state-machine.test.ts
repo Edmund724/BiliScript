@@ -21,7 +21,7 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
-    translateSubtitleItems: vi.fn(async (input: {
+    translateSubtitleTrack: vi.fn(async (input: {
       items: Array<{ from: number; to: number; content: string }>;
       targetLang: string;
       selectedSubtitleId?: string;
@@ -33,11 +33,15 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
         selectedSubtitleId: input.selectedSubtitleId,
         trackLan: input.trackLan
       });
-      return input.items.map((item) => ({
-        from: item.from,
-        to: item.to,
-        content: `[AI-${input.targetLang}] ${item.content}`
-      }));
+      return {
+        mode: "cc-json" as const,
+        items: input.items,
+        translations: input.items.map((item) => ({
+          from: item.from,
+          to: item.to,
+          content: `[AI-${input.targetLang}] ${item.content}`
+        }))
+      };
     })
   };
 });

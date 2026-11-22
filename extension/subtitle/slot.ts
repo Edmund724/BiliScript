@@ -52,8 +52,10 @@ export function markSecondaryLoading(target: SecondarySubtitleTrackIdentity): vo
   });
 }
 
-export function markSecondaryError(): void {
-  clipState.markSecondarySubtitleError();
+export function markSecondaryError(target?: SecondarySubtitleTrackIdentity): void {
+  clipState.markSecondarySubtitleError(
+    target ? { id: target.id, url: target.url } : undefined
+  );
 }
 
 export function clearSecondary(): void {

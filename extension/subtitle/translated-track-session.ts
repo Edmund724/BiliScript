@@ -1,6 +1,7 @@
 import { state } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
+import type { TranslateSubtitleTrackResult } from "../ai/subtitle-translate.js";
 import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
 import type { StreamingSubtitleCue } from "./streaming-parser.js";
 import {
@@ -76,9 +77,9 @@ export type ResolveTranslationProtocolFn = (input: {
   items?: readonly SubtitleBodyItem[];
 }) => TranslationProtocolMode;
 
-export type TranslateItemsFn = (
+export type TranslateTrackFn = (
   input: TranslatedTrackTranslateInput
-) => Promise<SubtitleBodyItem[]>;
+) => Promise<TranslateSubtitleTrackResult>;
 
 export interface TranslatedTrackSessionOptions {
   bvid: string;
@@ -94,7 +95,7 @@ export interface TranslatedTrackSessionOptions {
 
 export interface TranslatedTrackSessionDeps {
   resolveProtocolMode?: ResolveTranslationProtocolFn;
-  translateItems?: TranslateItemsFn;
+  translateTrack?: TranslateTrackFn;
   loadCustomCache?: (cacheKey: string) => Promise<unknown[] | null>;
   saveCustomCache?: (cacheKey: string, items: SubtitleBodyItem[]) => Promise<unknown>;
   onStreamingUpdate?: (update: {
@@ -135,7 +136,7 @@ export interface ReconfigureTranslatorInput {
   model?: string;
   glossary?: SubtitleGlossaryInput | null;
   resolveProtocolMode?: ResolveTranslationProtocolFn;
-  translateItems?: TranslateItemsFn;
+  translateTrack?: TranslateTrackFn;
   protocolItems?: readonly SubtitleBodyItem[];
 }
 
@@ -236,7 +237,7 @@ export function createTranslatedTrackSession(
   });
 
   let resolveProtocolFn = deps.resolveProtocolMode;
-  let translateItemsFn = deps.translateItems;
+  let translateTrackFn = deps.translateTrack;
   let resolvedModel = String(
     options.model || state.settings?.subtitleTranslateModel || DEFAULT_TRANSLATION_MODEL
   );
@@ -475,8 +476,8 @@ export function createTranslatedTrackSession(
       if (next.resolveProtocolMode) {
         resolveProtocolFn = next.resolveProtocolMode;
       }
-      if (next.translateItems) {
-        translateItemsFn = next.translateItems;
+      if (next.translateTrack) {
+        translateTrackFn = next.translateTrack;
       }
       if (next.model) {
         resolvedModel = next.model;
@@ -531,8 +532,8 @@ export function createTranslatedTrackSession(
     },
 
     async translateChunk(input: TranslateSessionChunkInput): Promise<TranslateSessionChunkResult> {
-      if (!translateItemsFn) {
-        throw new Error("TranslatedTrackSession requires deps.translateItems before translateChunk");
+      if (!translateTrackFn) {
+        throw new Error("TranslatedTrackSession requires deps.translateTrack before translateChunk");
       }
       const { chunkIndex, chunkFromSec, chunkToSec, items, l1Index, baseContext, providerResolution, signal } =
         input;
@@ -567,7 +568,7 @@ export function createTranslatedTrackSession(
         : undefined;
 
       try {
-        const translated = await translateItemsFn({
+        const translated = await translateTrackFn({
           items,
           targetLang,
           selectedSubtitleId: source.isAsrSource ? "asr" : selectedId,
@@ -657,7 +658,7 @@ export function createTranslatedTrackSession(
         }
 
         const usable = sortSubtitleItemsByFrom(
-          (Array.isArray(translated) ? translated : []).filter(isUsableSubtitleItem)
+          (Array.isArray(translated?.translations) ? translated.translations : []).filter(isUsableSubtitleItem)
         );
         if (usable.length > 0) {
           completedSecondaryByChunk.set(chunkIndex, usable);

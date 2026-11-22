@@ -11,6 +11,7 @@ vi.mock("../../extension/ai/analysis.js", async (importActual) => {
 });
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
@@ -28,7 +29,9 @@ function chromeStub(): ChromeStub {
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   reader = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   const analysis = await import("../../extension/ai/analysis.js");
@@ -100,7 +103,7 @@ function seedClip({ chapters = [] as unknown[] } = {}) {
     { from: 10, to: 300, content: "今天讲测试" }
   ];
   state.clip.chapters = chapters as TestState["clip"]["chapters"];
-  state.reader.readingViewOpen = true;
+  transitionReaderShell("open");
 }
 
 beforeEach(async () => {
@@ -806,7 +809,7 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
     uiRenderer.ensureUiReady({ forceRecreate: true });
     seedClip();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
 
     const tabButton = document.getElementById(ids.readingTabOverview) as HTMLButtonElement;
     tabButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -878,7 +881,7 @@ describe("closeReadingView 清理", () => {
     await Promise.resolve();
     expect(overviewText()).toContain("概览还未生成");
 
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     runOverviewMock.mockClear();
     runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
     await reader.triggerReaderOverviewGeneration();
@@ -996,7 +999,7 @@ describe("取消生成与等待计时", () => {
     reader.closeReadingView();
     expect(firstSignal?.aborted).toBe(false);
 
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     void reader.triggerReaderOverviewGeneration();
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(2));
     expect(runSignal(1)).toBe(firstSignal);

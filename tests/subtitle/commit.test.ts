@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { state, clipState } from "../../extension/core/state.js";
+import { state, clipState, transitionReaderShell } from "../../extension/core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../../extension/core/state.js";
 import {
   acceptSubtitle,
@@ -78,7 +78,7 @@ beforeEach(() => {
   };
   configureCommitUi(commitUiMocks);
 
-  state.reader.setViewOpen(false);
+  transitionReaderShell("closed");
   vi.mocked(refreshHotComments).mockClear();
   vi.mocked(refreshDerivedContent).mockClear();
   vi.mocked(notifyReaderPresenter).mockClear();
@@ -149,7 +149,7 @@ describe("acceptSubtitle：字幕接受事务", () => {
   });
 
   it("通知发射无条件（视图门控裁决权归 reader 侧）：reader 关闭也通知 subtitle-ready", async () => {
-    state.reader.setViewOpen(false);
+    transitionReaderShell("closed");
     await acceptSubtitle({
       body: UNSORTED_BODY,
       selectedSubtitleId: "track-1",
@@ -158,7 +158,7 @@ describe("acceptSubtitle：字幕接受事务", () => {
     });
     expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     vi.mocked(notifyReaderPresenter).mockClear();
     await acceptSubtitle({
       body: UNSORTED_BODY,
@@ -287,7 +287,7 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     clipState.setTxt("你好");
     clipState.setNoSubtitleReason("asr-empty");
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     await commitNoSubtitle({});
 
     expect(state.clip.selectedSubtitleId).toBe("");
@@ -315,11 +315,11 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
 
   it("通知发射无条件（同接受事务）：reader 关闭也通知", async () => {
     clipState.setNoSubtitleReason("asr-empty");
-    state.reader.setViewOpen(false);
+    transitionReaderShell("closed");
     await commitNoSubtitle({});
     expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
 
-    state.reader.setViewOpen(true);
+    transitionReaderShell("open");
     vi.mocked(notifyReaderPresenter).mockClear();
     await commitNoSubtitle({});
     expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });

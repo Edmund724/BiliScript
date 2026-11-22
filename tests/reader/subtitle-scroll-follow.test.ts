@@ -244,6 +244,7 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
 
 describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + lifecycle）", () => {
   let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
   let shell: typeof import("../../extension/reader/index.js");
   let readerBus: typeof import("../../extension/reader/reader-bus.js");
   let ids: typeof import("../../extension/reader/state.js").ids;
@@ -254,7 +255,9 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
     resetModuleState();
     document.body.innerHTML = "";
     setLocationUrl(READER_MODE_URL);
-    state = (await import("../../extension/core/state.js")).state as TestState;
+    const stateMod = await import("../../extension/core/state.js");
+    state = stateMod.state as TestState;
+    transitionReaderShell = stateMod.transitionReaderShell;
     shell = await import("../../extension/reader/index.js");
     readerBus = await import("../../extension/reader/reader-bus.js");
     ids = (await import("../../extension/reader/state.js")).ids;
@@ -270,7 +273,7 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
       { from: 500, to: 520, content: "中段核心内容" },
       { from: 3600, to: 3620, content: "一小时后的尾声" }
     ];
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     tabUi.bindSubtitleTabEvents();
     shell.bindReadingViewVideo(video);

@@ -36,7 +36,9 @@ describe("core/state 单例跨实例共享", () => {
   });
 
   it("reader 视图开关跨侧可见（通知门控读的就是它）", () => {
-    lazy.state.reader.setViewOpen(true);
+    expect("setViewOpen" in resident.state.reader).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(resident.state.reader, "readingViewOpen")?.set).toBeUndefined();
+    expect(lazy.transitionReaderShell("open")).toBe(true);
     expect(resident.state.reader.readingViewOpen).toBe(true);
     expect(resident.state.reader).toBe(lazy.state.reader);
   });

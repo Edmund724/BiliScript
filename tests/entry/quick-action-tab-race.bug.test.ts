@@ -115,6 +115,7 @@ type Modules = {
   activateScriptTab: typeof import("../../extension/reader/script-tab-activation.js").activateScriptTab;
   isReadingSubtitleBodyVisible: typeof import("../../extension/reader/state.js").isReadingSubtitleBodyVisible;
   state: typeof import("../../extension/core/state.js").state;
+  transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
   ids: typeof import("../../extension/reader/state.js").ids;
   uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 };
@@ -161,12 +162,13 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
       ensureUiReady: lazyUi.ensureUiReady,
       activateScriptTab: activation.activateScriptTab,
       state: coreState.state,
+      transitionReaderShell: coreState.transitionReaderShell,
       ids: readerState.ids,
       isReadingSubtitleBodyVisible: readerState.isReadingSubtitleBodyVisible,
       uiRenderer
     };
 
-    m.state.reader.setViewOpen(false);
+    m.transitionReaderShell("closed");
     m.state.reader.setViewReady(false);
 
     uiRenderer.ensureUiReady();
@@ -199,7 +201,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
       ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
-        m.state.reader.setViewOpen(true);
+        m.transitionReaderShell("open");
         order.push("enter-start");
         await enterGate;
         order.push("restore-tab");
@@ -230,7 +232,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
       ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
-        m.state.reader.setViewOpen(true);
+        m.transitionReaderShell("open");
         await m.activateScriptTab("overview", { persist: false });
         order.push("enter-done");
       }
@@ -250,7 +252,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
       ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
-        m.state.reader.setViewOpen(true);
+        m.transitionReaderShell("open");
         await m.activateScriptTab("overview", { persist: false });
       }
     });

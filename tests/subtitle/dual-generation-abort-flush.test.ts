@@ -15,6 +15,7 @@ import {
   createInterpretSessionController,
   type InterpretSessionController
 } from "../../extension/live/interpret-session-controller.js";
+import type { TranslateSubtitleTrackResult } from "../../extension/ai/subtitle-translate.js";
 import { createOffscreenChunkHost } from "../../extension/asr/offscreen-bridge.page.js";
 import { loadSubtitle } from "../../extension/subtitle/fetcher.js";
 import { configureCommitUi } from "../../extension/subtitle/commit.js";
@@ -105,7 +106,7 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
     });
 
     const capture: SessionCaptureBag = {};
-    const pendingTranslate = createDeferredPromise<Array<{ from: number; to: number; content: string }>>();
+    const pendingTranslate = createDeferredPromise<TranslateSubtitleTrackResult>();
 
     const setSubtitle = vi.fn();
     const clearSubtitles = vi.fn();
@@ -140,7 +141,7 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
         });
         await capture.offscreenHostPromise.catch(() => {});
       },
-      translateItems: async ({ signal, onCueReady }) => {
+      translateTrack: async ({ signal, onCueReady }) => {
         capture.translateSignal = signal;
         capture.onCueReady = onCueReady;
         onCueReady?.({
@@ -219,7 +220,11 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
       text: "Stale cue from cid 101",
       translation: "污染旧译文"
     });
-    pendingTranslate.resolve([{ from: 0, to: 5, content: "第一句流式译文" }]);
+    pendingTranslate.resolve({
+      mode: "boundary-v3",
+      items: [{ from: 0, to: 5, content: "First ASR sentence" }],
+      translations: [{ from: 0, to: 5, content: "第一句流式译文" }]
+    });
     await capture.offscreenHostPromise?.catch(() => {});
     await Promise.resolve();
 
@@ -250,7 +255,7 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
     vi.spyOn(gateway, "contentFetchJson").mockResolvedValue({ body: jaBody });
 
     const capture: SessionCaptureBag = {};
-    const pendingEnTranslate = createDeferredPromise<Array<{ from: number; to: number; content: string }>>();
+    const pendingEnTranslate = createDeferredPromise<TranslateSubtitleTrackResult>();
     const setSubtitle = vi.fn();
     const clearSubtitles = vi.fn();
     const video = createVideoStub(1);
@@ -275,7 +280,7 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
         presetId: "bilibili-index-translate",
         isFallback: false
       }),
-      translateItems: async ({ signal, onCueReady }) => {
+      translateTrack: async ({ signal, onCueReady }) => {
         capture.translateSignal = signal;
         capture.onCueReady = onCueReady;
         onCueReady?.({
@@ -341,7 +346,11 @@ describe("SPA 切集与中途切轨的双代数级联清理与立即 flush", () 
       text: "English line two.",
       translation: "脏数据第二句"
     });
-    pendingEnTranslate.resolve([{ from: 0, to: 4, content: "英文第一句精翻" }]);
+    pendingEnTranslate.resolve({
+      mode: "cc-json",
+      items: enBody,
+      translations: [{ from: 0, to: 4, content: "英文第一句精翻" }]
+    });
     await Promise.resolve();
 
     await expect(

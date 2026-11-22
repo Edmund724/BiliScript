@@ -7,6 +7,7 @@ import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let impl: typeof shell;
@@ -23,7 +24,9 @@ vi.mock("../../extension/reader/script-host.js", async (importActual) => {
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateMod = await import("../../extension/core/state.js");
+  state = stateMod.state as TestState;
+  transitionReaderShell = stateMod.transitionReaderShell;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   scriptHost = await import("../../extension/reader/script-host.js");
@@ -308,7 +311,7 @@ describe("reader 生命周期", () => {
   });
 
   it("工具条相位订阅随 reader 装配绑定，无需壳侧再次触发", async () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     const select = document.createElement("select");
     select.id = ids.readingSubtitleSelect;
     document.body.appendChild(select);

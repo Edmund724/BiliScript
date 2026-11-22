@@ -17,7 +17,7 @@ import {
   isIndexTranslateProvider,
   normalizeIndexTranslateModel,
   stripThinkBlocks,
-  translateSubtitleItems
+  translateSubtitleTrack
 } from "../../extension/ai/subtitle-translate.js";
 import {
   INDEX_TRANSLATE_USER_AGENT,
@@ -308,7 +308,7 @@ describe("<think>...</think> 兜底清洗", () => {
     expect(partialEmitted.join("")).toBe("x < y");
   });
 
-  it("translateSubtitleItems 流式与非流式路径遇到意外 <think> 块时均可正确剔除并完成翻译", async () => {
+  it("translateSubtitleTrack 流式与非流式路径遇到意外 <think> 块时均可正确剔除并完成翻译", async () => {
     const resolved = createIndexTranslateResolution();
     const items = [
       { from: 0, to: 2, content: "Hello world" },
@@ -326,7 +326,7 @@ describe("<think>...</think> 兜底清洗", () => {
     );
 
     const onCueReady = vi.fn();
-    const streamResult = await translateSubtitleItems({
+    const streamResult = await translateSubtitleTrack({
       items,
       targetLang: "zh",
       providerResolution: resolved,
@@ -337,7 +337,7 @@ describe("<think>...</think> 兜底清洗", () => {
     });
 
     expect(onCueReady).toHaveBeenCalledTimes(2);
-    expect(streamResult).toEqual([
+    expect(streamResult.translations).toEqual([
       { from: 0, to: 2, content: "你好，世界" },
       { from: 2, to: 4, content: "晚安" }
     ]);
@@ -358,7 +358,7 @@ describe("<think>...</think> 兜底清洗", () => {
       )
     );
 
-    const nonStreamResult = await translateSubtitleItems({
+    const nonStreamResult = await translateSubtitleTrack({
       items,
       targetLang: "zh",
       providerResolution: resolved,
@@ -367,7 +367,7 @@ describe("<think>...</think> 兜底清洗", () => {
       indexTranslateOptions: { baseDelayMs: 0 }
     });
 
-    expect(nonStreamResult).toEqual([
+    expect(nonStreamResult.translations).toEqual([
       { from: 0, to: 2, content: "你好" },
       { from: 2, to: 4, content: "晚安" }
     ]);
@@ -471,7 +471,7 @@ describe("并发节流、429 与网络抖动退避重试", () => {
       );
     });
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [{ from: 0, to: 2, content: "Retry after 429" }],
       targetLang: "zh",
       providerResolution: createIndexTranslateResolution(),
@@ -493,7 +493,7 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     expect(callCount).toBe(3);
     expect(backoffDelays).toEqual([500, 1000]);
     expect(limiter.getSnapshot().cooldownUntil).toBeGreaterThanOrEqual(1000);
-    expect(result).toEqual([{ from: 0, to: 2, content: "限流后成功" }]);
+    expect(result.translations).toEqual([{ from: 0, to: 2, content: "限流后成功" }]);
   });
 
   it("遇到网络抖动时退避重试并恢复；429 重试耗尽时抛出清晰中文错误", async () => {
@@ -524,7 +524,7 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     const always429Fetch = vi.fn(async () => new Response("rate limit", { status: 429 }));
     let caughtError: (Error & { status?: number }) | null = null;
     try {
-      await translateSubtitleItems({
+      await translateSubtitleTrack({
         items: [{ from: 0, to: 2, content: "Always 429" }],
         targetLang: "zh",
         providerResolution: createIndexTranslateResolution(),
@@ -553,7 +553,7 @@ describe("并发节流、429 与网络抖动退避重试", () => {
     const wafFetch = vi.fn(async () => new Response("<html>412</html>", { status: 412 }));
 
     await expect(
-      translateSubtitleItems({
+      translateSubtitleTrack({
         items: [{ from: 0, to: 2, content: "WAF 412" }],
         targetLang: "zh",
         providerResolution: createIndexTranslateResolution(),
@@ -635,7 +635,7 @@ describe("Index-Translate boundary-v3 与 cc-json 协议适配（真机实测回
       });
     });
 
-    const result = await translateSubtitleItems({
+    const result = await translateSubtitleTrack({
       items: [
         { from: 0, to: 1.5, content: "Hello everyone" },
         { from: 1.6, to: 3.0, content: "welcome back." }
@@ -648,6 +648,6 @@ describe("Index-Translate boundary-v3 与 cc-json 协议适配（真机实测回
 
     expect(capturedMessages[0][0].content).toContain('{"groups":[{"ids":["0","2"],"translation":"..."}]}');
     expect(capturedMessages[0][0].content).not.toContain('"text":"...","translation":"..."');
-    expect([...result]).toEqual([{ from: 0, to: 3, content: "大家好，欢迎回来。" }]);
+    expect(result.translations).toEqual([{ from: 0, to: 3, content: "大家好，欢迎回来。" }]);
   });
 });
