@@ -231,7 +231,8 @@ function formatChapterHeaderSummary(
   const from = Math.max(0, Number(chapter.from) || 0);
   const to = Math.max(from, Number(chapter.to) || from);
   const title = String(chapter.title || "").trim() || "未命名章节";
-  const range = `[${formatClock(from, { hours: withHours })}-${formatClock(to, { hours: withHours })}]`;
+  const hours = withHours ? "always" : "never";
+  const range = `[${formatClock(from, { hours })}-${formatClock(to, { hours })}]`;
   const parts = [`- ${range} ${title}`];
   const coreThesis = String((chapter as L1ChapterNode).coreThesis || "").trim();
   if (coreThesis) {
@@ -256,13 +257,13 @@ function renderWindowsMarkdown(
     Number(videoDuration) || 0,
     windows[windows.length - 1]?.to || 0
   );
-  const withHours = shouldUseHoursForRange(0, maxEnd);
+  const hours = shouldUseHoursForRange(0, maxEnd) ? "always" : "never";
   return windows
     .map((win) => {
-      const rangeHeader = `### [${formatClock(win.from, { hours: withHours })}-${formatClock(win.to, { hours: withHours })}]`;
+      const rangeHeader = `### [${formatClock(win.from, { hours })}-${formatClock(win.to, { hours })}]`;
       const bodyLines = win.lines.map((line) => {
         const mark = anchorLineNumbers?.has(line.lineNumber) ? "→ " : "";
-        return `${mark}[${formatClock(line.from, { hours: withHours })}] ${line.content}`;
+        return `${mark}[${formatClock(line.from, { hours })}] ${line.content}`;
       });
       return `${rangeHeader}\n${bodyLines.join("\n")}`;
     })
@@ -467,7 +468,7 @@ export function buildFastPathContext(input: {
   if (renderedWindows) {
     const anchorLabels = resolvedAnchors
       .map((a) => {
-        const clock = formatClock(a.anchor.from, { hours: withHours });
+        const clock = formatClock(a.anchor.from, { hours: withHours ? "always" : "never" });
         if (a.anchor.selection) {
           return `${clock}（划词：「${a.anchor.selection}」）`;
         }

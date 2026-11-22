@@ -78,7 +78,7 @@ export function buildSubtitleSectionLines(body: readonly SubtitleBodyItemLike[] 
     }
 
     const chapterStamp = settings.includeTimestampInBody
-      ? ` \`${formatClock(start, { hours: withHours })}\``
+      ? ` \`${formatClock(start, { hours: withHours ? "always" : "never" })}\``
       : "";
     lines.push(`### ${chapter.title}${chapterStamp}`, "");
     sectionItems.forEach((item) => {
@@ -116,7 +116,7 @@ function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSett
   const topText = translationFirst ? secondary : text;
   const bottomText = translationFirst ? text : secondary;
   const firstLine = settings.includeTimestampInBody
-    ? `\`${formatClock(item.from, { hours: withHours })}\` ${topText}`
+    ? `\`${formatClock(item.from, { hours: withHours ? "always" : "never" })}\` ${topText}`
     : topText;
   return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
 }

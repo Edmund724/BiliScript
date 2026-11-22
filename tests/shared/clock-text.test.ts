@@ -13,12 +13,13 @@ describe("formatClock：秒 → 时刻文本（不补零）", () => {
     expect(formatClock(65)).toBe("1:05");
     expect(formatClock(600)).toBe("10:00");
     expect(formatClock(3725)).toBe("62:05");
+    expect(formatClock(3725, { hours: "never" })).toBe("62:05");
   });
 
   it("always 档：恒带小时位且不补零", () => {
     expect(formatClock(5, { hours: "always" })).toBe("0:00:05");
     expect(formatClock(3725, { hours: "always" })).toBe("1:02:05");
-    expect(formatClock(3600, { hours: true })).toBe("1:00:00");
+    expect(formatClock(3600, { hours: "always" })).toBe("1:00:00");
   });
 
   it("auto 档：≥3600 带 小时位，否则 never", () => {

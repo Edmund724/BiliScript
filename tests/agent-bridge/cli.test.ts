@@ -305,8 +305,8 @@ describe("桌面 Agent CLI 端到端", () => {
       { from: 3725, to: 3730, content: "一小时后" }
     ];
 
-    expect(formatSubtitleClock(5, false)).toBe(formatClock(5, { hours: false }));
-    expect(formatSubtitleClock(3725, true)).toBe(formatClock(3725, { hours: true }));
+    expect(formatSubtitleClock(5, false)).toBe(formatClock(5, { hours: "never" }));
+    expect(formatSubtitleClock(3725, true)).toBe(formatClock(3725, { hours: "always" }));
 
     const outShort = join(scratch, "parity-short");
     const shortSpilled = applySubtitleSpillover({

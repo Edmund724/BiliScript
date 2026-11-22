@@ -18,7 +18,7 @@ function buildChapterLines(chapters: unknown[] | null | undefined, withHours = f
   }
 
   return chapterItems.map((item) => {
-    const fromText = formatClock(item.from, { hours: withHours });
+    const fromText = formatClock(item.from, { hours: withHours ? "always" : "never" });
     return `- \`${fromText}\` ${item.title}`;
   });
 }
@@ -136,7 +136,7 @@ export function buildTxt(body: readonly SubtitleBodyItemLike[] | null | undefine
       const topText = secondary && translationFirst ? secondary : text;
       const bottomText = secondary && translationFirst ? text : secondary;
       const firstLine = settings?.includeTimestampInBody
-        ? `${formatClock(item.from, { hours: withHours })} ${topText}`
+        ? `${formatClock(item.from, { hours: withHours ? "always" : "never" })} ${topText}`
         : topText;
       return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
     })

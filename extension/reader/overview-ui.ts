@@ -292,7 +292,7 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
       : "";
   return `
     <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}" data-to="${to}">
-      <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+      <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours ? "always" : "never" }))}</span>
       <span class="biliscript-reading-ov-chapter-copy">
         <span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
         ${descHtml}
@@ -313,7 +313,7 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
       <span class="biliscript-reading-ov-quote-foot">
         <span class="biliscript-reading-ov-quote-seek">
           <span class="biliscript-reading-ov-quote-play" aria-hidden="true">${READING_PLAY_ICON}</span>
-          <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+          <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours ? "always" : "never" }))}</span>
         </span>
         <span class="biliscript-reading-ov-quote-actions">
           <span class="biliscript-reading-ov-quote-share" role="button" tabindex="0" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
@@ -381,8 +381,8 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
 async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
   const seconds = Number(quoteEl.dataset.seconds) || 0;
   const content = quoteEl.dataset.quote || "";
-  const withHours = shouldShowHoursInNote(state.clip, getClipBody());
-  const text = `${formatClock(seconds, { hours: withHours })} 「${content}」`;
+  const hours = shouldShowHoursInNote(state.clip, getClipBody()) ? "always" : "never";
+  const text = `${formatClock(seconds, { hours })} 「${content}」`;
   if (!content) {
     flashCopyFailure(quoteEl, { originalLabel: "复制该金句" });
     return;

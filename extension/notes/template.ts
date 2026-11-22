@@ -66,6 +66,7 @@ function formatChaptersMarkdown(
   nativeChapters: unknown[] | undefined,
   withHours: boolean
 ): string {
+  const hours = withHours ? "always" : "never";
   const aiItems = Array.isArray(overviewChapters)
     ? overviewChapters.filter((item) => item && String(item.title || "").trim())
     : [];
@@ -73,7 +74,7 @@ function formatChaptersMarkdown(
     return aiItems
       .map((item) => {
         const from = Number(item.from) || 0;
-        const stamp = formatClock(from, { hours: withHours });
+        const stamp = formatClock(from, { hours });
         const title = String(item.title || "").trim();
         const summary = String(item.summary || "").trim();
         return summary ? `- \`${stamp}\` **${title}**：${summary}` : `- \`${stamp}\` **${title}**`;
@@ -86,7 +87,7 @@ function formatChaptersMarkdown(
     return "";
   }
   return nativeItems
-    .map((item) => `- \`${formatClock(item.from, { hours: withHours })}\` ${item.title}`)
+    .map((item) => `- \`${formatClock(item.from, { hours })}\` ${item.title}`)
     .join("\n");
 }
 
@@ -100,11 +101,12 @@ function formatQuotesMarkdown(
   if (list.length === 0) {
     return "";
   }
+  const hours = withHours ? "always" : "never";
   return list
     .map((item) => {
       const from = Number(item.from) || 0;
       const content = String(item.content || "").trim();
-      return `> \`${formatClock(from, { hours: withHours })}\` ${content}`;
+      return `> \`${formatClock(from, { hours })}\` ${content}`;
     })
     .join("\n\n");
 }
@@ -116,6 +118,7 @@ function formatHighlightsMarkdown(
   if (!Array.isArray(highlights) || highlights.length === 0) {
     return "";
   }
+  const hours = withHours ? "always" : "never";
   return highlights
     .map((item) => {
       const text = String(item?.text || "").trim();
@@ -123,7 +126,7 @@ function formatHighlightsMarkdown(
         return "";
       }
       if (item.from !== null && Number.isFinite(item.from)) {
-        return `- \`${formatClock(item.from, { hours: withHours })}\` ${text}`;
+        return `- \`${formatClock(item.from, { hours })}\` ${text}`;
       }
       return `- ${text}`;
     })

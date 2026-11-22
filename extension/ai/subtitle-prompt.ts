@@ -15,8 +15,8 @@ export function formatSegmentItem(item: SubtitleBodyItemLike | null | undefined)
   const content = String(item && item.content != null ? item.content : "").trim();
   const from = Number(item?.from) || 0;
   const to = Number(item?.to) || from;
-  const withHours = shouldUseHoursForRange(from, to);
-  return `[${formatClock(from, { hours: withHours })}-${formatClock(to, { hours: withHours })}] ${content}`;
+  const hours = shouldUseHoursForRange(from, to) ? "always" : "never";
+  return `[${formatClock(from, { hours })}-${formatClock(to, { hours })}] ${content}`;
 }
 
 interface AiConversationMeta extends NoteRenderMeta {
@@ -42,7 +42,7 @@ export function buildAiConversationMarkdown(
     chapters.forEach((item: unknown) => {
       const from = Number((item as { from?: unknown }).from) || 0;
       const title = String((item as { title?: unknown }).title || "");
-      const stamp = includeTimestampInBody ? `\`${formatClock(from, { hours: withHours })}\` ` : "";
+      const stamp = includeTimestampInBody ? `\`${formatClock(from, { hours: withHours ? "always" : "never" })}\` ` : "";
       lines.push(`- ${stamp}${title}`);
     });
     lines.push("");

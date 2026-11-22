@@ -1,7 +1,7 @@
 import { chatCompletion } from "./completion.js";
 import { runToolLoop, webSearchTool, type ToolLoopSearchOutcome, type ToolStatusPayload } from "./tool-loop.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
-import { formatClock, shouldUseHours, shouldUseHoursForRange } from "../shared/clock-text.js";
+import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
 import type { AiProvider, ChatMessage } from "./types.js";
 
 interface ExplainSubtitleItem {
@@ -65,7 +65,7 @@ export function buildExplainContext(
   }
   const from = Math.max(0, Math.floor(anchor) - CONTEXT_WINDOW_SENTENCES);
   const to = Math.min(list.length - 1, Math.floor(anchor) + CONTEXT_WINDOW_SENTENCES);
-  const withHours = shouldUseHoursForRange(list[from]?.from, list[to]?.from);
+  const hours = shouldUseHoursForRange(list[from]?.from, list[to]?.from) ? "always" : "never";
   const lines: string[] = [];
   for (let i = from; i <= to; i += 1) {
     const item = list[i];
@@ -74,7 +74,7 @@ export function buildExplainContext(
       continue;
     }
     const mark = i === Math.floor(anchor) ? "→ " : "  ";
-    lines.push(`${mark}[${formatClock(Number(item?.from) || 0, { hours: withHours })}] ${content}`);
+    lines.push(`${mark}[${formatClock(Number(item?.from) || 0, { hours })}] ${content}`);
   }
   return lines.join("\n");
 }
@@ -88,7 +88,7 @@ export function buildExplainMessages({
   index,
   webSearch
 }: Omit<ExplainSelectionInput, "provider" | "signal" | "onSearchStatus" | "onNotice">): ChatMessage[] {
-  const stamp = formatClock(Number(from) || 0, { hours: shouldUseHours(from) });
+  const stamp = formatClock(Number(from) || 0, { hours: "auto" });
   const context = buildExplainContext(body, index);
   const sections = [
     `视频标题：${String(videoTitle || "未知").trim() || "未知"}`,

@@ -1,7 +1,7 @@
 export type ClockHoursMode = "auto" | "never" | "always";
 
 export interface ClockFormatOptions {
-  hours?: ClockHoursMode | boolean;
+  hours?: ClockHoursMode;
 }
 
 const HOUR_SECONDS = 3600;
@@ -16,9 +16,9 @@ export function shouldUseHoursForRange(from: unknown, to: unknown): boolean {
 
 export function formatClock(seconds: unknown, options: ClockFormatOptions = {}): string {
   const total = Math.max(0, Math.floor(Number(seconds) || 0));
-  const hours = options.hours ?? false;
+  const hours = options.hours ?? "never";
   const withHours =
-    hours === true || hours === "always" || (hours === "auto" && shouldUseHours(total));
+    hours === "always" || (hours === "auto" && shouldUseHours(total));
   const second = total % 60;
   if (!withHours) {
     return `${Math.floor(total / 60)}:${String(second).padStart(2, "0")}`;

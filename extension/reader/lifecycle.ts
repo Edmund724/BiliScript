@@ -1,7 +1,7 @@
 import { state, transitionReaderShell } from "../core/state.js";
 import { getCurrentClipScope } from "../shared/content-event-bus.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
-import { getReaderElement } from "../shared/dom-utils.js";
+import { byId } from "../shared/dom-utils.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts, readerPorts } from "./reader-bus.js";
@@ -377,7 +377,7 @@ export function restoreReadingViewFocus(): void {
   const returnFocus = readerReturnFocus;
   readerReturnFocus = null;
   if (state.reader.readingViewOpen) return;
-  const readingView = getReaderElement(ids.readingView);
+  const readingView = byId(ids.readingView);
   const active = document.activeElement;
   if (active instanceof Node && active !== document.body && active !== document.documentElement && !readingView.contains(active)) {
     return;
@@ -403,7 +403,7 @@ export async function enterReaderMode(
   mode: "open" | "restore" = "open",
   options: { triggerRect?: DOMRect | null } = {}
 ) {
-  const readingView = getReaderElement(ids.readingView);
+  const readingView = byId(ids.readingView);
   const launchTriggerRect =
     captureTriggerRect(options.triggerRect) ??
     captureTriggerRect(document.activeElement instanceof Element ? document.activeElement : null);
@@ -458,7 +458,7 @@ function blurActiveFocusInside(container: HTMLElement): boolean {
 }
 
 function openReaderViewShell(
-  readingView = getReaderElement(ids.readingView),
+  readingView = byId(ids.readingView),
   mode: "open" | "restore" = "open"
 ) {
   if (!readingView) {
@@ -480,7 +480,7 @@ function openReaderViewShell(
 }
 
 export function beginClosingReadingView(): boolean {
-  const readingView = getReaderElement(ids.readingView);
+  const readingView = byId(ids.readingView);
   const wasOpen = readingView.classList.contains("open");
   restoreReaderFocusOnClose = blurActiveFocusInside(readingView);
   setReadingViewInert(readingView, true);
@@ -494,7 +494,7 @@ export function beginClosingReadingView(): boolean {
 }
 
 export function closeReadingView() {
-  const readingView = getReaderElement(ids.readingView);
+  const readingView = byId(ids.readingView);
   const hadFocusInside = blurActiveFocusInside(readingView);
   readerFocusRestorePending = restoreReaderFocusOnClose || hadFocusInside;
   restoreReaderFocusOnClose = false;

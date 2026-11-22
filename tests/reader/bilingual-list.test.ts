@@ -24,7 +24,7 @@ function singleTrackItemHtml(item: ReadingSubtitleItem, withHours: boolean): str
       data-seconds="${item.from}"
     >
       <span class="biliscript-reading-time">${escapeHtml(
-        formatClock(item.from, { hours: withHours })
+        formatClock(item.from, { hours: withHours ? "always" : "never" })
       )}</span>
       <span class="biliscript-reading-text">${escapeHtml(item.content)}</span>
     </button>

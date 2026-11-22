@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { getReaderElement } from "../shared/dom-utils.js";
+import { byId } from "../shared/dom-utils.js";
 import {
   getReadingSubtitleItems,
   getReadingSubtitlePlaceholderText
@@ -33,7 +33,7 @@ export interface ReaderViewProjection {
 }
 
 function projectReadingMetaLine(): void {
-  const metaNode = getReaderElement(ids.readingMeta);
+  const metaNode = byId(ids.readingMeta);
   if (!metaNode) {
     return;
   }
@@ -61,7 +61,7 @@ function projectReadingSubtitleList(): void {
   const subtitleItems = getReadingSubtitleItems();
   const withHours = shouldShowHoursInNote(state.clip, body);
 
-  const subtitleList = getReaderElement(ids.readingSubtitleList);
+  const subtitleList = byId(ids.readingSubtitleList);
   subtitleScrollFollow.guardLayoutReset();
   clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {

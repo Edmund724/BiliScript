@@ -316,7 +316,8 @@ function clampSingleLine(text: string, maxLen: number): string {
 }
 
 function formatChapterRange(from: number, to: number, withHours: boolean): string {
-  return `[${formatClock(from, { hours: withHours })}-${formatClock(Math.max(from, to), { hours: withHours })}]`;
+  const hours = withHours ? "always" : "never";
+  return `[${formatClock(from, { hours })}-${formatClock(Math.max(from, to), { hours })}]`;
 }
 
 function renderPromptLines(

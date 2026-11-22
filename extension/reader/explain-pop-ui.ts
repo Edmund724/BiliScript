@@ -73,7 +73,7 @@ export function formatSelectionTimestampCopy(
   if (from === null || !Number.isFinite(from) || from < 0) {
     return cleanText;
   }
-  return `[${formatClock(from, { hours: withHours })}] ${cleanText}`;
+  return `[${formatClock(from, { hours: withHours ? "always" : "never" })}] ${cleanText}`;
 }
 
 export function computeSelectionPopPosition(params: {

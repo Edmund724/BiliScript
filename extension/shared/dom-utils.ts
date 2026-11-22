@@ -6,8 +6,6 @@ export function byId(id: string): HTMLElement {
   return node;
 }
 
-export const getReaderElement = byId;
-
 export function isVisibleReaderControl(node: unknown): boolean {
   if (!node || typeof (node as Element).getBoundingClientRect !== "function") {
     return false;

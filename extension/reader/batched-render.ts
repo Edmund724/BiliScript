@@ -83,7 +83,7 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
       data-seconds="${item.from}"
     >
       <span class="biliscript-reading-time">${escapeHtml(
-        formatClock(item.from, { hours: withHours })
+        formatClock(item.from, { hours: withHours ? "always" : "never" })
       )}</span>
       <span class="${SUBTITLE_TEXT_CLASS}">${textBodyHtml}</span>
     </button>

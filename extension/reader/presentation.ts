@@ -1,6 +1,6 @@
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
-import { getReaderElement } from "../shared/dom-utils.js";
+import { byId } from "../shared/dom-utils.js";
 import {
   normalizeReaderPalette,
   normalizeReaderFontSizeScale,
@@ -52,7 +52,7 @@ export function syncReaderExternalTheme(): boolean {
 }
 
 export function applyChatInputGlow(view?: HTMLElement | null): void {
-  const readingView = view ?? getReaderElement(ids.readingView);
+  const readingView = view ?? byId(ids.readingView);
   if (!readingView) {
     return;
   }
@@ -65,7 +65,7 @@ export function applyChatInputGlow(view?: HTMLElement | null): void {
 }
 
 export function applyReduceTransparency(view?: HTMLElement | null): void {
-  const readingView = view ?? getReaderElement(ids.readingView);
+  const readingView = view ?? byId(ids.readingView);
   if (!readingView) {
     return;
   }
@@ -77,7 +77,7 @@ export function applyReduceTransparency(view?: HTMLElement | null): void {
 }
 
 export function applyReadingViewTypography(view?: HTMLElement | null): void {
-  const readingView = view ?? getReaderElement(ids.readingView);
+  const readingView = view ?? byId(ids.readingView);
   if (!readingView) {
     return;
   }
@@ -91,7 +91,7 @@ export function applyReadingViewTypography(view?: HTMLElement | null): void {
 }
 
 export function applyReadingViewPresentation() {
-  const readingView = getReaderElement(ids.readingView);
+  const readingView = byId(ids.readingView);
   const values: Record<string, string> = {};
   for (const field of READER_APPLY_FIELDS) {
     values[field.id] = field.readValue!(state.reader);

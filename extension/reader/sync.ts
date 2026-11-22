@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { getReaderElement } from "../shared/dom-utils.js";
+import { byId } from "../shared/dom-utils.js";
 import { findActiveSubtitleIndex, findActiveChapterIndex } from "../subtitle/core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
@@ -154,7 +154,7 @@ function setActiveReadingItems(
   shouldScroll = false,
   currentTime?: number
 ) {
-  const subtitleList = getReaderElement(ids.readingSubtitleList);
+  const subtitleList = byId(ids.readingSubtitleList);
   const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
 
   if (!subtitleHit.unchanged) {
@@ -219,7 +219,7 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
     return;
   }
 
-  const subtitleList = getReaderElement(ids.readingSubtitleList);
+  const subtitleList = byId(ids.readingSubtitleList);
   const listRect = subtitleList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {

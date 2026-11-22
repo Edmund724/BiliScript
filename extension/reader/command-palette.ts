@@ -305,12 +305,12 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
   const results: CommandPaletteItem[] = [];
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   const chapters = normalizeChapters(state.clip.chapters || []);
-  const withHours = shouldShowHoursInNote(state.clip, body);
+  const hours = shouldShowHoursInNote(state.clip, body) ? "always" : "never";
   const trimmed = String(query || "").trim();
 
   const parsedSec = parseTimestampQuery(trimmed);
   if (parsedSec !== null) {
-    const stamp = formatClock(parsedSec, { hours: withHours });
+    const stamp = formatClock(parsedSec, { hours });
     results.push({
       id: `jump-time-${parsedSec}`,
       group: "跳转指定时间",
@@ -323,7 +323,7 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
 
   if (!trimmed) {
     chapters.slice(0, 3).forEach((ch, idx) => {
-      const stamp = formatClock(ch.from, { hours: withHours });
+      const stamp = formatClock(ch.from, { hours });
       results.push({
         id: `jump-chapter-${idx}`,
         group: "章节直达",
@@ -340,7 +340,7 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
     const ch = chapters[i];
     const score = scoreFuzzyMatch(trimmed, ch.title);
     if (score > 0) {
-      const stamp = formatClock(ch.from, { hours: withHours });
+      const stamp = formatClock(ch.from, { hours });
       results.push({
         id: `jump-chapter-match-${i}`,
         group: "跳转章节 / 字幕",
@@ -369,7 +369,7 @@ function buildDynamicJumpCommands(query: string): CommandPaletteItem[] {
     }
     matchedSubtitles.sort((a, b) => b.score - a.score || a.idx - b.idx);
     for (const item of matchedSubtitles.slice(0, MAX_SUBTITLE_MATCHES)) {
-      const stamp = formatClock(item.from, { hours: withHours });
+      const stamp = formatClock(item.from, { hours });
       results.push({
         id: `jump-sub-${item.idx}`,
         group: "跳转字幕",
