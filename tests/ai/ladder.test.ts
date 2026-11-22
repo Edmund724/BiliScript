@@ -77,10 +77,6 @@ function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
       return null;
     }),
     buildBudgetPlan: vi.fn<NonNullable<RunLadderChatDeps["buildBudgetPlan"]>>(() => makeBudgetPlan()),
-    buildCostGuardNotice: vi.fn<NonNullable<RunLadderChatDeps["buildCostGuardNotice"]>>(() => ({
-      shouldPrompt: false,
-      message: ""
-    })),
     trimRecentTurns: vi.fn<TrimRecentTurnsFn>((history) => (Array.isArray(history) ? history.slice(-2) : [])),
     askCostGuard: vi.fn<RunLadderChatDeps["askCostGuard"]>(async () => true),
     onActivity: vi.fn(),
@@ -145,35 +141,34 @@ describe("runLadderChat 分派", () => {
     expect(port.messages).toHaveLength(0);
   });
 
-  it("③a 未命中 + shouldPrompt=true + 确认 → askCostGuard 后走 orchestrateMapReduce", async () => {
+  it("③a 未命中 + 达阈值 + 确认 → askCostGuard 后走 orchestrateMapReduce", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 }),
-      buildCostGuardNotice: () => ({ shouldPrompt: true, message: "预计约 8 次调用" })
+      buildBudgetPlan: () =>
+        makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, totalChars: 150000, estimatedTokens: 150000 })
     });
 
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
-    expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用");
+    expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用 / 约 150,000 token，可取消");
     expect(deps.pauseIdleTimeout).toHaveBeenCalled();
     expect(calls.mapReduce).toHaveLength(1);
     expect(calls.mapReduce[0]).toMatchObject({ plan: { mode: "map-reduce" }, signal });
     expect(port.messages).toHaveLength(0);
   });
 
-  it("③b 未命中 + shouldPrompt=true + 取消 → postMessage stopped，不走 Map-Reduce", async () => {
+  it("③b 未命中 + 达阈值 + 取消 → postMessage stopped，不走 Map-Reduce", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
-      buildCostGuardNotice: () => ({ shouldPrompt: true, message: "预计约 8 次调用" }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, totalChars: 150000 }),
       askCostGuard: vi.fn(async () => false)
     });
 
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
-    expect(deps.askCostGuard).toHaveBeenCalledTimes(1);
+    expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用 / 约 150,000 token，可取消");
     expect(calls.mapReduce).toHaveLength(0);
     expect(port.messages).toEqual([{ type: "stopped", reason: "已取消" }]);
   });
@@ -248,9 +243,8 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, totalChars: 150000 }),
       resolveFollowupContext: vi.fn(async () => null),
-      buildCostGuardNotice: () => ({ shouldPrompt: true, message: "确认？" }),
       askCostGuard: vi.fn(async () => true)
     });
     const { acquireSwKeepalive, events } = makeKeepaliveSpy();

@@ -2,7 +2,7 @@ import { streamChat as _streamChat } from "./client.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
-import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
+import { runCostGuard } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
 import { estimateTokensFromChars } from "./usage-stats.js";
 import { normalizeImageParts } from "./conversation.js";
@@ -68,7 +68,6 @@ export interface RunLadderChatDeps {
   orchestrateMapReduce?: typeof _orchestrateMapReduce;
   resolveFollowupContext?: typeof _resolveFollowupContext;
   buildBudgetPlan?: typeof _buildBudgetPlan;
-  buildCostGuardNotice?: typeof _buildCostGuardNotice;
   trimRecentTurns?: typeof _trimRecentTurns;
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
   onActivity?: () => void;
@@ -204,7 +203,6 @@ export async function runLadderChat(
   const orchestrateMapReduce = deps.orchestrateMapReduce ?? _orchestrateMapReduce;
   const resolveFollowupContext = deps.resolveFollowupContext ?? _resolveFollowupContext;
   const buildBudgetPlan = deps.buildBudgetPlan ?? _buildBudgetPlan;
-  const buildCostGuardNotice = deps.buildCostGuardNotice ?? _buildCostGuardNotice;
   const trimRecentTurns = deps.trimRecentTurns ?? _trimRecentTurns;
   const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
@@ -329,7 +327,6 @@ export async function runLadderChat(
       const declined = await runCostGuard({
         estimatedCalls: plan.estimatedCalls,
         estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
-        buildNotice: buildCostGuardNotice,
         ask: async (message) => {
           pauseIdleTimeout?.();
           return askCostGuard(port, message);

@@ -332,10 +332,6 @@ export function createPageVideoFrameCapture(
       if (!isPeriodicSuspended(video)) {
         captureFrame("periodic");
         scheduleNext();
-        return;
-      }
-      if (video && typeof video.addEventListener !== "function") {
-        scheduleNext();
       }
     }, delayMs);
   }
@@ -343,8 +339,6 @@ export function createPageVideoFrameCapture(
   const initialVideo = selectVideo();
   if (!isPeriodicSuspended(initialVideo)) {
     captureFrame("periodic");
-    scheduleNext();
-  } else if (initialVideo && typeof initialVideo.addEventListener !== "function") {
     scheduleNext();
   }
 

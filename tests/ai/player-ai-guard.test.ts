@@ -121,16 +121,15 @@ function makePlayerDom(): Element {
 
 beforeEach(() => {
   storageChangeListeners.clear();
-  if (window.__biliscriptPlayerAiSyncRaf !== undefined) {
-    window.cancelAnimationFrame(window.__biliscriptPlayerAiSyncRaf);
-    delete window.__biliscriptPlayerAiSyncRaf;
-  }
   resetModuleState();
   vi.useFakeTimers();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
+  stopPlayerAiQuickAction();
   document.body.innerHTML = "";
+  vi.clearAllTimers();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });

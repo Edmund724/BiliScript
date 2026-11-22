@@ -317,7 +317,6 @@ export function schedulePlayerAiQuickActionSync(delayMs = 120): void {
       playerAiState.setSyncTimer(0);
       syncPlayerAiQuickActionButton();
     });
-    (window as Window).__biliscriptPlayerAiSyncRaf = rafId;
     playerAiState.setSyncTimer(-rafId);
     return;
   }

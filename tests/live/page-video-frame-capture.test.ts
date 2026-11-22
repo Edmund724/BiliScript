@@ -9,33 +9,37 @@ import {
 } from "../../extension/live/page-video-frame-capture.js";
 import { MOSS_STANDARD_VIDEO_CONFIG } from "../../extension/live/moss-video-config.js";
 
+class FakeDomVideo extends EventTarget {
+  currentSrc: string;
+  src = "";
+  readyState = 4;
+  videoWidth = 1920;
+  videoHeight = 1080;
+  currentTime: number;
+  paused: boolean;
+  ended: boolean;
+
+  constructor(initial: {
+    currentTime?: number;
+    paused?: boolean;
+    ended?: boolean;
+    currentSrc?: string;
+  } = {}) {
+    super();
+    this.currentSrc = initial.currentSrc ?? "blob:https://www.bilibili.com/video-live";
+    this.currentTime = initial.currentTime ?? 10;
+    this.paused = initial.paused ?? false;
+    this.ended = initial.ended ?? false;
+  }
+}
+
 function createFakeDomVideo(initial: {
   currentTime?: number;
   paused?: boolean;
   ended?: boolean;
   currentSrc?: string;
 } = {}) {
-  const listeners = new Map<string, Set<() => void>>();
-  return {
-    currentSrc: initial.currentSrc ?? "blob:https://www.bilibili.com/video-live",
-    src: "",
-    readyState: 4,
-    videoWidth: 1920,
-    videoHeight: 1080,
-    currentTime: initial.currentTime ?? 10,
-    paused: initial.paused ?? false,
-    ended: initial.ended ?? false,
-    addEventListener: vi.fn((type: string, fn: () => void) => {
-      if (!listeners.has(type)) listeners.set(type, new Set());
-      listeners.get(type)!.add(fn);
-    }),
-    removeEventListener: vi.fn((type: string, fn: () => void) => {
-      listeners.get(type)?.delete(fn);
-    }),
-    dispatch(type: string) {
-      listeners.get(type)?.forEach((fn) => fn());
-    }
-  };
+  return new FakeDomVideo(initial);
 }
 
 function createFakeCanvasHarness() {
@@ -120,14 +124,10 @@ describe("createPageVideoFrameCapture", () => {
   it("keeps emitting the cached JPEG frame at 1fps while the video is paused without re-encoding", async () => {
     vi.useFakeTimers();
 
-    const fakeVideo = {
+    const fakeVideo = createFakeDomVideo({
       currentSrc: "blob:https://www.bilibili.com/video-1",
-      src: "",
-      readyState: 4,
-      videoWidth: 1920,
-      videoHeight: 1080,
       currentTime: 42.5
-    } as unknown as HTMLVideoElement;
+    }) as unknown as HTMLVideoElement;
 
     const drawImage = vi.fn();
     let blobByte = 0x10;
@@ -176,14 +176,10 @@ describe("createPageVideoFrameCapture", () => {
   it("按会话参数缩放抽帧，并在 configure 后按新长边、质量与间隔生效", async () => {
     vi.useFakeTimers();
 
-    const fakeVideo = {
+    const fakeVideo = createFakeDomVideo({
       currentSrc: "blob:https://www.bilibili.com/video-2",
-      src: "",
-      readyState: 4,
-      videoWidth: 1920,
-      videoHeight: 1080,
       currentTime: 7
-    } as unknown as HTMLVideoElement;
+    }) as unknown as HTMLVideoElement;
 
     const drawImage = vi.fn();
     let lastQuality = 0;
@@ -259,7 +255,7 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames).toHaveLength(3);
 
     fakeVideo.paused = true;
-    fakeVideo.dispatch("pause");
+    fakeVideo.dispatchEvent(new Event("pause"));
     const countAfterPause = frames.length;
     await vi.advanceTimersByTimeAsync(5000);
     expect(frames).toHaveLength(countAfterPause);
@@ -274,7 +270,7 @@ describe("createPageVideoFrameCapture", () => {
 
     fakeVideo.paused = false;
     fakeVideo.currentTime = 8;
-    fakeVideo.dispatch("play");
+    fakeVideo.dispatchEvent(new Event("play"));
     await vi.advanceTimersByTimeAsync(0);
     expect(frames).toHaveLength(countAfterPause + 1);
 
@@ -290,10 +286,20 @@ describe("createPageVideoFrameCapture", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(frames).toHaveLength(countAfterPause + 2);
 
-    fakeVideo.ended = true;
-    fakeVideo.dispatch("ended");
-    await vi.advanceTimersByTimeAsync(3000);
+    fakeVideo.paused = true;
+    fakeVideo.dispatchEvent(new Event("pause"));
+    await vi.advanceTimersByTimeAsync(MIN_LIVE_VIDEO_CAPTURE_INTERVAL_MS);
     expect(frames).toHaveLength(countAfterPause + 2);
+    fakeVideo.paused = false;
+    fakeVideo.currentTime = 13;
+    fakeVideo.dispatchEvent(new Event("playing"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames).toHaveLength(countAfterPause + 3);
+
+    fakeVideo.ended = true;
+    fakeVideo.dispatchEvent(new Event("ended"));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(frames).toHaveLength(countAfterPause + 3);
 
     session.stop();
   });
@@ -316,10 +322,10 @@ describe("createPageVideoFrameCapture", () => {
     expect(frames).toHaveLength(0);
 
     fakeVideo.currentTime = 45;
-    fakeVideo.dispatch("seeked");
+    fakeVideo.dispatchEvent(new Event("seeked"));
     await vi.advanceTimersByTimeAsync(100);
     fakeVideo.currentTime = 90;
-    fakeVideo.dispatch("seeked");
+    fakeVideo.dispatchEvent(new Event("seeked"));
     await vi.advanceTimersByTimeAsync(100);
     expect(frames).toHaveLength(0);
 

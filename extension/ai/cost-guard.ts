@@ -40,7 +40,6 @@ export interface RunCostGuardArgs {
   ask: (message: string) => Promise<unknown>;
   onDecline: () => void;
   precheck?: () => boolean | void;
-  buildNotice?: (input: { estimatedCalls?: number; estimatedTokens?: number }) => CostGuardNotice;
 }
 
 export async function runCostGuard({
@@ -48,10 +47,9 @@ export async function runCostGuard({
   estimatedTokens,
   ask,
   onDecline,
-  precheck,
-  buildNotice = buildCostGuardNotice
+  precheck
 }: RunCostGuardArgs): Promise<boolean> {
-  const notice = buildNotice({ estimatedCalls, estimatedTokens });
+  const notice = buildCostGuardNotice({ estimatedCalls, estimatedTokens });
   if (!notice.shouldPrompt) {
     return false;
   }

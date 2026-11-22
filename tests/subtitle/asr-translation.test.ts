@@ -8,22 +8,28 @@ const translator = vi.hoisted(() => ({
   gate: null as null | (() => void)
 }));
 
-vi.mock("../../extension/ai/subtitle-translate.js", () => ({
-  translateSubtitleItems: async ({
-    items,
-    targetLang
-  }: {
-    items: Array<{ from: number; to: number; content: string }>;
-    targetLang: string;
-  }) => {
-    const start = Math.floor((items[0]?.from || 0) / 60) * 60;
-    translator.calls.push({ count: items.length, targetLang });
-    if (translator.failStarts.has(start)) {
-      throw new Error("平台 429");
+vi.mock("../../extension/ai/subtitle-translate.js", async () => {
+  const actual = await vi.importActual<typeof import("../../extension/ai/subtitle-translate.js")>(
+    "../../extension/ai/subtitle-translate.js"
+  );
+  return {
+    ...actual,
+    translateSubtitleItems: async ({
+      items,
+      targetLang
+    }: {
+      items: Array<{ from: number; to: number; content: string }>;
+      targetLang: string;
+    }) => {
+      const start = Math.floor((items[0]?.from || 0) / 60) * 60;
+      translator.calls.push({ count: items.length, targetLang });
+      if (translator.failStarts.has(start)) {
+        throw new Error("平台 429");
+      }
+      return items.map((item) => ({ ...item, content: `[${targetLang}] ${item.content}` }));
     }
-    return items.map((item) => ({ ...item, content: `[${targetLang}] ${item.content}` }));
-  }
-}));
+  };
+});
 
 const BODY = [
   { from: 0, to: 3, content: "第一句" },

@@ -3,7 +3,6 @@ declare global {
     __INITIAL_STATE__?: Record<string, unknown>;
     __PLAYER_STATE__?: Record<string, unknown>;
     __BILI_PLAYER__?: Record<string, unknown>;
-    __biliscriptPlayerAiSyncRaf?: number;
   }
 
   var __BILISCRIPT_READER_DEBUG_SNAPSHOT__:

@@ -11,7 +11,6 @@ import {
 import {
   createTranslatedTrackSession,
   isUsableSubtitleItem,
-  type ResolveTranslationProtocolFn,
   type TranslatedTrackPrimaryChunk
 } from "./translated-track-session.js";
 
@@ -35,15 +34,6 @@ export interface AsrTranslationResult {
   total: number;
   done: number;
   failed: number;
-}
-
-function readOptionalModuleExport<T>(mod: object, key: string): T | undefined {
-  try {
-    const candidate = (mod as Record<string, unknown>)[key];
-    return typeof candidate === "function" ? (candidate as T) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function markSecondaryTranslationFailed(trackId: string): void {
@@ -136,21 +126,12 @@ export async function ensureAsrSecondarySubtitle(
     readCachedL1VideoIndex(state.clip)
   ]);
   const baseContext = await resolveRuntimeSubtitleContext({ l1Index });
-  const resolveProviderFn = readOptionalModuleExport<
-    () => Promise<{ model?: string } | null>
-  >(translateModule, "resolveSubtitleTranslateProvider");
-  const resolveProtocolFn = readOptionalModuleExport<ResolveTranslationProtocolFn>(
-    translateModule,
-    "resolveSubtitleTranslateProtocolMode"
-  );
-  const providerRes = resolveProviderFn
-    ? await resolveProviderFn().catch(() => null)
-    : null;
+  const providerRes = await translateModule.resolveSubtitleTranslateProvider().catch(() => null);
 
   const sigChanged = session.reconfigure({
     model: providerRes?.model,
     glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary,
-    resolveProtocolMode: resolveProtocolFn,
+    resolveProtocolMode: translateModule.resolveSubtitleTranslateProtocolMode,
     translateItems: translateModule.translateSubtitleItems,
     protocolItems: body
   });

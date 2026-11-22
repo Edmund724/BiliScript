@@ -4,7 +4,7 @@ import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createAiArtifactFamily } from "../subtitle/ai-artifact-cache.js";
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
-import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
+import { runCostGuard } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
 import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
@@ -100,8 +100,6 @@ interface TokenProgressState {
   reasoningChars: number;
 }
 
-type BuildCostGuardNoticeFn = typeof _buildCostGuardNotice;
-
 export interface RunOverviewAnalysisArgs {
   provider: ProviderRequest;
   context: AiContext;
@@ -112,7 +110,6 @@ export interface RunOverviewAnalysisArgs {
 
 interface RunOverviewAnalysisDeps {
   chatCompletion?: ChatCompletionFn;
-  buildCostGuardNotice?: BuildCostGuardNoticeFn;
   askCostGuard?: (message: string) => Promise<unknown>;
   onProgress?: (notice: string) => void;
 }
@@ -316,7 +313,6 @@ export function runOverviewAnalysis(
     thinkingLevel,
     forceRefresh,
     chatCompletionImpl: deps.chatCompletion ?? _chatCompletion,
-    buildCostGuardNoticeImpl: deps.buildCostGuardNotice ?? _buildCostGuardNotice,
     askCostGuard: deps.askCostGuard,
     onProgress: deps.onProgress
   });
@@ -340,7 +336,6 @@ interface ExecuteOverviewRunArgs {
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh: boolean;
   chatCompletionImpl: ChatCompletionFn;
-  buildCostGuardNoticeImpl: BuildCostGuardNoticeFn;
   askCostGuard?: (message: string) => Promise<unknown>;
   onProgress?: (notice: string) => void;
 }
@@ -353,7 +348,6 @@ async function executeOverviewRun({
   thinkingLevel,
   forceRefresh,
   chatCompletionImpl,
-  buildCostGuardNoticeImpl,
   askCostGuard,
   onProgress
 }: ExecuteOverviewRunArgs): Promise<OverviewAnalysis> {
@@ -426,7 +420,6 @@ async function executeOverviewRun({
     await runCostGuard({
       estimatedCalls: windows.length + 1,
       estimatedTokens: estimateTokensFromChars(provider, relayDecision.totalChars),
-      buildNotice: buildCostGuardNoticeImpl,
       precheck: () => {
         if (signal?.aborted) {
           throw makeAbortedError();
