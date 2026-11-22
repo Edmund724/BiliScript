@@ -48,6 +48,29 @@ function stubChromeApi() {
 
 export function setupEnvironment() {
   stubChromeApi();
+  if (typeof Element !== "undefined" && typeof Element.prototype.setPointerCapture !== "function") {
+    const capturedPointers = new WeakMap<Element, Set<number>>();
+    Element.prototype.setPointerCapture = function setPointerCapture(pointerId: number): void {
+      if (!this.isConnected) {
+        throw new DOMException("Element is not connected", "InvalidStateError");
+      }
+      if (typeof pointerId !== "number" || !Number.isFinite(pointerId)) {
+        throw new DOMException("Invalid pointerId", "NotFoundError");
+      }
+      let set = capturedPointers.get(this);
+      if (!set) {
+        set = new Set();
+        capturedPointers.set(this, set);
+      }
+      set.add(pointerId);
+    };
+    Element.prototype.releasePointerCapture = function releasePointerCapture(pointerId: number): void {
+      capturedPointers.get(this)?.delete(pointerId);
+    };
+    Element.prototype.hasPointerCapture = function hasPointerCapture(pointerId: number): boolean {
+      return capturedPointers.get(this)?.has(pointerId) ?? false;
+    };
+  }
 }
 
 export function clearSharedSlots() {

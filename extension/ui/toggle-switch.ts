@@ -1,3 +1,4 @@
+import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { ensureToggleSwitchStyles } from "../shared/style-injector.js";
 
 ensureToggleSwitchStyles();
@@ -105,7 +106,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   };
   let samples: { x: number; t: number }[] = [];
 
-  const releaseVelocity = (endEvent: Event): number => {
+  const releaseVelocity = (): number => {
     const end = samples[samples.length - 1];
     const prev = samples[samples.length - 2];
     if (!end || !prev) return 0;
@@ -128,10 +129,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
       dragObserver = new ResizeObserver(onDragResize);
       dragObserver.observe(track);
     }
-    try {
-      track.setPointerCapture?.(e.pointerId);
-    } catch {
-    }
+    trySetPointerCapture(track, e.pointerId);
   });
 
   track.addEventListener("pointermove", (e) => {
@@ -146,7 +144,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     if (samples.length > 4) samples.shift();
   });
 
-  const finishDrag = (e: Event): void => {
+  const finishDrag = (e: PointerEvent): void => {
     if (!dragging) return;
     dragging = false;
     window.removeEventListener("resize", onDragResize);
@@ -161,8 +159,8 @@ export function initToggleSwitch(input: HTMLInputElement): void {
       springTo(input.checked ? currentTravel : 0);
       return;
     }
-    samples.push({ x: (e as PointerEvent).clientX ?? samples[samples.length - 1]?.x ?? 0, t: e.timeStamp });
-    const vPxMs = releaseVelocity(e);
+    samples.push({ x: e.clientX ?? samples[samples.length - 1]?.x ?? 0, t: e.timeStamp });
+    const vPxMs = releaseVelocity();
     const range = currentTravel;
     const projected = pos + vPxMs * VELOCITY_PROJECTION_MS;
     const target = projected >= range / 2 ? range : 0;

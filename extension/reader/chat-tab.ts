@@ -814,6 +814,6 @@ async function startSubtitleFetch(): Promise<boolean> {
   return kickSubtitleFetch(() => requestSubtitleRefresh(), {
     onChainLoadFailed: (error) => logWarn("[BILISCRIPT] subtitle fetch start failed", { error }),
     awaitRefresh: false,
-    onRefreshFailed: () => {}
+    onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle refresh failed", { error })
   });
 }

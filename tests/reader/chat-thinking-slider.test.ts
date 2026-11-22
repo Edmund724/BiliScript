@@ -162,14 +162,14 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
-    track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 100 }));
+    track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+    track.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 100, pointerId: 1 }));
 
     expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
     expect(fill.style.width).toMatch(/^calc\(33\.3333.*% \+ 12px\)$/);
     expect(thinkingRowValue.textContent).toBe("Low");
 
-    track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 100 }));
+    track.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 100, pointerId: 1 }));
     expect(pickLevel).toHaveBeenCalledWith("low");
   });
   it("CSS 契约：滑块不声明 transition: left 与常驻 will-change，避免主线程位移重排", () => {
@@ -196,12 +196,12 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       return { left: 0, width: 300 } as DOMRect;
     };
 
-    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
+    track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
     const downQueries = rectQueries;
     expect(downQueries).toBeGreaterThan(0);
 
     for (let x = 10; x <= 50; x += 10) {
-      track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: x }));
+      track.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x, pointerId: 1 }));
     }
     expect(rectQueries - downQueries).toBe(0);
 
@@ -209,7 +209,7 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     window.dispatchEvent(new Event("resize"));
     expect(rectQueries).toBeGreaterThan(beforeResizeQueries);
 
-    track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 50 }));
+    track.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 50, pointerId: 1 }));
   });
 
   it("滑块位移动画通过 transform 表达且最终归零，响应式布局决定百分比终点，无过期像素终点", () => {

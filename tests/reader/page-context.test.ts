@@ -192,3 +192,71 @@ describe("duration 选取", () => {
     expect(result.duration).toBe(999);
   });
 });
+
+describe("非法 URL 与异常收敛边界", () => {
+  it("非法 URL 与非法 ctx.href 安全降级，不抛异常", () => {
+    const fallbackResult = resolvePageContext("not-a-valid-url", buildMeta(), {
+      ctx: { href: "also-invalid-url" },
+      getVideo: () => null
+    });
+    expect(fallbackResult.pageIndex).toBe(1);
+    expect(fallbackResult.cid).toBe("101");
+
+    const watchlaterUrl = "https://www.bilibili.com/list/watchlater?bvid=BV1xx411c7mD&oid=170001";
+    const stateResult = resolvePageContext(watchlaterUrl, buildMeta(), {
+      ctx: { href: "also-invalid-url", __INITIAL_STATE__: { player: { page: 2 } } },
+      getVideo: () => null
+    });
+    expect(stateResult.pageIndex).toBe(2);
+    expect(stateResult.cid).toBe("102");
+  });
+
+  it("跨域 SecurityError 在各探测边界安全降级", () => {
+    const url = "https://www.bilibili.com/list/watchlater?bvid=BV1xx411c7mD&oid=170001";
+    const restrictedCtx = {
+      get href(): string {
+        throw new DOMException("Blocked cross-origin href", "SecurityError");
+      },
+      get __INITIAL_STATE__(): Record<string, unknown> {
+        throw new DOMException("Blocked cross-origin state", "SecurityError");
+      },
+      get document(): { querySelector: (selector: string) => Element | null } {
+        throw new DOMException("Blocked cross-origin document", "SecurityError");
+      }
+    };
+    const result = resolvePageContext(url, buildMeta({ defaultCid: "102" }), {
+      ctx: restrictedCtx,
+      getVideo: () => {
+        throw new DOMException("Blocked cross-origin video", "SecurityError");
+      }
+    });
+    expect(result.pageIndex).toBe(2);
+    expect(result.cid).toBe("102");
+  });
+
+  it("非 SecurityError 异常（如 TypeError）不会被静默吞掉", () => {
+    const url = "https://www.bilibili.com/list/watchlater?bvid=BV1xx411c7mD&oid=170001";
+    expect(() =>
+      resolvePageContext(url, buildMeta(), {
+        ctx: { __INITIAL_STATE__: {} },
+        getVideo: () => {
+          throw new TypeError("broken getVideo probe");
+        }
+      })
+    ).toThrow(TypeError);
+
+    expect(() =>
+      resolvePageContext(url, buildMeta(), {
+        ctx: {
+          __INITIAL_STATE__: {},
+          document: {
+            querySelector: () => {
+              throw new TypeError("broken querySelector mock");
+            }
+          }
+        },
+        getVideo: () => null
+      })
+    ).toThrow(TypeError);
+  });
+});

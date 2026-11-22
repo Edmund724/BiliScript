@@ -879,10 +879,11 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
-    track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 200 }));
+    track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+    expect(track.hasPointerCapture(1)).toBe(true);
+    track.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, pointerId: 1 }));
     expect(thinkingRowValue.textContent).toBe("High");
-    track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 200 }));
+    track.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 200, pointerId: 1 }));
     expect(pickLevel).toHaveBeenLastCalledWith("high");
 
     pickLevel.mockClear();
@@ -913,10 +914,10 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     const fill = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
-    track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 200 }));
+    track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+    track.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, pointerId: 1 }));
     expect(thinkingRowValue.textContent).toBe("High");
-    track.dispatchEvent(new MouseEvent("pointercancel", { bubbles: true, clientX: 200 }));
+    track.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, clientX: 200, pointerId: 1 }));
 
     expect(pickLevel).not.toHaveBeenCalled();
     expect(thinkingRowValue.textContent).toBe("Off");
@@ -931,6 +932,54 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     modelPanel.renderThinkingPicker(view({ label: "Off", entries: [] }));
 
     expect(buttons(thinkingToggle)).toEqual([]);
+  });
+
+  it("setPointerCapture 仅吞 NotFoundError / InvalidStateError，非预期异常正常冒泡", () => {
+    const { thinkingToggle, thinkingRowValue, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    for (const name of ["NotFoundError", "InvalidStateError"]) {
+      track.setPointerCapture = () => {
+        throw new DOMException("expected", name);
+      };
+      track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+      track.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 100, pointerId: 1 }));
+      track.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 100, pointerId: 1 }));
+      expect(thinkingRowValue.textContent).toBe("Low");
+      expect(pickLevel).toHaveBeenCalledWith("low");
+    }
+
+    const errors: unknown[] = [];
+    const onWindowError = (event: ErrorEvent) => {
+      event.preventDefault();
+      errors.push(event.error);
+    };
+    window.addEventListener("error", onWindowError);
+    try {
+      track.setPointerCapture = () => {
+        throw new TypeError("unexpected capture failure");
+      };
+      track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(TypeError);
+
+      track.setPointerCapture = () => {
+        throw new DOMException("wrong dom error", "SecurityError");
+      };
+      track.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0, pointerId: 1 }));
+      expect(errors).toHaveLength(2);
+      expect(errors[1]).toBeInstanceOf(DOMException);
+    } finally {
+      window.removeEventListener("error", onWindowError);
+    }
   });
 });
 

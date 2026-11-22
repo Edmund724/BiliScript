@@ -712,6 +712,33 @@ describe("发送前主动起跑字幕抓取（抓取未起跑的 idle 窗口不�
     expect(refreshSpy).not.toHaveBeenCalled();
     expect(posted.context?.subtitleBody).toHaveLength(1);
   });
+
+  it("字幕刷新异步失败时保持 awaitRefresh: false 非阻塞语义，并通过 logWarn 输出失败详情", async () => {
+    const { registerDebugGate } = await import("../../extension/shared/logging.js");
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const refreshError = new Error("subtitle refresh failed boom");
+    const refreshSpy = vi.fn(async () => {
+      throw refreshError;
+    });
+    readerBus.subscribeSubtitleRefresh(refreshSpy);
+
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "idle";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    const sent = chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+
+    await waitFor(() => warnSpy.mock.calls.some((call) => call[0] === "[BILISCRIPT] subtitle refresh failed"));
+    expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] subtitle refresh failed", { error: refreshError });
+
+    statusBus.publishSubtitleStatusPhase("error");
+    await expect(sent).resolves.toBe(true);
+  });
 });
 
 describe("断流收口（工单 08：关闭即断流，重开从会话历史恢复）", () => {

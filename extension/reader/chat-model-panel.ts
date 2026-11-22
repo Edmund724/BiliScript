@@ -7,6 +7,7 @@ import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
+import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import {
   SELECTED_PROVIDER_KEY,
@@ -968,12 +969,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         finishDrag(false);
         return;
       }
-      if (typeof track.setPointerCapture === "function" && e.pointerId !== undefined) {
-        try {
-          track.setPointerCapture(e.pointerId);
-        } catch {
-        }
-      }
+      trySetPointerCapture(track, e.pointerId);
       previewNearest = previewAt(pos);
     });
 

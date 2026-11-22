@@ -39,11 +39,8 @@ function mountToggle(checked = false): { root: HTMLElement; input: HTMLInputElem
   return { root, input, track, thumb, text };
 }
 
-function pointerEvent(type: string, clientX: number): Event {
-  const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clientX", { value: clientX });
-  Object.defineProperty(event, "pointerId", { value: 1 });
-  return event;
+function pointerEvent(type: string, clientX: number): PointerEvent {
+  return new PointerEvent(type, { bubbles: true, cancelable: true, clientX, pointerId: 1 });
 }
 
 function fireClick(node: Element): void {
@@ -320,6 +317,43 @@ describe("拖拽：位置过半 + 松手速度决定吸附侧", () => {
     expect(input.checked).toBe(false);
     expect(onChange).not.toHaveBeenCalled();
     expect(thumb.style.transform).toBe("none");
+  });
+
+  it("pointerdown 调用 setPointerCapture，仅忽略 NotFoundError / InvalidStateError 而不吞非预期异常", () => {
+    stubReducedMotion();
+    const { input, track } = mountToggle();
+    initToggleSwitch(input);
+
+    track.dispatchEvent(pointerEvent("pointerdown", 0));
+    expect(track.hasPointerCapture(1)).toBe(true);
+    track.dispatchEvent(pointerEvent("pointerup", 0));
+
+    for (const name of ["NotFoundError", "InvalidStateError"]) {
+      track.setPointerCapture = () => {
+        throw new DOMException("expected", name);
+      };
+      track.dispatchEvent(pointerEvent("pointerdown", 0));
+      track.dispatchEvent(pointerEvent("pointermove", 12));
+      track.dispatchEvent(pointerEvent("pointerup", 12));
+    }
+    expect(input.checked).toBe(true);
+
+    const errors: unknown[] = [];
+    const onWindowError = (event: ErrorEvent) => {
+      event.preventDefault();
+      errors.push(event.error);
+    };
+    window.addEventListener("error", onWindowError);
+    try {
+      track.setPointerCapture = () => {
+        throw new TypeError("unexpected toggle capture failure");
+      };
+      track.dispatchEvent(pointerEvent("pointerdown", 0));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(TypeError);
+    } finally {
+      window.removeEventListener("error", onWindowError);
+    }
   });
 });
 
