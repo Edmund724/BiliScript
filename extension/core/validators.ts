@@ -10,6 +10,7 @@ import {
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4,
   MAX_INITIAL_QUICK_PROMPTS
 } from "./default-prompts.js";
 import {
@@ -147,7 +148,8 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
   if (
     normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT ||
     normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 ||
-    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3
+    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3 ||
+    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4
   ) {
     return DEFAULT_PLAYER_AI_QUICK_PROMPT;
   }

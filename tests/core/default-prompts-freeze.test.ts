@@ -11,7 +11,8 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4
 } from "../../extension/core/default-prompts.js";
 import {
   normalizeAiInitialQuickPrompts,
@@ -34,6 +35,7 @@ describe("default-prompts 键面契约", () => {
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3",
+      "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4",
       "MAX_INITIAL_QUICK_PROMPTS"
     ].sort();
     const actualKeys = Object.keys(defaultPrompts).sort();
@@ -46,6 +48,7 @@ describe("提示词迁移映射与归一化断言", () => {
     expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt("")).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt("   ")).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt(null)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);

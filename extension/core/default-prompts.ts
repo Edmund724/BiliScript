@@ -25,9 +25,16 @@ export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3 = [
   "5. （若附带评论）观众反响：提炼高赞评论的主要观点与争议点"
 ].join("\n");
 
-export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
+export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4 = [
   PROMPT_PLAYER_SUMMARY_PREFIX,
   "1. 一句话结论：用 1-2 句话直接点明核心要点或主旨",
+  "2. 核心脉络：按视频推进顺序分节梳理，关键节点标注时间戳；保留重要事实、关键数据与论证过程，避免车轱辘话和跨章节同义重复",
+  "3. 核心启发或行动建议（仅在视频明确提供时给出，无则省略）"
+].join("\n");
+
+export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
+  PROMPT_PLAYER_SUMMARY_PREFIX,
+  "1. 核心结论：用 1-2 句话直接点明核心要点或主旨",
   "2. 核心脉络：按视频推进顺序分节梳理，关键节点标注时间戳；保留重要事实、关键数据与论证过程，避免车轱辘话和跨章节同义重复",
   "3. 核心启发或行动建议（仅在视频明确提供时给出，无则省略）"
 ].join("\n");

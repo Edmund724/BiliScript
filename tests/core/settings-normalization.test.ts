@@ -11,7 +11,9 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4
 } from "../../extension/core/default-prompts.js";
 
 let syncGetMock: Mock;
@@ -100,9 +102,14 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "我的自定义人设" }).aiSystemPrompt).toBe("我的自定义人设");
   });
 
-  it("playerAiQuickPrompt：两代旧默认都映射为当前默认，自定义文本原样保留", async () => {
+  it("playerAiQuickPrompt：四代旧默认都映射为当前默认，自定义文本原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    for (const legacy of [LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT, LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2]) {
+    for (const legacy of [
+      LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
+      LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+      LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
+      LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4
+    ]) {
       expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: legacy }).playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     }
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: "按章节整理内容" }).playerAiQuickPrompt).toBe("按章节整理内容");
