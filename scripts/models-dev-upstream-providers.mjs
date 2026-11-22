@@ -8,11 +8,19 @@ export const DEFAULT_SOURCE = "https://models.dev/api.json";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRESETS_MODULE = "extension/core/presets.ts";
-const esbuildBin = path.join(
-  path.dirname(createRequire(import.meta.url).resolve("esbuild/package.json")),
-  "bin",
-  "esbuild"
-);
+const esbuildEntry = createRequire(import.meta.url).resolve("esbuild");
+const ESBUILD_BUNDLE_SCRIPT = [
+  "const { buildSync } = require(process.argv[1]);",
+  "const result = buildSync({",
+  "  entryPoints: [process.argv[2]],",
+  "  bundle: true,",
+  "  write: false,",
+  '  format: "cjs",',
+  '  platform: "node",',
+  '  logLevel: "silent"',
+  "});",
+  'process.stdout.write(result.outputFiles?.[0]?.text ?? "");'
+].join("\n");
 
 export const UPSTREAM_PRESET_ORDER = [
   "deepseek",
@@ -33,7 +41,7 @@ export const UPSTREAM_PRESET_ORDER = [
 export function readPresetCatalogProviders(presetsPath = path.join(rootDir, PRESETS_MODULE)) {
   const code = execFileSync(
     process.execPath,
-    [esbuildBin, presetsPath, "--bundle", "--format=cjs", "--platform=node"],
+    ["-e", ESBUILD_BUNDLE_SCRIPT, esbuildEntry, presetsPath],
     { encoding: "utf8" }
   );
   if (!code.trim()) {
