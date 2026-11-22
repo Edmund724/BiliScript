@@ -1,3 +1,4 @@
+import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 import { testAsrConnection } from "../asr/provider-test.js";
@@ -714,7 +715,10 @@ export function wireDialog(): void {
     else if (action === "linked-credential") {
       try {
         currentLinkedCredential()?.onAction?.();
-      } catch {}
+      } catch (error) {
+        logWarn("[BILISCRIPT] linked credential action failed", error);
+        showStatus(error instanceof Error && error.message ? error.message : "打开关联凭据设置失败", true);
+      }
     }
     else if (action === "add-model") {
       addModelRow();

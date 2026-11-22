@@ -590,4 +590,37 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     search2.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(subview2.querySelector(".provider-editor-fetch-check"));
   });
+
+  it("跨族凭据 onAction 同步抛错时通过 logWarn 留痕并在状态栏显示错误", async () => {
+    const { registerDebugGate } = await import("../../extension/shared/logging.js");
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { openProviderEditor } = await import("../../extension/ui/provider-editor.js");
+      const actionError = new Error("linked credential jump failed");
+      openProviderEditor({
+        kind: "search",
+        presets: SEARCH_PROVIDER_PRESETS,
+        onSave: async () => ({ ok: true }),
+        linkedCredential: {
+          statusText: "未配置 DeepSeek Key",
+          actionLabel: "配置官方 DeepSeek Key",
+          onAction: () => {
+            throw actionError;
+          }
+        }
+      });
+
+      const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+      fireClick(dialog.querySelector(".provider-editor-linked-credential-btn"));
+
+      const status = dialog.querySelector<HTMLElement>(".provider-editor-status")!;
+      expect(status.hidden).toBe(false);
+      expect(status.dataset.error).toBe("true");
+      expect(status.textContent).toBe("linked credential jump failed");
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] linked credential action failed", actionError);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

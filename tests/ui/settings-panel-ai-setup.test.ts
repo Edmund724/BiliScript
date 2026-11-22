@@ -185,3 +185,59 @@ describe("openReaderAiSetup：缺模型 → 无需 Key 平台（如 Ollama）也
     );
   });
 });
+
+describe("setup-flows：配置拉取异常留痕（不静默吞错）", () => {
+  it("loadAiProviders / loadAsrProviders 在通信抛错或返回 !ok 时通过 logWarn 留痕并返回空数组", async () => {
+    const { registerDebugGate } = await import("../../extension/shared/logging.js");
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { loadAiProviders, loadAsrProviders } = await import("../../extension/ui/settings/setup-flows.js");
+      const aiTransportError = new Error("ai channel closed");
+      const asrTransportError = new Error("asr channel closed");
+
+      chromeStub().runtime.sendMessage.mockImplementationOnce((_msg, cb) => {
+        cb?.({ ok: false, error: "ai list denied" });
+      });
+      await expect(loadAiProviders()).resolves.toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] load ai providers returned invalid response",
+        { ok: false, error: "ai list denied" }
+      );
+
+      chromeStub().runtime.sendMessage.mockImplementationOnce(() => {
+        throw aiTransportError;
+      });
+      await expect(loadAiProviders()).resolves.toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] load ai providers failed", aiTransportError);
+
+      chromeStub().runtime.sendMessage.mockImplementationOnce(() => {
+        throw asrTransportError;
+      });
+      await expect(loadAsrProviders()).resolves.toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] load asr providers failed", asrTransportError);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("resolveEditableAiProviderId 在读取宿主/设置抛错时通过 logWarn 留痕并返回空字符串", async () => {
+    const { registerDebugGate } = await import("../../extension/shared/logging.js");
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { resolveEditableAiProviderId } = await import("../../extension/ui/settings/setup-flows.js");
+      const hostError = new Error("host loadRows failed");
+      const fakeHost = {
+        loadRows: vi.fn(async () => {
+          throw hostError;
+        })
+      } as unknown as Parameters<typeof resolveEditableAiProviderId>[0];
+
+      await expect(resolveEditableAiProviderId(fakeHost)).resolves.toBe("");
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] resolveEditableAiProviderId failed", hostError);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});

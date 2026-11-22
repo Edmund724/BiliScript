@@ -244,6 +244,30 @@ export function openReaderSettingsPanel(): void {
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
 
+function resolveSettingsTargetAction(
+  target: unknown
+): ((mod: typeof import("./settings-panel.js")) => Promise<void>) | null {
+  switch (target) {
+    case "live":
+    case "gemini-key":
+      return (mod) => mod.openLiveSettings(target);
+    case "appearance":
+      return (mod) => mod.openAppearanceSettings();
+    case "note-export":
+      return (mod) => mod.openNoteExportSettings();
+    default:
+      return null;
+  }
+}
+
+function dispatchSettingsPanelTarget(target: unknown): void {
+  const openTarget = resolveSettingsTargetAction(target);
+  if (!openTarget) return;
+  void import("./settings-panel.js")
+    .then((mod) => openTarget(mod))
+    .catch((error) => logWarn("[BILISCRIPT] open settings target failed", { target, error }));
+}
+
 subscribeUiCommand((name, payload) => {
   if (name === "project-tab") {
     const tab = (payload as { tab?: unknown } | null)?.tab;
@@ -263,19 +287,7 @@ subscribeUiCommand((name, payload) => {
       return;
     }
     openReaderSettingsPanel();
-    if (target === "live" || target === "gemini-key") {
-      void import("./settings-panel.js")
-        .then((mod) => mod.openLiveSettings(target))
-        .catch(() => {});
-    } else if (target === "appearance") {
-      void import("./settings-panel.js")
-        .then((mod) => mod.openAppearanceSettings())
-        .catch(() => {});
-    } else if (target === "note-export") {
-      void import("./settings-panel.js")
-        .then((mod) => mod.openNoteExportSettings())
-        .catch(() => {});
-    }
+    dispatchSettingsPanelTarget(target);
   }
 });
 

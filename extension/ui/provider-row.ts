@@ -1,3 +1,4 @@
+import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
@@ -342,7 +343,9 @@ export function createProviderRow({
           const providerId = row.dataset.providerId || "";
           try {
             await onBeforeDelete(providerId, row.dataset.baseUrl || "");
-          } catch {}
+          } catch (error) {
+            logWarn("[BILISCRIPT] onBeforeDelete hook failed", error);
+          }
           if (providerId) {
             const resp = (await sendRuntimeMessage(buildDeleteMessage(providerId))) as
               | { ok?: boolean; error?: string }

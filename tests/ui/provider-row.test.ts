@@ -202,21 +202,30 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(emptyNode.hidden).toBe(false);
   });
 
-  it("删除：onBeforeDelete 抛错不阻断删除（权限回收失败可忽略）", async () => {
-    const bindings = await createRows();
-    const { listNode, emptyNode } = makeContainer();
-    bindings.ai.controller.setBeforeDeleteHandler(vi.fn(async () => {
-      throw new Error("permissions API unavailable");
-    }));
-    bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
-    const row = listNode.querySelector(".ai-provider-row")!;
+  it("删除：onBeforeDelete 抛错不阻断删除，并通过 logWarn 留痕", async () => {
+    const { registerDebugGate } = await import("../../extension/shared/logging.js");
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const bindings = await createRows();
+      const { listNode, emptyNode } = makeContainer();
+      const hookError = new Error("permissions API unavailable");
+      bindings.ai.controller.setBeforeDeleteHandler(vi.fn(async () => {
+        throw hookError;
+      }));
+      bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
+      const row = listNode.querySelector(".ai-provider-row")!;
 
-    fireClick(row.querySelector(".provider-row-remove")!);
-    confirmDelete();
-    await flushMicrotasks();
-    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
-    expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(0);
-    expect(emptyNode.hidden).toBe(false);
+      fireClick(row.querySelector(".provider-row-remove")!);
+      confirmDelete();
+      await flushMicrotasks();
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] onBeforeDelete hook failed", hookError);
+      expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
+      expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(0);
+      expect(emptyNode.hidden).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

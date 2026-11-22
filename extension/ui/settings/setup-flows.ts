@@ -38,24 +38,31 @@ export interface SetupFlowDeps {
   openView: (view: SettingsSubpageId) => void;
 }
 
-export async function loadAiProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
-  if (providerHost) return providerHost.loadRows("ai");
+async function loadProvidersByMessage(
+  kind: "ai" | "asr",
+  type: "ai-providers-list" | "asr-providers-list",
+  providerHost?: ProviderSettingsHost | null
+): Promise<ProviderRowItem[]> {
+  if (providerHost) return providerHost.loadRows(kind);
   try {
-    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
-    return resp?.ok && Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
+    const resp = await sendRuntimeMessage({ type });
+    if (!resp?.ok || !Array.isArray(resp.providers)) {
+      logWarn(`[BILISCRIPT] load ${kind} providers returned invalid response`, resp);
+      return [];
+    }
+    return resp.providers;
+  } catch (error) {
+    logWarn(`[BILISCRIPT] load ${kind} providers failed`, error);
     return [];
   }
 }
 
-export async function loadAsrProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
-  if (providerHost) return providerHost.loadRows("asr");
-  try {
-    const resp = await sendRuntimeMessage({ type: "asr-providers-list" });
-    return resp?.ok && Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
+export function loadAiProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
+  return loadProvidersByMessage("ai", "ai-providers-list", providerHost);
+}
+
+export function loadAsrProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
+  return loadProvidersByMessage("asr", "asr-providers-list", providerHost);
 }
 
 export async function resolveEditableAiProviderId(
@@ -72,7 +79,8 @@ export async function resolveEditableAiProviderId(
     const preferredId = String(settings?.defaultModel || "").trim();
     const matched = preferredId ? enabled.find((item) => String(item.id) === preferredId) : null;
     return String((matched || enabled[0]).id || "").trim();
-  } catch {
+  } catch (error) {
+    logWarn("[BILISCRIPT] resolveEditableAiProviderId failed", error);
     return "";
   }
 }
