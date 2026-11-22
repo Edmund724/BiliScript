@@ -1,6 +1,7 @@
 ---
 name: release
 description: Execute the BiliScript version bump, README sync, validation build, release-note review gate, GitHub Release, and Firefox AMO / Edge Add-ons store submission workflow. Use when the user asks to bump the version, prepare a release, update README from commit history, or publish a new version.
+disable-model-invocation: true
 ---
 
 # BiliScript Release Workflow
