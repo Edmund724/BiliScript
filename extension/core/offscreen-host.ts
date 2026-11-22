@@ -379,15 +379,28 @@ function resolveExtensionInitiatorDomain(): string | null {
     return null;
   }
   const getHostnameFromRuntimeUrl = (): string | null => {
+    let baseUrl: unknown;
     try {
-      const baseUrl = chrome.runtime?.getURL?.("");
-      if (typeof baseUrl === "string" && baseUrl) {
-        const hostname = new URL(baseUrl).hostname.trim();
-        if (hostname) {
-          return hostname;
-        }
+      baseUrl = chrome.runtime?.getURL?.("");
+    } catch (error) {
+      logWarn("[BILISCRIPT] resolveExtensionInitiatorDomain chrome.runtime.getURL failed", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+    if (typeof baseUrl !== "string" || !baseUrl) {
+      return null;
+    }
+    try {
+      const hostname = new URL(baseUrl).hostname.trim();
+      if (hostname) {
+        return hostname;
       }
-    } catch {
+    } catch (error) {
+      logWarn("[BILISCRIPT] resolveExtensionInitiatorDomain failed to parse runtime URL", {
+        baseUrl,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
     return null;
   };

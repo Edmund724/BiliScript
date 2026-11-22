@@ -106,7 +106,8 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
         (async () => {
           try {
             await deps.syncPlayerAiQuickAction();
-          } catch {
+          } catch (error) {
+            deps.logWarn("[BILISCRIPT] syncPlayerAiQuickAction after URL change failed", error);
           }
         })()
       );

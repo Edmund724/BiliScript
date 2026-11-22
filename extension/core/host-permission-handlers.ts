@@ -10,6 +10,8 @@ import {
   toPermissionMatchPattern
 } from "./host-permissions.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
+import { logWarn as defaultLogWarn } from "../shared/logging.js";
+import { isMessagePortClosedError } from "./background-content-orchestration.js";
 import { withOkResponse } from "./provider-handlers.js";
 
 export { PERMISSION_GRANT_KEEPALIVE_PORT_NAME };
@@ -53,6 +55,7 @@ export interface HostPermissionHostAdapter {
   runtimeId?: string;
   createReqId?: () => string;
   timeoutMs?: number;
+  logWarn?: (message: string, detail?: unknown) => void;
 }
 
 export interface PermissionGrantKeepalivePort {
@@ -354,15 +357,22 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     });
   }
 
+  function disconnectRejectedPort(port: PermissionGrantKeepalivePort): void {
+    try {
+      port.disconnect?.();
+    } catch (error) {
+      if (!isMessagePortClosedError(error)) {
+        (host.logWarn ?? defaultLogWarn)("[BILISCRIPT] rejected keepalive port disconnect failed", error);
+      }
+    }
+  }
+
   function attachKeepalivePort(port: PermissionGrantKeepalivePort | null | undefined): boolean {
     if (!port || port.name !== PERMISSION_GRANT_KEEPALIVE_PORT_NAME) {
       return false;
     }
     if (port.sender && !isPermissionGrantPageSender(port.sender)) {
-      try {
-        port.disconnect?.();
-      } catch {
-      }
+      disconnectRejectedPort(port);
       return true;
     }
     if (activeKeepalivePorts.has(port)) {

@@ -23,6 +23,7 @@ interface HarnessOptions {
   staticHostPermissions?: string[];
   createWindowImpl?: (options: Record<string, unknown>) => Promise<{ id?: number }> | { id?: number };
   timeoutMs?: number;
+  logWarn?: (message: string, detail?: unknown) => void;
 }
 
 const RUNTIME_BASE = "moz-extension://ext-test-uuid/";
@@ -61,7 +62,8 @@ function createHarness(options: HarnessOptions = {}) {
     staticHostPermissions: options.staticHostPermissions ?? [],
     getRuntimeUrl: (path: string) => `${RUNTIME_BASE}${path}`,
     runtimeId: RUNTIME_ID,
-    timeoutMs: options.timeoutMs
+    timeoutMs: options.timeoutMs,
+    logWarn: options.logWarn
   };
 
   const handlers = createHostPermissionHandlers(adapter);
@@ -442,5 +444,35 @@ describe("Firefox 授权小窗 keepalive 端口接管与清理", () => {
     expect(h.handlers.attachKeepalivePort(forgedPort.port)).toBe(true);
     expect(forgedPort.disconnect).toHaveBeenCalledTimes(1);
     expect(h.handlers.getActiveKeepalivePortCount()).toBe(0);
+  });
+
+  it("拒接端口 disconnect 报已断开瞬时错误时安全忽略，报非预期异常时记 logWarn 且不抛出", () => {
+    const logWarn = vi.fn();
+    const h = createHarness({ logWarn });
+
+    const alreadyClosedPort = makeKeepalivePort(PERMISSION_GRANT_KEEPALIVE_PORT_NAME, {
+      id: RUNTIME_ID,
+      url: CONTENT_SENDER.url
+    });
+    alreadyClosedPort.disconnect.mockImplementationOnce(() => {
+      throw new Error("Attempting to use a disconnected port object");
+    });
+    expect(h.handlers.attachKeepalivePort(alreadyClosedPort.port)).toBe(true);
+    expect(logWarn).not.toHaveBeenCalled();
+
+    const brokenPort = makeKeepalivePort(PERMISSION_GRANT_KEEPALIVE_PORT_NAME, {
+      id: RUNTIME_ID,
+      url: CONTENT_SENDER.url
+    });
+    const unexpectedError = new TypeError("unexpected disconnect failure");
+    brokenPort.disconnect.mockImplementationOnce(() => {
+      throw unexpectedError;
+    });
+    expect(h.handlers.attachKeepalivePort(brokenPort.port)).toBe(true);
+    expect(logWarn).toHaveBeenCalledTimes(1);
+    expect(logWarn).toHaveBeenCalledWith(
+      "[BILISCRIPT] rejected keepalive port disconnect failed",
+      unexpectedError
+    );
   });
 });

@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import { buildReaderModeUrl } from "../../extension/bilibili/video-id-shared.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
 
 vi.mock("../../extension/shared/tab-utils.js", () => ({
   sendMessageToTab: vi.fn(async () => ({ ok: true })),
@@ -13,7 +14,13 @@ const VIDEO_READER_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&bilis
 
 describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
+  let onUpdatedReinjectListener: (
+    tabId: number,
+    changeInfo: { status?: string },
+    tab: chrome.tabs.Tab
+  ) => Promise<void>;
   const actionOnClickedAddListener = vi.fn();
+  const tabsOnUpdatedAddListener = vi.fn();
 
   beforeAll(async () => {
     vi.stubGlobal("chrome", {
@@ -25,7 +32,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
         onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: vi.fn() }
       },
-      tabs: { onUpdated: { addListener: vi.fn() } },
+      tabs: { onUpdated: { addListener: tabsOnUpdatedAddListener } },
       action: {
         onClicked: { addListener: actionOnClickedAddListener },
         setBadgeText: vi.fn(async () => {}),
@@ -41,6 +48,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     });
     await import("../../extension/entry/background.js");
     onClickedListener = actionOnClickedAddListener.mock.calls[0][0] as typeof onClickedListener;
+    onUpdatedReinjectListener = tabsOnUpdatedAddListener.mock.calls[0][0] as typeof onUpdatedReinjectListener;
   });
 
   afterAll(() => {
@@ -132,6 +140,38 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("tabs.onUpdated 推测性重注入：已关闭标签页/缺失 frame 静默忽略，非预期注入失败记 logWarn 且不阻断", async () => {
+    registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(new Error("No tab with id: 7."));
+      await expect(
+        onUpdatedReinjectListener(7, { status: "complete" }, { id: 7, url: VIDEO_URL })
+      ).resolves.toBeUndefined();
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(new Error("Frame with ID 0 was removed."));
+      await expect(
+        onUpdatedReinjectListener(7, { status: "complete" }, { id: 7, url: VIDEO_URL })
+      ).resolves.toBeUndefined();
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      const unexpectedError = new Error('Cannot access contents of url "https://www.bilibili.com/video/BV1abc000000/"');
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(unexpectedError);
+      await expect(
+        onUpdatedReinjectListener(7, { status: "complete" }, { id: 7, url: VIDEO_URL })
+      ).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] speculative reader content reinjection failed",
+        unexpectedError
+      );
+    } finally {
+      warnSpy.mockRestore();
+      registerDebugGate(() => false);
+      vi.mocked(chrome.scripting.executeScript).mockImplementation(async () => []);
     }
   });
 });

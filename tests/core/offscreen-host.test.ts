@@ -23,6 +23,7 @@ interface StubHostEnvOptions {
   initialRules?: FakeSessionRule[];
   deadTabIds?: number[];
   runtimeId?: string;
+  runtimeGetUrl?: (path: string) => string;
 }
 
 function makeRuleStore(initialRules: FakeSessionRule[] = []) {
@@ -47,7 +48,8 @@ function stubHostEnv({
   closeError,
   initialRules = [],
   deadTabIds = [],
-  runtimeId = "test-extension-id"
+  runtimeId = "test-extension-id",
+  runtimeGetUrl = (path: string) => `chrome-extension://test/${path}`
 }: StubHostEnvOptions = {}) {
   const ruleStore = makeRuleStore(initialRules);
   const deadTabs = new Set(deadTabIds);
@@ -71,7 +73,7 @@ function stubHostEnv({
     runtime: {
       ...globalThis.chrome.runtime,
       id: runtimeId || undefined,
-      getURL: (path: string) => `chrome-extension://test/${path}`,
+      getURL: runtimeGetUrl,
       ...(omitGetContexts ? { getContexts: undefined } : { getContexts })
     },
     tabs: { get: tabsGet },
@@ -463,5 +465,40 @@ describe("B 站媒体防盗链 DNR 会话规则生命周期", () => {
     ruleStore.updateSessionRules.mockRejectedValueOnce(new Error("Invalid initiatorDomains"));
     await expect(host.acquireBiliMediaSessionRule("video-media")).rejects.toThrow("Invalid initiatorDomains");
     expect(ruleStore.updateSessionRules).toHaveBeenCalledTimes(3);
+  });
+
+  it("runtime.getURL 返回空串时静默回退无 initiatorDomains，返回非法非空 URL 时记 logWarn 且不阻断规则注册", async () => {
+    const logging = await import("../../extension/shared/logging.js");
+    logging.registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const emptyEnv = stubHostEnv({
+        contexts: [{ contextType: "OFFSCREEN_DOCUMENT" }],
+        runtimeId: "",
+        runtimeGetUrl: () => ""
+      });
+      let host = await import("../../extension/core/offscreen-host.js");
+      const emptyRuleId = await host.acquireBiliMediaSessionRule("video-media");
+      expect(emptyEnv.ruleStore.rules.get(emptyRuleId)?.condition).not.toHaveProperty("initiatorDomains");
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      vi.resetModules();
+      const malformedEnv = stubHostEnv({
+        contexts: [{ contextType: "OFFSCREEN_DOCUMENT" }],
+        runtimeId: "",
+        runtimeGetUrl: () => "not-a-valid-url"
+      });
+      host = await import("../../extension/core/offscreen-host.js");
+      const malformedRuleId = await host.acquireBiliMediaSessionRule("video-media");
+      expect(malformedEnv.ruleStore.rules.get(malformedRuleId)?.condition).not.toHaveProperty("initiatorDomains");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] resolveExtensionInitiatorDomain failed to parse runtime URL",
+        expect.objectContaining({ baseUrl: "not-a-valid-url" })
+      );
+    } finally {
+      warnSpy.mockRestore();
+      logging.registerDebugGate(() => false);
+    }
   });
 });

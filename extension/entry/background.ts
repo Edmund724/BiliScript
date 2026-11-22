@@ -11,6 +11,7 @@ import {
   triggerReaderModeInTab,
   triggerReaderModeToggleInTab
 } from "./content-orchestration-wiring.js";
+import { isBenignTabUnavailableError } from "../core/background-content-orchestration.js";
 import {
   applyUnsupportedPageFeedback,
   clearUnsupportedPageFeedback,
@@ -486,6 +487,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       await injectReaderContent(tabId);
     }
   } catch (error) {
+    if (!isBenignTabUnavailableError(error)) {
+      logWarn("[BILISCRIPT] speculative reader content reinjection failed", error);
+    }
   }
 });
 
@@ -496,11 +500,21 @@ chrome.action?.onClicked?.addListener(
       return;
     }
     if (isSupportedBilibiliPage(tab.url)) {
-      const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
+      let triggered = false;
+      let triggerError: unknown = null;
+      try {
+        triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
+      } catch (error) {
+        triggerError = error;
+      }
       if (triggered) {
         await clearUnsupportedPageFeedback(tabId);
       } else {
-        logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+        if (triggerError) {
+          logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败", triggerError);
+        } else {
+          logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+        }
         await Promise.allSettled([
           chrome.action?.setBadgeText?.({ tabId, text: "!" }),
           chrome.action?.setTitle?.({
@@ -538,9 +552,17 @@ chrome.commands?.onCommand?.addListener?.(async (command, commandTab) => {
     return;
   }
   if (isSupportedBilibiliPage(targetTab?.url)) {
-    const triggered = await triggerReaderModeToggleInTab(tabId, buildReaderModeUrl(targetTab?.url || ""));
+    let triggered = false;
+    let triggerError: unknown = null;
+    try {
+      triggered = await triggerReaderModeToggleInTab(tabId, buildReaderModeUrl(targetTab?.url || ""));
+    } catch (error) {
+      triggerError = error;
+    }
     if (triggered) {
       await clearUnsupportedPageFeedback(tabId);
+    } else if (triggerError) {
+      logWarn("[BILISCRIPT] toggle-reader command: reader-toggle 触发失败", triggerError);
     } else {
       logWarn("[BILISCRIPT] toggle-reader command: reader-toggle 触发失败（重试耗尽）");
     }

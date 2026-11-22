@@ -25,6 +25,7 @@ function makeHarness(overrides = {}) {
     isTabReaderModeOff: vi.fn(async () => true),
     canInject: vi.fn(() => true),
     expectedVersion: EXPECTED_VERSION,
+    logWarn: vi.fn(),
     ...overrides
   };
   return { deps, orch: createBackgroundContentOrchestrator(deps) };
@@ -69,11 +70,11 @@ describe("ensureReaderContentReady", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("探针瞬时失败：3 发内重试成功，间隔 100ms，不触发注入", async () => {
+  it("探针瞬时消息失败（Receiving end）：3 发内静默重试成功，不打 logWarn、不触发注入", async () => {
     const { orch, deps } = makeSpyDelayHarness();
     deps.probeOnce
-      .mockRejectedValueOnce(new Error("executeScript failed"))
-      .mockRejectedValueOnce(new Error("executeScript failed"))
+      .mockRejectedValueOnce(new Error(RECEIVING_END_MISSING_SENTINEL))
+      .mockRejectedValueOnce(new Error(RECEIVING_END_MISSING_SENTINEL))
       .mockResolvedValueOnce(EXPECTED_VERSION);
 
     const promise = orch.ensureReaderContentReady(TAB_ID);
@@ -83,6 +84,41 @@ describe("ensureReaderContentReady", () => {
     expect(deps.probeOnce).toHaveBeenCalledTimes(3);
     expect(msSeq({ deps })).toEqual([100, 100]);
     expect(deps.injectAssets).not.toHaveBeenCalled();
+    expect(deps.logWarn).not.toHaveBeenCalled();
+  });
+
+  it("探针非预期非终端异常：记录 logWarn 并允许重试恢复", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    deps.probeOnce
+      .mockRejectedValueOnce(new Error("executeScript failed"))
+      .mockResolvedValueOnce(EXPECTED_VERSION);
+
+    const promise = orch.ensureReaderContentReady(TAB_ID);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(promise).resolves.toBeUndefined();
+
+    expect(deps.probeOnce).toHaveBeenCalledTimes(2);
+    expect(deps.logWarn).toHaveBeenCalledTimes(1);
+    expect(deps.logWarn).toHaveBeenCalledWith(
+      "[BILISCRIPT] probeContentScriptVersion failed",
+      expect.any(Error)
+    );
+  });
+
+  it("探针终端标签页错误（已关闭标签页 / 权限拒绝 / 受限 frame）：首轮快速失败透传，不重试", async () => {
+    for (const msg of [
+      "No tab with id: 7.",
+      'Cannot access contents of url "https://www.bilibili.com/". Extension manifest must request permission.',
+      "Frame with ID 0 is showing error page."
+    ]) {
+      const { orch, deps } = makeSpyDelayHarness();
+      const terminalError = new Error(msg);
+      deps.probeOnce.mockRejectedValue(terminalError);
+
+      await expect(orch.probeContentScriptVersion(TAB_ID)).rejects.toBe(terminalError);
+      expect(deps.probeOnce).toHaveBeenCalledTimes(1);
+      expect(msSeq({ deps })).toEqual([]);
+    }
   });
 
   it("版本偏斜：注入后第 2 轮轮询成功（探针空版本按 3×100ms 内部重试）", async () => {
@@ -276,7 +312,7 @@ describe("triggerReaderModeInTab", () => {
     expect(msSeq({ deps })).toEqual([300]);
   });
 
-  it("非 Receiving end 错误：不触发兜底，静默重试 12 次耗尽 → false", async () => {
+  it("已知端口提前关闭错误：不触发兜底，静默重试 12 次耗尽 → false，不打 logWarn", async () => {
     const { orch, deps } = makeSpyDelayHarness();
     deps.sendMessageToTab.mockRejectedValue(
       new Error("The message port closed before a response was received.")
@@ -289,20 +325,88 @@ describe("triggerReaderModeInTab", () => {
     expect(deps.sendMessageToTab).toHaveBeenCalledTimes(12);
     expect(deps.canInject).not.toHaveBeenCalled();
     expect(deps.probeOnce).not.toHaveBeenCalled();
+    expect(deps.logWarn).not.toHaveBeenCalled();
     expect(msSeq({ deps })).toEqual(Array.from({ length: 11 }, () => 300));
   });
 
-  it("Receiving end 持续且兜底持续失败：仍 12 次重试后 false（兜底失败不中止）", async () => {
-    const { orch, deps } = makeHarness();
+  it("非瞬时消息异常（如标签页不存在或权限错误）：记 logWarn 并立即透传，不重试也不触发兜底", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    const fatalError = new Error("No tab with id: 7.");
+    deps.sendMessageToTab.mockRejectedValue(fatalError);
+
+    await expect(orch.triggerReaderModeInTab(TAB_ID, READER_URL)).rejects.toBe(fatalError);
+
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    expect(deps.canInject).not.toHaveBeenCalled();
+    expect(deps.logWarn).toHaveBeenCalledWith("[BILISCRIPT] reader-enter message failed", fatalError);
+    expect(msSeq({ deps })).toEqual([]);
+  });
+
+  it("Receiving end 且兜底 ensureReaderContentReady 抛同步错误：立即中止重试并透传给调用方", async () => {
+    const { orch, deps } = makeHarness({
+      probeOnce: vi.fn(async () => "")
+    });
     deps.sendMessageToTab.mockRejectedValue(new Error(RECEIVING_END_MISSING_SENTINEL));
-    deps.probeOnce.mockRejectedValue(new Error("executeScript failed"));
 
     const promise = orch.triggerReaderModeInTab(TAB_ID, READER_URL);
+    const assertion = expect(promise).rejects.toThrow(
+      "扩展脚本未能和当前页面同步，请刷新浏览器网页重试"
+    );
     await vi.advanceTimersByTimeAsync(60_000);
-    await expect(promise).resolves.toBe(false);
+    await assertion;
 
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(12);
-    expect(deps.canInject).toHaveBeenCalledTimes(12);
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    expect(deps.canInject).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("triggerReaderModeToggleInTab", () => {
+  it("Receiving end 兜底成功后下一轮 reader-toggle 返回 true，零 logWarn", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    deps.sendMessageToTab
+      .mockRejectedValueOnce(new Error(RECEIVING_END_MISSING_SENTINEL))
+      .mockResolvedValueOnce({ ok: true });
+
+    const promise = orch.triggerReaderModeToggleInTab(TAB_ID, READER_URL);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(promise).resolves.toBe(true);
+
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(2);
+    expect(deps.sendMessageToTab).toHaveBeenCalledWith(TAB_ID, {
+      type: "reader-toggle",
+      readerUrl: READER_URL
+    });
+    expect(deps.logWarn).not.toHaveBeenCalled();
+  });
+
+  it("Receiving end 兜底 ensureReaderContentReady 抛终端错误：停止重试并透传", async () => {
+    const { orch, deps } = makeHarness({
+      probeOnce: vi.fn(async () => STALE_VERSION),
+      waitForTabComplete: vi.fn(async () => false)
+    });
+    deps.sendMessageToTab.mockRejectedValue(new Error(RECEIVING_END_MISSING_SENTINEL));
+
+    const promise = orch.triggerReaderModeToggleInTab(TAB_ID, READER_URL);
+    const assertion = expect(promise).rejects.toThrow(
+      "扩展更新后页面未及时恢复，请刷新浏览器网页重试"
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    await assertion;
+
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    expect(deps.reloadTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("非瞬时消息异常：记 logWarn 并立即透传，不重试", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    const fatalError = new Error("Cannot access contents of url");
+    deps.sendMessageToTab.mockRejectedValue(fatalError);
+
+    await expect(orch.triggerReaderModeToggleInTab(TAB_ID, READER_URL)).rejects.toBe(fatalError);
+
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    expect(deps.logWarn).toHaveBeenCalledWith("[BILISCRIPT] reader-toggle message failed", fatalError);
+    expect(msSeq({ deps })).toEqual([]);
   });
 });
 
@@ -333,7 +437,7 @@ describe("triggerReaderModeCloseInTab", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("发送异常（瞬时失败）被忽略 → URL 二次确认退出：返回 true", async () => {
+  it("已知端口关闭异常且 URL 二次确认已退出：静默忽略不打 logWarn，返回 true", async () => {
     const { orch, deps } = makeHarness();
     deps.sendMessageToTab.mockRejectedValue(new Error("The message port closed"));
     deps.isTabReaderModeOff.mockResolvedValue(true);
@@ -342,6 +446,39 @@ describe("triggerReaderModeCloseInTab", () => {
 
     expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
     expect(deps.isTabReaderModeOff).toHaveBeenCalledTimes(1);
+    expect(deps.logWarn).not.toHaveBeenCalled();
+  });
+
+  it("已知端口关闭异常但 URL 仍未退出：记录 logWarn 保留诊断信息并继续重试", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    const portError = new Error("The message port closed");
+    deps.sendMessageToTab
+      .mockRejectedValueOnce(portError)
+      .mockResolvedValueOnce({ ok: true });
+    deps.isTabReaderModeOff.mockResolvedValueOnce(false);
+
+    const promise = orch.triggerReaderModeCloseInTab(TAB_ID);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(promise).resolves.toBe(true);
+
+    expect(deps.logWarn).toHaveBeenCalledTimes(1);
+    expect(deps.logWarn).toHaveBeenCalledWith(
+      "[BILISCRIPT] reader-close transient error while reader mode still active",
+      portError
+    );
+  });
+
+  it("致命标签页错误（非端口关闭/receiving-end）：记 logWarn 并立即透传，不误当瞬时关闭", async () => {
+    const { orch, deps } = makeSpyDelayHarness();
+    const fatalError = new Error("No tab with id: 7.");
+    deps.sendMessageToTab.mockRejectedValue(fatalError);
+
+    await expect(orch.triggerReaderModeCloseInTab(TAB_ID)).rejects.toBe(fatalError);
+
+    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    expect(deps.isTabReaderModeOff).not.toHaveBeenCalled();
+    expect(deps.logWarn).toHaveBeenCalledWith("[BILISCRIPT] reader-close message failed", fatalError);
+    expect(msSeq({ deps })).toEqual([]);
   });
 
   it("12 次重试耗尽（URL 始终未退出）→ false，间隔 300ms", async () => {

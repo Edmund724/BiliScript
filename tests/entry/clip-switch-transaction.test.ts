@@ -318,6 +318,36 @@ describe("步骤内的错误收口", () => {
     expect(calls).toContain("logWarn [BILISCRIPT] clip state reset after URL change failed");
     expect(times(calls, "startSubtitlePrefetch")).toBe(1);
   });
+
+  it("syncPlayerAiQuickAction 失败：经 deps.logWarn 记录日志且不阻断切集流程", async () => {
+    const { deps, calls } = createDeps();
+    const syncError = new Error("quick-action 同步异常");
+    const logWarnSpy = vi.fn((message: string) => {
+      calls.push(`logWarn ${message}`);
+    });
+    deps.logWarn = logWarnSpy;
+    deps.isPlayerAiLoaded = () => {
+      calls.push("isPlayerAiLoaded");
+      return true;
+    };
+    deps.syncPlayerAiQuickAction = () => {
+      calls.push("syncPlayerAiQuickAction");
+      throw syncError;
+    };
+    const transaction = createClipSwitchTransaction(deps);
+    const settled = vi.fn();
+    transaction.subscribeSettled(settled);
+
+    transaction.handleUrlChange();
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
+
+    expect(logWarnSpy).toHaveBeenCalledWith(
+      "[BILISCRIPT] syncPlayerAiQuickAction after URL change failed",
+      syncError
+    );
+    expect(times(calls, "resetClipState")).toBe(1);
+    expect(times(calls, "startSubtitlePrefetch")).toBe(1);
+  });
 });
 
 describe("完成边", () => {
