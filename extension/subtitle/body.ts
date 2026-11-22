@@ -14,7 +14,8 @@ import {
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
   resolveTrackTarget,
-  type PreferredSubtitleContext
+  type PreferredSubtitleContext,
+  type SubtitleTrackCandidate
 } from "./selection.js";
 import { trackIdentity } from "./source-key.js";
 
@@ -115,13 +116,7 @@ export async function loadTrackBody<T = unknown>(
   return body;
 }
 
-export interface SubtitleTrackCandidate {
-  id?: string;
-  lan?: string;
-  lanDoc?: string;
-  subtitleUrl?: string;
-  source?: string;
-}
+export type { SubtitleTrackCandidate };
 
 export interface PreferredNativeSubtitleRequest<TTrack extends SubtitleTrackCandidate = SubtitleTrack> {
   tracks: TTrack[] | null | undefined;
@@ -157,15 +152,12 @@ export async function loadPreferredNativeSubtitle<
   onCacheSaveFailed,
   log
 }: PreferredNativeSubtitleRequest<TTrack>): Promise<LoadedNativeSubtitle<TBody, TTrack> | null> {
-  const normalizedTracks = normalizeSubtitleTracks(tracks as SubtitleTrack[] | null | undefined) as unknown as TTrack[];
+  const normalizedTracks = normalizeSubtitleTracks(tracks);
   if (normalizedTracks.length === 0) {
     return null;
   }
-  const preferredTrack = pickPreferredSubtitle(normalizedTracks as unknown as SubtitleTrack[], preferred);
-  const candidates = buildSubtitleCandidates(
-    normalizedTracks as unknown as SubtitleTrack[],
-    preferredTrack
-  ) as unknown as TTrack[];
+  const preferredTrack = pickPreferredSubtitle(normalizedTracks, preferred);
+  const candidates = buildSubtitleCandidates(normalizedTracks, preferredTrack);
   if (candidates.length === 0) {
     return null;
   }

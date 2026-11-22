@@ -69,7 +69,7 @@ async function importEpoch() {
   gateway.fetchSubtitleBundle.mockReset();
   gateway.contentFetchJson.mockReset();
   gateway.readRuntimeVideoDuration.mockReset().mockReturnValue(300);
-  commit.acceptSubtitle.mockReset().mockResolvedValue(undefined);
+  commit.acceptSubtitle.mockReset().mockResolvedValue([]);
   commit.commitNoSubtitle.mockReset().mockResolvedValue(undefined);
   uiStatus.setStatus.mockReset();
   readerBus.notifyReaderPresenter.mockReset();

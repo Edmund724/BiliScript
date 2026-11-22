@@ -18,6 +18,38 @@ export interface KickSubtitleFetchPolicy {
   afterRefreshSettled?: () => void;
 }
 
+function runKickRefresh(
+  runRefresh: () => Promise<unknown>,
+  policy: KickSubtitleFetchPolicy
+): Promise<boolean> | boolean {
+  const settleRefreshFailure = (error: unknown) => {
+    const isSilent = policy.isRefreshFailureSilent ?? isStaleRunError;
+    if (!isSilent(error)) {
+      (policy.onRefreshFailed ?? ((e: unknown) =>
+        logWarn("[BILISCRIPT] subtitle kick refresh failed", { error: e })))(error);
+    }
+  };
+  if (policy.awaitRefresh === false) {
+    void (async () => {
+      try {
+        await runRefresh();
+      } catch (error) {
+        settleRefreshFailure(error);
+      }
+    })();
+    return true;
+  }
+  return (async () => {
+    try {
+      await runRefresh();
+    } catch (error) {
+      settleRefreshFailure(error);
+    }
+    policy.afterRefreshSettled?.();
+    return true;
+  })();
+}
+
 export function kickSubtitleFetch(
   refresh: (chain: SummarizeChain) => Promise<unknown>,
   policy?: KickSubtitleFetchPolicy & { continueAfterChainLoadFailed?: false }
@@ -27,7 +59,7 @@ export function kickSubtitleFetch(
   policy: KickSubtitleFetchPolicy & { continueAfterChainLoadFailed: true }
 ): Promise<boolean>;
 export async function kickSubtitleFetch(
-  refresh: (chain: never) => Promise<unknown>,
+  refresh: (chain: SummarizeChain) => Promise<unknown>,
   policy: KickSubtitleFetchPolicy = {}
 ): Promise<boolean> {
   if (policy.signal?.aborted) {
@@ -46,39 +78,18 @@ export async function kickSubtitleFetch(
     policy.onInHandOrInFlight?.();
     return true;
   }
-  let chain: SummarizeChain | null = null;
+  let runRefresh: () => Promise<unknown>;
   try {
-    chain = await ensureSummarizeChain();
+    const chain = await ensureSummarizeChain();
+    runRefresh = () => refresh(chain);
   } catch (error) {
     (policy.onChainLoadFailed ?? ((e: unknown) =>
       logWarn("[BILISCRIPT] subtitle kick (summarize chain load) failed", { error: e })))(error);
     if (!policy.continueAfterChainLoadFailed) {
       return false;
     }
+    const nullableRefresh = refresh as (chain: SummarizeChain | null) => Promise<unknown>;
+    runRefresh = () => nullableRefresh(null);
   }
-  const settleRefreshFailure = (error: unknown) => {
-    const isSilent = policy.isRefreshFailureSilent ?? isStaleRunError;
-    if (!isSilent(error)) {
-      (policy.onRefreshFailed ?? ((e: unknown) =>
-        logWarn("[BILISCRIPT] subtitle kick refresh failed", { error: e })))(error);
-    }
-  };
-  const runRefresh = async () => refresh(chain as never);
-  if (policy.awaitRefresh === false) {
-    void (async () => {
-      try {
-        await runRefresh();
-      } catch (error) {
-        settleRefreshFailure(error);
-      }
-    })();
-    return true;
-  }
-  try {
-    await runRefresh();
-  } catch (error) {
-    settleRefreshFailure(error);
-  }
-  policy.afterRefreshSettled?.();
-  return true;
+  return runKickRefresh(runRefresh, policy);
 }

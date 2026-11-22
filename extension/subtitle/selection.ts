@@ -1,4 +1,4 @@
-import { normalizeSubtitleUrlForCache, type RawSubtitleTrack } from "../bilibili/native-payload.js";
+import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import type { SubtitleTrack, SubtitleTrackOrigin } from "../bilibili/gateway.js";
 export type { SubtitleTrackOrigin } from "../bilibili/gateway.js";
 import {
@@ -322,9 +322,17 @@ export function resolveTrackTarget(
   };
 }
 
-function subtitlePriority(item: SubtitleTrack | RawSubtitleTrack): number {
+export interface SubtitleTrackCandidate {
+  id?: string;
+  lan?: string;
+  lanDoc?: string;
+  subtitleUrl?: string;
+  source?: string;
+}
+
+function subtitlePriority(item: SubtitleTrackCandidate): number {
   const lan = String(item?.lan || "").toLowerCase();
-  const label = String((item as { lanDoc?: string }).lanDoc || "").toLowerCase();
+  const label = String(item?.lanDoc || "").toLowerCase();
 
   if (lan === "zh-cn" || lan === "zh-hans") {
     return 0;
@@ -352,14 +360,16 @@ function subtitlePriority(item: SubtitleTrack | RawSubtitleTrack): number {
   return 50;
 }
 
-export function normalizeSubtitleTracks(subtitles?: SubtitleTrack[] | RawSubtitleTrack[] | null): SubtitleTrack[] {
-  return [...(subtitles || [])].sort((a, b) => subtitlePriority(a) - subtitlePriority(b)) as SubtitleTrack[];
+export function normalizeSubtitleTracks<TTrack extends SubtitleTrackCandidate = SubtitleTrack>(
+  subtitles?: readonly TTrack[] | null
+): TTrack[] {
+  return [...(subtitles || [])].sort((a, b) => subtitlePriority(a) - subtitlePriority(b));
 }
 
-export function pickPreferredSubtitle(
-  subtitles: SubtitleTrack[] | RawSubtitleTrack[] | null | undefined,
+export function pickPreferredSubtitle<TTrack extends SubtitleTrackCandidate = SubtitleTrack>(
+  subtitles: readonly TTrack[] | null | undefined,
   { previousId = "", previousUrl = "", previousLang = "" }: PreferredSubtitleContext = {}
-): SubtitleTrack | null {
+): TTrack | null {
   const tracks = subtitles || [];
   if (tracks.length === 0) {
     return null;
@@ -368,32 +378,32 @@ export function pickPreferredSubtitle(
   if (previousId) {
     const byId = tracks.find((item) => String(item.id || "") === String(previousId));
     if (byId) {
-      return byId as SubtitleTrack;
+      return byId;
     }
   }
 
   const prevUrlKey = normalizeSubtitleUrlForCache(previousUrl);
   if (prevUrlKey) {
     const byUrl = tracks.find(
-      (item) => normalizeSubtitleUrlForCache((item as { subtitleUrl?: string }).subtitleUrl) === prevUrlKey
+      (item) => normalizeSubtitleUrlForCache(item.subtitleUrl) === prevUrlKey
     );
     if (byUrl) {
-      return byUrl as SubtitleTrack;
+      return byUrl;
     }
   }
 
   const normalizedPrevLang = String(previousLang || "").trim().toLowerCase();
   if (normalizedPrevLang) {
     const byLang = tracks.find((item) => {
-      const label = String((item as { lanDoc?: string }).lanDoc || item.lan || "").trim().toLowerCase();
+      const label = String(item.lanDoc || item.lan || "").trim().toLowerCase();
       return label === normalizedPrevLang;
     });
     if (byLang) {
-      return byLang as SubtitleTrack;
+      return byLang;
     }
   }
 
-  return tracks[0] as SubtitleTrack;
+  return tracks[0];
 }
 
 export function subtitlePrimaryLangTag(lan: unknown): string {

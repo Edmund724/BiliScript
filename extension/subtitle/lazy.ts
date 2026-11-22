@@ -38,12 +38,17 @@ async function loadSummarizeChain(): Promise<SummarizeChain> {
     import("./ui.js"),
     import("./asr-translation.js")
   ]);
-  (fetcher as { initSummarizeChain(): void }).initSummarizeChain();
+  fetcher.initSummarizeChain();
   return {
-    ...fetcher,
-    ...chainUi,
-    ensureAsrTranslation: asrTranslation.ensureAsrSecondarySubtitle
-  } as SummarizeChain;
+    refreshClip: fetcher.refreshClip,
+    loadSubtitle: fetcher.loadSubtitle,
+    loadAsrSubtitle: fetcher.loadAsrSubtitle,
+    loadSecondarySubtitle: fetcher.loadSecondarySubtitle,
+    resetClipState: fetcher.resetClipState,
+    ensureAsrTranslation: asrTranslation.ensureAsrSecondarySubtitle,
+    copySubtitleTranscript: chainUi.copySubtitleTranscript,
+    downloadSubtitle: chainUi.downloadSubtitle
+  };
 }
 
 const chainLoader = createLazyLoader(loadSummarizeChain);

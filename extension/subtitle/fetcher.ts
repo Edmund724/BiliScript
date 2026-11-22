@@ -586,7 +586,7 @@ export async function loadSubtitle(
       ensureRunActive(runId, state.clip.fetchRunId);
     }
   }
-  await loadTrackBody(
+  await loadTrackBody<SubtitleBodyItem>(
     {
       bvid: state.clip.bvid,
       cid: state.clip.cid,
@@ -682,7 +682,7 @@ export async function loadSecondarySubtitle(
   }
 
   try {
-    await loadTrackBody(
+    await loadTrackBody<SubtitleBodyItem>(
       {
         bvid: state.clip.bvid,
         cid: state.clip.cid,

@@ -2,6 +2,7 @@ import { fnv1a32 } from "../shared/text-primitives.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { buildSubtitleSourceKey } from "./source-key.js";
 import type { SubtitleTrack } from "../bilibili/video-api.js";
+import type { SubtitleTrackCandidate } from "./selection.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 
 export function normalizeSubtitleItems(items: unknown): SubtitleBodyItem[] {
@@ -84,15 +85,15 @@ export function buildSubtitleSignature({
   return `sig${fnv1a32(basis).toString(36)}`;
 }
 
-export function buildSubtitleCandidates(
-  subtitles: SubtitleTrack[] | null | undefined,
-  preferred: SubtitleTrack | null | undefined
-): SubtitleTrack[] {
+export function buildSubtitleCandidates<TTrack extends SubtitleTrackCandidate = SubtitleTrack>(
+  subtitles: readonly TTrack[] | null | undefined,
+  preferred: TTrack | null | undefined
+): TTrack[] {
   const tracks = subtitles || [];
   const seen = new Set<string>();
-  const list: SubtitleTrack[] = [];
+  const list: TTrack[] = [];
 
-  const pushUnique = (item: SubtitleTrack | null | undefined) => {
+  const pushUnique = (item: TTrack | null | undefined) => {
     if (!item) {
       return;
     }

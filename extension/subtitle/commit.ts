@@ -3,7 +3,7 @@ import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { normalizeSubtitleSegmentationStrategy } from "../core/validators.js";
 import { findTrackByRef, sortSubtitleBodyByFrom } from "./selection.js";
-import { segmentSubtitles, shouldSegmentTrack, type CoarseSubtitleInput } from "./segmentation.js";
+import { segmentSubtitles, shouldSegmentTrack } from "./segmentation.js";
 import { buildSegmentationSignature, saveSegmentedSubtitleTrack } from "./cache.js";
 import { subtitleSourceKey, trackIdentity } from "./source-key.js";
 import { refreshHotComments, invalidateDerived } from "./core.js";
@@ -24,7 +24,7 @@ export function configureCommitUi({ setStatus }: CommitUiCallbacks) {
 }
 
 export interface AcceptSubtitleArgs {
-  body: unknown[] | null | undefined;
+  body: SubtitleBodyItem[];
   selectedSubtitleId: string;
   selectedSubtitleUrl: string;
   selectedSubtitleLang: string;
@@ -39,7 +39,7 @@ export async function acceptSubtitle({
   selectedSubtitleLang,
   runId,
   skipHotComments = false
-}: AcceptSubtitleArgs): Promise<unknown[] | null | undefined> {
+}: AcceptSubtitleArgs): Promise<SubtitleBodyItem[]> {
   if (runId !== undefined) {
     ensureRunActive(runId, clipState.fetchRunId);
   }
@@ -56,11 +56,11 @@ export async function acceptSubtitle({
         selectedSubtitleId,
         selectedSubtitleLang,
         trackLan,
-        items: sortedInput as CoarseSubtitleInput[]
+        items: sortedInput
       })
     : false;
   const segmentedBody = Array.isArray(sortedInput)
-    ? segmentSubtitles(sortedInput as CoarseSubtitleInput[], {
+    ? segmentSubtitles(sortedInput, {
         strategy,
         selectedSubtitleId,
         selectedSubtitleLang,
@@ -68,13 +68,14 @@ export async function acceptSubtitle({
       })
     : sortedInput;
   const sortedBody = sortSubtitleBodyByFrom(segmentedBody);
+  const normalizedBody: SubtitleBodyItem[] = Array.isArray(sortedBody) ? sortedBody : [];
   slot.install(
     {
       id: selectedSubtitleId,
       url: selectedSubtitleUrl,
       lang: selectedSubtitleLang
     },
-    sortedBody as SubtitleBodyItem[]
+    normalizedBody
   );
   if (!skipHotComments) {
     await refreshHotComments();
@@ -93,7 +94,7 @@ export async function acceptSubtitle({
         cid: state.clip.cid,
         trackKey,
         segmentationSig,
-        items: sortedBody
+        items: normalizedBody
       });
       if (saveResult && !saveResult.ok) {
         throw saveResult.error ?? saveResult;
@@ -106,11 +107,11 @@ export async function acceptSubtitle({
       });
     }
   }
-  return sortedBody;
+  return normalizedBody;
 }
 
 export interface AcceptSecondarySubtitleArgs {
-  body: unknown[] | null | undefined;
+  body: SubtitleBodyItem[];
   subtitleId: string;
   subtitleUrl: string;
   runId?: number;
@@ -131,7 +132,7 @@ export async function acceptSecondarySubtitle({
       id: subtitleId,
       url: subtitleUrl
     },
-    sortedBody as SubtitleBodyItem[]
+    Array.isArray(sortedBody) ? sortedBody : []
   );
   notifyReaderPresenter({ kind: "secondary-subtitle-ready" });
 }
