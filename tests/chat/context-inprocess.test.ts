@@ -95,7 +95,6 @@ function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { 
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
     requestViewReset: vi.fn(),
-    restartChat: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
     hasPendingUserPrompt: vi.fn(() => false)

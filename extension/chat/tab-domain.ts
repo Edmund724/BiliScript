@@ -46,7 +46,6 @@ export interface CreateChatTabDomainDeps {
   onContextNotice: (notice: ConversationContextNotice) => void;
   renderHistoryList: () => void;
   renderInitialState: () => void;
-  restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   requestViewReset: (intent: ViewResetIntent) => void;
   suggestions: {
     render: () => void;
@@ -107,7 +106,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.suggestions.render,
     requestViewReset: deps.requestViewReset,
-    restartChat: deps.restartChat,
     restoreLatest: () => store.restoreLatest(),
     isStreaming: () => runtime.isStreaming(),
     hasPendingUserPrompt: () => runtime.hasPendingUserPrompt(),

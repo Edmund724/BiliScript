@@ -41,7 +41,6 @@ function makeHarness({
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
     requestViewReset: vi.fn(),
-    restartChat: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
     hasPendingUserPrompt: vi.fn(() => false),
@@ -53,7 +52,6 @@ function makeHarness({
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
     requestViewReset: deps.requestViewReset,
-    restartChat: deps.restartChat,
     restoreLatest: deps.restoreLatest,
     isStreaming: deps.isStreaming,
     hasPendingUserPrompt: deps.hasPendingUserPrompt,
@@ -159,7 +157,7 @@ describe("loadContextState 动作分支", () => {
     expect(deps.restoreLatest).not.toHaveBeenCalled();
   });
 
-  it("apply-live：主上下文落地；上下文变化时 restartChat + restoreLatest + renderInitialState", async () => {
+  it("apply-live：主上下文落地；上下文变化时经 requestViewReset(restart) + restoreLatest + renderInitialState", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4", title: "新视频" });
@@ -171,13 +169,17 @@ describe("loadContextState 动作分支", () => {
 
     expect(ok).toBe(true);
     expect(chatSessionState.contextData).toEqual(payload);
-    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
+    expect(deps.requestViewReset).toHaveBeenCalledWith({
+      kind: "restart",
+      keepContext: true,
+      preserveInput: false
+    });
     expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
 
-  it("apply-live：preserveInput 透传到 restartChat（发送闸调用链不清输入/附件）", async () => {
+  it("apply-live：preserveInput 透传到 requestViewReset(restart)（发送闸调用链不清输入/附件）", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4b", title: "换P后的视频" });
@@ -188,7 +190,11 @@ describe("loadContextState 动作分支", () => {
     const ok = await contextLoad.loadContextState({ silent: true, preserveInput: true });
 
     expect(ok).toBe(true);
-    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: true });
+    expect(deps.requestViewReset).toHaveBeenCalledWith({
+      kind: "restart",
+      keepContext: true,
+      preserveInput: true
+    });
   });
 
   it("apply-live：上下文未变化（首次落地）不触发对话恢复，走 renderSuggestions", async () => {
@@ -218,12 +224,12 @@ describe("loadContextState 动作分支", () => {
     deps.isStreaming.mockReturnValue(true);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(makePayload());
-    expect(deps.restartChat).not.toHaveBeenCalled();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
 
     deps.isStreaming.mockReturnValue(false);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(sameVideoPayload);
-    expect(deps.restartChat).not.toHaveBeenCalled();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
 
@@ -239,7 +245,11 @@ describe("loadContextState 动作分支", () => {
     });
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(switchVideoPayload);
-    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
+    expect(deps.requestViewReset).toHaveBeenCalledWith({
+      kind: "restart",
+      keepContext: true,
+      preserveInput: false
+    });
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
@@ -257,7 +267,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(true);
     expect(chatSessionState.liveContextData).not.toBeNull();
     expect(chatSessionState.contextData).toEqual(makePayload());
-    expect(deps.restartChat).not.toHaveBeenCalled();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
   });
 });

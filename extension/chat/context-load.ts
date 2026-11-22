@@ -27,7 +27,6 @@ export interface CreateContextLoadDeps {
   renderInitialState: () => void;
   renderSuggestions: () => void;
   requestViewReset: (intent: ViewResetIntent) => void;
-  restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   restoreLatest: () => Promise<boolean>;
   isStreaming: () => boolean;
   hasPendingUserPrompt: () => boolean;
@@ -131,7 +130,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     const contextChanged = applyContextSnapshot(payload);
 
     if (contextChanged) {
-      deps.restartChat({ keepContext: true, preserveInput });
+      deps.requestViewReset({ kind: "restart", keepContext: true, preserveInput });
     } else {
       deps.renderSuggestions();
     }

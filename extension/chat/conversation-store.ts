@@ -28,7 +28,8 @@ import {
   chatSessionState,
   detachConversationIdentity,
   pinCurrentContextKey,
-  setSavedConversations
+  setSavedConversations,
+  type CurrentConversationMeta
 } from "./chat-state.js";
 import type {
   ChatSessionMessage,
@@ -426,35 +427,31 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!conversation) {
       return;
     }
+    const liveData = chatSessionState.liveContextData;
+    const liveKey = chatSessionState.liveContextKey;
+    const matchesLive = Boolean(liveData && conversation.contextKey && conversation.contextKey === liveKey);
+    const meta: CurrentConversationMeta = {
+      id: conversation.id,
+      title: conversation.title,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      contextKey: conversation.contextKey,
+      contextTitle: conversation.contextTitle,
+      contextUrl: conversation.contextUrl,
+      isVideoContext: conversation.isVideoContext !== false,
+      pinnedContext: true,
+      contextRef: conversation.contextRef || null,
+      resolvedContext: matchesLive && liveData ? { ...liveData } : null
+    };
     applyConversationIdentity({
       id: conversation.id,
-      meta: {
-        id: conversation.id,
-        title: conversation.title,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        contextKey: conversation.contextKey,
-        contextTitle: conversation.contextTitle,
-        contextUrl: conversation.contextUrl,
-        isVideoContext: conversation.isVideoContext !== false,
-        pinnedContext: true,
-        contextRef: conversation.contextRef || null,
-        resolvedContext: null
-      },
+      meta,
       history: Array.isArray(conversation.messages)
         ? conversation.messages.map((item) => normalizeHistoryMessage(item))
         : []
     });
-    const liveData = chatSessionState.liveContextData;
-    const liveKey = chatSessionState.liveContextKey;
-    if (liveData && conversation.contextKey && conversation.contextKey === liveKey) {
+    if (matchesLive && liveData) {
       applyContextToMain({ ...liveData }, liveKey);
-      applyConversationIdentity({
-        meta: {
-          ...chatSessionState.currentConversationMeta,
-          resolvedContext: { ...liveData }
-        }
-      });
     } else if (conversation.contextRef) {
       applyContextToMain(buildContextPlaceholder(conversation.contextRef), conversation.contextKey);
     }

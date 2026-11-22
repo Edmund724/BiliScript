@@ -179,37 +179,133 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
   };
 }
 
-export function createWebSpeechEngine(
-  synth: SpeechSynthesis | undefined = typeof window !== "undefined" ? window.speechSynthesis : undefined,
-  createUtterance: (text: string) => SpeechSynthesisUtterance = (text) => new SpeechSynthesisUtterance(text)
-): ChatSpeechEngine {
-  let activeUtterance: SpeechSynthesisUtterance | null = null;
-  let cachedNativeVoices: SpeechSynthesisVoice[] = [];
-  const pendingVoiceWaiters = new Set<() => void>();
+interface WebSpeechTurnAdapter {
+  speak(
+    buildUtterance: () => SpeechSynthesisUtterance,
+    onEvent?: (event: ChatSpeechEvent) => void
+  ): void;
+  cancel(): void;
+}
 
-  function stop(): void {
+function normalizeWebSpeechErrorEvent(event: unknown): ChatSpeechEvent {
+  const code = String((event as { error?: string })?.error || "");
+  if (code === "interrupted") {
+    return { type: "interrupted" };
+  }
+  if (code === "canceled" || code === "cancelled") {
+    return { type: "cancelled" };
+  }
+  return { type: "error", errorMessage: code || "Speech synthesis failed" };
+}
+
+function detachUtteranceHandlers(utterance: SpeechSynthesisUtterance): void {
+  utterance.onstart = null;
+  utterance.onboundary = null;
+  utterance.onend = null;
+  utterance.onerror = null;
+}
+
+function createWebSpeechTurnAdapter(synth: SpeechSynthesis | undefined): WebSpeechTurnAdapter {
+  let activeUtterance: SpeechSynthesisUtterance | null = null;
+
+  function release(target?: SpeechSynthesisUtterance): boolean {
+    if (target !== undefined && activeUtterance !== target) {
+      return false;
+    }
+    const previous = activeUtterance;
     activeUtterance = null;
+    if (previous) {
+      detachUtteranceHandlers(previous);
+    }
+    return true;
+  }
+
+  function cancel(): void {
+    release();
     try {
       synth?.cancel();
     } catch {}
   }
 
+  function speak(
+    buildUtterance: () => SpeechSynthesisUtterance,
+    onEvent?: (event: ChatSpeechEvent) => void
+  ): void {
+    if (!synth || typeof synth.speak !== "function") {
+      onEvent?.({ type: "error", errorMessage: "Web Speech API unavailable" });
+      return;
+    }
+    cancel();
+    let utterance: SpeechSynthesisUtterance;
+    try {
+      utterance = buildUtterance();
+    } catch (error) {
+      onEvent?.({
+        type: "error",
+        errorMessage: error instanceof Error ? error.message : String(error || "Web Speech API unavailable")
+      });
+      return;
+    }
+    activeUtterance = utterance;
+    utterance.onstart = () => {
+      if (activeUtterance === utterance) {
+        onEvent?.({ type: "start" });
+      }
+    };
+    utterance.onboundary = () => {
+      if (activeUtterance === utterance) {
+        onEvent?.({ type: "word" });
+      }
+    };
+    utterance.onend = () => {
+      if (release(utterance)) {
+        onEvent?.({ type: "end" });
+      }
+    };
+    utterance.onerror = (event) => {
+      if (release(utterance)) {
+        onEvent?.(normalizeWebSpeechErrorEvent(event));
+      }
+    };
+    try {
+      synth.speak(utterance);
+    } catch (error) {
+      if (release(utterance)) {
+        onEvent?.({
+          type: "error",
+          errorMessage: error instanceof Error ? error.message : String(error || "Speech synthesis failed")
+        });
+      }
+    }
+  }
+
+  return { speak, cancel };
+}
+
+export function createWebSpeechEngine(
+  synth: SpeechSynthesis | undefined = typeof window !== "undefined" ? window.speechSynthesis : undefined,
+  createUtterance: (text: string) => SpeechSynthesisUtterance = (text) => new SpeechSynthesisUtterance(text)
+): ChatSpeechEngine {
+  const turnAdapter = createWebSpeechTurnAdapter(synth);
+  let cachedNativeVoices: SpeechSynthesisVoice[] = [];
+  const pendingVoiceWaiters = new Set<() => void>();
+
   let pageHideBound = false;
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("pagehide", stop);
+    window.addEventListener("pagehide", turnAdapter.cancel);
     pageHideBound = true;
   }
 
   function dispose(): void {
     if (pageHideBound && typeof window !== "undefined" && typeof window.removeEventListener === "function") {
-      window.removeEventListener("pagehide", stop);
+      window.removeEventListener("pagehide", turnAdapter.cancel);
       pageHideBound = false;
     }
     for (const finishWaiter of [...pendingVoiceWaiters]) {
       finishWaiter();
     }
     pendingVoiceWaiters.clear();
-    stop();
+    turnAdapter.cancel();
   }
 
   function mapVoices(list: SpeechSynthesisVoice[]): ChatSpeechVoice[] {
@@ -256,82 +352,25 @@ export function createWebSpeechEngine(
       });
     },
     speak(text: string, options: ChatSpeechSpeakOptions): void {
-      if (!synth || typeof synth.speak !== "function") {
-        options.onEvent?.({ type: "error", errorMessage: "Web Speech API unavailable" });
-        return;
-      }
-      activeUtterance = null;
-      try {
-        synth.cancel();
-      } catch {}
-      let utterance: SpeechSynthesisUtterance;
-      try {
-        utterance = createUtterance(text);
-      } catch (error) {
-        options.onEvent?.({
-          type: "error",
-          errorMessage: error instanceof Error ? error.message : String(error || "Web Speech API unavailable")
-        });
-        return;
-      }
-      activeUtterance = utterance;
-      const nativeVoices = cachedNativeVoices.length ? cachedNativeVoices : (synth.getVoices() || []);
-      const matched = options.voiceName
-        ? nativeVoices.find((voice) => voice.name === options.voiceName)
-        : undefined;
-      if (matched) {
-        utterance.voice = matched;
-      }
-      if (options.lang) {
-        utterance.lang = options.lang;
-      }
-      if (typeof options.volume === "number" && Number.isFinite(options.volume)) {
-        utterance.volume = Math.max(0, Math.min(1, options.volume));
-      }
-      utterance.onstart = () => {
-        if (activeUtterance === utterance) {
-          options.onEvent?.({ type: "start" });
+      turnAdapter.speak(() => {
+        const utterance = createUtterance(text);
+        const nativeVoices = cachedNativeVoices.length ? cachedNativeVoices : (synth?.getVoices() || []);
+        const matched = options.voiceName
+          ? nativeVoices.find((voice) => voice.name === options.voiceName)
+          : undefined;
+        if (matched) {
+          utterance.voice = matched;
         }
-      };
-      utterance.onboundary = () => {
-        if (activeUtterance === utterance) {
-          options.onEvent?.({ type: "word" });
+        if (options.lang) {
+          utterance.lang = options.lang;
         }
-      };
-      utterance.onend = () => {
-        if (activeUtterance !== utterance) {
-          return;
+        if (typeof options.volume === "number" && Number.isFinite(options.volume)) {
+          utterance.volume = Math.max(0, Math.min(1, options.volume));
         }
-        activeUtterance = null;
-        options.onEvent?.({ type: "end" });
-      };
-      utterance.onerror = (event) => {
-        if (activeUtterance !== utterance) {
-          return;
-        }
-        activeUtterance = null;
-        const code = String((event as { error?: string })?.error || "");
-        if (code === "interrupted") {
-          options.onEvent?.({ type: "interrupted" });
-        } else if (code === "canceled" || code === "cancelled") {
-          options.onEvent?.({ type: "cancelled" });
-        } else {
-          options.onEvent?.({ type: "error", errorMessage: code || "Speech synthesis failed" });
-        }
-      };
-      try {
-        synth.speak(utterance);
-      } catch (error) {
-        if (activeUtterance === utterance) {
-          activeUtterance = null;
-          options.onEvent?.({
-            type: "error",
-            errorMessage: error instanceof Error ? error.message : String(error || "Speech synthesis failed")
-          });
-        }
-      }
+        return utterance;
+      }, options.onEvent);
     },
-    stop,
+    stop: turnAdapter.cancel,
     dispose
   };
 }

@@ -315,7 +315,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   renderHistoryList: () => lists.renderHistoryList(),
   renderInitialState: contextOrchestrator.renderInitialState,
-  restartChat: contextOrchestrator.restartChat,
   requestViewReset: contextOrchestrator.requestViewReset,
   storage: chrome.storage.local,
   clip: () => state.clip,

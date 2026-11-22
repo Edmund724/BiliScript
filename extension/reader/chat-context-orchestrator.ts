@@ -16,7 +16,7 @@ export interface ScheduleLiveContextSyncOptions {
   preserveInput?: boolean;
 }
 
-export interface RestartChatOptions {
+interface RestartChatOptions {
   keepContext?: boolean;
   preserveInput?: boolean;
 }
@@ -62,7 +62,6 @@ export interface ChatContextOrchestrator {
   resetConversationView: (stateHtml?: string) => void;
   requestViewReset: (intent: ViewResetIntent) => void;
   startNewConversation: () => Promise<boolean>;
-  restartChat: (opts?: RestartChatOptions) => void;
   getTimestampNavDeps: () => TimestampNavDeps;
   isRestartForContextFollow: () => boolean;
   clearRestartForContextFollow: () => void;
@@ -163,6 +162,10 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
       deps.showNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
       return;
     }
+    if (intent.kind === "restart") {
+      restartChat({ keepContext: intent.keepContext, preserveInput: intent.preserveInput });
+      return;
+    }
     resetConversationView(intent.html);
   }
 
@@ -248,7 +251,6 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
     resetConversationView,
     requestViewReset,
     startNewConversation,
-    restartChat,
     getTimestampNavDeps,
     isRestartForContextFollow: () => restartForContextFollow,
     clearRestartForContextFollow: () => {

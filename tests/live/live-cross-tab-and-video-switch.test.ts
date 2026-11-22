@@ -304,7 +304,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
       url: "https://www.bilibili.com/video/BV1"
     };
 
-    const restartChat = vi.fn();
+    const requestViewReset = vi.fn();
     const renderInitialState = vi.fn();
     const renderHistoryList = vi.fn();
     const renderSuggestions = vi.fn();
@@ -327,8 +327,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
       renderHistoryList,
       renderInitialState,
       renderSuggestions,
-      requestViewReset: () => {},
-      restartChat,
+      requestViewReset,
       restoreLatest: () => store.restoreLatest(),
       isStreaming: () => false,
       hasPendingUserPrompt: () => false,
@@ -364,7 +363,11 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
     await contextLoad.loadContextState();
 
     expect(chatSessionState.currentContextKey).toBe("video:BV2|202");
-    expect(restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
+    expect(requestViewReset).toHaveBeenCalledWith({
+      kind: "restart",
+      keepContext: true,
+      preserveInput: false
+    });
     expect(renderInitialState).toHaveBeenCalled();
     expect(chatSessionState.currentConversationId).toBe("");
 

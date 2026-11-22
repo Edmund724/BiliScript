@@ -26,8 +26,6 @@ import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 
-export type { SendVerdict };
-
 export interface SendTurnOptions {
   preserveInputDraft?: boolean;
   interactionAnchor?: InteractionAnchorHint;
