@@ -117,25 +117,24 @@ export async function explainSelection({
 }: ExplainSelectionInput): Promise<string> {
   const messages = buildExplainMessages({ videoTitle, selection, line, from, body, index, webSearch });
   if (webSearch) {
-    const webText = (
-      await runToolLoop({
-        requestProfile: {
-          provider,
-          stream: false,
-          signal,
-          thinkingLevel: "off",
-          toolDefinition: webSearchTool({ requireCitations: false }),
-          maxTokens: EXPLAIN_MAX_TOKENS,
-          retries: 1,
-          fetchImpl: providerFetchViaBackground
-        },
-        messages,
-        maxToolCalls: webSearch.maxToolCalls,
-        executeSearch: webSearch.executeSearch,
-        onToolStatus: onSearchStatus,
-        onNotice
-      })
-    ).trim();
+    const webResult = await runToolLoop({
+      requestProfile: {
+        provider,
+        stream: false,
+        signal,
+        thinkingLevel: "off",
+        toolDefinition: webSearchTool({ requireCitations: false }),
+        maxTokens: EXPLAIN_MAX_TOKENS,
+        retries: 1,
+        fetchImpl: providerFetchViaBackground
+      },
+      messages,
+      maxToolCalls: webSearch.maxToolCalls,
+      executeSearch: webSearch.executeSearch,
+      onToolStatus: onSearchStatus,
+      onNotice
+    });
+    const webText = typeof webResult === "string" ? webResult.trim() : "";
     if (!webText) {
       throw new Error("模型没有给出解释，请重试。");
     }

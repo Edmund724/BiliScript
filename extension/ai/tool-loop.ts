@@ -1,7 +1,12 @@
-import { chatCompletion, type ChatCompletionInput } from "./completion.js";
+import {
+  chatCompletion,
+  type ChatCompletionInput,
+  type ChatCompletionResult,
+  type ChatCompletionStreamResult
+} from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
-import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ProviderRequest, StreamChatEvent } from "./types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { formatClock } from "../shared/clock-text.js";
@@ -111,7 +116,6 @@ export interface ToolLoopRequestProfile
     | "onEvent"
     | "onRetry"
     | "onStreamReset"
-    | "onFinishReason"
     | "retryDelayMs"
     | "fetchImpl"
   > {
@@ -158,7 +162,7 @@ export function serializeHotComments(comments: ToolLoopHotComment[]): string {
   return payload;
 }
 
-export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
+export async function runToolLoop(input: RunToolLoopInput): Promise<string | ChatCompletionStreamResult> {
   const {
     requestProfile,
     messages,
@@ -195,7 +199,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     ];
     const withTools = tools.length > 0;
 
-    let result: string | { done: true } | Awaited<ReturnType<typeof chatCompletion>>;
+    let result: ChatCompletionResult;
     try {
       result = await chatCompletion({
         ...requestProfile,
@@ -232,17 +236,12 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     }
 
     if (typeof result !== "object" || !("toolCalls" in result) || !result.toolCalls?.length) {
-      return typeof result === "string" ? result : finalText;
+      return typeof result === "string" ? result : { done: true, finishReason: result.finishReason };
     }
 
-    const { finishReason, assistantContent, toolCalls, thoughtSignature } = result as {
-      finishReason: string | null;
-      assistantContent: string;
-      toolCalls: ChatToolCall[];
-      thoughtSignature?: string;
-    };
+    const { finishReason, assistantContent, toolCalls, thoughtSignature, thinkingBlocks } = result;
     if (finishReason !== "tool_calls") {
-      return typeof result === "string" ? result : finalText;
+      return stream ? { done: true, finishReason } : finalText;
     }
     finalText = assistantContent;
 
@@ -250,7 +249,8 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       role: "assistant",
       content: assistantContent || "",
       tool_calls: toolCalls,
-      ...(thoughtSignature ? { thoughtSignature } : {})
+      ...(thoughtSignature ? { thoughtSignature } : {}),
+      ...(thinkingBlocks?.length ? { thinkingBlocks } : {})
     };
     const toolMessages: ChatMessage[] = [];
     const frameMessages: ChatMessage[] = [];

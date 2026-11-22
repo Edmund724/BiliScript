@@ -127,7 +127,7 @@ describe("短视频单次直通与 L1 缓存顺带固化", () => {
           ]
         })
       );
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
 
     const result = await analysisMod.runOverviewAnalysis(
@@ -178,7 +178,7 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
         expect(user).toContain("最终状态卡摘要：");
         expect(user).toContain("KV-Cache");
         emitTokens(input, JSON.stringify({ summary: "全片围绕状态卡接力与 L0/L1 混合检索展开，实现高保真长视频概览。" }));
-        return { done: true } as const;
+        return { done: true, finishReason: "stop" } as const;
       }
 
       if (user.includes("第 1 / 3 段")) {
@@ -239,7 +239,7 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
           })
         );
       }
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
 
     const result = await analysisMod.runOverviewAnalysis(
@@ -409,7 +409,7 @@ describe("ModelScope / 小参数模型容错解析与降级兜底", () => {
       const user = input.messages.at(-1)?.content ?? "";
       if (system.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")) {
         emitTokens(input, "这是一份小模型直接以纯文本返回的整片脉络总结。");
-        return { done: true } as const;
+        return { done: true, finishReason: "stop" } as const;
       }
       if (user.includes("第 2 / 3 段")) {
         throw new Error("HTTP 429: ModelScope rate limited");
@@ -435,7 +435,7 @@ describe("ModelScope / 小参数模型容错解析与降级兜底", () => {
           })
         );
       }
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
 
     const result = await analysisMod.runOverviewAnalysis(

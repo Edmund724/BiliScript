@@ -432,6 +432,122 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
   });
 });
 
+describe("preserved thinking / signature 回放（buildBody / drainStream / parseResponse）", () => {
+  const base = { model: "claude-opus-4-5", stream: false, probe: false, baseUrl: "https://api.anthropic.com" };
+
+  it("buildBody: 含 tool_calls 的 assistant 消息在 text / tool_use 之前原样附带 thinking 与 redacted_thinking 块，并忽略无签名思考块", () => {
+    const body = anthropicBody({
+      ...base,
+      messages: [
+        { role: "user", content: "查一下资料" },
+        {
+          role: "assistant",
+          content: "我先搜索一下",
+          thinkingBlocks: [
+            { type: "thinking", thinking: "第一步先检索", signature: "sig_abc_1" },
+            { type: "thinking", thinking: "无签名应跳过", signature: "" },
+            { type: "redacted_thinking", data: "redacted_blob_xyz" }
+          ],
+          tool_calls: [
+            { id: "tu_1", type: "function", function: { name: "web_search", arguments: '{"query":"test"}' } }
+          ]
+        },
+        { role: "tool", tool_call_id: "tu_1", content: "[]" }
+      ]
+    });
+
+    expect(body.messages).toEqual([
+      { role: "user", content: "查一下资料" },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "第一步先检索", signature: "sig_abc_1" },
+          { type: "redacted_thinking", data: "redacted_blob_xyz" },
+          { type: "text", text: "我先搜索一下" },
+          { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "test" } }
+        ]
+      },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: "[]" }] }
+    ]);
+  });
+
+  it("drainStream: 收集 thinking_delta / signature_delta 与 redacted_thinking，按块 index 顺序返回 thinkingBlocks", async () => {
+    const chunks = [
+      anthropicSseData({ type: "message_start", message: { id: "msg_t1" } }),
+      anthropicSseData({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+      anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "先分析" } }),
+      anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "再检索" } }),
+      anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_part1_" } }),
+      anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "part2" } }),
+      anthropicSseData({ type: "content_block_stop", index: 0 }),
+      anthropicSseData({ type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "opaque_data_99" } }),
+      anthropicSseData({ type: "content_block_stop", index: 1 }),
+      anthropicSseData({ type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "tu_7", name: "web_search" } }),
+      anthropicSseData({ type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"query":"claude"}' } }),
+      anthropicSseData({ type: "content_block_stop", index: 2 }),
+      anthropicSseData({ type: "message_delta", delta: { stop_reason: "tool_use" } }),
+      anthropicSseData({ type: "message_stop" })
+    ];
+    const events: StreamChatEvent[] = [];
+    const result = await anthropicAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
+
+    expect(result.thinkingBlocks).toEqual([
+      { type: "thinking", thinking: "先分析再检索", signature: "sig_part1_part2" },
+      { type: "redacted_thinking", data: "opaque_data_99" }
+    ]);
+    expect(result.toolCalls).toEqual([
+      { id: "tu_7", type: "function", function: { name: "web_search", arguments: '{"query":"claude"}' } }
+    ]);
+    expect(result.finishReason).toBe("tool_calls");
+    expect(events).toEqual([
+      { type: "reasoning", data: "先分析" },
+      { type: "reasoning", data: "再检索" },
+      { type: "tool-call", name: "web_search", args: { query: "claude" } }
+    ]);
+  });
+
+  it("drainStream: 仅有 thinking_delta 无 signature_delta 时正常吐 reasoning 且不产出无效 thinkingBlocks", async () => {
+    const chunks = [
+      anthropicSseData({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+      anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "草稿" } }),
+      anthropicSseData({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "正文" } }),
+      anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } })
+    ];
+    const events: StreamChatEvent[] = [];
+    const result = await anthropicAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
+
+    expect(result.thinkingBlocks).toBeUndefined();
+    expect(result.content).toBe("正文");
+    expect(events).toEqual([
+      { type: "reasoning", data: "草稿" },
+      { type: "token", data: "正文" }
+    ]);
+  });
+
+  it("parseResponse: 非流式响应提取 thinking(带 signature) 与 redacted_thinking，跳过缺签名的 thinking 块", () => {
+    const result = anthropicAdapter.parseResponse({
+      content: [
+        { type: "thinking", thinking: "深度推理", signature: "sig_nonstream_1" },
+        { type: "thinking", thinking: "无签名块" },
+        { type: "redacted_thinking", data: "redacted_nonstream_2" },
+        { type: "text", text: "调用工具" },
+        { type: "tool_use", id: "tu_2", name: "web_search", input: { query: "anthropic" } }
+      ],
+      stop_reason: "tool_use"
+    });
+
+    expect(result).toEqual({
+      content: "调用工具",
+      toolCalls: [{ id: "tu_2", type: "function", function: { name: "web_search", arguments: '{"query":"anthropic"}' } }],
+      finishReason: "tool_calls",
+      thinkingBlocks: [
+        { type: "thinking", thinking: "深度推理", signature: "sig_nonstream_1" },
+        { type: "redacted_thinking", data: "redacted_nonstream_2" }
+      ]
+    });
+  });
+});
+
 describe("drainStream（SSE 事件映射，research §3）", () => {
   it("全事件会话：text/thinking 增量、tool_use 聚合、stop_reason、未知事件宽容", async () => {
     const chunks = [
@@ -532,7 +648,7 @@ describe("extractErrorDetail（research §6）", () => {
 });
 
 describe("chatCompletion 经 anthropic 协议端到端（core 骨架零改动）", () => {
-  it("流式：onEvent 收 token/done 归一事件，返回 { done: true }", async () => {
+  it("流式：onEvent 收 token/done 归一事件，返回 { done: true, finishReason }", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => sseResponse([
       anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "流" } }),
       anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } }),
@@ -547,7 +663,7 @@ describe("chatCompletion 经 anthropic 协议端到端（core 骨架零改动）
       fetchImpl: fetchMock
     });
 
-    expect(result).toEqual({ done: true });
+    expect(result).toEqual({ done: true, finishReason: "stop" });
     expect(events).toEqual([{ type: "token", data: "流" }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.anthropic.com/v1/messages");

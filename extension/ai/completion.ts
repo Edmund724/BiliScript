@@ -12,7 +12,7 @@ import { planThinkingWire } from "./plan-thinking.js";
 import { presetRequestHeaders } from "./preset-headers.js";
 import { noteUsageSample } from "./usage-stats.js";
 import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
-import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent, ThinkingBlock } from "./types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { ProviderTransport } from "../core/provider-http-shared.js";
 
@@ -73,12 +73,21 @@ interface RetryPayload {
   error: Error;
 }
 
-interface ChatCompletionToolResult {
+export interface ChatCompletionStreamResult {
+  done: true;
+  finishReason: string | null;
+}
+
+export interface ChatCompletionToolResult {
   done: true;
   finishReason: string | null;
   assistantContent: string;
   toolCalls: ChatToolCall[];
+  thoughtSignature?: string;
+  thinkingBlocks?: ThinkingBlock[];
 }
+
+export type ChatCompletionResult = string | ChatCompletionStreamResult | ChatCompletionToolResult;
 
 export interface ChatCompletionInput {
   provider: ProviderRequest;
@@ -96,7 +105,6 @@ export interface ChatCompletionInput {
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: RetryPayload) => void;
   onStreamReset?: () => void;
-  onFinishReason?: (reason: string | null) => void;
   retryDelayMs?: number;
   fetchImpl?: ProviderTransport;
 }
@@ -131,10 +139,9 @@ export async function chatCompletion({
   onEvent,
   onRetry,
   onStreamReset,
-  onFinishReason,
   retryDelayMs = 800,
   fetchImpl = globalThis.fetch
-}: ChatCompletionInput): Promise<string | { done: true } | ChatCompletionToolResult> {
+}: ChatCompletionInput): Promise<ChatCompletionResult> {
   const { baseUrl, model } = validateProviderBasics(provider);
 
   if (stream && fetchImpl.supportsStreaming === false) {
@@ -296,7 +303,6 @@ export async function chatCompletion({
         lastFailure = { kind: "stream", error };
         continue;
       }
-      onFinishReason?.(streamResult.finishReason);
       noteResponseUsage(streamResult.usage);
       if (streamResult.toolCalls.length) {
         return {
@@ -304,10 +310,11 @@ export async function chatCompletion({
           finishReason: streamResult.finishReason,
           assistantContent: streamResult.content,
           toolCalls: streamResult.toolCalls,
-          ...(streamResult.thoughtSignature ? { thoughtSignature: streamResult.thoughtSignature } : {})
+          ...(streamResult.thoughtSignature ? { thoughtSignature: streamResult.thoughtSignature } : {}),
+          ...(streamResult.thinkingBlocks?.length ? { thinkingBlocks: streamResult.thinkingBlocks } : {})
         };
       }
-      return { done: true };
+      return { done: true, finishReason: streamResult.finishReason };
     }
 
     let json = null;
@@ -324,7 +331,8 @@ export async function chatCompletion({
         finishReason: parsed.finishReason,
         assistantContent: parsed.content,
         toolCalls: parsed.toolCalls,
-        ...(parsed.thoughtSignature ? { thoughtSignature: parsed.thoughtSignature } : {})
+        ...(parsed.thoughtSignature ? { thoughtSignature: parsed.thoughtSignature } : {}),
+        ...(parsed.thinkingBlocks?.length ? { thinkingBlocks: parsed.thinkingBlocks } : {})
       };
     }
     return parsed.content;

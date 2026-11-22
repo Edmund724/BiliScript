@@ -89,7 +89,7 @@ function buildCompletionFake(
     if (parts) {
       const raw = parts[index] || parts[1];
       emitTokens(input, typeof raw === "string" ? raw : JSON.stringify(raw));
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     }
     const base = rangeMatch ? (index - 1) * 250 : 0;
     const baseLine = rangeMatch ? (index - 1) * 50 : 0;
@@ -134,7 +134,7 @@ function buildCompletionFake(
           ...relayState
         };
     emitTokens(input, JSON.stringify(payload));
-    return { done: true } as const;
+    return { done: true, finishReason: "stop" } as const;
   });
   return { chatCompletion, calls };
 }
@@ -383,10 +383,10 @@ describe("空正文重试", () => {
       calls.push(input);
       if (calls.length === 1) {
         input.onEvent?.({ type: "reasoning", data: "把预算花在思考上" });
-        return { done: true } as const;
+        return { done: true, finishReason: "stop" } as const;
       }
       emitTokens(input, good);
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -414,7 +414,7 @@ describe("空正文重试", () => {
   });
 
   it("重试后仍空正文 → 抛可读错误，而不是「Unexpected end of JSON input」", async () => {
-    const chatCompletion = vi.fn(async () => ({ done: true }) as const);
+    const chatCompletion = vi.fn(async () => ({ done: true, finishReason: "stop" }) as const);
     await expect(
       mod.runOverviewAnalysis(
         { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -437,12 +437,10 @@ describe("截断重跑", () => {
       calls.push(input);
       if (calls.length === 1) {
         emitTokens(input, '{"chapters":[{"title":"半截","timestampSeconds":5}],"keyQuotes":');
-        input.onFinishReason?.("length");
-        return { done: true } as const;
+        return { done: true, finishReason: "length" } as const;
       }
       emitTokens(input, GOOD);
-      input.onFinishReason?.("stop");
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -459,8 +457,7 @@ describe("截断重跑", () => {
   it("finish_reason=stop（正常收尾）→ 不重跑", async () => {
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, GOOD);
-      input.onFinishReason?.("stop");
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -477,8 +474,7 @@ describe("截断重跑", () => {
     learned.noteLearnedMaxTokens({ baseUrl: "https://api.example.com/v1", model: "test-model" }, 8192);
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, GOOD);
-      input.onFinishReason?.("length");
-      return { done: true } as const;
+      return { done: true, finishReason: "length" } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -495,7 +491,7 @@ describe("流式聚合与 onStreamReset", () => {
   it("正文来自多次 token 事件的拼接（分片切开 JSON 也能解析）", async () => {
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }), 1);
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -516,7 +512,7 @@ describe("流式聚合与 onStreamReset", () => {
       emitTokens(input, stale, 5);
       input.onStreamReset?.();
       emitTokens(input, fresh, 5);
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -559,7 +555,7 @@ describe("部分失败降级", () => {
       if (input.messages[0]?.content.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")) {
         if (failSummary) throw new Error("简介归并失败");
         emitTokens(input, JSON.stringify({ summary: "重试后得到的全片简介。" }));
-        return { done: true } as const;
+        return { done: true, finishReason: "stop" } as const;
       }
       return base.chatCompletion(input);
     });
@@ -614,7 +610,7 @@ describe("部分失败降级", () => {
   it("模型产出全被校验丢弃（空产物）：抛空产物错误", async () => {
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, JSON.stringify({ chapters: [], keyQuotes: [] }));
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     await expect(
       mod.runOverviewAnalysis(
@@ -1009,7 +1005,7 @@ describe("promise 复用去重", () => {
           keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
         })
       );
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     const context = makeContext({ subtitleBody: makeSubtitleBody(50000) });
     const args = { provider: makeProvider(), context };
@@ -1044,7 +1040,7 @@ describe("promise 复用去重", () => {
           keyQuotes: []
         })
       );
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     const args = { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) };
     await expect(mod.runOverviewAnalysis(args, { chatCompletion })).rejects.toThrow("第一次失败");
@@ -1113,7 +1109,7 @@ describe("成本护栏与进度", () => {
       input.onEvent?.({ type: "reasoning", data: "再想一想" });
       vi.advanceTimersByTime(1500);
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }));
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -1138,7 +1134,7 @@ describe("成本护栏与进度", () => {
       input.onEvent?.({ type: "token", data: "c" });
       vi.advanceTimersByTime(100);
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }));
-      return { done: true } as const;
+      return { done: true, finishReason: "stop" } as const;
     });
     await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },

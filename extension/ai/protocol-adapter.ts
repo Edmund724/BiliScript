@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent, ThinkingBlock } from "./types.js";
 import type { ThinkingWireOutput } from "./thinking-wire-map.js";
 
 export type { AiProtocol } from "./protocol-vocab.js";
@@ -34,6 +34,7 @@ export interface DrainResult {
   finishReason: string | null;
   usage?: ChatUsage;
   thoughtSignature?: string;
+  thinkingBlocks?: ThinkingBlock[];
 }
 
 export interface DrainContext {

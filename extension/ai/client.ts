@@ -1,5 +1,5 @@
 import { buildMessages } from "./context.js";
-import { chatCompletion, validateProviderBasics } from "./completion.js";
+import { chatCompletion, validateProviderBasics, type ChatCompletionResult } from "./completion.js";
 import { runToolLoop, type FetchHotCommentsFn, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
 import type { AiContext, AiProvider, CaptureCurrentVideoFrame, ImagePart, StreamChatEvent } from "./types.js";
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -95,13 +95,10 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             ? `${error.message}，正在重试...`
             : `连接中断，正在重新连接（${attempt}/${maxRetries}）...`
         } satisfies ChatPortMessage);
-      },
-      onFinishReason: (reason: string | null) => {
-        lastFinishReason = reason;
       }
     };
 
-    const runTurn = (maxTokens?: number) => hasToolLoop
+    const runTurn = (maxTokens?: number): Promise<ChatCompletionResult> => hasToolLoop
       ? runToolLoop({
           requestProfile: {
             provider,
@@ -143,11 +140,14 @@ export async function streamChat({ provider, context, userPrompt, history, userI
           ...streamCallbacks
         });
 
-    await runTurn();
+    const extractFinishReason = (result: ChatCompletionResult): string | null =>
+      typeof result === "object" && result !== null ? result.finishReason : null;
+
+    lastFinishReason = extractFinishReason(await runTurn());
     if (isEmptyTextRetryable({ finishReason: lastFinishReason, hasBody: !emittedNoText })) {
       emitStreamReset();
       lastFinishReason = null;
-      await runTurn(retryBudget());
+      lastFinishReason = extractFinishReason(await runTurn(retryBudget()));
     }
   } catch (e) {
     if ((e as { overflow?: boolean })?.overflow) {

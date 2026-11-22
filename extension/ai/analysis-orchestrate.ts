@@ -159,7 +159,6 @@ async function requestStreamedAnalysisText({
   const raisedMaxTokens = retryBudget(baseMaxTokens);
   let text = "";
   let reasoningChars = 0;
-  let truncated = false;
 
   const onEvent = (event: unknown): void => {
     const streamEvent = event as { type?: string; data?: unknown } | null;
@@ -184,20 +183,17 @@ async function requestStreamedAnalysisText({
     onEvent,
     onStreamReset: () => {
       text = "";
-    },
-    onFinishReason: (reason: string | null) => {
-      truncated = reason === "length";
     }
   };
 
-  await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
+  const firstResult = await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
+  const truncated = typeof firstResult === "object" && firstResult !== null && firstResult.finishReason === "length";
   if (
     canRaiseBudget(provider, baseMaxTokens, raisedMaxTokens) &&
     (isEmptyTextRetryable({ hasBody: Boolean(text.trim()) }) || truncated)
   ) {
     text = "";
     reasoningChars = 0;
-    truncated = false;
     await chatCompletionImpl({
       ...requestBase,
       maxTokens: raisedMaxTokens

@@ -2,7 +2,7 @@ import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
 import { listOpenAiCompatibleModels, parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
-import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage, ThinkingBlock } from "../types.js";
 
 function extractSystem(messages: ChatMessage[]): { system: string | undefined; rest: ChatMessage[] } {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
@@ -27,6 +27,15 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
   for (const message of messages) {
     if (message.role === "assistant" && message.tool_calls?.length) {
       const blocks: unknown[] = [];
+      if (message.thinkingBlocks?.length) {
+        for (const block of message.thinkingBlocks) {
+          if (block.type === "thinking" && block.signature) {
+            blocks.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
+          } else if (block.type === "redacted_thinking" && block.data) {
+            blocks.push({ type: "redacted_thinking", data: block.data });
+          }
+        }
+      }
       if (message.content) blocks.push({ type: "text", text: message.content });
       for (const call of message.tool_calls) {
         blocks.push({ type: "tool_use", id: call.id, name: call.function.name, input: parseToolInput(call.function.arguments) });
@@ -90,9 +99,9 @@ interface AnthropicStreamEvent {
   index?: number;
   message?: { usage?: unknown };
   usage?: unknown;
-  delta?: { type?: string; text?: string; thinking?: string; partial_json?: string; stop_reason?: string };
+  delta?: { type?: string; text?: string; thinking?: string; signature?: string; partial_json?: string; stop_reason?: string };
   error?: { type?: string; message?: string };
-  content_block?: { type?: string; id?: string; name?: string };
+  content_block?: { type?: string; id?: string; name?: string; thinking?: string; signature?: string; data?: string };
 }
 
 function usageTokenCount(container: unknown, field: "input_tokens" | "output_tokens"): number | undefined {
@@ -129,7 +138,7 @@ export const anthropicAdapter: ProtocolAdapter = {
     "toolResultInUserMessage",
     "stopReasonVocabulary",
     "noDoneSentinel",
-    "thinkingSignatureNotReplayed",
+    "preservedThinkingReplay",
     "parallelToolUseFlattened",
     "serverToolsNotTranslated",
     "contentPartsAsArray",
@@ -186,6 +195,7 @@ export const anthropicAdapter: ProtocolAdapter = {
     let finishReason: string | null = null;
     let usage: ChatUsage | undefined;
     const fragments = new Map<number, { id: string; name: string; args: string }>();
+    const thinkingFragments = new Map<number, ThinkingBlock>();
 
     while (true) {
       if (ctx.signal?.aborted) {
@@ -212,27 +222,55 @@ export const anthropicAdapter: ProtocolAdapter = {
           continue;
         }
         switch (event.type) {
-          case "content_block_start":
+          case "content_block_start": {
+            const index = event.index ?? 0;
             if (event.content_block?.type === "tool_use") {
-              fragments.set(event.index ?? 0, {
+              fragments.set(index, {
                 id: event.content_block.id ?? "",
                 name: event.content_block.name ?? "",
                 args: ""
               });
+            } else if (event.content_block?.type === "thinking") {
+              const initialThinking = typeof event.content_block.thinking === "string" ? event.content_block.thinking : "";
+              const initialSignature = typeof event.content_block.signature === "string" ? event.content_block.signature : "";
+              thinkingFragments.set(index, { type: "thinking", thinking: initialThinking, signature: initialSignature });
+              if (initialThinking) {
+                ctx.onEvent?.({ type: "reasoning", data: initialThinking });
+              }
+            } else if (event.content_block?.type === "redacted_thinking" && typeof event.content_block.data === "string" && event.content_block.data) {
+              thinkingFragments.set(index, { type: "redacted_thinking", data: event.content_block.data });
             }
             break;
-          case "content_block_delta":
+          }
+          case "content_block_delta": {
+            const index = event.index ?? 0;
             if (event.delta?.type === "text_delta") {
               content += event.delta.text ?? "";
               ctx.onEvent?.({ type: "token", data: event.delta.text ?? "" });
             } else if (event.delta?.type === "thinking_delta") {
-              ctx.onEvent?.({ type: "reasoning", data: event.delta.thinking ?? "" });
+              const chunk = event.delta.thinking ?? "";
+              ctx.onEvent?.({ type: "reasoning", data: chunk });
+              const existing = thinkingFragments.get(index);
+              if (existing?.type === "thinking") {
+                existing.thinking += chunk;
+              } else if (!existing) {
+                thinkingFragments.set(index, { type: "thinking", thinking: chunk, signature: "" });
+              }
+            } else if (event.delta?.type === "signature_delta") {
+              const sigChunk = event.delta.signature ?? "";
+              const existing = thinkingFragments.get(index);
+              if (existing?.type === "thinking") {
+                existing.signature += sigChunk;
+              } else if (!existing) {
+                thinkingFragments.set(index, { type: "thinking", thinking: "", signature: sigChunk });
+              }
             } else if (event.delta?.type === "input_json_delta") {
-              const existing = fragments.get(event.index ?? 0) || { id: "", name: "", args: "" };
+              const existing = fragments.get(index) || { id: "", name: "", args: "" };
               existing.args += event.delta.partial_json ?? "";
-              fragments.set(event.index ?? 0, existing);
+              fragments.set(index, existing);
             }
             break;
+          }
           case "message_delta": {
             if (typeof event.delta?.stop_reason === "string" && event.delta.stop_reason) {
               finishReason = mapStopReason(event.delta.stop_reason);
@@ -259,23 +297,48 @@ export const anthropicAdapter: ProtocolAdapter = {
         type: "function" as const,
         function: { name: fragment.name, arguments: fragment.args }
       }));
+    const thinkingBlocks: ThinkingBlock[] = [...thinkingFragments.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, block]) => block)
+      .filter((block) => (block.type === "thinking" ? Boolean(block.signature) : Boolean(block.data)));
     for (const call of toolCalls) {
       ctx.onEvent?.({ type: "tool-call", name: call.function.name, args: parseToolArgs(call.function.arguments) });
     }
-    return { content, toolCalls, finishReason, ...(usage ? { usage } : {}) };
+    return {
+      content,
+      toolCalls,
+      finishReason,
+      ...(usage ? { usage } : {}),
+      ...(thinkingBlocks.length ? { thinkingBlocks } : {})
+    };
   },
 
   parseResponse(json: unknown): DrainResult {
     const data = json as {
-      content?: Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown }>;
+      content?: Array<{
+        type?: string;
+        text?: string;
+        thinking?: string;
+        signature?: string;
+        data?: string;
+        id?: string;
+        name?: string;
+        input?: unknown;
+      }>;
       stop_reason?: unknown;
       usage?: unknown;
     };
     let content = "";
     const toolCalls: ChatToolCall[] = [];
+    const thinkingBlocks: ThinkingBlock[] = [];
     for (const block of data.content ?? []) {
-      if (block.type === "text" && typeof block.text === "string") content += block.text;
-      if (block.type === "tool_use") {
+      if (block.type === "text" && typeof block.text === "string") {
+        content += block.text;
+      } else if (block.type === "thinking" && typeof block.thinking === "string" && typeof block.signature === "string" && block.signature) {
+        thinkingBlocks.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
+      } else if (block.type === "redacted_thinking" && typeof block.data === "string" && block.data) {
+        thinkingBlocks.push({ type: "redacted_thinking", data: block.data });
+      } else if (block.type === "tool_use") {
         toolCalls.push({
           id: typeof block.id === "string" && block.id ? block.id : `tool_call_${toolCalls.length}`,
           type: "function" as const,
@@ -288,7 +351,8 @@ export const anthropicAdapter: ProtocolAdapter = {
       content,
       toolCalls,
       finishReason: typeof data.stop_reason === "string" && data.stop_reason ? mapStopReason(data.stop_reason) : null,
-      ...(usage ? { usage } : {})
+      ...(usage ? { usage } : {}),
+      ...(thinkingBlocks.length ? { thinkingBlocks } : {})
     };
   },
 

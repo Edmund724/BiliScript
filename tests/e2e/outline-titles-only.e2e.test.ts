@@ -77,7 +77,7 @@ function makeQuotesOnlyModel() {
     for (let i = 0; i < text.length; i += 7) {
       input.onEvent?.({ type: "token", data: text.slice(i, i + 7) });
     }
-    return { done: true } as const;
+    return { done: true, finishReason: "stop" } as const;
   });
   return { chatCompletion, calls };
 }

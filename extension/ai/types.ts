@@ -21,6 +21,10 @@ export interface CapturedVideoFrame {
 
 export type CaptureCurrentVideoFrame = (targetTime?: number, signal?: AbortSignal) => Promise<CapturedVideoFrame | CapturedVideoFrame[]>;
 
+export type ThinkingBlock =
+  | { type: "thinking"; thinking: string; signature: string }
+  | { type: "redacted_thinking"; data: string };
+
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
@@ -28,6 +32,7 @@ export interface ChatMessage {
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
   thoughtSignature?: string;
+  thinkingBlocks?: ThinkingBlock[];
   parts?: unknown[];
   thinking?: string;
   stopped?: boolean;

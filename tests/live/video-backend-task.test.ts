@@ -100,7 +100,7 @@ describe("runVideoBackendTask", () => {
         input.onStreamReset?.();
         input.onEvent?.({ type: "token", data: "这一区间" });
         input.onEvent?.({ type: "token", data: "介绍了开源项目。" });
-        return { done: true };
+        return { done: true, finishReason: "stop" };
       }
     }));
 
@@ -128,7 +128,7 @@ describe("runVideoBackendTask", () => {
           type: "token",
           data: "## 核心结论\n\n提到了 **BiliScript**。\n\n## [5:00] 项目细节\n\n[项目说明](https://example.com)。"
         });
-        return { done: true };
+        return { done: true, finishReason: "stop" };
       }
     }));
 
@@ -165,7 +165,7 @@ describe("runVideoBackendTask", () => {
 
     const emptyModel = makeOptions({ scope: "query" });
     const emptyResult = await runVideoBackendTask(emptyModel, makeDeps({
-      chatCompletion: async () => ({ done: true })
+      chatCompletion: async () => ({ done: true, finishReason: "stop" })
     }));
     expect(emptyResult).toBeNull();
     expect(emptyModel.onError).toHaveBeenCalledWith(expect.stringContaining("没有返回可用内容"));
@@ -214,7 +214,7 @@ describe("VideoBackendTaskManager", () => {
             reject(new DOMException("Aborted", "AbortError"));
           }, { once: true });
         });
-        return { done: true };
+        return { done: true, finishReason: "stop" };
       }
     }));
     const options = makeOptions({ scope: "query" });

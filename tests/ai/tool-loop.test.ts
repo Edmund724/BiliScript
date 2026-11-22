@@ -923,6 +923,133 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
   });
 });
 
+describe("tool-loop: Anthropic preserved thinking / signature 跨轮回放", () => {
+  const anthropicSse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+
+  it("流式工具循环：第 1 轮的 thinking+signature 与 redacted_thinking 在第 2 轮 assistant 消息中置于 tool_use 之前，并透传最终 finishReason", async () => {
+    const rawBodies: Array<Record<string, unknown>> = [];
+    let callIdx = 0;
+
+    const fakeFetch = mockFetch(async (_url, init) => {
+      rawBodies.push(JSON.parse(init!.body as string) as Record<string, unknown>);
+      callIdx += 1;
+      if (callIdx === 1) {
+        return sseResponse([
+          anthropicSse({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+          anthropicSse({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "先查文档" } }),
+          anthropicSse({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_ant_stream_1" } }),
+          anthropicSse({ type: "content_block_stop", index: 0 }),
+          anthropicSse({ type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "redacted_stream_1" } }),
+          anthropicSse({ type: "content_block_stop", index: 1 }),
+          anthropicSse({ type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "tu_ant_1", name: "web_search" } }),
+          anthropicSse({ type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"query":"preserved thinking"}' } }),
+          anthropicSse({ type: "content_block_stop", index: 2 }),
+          anthropicSse({ type: "message_delta", delta: { stop_reason: "tool_use" } }),
+          anthropicSse({ type: "message_stop" })
+        ]);
+      }
+      return sseResponse([
+        anthropicSse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "最终回答" } }),
+        anthropicSse({ type: "message_delta", delta: { stop_reason: "end_turn" } }),
+        anthropicSse({ type: "message_stop" })
+      ]);
+    });
+
+    const tokens: string[] = [];
+    const loopResult = await runToolLoop({
+      requestProfile: {
+        provider: {
+          baseUrl: "https://api.anthropic.com",
+          model: "claude-sonnet-4-5",
+          protocol: "anthropic"
+        },
+        stream: true,
+        fetchImpl: fakeFetch,
+        onEvent: (event) => {
+          if (event.type === "token") tokens.push(event.data);
+        }
+      },
+      messages: [{ role: "user", content: "什么是 preserved thinking？" }],
+      maxToolCalls: 2,
+      executeSearch: async () => ({
+        results: [{ title: "Anthropic Docs", url: "https://docs.anthropic.com", snippet: "thinking blocks" }],
+        platform: "mock-search"
+      })
+    });
+
+    expect(tokens.join("")).toBe("最终回答");
+    expect(loopResult).toEqual({ done: true, finishReason: "stop" });
+    expect(rawBodies).toHaveLength(2);
+    const r2Messages = rawBodies[1].messages as Array<{ role: string; content: unknown }>;
+    expect(r2Messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "先查文档", signature: "sig_ant_stream_1" },
+        { type: "redacted_thinking", data: "redacted_stream_1" },
+        { type: "tool_use", id: "tu_ant_1", name: "web_search", input: { query: "preserved thinking" } }
+      ]
+    });
+    expect(r2Messages[2]).toMatchObject({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu_ant_1" }]
+    });
+  });
+
+  it("非流式工具循环：parseResponse 提取的思考块同样在下一轮 tool_use 前原样回放，最终返回字符串", async () => {
+    const rawBodies: Array<Record<string, unknown>> = [];
+    let callIdx = 0;
+
+    const fakeFetch = mockFetch(async (_url, init) => {
+      rawBodies.push(JSON.parse(init!.body as string) as Record<string, unknown>);
+      callIdx += 1;
+      const payload = callIdx === 1
+        ? {
+            content: [
+              { type: "thinking", thinking: "需要检索验证", signature: "sig_ant_json_2" },
+              { type: "redacted_thinking", data: "redacted_json_2" },
+              { type: "tool_use", id: "tu_ant_2", name: "web_search", input: { query: "claude" } }
+            ],
+            stop_reason: "tool_use"
+          }
+        : {
+            content: [{ type: "text", text: "非流式最终回答" }],
+            stop_reason: "end_turn"
+          };
+      return { ok: true, status: 200, json: async () => payload } as unknown as Response;
+    });
+
+    const result = await runToolLoop({
+      requestProfile: {
+        provider: {
+          baseUrl: "https://api.anthropic.com",
+          model: "claude-sonnet-4-5",
+          protocol: "anthropic"
+        },
+        stream: false,
+        fetchImpl: fakeFetch
+      },
+      messages: [{ role: "user", content: "解释一下" }],
+      maxToolCalls: 2,
+      executeSearch: async () => ({
+        results: [{ title: "Doc", url: "https://example.com", snippet: "ok" }],
+        platform: "mock-search"
+      })
+    });
+
+    expect(result).toBe("非流式最终回答");
+    expect(rawBodies).toHaveLength(2);
+    const r2Messages = rawBodies[1].messages as Array<{ role: string; content: unknown }>;
+    expect(r2Messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "需要检索验证", signature: "sig_ant_json_2" },
+        { type: "redacted_thinking", data: "redacted_json_2" },
+        { type: "tool_use", id: "tu_ant_2", name: "web_search", input: { query: "claude" } }
+      ]
+    });
+  });
+});
+
 
 describe("热门评论工具", () => {
   function useCommentToolRound() {

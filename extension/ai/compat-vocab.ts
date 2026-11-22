@@ -60,8 +60,8 @@ export const COMPAT_QUIRKS = {
     summary: "流尾没有 [DONE] 哨兵，读完即收束；收束信号由调用方单发，不在流内吐。",
     protocols: ["anthropic"]
   },
-  thinkingSignatureNotReplayed: {
-    summary: "思考块带 signature 且必须原样回传历史，而本场景不把它存进 ChatMessage——多轮回传思考会 400，故有意的缺口。",
+  preservedThinkingReplay: {
+    summary: "含 tool_calls 的 assistant 消息须在 tool_use 块之前原样回放带 signature 的 thinking 块与 redacted_thinking 块，避免严格校验 preserved thinking 的端点返回 400。",
     protocols: ["anthropic"]
   },
   parallelToolUseFlattened: {

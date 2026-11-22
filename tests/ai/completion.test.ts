@@ -495,7 +495,7 @@ describe("非流式返回值", () => {
 });
 
 describe("SSE 流式解析与事件序列", () => {
-  it("多事件逐条吐出（reasoning + token），[DONE] 跳过，成功 resolve { done: true }", async () => {
+  it("多事件逐条吐出（reasoning + token），[DONE] 跳过，成功 resolve { done: true, finishReason: null }", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse([
         sseData({ reasoning_content: "思路" }),
@@ -513,7 +513,7 @@ describe("SSE 流式解析与事件序列", () => {
       onEvent: (e) => events.push(e)
     });
 
-    expect(result).toEqual({ done: true });
+    expect(result).toEqual({ done: true, finishReason: null });
     expect(events).toEqual([
       { type: "reasoning", data: "思路" },
       { type: "token", data: "Hello" },
@@ -798,7 +798,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
       onRetry: (info) => retries.push(info)
     });
 
-    expect(result).toEqual({ done: true });
+    expect(result).toEqual({ done: true, finishReason: null });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(retries).toHaveLength(2);
     expect(retries[0]).toMatchObject({ attempt: 1, maxRetries: 2, kind: "fetch" });
@@ -871,7 +871,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
         retryDelayMs: 0,
         fetchImpl: fetchMock
       })
-    ).resolves.toEqual({ done: true });
+    ).resolves.toEqual({ done: true, finishReason: null });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -904,7 +904,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
       onEvent: () => {}
     });
 
-    expect(result).toEqual({ done: true });
+    expect(result).toEqual({ done: true, finishReason: null });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(retries).toEqual([expect.objectContaining({ attempt: 1, maxRetries: 2, kind: "stream" })]);
 
@@ -1245,7 +1245,7 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
     expect(body.tool_choice).toBe("auto");
   });
 
-  it("流式无 tool_calls：返回值保持 { done: true } 形状不变（向后兼容）", async () => {
+  it("流式无 tool_calls：返回 { done: true, finishReason }", async () => {
     const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "ok" }), sseData({}, "stop")]));
     const result = await chatCompletion({
       provider: PROVIDER,
@@ -1254,22 +1254,19 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
       fetchImpl: fetchMock,
       onEvent: () => {}
     });
-    expect(result).toEqual({ done: true });
+    expect(result).toEqual({ done: true, finishReason: "stop" });
   });
 
-  it("流式 finish_reason=length：onFinishReason 回报 length，返回形状仍不变", async () => {
+  it("流式 finish_reason=length：返回值直接携带 finishReason: length", async () => {
     const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "半句" }), sseData({}, "length")]));
-    const reasons: Array<string | null> = [];
     const result = await chatCompletion({
       provider: PROVIDER,
       messages: [],
       stream: true,
       fetchImpl: fetchMock,
-      onEvent: () => {},
-      onFinishReason: (reason) => reasons.push(reason)
+      onEvent: () => {}
     });
-    expect(result).toEqual({ done: true });
-    expect(reasons).toEqual(["length"]);
+    expect(result).toEqual({ done: true, finishReason: "length" });
   });
 
   it("非流式 tool_calls：读 message.tool_calls，返回 finishReason + assistantContent + toolCalls", async () => {
