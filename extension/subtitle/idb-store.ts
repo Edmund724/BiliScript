@@ -169,7 +169,7 @@ export interface PutRawTrackInput {
   trackKey: string;
   lang?: string;
   kind?: SubtitleTrackStorageKind;
-  items: readonly unknown[];
+  items: readonly SubtitleBodyItem[];
 }
 
 export interface PutSegmentedTrackInput {
@@ -177,7 +177,7 @@ export interface PutSegmentedTrackInput {
   cid: string;
   trackKey: string;
   segmentationSig: string;
-  items: readonly unknown[];
+  items: readonly SubtitleBodyItem[];
 }
 
 export interface UpsertTranslatedTrackInput {
@@ -187,7 +187,7 @@ export interface UpsertTranslatedTrackInput {
   targetLang: string;
   translationSig: string;
   mode?: "boundary-v3" | "cc-json";
-  items: readonly unknown[];
+  items: readonly SubtitleBodyItem[];
   replaceRange?: { from: number; to: number };
 }
 

@@ -291,7 +291,7 @@ export type SubtitleCacheMessage = {
   createdAt?: number;
   updatedAt?: number;
   lastUsedAt?: number;
-  items?: SubtitleBodyItem[];
+  items?: readonly SubtitleBodyItem[];
   replaceRange?: SubtitleTimeRange;
 };
 

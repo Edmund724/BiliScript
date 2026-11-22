@@ -9,6 +9,8 @@ import { isL1VideoIndexCacheRecord } from "../ai/l1-directory.js";
 import {
   defaultSubtitleIdbStore,
   parseAiArtifactKey,
+  sanitizeMonolingualItems,
+  sanitizeTranslatedItems,
   type AiArtifactFamily,
   type SubtitleIdbStore
 } from "./idb-store.js";
@@ -228,13 +230,13 @@ async function runMigration(
                   sourceTrackKey: parsedSub.sourceTrackKey,
                   targetLang: parsedSub.targetLang,
                   translationSig: "legacy",
-                  items: body
+                  items: sanitizeTranslatedItems(body)
                 })
               : await store.putRawTrack({
                   bvid: parsedSub.bvid,
                   cid: parsedSub.cid,
                   trackKey: parsedSub.trackKey,
-                  items: body
+                  items: sanitizeMonolingualItems(body)
                 });
           if (writeRes.ok) {
             migratedSubtitles += 1;

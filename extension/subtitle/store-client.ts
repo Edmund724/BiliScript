@@ -8,7 +8,6 @@ import {
   type SubtitleStoreWriteInterceptor,
   type SubtitleStoreWriteResult
 } from "./idb-store.js";
-import type { SubtitleBodyItem } from "../ai/types.js";
 import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
 
 let storeOverrideForTests: SubtitleIdbStore | null = null;
@@ -82,11 +81,42 @@ async function sendSubtitleStoreRpcDetailed(
   }
 }
 
-async function sendSubtitleStoreRpc(
-  message: SubtitleCacheMessage
-): Promise<SubtitleCacheResponse | null> {
+async function callSubtitleStoreRpcOrFallback<T>(
+  message: SubtitleCacheMessage,
+  onHandled: (response: SubtitleCacheResponse) => T,
+  onUnhandled: () => Promise<T>,
+  fallbackErrorMessage: string
+): Promise<T> {
   const outcome = await sendSubtitleStoreRpcDetailed(message);
-  return outcome.status === "handled" ? outcome.response : null;
+  if (outcome.status === "handled") {
+    if (!outcome.response.ok) {
+      throw new Error(outcome.response.error || fallbackErrorMessage);
+    }
+    return onHandled(outcome.response);
+  }
+  if (outcome.status === "error") {
+    throw outcome.error;
+  }
+  return onUnhandled();
+}
+
+async function callSubtitleStoreWriteOrFallback(
+  message: SubtitleCacheMessage,
+  onUnhandled: () => Promise<SubtitleStoreWriteResult>,
+  fallbackErrorMessage: string
+): Promise<SubtitleStoreWriteResult> {
+  const outcome = await sendSubtitleStoreRpcDetailed(message);
+  if (outcome.status === "handled") {
+    return toRpcWriteResult(outcome.response, fallbackErrorMessage);
+  }
+  if (outcome.status === "error") {
+    return {
+      ok: false,
+      evictedIds: [],
+      error: outcome.error
+    };
+  }
+  return onUnhandled();
 }
 
 function toRpcChatImageWriteResult(
@@ -145,157 +175,189 @@ function toRpcAiWriteResult(
 
 function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): SubtitleIdbStore {
   return {
-    async getPageRecord(bvid, cid) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-page",
-        bvid,
-        cid
-      });
-      return viaBg ? viaBg.page ?? null : fallbackStore.getPageRecord(bvid, cid);
+    getPageRecord(bvid, cid) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-page",
+          bvid,
+          cid
+        },
+        (response) => response.page ?? null,
+        () => fallbackStore.getPageRecord(bvid, cid),
+        "读取字幕页缓存失败"
+      );
     },
     listPageRecords() {
       return fallbackStore.listPageRecords();
     },
-    async getRawTrack(bvid, cid, trackKey) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-raw",
-        bvid,
-        cid,
-        trackKey
-      });
-      return viaBg ? viaBg.items ?? null : fallbackStore.getRawTrack(bvid, cid, trackKey);
+    getRawTrack(bvid, cid, trackKey) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-raw",
+          bvid,
+          cid,
+          trackKey
+        },
+        (response) => response.items ?? null,
+        () => fallbackStore.getRawTrack(bvid, cid, trackKey),
+        "读取原生字幕缓存失败"
+      );
     },
-    async putRawTrack(input) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "put-raw",
-        bvid: input.bvid,
-        cid: input.cid,
-        trackKey: input.trackKey,
-        ...(input.lang ? { lang: input.lang } : {}),
-        ...(input.kind ? { kind: input.kind } : {}),
-        items: input.items as SubtitleBodyItem[]
-      });
-      return viaBg
-        ? toRpcWriteResult(viaBg, "写入原生字幕缓存失败")
-        : fallbackStore.putRawTrack(input);
+    putRawTrack(input) {
+      return callSubtitleStoreWriteOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "put-raw",
+          bvid: input.bvid,
+          cid: input.cid,
+          trackKey: input.trackKey,
+          ...(input.lang ? { lang: input.lang } : {}),
+          ...(input.kind ? { kind: input.kind } : {}),
+          items: input.items
+        },
+        () => fallbackStore.putRawTrack(input),
+        "写入原生字幕缓存失败"
+      );
     },
-    async getSegmentedTrack(bvid, cid, trackKey, segmentationSig) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-segmented",
-        bvid,
-        cid,
-        trackKey,
-        segmentationSig
-      });
-      return viaBg
-        ? viaBg.items ?? null
-        : fallbackStore.getSegmentedTrack(bvid, cid, trackKey, segmentationSig);
+    getSegmentedTrack(bvid, cid, trackKey, segmentationSig) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-segmented",
+          bvid,
+          cid,
+          trackKey,
+          segmentationSig
+        },
+        (response) => response.items ?? null,
+        () => fallbackStore.getSegmentedTrack(bvid, cid, trackKey, segmentationSig),
+        "读取重断句缓存失败"
+      );
     },
-    async putSegmentedTrack(input) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "put-segmented",
-        bvid: input.bvid,
-        cid: input.cid,
-        trackKey: input.trackKey,
-        segmentationSig: input.segmentationSig,
-        items: input.items as SubtitleBodyItem[]
-      });
-      return viaBg
-        ? toRpcWriteResult(viaBg, "写入重断句缓存失败")
-        : fallbackStore.putSegmentedTrack(input);
+    putSegmentedTrack(input) {
+      return callSubtitleStoreWriteOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "put-segmented",
+          bvid: input.bvid,
+          cid: input.cid,
+          trackKey: input.trackKey,
+          segmentationSig: input.segmentationSig,
+          items: input.items
+        },
+        () => fallbackStore.putSegmentedTrack(input),
+        "写入重断句缓存失败"
+      );
     },
-    async getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-translated",
-        bvid,
-        cid,
-        sourceTrackKey,
-        targetLang,
-        ...(translationSig ? { translationSig } : {})
-      });
-      return viaBg
-        ? viaBg.items ?? null
-        : fallbackStore.getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig);
+    getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-translated",
+          bvid,
+          cid,
+          sourceTrackKey,
+          targetLang,
+          ...(translationSig ? { translationSig } : {})
+        },
+        (response) => response.items ?? null,
+        () => fallbackStore.getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig),
+        "读取译文缓存失败"
+      );
     },
-    async upsertTranslatedTrack(input) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "upsert-translated",
-        bvid: input.bvid,
-        cid: input.cid,
-        sourceTrackKey: input.sourceTrackKey,
-        targetLang: input.targetLang,
-        translationSig: input.translationSig,
-        ...(input.mode ? { mode: input.mode } : {}),
-        items: input.items as SubtitleBodyItem[],
-        ...(input.replaceRange ? { replaceRange: input.replaceRange } : {})
-      });
-      return viaBg
-        ? toRpcWriteResult(viaBg, "写入译文缓存失败")
-        : fallbackStore.upsertTranslatedTrack(input);
+    upsertTranslatedTrack(input) {
+      return callSubtitleStoreWriteOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "upsert-translated",
+          bvid: input.bvid,
+          cid: input.cid,
+          sourceTrackKey: input.sourceTrackKey,
+          targetLang: input.targetLang,
+          translationSig: input.translationSig,
+          ...(input.mode ? { mode: input.mode } : {}),
+          items: input.items,
+          ...(input.replaceRange ? { replaceRange: input.replaceRange } : {})
+        },
+        () => fallbackStore.upsertTranslatedTrack(input),
+        "写入译文缓存失败"
+      );
     },
-    async deleteTrackEntry(input) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "delete-entry",
-        bvid: input.bvid,
-        cid: input.cid,
-        tier: input.tier,
-        key: input.key
-      });
-      return viaBg ? Boolean(viaBg.ok) : fallbackStore.deleteTrackEntry(input);
+    deleteTrackEntry(input) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "delete-entry",
+          bvid: input.bvid,
+          cid: input.cid,
+          tier: input.tier,
+          key: input.key
+        },
+        (response) => Boolean(response.ok),
+        () => fallbackStore.deleteTrackEntry(input),
+        "删除字幕缓存条目失败"
+      );
     },
-    async pruneAsrVariants(args) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "prune-asr",
-        bvid: args.bvid,
-        cid: args.cid,
-        ...(args.keepTrackKey !== undefined ? { keepTrackKey: args.keepTrackKey } : {})
-      });
-      return viaBg ? viaBg.removedKeys ?? [] : fallbackStore.pruneAsrVariants(args);
+    pruneAsrVariants(args) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "prune-asr",
+          bvid: args.bvid,
+          cid: args.cid,
+          ...(args.keepTrackKey !== undefined ? { keepTrackKey: args.keepTrackKey } : {})
+        },
+        (response) => response.removedKeys ?? [],
+        () => fallbackStore.pruneAsrVariants(args),
+        "清理过期 ASR 字幕缓存失败"
+      );
     },
-    async clearTranslatedTracksForPage(args) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "clear-translated",
-        bvid: args.bvid,
-        cid: args.cid,
-        ...(args.sourceTrackKey ? { sourceTrackKey: args.sourceTrackKey } : {})
-      });
-      return viaBg ? viaBg.removedKeys ?? [] : fallbackStore.clearTranslatedTracksForPage(args);
+    clearTranslatedTracksForPage(args) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "clear-translated",
+          bvid: args.bvid,
+          cid: args.cid,
+          ...(args.sourceTrackKey ? { sourceTrackKey: args.sourceTrackKey } : {})
+        },
+        (response) => response.removedKeys ?? [],
+        () => fallbackStore.clearTranslatedTracksForPage(args),
+        "清理译文缓存失败"
+      );
     },
 
-    async getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null> {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-ai-artifact",
-        key
-      });
-      return viaBg
-        ? ((viaBg.artifact ?? null) as AiArtifactRecord<TPayload> | null)
-        : fallbackStore.getAiArtifact<TPayload>(key);
+    getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null> {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-ai-artifact",
+          key
+        },
+        (response) => (response.artifact ?? null) as AiArtifactRecord<TPayload> | null,
+        () => fallbackStore.getAiArtifact<TPayload>(key),
+        "读取 AI 产物缓存失败"
+      );
     },
-    async getAiArtifactsMany<TPayload = unknown>(
+    getAiArtifactsMany<TPayload = unknown>(
       keys: string[]
     ): Promise<Array<AiArtifactRecord<TPayload> | null>> {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "get-ai-artifacts",
-        keys
-      });
-      return viaBg
-        ? ((viaBg.artifacts ?? keys.map(() => null)) as Array<AiArtifactRecord<TPayload> | null>)
-        : fallbackStore.getAiArtifactsMany<TPayload>(keys);
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-ai-artifacts",
+          keys
+        },
+        (response) =>
+          (response.artifacts ?? keys.map(() => null)) as Array<AiArtifactRecord<TPayload> | null>,
+        () => fallbackStore.getAiArtifactsMany<TPayload>(keys),
+        "批量读取 AI 产物缓存失败"
+      );
     },
     async putAiArtifact(input) {
-      const viaBg = await sendSubtitleStoreRpc({
+      const outcome = await sendSubtitleStoreRpcDetailed({
         type: "subtitle-cache",
         op: "put-ai-artifact",
         key: input.key,
@@ -307,30 +369,44 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {}),
         ...(input.lastUsedAt !== undefined ? { lastUsedAt: input.lastUsedAt } : {})
       });
-      return viaBg
-        ? toRpcAiWriteResult(viaBg, "写入 AI 产物缓存失败")
-        : fallbackStore.putAiArtifact(input);
-    },
-    async deleteAiArtifact(key) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "delete-ai-artifact",
-        key
-      });
-      return viaBg ? Boolean(viaBg.deleted) : fallbackStore.deleteAiArtifact(key);
-    },
-    async listAiArtifactsByFamilyBvid(family, bvid, keyPrefix) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "list-ai-artifacts",
-        family,
-        bvid,
-        ...(keyPrefix ? { keyPrefix } : {})
-      });
-      if (viaBg) {
-        return (viaBg.artifacts ?? []).filter((item): item is AiArtifactRecord => item !== null);
+      if (outcome.status === "handled") {
+        return toRpcAiWriteResult(outcome.response, "写入 AI 产物缓存失败");
       }
-      return fallbackStore.listAiArtifactsByFamilyBvid(family, bvid, keyPrefix);
+      if (outcome.status === "error") {
+        return {
+          ok: false,
+          evictedKeys: [],
+          error: outcome.error
+        };
+      }
+      return fallbackStore.putAiArtifact(input);
+    },
+    deleteAiArtifact(key) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "delete-ai-artifact",
+          key
+        },
+        (response) => Boolean(response.deleted),
+        () => fallbackStore.deleteAiArtifact(key),
+        "删除 AI 产物缓存失败"
+      );
+    },
+    listAiArtifactsByFamilyBvid(family, bvid, keyPrefix) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "list-ai-artifacts",
+          family,
+          bvid,
+          ...(keyPrefix ? { keyPrefix } : {})
+        },
+        (response) =>
+          (response.artifacts ?? []).filter((item): item is AiArtifactRecord => item !== null),
+        () => fallbackStore.listAiArtifactsByFamilyBvid(family, bvid, keyPrefix),
+        "列举 AI 产物缓存失败"
+      );
     },
     listAiArtifactsByBvid(bvid) {
       return fallbackStore.listAiArtifactsByBvid(bvid);
@@ -338,20 +414,21 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
     listAllAiArtifacts() {
       return fallbackStore.listAllAiArtifacts();
     },
-    async clearVideo(bvid, cid) {
-      const viaBg = await sendSubtitleStoreRpc({
-        type: "subtitle-cache",
-        op: "clear-video",
-        bvid,
-        ...(cid ? { cid } : {})
-      });
-      if (viaBg) {
-        return {
-          removedPageIds: viaBg.removedPageIds ?? [],
-          removedArtifactKeys: viaBg.removedArtifactKeys ?? []
-        };
-      }
-      return fallbackStore.clearVideo(bvid, cid);
+    clearVideo(bvid, cid) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "clear-video",
+          bvid,
+          ...(cid ? { cid } : {})
+        },
+        (response) => ({
+          removedPageIds: response.removedPageIds ?? [],
+          removedArtifactKeys: response.removedArtifactKeys ?? []
+        }),
+        () => fallbackStore.clearVideo(bvid, cid),
+        "清理视频缓存失败"
+      );
     },
 
     async getChatImage(id) {
