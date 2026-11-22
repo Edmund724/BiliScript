@@ -1,11 +1,18 @@
-import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
+import vm from "node:vm";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_SOURCE = "https://models.dev/api.json";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRESETS_MODULE = "extension/core/presets.ts";
+const esbuildBin = path.join(
+  path.dirname(createRequire(import.meta.url).resolve("esbuild/package.json")),
+  "bin",
+  "esbuild"
+);
 
 export const UPSTREAM_PRESET_ORDER = [
   "deepseek",
@@ -23,29 +30,48 @@ export const UPSTREAM_PRESET_ORDER = [
   "gemini"
 ];
 
-function readPresetCatalogProviders() {
-  const text = fs.readFileSync(path.join(rootDir, PRESETS_MODULE), "utf8");
-  const start = text.indexOf("export const PRESETS");
-  if (start < 0) {
-    throw new Error(`models-dev-upstream-providers: ${PRESETS_MODULE} 里找不到 export const PRESETS`);
+export function readPresetCatalogProviders(presetsPath = path.join(rootDir, PRESETS_MODULE)) {
+  const code = execFileSync(
+    process.execPath,
+    [esbuildBin, presetsPath, "--bundle", "--format=cjs", "--platform=node"],
+    { encoding: "utf8" }
+  );
+  if (!code.trim()) {
+    throw new Error(`models-dev-upstream-providers: 编译 ${presetsPath} 未产出可执行代码`);
   }
-  const open = text.indexOf("[", start);
-  const close = text.indexOf("\n];", open + 1);
-  if (open < 0 || close < 0) {
-    throw new Error(`models-dev-upstream-providers: 解析不了 ${PRESETS_MODULE} 的 PRESETS 数组字面量`);
+  const moduleObj = { exports: {} };
+  const wrapper = new vm.Script(
+    `(function (exports, require, module, __filename, __dirname) {\n${code}\n})`,
+    { filename: presetsPath }
+  ).runInThisContext();
+  wrapper(
+    moduleObj.exports,
+    createRequire(presetsPath),
+    moduleObj,
+    presetsPath,
+    path.dirname(presetsPath)
+  );
+  const presets = moduleObj.exports?.PRESETS;
+  if (!Array.isArray(presets)) {
+    throw new Error(`models-dev-upstream-providers: ${presetsPath} 未导出 PRESETS 数组`);
   }
   const providers = new Map();
-  for (const line of text.slice(open + 1, close).split("\n")) {
-    const id = /\bid:\s*"([^"]+)"/.exec(line);
-    if (!id) continue;
-    if (providers.has(id[1])) {
-      throw new Error(`models-dev-upstream-providers: ${PRESETS_MODULE} 里 preset id "${id[1]}" 重复`);
+  for (const entry of presets) {
+    if (!entry || typeof entry !== "object" || typeof entry.id !== "string" || !entry.id) {
+      throw new Error(`models-dev-upstream-providers: ${presetsPath} 的 PRESETS 存在缺少有效 id 的条目`);
     }
-    const provider = /\bcatalogProvider:\s*"([^"]+)"/.exec(line);
-    providers.set(id[1], provider ? provider[1] : undefined);
+    if (providers.has(entry.id)) {
+      throw new Error(`models-dev-upstream-providers: ${presetsPath} 里 preset id "${entry.id}" 重复`);
+    }
+    if (entry.catalogProvider !== undefined && (typeof entry.catalogProvider !== "string" || !entry.catalogProvider)) {
+      throw new Error(
+        `models-dev-upstream-providers: ${presetsPath} 里 preset "${entry.id}" 的 catalogProvider 非法`
+      );
+    }
+    providers.set(entry.id, entry.catalogProvider);
   }
   if (providers.size === 0) {
-    throw new Error(`models-dev-upstream-providers: ${PRESETS_MODULE} 的 PRESETS 数组解析出 0 个 preset`);
+    throw new Error(`models-dev-upstream-providers: ${presetsPath} 的 PRESETS 数组解析出 0 个 preset`);
   }
   return providers;
 }
