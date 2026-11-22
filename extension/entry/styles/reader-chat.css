@@ -1060,6 +1060,7 @@
   padding: 0;
   border: 0;
   border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   font: inherit;
