@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatPort, RunLadderChatArgs, RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
+import { setupEnvironment } from "../setup.js";
 
 const { runLadderChatMock } = vi.hoisted(() => ({ runLadderChatMock: vi.fn() }));
 
@@ -15,7 +16,9 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 let host: MinimalChromeHost;
 
 function installHost() {
+  setupEnvironment();
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     offscreen: true,
     replies: {

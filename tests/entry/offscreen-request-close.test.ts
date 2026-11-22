@@ -21,7 +21,9 @@ function stubSwEnv({
     return undefined;
   });
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       getContexts: vi.fn(async () => [{ contextType: "OFFSCREEN_DOCUMENT" }]),
@@ -31,11 +33,13 @@ function stubSwEnv({
       getManifest: () => ({ version: "9.9.9" })
     },
     tabs: {
+      ...globalThis.chrome.tabs,
       query: tabsQuery,
       onUpdated: { addListener: vi.fn() },
       onRemoved: { addListener: onRemovedAddListener }
     },
     storage: {
+      ...globalThis.chrome.storage,
       local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

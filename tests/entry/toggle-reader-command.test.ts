@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 
 vi.mock("../../extension/shared/tab-utils.js", () => ({
@@ -39,8 +39,11 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
   const setTitle = vi.fn(async () => {});
 
   beforeAll(async () => {
+    setupEnvironment();
     vi.stubGlobal("chrome", {
+      ...globalThis.chrome,
       runtime: {
+        ...globalThis.chrome.runtime,
         lastError: null,
         getURL: (p: string) => `chrome-extension://test/${p}`,
         sendMessage: vi.fn(),
@@ -49,20 +52,24 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
         onMessage: { addListener: vi.fn() }
       },
       tabs: {
+        ...globalThis.chrome.tabs,
         onUpdated: { addListener: vi.fn() },
         query: tabsQuery
       },
       action: {
+        ...globalThis.chrome.action,
         onClicked: { addListener: vi.fn() },
         setBadgeText,
         setBadgeBackgroundColor: vi.fn(async () => {}),
         setTitle
       },
       commands: {
+        ...globalThis.chrome.commands,
         onCommand: { addListener: onCommandAddListener }
       },
       scripting: { executeScript: vi.fn(async () => []) },
       storage: {
+        ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 import { SEARCH_PROVIDER_ORDER_STORAGE } from "../../extension/search/search-provider-store.js";
 
 const TAVILY_ENTRY = {
@@ -36,6 +36,7 @@ function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<st
 }
 
 function stubStorage() {
+  setupEnvironment();
   syncFixture = {};
   failOrderWrite = false;
   syncSetMock = vi.fn(async (obj: Record<string, unknown>) => {
@@ -45,7 +46,9 @@ function stubStorage() {
     Object.assign(syncFixture, obj);
   });
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
@@ -56,8 +59,9 @@ function stubStorage() {
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       sync: { get: vi.fn(async (keys: unknown) => readFixture(syncFixture, keys)), set: syncSetMock },
       local: {
         get: vi.fn(async () => ({})),

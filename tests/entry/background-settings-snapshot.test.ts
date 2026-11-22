@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
 
 const AI_PROVIDER = {
@@ -36,8 +36,11 @@ function stubStorage({
   syncFixture = {},
   localFixture = {}
 }: { syncFixture?: Record<string, unknown>; localFixture?: Record<string, unknown> } = {}) {
+  setupEnvironment();
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
@@ -48,8 +51,9 @@ function stubStorage({
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       sync: {
         get: vi.fn(async (keys: string | string[] | Record<string, unknown> | null) => {
           const requested = (

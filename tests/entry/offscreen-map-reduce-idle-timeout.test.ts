@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
+import { setupEnvironment } from "../setup.js";
 
 const { chatCompletionMock } = vi.hoisted(() => ({ chatCompletionMock: vi.fn() }));
 
@@ -19,7 +20,9 @@ function makeBody() {
 let host: MinimalChromeHost;
 
 function installHost() {
+  setupEnvironment();
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     offscreen: true,
     storage: true,

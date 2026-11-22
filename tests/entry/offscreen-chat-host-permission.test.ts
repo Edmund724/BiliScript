@@ -5,6 +5,7 @@ import {
   SEARCH_NOT_CONFIGURED_NOTICE
 } from "../../extension/search/search-runtime.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
+import { setupEnvironment } from "../setup.js";
 
 const BASE_URL = "https://api.siliconflow.cn/v1";
 
@@ -15,7 +16,9 @@ let checkReply: unknown;
 let searchReply: unknown = { ok: true };
 
 function installHost() {
+  setupEnvironment();
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     replies: {
       "resolve-ai-provider": () => {
@@ -189,7 +192,9 @@ describe("offscreen 对话链 host 权限预检", () => {
     events = [];
     checkReply = { granted: true, status: "granted" };
     searchReply = { ok: true };
+    setupEnvironment();
     host = installMinimalChromeHost({
+      preserveExisting: true,
       onConnect: true,
       replies: {
         "resolve-ai-provider": () => ({

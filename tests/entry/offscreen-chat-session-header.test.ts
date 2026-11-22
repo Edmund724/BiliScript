@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
+import { setupEnvironment } from "../setup.js";
 
 let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -8,7 +9,9 @@ const BASE_URL = "https://opencode.ai/zen/go/v1";
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function installHost() {
+  setupEnvironment();
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     offscreen: true,
     replies: {

@@ -16,20 +16,17 @@ import type { AgentBridgeOffscreenFrameMessage } from "../agent-bridge/protocol.
 let debugGateEnabled = false;
 registerDebugGate(() => debugGateEnabled);
 
-try {
-  chrome.runtime.onMessage.addListener((rawMessage: unknown) => {
-    const type = (rawMessage as { type?: unknown } | null)?.type;
-    if (type === "debug-log-gate-changed") {
-      debugGateEnabled = Boolean((rawMessage as { enabled?: unknown }).enabled);
-    } else if (type === "offscreen-bilibili-tabs-empty") {
-      lifetime.notifyAllBilibiliTabsClosed();
-    }
-    return false;
-  });
-} catch {
-}
+chrome.runtime.onMessage.addListener((rawMessage: unknown) => {
+  const type = (rawMessage as { type?: unknown } | null)?.type;
+  if (type === "debug-log-gate-changed") {
+    debugGateEnabled = Boolean((rawMessage as { enabled?: unknown }).enabled);
+  } else if (type === "offscreen-bilibili-tabs-empty") {
+    lifetime.notifyAllBilibiliTabsClosed();
+  }
+  return false;
+});
 
-chrome.runtime.onMessage?.addListener((rawMessage: unknown, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((rawMessage: unknown, _sender, sendResponse) => {
   if ((rawMessage as { type?: unknown } | null)?.type !== "agent-bridge-offscreen-frame") return false;
   const message = rawMessage as AgentBridgeOffscreenFrameMessage;
   void lifetime.withTask(

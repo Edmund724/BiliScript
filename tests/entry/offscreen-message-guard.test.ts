@@ -30,7 +30,9 @@ async function importBackground() {
   localFixture = {};
   syncFixture = {};
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
@@ -41,8 +43,9 @@ async function importBackground() {
       onInstalled: { addListener: vi.fn() },
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() }
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       local: {
         get: vi.fn(async (keys: unknown) => readFixture(localFixture, keys)),
         set: vi.fn(async (items: Record<string, unknown>) => {

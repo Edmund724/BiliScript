@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 import { SEARCH_HEALTH_KEY } from "../../extension/search/search-health.js";
 import type {
   MessageSender,
@@ -71,10 +71,13 @@ function stubStorage({
   syncSeed = {},
   localSeed = {}
 }: { syncSeed?: Record<string, unknown>; localSeed?: Record<string, unknown> } = {}) {
+  setupEnvironment();
   syncFixture = { ...syncSeed };
   localFixture = { ...localSeed };
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
@@ -85,8 +88,9 @@ function stubStorage({
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       sync: {
         get: vi.fn(async (keys: unknown) => readFixture(syncFixture, keys)),
         set: vi.fn(async (items: Record<string, unknown>) => {

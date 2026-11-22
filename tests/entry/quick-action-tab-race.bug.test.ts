@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
+import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl, setupEnvironment } from "../setup.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import type { MessageSender, SendResponse } from "../../extension/shared/messaging-protocol.js";
@@ -34,8 +34,11 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
   let onMessageListener: (message: unknown, sender: MessageSender, sendResponse: SendResponse) => boolean | void;
 
   beforeAll(async () => {
+    setupEnvironment();
     vi.stubGlobal("chrome", {
+      ...globalThis.chrome,
       runtime: {
+        ...globalThis.chrome.runtime,
         lastError: null,
         getURL: (path: string) => `chrome-extension://test/${path}`,
         sendMessage: vi.fn(),
@@ -43,8 +46,9 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
         onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: vi.fn() }
       },
-      tabs: { onUpdated: { addListener: vi.fn() } },
+      tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
       storage: {
+        ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

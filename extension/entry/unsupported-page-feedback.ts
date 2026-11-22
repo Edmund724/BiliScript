@@ -11,9 +11,9 @@ const BADGE_BACKGROUND_COLOR = "#D92D20";
 
 export async function applyUnsupportedPageFeedback(tabId: number): Promise<void> {
   const steps: Array<() => unknown> = [
-    () => chrome.action?.setBadgeBackgroundColor?.({ tabId, color: BADGE_BACKGROUND_COLOR }),
-    () => chrome.action?.setBadgeText?.({ tabId, text: UNSUPPORTED_PAGE_BADGE_TEXT }),
-    () => chrome.action?.setTitle?.({ tabId, title: UNSUPPORTED_PAGE_ACTION_TITLE })
+    () => chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_BACKGROUND_COLOR }),
+    () => chrome.action.setBadgeText({ tabId, text: UNSUPPORTED_PAGE_BADGE_TEXT }),
+    () => chrome.action.setTitle({ tabId, title: UNSUPPORTED_PAGE_ACTION_TITLE })
   ];
   for (const step of steps) {
     try {
@@ -26,8 +26,8 @@ export async function applyUnsupportedPageFeedback(tabId: number): Promise<void>
 
 export async function clearUnsupportedPageFeedback(tabId: number): Promise<void> {
   const steps: Array<() => unknown> = [
-    () => chrome.action?.setBadgeText?.({ tabId, text: "" }),
-    () => chrome.action?.setTitle?.({ tabId, title: "" })
+    () => chrome.action.setBadgeText({ tabId, text: "" }),
+    () => chrome.action.setTitle({ tabId, title: "" })
   ];
   for (const step of steps) {
     try {

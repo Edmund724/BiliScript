@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { setupEnvironment } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import {
   renderUnsupportedPageToast,
@@ -33,8 +34,11 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
   >(async () => []);
 
   beforeAll(async () => {
+    setupEnvironment();
     vi.stubGlobal("chrome", {
+      ...globalThis.chrome,
       runtime: {
+        ...globalThis.chrome.runtime,
         lastError: null,
         getURL: (path: string) => `chrome-extension://test/${path}`,
         sendMessage: vi.fn(),
@@ -42,8 +46,9 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
         onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: vi.fn() }
       },
-      tabs: { onUpdated: { addListener: tabsOnUpdatedAddListener } },
+      tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: tabsOnUpdatedAddListener } },
       action: {
+        ...globalThis.chrome.action,
         onClicked: { addListener: actionOnClickedAddListener },
         setBadgeText,
         setBadgeBackgroundColor,
@@ -51,6 +56,7 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
       },
       scripting: { executeScript },
       storage: {
+        ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 
 const PERMISSION_GRANT_HTML = readFileSync(
   join(process.cwd(), "extension", "entry", "permission-grant.html"),
@@ -15,13 +15,16 @@ type RuntimeListener = (
 ) => boolean | void;
 
 function installMinimalBackgroundStub() {
+  setupEnvironment();
   const requestMock = vi.fn(async () => true);
   const containsMock = vi.fn(async () => true);
   const removeMock = vi.fn(async () => true);
   const onConnectListeners: Array<(port: unknown) => void> = [];
 
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       id: "ext-test-id",
       lastError: null,
       getURL: (path: string) => `moz-extension://ext-test-uuid/${path}`,
@@ -30,8 +33,9 @@ function installMinimalBackgroundStub() {
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "2.7.4", host_permissions: [] })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
       local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

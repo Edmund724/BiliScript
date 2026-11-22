@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
 
 const wiring = vi.hoisted(() => ({
   resolveDeps: undefined as unknown,
@@ -31,16 +31,20 @@ vi.mock("../../extension/core/save-settings-handler.js", () => ({
 }));
 
 function stubChrome() {
+  setupEnvironment();
   vi.stubGlobal("chrome", {
+    ...globalThis.chrome,
     runtime: {
+      ...globalThis.chrome.runtime,
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: vi.fn() } },
     storage: {
+      ...globalThis.chrome.storage,
       sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
       local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

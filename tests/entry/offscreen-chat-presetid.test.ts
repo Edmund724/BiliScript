@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
+import { setupEnvironment } from "../setup.js";
 
 let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -7,7 +8,9 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const PROXY_BASE_URL = "https://thinking-proxy.example.com/v1";
 
 function installHost() {
+  setupEnvironment();
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     offscreen: true,
     replies: {

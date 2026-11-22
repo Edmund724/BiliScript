@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
+import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl, setupEnvironment } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import { buildReaderModeUrl } from "../../extension/bilibili/video-id-shared.js";
 import { registerDebugGate } from "../../extension/shared/logging.js";
@@ -23,8 +23,11 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   const tabsOnUpdatedAddListener = vi.fn();
 
   beforeAll(async () => {
+    setupEnvironment();
     vi.stubGlobal("chrome", {
+      ...globalThis.chrome,
       runtime: {
+        ...globalThis.chrome.runtime,
         lastError: null,
         getURL: (path: string) => `chrome-extension://test/${path}`,
         sendMessage: vi.fn(),
@@ -32,8 +35,9 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
         onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: vi.fn() }
       },
-      tabs: { onUpdated: { addListener: tabsOnUpdatedAddListener } },
+      tabs: { ...globalThis.chrome.tabs, onUpdated: { addListener: tabsOnUpdatedAddListener } },
       action: {
+        ...globalThis.chrome.action,
         onClicked: { addListener: actionOnClickedAddListener },
         setBadgeText: vi.fn(async () => {}),
         setBadgeBackgroundColor: vi.fn(async () => {}),
@@ -41,6 +45,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       },
       scripting: { executeScript: vi.fn(async () => []) },
       storage: {
+        ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }

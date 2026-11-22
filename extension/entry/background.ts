@@ -493,7 +493,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-chrome.action?.onClicked?.addListener(
+chrome.action.onClicked.addListener(
   async (tab) => {
     const tabId = tab.id ?? 0;
     if (!tabId) {
@@ -516,8 +516,8 @@ chrome.action?.onClicked?.addListener(
           logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
         }
         await Promise.allSettled([
-          chrome.action?.setBadgeText?.({ tabId, text: "!" }),
-          chrome.action?.setTitle?.({
+          chrome.action.setBadgeText({ tabId, text: "!" }),
+          chrome.action.setTitle({
             tabId,
             title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
           })
@@ -538,13 +538,13 @@ chrome.action?.onClicked?.addListener(
 
 const TOGGLE_READER_COMMAND = "toggle-reader";
 
-chrome.commands?.onCommand?.addListener?.(async (command, commandTab) => {
+chrome.commands.onCommand.addListener(async (command, commandTab) => {
   if (command !== TOGGLE_READER_COMMAND) {
     return;
   }
   let targetTab = commandTab;
   if (!targetTab?.id || !targetTab?.url) {
-    const queried = await chrome.tabs?.query?.({ active: true, currentWindow: true }).catch(() => []);
+    const queried = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
     targetTab = queried?.[0] ?? targetTab;
   }
   const tabId = targetTab?.id ?? 0;
@@ -583,7 +583,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   void clearUnsupportedPageFeedback(tabId);
 });
 
-chrome.tabs?.onRemoved?.addListener?.(() => {
+chrome.tabs.onRemoved?.addListener(() => {
   void (async () => {
     if (await hasOpenBilibiliTabs()) {
       return;
@@ -597,7 +597,7 @@ chrome.tabs?.onRemoved?.addListener?.(() => {
   })().catch(() => {});
 });
 
-chrome.runtime.onConnect?.addListener?.((port) => {
+chrome.runtime.onConnect.addListener((port) => {
   if (attachChatSpeechPort(port)) {
     return;
   }
@@ -610,7 +610,7 @@ chrome.runtime.onConnect?.addListener?.((port) => {
 });
 
 watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge", "agentBridgeUrl"] });
-chrome.runtime.onStartup?.addListener(() => {
+chrome.runtime.onStartup.addListener(() => {
   void agentBridge.sync();
   void ensureIndexTranslateSessionRule().catch((error) => {
     logWarn("[BILISCRIPT] ensureIndexTranslateSessionRule onStartup failed", error);
@@ -619,7 +619,7 @@ chrome.runtime.onStartup?.addListener(() => {
     logWarn("[BILISCRIPT] legacy storage migration onStartup failed", error);
   });
 });
-chrome.alarms?.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
 });
 void agentBridge.sync();

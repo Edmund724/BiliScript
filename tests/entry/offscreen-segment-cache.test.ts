@@ -38,6 +38,7 @@ let sendMessageMock: ReturnType<typeof vi.fn>;
 
 function installHost() {
   host = installMinimalChromeHost({
+    preserveExisting: true,
     onConnect: true,
     offscreen: true,
     storage: true,
