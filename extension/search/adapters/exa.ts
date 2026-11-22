@@ -25,14 +25,10 @@ export function buildExaSearchRequest({ baseUrl, apiKey, query, count }: BuildSe
 export function parseExaSearchResponse(payload: unknown): ParsedSearchResponse {
   const data = (payload && typeof payload === "object" ? payload : {}) as {
     results?: unknown;
-    credits?: unknown;
-    costDollars?: { total?: unknown };
   };
   const results = Array.isArray(data.results) ? data.results : [];
-  const credits = [data.credits, data.costDollars?.total].find((value) => Number.isFinite(Number(value)));
   return {
-    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.summary })),
-    ...(credits !== undefined ? { credits: Number(credits) } : {})
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.summary }))
   };
 }
 

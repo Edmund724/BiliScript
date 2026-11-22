@@ -26,12 +26,10 @@ export function buildTavilySearchRequest({ baseUrl, apiKey, query, count }: Buil
 export function parseTavilySearchResponse(payload: unknown): ParsedSearchResponse {
   const data = (payload && typeof payload === "object" ? payload : {}) as {
     results?: unknown;
-    usage?: { credits?: unknown };
   };
   const results = Array.isArray(data.results) ? data.results : [];
   return {
-    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.content })),
-    ...(Number.isFinite(Number(data.usage?.credits)) ? { credits: Number(data.usage?.credits) } : {})
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.content }))
   };
 }
 

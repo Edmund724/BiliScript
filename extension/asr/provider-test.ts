@@ -1,4 +1,4 @@
-import { normalizeAsrProvider } from "./asr-provider-normalize.js";
+import { normalizeAsrProviderFields } from "./asr-provider-normalize.js";
 import { getMergedSettings } from "../core/settings-store.js";
 import { asrProviderStore } from "./asr-provider-store.js";
 import { probeAsrProviderViaOffscreen } from "./offscreen-bridge.page.js";
@@ -9,13 +9,7 @@ export interface AsrProbeResult {
 }
 
 export async function testAsrConnection(provider: unknown): Promise<AsrProbeResult> {
-  let normalized = normalizeAsrProvider(provider);
-  if (!normalized) {
-    const raw = provider as { id?: string; apiKey?: string };
-    if (!String(raw?.id || "").trim() && String(raw?.apiKey || "").trim()) {
-      normalized = normalizeAsrProvider({ ...raw, id: "__probe-draft__" });
-    }
-  }
+  const normalized = normalizeAsrProviderFields(provider);
   if (!normalized) {
     return { ok: false, error: "平台配置不完整或 type 非法" };
   }
@@ -26,9 +20,10 @@ export async function testAsrConnection(provider: unknown): Promise<AsrProbeResu
     return { ok: false, error: "请填写模型名" };
   }
 
+  const raw = provider as { id?: string; apiKey?: string };
   const apiKey = await asrProviderStore.resolveDraftApiKey(
-    (provider as { apiKey?: string })?.apiKey,
-    normalized.id
+    raw?.apiKey,
+    String(raw?.id || "").trim()
   );
 
   let language = "";

@@ -411,23 +411,15 @@ const SLOT_KEY_DECLARATION = /\b[A-Z_]*SLOT_KEY\s*=\s*"(__BILISCRIPT_[A-Z_]+__)"
 
 function collectSlotKeys() {
   const keys = new Map();
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
-        continue;
-      }
-      const text = fs.readFileSync(full, "utf8");
-      for (const match of text.matchAll(SLOT_KEY_DECLARATION)) {
-        keys.set(match[1], path.relative(extensionRoot, full));
-      }
+  const { mainSources, lazySources } = collectContentRegionSources();
+  const contentSources = new Set([...mainSources, ...lazySources]);
+  for (const relSource of contentSources) {
+    const full = path.join(extensionRoot, relSource);
+    const text = fs.readFileSync(full, "utf8");
+    for (const match of text.matchAll(SLOT_KEY_DECLARATION)) {
+      keys.set(match[1], relSource);
     }
-  };
-  walk(extensionRoot);
+  }
   return keys;
 }
 
@@ -504,7 +496,7 @@ function readMapExtensionSources(mapFile) {
   return sourcesFromMap(mapJson, path.dirname(mapFile), extensionRoot);
 }
 
-function collectDualInstanceSources() {
+function collectContentRegionSources() {
   const mainSources = new Set(readMapExtensionSources(`${mainOutfile}.map`));
   const chunkMaps = fs.existsSync(chunksDir)
     ? fs.readdirSync(chunksDir).filter((file) => file.endsWith(".map"))
@@ -515,6 +507,11 @@ function collectDualInstanceSources() {
       lazySources.add(source);
     }
   }
+  return { mainSources, lazySources };
+}
+
+function collectDualInstanceSources() {
+  const { mainSources, lazySources } = collectContentRegionSources();
   return [...mainSources].filter((source) => lazySources.has(source));
 }
 

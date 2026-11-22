@@ -22,7 +22,6 @@ export interface BuildSearchRequestInput {
 
 export interface ParsedSearchResponse {
   results: NormalizedSearchResult[];
-  credits?: number;
 }
 
 export interface SearchAdapter {

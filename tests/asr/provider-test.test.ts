@@ -63,17 +63,10 @@ function baseProvider(overrides: Record<string, unknown> = {}) {
 }
 
 describe("testAsrConnection 输入预检（不发请求、不连端口）", () => {
-  it("非法 type 的 provider：回可读错误，探针客户端零调用", async () => {
+  it("非法入参或非法 type 的 provider：回可读错误，探针客户端零调用", async () => {
     const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection({ id: "p1", type: "random-type", baseUrl: "x", model: "y" });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBeTruthy();
-    expect(probeClient.probeAsrProviderViaOffscreen).not.toHaveBeenCalled();
-  });
-
-  it("缺 id 且无 Key 随参（Modal 新增平台的输入残缺态）：同样不可探", async () => {
-    const { testAsrConnection } = await loadModule();
-    expect((await testAsrConnection({ type: "openai-transcriptions", baseUrl: "x", model: "y" })).ok).toBe(false);
+    expect((await testAsrConnection({ id: "p1", type: "random-type", baseUrl: "x", model: "y" })).ok).toBe(false);
+    expect((await testAsrConnection({ baseUrl: "x", model: "y" })).ok).toBe(false);
     expect((await testAsrConnection(null)).ok).toBe(false);
     expect(probeClient.probeAsrProviderViaOffscreen).not.toHaveBeenCalled();
   });
@@ -109,7 +102,7 @@ describe("testAsrConnection 委派：草稿入参原样交给 offscreen 真链�
     );
   });
 
-  it("新增平台（无 id、Key 随参携带）：占位 id 放行，Key 用表单值", async () => {
+  it("新增平台（无 id、Key 随参携带）：直接归一化并携带表单 Key", async () => {
     const { testAsrConnection } = await loadModule();
     const resp = await testAsrConnection({
       name: "SiliconFlow 硅基流动（免费）",
@@ -124,6 +117,24 @@ describe("testAsrConnection 委派：草稿入参原样交给 offscreen 真链�
       baseUrl: "https://api.siliconflow.cn/v1",
       model: "XingChenAGI/XingChenASR-V3.2",
       apiKey: "sk-1",
+      language: "auto"
+    });
+  });
+
+  it("未保存的本地无密钥 Whisper 探针（无 id 且无 apiKey）：正常放行并空串传参", async () => {
+    const { testAsrConnection } = await loadModule();
+    const resp = await testAsrConnection({
+      type: "openai-transcriptions",
+      baseUrl: "http://127.0.0.1:8080/v1/",
+      model: "whisper-1",
+      apiKey: ""
+    });
+    expect(resp).toEqual({ ok: true });
+    expect(probeClient.probeAsrProviderViaOffscreen).toHaveBeenCalledWith({
+      type: "openai-transcriptions",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      model: "whisper-1",
+      apiKey: "",
       language: "auto"
     });
   });

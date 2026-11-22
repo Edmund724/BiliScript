@@ -16,8 +16,6 @@ interface StubHostEnvOptions {
   contexts?: unknown[];
   contextsError?: unknown;
   omitGetContexts?: boolean;
-  matchAllResult?: Array<{ url?: string }>;
-  matchAllError?: unknown;
   createError?: unknown;
   closeError?: unknown;
   initialRules?: FakeSessionRule[];
@@ -42,8 +40,6 @@ function stubHostEnv({
   contexts,
   contextsError,
   omitGetContexts = false,
-  matchAllResult,
-  matchAllError,
   createError,
   closeError,
   initialRules = [],
@@ -84,16 +80,10 @@ function stubHostEnv({
     }
   });
 
-  const matchAll = matchAllError
-    ? vi.fn(async () => Promise.reject(matchAllError))
-    : vi.fn(async () => matchAllResult || []);
-  vi.stubGlobal("clients", { matchAll });
-
   return {
     createDocument,
     closeDocument,
     getContexts,
-    matchAll,
     tabsGet,
     ruleStore
   };
@@ -105,14 +95,13 @@ beforeEach(() => {
 
 describe("ensureOffscreenDocument", () => {
   it("文档已存在（getContexts 命中）→ 不重复创建，返回 true", async () => {
-    const { createDocument, getContexts, matchAll } = stubHostEnv({
+    const { createDocument, getContexts } = stubHostEnv({
       contexts: [{ contextType: "OFFSCREEN_DOCUMENT" }]
     });
     const host = await import("../../extension/core/offscreen-host.js");
 
     await expect(host.ensureOffscreenDocument()).resolves.toBe(true);
     expect(getContexts).toHaveBeenCalledTimes(1);
-    expect(matchAll).not.toHaveBeenCalled();
     expect(createDocument).not.toHaveBeenCalled();
   });
 
@@ -129,29 +118,37 @@ describe("ensureOffscreenDocument", () => {
     });
   });
 
-  it("getContexts 缺失或抛错时降级到 clients.matchAll：命中已存在文档时不重复创建", async () => {
-    const { createDocument, matchAll } = stubHostEnv({
-      omitGetContexts: true,
-      matchAllResult: [{ url: `chrome-extension://test/${OFFSCREEN_URL}` }]
+  it("getContexts 缺失时 → 直接尝试创建", async () => {
+    const { createDocument } = stubHostEnv({
+      omitGetContexts: true
     });
     const host = await import("../../extension/core/offscreen-host.js");
 
     await expect(host.ensureOffscreenDocument()).resolves.toBe(true);
-    expect(matchAll).toHaveBeenCalledWith({ includeUncontrolled: true });
-    expect(createDocument).not.toHaveBeenCalled();
+    expect(createDocument).toHaveBeenCalledTimes(1);
   });
 
-  it("getContexts 抛错且 clients.matchAll 未命中或抛错 → 仍尝试创建", async () => {
-    const { createDocument, getContexts, matchAll } = stubHostEnv({
-      contextsError: new TypeError("getContexts is not a function"),
-      matchAllError: new Error("clients unavailable")
-    });
-    const host = await import("../../extension/core/offscreen-host.js");
+  it("getContexts 抛错 → 显式记录警告日志后仍尝试创建", async () => {
+    const logging = await import("../../extension/shared/logging.js");
+    logging.registerDebugGate(() => true);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { createDocument, getContexts } = stubHostEnv({
+        contextsError: new TypeError("getContexts failed")
+      });
+      const host = await import("../../extension/core/offscreen-host.js");
 
-    await expect(host.ensureOffscreenDocument()).resolves.toBe(true);
-    expect(getContexts).toHaveBeenCalledTimes(1);
-    expect(matchAll).toHaveBeenCalledTimes(1);
-    expect(createDocument).toHaveBeenCalledTimes(1);
+      await expect(host.ensureOffscreenDocument()).resolves.toBe(true);
+      expect(getContexts).toHaveBeenCalledTimes(1);
+      expect(createDocument).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[BILISCRIPT] chrome.runtime.getContexts failed",
+        expect.objectContaining({ error: "getContexts failed" })
+      );
+    } finally {
+      warnSpy.mockRestore();
+      logging.registerDebugGate(() => false);
+    }
   });
 
   it.each([

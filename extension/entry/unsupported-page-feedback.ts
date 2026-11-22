@@ -59,10 +59,9 @@ export function renderUnsupportedPageToast(message: string, durationMs: number):
     el: HTMLElement;
     timer: ReturnType<typeof setTimeout>;
   }
-  const host = globalThis as unknown as {
-    __BILISCRIPT_UNSUPPORTED_PAGE_TOAST__?: ToastSlot;
-  };
-  const previous = host.__BILISCRIPT_UNSUPPORTED_PAGE_TOAST__;
+  const TOAST_SLOT_KEY = "__BILISCRIPT_UNSUPPORTED_PAGE_TOAST__";
+  const host = globalThis as unknown as Record<string, ToastSlot | undefined>;
+  const previous = host[TOAST_SLOT_KEY];
   if (previous) {
     clearTimeout(previous.timer);
     if (previous.el.isConnected) {
@@ -94,7 +93,7 @@ export function renderUnsupportedPageToast(message: string, durationMs: number):
     "pointer-events:none"
   ].join(";");
   (document.body || document.documentElement).appendChild(el);
-  host.__BILISCRIPT_UNSUPPORTED_PAGE_TOAST__ = {
+  host[TOAST_SLOT_KEY] = {
     el,
     timer: setTimeout(() => el.remove(), durationMs)
   };

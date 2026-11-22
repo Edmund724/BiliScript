@@ -192,9 +192,10 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
   return async function handleAsrDecodeTask(rawTask: unknown, port: AsrDecodePort): Promise<void> {
     const task = rawTask as AsrTask;
     let aborted = false;
-    let fatalAbort = false;
-    let fatalFailure: AsrFailureSummary | null = null;
-    const readFatalFailure = (): AsrFailureSummary | null => fatalFailure;
+    const abortState: { fatal: boolean; failure: AsrFailureSummary | null } = {
+      fatal: false,
+      failure: null
+    };
     let providerRef: AsrProvider | null = null;
     let skippedSegments = 0;
     port.onDisconnect.addListener(() => {
@@ -247,13 +248,13 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
             });
           } catch (error) {
             if (!aborted && !isRetryableNetworkError(error)) {
-              fatalAbort = true;
-              fatalFailure = summarizeFailure(error, provider);
+              abortState.fatal = true;
+              abortState.failure = summarizeFailure(error, provider);
             }
             throw error;
           }
         },
-        isAborted: () => aborted || fatalAbort,
+        isAborted: () => aborted || abortState.fatal,
         concurrency: adapterEntry.concurrency,
         onChunkResult: (chunk, result) => {
           const { durationSec, ...adapterResult } = result;
@@ -285,7 +286,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       const audioCtx = new AudioCtor();
       try {
         const stop = () => {
-          if (aborted || fatalAbort) throw ASR_ABORT_SENTINEL;
+          if (aborted || abortState.fatal) throw ASR_ABORT_SENTINEL;
         };
         async function* segmentSource() {
           yield (first.value as StreamAudioYield).segment!;
@@ -335,13 +336,13 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       if (aborted) {
         return;
       }
-      if (fatalAbort) {
+      if (abortState.fatal) {
         safePostMessage(port, {
           type: ASR_MSG_DONE,
           totalChunks: 0,
           skippedSegments,
           failedChunks: 1,
-          ...projectAsrFailureSummary(readFatalFailure())
+          ...projectAsrFailureSummary(abortState.failure)
         });
         onTaskTerminal(port);
         return;

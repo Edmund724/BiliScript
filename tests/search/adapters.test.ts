@@ -57,11 +57,9 @@ describe("Tavily 适配器", () => {
 
   it("results[].content 映射为 snippet", () => {
     const out = parseTavilySearchResponse({
-      results: [{ title: "T1", url: "https://a", content: "摘要" }],
-      usage: { credits: 3 }
+      results: [{ title: "T1", url: "https://a", content: "摘要" }]
     });
     expect(out.results).toEqual([{ title: "T1", url: "https://a", snippet: "摘要" }]);
-    expect(out.credits).toBe(3);
   });
 });
 
@@ -79,12 +77,6 @@ describe("Exa 适配器", () => {
       results: [{ title: "E1", url: "https://e", summary: "概要" }]
     });
     expect(out.results).toEqual([{ title: "E1", url: "https://e", snippet: "概要" }]);
-  });
-
-  it("credits 可读时透传（credits 或 costDollars.total）", () => {
-    expect(parseExaSearchResponse({ results: [], credits: 7 }).credits).toBe(7);
-    expect(parseExaSearchResponse({ results: [], costDollars: { total: 0.02 } }).credits).toBe(0.02);
-    expect(parseExaSearchResponse({}).credits).toBeUndefined();
   });
 });
 

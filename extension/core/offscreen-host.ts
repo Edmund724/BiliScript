@@ -25,12 +25,6 @@ const OFFSCREEN_ALREADY_EXISTS_RE = /already exist|single offscreen/i;
 const OFFSCREEN_JUSTIFICATION =
   "Run AI streams, ASR audio decoding, live companion sessions, and background video frame capture.";
 
-type ServiceWorkerScopeLike = {
-  clients?: {
-    matchAll?: (options: { includeUncontrolled: boolean }) => Promise<Array<{ url?: string }>>;
-  };
-};
-
 type LifecycleOpKind = "ensure" | "close";
 
 interface QueuedLifecycleOp {
@@ -80,26 +74,21 @@ function isLiveOffscreenIframe(iframe: HTMLIFrameElement | null): iframe is HTML
 }
 
 async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
-  if (typeof chrome.runtime?.getContexts === "function") {
-    try {
-      const contexts = await chrome.runtime.getContexts({
-        contextTypes: ["OFFSCREEN_DOCUMENT"],
-        documentUrls: [url]
-      });
-      return Array.isArray(contexts) && contexts.length > 0;
-    } catch {
-    }
+  if (typeof chrome.runtime?.getContexts !== "function") {
+    return false;
   }
-  const swScope = typeof self !== "undefined" ? (self as unknown as ServiceWorkerScopeLike) : undefined;
-  if (typeof swScope?.clients?.matchAll === "function") {
-    try {
-      const clients = await swScope.clients.matchAll({ includeUncontrolled: true });
-      return Array.isArray(clients) && clients.some((client) => client.url?.includes(OFFSCREEN_URL));
-    } catch {
-      return false;
-    }
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [url]
+    });
+    return Array.isArray(contexts) && contexts.length > 0;
+  } catch (error) {
+    logWarn("[BILISCRIPT] chrome.runtime.getContexts failed", {
+      error: getErrorMessage(error)
+    });
+    return false;
   }
-  return false;
 }
 
 export async function hasOffscreenDocument(): Promise<boolean> {

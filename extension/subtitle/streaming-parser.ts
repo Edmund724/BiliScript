@@ -61,6 +61,7 @@ export function createStreamingSubtitleParser(
     events,
     items,
     sourceLang,
+    mode = "auto",
     initialExpectedIndex = 0,
     indexOffset = 0,
     onCueReady
@@ -139,9 +140,9 @@ export function createStreamingSubtitleParser(
     };
 
     let range: { startIndex: number; endIndex: number } | null = null;
-    if (obj.ids !== undefined) {
+    if (mode !== "cc-json" && obj.ids !== undefined) {
       range = parseGroupIdRange(obj.ids);
-    } else if (obj.id !== undefined) {
+    } else if (mode !== "boundary-v3" && obj.id !== undefined) {
       const singleId = parseSingleEventId(obj.id);
       if (singleId !== null) {
         range = { startIndex: singleId, endIndex: singleId };
@@ -241,7 +242,10 @@ export function createStreamingSubtitleParser(
             stringStart >= 0
           ) {
             const keyName = parseJsonStringToken(buffer.slice(stringStart, scanIndex + 1));
-            if (keyName !== null && WRAPPER_ARRAY_KEYS.has(keyName)) {
+            const allowWrapperKey =
+              keyName !== null &&
+              (mode === "boundary-v3" ? keyName === "groups" : WRAPPER_ARRAY_KEYS.has(keyName));
+            if (allowWrapperKey) {
               awaitingColonForArrayKey = true;
             }
           }
@@ -309,7 +313,7 @@ export function createStreamingSubtitleParser(
           }
           justSawColonAtRoot1 = false;
         } else if (ch === "[") {
-          if (rootBraceDepth === 0 && nonTargetBracketDepth === 0) {
+          if (mode !== "boundary-v3" && rootBraceDepth === 0 && nonTargetBracketDepth === 0) {
             pendingTopArrayConfirm = true;
           } else {
             nonTargetBracketDepth += 1;

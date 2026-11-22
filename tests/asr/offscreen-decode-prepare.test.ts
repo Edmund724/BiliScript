@@ -14,8 +14,8 @@ type BridgeResponse = { ok: boolean; ruleId?: number; error?: string };
 type PrepareResponse = { ok: boolean; ruleId: number; error?: string };
 
 interface StubSwEnvOptions {
-  matchAllResult?: unknown[];
-  matchAllError?: unknown;
+  contextsResult?: unknown[];
+  contextsError?: unknown;
   updateSessionRules?: (options: { removeRuleIds?: number[]; addRules?: FakeSessionRule[] }) => Promise<void>;
   getSessionRules?: () => Promise<FakeSessionRule[]>;
   tabsGet?: (tabId: number) => Promise<{ id: number }>;
@@ -31,8 +31,12 @@ function makeRuleStore(initialRules: FakeSessionRule[] = []) {
   return { rules, updateSessionRules, getSessionRules };
 }
 
-function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessionRules, tabsGet }: StubSwEnvOptions = {}) {
+function stubSwEnv({ contextsResult, contextsError, updateSessionRules, getSessionRules, tabsGet }: StubSwEnvOptions = {}) {
   const createDocument = vi.fn(async (_options: unknown) => ({}));
+  const getContexts = vi.fn(async () => {
+    if (contextsError) throw contextsError;
+    return contextsResult || [];
+  });
   const updateRules = updateSessionRules || vi.fn(async () => {});
   const getRules = getSessionRules || vi.fn(async () => []);
   vi.stubGlobal("chrome", {
@@ -43,6 +47,7 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
         return undefined;
       }),
       getURL: (path: string) => `chrome-extension://test/${path}`,
+      getContexts,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() }
     },
     storage: {
@@ -53,15 +58,10 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
     offscreen: { createDocument },
     declarativeNetRequest: { updateSessionRules: updateRules, getSessionRules: getRules }
   });
-  const matchAll = vi.fn(async () => {
-    if (matchAllError) throw matchAllError;
-    return matchAllResult || [];
-  });
-  vi.stubGlobal("clients", { matchAll });
-  return { createDocument, matchAll, updateSessionRules: updateRules, getSessionRules: getRules };
+  return { createDocument, getContexts, updateSessionRules: updateRules, getSessionRules: getRules };
 }
 
-const existingDocClients = [{ url: "chrome-extension://test/entry/offscreen.html" }];
+const existingDocContexts = [{ contextType: "OFFSCREEN_DOCUMENT" }];
 
 let bridge: typeof import("../../extension/asr/offscreen-bridge.bg.js");
 
@@ -70,8 +70,8 @@ beforeEach(() => {
 });
 
 describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
-  it("无文档时真正创建 offscreen 文档（回归：不再静默吞掉 matchAll TypeError）", async () => {
-    const { createDocument } = stubSwEnv({ matchAllResult: [] });
+  it("无文档时真正创建 offscreen 文档", async () => {
+    const { createDocument } = stubSwEnv({ contextsResult: [] });
     bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
 
     const sendResponse = vi.fn();
@@ -86,7 +86,7 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
   });
 
   it("文档已存在（如 sidepanel 聊天创建的 offscreen-chat 文档）时不重复创建", async () => {
-    const { createDocument } = stubSwEnv({ matchAllResult: existingDocClients });
+    const { createDocument } = stubSwEnv({ contextsResult: existingDocContexts });
     bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
 
     const sendResponse = vi.fn();
@@ -96,8 +96,8 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, ruleId: 32001 });
   });
 
-  it("matchAll 异常降级为直接尝试创建：仍返回 ok:true（工单 03 前探测失败也不吞创建失败）", async () => {
-    const { createDocument } = stubSwEnv({ matchAllError: new Error("boom") });
+  it("getContexts 异常降级为直接尝试创建：仍返回 ok:true（前探测失败也不吞创建失败）", async () => {
+    const { createDocument } = stubSwEnv({ contextsError: new Error("boom") });
     bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
 
     const sendResponse = vi.fn();
@@ -109,7 +109,7 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
 
   it("createDocument 真实失败不再吞掉：ok:false 带原始错误，ruleId 归还不泄漏", async () => {
     const { createDocument } = stubSwEnv({
-      matchAllResult: [],
+      contextsResult: [],
       updateSessionRules: vi.fn(async () => {})
     });
     createDocument.mockRejectedValueOnce(new Error("offscreen reasons invalid"));
@@ -130,7 +130,7 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     "Single offscreen document already exists."
   ])("createDocument 抛「文档已存在」（%s）视同成功", async (message) => {
     const { createDocument } = stubSwEnv({
-      matchAllError: new Error("boom"),
+      contextsError: new Error("boom"),
       updateSessionRules: vi.fn(async () => {})
     });
     createDocument.mockRejectedValueOnce(new Error(message));
@@ -144,7 +144,7 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
 
   it("createDocument 抛无关错误（非已存在竞态）仍上抛为 ok:false", async () => {
     const { createDocument } = stubSwEnv({
-      matchAllError: new Error("boom"),
+      contextsError: new Error("boom"),
       updateSessionRules: vi.fn(async () => {})
     });
     createDocument.mockRejectedValueOnce(new Error("offscreen reasons invalid"));
@@ -173,7 +173,7 @@ describe("cleanup 的标签页归属校验（跨标签页请求拒绝执行）",
   function freshBridge() {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -245,7 +245,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
   it("并发两次 prepare 分配不同 ruleId，两条规则并存且内容与旧版一致", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -271,7 +271,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
   it("一次 cleanup 只删自己的 ruleId，另一并发任务的规则仍在", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -293,7 +293,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
   it("重复 cleanup 与未知 ruleId 的 cleanup 幂等：ok:true、不抛、不污染 id 池", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -315,7 +315,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
   it("cleanup 归还 id 后分配器复用：新任务拿回已释放的 id", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -332,7 +332,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
   it("updateSessionRules 失败照既有错误路径上报（不吞），id 归还不随失败泄漏", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: vi.fn()
         .mockImplementationOnce(async () => {
           throw new Error("dnr quota exceeded");
@@ -359,7 +359,7 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
   async function coldStartBridge(initialRules: FakeSessionRule[] = []) {
     const store = makeRuleStore(initialRules);
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -435,7 +435,7 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
   async function freshBridge({ tabsGet, initialRules = [] }: { tabsGet?: StubSwEnvOptions["tabsGet"]; initialRules?: FakeSessionRule[] } = {}) {
     const store = makeRuleStore(initialRules);
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules,
       tabsGet
@@ -505,7 +505,7 @@ describe("reapAllSessionRules（安装/更新整池清理）", () => {
     const foreignRule = { id: 999, priority: 1, action: { type: "block" }, condition: {} };
     const store = makeRuleStore([residueRule(32001), foreignRule]);
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -520,7 +520,7 @@ describe("reapAllSessionRules（安装/更新整池清理）", () => {
   it("账本整体重置：清理后首个任务从池下界重新分配（对账缓存一并作废）", async () => {
     const store = makeRuleStore([]);
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });
@@ -541,7 +541,7 @@ describe("后台视频帧媒体会话规则", () => {
   it("仅覆盖 media 与跨域响应头，与 ASR 并发分配不同 id 且独立清理", async () => {
     const store = makeRuleStore();
     stubSwEnv({
-      matchAllResult: existingDocClients,
+      contextsResult: existingDocContexts,
       updateSessionRules: store.updateSessionRules,
       getSessionRules: store.getSessionRules
     });

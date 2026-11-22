@@ -17,15 +17,14 @@ export interface AsrProvider {
   language?: string;
 }
 
-export function normalizeAsrProvider(item: unknown): AsrProvider | null {
+export type NormalizedAsrProviderFields = Omit<AsrProvider, "id" | "apiKey" | "language">;
+
+export function normalizeAsrProviderFields(item: unknown): NormalizedAsrProviderFields | null {
   if (!item || typeof item !== "object") return null;
   const raw = item as Partial<AsrProvider>;
-  const id = String(raw.id || "").trim();
-  if (!id) return null;
   const type = String(raw.type || "").trim();
   if (!ASR_PROVIDER_TYPES.has(type)) return null;
   return {
-    id,
     presetId: String(raw.presetId || "custom").trim(),
     name: String(raw.name || "自定义").trim() || "自定义",
     type,
@@ -34,6 +33,14 @@ export function normalizeAsrProvider(item: unknown): AsrProvider | null {
     supportsTimestamps: raw.supportsTimestamps !== false,
     enabled: raw.enabled !== false
   };
+}
+
+export function normalizeAsrProvider(item: unknown): AsrProvider | null {
+  const fields = normalizeAsrProviderFields(item);
+  if (!fields) return null;
+  const id = String((item as Partial<AsrProvider>).id || "").trim();
+  if (!id) return null;
+  return { id, ...fields };
 }
 
 export function resolveActiveAsrProviderId(

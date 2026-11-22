@@ -17,7 +17,7 @@ function makeFetch(payload: unknown, ok = true, status = 200) {
 
 describe("executeWebSearch 适配器分派", () => {
   it("Tavily：POST /search，Bearer 鉴权，body query/max_results=5", async () => {
-    const { fetchImpl } = makeFetch({ results: [{ title: "t", url: "u", content: "c" }], usage: { credits: 3 } });
+    const { fetchImpl } = makeFetch({ results: [{ title: "t", url: "u", content: "c" }] });
     const outcome = await executeWebSearch(
       { type: "tavily", baseUrl: "https://api.tavily.com", apiKey: "tvly-k" },
       "bilibili ai",
@@ -28,7 +28,7 @@ describe("executeWebSearch 适配器分派", () => {
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer tvly-k");
     expect(JSON.parse(init.body!)).toEqual({ query: "bilibili ai", max_results: SEARCH_RESULT_COUNT, include_raw_content: false });
-    expect(outcome).toMatchObject({ platform: "Tavily", credits: 3 });
+    expect(outcome).toMatchObject({ platform: "Tavily" });
     expect(outcome.results[0]).toEqual({ title: "t", url: "u", snippet: "c" });
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeAsrLanguage } from "../../extension/core/presets.js";
-import { normalizeAsrProvider } from "../../extension/asr/asr-provider-normalize.js";
+import { normalizeAsrProvider, normalizeAsrProviderFields } from "../../extension/asr/asr-provider-normalize.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 describe("normalizeAsrProvider", () => {
@@ -63,6 +63,26 @@ describe("normalizeAsrProvider", () => {
     expect(
       normalizeAsrProvider({ id: "p1", type: "openai_chat", baseUrl: "x", model: "y" })
     ).toBeNull();
+  });
+
+  it("normalizeAsrProviderFields：不要求 id，独立归一化基础字段", () => {
+    expect(
+      normalizeAsrProviderFields({
+        type: "openai-transcriptions",
+        baseUrl: "http://127.0.0.1:8080/v1/",
+        model: " whisper-1 "
+      })
+    ).toEqual({
+      presetId: "custom",
+      name: "自定义",
+      type: "openai-transcriptions",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      model: "whisper-1",
+      supportsTimestamps: true,
+      enabled: true
+    });
+    expect(normalizeAsrProviderFields({ type: "invalid" })).toBeNull();
+    expect(normalizeAsrProviderFields(null)).toBeNull();
   });
 
   it("缺失 id 返回 null", () => {

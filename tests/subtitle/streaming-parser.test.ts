@@ -237,4 +237,27 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     parser.feed('[{"id":"0","translation":"第一句"},{"id":"1","text":"第二句"},{"id":"2","translation":"","text":"Line three"}]');
     expect(emitted.map((c) => c.translation)).toEqual(["第一句", "第二句", ""]);
   });
+
+  it("显式指定 mode 时严格按协议解析（boundary-v3 拒绝顶层数组与单 id；cc-json 拒绝 ids 组）", () => {
+    const events: AtomicSubtitleEvent[] = [
+      { text: "a", startMs: 0, endMs: 1000 },
+      { text: "b", startMs: 1000, endMs: 2000 }
+    ];
+    const items = [
+      { from: 0, to: 1, content: "a" },
+      { from: 1, to: 2, content: "b" }
+    ];
+
+    const boundaryTopArray = createStreamingSubtitleParser({ events, mode: "boundary-v3" });
+    expect(boundaryTopArray.feed('[{"id":"0","translation":"甲"}]')).toEqual([]);
+
+    const boundarySingleId = createStreamingSubtitleParser({ events, mode: "boundary-v3" });
+    expect(boundarySingleId.feed('{"groups":[{"id":"0","translation":"甲"}]}')).toEqual([]);
+
+    const boundaryValid = createStreamingSubtitleParser({ events, mode: "boundary-v3" });
+    expect(boundaryValid.feed('{"groups":[{"ids":["0","1"],"translation":"甲乙"}]}')).toHaveLength(1);
+
+    const ccGroupIds = createStreamingSubtitleParser({ items, mode: "cc-json" });
+    expect(ccGroupIds.feed('{"groups":[{"ids":["0","1"],"translation":"甲乙"}]}')).toEqual([]);
+  });
 });
