@@ -38,8 +38,3 @@ pnpm install --frozen-lockfile && pnpm build:firefox
   ```bash
   pnpm dlx web-ext lint -s dist-firefox
   ```
-- **Regenerate Release Archives / 重新生成发布包（可选）**：
-  ```bash
-  pnpm build:release
-  ```
-  Generates `release/BiliScript-v<version>-Chromium.zip`, `release/BiliScript-v<version>-Firefox.zip`, and `release/BiliScript-v<version>-Source.zip`.

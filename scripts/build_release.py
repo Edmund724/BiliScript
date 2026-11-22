@@ -23,16 +23,26 @@ FIREFOX_GECKO_ID = "biliscript@edmund724.github.io"
 MAX_CHROMIUM_ZIP_BYTES = 1_110_000
 MAX_FIREFOX_ZIP_BYTES = 1_110_000
 
-SOURCE_EXCLUDED_TOP_DIRS = {
-    "node_modules",
-    "dist",
-    "dist-firefox",
-    "release",
-    ".git",
-    ".scratch",
-    ".pnpm-store",
-    "coverage",
-    ".pages-dist",
+SOURCE_INCLUDED_ROOT_FILES = {
+    "BUILD_AMO.md",
+    "LICENSE",
+    "PRIVACY.md",
+    "README.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+}
+SOURCE_INCLUDED_DIRS = ("extension",)
+SOURCE_INCLUDED_FILES = {
+    "scripts/build.js",
+    "scripts/build-content.js",
+    "scripts/build-guards.js",
+    "scripts/firefox-manifest.js",
+    "scripts/vendor-mermaid-slim.mjs",
+    "scripts/vendor-marked-stub.mjs",
+    "scripts/vendor-d3-slim.mjs",
+    "scripts/vendor-iconify-stub.mjs",
 }
 SOURCE_EXCLUDED_PREFIXES = ("extension/entry/chunks/",)
 SOURCE_EXCLUDED_FILES = {
@@ -117,15 +127,15 @@ def build_dist_zip(dist_dir: Path, zip_name: str, expected_version: str, target:
 
     return zip_path
 
-def is_excluded_source_path(rel_posix: str) -> bool:
-    parts = rel_posix.split("/")
-    if not parts or parts[0] in SOURCE_EXCLUDED_TOP_DIRS:
-        return True
+def is_included_source_path(rel_posix: str) -> bool:
     if any(rel_posix.startswith(prefix) for prefix in SOURCE_EXCLUDED_PREFIXES):
-        return True
+        return False
     if rel_posix in SOURCE_EXCLUDED_FILES:
+        return False
+    if rel_posix in SOURCE_INCLUDED_ROOT_FILES or rel_posix in SOURCE_INCLUDED_FILES:
         return True
-    return False
+    parts = rel_posix.split("/")
+    return len(parts) > 1 and parts[0] in SOURCE_INCLUDED_DIRS
 
 def collect_source_files() -> list[str]:
     if not BUILD_AMO_PATH.is_file():
@@ -148,7 +158,7 @@ def collect_source_files() -> list[str]:
 
     filtered: list[str] = []
     for rel_posix in sorted(rel_paths):
-        if is_excluded_source_path(rel_posix):
+        if not is_included_source_path(rel_posix):
             continue
         full_path = ROOT / rel_posix
         if full_path.is_file():
@@ -167,14 +177,15 @@ def build_source_zip(version: str) -> tuple[Path, int]:
         for rel_posix in source_files:
             archive.write(ROOT / rel_posix, rel_posix)
 
+    required_files = SOURCE_INCLUDED_ROOT_FILES | SOURCE_INCLUDED_FILES | {"extension/manifest.json"}
     with zipfile.ZipFile(zip_path, "r") as archive:
         names = set(archive.namelist())
-        for required in ("BUILD_AMO.md", "package.json", "pnpm-lock.yaml", "extension/manifest.json", "scripts/build.js"):
+        for required in sorted(required_files):
             if required not in names:
                 raise SystemExit(f"{zip_path.name} is missing required source file: {required}")
         for name in names:
-            if is_excluded_source_path(name):
-                raise SystemExit(f"{zip_path.name} unexpectedly includes excluded path: {name}")
+            if not is_included_source_path(name):
+                raise SystemExit(f"{zip_path.name} unexpectedly includes non-build path: {name}")
 
     return zip_path, len(source_files)
 
