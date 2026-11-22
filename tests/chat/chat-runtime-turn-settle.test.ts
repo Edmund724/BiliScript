@@ -76,6 +76,7 @@ function makeDeps(): TestDeps {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true })),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
@@ -119,6 +120,12 @@ async function flushMicrotasks(): Promise<void> {
 const postedActions = (session: TestPort): unknown[] =>
   session.port.postMessage.mock.calls.map((call) => (call[0] as { action?: unknown })?.action);
 
+function emitMessage(session: TestPort, msg: unknown): void {
+  for (const fn of [...session.listeners.message]) {
+    fn(msg);
+  }
+}
+
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
@@ -157,7 +164,7 @@ describe("isTurnActive（在途回合判据）", () => {
     expect(runtime.isStreaming()).toBe(true);
     expect(runtime.isTurnActive()).toBe(true);
 
-    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    emitMessage(deps.ports[0], { type: "stopped", reason: "已停止生成" });
     expect(runtime.isStreaming()).toBe(false);
     expect(runtime.isTurnActive()).toBe(false);
   });
@@ -174,7 +181,7 @@ describe("stopActiveStream 停止中状态", () => {
     expect(postedActions(session)).toEqual(["chat", "stop"]);
     expect(runtime.isTurnActive()).toBe(true);
 
-    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    emitMessage(session, { type: "stopped", reason: "已停止生成" });
     expect(deps.ui.setStreamingUiState).toHaveBeenLastCalledWith(false, { stopping: false });
     expect(runtime.isTurnActive()).toBe(false);
   });
@@ -203,9 +210,9 @@ describe("settleTurn（在途回合结算）", () => {
     expect(postedActions(session)).toEqual(["chat", "stop"]);
     expect(settled.settled).toBe(false);
 
-    runtime.handleChatPortMessage({ type: "token", data: "部分正文" });
+    emitMessage(session, { type: "token", data: "部分正文" });
     raf.mock.calls[0][0]();
-    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    emitMessage(session, { type: "stopped", reason: "已停止生成" });
     await flushMicrotasks();
 
     expect(settled.settled).toBe(true);
@@ -224,8 +231,8 @@ describe("settleTurn（在途回合结算）", () => {
     await flushMicrotasks();
     expect(postedActions(session)).toEqual(["chat", "stop"]);
 
-    runtime.handleChatPortMessage({ type: "token", data: "整段回答" });
-    runtime.handleChatPortMessage({ type: "done" });
+    emitMessage(session, { type: "token", data: "整段回答" });
+    emitMessage(session, { type: "done" });
     await flushMicrotasks();
 
     expect(settled.settled).toBe(true);
@@ -254,7 +261,7 @@ describe("settleTurn（在途回合结算）", () => {
     expect(postedActions(session)).toEqual(["chat", "stop"]);
     expect(settled.settled).toBe(false);
 
-    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    emitMessage(session, { type: "stopped", reason: "已停止生成" });
     await flushMicrotasks();
     expect(settled.settled).toBe(true);
   });
@@ -335,14 +342,14 @@ describe("settleTurn（在途回合结算）", () => {
   });
 
   it("重入（同一次在途回合两次 settleTurn）：两个请求一起兑现", async () => {
-    const { runtime } = await makeRuntime("问题");
+    const { runtime, session } = await makeRuntime("问题");
     const first = trackSettle(runtime.settleTurn());
     const second = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(first.settled).toBe(false);
     expect(second.settled).toBe(false);
 
-    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    emitMessage(session, { type: "stopped", reason: "已停止生成" });
     await flushMicrotasks();
     expect(first.settled).toBe(true);
     expect(second.settled).toBe(true);
@@ -473,18 +480,18 @@ describe("联网搜索授权与视图销毁", () => {
 describe("W3 现状 characterization（动机证据，非新行为）", () => {
   it("身份已换 + 消息区已重建：token 写脱离节点、done 不写回 chatHistory", async () => {
     const raf = holdRaf();
-    const { deps, runtime } = await makeRuntime("原会话的问题");
+    const { deps, session } = await makeRuntime("原会话的问题");
     const node = assistantNode(deps);
 
     applyConversationIdentity({ id: "other-conversation", history: [] });
     deps.messages.innerHTML = "";
 
-    runtime.handleChatPortMessage({ type: "token", data: "脱离后的正文" });
+    emitMessage(session, { type: "token", data: "脱离后的正文" });
     raf.mock.calls[0][0]();
     expect(node.querySelector(".chat-stream-tail")?.textContent).toContain("脱离后的正文");
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
 
-    runtime.handleChatPortMessage({ type: "done" });
+    emitMessage(session, { type: "done" });
     expect(chatSessionState.chatHistory).toEqual([]);
     expect(deps.store.persistCurrent).not.toHaveBeenCalled();
   });

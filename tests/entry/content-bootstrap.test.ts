@@ -20,14 +20,20 @@ function cleanPreloadLinks() {
     .forEach((link) => link.remove());
 }
 
+let savedChrome: typeof globalThis.chrome;
+
 beforeEach(() => {
   resetModuleState();
+  savedChrome = globalThis.chrome;
   cleanGlobals();
   cleanPreloadLinks();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
+  globalThis.chrome = savedChrome;
+  vi.doUnmock("../../extension/entry/content-bootstrap.js");
   vi.restoreAllMocks();
   cleanGlobals();
   cleanPreloadLinks();
@@ -199,5 +205,48 @@ describe("startContentBootstrap", () => {
     expect(
       document.head.querySelectorAll('link[rel="modulepreload"]')
     ).toHaveLength(PRELOAD_MODULE_PATHS.length);
+  });
+});
+
+describe("模块导入与入口包装边界", () => {
+  it("直接导入 content-bootstrap.js 不依赖 VITEST 环境变量，且无导入期副作用", async () => {
+    const getUrlSpy = vi.spyOn(globalThis.chrome.runtime, "getURL");
+    vi.stubEnv("VITEST", "");
+    vi.resetModules();
+
+    const mod = await import("../../extension/entry/content-bootstrap.js");
+
+    expect(typeof mod.startContentBootstrap).toBe("function");
+    expect(getUrlSpy).not.toHaveBeenCalled();
+    expect(globalThis.__BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__).toBeUndefined();
+    expect(globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__).toBeUndefined();
+    expect(document.head.querySelectorAll('link[rel="modulepreload"]')).toHaveLength(0);
+  });
+
+  it("导入 content-bootstrap-entry.js 在扩展运行时自动调用 startContentBootstrap().loadContentMain()", async () => {
+    const loadContentMain = vi.fn().mockResolvedValue({});
+    const startMock = vi.fn(() => ({ loadContentMain }));
+    vi.resetModules();
+    vi.doMock("../../extension/entry/content-bootstrap.js", () => ({
+      startContentBootstrap: startMock
+    }));
+
+    await import("../../extension/entry/content-bootstrap-entry.js");
+
+    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(loadContentMain).toHaveBeenCalledTimes(1);
+  });
+
+  it("导入 content-bootstrap-entry.js 在缺少 chrome.runtime.getURL 时不触发启动", async () => {
+    const startMock = vi.fn();
+    globalThis.chrome = {} as typeof globalThis.chrome;
+    vi.resetModules();
+    vi.doMock("../../extension/entry/content-bootstrap.js", () => ({
+      startContentBootstrap: startMock
+    }));
+
+    await import("../../extension/entry/content-bootstrap-entry.js");
+
+    expect(startMock).not.toHaveBeenCalled();
   });
 });

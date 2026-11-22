@@ -25,6 +25,7 @@ interface PortSession {
 
 type ChatRuntime = ReturnType<typeof import("../../extension/chat/chat-runtime.js").createChatRuntime>;
 type RuntimeDeps = ReturnType<typeof makeDeps>;
+const runtimePorts = new WeakMap<ChatRuntime, PortSession[]>();
 
 type SchedulerWindow = { scheduler?: { yield: () => Promise<void> } };
 
@@ -68,6 +69,7 @@ function makeDeps() {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
@@ -87,7 +89,13 @@ async function makeRuntime(text = "问题") {
 }
 
 function feed(runtime: ChatRuntime, msg: ChatPortMessage | null | undefined) {
-  runtime.handleChatPortMessage(msg);
+  const session = runtimePorts.get(runtime)?.at(-1);
+  if (!session) {
+    throw new Error("no fake ChatPort connected for runtime");
+  }
+  for (const listener of [...session.listeners.message]) {
+    listener(msg);
+  }
 }
 
 function holdRaf() {
@@ -138,7 +146,14 @@ function frameSnapshot(node: Element) {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
+  const rawCreateChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
+  createChatRuntime = ((deps) => {
+    const runtime = rawCreateChatRuntime(deps);
+    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+      runtimePorts.set(runtime, (deps as unknown as { ports: PortSession[] }).ports);
+    }
+    return runtime;
+  }) as typeof rawCreateChatRuntime;
   ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   resetChatSessionStateForTests();
 });

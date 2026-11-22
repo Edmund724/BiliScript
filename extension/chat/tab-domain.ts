@@ -64,9 +64,9 @@ export interface CreateChatTabDomainDeps {
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
   onWaitingChange?: (waiting: boolean) => void;
   getProviderId: () => string;
-  getSelectedModel?: () => string;
+  getSelectedModel: () => string;
   getInputImages?: () => ImagePart[];
-  takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
+  takeInputImages?: (snapshot: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getPlaybackCursorSeconds?: () => number | undefined;

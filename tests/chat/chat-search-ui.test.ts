@@ -9,12 +9,20 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 
 type ChatRuntime = ReturnType<typeof createChatRuntime>;
 
+interface FakePortSession {
+  emitMessage: (msg: ChatPortMessage) => void;
+}
+
+const runtimePorts = new WeakMap<ChatRuntime, FakePortSession[]>();
+
 function makeDeps() {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
+  const ports: FakePortSession[] = [];
   return {
     messages,
     input,
+    ports,
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: vi.fn((id) => id === chatSessionState.currentConversationId)
@@ -31,15 +39,26 @@ function makeDeps() {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
-    connectPort: vi.fn(() => ({
-      name: "offscreen-chat",
-      onMessage: { addListener: () => {} },
-      onDisconnect: { addListener: () => {} },
-      postMessage: vi.fn(),
-      disconnect: vi.fn()
-    }))
+    connectPort: vi.fn(() => {
+      const listeners: Array<(msg: unknown) => void> = [];
+      ports.push({
+        emitMessage: (msg) => {
+          for (const listener of [...listeners]) {
+            listener(msg);
+          }
+        }
+      });
+      return {
+        name: "offscreen-chat",
+        onMessage: { addListener: (fn: (msg: unknown) => void) => { listeners.push(fn); } },
+        onDisconnect: { addListener: () => {} },
+        postMessage: vi.fn(),
+        disconnect: vi.fn()
+      };
+    })
   };
 }
 
@@ -52,7 +71,11 @@ async function makeRuntime(text = "这个视频里提到的 MoE 有什么新进�
 }
 
 function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
-  runtime.handleChatPortMessage(msg);
+  const session = runtimePorts.get(runtime)?.at(-1);
+  if (!session) {
+    throw new Error("no fake ChatPort connected for runtime");
+  }
+  session.emitMessage(msg);
 }
 
 async function startNextTurn(deps: ReturnType<typeof makeDeps>, runtime: ChatRuntime, text = "") {
@@ -69,7 +92,14 @@ const SOURCES = [
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
+  const rawCreateChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
+  createChatRuntime = ((deps) => {
+    const runtime = rawCreateChatRuntime(deps);
+    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+      runtimePorts.set(runtime, (deps as unknown as { ports: FakePortSession[] }).ports);
+    }
+    return runtime;
+  }) as typeof rawCreateChatRuntime;
   ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   resetChatSessionStateForTests();
 });

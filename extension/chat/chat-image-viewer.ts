@@ -32,11 +32,8 @@ export function createChatImageViewer(): ChatImageViewer {
     document.removeEventListener("keydown", onKeydown, true);
     const image = dialog.querySelector<HTMLElement>(".chat-image-viewer-image");
     const finish = () => {
-      if (dialog.open && typeof dialog.close === "function") {
-        try {
-          dialog.close();
-        } catch {
-        }
+      if (dialog.isConnected && dialog.open && typeof dialog.close === "function") {
+        dialog.close();
       }
       dialog.removeAttribute("open");
       dialog.remove();

@@ -74,9 +74,3 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
 
   return { loadContentMain };
 }
-
-declare const process: { env?: Record<string, string | undefined> } | undefined;
-const isTestEnv = typeof process !== "undefined" && Boolean(process.env?.VITEST);
-if (!isTestEnv && typeof chrome?.runtime?.getURL === "function") {
-  startContentBootstrap()?.loadContentMain();
-}

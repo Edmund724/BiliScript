@@ -19,16 +19,23 @@ function makeRuntimeDeps(): CreateChatRuntimeDeps & {
   input: HTMLTextAreaElement;
   onContinue: ReturnType<typeof vi.fn>;
   onRegenerate: ReturnType<typeof vi.fn>;
+  emitMessage: (msg: unknown) => void;
 } {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
   const onContinue = vi.fn();
   const onRegenerate = vi.fn();
+  let messageListeners: Array<(msg: unknown) => void> = [];
   return {
     messages,
     input,
     onContinue,
     onRegenerate,
+    emitMessage: (msg: unknown) => {
+      for (const fn of [...messageListeners]) {
+        fn(msg);
+      }
+    },
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: () => true
@@ -45,15 +52,19 @@ function makeRuntimeDeps(): CreateChatRuntimeDeps & {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
-    connectPort: vi.fn(async () => ({
-      name: "offscreen-chat",
-      onMessage: { addListener: () => {} },
-      onDisconnect: { addListener: () => {} },
-      postMessage: vi.fn(),
-      disconnect: vi.fn()
-    }))
+    connectPort: vi.fn(async () => {
+      messageListeners = [];
+      return {
+        name: "offscreen-chat",
+        onMessage: { addListener: (fn: (msg: unknown) => void) => { messageListeners.push(fn); } },
+        onDisconnect: { addListener: () => {} },
+        postMessage: vi.fn(),
+        disconnect: vi.fn()
+      };
+    })
   };
 }
 
@@ -335,8 +346,8 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       const runtime = createChatRuntime(deps);
 
       await runtime.sendTurn("帮我算一道微积分");
-      runtime.handleChatPortMessage({ type: "reasoning", data: "首先求导数步骤..." });
-      runtime.handleChatPortMessage({ type: "stopped", reason: "用户停止" });
+      deps.emitMessage({ type: "reasoning", data: "首先求导数步骤..." });
+      deps.emitMessage({ type: "stopped", reason: "用户停止" });
 
       expect(chatSessionState.chatHistory).toHaveLength(2);
       expect(chatSessionState.chatHistory[0]).toEqual({
@@ -357,9 +368,9 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       const runtime = createChatRuntime(deps);
 
       await runtime.sendTurn("1+1等于几？");
-      runtime.handleChatPortMessage({ type: "reasoning", data: "思考皮亚诺公理..." });
-      runtime.handleChatPortMessage({ type: "token", data: "等于2。" });
-      runtime.handleChatPortMessage({ type: "done" });
+      deps.emitMessage({ type: "reasoning", data: "思考皮亚诺公理..." });
+      deps.emitMessage({ type: "token", data: "等于2。" });
+      deps.emitMessage({ type: "done" });
 
       expect(chatSessionState.chatHistory).toHaveLength(2);
       expect(chatSessionState.chatHistory[1]).toEqual({

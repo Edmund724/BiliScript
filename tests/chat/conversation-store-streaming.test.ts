@@ -345,6 +345,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
       },
       ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
       getProviderId: () => "test-provider",
+      getSelectedModel: () => "test-model",
       getTimestampNavDeps: () => ({}),
       normalizeMarkdownForSectionPaste,
       connectPort: vi.fn(async () => port)

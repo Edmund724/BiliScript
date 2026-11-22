@@ -24,6 +24,7 @@ interface TestDeps extends CreateChatRuntimeDeps {
     removeSuggestions: MockFn;
     requestViewReset: MockFn;
     autosizeInput: MockFn;
+    onTurnFailedRestoreDraft?: CreateChatRuntimeDeps["ui"]["onTurnFailedRestoreDraft"];
   };
   ensureCurrentContextForSend: MockFn;
   connectPort: MockFn;
@@ -33,6 +34,7 @@ let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").cre
 let chatSessionState: ChatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
+const runtimePorts = new WeakMap<ChatRuntime, TestPort[]>();
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
 
@@ -77,6 +79,7 @@ function makeDeps(): TestDeps {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true })),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
@@ -96,7 +99,13 @@ async function makeRuntime(text = "帮我写个标题") {
 }
 
 function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
-  runtime.handleChatPortMessage(msg);
+  const session = runtimePorts.get(runtime)?.at(-1);
+  if (!session) {
+    throw new Error("no fake ChatPort connected for runtime");
+  }
+  for (const listener of [...session.listeners.message]) {
+    listener(msg);
+  }
 }
 
 function holdRaf(): RafSpy {
@@ -114,7 +123,14 @@ function assistantNode(deps: TestDeps): HTMLElement {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
+  const rawCreateChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
+  createChatRuntime = ((deps) => {
+    const runtime = rawCreateChatRuntime(deps);
+    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+      runtimePorts.set(runtime, (deps as unknown as { ports: TestPort[] }).ports);
+    }
+    return runtime;
+  }) as typeof rawCreateChatRuntime;
   ({ chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   resetChatSessionStateForTests();
 });
@@ -270,8 +286,8 @@ describe("sendMessage 建流与协议入口", () => {
     expect(session.port.postMessage.mock.calls[0][0].videoFrameToolEnabled).toBeUndefined();
   });
 
-  it("假 port 的 onMessage 监听器与 handleChatPortMessage 走同一协议分派（wiring）", async () => {
-    const { deps, runtime, session } = await makeRuntime();
+  it("假 port 的 onMessage 监听器连续分派流式协议消息（wiring）", async () => {
+    const { deps, session } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
 
@@ -279,7 +295,7 @@ describe("sendMessage 建流与协议入口", () => {
     raf.mock.calls[0][0]();
     expect(deps.messages.querySelector("strong")?.textContent).toBe("第一帧");
 
-    feed(runtime, { type: "token", data: " 与第二帧" });
+    session.listeners.message[0]({ type: "token", data: " 与第二帧" });
     raf.mock.calls[1][0]();
     const tail = node.querySelector<HTMLElement>(".chat-stream-tail")!;
     expect(tail.textContent).toContain("第一帧");
@@ -2041,8 +2057,16 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     const currentImages: Array<{ mime: string; data: string }> = [{ mime: "image/webp", data: "IMG1" }];
     const deps = makeDeps();
     deps.getInputImages = () => [...currentImages];
-    deps.takeInputImages = () => currentImages.splice(0, currentImages.length);
-    deps.onTurnFailedRestoreDraft = (draft) => {
+    deps.takeInputImages = (snapshot) => {
+      const consumed = new Set(snapshot);
+      for (let index = currentImages.length - 1; index >= 0; index -= 1) {
+        if (consumed.has(currentImages[index])) {
+          currentImages.splice(index, 1);
+        }
+      }
+      return snapshot;
+    };
+    deps.ui.onTurnFailedRestoreDraft = (draft) => {
       restoredDrafts.push(draft);
       if (!deps.input.value.trim()) {
         deps.input.value = draft.text;
@@ -2150,8 +2174,16 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     const currentImages: Array<{ mime: string; data: string }> = [{ mime: "image/webp", data: "IMG_DRAFT" }];
     const deps = makeDeps();
     deps.getInputImages = () => [...currentImages];
-    deps.takeInputImages = () => currentImages.splice(0, currentImages.length);
-    deps.onTurnFailedRestoreDraft = (draft) => {
+    deps.takeInputImages = (snapshot) => {
+      const consumed = new Set(snapshot);
+      for (let index = currentImages.length - 1; index >= 0; index -= 1) {
+        if (consumed.has(currentImages[index])) {
+          currentImages.splice(index, 1);
+        }
+      }
+      return snapshot;
+    };
+    deps.ui.onTurnFailedRestoreDraft = (draft) => {
       restoredDrafts.push(draft);
     };
     const runtime = createChatRuntime(deps);

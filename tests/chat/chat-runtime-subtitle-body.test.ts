@@ -64,6 +64,7 @@ function makeRuntime() {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {

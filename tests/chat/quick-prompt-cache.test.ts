@@ -1,5 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+
+const ROOT = process.cwd();
 
 let readCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").readCachedQuickPrompts;
 let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
@@ -77,3 +81,29 @@ describe("容量", () => {
     expect(readCachedQuickPrompts(`video:BV${maxEntries}|${maxEntries}`)).toEqual([`问题${maxEntries}`]);
   });
 });
+
+describe("测试重置出口不外流（源码守卫）", () => {
+  it("extension/ 下除 quick-prompt-cache.ts 定义处外，没有任何文件引用 resetQuickPromptCacheForTests", () => {
+    const offenders: string[] = [];
+    walk(join(ROOT, "extension"), (file) => {
+      const rel = file.slice(ROOT.length + 1).replace(/\\/g, "/");
+      if (rel === "extension/chat/quick-prompt-cache.ts") return;
+      if (!/\.(ts|js)$/.test(rel)) return;
+      if (readFileSync(file, "utf8").includes("resetQuickPromptCacheForTests")) {
+        offenders.push(rel);
+      }
+    });
+    expect(offenders).toEqual([]);
+  });
+});
+
+function walk(dir: string, visit: (file: string) => void): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walk(full, visit);
+    } else {
+      visit(full);
+    }
+  }
+}

@@ -13,14 +13,17 @@ interface FakePort {
   disconnect: ReturnType<typeof vi.fn>;
   onMessage: { addListener: (fn: (msg: unknown) => void) => void };
   onDisconnect: { addListener: (fn: () => void) => void };
+  emitMessage: (msg: unknown) => void;
 }
 
 function makeDeps() {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
+  const ports: FakePort[] = [];
   return {
     messages,
     input,
+    ports,
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: vi.fn(() => true)
@@ -37,16 +40,24 @@ function makeDeps() {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
+      const listeners: Array<(msg: unknown) => void> = [];
       const port: FakePort = {
         name: "offscreen-chat",
-        onMessage: { addListener: () => {} },
+        onMessage: { addListener: (fn) => { listeners.push(fn); } },
         onDisconnect: { addListener: () => {} },
         postMessage: vi.fn(),
-        disconnect: vi.fn()
+        disconnect: vi.fn(),
+        emitMessage: (msg) => {
+          for (const fn of [...listeners]) {
+            fn(msg);
+          }
+        }
       };
+      ports.push(port);
       return port as unknown as ChatPort;
     })
   };
@@ -58,8 +69,8 @@ async function makeFinishedAssistant(deps: RuntimeDeps) {
   const runtime = createChatRuntime(deps);
   deps.input.value = "问题";
   await runtime.sendTurn(deps.input.value);
-  runtime.handleChatPortMessage({ type: "token", data: "回答正文" });
-  runtime.handleChatPortMessage({ type: "done" });
+  deps.ports.at(-1)!.emitMessage({ type: "token", data: "回答正文" });
+  deps.ports.at(-1)!.emitMessage({ type: "done" });
   const node = deps.messages.querySelector(".chat-msg-assistant") as HTMLElement;
   return { runtime, node };
 }
@@ -99,8 +110,8 @@ describe("消息操作反馈归属（06 号票）", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     await runtime.sendTurn("# 用户标题");
-    runtime.handleChatPortMessage({ type: "token", data: "## 回答标题\n\n**粗体**" });
-    runtime.handleChatPortMessage({ type: "done" });
+    deps.ports.at(-1)!.emitMessage({ type: "token", data: "## 回答标题\n\n**粗体**" });
+    deps.ports.at(-1)!.emitMessage({ type: "done" });
     const writeText = vi.fn(async () => {});
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
 

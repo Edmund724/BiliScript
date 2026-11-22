@@ -175,10 +175,7 @@ export interface OnboardingController {
   dispose(): void;
 }
 
-const activeMountDisposers = new WeakMap<Document, () => void>();
-
 export async function mountOnboardingPage(doc: Document = document): Promise<OnboardingController> {
-  activeMountDisposers.get(doc)?.();
   const mountAbort = new AbortController();
   const { signal } = mountAbort;
   let disposed = false;
@@ -320,9 +317,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     if (disposed) return;
     disposed = true;
     mountAbort.abort();
-    if (activeMountDisposers.get(doc) === cleanup) {
-      activeMountDisposers.delete(doc);
-    }
     aiModelCombobox?.dispose();
     closeAllCustomSelects();
     unwatch?.();
@@ -330,7 +324,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       colorSchemeMedia?.removeEventListener?.("change", onColorSchemeChange);
     }
   };
-  activeMountDisposers.set(doc, cleanup);
 
   if (aiPresetSelect) {
     aiPresetSelect.innerHTML = PRESETS.map((preset) => {
@@ -545,12 +538,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   }
 
   await refresh();
-  if (disposed) {
-    return {
-      refresh,
-      dispose: cleanup
-    };
-  }
 
   if (aiApiKeyInput) bindPasswordToggle(aiApiKeyInput, aiApiKeyToggle, signal);
   if (asrApiKeyInput) bindPasswordToggle(asrApiKeyInput, asrApiKeyToggle, signal);
@@ -1066,8 +1053,4 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     refresh,
     dispose: cleanup
   };
-}
-
-if (typeof document !== "undefined" && document.getElementById("onboardingAiForm")) {
-  void mountOnboardingPage(document);
 }

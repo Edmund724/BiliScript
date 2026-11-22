@@ -77,12 +77,10 @@ export interface ImageCompressor {
 
 const defaultEnv: ImageCompressEnv = {
   async decode(blob) {
-    const createImageBitmapFn = (globalThis as { createImageBitmap?: (input: Blob) => Promise<ImageBitmap> })
-      .createImageBitmap;
-    if (typeof createImageBitmapFn !== "function") {
+    if (typeof globalThis.createImageBitmap !== "function") {
       throw new Error("createImageBitmap 不可用");
     }
-    const bitmap = await createImageBitmapFn(blob);
+    const bitmap = await globalThis.createImageBitmap(blob);
     return { width: bitmap.width, height: bitmap.height, source: bitmap };
   },
   async encodeWebp({ source, width, height, quality }) {

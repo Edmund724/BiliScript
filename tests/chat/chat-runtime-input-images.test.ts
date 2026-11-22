@@ -15,9 +15,27 @@ interface FakePort {
   disconnect: ReturnType<typeof vi.fn>;
   onMessage: { addListener: (fn: (msg: unknown) => void) => void };
   onDisconnect: { addListener: (fn: () => void) => void };
+  emitMessage: (msg: unknown) => void;
 }
 
 const IMAGE = { mime: "image/webp", data: "QUJD" };
+
+function makeImageQueue(initial: { mime: string; data: string }[]) {
+  let attachments = [...initial];
+  const getInputImages = vi.fn(() => [...attachments]);
+  const takeInputImages = vi.fn((snapshot: { mime: string; data: string }[]) => {
+    const consumed = new Set(snapshot);
+    attachments = attachments.filter((image) => !consumed.has(image));
+    return snapshot;
+  });
+  return {
+    getInputImages,
+    takeInputImages,
+    setImages(next: { mime: string; data: string }[]) {
+      attachments = [...next];
+    }
+  };
+}
 
 function makeDeps(overrides: Partial<CreateChatRuntimeDeps> = {}) {
   const messages = document.createElement("div");
@@ -39,15 +57,22 @@ function makeDeps(overrides: Partial<CreateChatRuntimeDeps> = {}) {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
+      const messageListeners: Array<(msg: unknown) => void> = [];
       const port: FakePort = {
         name: "offscreen-chat",
         postMessage: vi.fn(),
         disconnect: vi.fn(),
-        onMessage: { addListener: (_fn: (msg: unknown) => void) => {} },
-        onDisconnect: { addListener: (_fn: () => void) => {} }
+        onMessage: { addListener: (fn: (msg: unknown) => void) => { messageListeners.push(fn); } },
+        onDisconnect: { addListener: (_fn: () => void) => {} },
+        emitMessage: (msg: unknown) => {
+          for (const fn of [...messageListeners]) {
+            fn(msg);
+          }
+        }
       };
       ports.push(port);
       return port;
@@ -74,14 +99,18 @@ beforeEach(async () => {
 });
 
 describe("发送受理时消费附件区", () => {
-  it("有附件：takeInputImages 被调用一次，images 随消息下发", async () => {
-    const takeInputImages = vi.fn(() => [IMAGE]);
-    const { deps, input, ports } = makeDeps({ takeInputImages });
+  it("有附件：takeInputImages 按受理快照被调用一次，images 随消息下发", async () => {
+    const queue = makeImageQueue([IMAGE]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "这张图里是什么";
 
     await createChatRuntime(deps).sendTurn(input.value);
 
-    expect(takeInputImages).toHaveBeenCalledTimes(1);
+    expect(queue.takeInputImages).toHaveBeenCalledTimes(1);
+    expect(queue.takeInputImages).toHaveBeenCalledWith([IMAGE]);
     expect(firstPosted(ports)).toMatchObject({
       action: "chat",
       prompt: "这张图里是什么",
@@ -89,8 +118,12 @@ describe("发送受理时消费附件区", () => {
     });
   });
 
-  it("无附件（take 返回空数组）：不带 images 字段", async () => {
-    const { deps, input, ports } = makeDeps({ takeInputImages: () => [] });
+  it("无附件（快照为空数组）：不带 images 字段", async () => {
+    const queue = makeImageQueue([]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "总结一下";
 
     await createChatRuntime(deps).sendTurn(input.value);
@@ -98,7 +131,7 @@ describe("发送受理时消费附件区", () => {
     expect("images" in firstPosted(ports)).toBe(false);
   });
 
-  it("未注入 takeInputImages（旧组合根）：不带 images 字段", async () => {
+  it("未注入图片回调：不带 images 字段", async () => {
     const { deps, input, ports } = makeDeps();
     input.value = "总结一下";
 
@@ -114,14 +147,9 @@ describe("等待期间的发送快照", () => {
     let attachments = [IMAGE];
     let releaseGate!: (value: { pass: true }) => void;
     const getInputImages = vi.fn(() => attachments);
-    const takeInputImages = vi.fn((snapshot?: typeof IMAGE[]) => {
-      if (snapshot) {
-        attachments = attachments.filter((image) => !snapshot.includes(image));
-        return snapshot;
-      }
-      const taken = attachments;
-      attachments = [];
-      return taken;
+    const takeInputImages = vi.fn((snapshot: typeof IMAGE[]) => {
+      attachments = attachments.filter((image) => !snapshot.includes(image));
+      return snapshot;
     });
     const { deps, input, ports, ui } = makeDeps({
       getInputImages,
@@ -148,10 +176,10 @@ describe("等待期间的发送快照", () => {
   });
 
   it("用户取消等待：文本与图片不消费，也不发起 port", async () => {
-    const takeInputImages = vi.fn(() => [IMAGE]);
+    const queue = makeImageQueue([IMAGE]);
     const { deps, input, ports } = makeDeps({
-      getInputImages: () => [IMAGE],
-      takeInputImages,
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages,
       ensureCurrentContextForSend: vi.fn(async () => ({ pass: false, kind: "cancelled" }) as const)
     });
     input.value = "保留这条草稿";
@@ -159,27 +187,32 @@ describe("等待期间的发送快照", () => {
     await expect(createChatRuntime(deps).sendTurn(input.value)).resolves.toBe("blocked");
 
     expect(input.value).toBe("保留这条草稿");
-    expect(takeInputImages).not.toHaveBeenCalled();
+    expect(queue.takeInputImages).not.toHaveBeenCalled();
     expect(ports).toHaveLength(0);
   });
 });
 
 describe("被拒绝的发送不消费附件区", () => {
   it("无可用平台：不调用 takeInputImages（附件留给下一次发送）", async () => {
-    const takeInputImages = vi.fn(() => [IMAGE]);
-    const { deps, input, ports } = makeDeps({ takeInputImages, getProviderId: () => "" });
+    const queue = makeImageQueue([IMAGE]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages,
+      getProviderId: () => ""
+    });
     input.value = "这张图里是什么";
 
     await createChatRuntime(deps).sendTurn(input.value);
 
     expect(ports).toHaveLength(0);
-    expect(takeInputImages).not.toHaveBeenCalled();
+    expect(queue.takeInputImages).not.toHaveBeenCalled();
   });
 
   it("上下文读取失败：不调用 takeInputImages", async () => {
-    const takeInputImages = vi.fn(() => [IMAGE]);
+    const queue = makeImageQueue([IMAGE]);
     const { deps, input, ports } = makeDeps({
-      takeInputImages,
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages,
       ensureCurrentContextForSend: vi.fn(async () => ({ pass: false, kind: "read-failed" }) as const)
     });
     input.value = "这张图里是什么";
@@ -187,19 +220,23 @@ describe("被拒绝的发送不消费附件区", () => {
     await createChatRuntime(deps).sendTurn(input.value);
 
     expect(ports).toHaveLength(0);
-    expect(takeInputImages).not.toHaveBeenCalled();
+    expect(queue.takeInputImages).not.toHaveBeenCalled();
   });
 });
 
 describe("本轮图片写回 chatHistory", () => {
   it("带图发送 → done：图片挂在那条 user 消息上并落盘", async () => {
-    const { deps, input } = makeDeps({ takeInputImages: () => [IMAGE] });
+    const queue = makeImageQueue([IMAGE]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "这张图里是什么";
     const runtime = createChatRuntime(deps);
 
     await runtime.sendTurn(input.value);
-    runtime.handleChatPortMessage({ type: "token", data: "是截图" });
-    runtime.handleChatPortMessage({ type: "done" });
+    ports.at(-1)!.emitMessage({ type: "token", data: "是截图" });
+    ports.at(-1)!.emitMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "这张图里是什么", images: [IMAGE], contextKey: "video:BV1test" },
@@ -209,13 +246,17 @@ describe("本轮图片写回 chatHistory", () => {
   });
 
   it("无图发送 → done：user 消息不带 images 字段，contextKey 独立保存", async () => {
-    const { deps, input } = makeDeps({ takeInputImages: () => [] });
+    const queue = makeImageQueue([]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "总结一下";
     const runtime = createChatRuntime(deps);
 
     await runtime.sendTurn(input.value);
-    runtime.handleChatPortMessage({ type: "token", data: "好" });
-    runtime.handleChatPortMessage({ type: "done" });
+    ports.at(-1)!.emitMessage({ type: "token", data: "好" });
+    ports.at(-1)!.emitMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "总结一下", contextKey: "video:BV1test" },
@@ -225,19 +266,22 @@ describe("本轮图片写回 chatHistory", () => {
   });
 
   it("收口清空代际图片：下一轮无图发送不继承上一轮的图", async () => {
-    const takeInputImages = vi.fn(() => [IMAGE]);
-    const { deps, input } = makeDeps({ takeInputImages });
+    const queue = makeImageQueue([IMAGE]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "第一轮带图";
     const runtime = createChatRuntime(deps);
     await runtime.sendTurn(input.value);
-    runtime.handleChatPortMessage({ type: "token", data: "答一" });
-    runtime.handleChatPortMessage({ type: "done" });
+    ports.at(-1)!.emitMessage({ type: "token", data: "答一" });
+    ports.at(-1)!.emitMessage({ type: "done" });
 
-    takeInputImages.mockReturnValue([]);
+    queue.setImages([]);
     deps.input.value = "第二轮纯文本";
     await runtime.sendTurn(input.value);
-    runtime.handleChatPortMessage({ type: "token", data: "答二" });
-    runtime.handleChatPortMessage({ type: "done" });
+    ports.at(-1)!.emitMessage({ type: "token", data: "答二" });
+    ports.at(-1)!.emitMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "第一轮带图", images: [IMAGE], contextKey: "video:BV1test" },
@@ -250,11 +294,15 @@ describe("本轮图片写回 chatHistory", () => {
 
 describe("平台 400 的用户可见文案（带图时补可操作线索）", () => {
   async function sendWithImagesAndFail(error: string, images: { mime: string; data: string }[]) {
-    const { deps, input } = makeDeps({ takeInputImages: () => images });
+    const queue = makeImageQueue(images);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: queue.getInputImages,
+      takeInputImages: queue.takeInputImages
+    });
     input.value = "这张图里是什么";
     const runtime = createChatRuntime(deps);
     await runtime.sendTurn(input.value);
-    runtime.handleChatPortMessage({ type: "error", error });
+    ports.at(-1)!.emitMessage({ type: "error", error });
     return deps.messages;
   }
 

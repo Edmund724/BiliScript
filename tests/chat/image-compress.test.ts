@@ -120,14 +120,11 @@ describe("createImageCompressor（解码 → 降采样 → WebP q0.9 → base64�
   });
 
   it("默认环境：无 createImageBitmap（jsdom/旧环境）时归类为 decode-failed，不抛原始异常", async () => {
-    const original = (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
-    delete (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+    vi.stubGlobal("createImageBitmap", undefined);
     try {
       await expectReject(createImageCompressor().compress(makeBlob([1])), "decode-failed");
     } finally {
-      if (original) {
-        vi.stubGlobal("createImageBitmap", original);
-      }
+      vi.unstubAllGlobals();
     }
   });
 

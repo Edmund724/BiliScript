@@ -82,9 +82,9 @@ export interface CreateChatRuntimeDeps {
   ui: ChatRuntimeUi;
   ensureCurrentContextForSend: () => Promise<GateOutcome>;
   getProviderId: () => string;
-  getSelectedModel?: () => string;
+  getSelectedModel: () => string;
   getInputImages?: () => ImagePart[];
-  takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
+  takeInputImages?: (snapshot: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getPlaybackCursorSeconds?: () => number | undefined;
@@ -97,7 +97,6 @@ export interface CreateChatRuntimeDeps {
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
-  onTurnFailedRestoreDraft?: (draft: { text: string; images: ImagePart[]; isSetupError: boolean }) => void;
 }
 
 export function createChatRuntime(deps: CreateChatRuntimeDeps) {
@@ -507,7 +506,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.hideHistoryPopover();
 
       const providerId = deps.getProviderId();
-      const selectedModel = deps.getSelectedModel ? deps.getSelectedModel() : "__legacy__";
+      const selectedModel = deps.getSelectedModel();
       if (!providerId || !selectedModel) {
         deps.ui.requestViewReset({ kind: "setup" });
         return "blocked";
@@ -517,8 +516,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const branched = branch !== null;
       const inputSnapshot = deps.input.value;
       const imageSnapshot = branched || preserveInputDraft
-        ? null
-        : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? null));
+        ? []
+        : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? []));
       if (branch?.contextMismatched) {
         const confirmBranchContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
           message,
@@ -555,7 +554,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       let preserveSnapshotNotice = false;
       if (!branched) {
         messageArea.clearUncommittedFailedTurns?.();
-        const appendedUserNode = messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
+        const appendedUserNode = messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot });
         activeUserNode = appendedUserNode instanceof HTMLDivElement ? appendedUserNode : null;
         if (preserveInputDraft) {
         } else if (retryDraft) {
@@ -586,9 +585,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           ? []
           : retryDraft
             ? retryDraft.images
-            : imageSnapshot
-              ? deps.takeInputImages?.(imageSnapshot) ?? []
-              : deps.takeInputImages?.() ?? [];
+            : deps.takeInputImages?.(imageSnapshot) ?? [];
       if (!branch && !retryDraft && !preserveInputDraft) {
         preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
       }
@@ -674,7 +671,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       port.postMessage({
         action: "chat",
         providerId,
-        model: deps.getSelectedModel?.() || "",
+        model: deps.getSelectedModel() || "",
         conversationId: chatSessionState.currentConversationId,
         thinkingLevel: chatSessionState.aiThinkingLevel,
         webSearchEnabled,
@@ -852,7 +849,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           turn.node.dataset.uncommittedFailedTurn = "1";
         }
         if (restoreDraftOnFail) {
-          (deps.onTurnFailedRestoreDraft ?? deps.ui.onTurnFailedRestoreDraft)?.({
+          deps.ui.onTurnFailedRestoreDraft?.({
             text: failedPrompt,
             images: failedImages,
             isSetupError
@@ -988,10 +985,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     turn.discard();
   }
 
-  function handleChatPortMessage(msg: ChatPortMessage | null | undefined): void {
-    dispatchChatPortMessage(msg, activePort);
-  }
-
   return {
     sendTurn,
     stopActiveStream,
@@ -1004,7 +997,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     settleTurn,
     hasPendingUserPrompt,
     resetStreamState,
-    handleChatPortMessage,
     messageArea
   };
 }

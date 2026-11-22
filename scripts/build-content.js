@@ -27,7 +27,7 @@ const slimMermaidEntry = path.join(
   "mermaid.biliscript.mjs"
 );
 const entry = path.join(extensionRoot, "entry", "content.ts");
-const bootstrapEntry = path.join(extensionRoot, "entry", "content-bootstrap.ts");
+const bootstrapEntry = path.join(extensionRoot, "entry", "content-bootstrap-entry.ts");
 const outDir = path.join(extensionRoot, "entry");
 const mainOutfile = path.join(outDir, "content-main.mjs");
 const bootstrapOutfile = path.join(outDir, "content-bootstrap.iife.js");
@@ -62,7 +62,7 @@ const lazyTargets = [
   { name: "model-catalog", source: "ai/model-catalog.ts" },
   { name: "mermaid-render", source: "ui/mermaid-render.ts" },
   { name: "math-render", source: "ui/math-render.ts" },
-  { name: "onboarding", source: "entry/onboarding.ts" },
+  { name: "onboarding-entry", source: "entry/onboarding-entry.ts" },
 ];
 const lazyTargetExternals = new Map(
   lazyTargets.map(({ name, source }) => [

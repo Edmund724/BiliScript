@@ -30,6 +30,7 @@ interface TestDeps extends CreateChatRuntimeDeps {
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
+const runtimePorts = new WeakMap<ChatRuntime, TestPort[]>();
 
 function makePort() {
   const listeners: { message: ((msg: unknown) => void)[]; disconnect: (() => void)[] } = {
@@ -72,6 +73,7 @@ function makeDeps(): TestDeps {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true })),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
@@ -83,7 +85,13 @@ function makeDeps(): TestDeps {
 }
 
 function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
-  runtime.handleChatPortMessage(msg);
+  const session = runtimePorts.get(runtime)?.at(-1);
+  if (!session) {
+    throw new Error("no fake ChatPort connected for runtime");
+  }
+  for (const listener of [...session.listeners.message]) {
+    listener(msg);
+  }
 }
 
 beforeEach(async () => {
@@ -93,7 +101,13 @@ beforeEach(async () => {
   resetChatSessionStateForTests = stateMod.resetChatSessionStateForTests;
   resetChatSessionStateForTests();
   const runtimeMod = await import("../../extension/chat/chat-runtime.js");
-  createChatRuntime = runtimeMod.createChatRuntime;
+  createChatRuntime = ((deps) => {
+    const runtime = runtimeMod.createChatRuntime(deps);
+    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+      runtimePorts.set(runtime, (deps as unknown as { ports: TestPort[] }).ports);
+    }
+    return runtime;
+  }) as typeof runtimeMod.createChatRuntime;
 });
 
 describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {

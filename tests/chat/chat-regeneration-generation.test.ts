@@ -9,6 +9,9 @@ let state: typeof import("../../extension/chat/chat-state.js");
 
 type ChatRuntime = ReturnType<typeof createChatRuntime>;
 type TestDeps = ReturnType<typeof makeDeps>;
+type TestPort = ReturnType<typeof makePort>;
+
+const runtimePorts = new WeakMap<ChatRuntime, TestPort[]>();
 
 const IMAGE: ImagePart = { mime: "image/webp", data: "b3JpZ2luYWwtaW1hZ2U" };
 const VIDEO_A: AiContext = {
@@ -77,13 +80,14 @@ function makeDeps() {
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
+    getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
     getInputImages: () => [...inputImages],
-    takeInputImages: (snapshot?: ImagePart[]) => {
-      const taken = snapshot ?? inputImages;
-      inputImages = [];
-      return taken;
+    takeInputImages: (snapshot: ImagePart[]) => {
+      const consumed = new Set(snapshot);
+      inputImages = inputImages.filter((image) => !consumed.has(image));
+      return snapshot;
     },
     setInputImages(images: ImagePart[]) {
       inputImages = [...images];
@@ -107,7 +111,11 @@ async function makeRuntime(text = "问题") {
 }
 
 function feed(runtime: ChatRuntime, message: ChatPortMessage) {
-  runtime.handleChatPortMessage(message);
+  const session = runtimePorts.get(runtime)?.at(-1);
+  if (!session) {
+    throw new Error("no fake ChatPort connected for runtime");
+  }
+  session.emit(message);
 }
 
 function toolTurn(callId: string, query: string): Extract<ChatPortMessage, { type: "tool-turn" }> {
@@ -202,7 +210,14 @@ async function waitForPort(deps: TestDeps, count: number) {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
+  const rawCreateChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
+  createChatRuntime = ((deps) => {
+    const runtime = rawCreateChatRuntime(deps);
+    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+      runtimePorts.set(runtime, (deps as unknown as { ports: TestPort[] }).ports);
+    }
+    return runtime;
+  }) as typeof rawCreateChatRuntime;
   state = await import("../../extension/chat/chat-state.js");
   state.resetChatSessionStateForTests();
 });
