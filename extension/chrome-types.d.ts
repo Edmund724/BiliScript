@@ -142,7 +142,7 @@ declare namespace chrome {
     function sendMessage(tabId: number, message: unknown, responseCallback?: (response: unknown) => void): void;
 
     const onUpdated: OnUpdatedEvent;
-    const onRemoved: OnRemovedEvent | undefined;
+    const onRemoved: OnRemovedEvent;
   }
 
   namespace alarms {

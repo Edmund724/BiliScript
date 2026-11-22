@@ -583,7 +583,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   void clearUnsupportedPageFeedback(tabId);
 });
 
-chrome.tabs.onRemoved?.addListener(() => {
+chrome.tabs.onRemoved.addListener(() => {
   void (async () => {
     if (await hasOpenBilibiliTabs()) {
       return;
