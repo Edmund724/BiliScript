@@ -28,7 +28,7 @@ jsdom 够不着的（真实 DOM 几何 / B 站真实接口 / MV3 SW 与 Firefox 
 
 ### Issue tracker
 
-Local markdown tickets under `.scratch/tickets/`. See `docs/agents/issue-tracker.md`.
+GitHub Issues on `Edmund724/BiliScript` via `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
