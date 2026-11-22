@@ -207,7 +207,7 @@ describe("开关词两处字面的静态对账（形状表 ↔ Messages 出口�
       {
         key: "modelscope.on",
         exitKind: "native",
-        provenance: "推断",
+        provenance: "实测",
         platformWord: { enable_thinking: true },
         messagesWord: { thinking: { type: "enabled" } }
       },

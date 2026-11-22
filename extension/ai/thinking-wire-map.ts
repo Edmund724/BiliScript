@@ -445,8 +445,9 @@ export const MESSAGES_ON_EXIT: Record<PlatformKey, MessagesOnExitCell> = {
   modelscope: {
     kind: "native",
     provenance: {
-      level: "推断",
-      source: "官方（Beta）Anthropic 兼容端点 api-inference.modelscope.cn 只实测收 thinking:{type:disabled}、enabled 形态无文档；开关型血统开档按原生 enabled（与建表前逐字节相同）"
+      level: "实测",
+      source:
+        "2026-11-22 实测（https://api-inference.modelscope.cn/v1/messages，模型 deepseek-ai/DeepSeek-V4.1-Flash-1017，请求头 x-api-key + anthropic-version: 2023-06-01，max_tokens: 1024，未传思考预算参数）：传 thinking:{type:\"enabled\"} 返回 thinking + text 块（HTTP 200，output_tokens: 20，不要求思考预算）；传 enable_thinking:true 返回 thinking 块（HTTP 200，output_tokens: 21）；省略思考字段默认开启并返回 thinking 块（HTTP 200，output_tokens: 23）→ 保持原生 enabled（kind: \"native\"）"
     }
   },
   gemini: {
