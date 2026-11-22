@@ -115,7 +115,9 @@ export interface EditorState {
   readonly voicesLoaded: boolean;
 }
 
-type MutableEditorState = { -readonly [K in keyof EditorState]: EditorState[K] };
+type MutableEditorState = {
+  -readonly [K in keyof EditorState]: K extends "draft" ? EditorDraft | null : EditorState[K];
+};
 
 const bag: MutableEditorState = {
   open: false,
@@ -235,7 +237,7 @@ export function endEditorSession(): void {
 
 export function editDraft(mutate: (draft: EditorDraft) => void): void {
   if (bag.draft) {
-    mutate(bag.draft as EditorDraft);
+    mutate(bag.draft);
   }
 }
 

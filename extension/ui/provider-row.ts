@@ -20,7 +20,7 @@ const DRAG_HANDLE_ICON_PATHS: string = [
   '<circle cx="12" cy="18" r="1.7"></circle>'
 ].join("");
 
-export type ProviderRowElement = HTMLElement & Record<string, unknown>;
+export type ProviderRowElement = HTMLElement;
 
 export interface ProviderRowItem {
   id?: string;
@@ -241,7 +241,7 @@ export function createProviderRow({
   function renderVirtualRow(listNode: HTMLElement, activeId: string): void {
     if (!virtualRow) return;
     const hint = String(virtualRow.hint || "");
-    const row = document.createElement("div") as unknown as ProviderRowElement;
+    const row = document.createElement("div");
     row.className = rowClass;
     row.dataset.providerId = virtualRow.id;
     row.title = String(virtualRow.title || hint || "");
@@ -275,7 +275,7 @@ export function createProviderRow({
       const hasSavedKey = Boolean(item.hasSavedKey);
       const isActive = activeId === id;
 
-      const row = document.createElement("div") as unknown as ProviderRowElement;
+      const row = document.createElement("div");
       row.className = rowClass;
       row.dataset.providerId = id;
       row.dataset.hasSavedKey = hasSavedKey ? "1" : "0";

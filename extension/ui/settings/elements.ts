@@ -8,8 +8,13 @@ export function applySectionContainment(host: HTMLElement): void {
 
 export function collectElements(host: HTMLElement) {
   const dom = SETTINGS_PANEL_DOM_IDS;
-  const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>
-    host.querySelector(`#${id}`) as T;
+  const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T => {
+    const el = host.querySelector<T>(`#${id}`);
+    if (!el) {
+      throw new Error(`Missing required settings element: #${id}`);
+    }
+    return el;
+  };
   return {
     backBtn: byIdIn<HTMLButtonElement>(dom.readingSettingsBackBtn),
     settingsTitle: byIdIn<HTMLElement>(dom.settingsTitle),
@@ -145,13 +150,13 @@ export function setBusy(elements: SettingsElements, isBusy: boolean): void {
   elements.resetBtn.textContent = isBusy ? "处理中..." : "恢复默认偏好";
 }
 
-export function debounce<T extends (...args: unknown[]) => void>(
+export function debounce<T extends (...args: never[]) => void>(
   fn: T,
   delayMs: number
-): T & { cancel: () => void; flush: () => void } {
+): ((...args: Parameters<T>) => void) & { cancel: () => void; flush: () => void } {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let lastArgs: unknown[] | null = null;
-  const debounced = ((...args: unknown[]) => {
+  let lastArgs: Parameters<T> | null = null;
+  const debounced = (...args: Parameters<T>): void => {
     lastArgs = args;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
@@ -159,16 +164,16 @@ export function debounce<T extends (...args: unknown[]) => void>(
       lastArgs = null;
       fn(...args);
     }, delayMs);
-  }) as T & { cancel: () => void; flush: () => void };
+  };
 
-  debounced.cancel = () => {
+  const cancel = (): void => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
       lastArgs = null;
     }
   };
-  debounced.flush = () => {
+  const flush = (): void => {
     if (timer && lastArgs) {
       clearTimeout(timer);
       timer = null;
@@ -177,5 +182,5 @@ export function debounce<T extends (...args: unknown[]) => void>(
       fn(...args);
     }
   };
-  return debounced;
+  return Object.assign(debounced, { cancel, flush });
 }

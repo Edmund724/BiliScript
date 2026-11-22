@@ -280,7 +280,7 @@ export async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
         ? "请先开启「无字幕时自动生成字幕」，随后补充语音转写平台配置"
         : "请先开启「无字幕时自动生成字幕」以自动转写视频语音"
     );
-    elements.asrAutoFallback?.focus();
+    elements.asrAutoFallback.focus();
     return;
   }
   const banner =

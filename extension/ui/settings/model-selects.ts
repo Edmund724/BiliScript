@@ -206,7 +206,7 @@ export function bindSubtitleTranslateSourceSelect(
   elements: SettingsElements,
   deps: ModelSelectBindDeps
 ): void {
-  elements.subtitleTranslateSource?.addEventListener("change", () => {
+  elements.subtitleTranslateSource.addEventListener("change", () => {
     const source = elements.subtitleTranslateSource.value;
     const prevProviderId = String(state.settings?.subtitleTranslateProviderId || "").trim();
     const prevModel = String(state.settings?.subtitleTranslateModel || "").trim();

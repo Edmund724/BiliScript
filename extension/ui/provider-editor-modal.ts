@@ -12,7 +12,7 @@ import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { hasReaderSettingsDropdownOpen } from "../reader/settings-mode.js";
-import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
+import type { ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
   beginEditorSession,
@@ -883,7 +883,7 @@ export function wireDialog(): void {
   const probeIo = PLATFORM_PROBE_IO[state.kind];
   const fetchModels = probeIo?.fetchModels;
   if (family.editor.modelSource === "input" && fetchModels) {
-    wireModelPicker(dialog as unknown as ProviderRowElement, {
+    wireModelPicker(dialog, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
       apiKeyClass: "provider-editor-apikey",

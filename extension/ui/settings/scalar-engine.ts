@@ -21,6 +21,7 @@ import {
   watchChatDisplaySettings
 } from "../../reader/chat-display-settings.js";
 import { applyReadingViewTypography } from "../../reader/presentation.js";
+import { getErrorMessage } from "../../shared/error-helpers.js";
 import { sendRuntimeMessage } from "../../shared/messaging.js";
 import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
 import { watchStorageKeys } from "../../shared/watch-storage-keys.js";
@@ -108,7 +109,6 @@ export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Pro
   }
   const notice = await takeLiveVoiceFallbackNotice();
   const hint = elements.liveVoiceFallbackHint;
-  if (!hint) return;
   hint.textContent = notice ? LIVE_VOICE_FALLBACK_NOTICE_TEXT : "";
   hint.hidden = !notice;
 }
@@ -212,7 +212,7 @@ export async function resetPreferences(
     await deps.reloadSettings(elements);
     setStatus(elements, "已恢复默认设置");
   } catch (error) {
-    setStatus(elements, (error as Error).message || "重置失败", true);
+    setStatus(elements, getErrorMessage(error, "重置失败"), true);
   } finally {
     setBusy(elements, false);
   }
@@ -241,7 +241,7 @@ export async function saveSettingField(
     }, 1500);
     return true;
   } catch (error) {
-    setStatus(elements, (error as Error).message || "保存失败", true);
+    setStatus(elements, getErrorMessage(error, "保存失败"), true);
     return false;
   }
 }
@@ -358,15 +358,15 @@ export function bindScalarSectionActions(
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-  elements.resetBtn?.addEventListener("click", () => {
+  elements.resetBtn.addEventListener("click", () => {
     void resetPreferences(elements, { reloadSettings: deps.reloadSettings });
   });
-  elements.noteExportResetTemplateBtn?.addEventListener("click", () => {
+  elements.noteExportResetTemplateBtn.addEventListener("click", () => {
     elements.noteExportTemplate.value = DEFAULT_NOTE_TEMPLATE;
     state.patchSettings({ noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
     void saveSettingField(elements, { noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
   });
-  elements.noteExportCopyBtn?.addEventListener("click", () => {
+  elements.noteExportCopyBtn.addEventListener("click", () => {
     void (async () => {
       const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
       state.patchSettings({ noteExportTemplate: normalizedTemplate });
@@ -374,7 +374,7 @@ export function bindScalarSectionActions(
       setStatus(elements, ok ? "已复制当前视频笔记" : "复制失败：请检查剪贴板权限或内容", !ok);
     })();
   });
-  elements.noteExportObsidianBtn?.addEventListener("click", () => {
+  elements.noteExportObsidianBtn.addEventListener("click", () => {
     void (async () => {
       const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
       const vault = normalizeObsidianVaultName(elements.obsidianVaultName.value);
@@ -397,7 +397,7 @@ export function bindScalarSectionActions(
       );
     })();
   });
-  elements.openOnboardingBtn?.addEventListener("click", () => {
+  elements.openOnboardingBtn.addEventListener("click", () => {
     void sendRuntimeMessage({ type: "open-onboarding" }).then((resp) => {
       if (resp && !resp.ok) {
         setStatus(elements, resp.error || "打开引导页失败", true);
