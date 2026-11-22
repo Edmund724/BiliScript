@@ -1055,33 +1055,29 @@
 }
 
 #biliscript-reading-view .biliscript-reading-chat .chat-timestamp-link {
-  display: inline-flex;
-  align-items: center;
-  vertical-align: baseline;
-  margin: 0 2px;
-  padding: 1px 6px;
+  display: inline;
+  margin: 0;
+  padding: 0;
   border: 0;
-  border-radius: var(--pill-radius-full, var(--biliscript-radius-pill));
-  background: var(--biliscript-reader-accent-soft);
+  border-radius: var(--biliscript-radius-xs);
+  background: transparent;
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  font: inherit;
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: var(--pill-font-size, var(--biliscript-font-size-sm));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 1.45;
   white-space: nowrap;
   cursor: pointer;
-  text-decoration: none;
-  transition: background 140ms ease-out, color 140ms ease-out, transform 100ms ease-out;
+  text-decoration: underline;
+  text-decoration-color: var(--biliscript-reader-accent-soft);
+  text-underline-offset: 2px;
+  transition: color 140ms ease-out, text-decoration-color 140ms ease-out;
 }
 
-.biliscript-reading-chat .chat-timestamp-link:hover {
-  background: var(--biliscript-reader-accent);
-  color: var(--biliscript-primitive-color-white);
-}
-
-.biliscript-reading-chat .chat-timestamp-link:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .biliscript-reading-chat .chat-timestamp-link:hover {
+  background: transparent;
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  text-decoration-color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
 }
 
 #biliscript-reading-view .biliscript-reading-chat .chat-timestamp-link:focus-visible {
