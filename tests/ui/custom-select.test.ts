@@ -787,3 +787,66 @@ describe("外点收起控制器：不覆写 DOM hidden 自有属性（Firefox Xr
     expect(dropdown.hidden).toBe(true);
   });
 });
+
+describe("内嵌模式（initCustomSelect inline: true）", () => {
+  it("初始化即常显且不参与外点收起、closeAll 或禁用隐藏，并支持跨列键盘切换", async () => {
+    document.body.innerHTML =
+      '<div>' +
+      '<select id="outerSelect"><option value="zh" selected>中文</option><option value="en">English</option></select>' +
+      '</div>';
+    const outerSelect = document.getElementById("outerSelect") as HTMLSelectElement;
+    const mod = await import("../../extension/ui/custom-select.js");
+    mod.initCustomSelect(outerSelect);
+
+    const extra = document.createElement("li");
+    const mainList = document.createElement("ul");
+    mainList.className = "custom-select-list";
+    const innerHost = document.createElement("div");
+    const innerSelect = document.createElement("select");
+    innerSelect.innerHTML = '<option value="en" selected>English</option><option value="ja">日本語</option>';
+    innerHost.appendChild(innerSelect);
+    extra.append(mainList, innerHost);
+
+    mod.initCustomSelect(innerSelect, "custom-select-wrapper custom-inline-picker", { inline: true });
+    mod.setCustomSelectSlots(outerSelect, { extras: [extra], optionsHost: mainList });
+
+    const outerWrapper = outerSelect.closest<HTMLElement>(".custom-select-wrapper")!;
+    const outerTrigger = outerWrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!;
+    const outerDropdown = outerWrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const innerWrapper = innerSelect.closest<HTMLElement>(".custom-select-wrapper")!;
+    const innerDropdown = innerWrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const innerOptions = Array.from(innerDropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    expect(innerDropdown.hidden).toBe(false);
+    expect(innerDropdown.dataset.inline).toBe("true");
+
+    const outsideBtn = document.createElement("button");
+    document.body.appendChild(outsideBtn);
+    const outsideClick = vi.fn();
+    outsideBtn.addEventListener("click", outsideClick);
+    fireClick(outsideBtn);
+    expect(outsideClick).toHaveBeenCalledTimes(1);
+    expect(innerDropdown.hidden).toBe(false);
+
+    mod.closeAllCustomSelects();
+    expect(innerDropdown.hidden).toBe(false);
+
+    fireClick(outerTrigger);
+    expect(outerDropdown.hidden).toBe(false);
+    expect(innerDropdown.hidden).toBe(false);
+
+    const outerOptions = Array.from(mainList.querySelectorAll<HTMLElement>(".custom-select-option"));
+    expect(document.activeElement).toBe(outerOptions[0]);
+    keydown(outerOptions[0], "ArrowRight");
+    expect(document.activeElement).toBe(innerOptions[0]);
+
+    fireClick(innerOptions[1]);
+    expect(innerSelect.value).toBe("ja");
+    expect(innerDropdown.hidden).toBe(false);
+
+    mod.setCustomSelectState(innerSelect, { disabled: true, busy: true });
+    expect(innerDropdown.hidden).toBe(false);
+    fireClick(innerOptions[0]);
+    expect(innerSelect.value).toBe("ja");
+  });
+});

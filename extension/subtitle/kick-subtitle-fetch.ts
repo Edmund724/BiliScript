@@ -45,7 +45,9 @@ function runKickRefresh(
     } catch (error) {
       settleRefreshFailure(error);
     }
-    policy.afterRefreshSettled?.();
+    if (!policy.signal?.aborted) {
+      policy.afterRefreshSettled?.();
+    }
     return true;
   })();
 }

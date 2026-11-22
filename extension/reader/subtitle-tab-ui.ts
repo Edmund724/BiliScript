@@ -443,7 +443,6 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
 const SUBTITLE_BILINGUAL_SWITCH_LABEL = "双语字幕";
 const SUBTITLE_BILINGUAL_BADGE_TEXT = "双语";
 const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
-const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
@@ -547,7 +546,7 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   const secondaryHost = document.createElement("div");
   secondaryHost.className = "biliscript-bilingual-secondary";
   const secondarySelect = document.createElement("select");
-  secondarySelect.id = SECONDARY_SUBTITLE_SELECT_ID;
+  secondarySelect.id = ids.readingSecondarySubtitleSelect;
   secondarySelect.className = "biliscript-reading-track-select";
   secondarySelect.setAttribute("aria-label", SECONDARY_SUBTITLE_FIELD_LABEL);
   secondaryHost.appendChild(secondarySelect);
@@ -580,7 +579,8 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
 
   root.append(main, footer);
   initCustomSelect(secondarySelect, "custom-select-wrapper biliscript-bilingual-secondary-picker", {
-    onChange: handleSecondaryTrackPickerChange
+    onChange: handleSecondaryTrackPickerChange,
+    inline: true
   });
   return {
     mainSelect,

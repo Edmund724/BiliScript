@@ -21,7 +21,7 @@
 
 扩展子树与 B 站共享同一文档样式作用域，以下真机碰撞约束（jsdom 单测不可见）必须守恒：
 
-- **宿主 `[hidden] !important` 与全局重置防护**：B 站 `video.*.css` 含全局 `[hidden] { display: none !important }` 及标题、链接、列表重置。双语选轨外层浮层 `.custom-select-dropdown[hidden]` 须以 `(1,3,0)` 特指度显式声明 `display: none` 压过 `:has()`，内嵌副列显式声明 `display: block !important`；面板与 Markdown 区显式恢复标题、链接令牌色与列表标记。
+- **宿主 `[hidden] !important` 与全局重置防护**：B 站 `video.*.css` 含全局 `[hidden] { display: none !important }` 及标题、链接、列表重置。双语选轨外层浮层 `.custom-select-dropdown[hidden]` 须以 `(1,3,0)` 特指度显式声明 `display: none` 压过 `:has()`，内嵌副列以 `initCustomSelect(..., { inline: true })` 常显（不带 `hidden` 属性，规避宿主 `[hidden] !important` 与外点收起拦截）；面板与 Markdown 区显式恢复标题、链接令牌色与列表标记。
 - **播放器控制栏 `createOverflowCheck` 防塌陷**：B 站 `bpx-player` 内部监测控制栏相邻子元素几何越界，一旦 `rect.left < prev.right - 1` 会判定空间不足并折叠隐藏整条控制栏。`player-ai.css` 仅在紧邻带大右外边距的可见 Hi-Res / Dolby 按钮之后才施加负左外边距补偿，严禁对零外边距前序兄弟无条件负偏移。
 
 ## 考虑过的方案

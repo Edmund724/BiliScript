@@ -401,9 +401,10 @@ describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
   });
 
   it.each([[999, "1"], [1000, null]])(
-    "视口 %ipx（FLOAT_VIEWPORT_MIN_WIDTH=1000 边界）：浮层属性 %s",
+    "视口 %ipx（PINNED_VIEWPORT_MIN_WIDTH=1000 边界）：浮层属性 %s",
     async (innerWidth, floatAttr) => {
       await loadModules();
+      expect(scriptHost.PINNED_VIEWPORT_MIN_WIDTH).toBe(1000);
       window.innerWidth = innerWidth;
       mountAnchor(".right-container-inner", makeRect(520, 80, 360, 2000));
 

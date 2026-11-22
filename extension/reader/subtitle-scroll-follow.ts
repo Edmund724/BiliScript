@@ -1,10 +1,6 @@
 import { state } from "../core/state.js";
 import { formatClock } from "../shared/clock-text.js";
-import {
-  ids,
-  setManualScrollPaused,
-  setProgrammaticScrollUntil
-} from "./state.js";
+import { ids } from "./state.js";
 
 export type SubtitleFollowMode = "auto" | "manual";
 
@@ -12,12 +8,6 @@ export interface SubtitleScrollFollowDeps {
   now?: () => number;
   setTimeout?: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
-  onStateChange?: (snapshot: {
-    mode: SubtitleFollowMode;
-    manualPauseUntil: number;
-    programmaticActive: boolean;
-    programmaticUntil: number;
-  }) => void;
 }
 
 export interface ProgrammaticScrollOptions {
@@ -95,15 +85,6 @@ export function createSubtitleScrollFollowMachine(
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
   let pointerDownOnContainer = false;
 
-  function emitStateChange(): void {
-    deps.onStateChange?.({
-      mode: getMode(),
-      manualPauseUntil,
-      programmaticActive,
-      programmaticUntil
-    });
-  }
-
   function clearProgrammaticTimers(): void {
     if (idleTimer !== null) {
       cancelTimeout(idleTimer);
@@ -140,12 +121,6 @@ export function createSubtitleScrollFollowMachine(
   function getMode(): SubtitleFollowMode {
     if (manualPauseUntil > 0 && now() >= manualPauseUntil) {
       manualPauseUntil = 0;
-      deps.onStateChange?.({
-        mode: "auto",
-        manualPauseUntil: 0,
-        programmaticActive,
-        programmaticUntil
-      });
     }
     return manualPauseUntil > 0 && now() < manualPauseUntil ? "manual" : "auto";
   }
@@ -157,7 +132,6 @@ export function createSubtitleScrollFollowMachine(
   function isProgrammaticScrolling(): boolean {
     if (programmaticActive && programmaticUntil > 0 && now() > programmaticUntil) {
       clearProgrammaticState(true);
-      emitStateChange();
       return false;
     }
     return programmaticActive;
@@ -174,7 +148,6 @@ export function createSubtitleScrollFollowMachine(
       return;
     }
     manualPauseUntil = nextUntil;
-    emitStateChange();
   }
 
   function resumeAuto(): void {
@@ -183,14 +156,12 @@ export function createSubtitleScrollFollowMachine(
       return;
     }
     manualPauseUntil = 0;
-    emitStateChange();
   }
 
   function resetForVideoSwitch(): void {
     pointerDownOnContainer = false;
     manualPauseUntil = 0;
     clearProgrammaticState(true);
-    emitStateChange();
   }
 
   function beginProgrammaticScroll(options: ProgrammaticScrollOptions): number {
@@ -216,7 +187,6 @@ export function createSubtitleScrollFollowMachine(
     maxTimer = scheduleTimeout(() => {
       finishProgrammaticScroll(token);
     }, maxMs);
-    emitStateChange();
     return token;
   }
 
@@ -242,7 +212,6 @@ export function createSubtitleScrollFollowMachine(
       return;
     }
     clearProgrammaticState(false);
-    emitStateChange();
   }
 
   function guardLayoutReset(): void {
@@ -374,12 +343,7 @@ export function createSubtitleScrollFollowMachine(
   };
 }
 
-export const subtitleScrollFollow = createSubtitleScrollFollowMachine({
-  onStateChange(snapshot) {
-    setManualScrollPaused(snapshot.manualPauseUntil);
-    setProgrammaticScrollUntil(snapshot.programmaticActive ? snapshot.programmaticUntil : 0);
-  }
-});
+export const subtitleScrollFollow = createSubtitleScrollFollowMachine();
 
 export function isElementScrollable(element: HTMLElement | null): boolean {
   if (!element) {

@@ -112,7 +112,7 @@ function pickerWrapper(): HTMLElement {
 }
 
 function secondarySelect(): HTMLSelectElement {
-  return document.getElementById("biliscript-reading-secondary-subtitle-select") as HTMLSelectElement;
+  return document.getElementById(ids.readingSecondarySubtitleSelect) as HTMLSelectElement;
 }
 
 function card(): HTMLElement {
@@ -592,7 +592,7 @@ describe("骨架与壳重建（forceRecreate）", () => {
     shell.renderReadingView();
     const oldToggle = switchButton();
     const oldSelect = secondarySelect();
-    expect(secondarySelect().id).toBe("biliscript-reading-secondary-subtitle-select");
+    expect(secondarySelect().id).toBe(ids.readingSecondarySubtitleSelect);
 
     uiRenderer.ensureUiReady({ forceRecreate: true });
     mountPlayerChain();

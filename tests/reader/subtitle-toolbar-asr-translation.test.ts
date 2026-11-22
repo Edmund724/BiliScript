@@ -9,7 +9,6 @@ import type {
 import type { AsrTranslationView } from "../../extension/reader/asr-translation.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
 
-const SECONDARY_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 
 const ASR_TRACK: SubtitleTrack = {
@@ -88,7 +87,7 @@ function subHeadText(): string {
 }
 
 function secondarySelect(): HTMLSelectElement {
-  return document.getElementById(SECONDARY_SELECT_ID) as HTMLSelectElement;
+  return document.getElementById(ids.readingSecondarySubtitleSelect) as HTMLSelectElement;
 }
 
 function subRowTexts(): string[] {

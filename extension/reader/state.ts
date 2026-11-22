@@ -37,29 +37,6 @@ export function isReadingOverviewBodyVisible(): boolean {
   );
 }
 
-let manualScrollPauseUntil = 0;
-let programmaticScrollUntil = 0;
-
-export function isManualScrollPaused() {
-  return Date.now() < manualScrollPauseUntil;
-}
-
-export function resetManualScrollPause() {
-  manualScrollPauseUntil = 0;
-}
-
-export function isProgrammaticScrolling() {
-  return Date.now() <= programmaticScrollUntil;
-}
-
-export function setManualScrollPaused(until: number) {
-  manualScrollPauseUntil = until;
-}
-
-export function setProgrammaticScrollUntil(until: number) {
-  programmaticScrollUntil = until;
-}
-
 import { uiState } from "../core/state.js";
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { READER_GUARD_CLEAR_ATTRS, READER_GUARD_FILTER } from "./presentation-fields.js";

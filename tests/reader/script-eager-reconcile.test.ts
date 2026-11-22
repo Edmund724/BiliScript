@@ -50,8 +50,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
-  it("refresh 落定 → 字幕列表按落定数据渲染、概览生成再次触发", async () => {
+describe("挂载与后台抓取收敛后的视图同步", () => {
+  it("refresh 落定（未发 subtitle-ready 事件）→ 字幕列表按落定数据渲染、概览生成再次触发", async () => {
     const readerBus = await import("../../extension/reader/reader-bus.js");
     const refreshSpy = vi.fn(() => {
       state.clip.bvid = "BV1test000000";
@@ -120,6 +120,33 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     });
+    shell.closeReadingView();
+  });
+
+  it("refresh 期间已派发 subtitle-ready 通知 → 落定后不再重复触发概览", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const refreshSpy = vi.fn(() => {
+      state.clip.bvid = "BV1test000000";
+      state.clip.subtitleFetchState = "ready";
+      state.clip.subtitleBody = [
+        { from: 0, to: 10, content: "大家好" },
+        { from: 10, to: 30, content: "第二句" }
+      ];
+      readerBus.notifyReaderPresenter({ kind: "subtitle-ready" });
+      return Promise.resolve();
+    });
+    readerBus.subscribeSubtitleRefresh(refreshSpy);
+
+    await shell.enterReaderMode();
+
+    await vi.waitFor(() => {
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(2);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(overviewTriggerSpy).toHaveBeenCalledTimes(2);
+
     shell.closeReadingView();
   });
 });

@@ -110,11 +110,10 @@
   border: 0;
   border-radius: 0;
   background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: none;
-}
-
-#biliscript-reading-view .biliscript-bilingual-col[data-col="sub"] .custom-select-dropdown[hidden] {
-  display: block !important;
+  transition: none;
 }
 
 #biliscript-reading-view .biliscript-bilingual-secondary {

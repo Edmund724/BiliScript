@@ -6,15 +6,18 @@ import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpe
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
-let readerState: typeof import("../../extension/reader/state.js");
+let subtitleScrollFollow: typeof import("../../extension/reader/subtitle-scroll-follow.js").subtitleScrollFollow;
 let video: HTMLVideoElement;
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
-  readerState = await import("../../extension/reader/state.js");
+  const coreState = await import("../../extension/core/state.js");
+  state = coreState.state as TestState;
+  transitionReaderShell = coreState.transitionReaderShell;
+  subtitleScrollFollow = (await import("../../extension/reader/subtitle-scroll-follow.js")).subtitleScrollFollow;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
 }
@@ -57,7 +60,7 @@ describe("Follow playback 悬浮按钮", () => {
   });
 
   it("manual 态（手动滚离）点击：清暂停、follow 回 auto、跳回当前句但不改播放进度", () => {
-    state.reader.readingViewOpen = true;
+    transitionReaderShell("open");
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
     video.play = () => Promise.resolve();
@@ -68,12 +71,12 @@ describe("Follow playback 悬浮按钮", () => {
 
     shell.noteManualReaderInteraction(60_000);
     expect(followValue()).toBe("manual");
-    expect(readerState.isManualScrollPaused()).toBe(true);
+    expect(subtitleScrollFollow.isManualPaused()).toBe(true);
     const followBtn = document.getElementById(ids.readingFollowBtn) as HTMLElement;
     expect(followBtn.textContent).toBe("回到当前播放 · 0:12");
 
     shell.resumeReaderFollowPlayback();
-    expect(readerState.isManualScrollPaused()).toBe(false);
+    expect(subtitleScrollFollow.isManualPaused()).toBe(false);
     expect(followValue()).toBe("auto");
     expect(video.currentTime).toBe(12);
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);

@@ -206,7 +206,16 @@ import {
 
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 
+let subtitleReadyNotificationSeq = 0;
+
 async function maybeRefreshReaderSubtitleInBackground() {
+  const notifiedBeforeKick = subtitleReadyNotificationSeq;
+  const syncIfNotAlreadyNotified = () => {
+    if (subtitleReadyNotificationSeq !== notifiedBeforeKick) {
+      return;
+    }
+    syncReaderWithCurrentClipState();
+  };
   await kickSubtitleFetch(() => requestSubtitleRefresh(), {
     skipIfInHandOrInFlight: true,
     awaitVideoMetadata: true,
@@ -216,8 +225,8 @@ async function maybeRefreshReaderSubtitleInBackground() {
       logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error }),
     continueAfterChainLoadFailed: true,
     onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle refresh failed", { error }),
-    onInHandOrInFlight: reconcileReaderAfterSubtitleFetch,
-    afterRefreshSettled: reconcileReaderAfterSubtitleFetch
+    onInHandOrInFlight: syncIfNotAlreadyNotified,
+    afterRefreshSettled: syncIfNotAlreadyNotified
   });
 }
 
@@ -257,7 +266,10 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   }
 }
 
-function reconcileReaderAfterSubtitleFetch() {
+function syncReaderWithCurrentClipState() {
+  if (!state.reader.readingViewOpen) {
+    return;
+  }
   onReaderSubtitleReady({
     ensureSecondarySubtitle: true,
     triggerMode: "if-subtitles-present"
@@ -291,6 +303,7 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent): 
       resetReaderOverviewState();
       return;
     case "subtitle-ready":
+      subtitleReadyNotificationSeq += 1;
       onReaderSubtitleReady({
         syncPlayback: true,
         ensureSecondarySubtitle: true,
@@ -422,16 +435,12 @@ export async function enterReaderMode(
   } else if (readingView) {
     readingView.style.removeProperty("--biliscript-float-origin");
   }
-  renderReadingView();
-  startReadingViewSync();
-  syncReadingViewPlayback(true);
-  maybeRefreshReaderSubtitleInBackground();
-  triggerReaderOverviewGeneration();
-  warmUpReaderQuickPrompts();
-  ensureSecondarySubtitleLoaded();
-  if (state.settings.bilingualSubtitles === true) {
-    void ensureAsrTranslation("cache-only");
-  }
+  onReaderSubtitleReady({
+    syncPlayback: true,
+    ensureSecondarySubtitle: true,
+    triggerMode: "always"
+  });
+  void maybeRefreshReaderSubtitleInBackground();
 }
 
 function setReadingViewInert(readingView: HTMLElement, inert: boolean): void {

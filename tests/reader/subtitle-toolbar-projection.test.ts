@@ -8,7 +8,6 @@ const SENTINEL_EMPTY = "暂无字幕";
 const SENTINEL_LOADING = "抓取中…";
 const SENTINEL_TRANSCRIBING = "转写中…";
 const AI_MARK = "（B 站 AI）";
-const SECONDARY_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 
 const SAMPLE_TRACKS: SubtitleTrack[] = [
   { id: "t-zh", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://sub/zh.json", source: "player" },
@@ -150,7 +149,7 @@ function retryButton(): HTMLButtonElement | null {
 }
 
 function secondarySelect(): HTMLSelectElement {
-  return document.getElementById(SECONDARY_SELECT_ID) as HTMLSelectElement;
+  return document.getElementById(ids.readingSecondarySubtitleSelect) as HTMLSelectElement;
 }
 
 function secondaryTrigger(): HTMLButtonElement {

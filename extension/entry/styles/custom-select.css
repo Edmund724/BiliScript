@@ -37,7 +37,7 @@
 }
 
 @starting-style {
-  #biliscript-reading-view .custom-select-dropdown:not([hidden]) {
+  #biliscript-reading-view .custom-select-dropdown:not([hidden]):not([data-inline="true"]) {
     opacity: 0;
     transform: scale(0.95);
   }

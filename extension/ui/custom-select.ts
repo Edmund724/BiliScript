@@ -53,7 +53,7 @@ export function rebuildCustomSelectOptions(select: HTMLSelectElement): void {
 }
 
 export function closeAllCustomSelects(except?: HTMLElement): void {
-  document.querySelectorAll<HTMLElement>(".custom-select-dropdown").forEach((dropdown) => {
+  document.querySelectorAll<HTMLElement>('.custom-select-dropdown:not([data-inline="true"])').forEach((dropdown) => {
     if (dropdown === except) return;
     dropdown.hidden = true;
     dropdown.closest(".custom-select-wrapper")?.querySelector<HTMLButtonElement>(".custom-select-trigger")?.setAttribute("aria-expanded", "false");
@@ -188,7 +188,7 @@ export function createOutsideClickDismissal({
 
 const customSelectDismissal = createOutsideClickDismissal({
   wrapperSelector: ".custom-select-wrapper",
-  openDropdownSelector: ".custom-select-dropdown:not([hidden])",
+  openDropdownSelector: '.custom-select-dropdown:not([hidden]):not([data-inline="true"])',
   triggerSelector: ".custom-select-trigger",
   closeAll: () => closeAllCustomSelects(),
   closeOnEscape: (dropdown) => {
@@ -343,7 +343,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
   function isHiddenInScope(el: HTMLElement, scopeRoot: HTMLElement): boolean {
     let cur: HTMLElement | null = el;
     while (cur && cur !== scopeRoot) {
-      if (cur.hidden && !(cur.classList.contains("custom-select-dropdown") && cur.closest(".biliscript-bilingual-secondary-picker"))) {
+      if (cur.hidden) {
         return true;
       }
       cur = cur.parentElement;
@@ -532,6 +532,7 @@ function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
 export interface CustomSelectOptions {
   onChange?: (select: HTMLSelectElement) => void;
   searchable?: boolean;
+  inline?: boolean;
 }
 
 export const CUSTOM_SELECT_SEARCH_THRESHOLD = 8;
@@ -544,6 +545,7 @@ export function initCustomSelect(
   if (select.dataset.customSelectInitialized === "1") return;
   select.dataset.customSelectInitialized = "1";
 
+  const inline = options.inline === true;
   const onChange = options.onChange;
   if (onChange) {
     select.addEventListener("change", () => onChange(select));
@@ -558,7 +560,7 @@ export function initCustomSelect(
   trigger.type = "button";
   trigger.className = "custom-select-trigger";
   trigger.setAttribute("aria-haspopup", "listbox");
-  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-expanded", inline ? "true" : "false");
 
   const fieldLabel = resolveFieldLabel(select);
   const selectLabel = select.getAttribute("aria-label");
@@ -593,7 +595,12 @@ export function initCustomSelect(
 
   const dropdown = document.createElement("ul");
   dropdown.className = "custom-select-dropdown";
-  dropdown.hidden = true;
+  if (inline) {
+    dropdown.dataset.inline = "true";
+    dropdown.hidden = false;
+  } else {
+    dropdown.hidden = true;
+  }
   dropdown.id = `custom-select-dropdown-${++customSelectSeq}`;
   dropdown.setAttribute("role", "listbox");
   if (fieldLabel) {
@@ -610,7 +617,9 @@ export function initCustomSelect(
   select.style.display = "none";
   wrapper.appendChild(trigger);
   wrapper.appendChild(dropdown);
-  customSelectDismissal.observeDropdown(dropdown);
+  if (!inline) {
+    customSelectDismissal.observeDropdown(dropdown);
+  }
 
   const setExpanded = (open: boolean): void => {
     trigger.setAttribute("aria-expanded", open ? "true" : "false");
@@ -654,6 +663,10 @@ export function initCustomSelect(
       : select.options.length >= CUSTOM_SELECT_SEARCH_THRESHOLD;
 
   const closeList = (refocusTrigger: boolean): void => {
+    if (inline) {
+      searchableList.reset();
+      return;
+    }
     dropdown.hidden = true;
     customSelectDismissal.sync();
     setExpanded(false);
@@ -726,7 +739,7 @@ export function initCustomSelect(
     if (next.disabled !== undefined) {
       trigger.disabled = next.disabled;
       select.disabled = next.disabled;
-      if (next.disabled) closeList(true);
+      if (next.disabled && !inline) closeList(true);
     }
     if (next.busy !== undefined) {
       trigger.setAttribute("aria-busy", next.busy ? "true" : "false");
@@ -745,7 +758,7 @@ export function initCustomSelect(
   });
 
   const openList = (): void => {
-    if (trigger.disabled) return;
+    if (inline || trigger.disabled) return;
     closeAllCustomSelects(dropdown);
     dropdown.hidden = false;
     customSelectDismissal.sync();
@@ -760,7 +773,7 @@ export function initCustomSelect(
 
   trigger.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (trigger.disabled) return;
+    if (inline || trigger.disabled) return;
     if (dropdown.hidden) {
       openList();
     } else {
@@ -769,7 +782,7 @@ export function initCustomSelect(
   });
 
   trigger.addEventListener("keydown", (e) => {
-    if (trigger.disabled) return;
+    if (inline || trigger.disabled) return;
     if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       openList();
@@ -777,6 +790,7 @@ export function initCustomSelect(
   });
 
   dropdown.addEventListener("click", (e) => {
+    if (trigger.disabled) return;
     const option = (e.target as HTMLElement).closest<HTMLElement>(".custom-select-option");
     if (!option) return;
     e.stopPropagation();

@@ -4,18 +4,20 @@ import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpe
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let transitionReaderShell: typeof import("../../extension/core/state.js").transitionReaderShell;
 let shell: typeof import("../../extension/reader/index.js");
-let scrollState: typeof import("../../extension/reader/state.js");
+let subtitleScrollFollow: typeof import("../../extension/reader/subtitle-scroll-follow.js").subtitleScrollFollow;
 let ids: typeof import("../../extension/reader/state.js").ids;
 let video: HTMLVideoElement;
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const coreState = await import("../../extension/core/state.js");
+  state = coreState.state as TestState;
+  transitionReaderShell = coreState.transitionReaderShell;
   shell = await import("../../extension/reader/index.js");
-  const stateModule = await import("../../extension/reader/state.js");
-  scrollState = stateModule;
-  ids = stateModule.ids;
+  subtitleScrollFollow = (await import("../../extension/reader/subtitle-scroll-follow.js")).subtitleScrollFollow;
+  ids = (await import("../../extension/reader/state.js")).ids;
 }
 
 beforeEach(async () => {
@@ -31,7 +33,7 @@ beforeEach(async () => {
     { from: 10, to: 30, content: "第二句" },
     { from: 30, to: 60, content: "第三句" }
   ];
-  state.reader.readingViewOpen = true;
+  transitionReaderShell("open");
   shell.renderReadingView();
   shell.bindReadingViewVideo(video);
 });
@@ -53,7 +55,7 @@ function recordCurrentTimeAssignments(targetVideo: HTMLVideoElement) {
     configurable: true,
     get: () => value,
     set: (next: number) => {
-      log.push({ pausedAtAssign: scrollState.isManualScrollPaused(), next });
+      log.push({ pausedAtAssign: subtitleScrollFollow.isManualPaused(), next });
       value = next;
       targetVideo.dispatchEvent(new Event("timeupdate"));
     }
@@ -65,7 +67,7 @@ describe("seekReadingTarget 规范序", () => {
   it("清手动滚动暂停先于 currentTime 赋值（timeupdate 落在干净状态上）", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     shell.noteManualReaderInteraction(5000);
-    expect(scrollState.isManualScrollPaused()).toBe(true);
+    expect(subtitleScrollFollow.isManualPaused()).toBe(true);
 
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
     Object.defineProperty(subtitleList, "clientHeight", { value: 400, configurable: true });
@@ -86,7 +88,7 @@ describe("seekReadingTarget 规范序", () => {
   it("未清暂停时同型同步会吞掉跟随滚动（回归对照：bug 形态可观察）", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     shell.noteManualReaderInteraction(5000);
-    expect(scrollState.isManualScrollPaused()).toBe(true);
+    expect(subtitleScrollFollow.isManualPaused()).toBe(true);
 
     video.currentTime = 12;
     video.dispatchEvent(new Event("seeked"));

@@ -23,8 +23,12 @@ function getCustomPanelWidth(): number | null {
 
 const PLAYER_GAP = 12;
 const PINNED_MIN_HEIGHT = 240;
-const FLOAT_VIEWPORT_MIN_WIDTH = 1000;
+export const PINNED_VIEWPORT_MIN_WIDTH = 1000;
 const REANCHOR_INTERVAL_MS = 2000;
+
+function canPinInViewport(viewportWidth = window.innerWidth): boolean {
+  return viewportWidth >= PINNED_VIEWPORT_MIN_WIDTH;
+}
 
 const SCRIPT_VAR_PREFIX = "--biliscript-script-";
 const SCRIPT_VARS = ["left", "top", "width", "height"] as const;
@@ -50,7 +54,7 @@ export function hasScriptAnchor(): boolean {
 }
 
 export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
-  if (typeof window === "undefined" || window.innerWidth < FLOAT_VIEWPORT_MIN_WIDTH) {
+  if (typeof window === "undefined" || !canPinInViewport()) {
     return Promise.resolve(true);
   }
   if (hasScriptAnchor()) {
@@ -235,13 +239,14 @@ function applyScriptRect(finding?: AnchorFinding): void {
   }
 
   const anchorRect = found?.rect;
-  if (anchorRect && window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
+  const canPin = canPinInViewport();
+  if (anchorRect && canPin) {
     const rect = clampAnchorRect(anchorRect);
     applyPinnedRect(readingView, rect);
     return;
   }
 
-  if (window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
+  if (canPin) {
     const playerRect = getPlayerRect();
     if (playerRect) {
       const right = getViewportRightBound();
