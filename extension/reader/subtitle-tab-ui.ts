@@ -238,6 +238,8 @@ export interface SubtitleToolbarContext {
   rerender?: () => void;
 }
 
+const trackChangeHandlers = new WeakMap<HTMLSelectElement, (select: HTMLSelectElement) => void>();
+
 export function renderReadingSubtitleTrackPicker(
   selectFacts: () => SubtitleToolbarFacts = selectSubtitleToolbarFacts,
   context?: SubtitleToolbarContext
@@ -269,15 +271,12 @@ export function renderReadingSubtitleTrackPicker(
   }
 
   if (context?.onTrackChange) {
-    (select as unknown as Record<string, unknown>).__biliscript_track_change = context.onTrackChange;
+    trackChangeHandlers.set(select, context.onTrackChange);
   }
   if (!select.parentElement?.classList.contains("custom-select-wrapper")) {
     initCustomSelect(select, "custom-select-wrapper biliscript-reading-track-picker", {
       onChange: (sel) => {
-        const handler = (sel as unknown as Record<string, unknown>).__biliscript_track_change as
-          | ((s: HTMLSelectElement) => void)
-          | undefined;
-        handler?.(sel);
+        trackChangeHandlers.get(sel)?.(sel);
       }
     });
   }

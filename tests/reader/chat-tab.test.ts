@@ -2316,7 +2316,7 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
     moreBtn.click();
     expect(document.getElementById(ids.readingChatMoreMenu)?.hidden).toBe(false);
     outsideBtn.focus();
-    (chat as typeof chat & { deactivateChatTabOverlays?: () => void }).deactivateChatTabOverlays?.();
+    chat.deactivateChatTabOverlays();
     expect(document.getElementById(ids.readingChatMoreMenu)?.hidden).toBe(true);
     expect(document.activeElement).toBe(outsideBtn);
     chat.closeChatSession();

@@ -22,29 +22,41 @@ export interface ChatScrollFollowController {
   isHolding: () => boolean;
 }
 
+function scheduleDefaultFrame(cb: () => void): () => void {
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    const id = window.requestAnimationFrame(cb);
+    return () => window.cancelAnimationFrame(id);
+  }
+  if (typeof window !== "undefined") {
+    const id = window.setTimeout(cb, 16);
+    return () => window.clearTimeout(id);
+  }
+  const id: ReturnType<typeof setTimeout> = setTimeout(cb, 16);
+  return () => clearTimeout(id);
+}
+
 export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatScrollFollowController {
   const followThreshold = deps.followThresholdPx ?? DEFAULT_FOLLOW_THRESHOLD_PX;
   const buttonThreshold = deps.buttonThresholdPx ?? DEFAULT_BUTTON_THRESHOLD_PX;
 
-  const requestFrame = deps.requestFrame ?? (
-    typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
-      ? (cb: () => void) => window.requestAnimationFrame(cb)
-      : (cb: () => void) => (typeof window !== "undefined" ? window.setTimeout(cb, 16) : (setTimeout(cb, 16) as unknown as number))
-  );
-
-  const cancelFrame = deps.cancelFrame ?? (
-    typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
-      ? (handle: number) => window.cancelAnimationFrame(handle)
-      : (handle: number) => {
-          if (typeof window !== "undefined") {
+  const scheduleFrame: (cb: () => void) => () => void = deps.requestFrame
+    ? (cb) => {
+        const handle = deps.requestFrame!(cb);
+        return () => {
+          if (deps.cancelFrame) {
+            deps.cancelFrame(handle);
+          } else if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+            window.cancelAnimationFrame(handle);
+          } else if (typeof window !== "undefined") {
             window.clearTimeout(handle);
           } else {
             clearTimeout(handle);
           }
-        }
-  );
+        };
+      }
+    : scheduleDefaultFrame;
 
-  let scrollSyncFrame = 0;
+  let cancelScheduledFrame: (() => void) | null = null;
   let scrollBottomHold = false;
 
   function computeDistances(): { nearBottom: boolean; showButton: boolean } {
@@ -89,14 +101,15 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
   }
 
   function cancelPendingFrame(): void {
-    if (scrollSyncFrame !== 0) {
-      cancelFrame(scrollSyncFrame);
-      scrollSyncFrame = 0;
+    if (cancelScheduledFrame !== null) {
+      const cancel = cancelScheduledFrame;
+      cancelScheduledFrame = null;
+      cancel();
     }
   }
 
   function flushScrollAutoScrollSync(): void {
-    scrollSyncFrame = 0;
+    cancelScheduledFrame = null;
     const { nearBottom, showButton } = computeDistances();
     if (!nearBottom && scrollBottomHold) {
       deps.setAutoScroll(true);
@@ -108,10 +121,10 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
   }
 
   function notifyScrolled(): void {
-    if (scrollSyncFrame !== 0) {
+    if (cancelScheduledFrame !== null) {
       return;
     }
-    scrollSyncFrame = requestFrame(flushScrollAutoScrollSync);
+    cancelScheduledFrame = scheduleFrame(flushScrollAutoScrollSync);
   }
 
   function onWheel(e: Event): void {

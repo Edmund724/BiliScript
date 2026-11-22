@@ -46,7 +46,7 @@ async function runActivation(
     try {
       const chat = await ensureReaderChatTab();
       chat.stopChatSpeech();
-      (chat as typeof chat & { deactivateChatTabOverlays?: () => void }).deactivateChatTabOverlays?.();
+      chat.deactivateChatTabOverlays();
     } catch (error) {
       logWarn("[BILISCRIPT] chat speech stop failed", error);
     }

@@ -11,8 +11,15 @@ import {
 import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
 
 let storeOverrideForTests: SubtitleIdbStore | null = null;
-const SUBTITLE_STORE_RESET_SYMBOL = Symbol.for("biliscript.subtitleStoreReset");
+declare const SUBTITLE_STORE_RESET_KEY: unique symbol;
+const SUBTITLE_STORE_RESET_SYMBOL: typeof SUBTITLE_STORE_RESET_KEY = Symbol.for(
+  "biliscript.subtitleStoreReset"
+) as typeof SUBTITLE_STORE_RESET_KEY;
 const extraResetHooks = new Set<() => void>();
+
+type SubtitleStoreResetGlobal = typeof globalThis & {
+  [SUBTITLE_STORE_RESET_SYMBOL]?: () => void;
+};
 
 export function configureSubtitleCacheStoreForTests(store: SubtitleIdbStore | null): void {
   storeOverrideForTests = store;
@@ -39,7 +46,7 @@ export function resetSubtitleStoreClientForTests(): void {
   void defaultSubtitleIdbStore.clearAll();
 }
 
-(globalThis as unknown as Record<symbol, unknown>)[SUBTITLE_STORE_RESET_SYMBOL] =
+(globalThis as SubtitleStoreResetGlobal)[SUBTITLE_STORE_RESET_SYMBOL] =
   resetSubtitleStoreClientForTests;
 
 export function shouldRouteViaBackground(): boolean {

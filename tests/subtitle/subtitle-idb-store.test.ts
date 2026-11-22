@@ -411,6 +411,96 @@ describe("分层 IndexedDB 字幕仓库（三层共存与边界隔离）", () =>
     ]);
   });
 
+  it("模块二次求值后仍能通过 pagehide、visibilitychange 与 flushSubtitleCache 刷新首实例待写译文", async () => {
+    vi.useFakeTimers();
+    const enKey = subtitleSourceKey(trackIdentity("track-en-us", "https://sub.test/en-us.json", "en-US"));
+    const sig = buildTranslationSignature({
+      model: "Index-Translate-35B-A3B",
+      protocolVersion: "cc-json",
+      targetLang: "zh-CN"
+    });
+
+    vi.resetModules();
+    const cacheA = await import("../../extension/subtitle/cache.js");
+    const storeA = cacheA.createSubtitleIdbStore({ indexedDB: createFakeIdbFactory() });
+    cacheA.configureSubtitleCacheStoreForTests(storeA);
+
+    cacheA.scheduleTranslatedTrackWrite({
+      bvid: BVID,
+      cid: "99001",
+      sourceTrackKey: enKey,
+      targetLang: "zh-CN",
+      translationSig: sig,
+      items: [{ from: 0, to: 2, content: "首实例待写句" }]
+    });
+
+    const windowAddSpy = vi.spyOn(window, "addEventListener");
+    const documentAddSpy = vi.spyOn(document, "addEventListener");
+
+    vi.resetModules();
+    const cacheB = await import("../../extension/subtitle/cache.js");
+    const storeB = cacheB.createSubtitleIdbStore({ indexedDB: createFakeIdbFactory() });
+    cacheB.configureSubtitleCacheStoreForTests(storeB);
+
+    expect(windowAddSpy).not.toHaveBeenCalledWith("pagehide", expect.any(Function));
+    expect(documentAddSpy).not.toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+
+    cacheB.scheduleTranslatedTrackWrite({
+      bvid: BVID,
+      cid: "99002",
+      sourceTrackKey: enKey,
+      targetLang: "zh-CN",
+      translationSig: sig,
+      items: [{ from: 0, to: 2, content: "次实例待写句" }]
+    });
+
+    window.dispatchEvent(new Event("pagehide"));
+    await cacheB.flushSubtitleCache();
+
+    await expect(storeA.getTranslatedTrack(BVID, "99001", enKey, "zh-CN", sig)).resolves.toEqual([
+      { from: 0, to: 2, content: "首实例待写句" }
+    ]);
+    await expect(storeB.getTranslatedTrack(BVID, "99002", enKey, "zh-CN", sig)).resolves.toEqual([
+      { from: 0, to: 2, content: "次实例待写句" }
+    ]);
+
+    cacheA.scheduleTranslatedTrackWrite({
+      bvid: BVID,
+      cid: "99001",
+      sourceTrackKey: enKey,
+      targetLang: "zh-CN",
+      translationSig: sig,
+      items: [{ from: 2, to: 4, content: "首实例切后台补写" }]
+    });
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await cacheB.flushSubtitleCache();
+
+    await expect(storeA.getTranslatedTrack(BVID, "99001", enKey, "zh-CN", sig)).resolves.toEqual([
+      { from: 0, to: 2, content: "首实例待写句" },
+      { from: 2, to: 4, content: "首实例切后台补写" }
+    ]);
+
+    cacheA.scheduleTranslatedTrackWrite({
+      bvid: BVID,
+      cid: "99003",
+      sourceTrackKey: enKey,
+      targetLang: "zh-CN",
+      translationSig: sig,
+      items: [{ from: 0, to: 2, content: "跨实例直接 flush" }]
+    });
+    await cacheB.flushSubtitleCache({ bvid: BVID, cid: "99003" });
+    await expect(storeA.getTranslatedTrack(BVID, "99003", enKey, "zh-CN", sig)).resolves.toEqual([
+      { from: 0, to: 2, content: "跨实例直接 flush" }
+    ]);
+
+    cacheA.configureSubtitleCacheStoreForTests(null);
+    cacheB.configureSubtitleCacheStoreForTests(null);
+    cacheB.resetSubtitleCacheRuntimeForTests();
+    windowAddSpy.mockRestore();
+    documentAddSpy.mockRestore();
+  });
+
   it("兼容旧版 chrome.storage.local 遗留字幕键：命中后迁移至 IndexedDB 并清理旧键", async () => {
     const legacyKey = getSubtitleCacheKey({
       bvid: BVID,

@@ -17,6 +17,9 @@ type UiCommandHandler = (name: string, payload?: unknown) => void;
 type TabIntentHandler = (tab: ReaderScriptTab) => void;
 type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
 type SessionStopHandler = (reason?: "takeover") => void;
+type ManualReaderInteractionHandler = (durationMs?: number) => void;
+type ReadingViewPlaybackSyncHandler = (forceScroll?: boolean, overrideTime?: number) => void;
+type FlushReadingSubtitleHandler = (targetIndex: number) => boolean;
 
 interface ReaderSeamHandlerMap {
   subtitleRefresh: SubtitleRefreshHandler;
@@ -25,13 +28,12 @@ interface ReaderSeamHandlerMap {
   tabIntent: TabIntentHandler;
   chatTabOutsideClick: ChatTabOutsideClickHandler;
   liveCompanionStop: SessionStopHandler;
-  noteManualReaderInteraction: (...args: unknown[]) => unknown;
-  syncReadingViewPlayback: (...args: unknown[]) => unknown;
-  flushReadingSubtitleToIndex: (...args: unknown[]) => unknown;
+  noteManualReaderInteraction: ManualReaderInteractionHandler;
+  syncReadingViewPlayback: ReadingViewPlaybackSyncHandler;
+  flushReadingSubtitleToIndex: FlushReadingSubtitleHandler;
 }
 
 type ReaderSeamMethod = keyof ReaderSeamHandlerMap;
-type ReaderSeamHandler = ReaderSeamHandlerMap[ReaderSeamMethod];
 
 interface ReaderSeamDeclaration {
   policy: "throw" | "noop" | "noop-warn";
@@ -59,9 +61,9 @@ export const READER_PORT_METHODS = Object.freeze([
 ] as const);
 
 export type ReaderPortImpls = {
-  noteManualReaderInteraction: (...args: unknown[]) => unknown;
-  syncReadingViewPlayback: (...args: unknown[]) => unknown;
-  flushReadingSubtitleToIndex: (...args: unknown[]) => unknown;
+  noteManualReaderInteraction: ManualReaderInteractionHandler;
+  syncReadingViewPlayback: ReadingViewPlaybackSyncHandler;
+  flushReadingSubtitleToIndex: FlushReadingSubtitleHandler;
 };
 
 export type ContentSeamCapabilities = {
@@ -74,14 +76,15 @@ interface ReaderBusSlots {
   warnedMissing: Set<ReaderSeamMethod>;
 }
 
-const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
+declare global {
+  var __BILISCRIPT_READER_BUS__: ReaderBusSlots | undefined;
+}
 
 function readerBusSlots(): ReaderBusSlots {
-  const host = globalThis as unknown as Record<string, Partial<ReaderBusSlots> | undefined>;
-  let slots = host[READER_BUS_SLOT_KEY];
+  let slots = globalThis.__BILISCRIPT_READER_BUS__;
   if (!slots || !Array.isArray(slots.readers)) {
     slots = { readers: [], handlers: {}, warnedMissing: new Set() };
-    host[READER_BUS_SLOT_KEY] = slots;
+    globalThis.__BILISCRIPT_READER_BUS__ = slots;
   }
   if (!slots.handlers) {
     slots.handlers = {};
@@ -89,7 +92,7 @@ function readerBusSlots(): ReaderBusSlots {
   if (!slots.warnedMissing) {
     slots.warnedMissing = new Set();
   }
-  return slots as ReaderBusSlots;
+  return slots;
 }
 
 export function subscribeReaderPresenter(handler: ReaderPresenterHandler) {
@@ -170,16 +173,16 @@ export function registerReaderPorts(impls: ReaderPortImpls): void {
   }
   assertNotRegistered("reader 端口", READER_PORT_METHODS);
   assertExactCoverage("reader 端口注册", READER_PORT_METHODS, impls);
-  for (const method of READER_PORT_METHODS) {
-    setSeamHandler(method, impls[method]);
-  }
+  setSeamHandler("noteManualReaderInteraction", impls.noteManualReaderInteraction);
+  setSeamHandler("syncReadingViewPlayback", impls.syncReadingViewPlayback);
+  setSeamHandler("flushReadingSubtitleToIndex", impls.flushReadingSubtitleToIndex);
 }
 
 function resolveSeamHandler<M extends ReaderSeamMethod>(
   method: M
 ): ReaderSeamHandlerMap[M] | null {
   const slots = readerBusSlots();
-  const handler = slots.handlers[method] as ReaderSeamHandlerMap[M] | undefined;
+  const handler: ReaderSeamHandlerMap[M] | undefined = slots.handlers[method];
   if (typeof handler === "function") {
     return handler;
   }
@@ -308,14 +311,14 @@ export function requestLiveCompanionStop(reason?: "takeover"): void {
   }
 }
 
-export const readerPorts = {
-  noteManualReaderInteraction(...args: unknown[]) {
-    return requireSeamHandler("noteManualReaderInteraction")(...args);
+export const readerPorts: ReaderPortImpls = {
+  noteManualReaderInteraction(...args) {
+    requireSeamHandler("noteManualReaderInteraction")(...args);
   },
-  syncReadingViewPlayback(...args: unknown[]) {
-    return requireSeamHandler("syncReadingViewPlayback")(...args);
+  syncReadingViewPlayback(...args) {
+    requireSeamHandler("syncReadingViewPlayback")(...args);
   },
-  flushReadingSubtitleToIndex(...args: unknown[]) {
+  flushReadingSubtitleToIndex(...args) {
     return requireSeamHandler("flushReadingSubtitleToIndex")(...args);
   }
 };

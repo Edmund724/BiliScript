@@ -5,6 +5,7 @@ import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 export interface ReaderChatTabDomain {
   ensureChatTabActivated(opts?: { consumeIntent?: boolean }): Promise<void>;
   stopChatSpeech(): void;
+  deactivateChatTabOverlays(): void;
   closeChatSession(): void;
   runQuickActionPrompt(prompt: string): Promise<boolean>;
   stopLiveCompanion(): void;

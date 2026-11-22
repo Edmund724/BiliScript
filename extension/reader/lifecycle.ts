@@ -73,9 +73,9 @@ import { createViewRender, renderReaderPanels } from "./view-render.js";
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
 registerReaderPorts({
-  syncReadingViewPlayback: syncReadingViewPlayback as (...args: unknown[]) => unknown,
-  noteManualReaderInteraction: noteManualReaderInteraction as (...args: unknown[]) => unknown,
-  flushReadingSubtitleToIndex: ensureReadingSubtitleRenderedUpTo as (...args: unknown[]) => unknown
+  syncReadingViewPlayback,
+  noteManualReaderInteraction,
+  flushReadingSubtitleToIndex: ensureReadingSubtitleRenderedUpTo
 });
 
 subscribeReaderPresenter(handleReaderPresenterNotification);
@@ -277,47 +277,44 @@ function warmUpReaderQuickPrompts() {
   });
 }
 
-type ReaderPresenterReceivers = {
-  [K in ReaderPresenterEvent["kind"]]: (event: Extract<ReaderPresenterEvent, { kind: K }>) => void;
-};
-
-const readerPresenterReceivers: ReaderPresenterReceivers = {
-  reset() {
-    clearSubtitleNotice();
-    stopReadingViewSync();
-    resetReaderScrollFollow();
-    closeReaderExplainCard();
-    closeQuoteShareModal({ restoreFocus: false });
-    closeCommandPalette();
-    clearPendingExplainIntent();
-    invalidateReaderSetupFlows("all");
-    resetReaderOverviewState();
-  },
-  "subtitle-ready"(event) {
-    onReaderSubtitleReady({
-      syncPlayback: true,
-      ensureSecondarySubtitle: true,
-      triggerMode: "always"
-    });
-  },
-  rerender() {
-    if (state.reader.readingViewOpen) {
-      renderReadingView();
+export function handleReaderPresenterNotification(event: ReaderPresenterEvent): void {
+  switch (event.kind) {
+    case "reset":
+      clearSubtitleNotice();
+      stopReadingViewSync();
+      resetReaderScrollFollow();
+      closeReaderExplainCard();
+      closeQuoteShareModal({ restoreFocus: false });
+      closeCommandPalette();
+      clearPendingExplainIntent();
+      invalidateReaderSetupFlows("all");
+      resetReaderOverviewState();
+      return;
+    case "subtitle-ready":
+      onReaderSubtitleReady({
+        syncPlayback: true,
+        ensureSecondarySubtitle: true,
+        triggerMode: "always"
+      });
+      return;
+    case "rerender":
+      if (state.reader.readingViewOpen) {
+        renderReadingView();
+      }
+      return;
+    case "secondary-subtitle-ready":
+      if (state.reader.readingViewOpen) {
+        renderReadingView();
+      }
+      return;
+    case "notice":
+      showSubtitleNotice(event.text);
+      return;
+    default: {
+      const _exhaustive: never = event;
+      return _exhaustive;
     }
-  },
-  "secondary-subtitle-ready"() {
-    if (state.reader.readingViewOpen) {
-      renderReadingView();
-    }
-  },
-  notice(event) {
-    showSubtitleNotice(event.text);
   }
-};
-
-export function handleReaderPresenterNotification(event: ReaderPresenterEvent) {
-  const receive = readerPresenterReceivers[event.kind] as (event: ReaderPresenterEvent) => void;
-  receive(event);
 }
 
 const READER_TAB_BUTTON_IDS = {

@@ -862,23 +862,41 @@ async function renderQuoteCardToCanvas(
   return canvas;
 }
 
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function decodeBase64Bytes(b64: string): Uint8Array<ArrayBuffer> {
+  if (typeof atob === "function") {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    return bytes;
+  }
+  const cleaned = b64.replace(/[^A-Za-z0-9+/=]/g, "");
+  const pad = cleaned.endsWith("==") ? 2 : cleaned.endsWith("=") ? 1 : 0;
+  const out = new Uint8Array(Math.max(0, Math.floor((cleaned.length * 3) / 4) - pad));
+  let outIndex = 0;
+  for (let i = 0; i < cleaned.length; i += 4) {
+    const a = BASE64_ALPHABET.indexOf(cleaned[i] ?? "");
+    const b = BASE64_ALPHABET.indexOf(cleaned[i + 1] ?? "");
+    const c = cleaned[i + 2] === "=" ? 0 : BASE64_ALPHABET.indexOf(cleaned[i + 2] ?? "");
+    const d = cleaned[i + 3] === "=" ? 0 : BASE64_ALPHABET.indexOf(cleaned[i + 3] ?? "");
+    const triple = (a << 18) | (b << 12) | (c << 6) | d;
+    if (outIndex < out.length) out[outIndex++] = (triple >> 16) & 0xff;
+    if (outIndex < out.length) out[outIndex++] = (triple >> 8) & 0xff;
+    if (outIndex < out.length) out[outIndex++] = triple & 0xff;
+  }
+  return out;
+}
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const comma = dataUrl.indexOf(",");
   const header = comma >= 0 ? dataUrl.substring(0, comma) : "";
   const match = header.match(/^data:([^;]+);base64/);
   const mime = match ? match[1] : "image/png";
   const b64 = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
-  const bin =
-    typeof atob === "function"
-      ? atob(b64)
-      : typeof (globalThis as unknown as { Buffer?: { from(s: string, enc: string): { toString(e: string): string } } }).Buffer !== "undefined"
-      ? (globalThis as unknown as { Buffer: { from(s: string, enc: string): { toString(e: string): string } } }).Buffer.from(b64, "base64").toString("binary")
-      : "";
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    bytes[i] = bin.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mime });
+  return new Blob([decodeBase64Bytes(b64)], { type: mime });
 }
 
 async function canvasToBlob(

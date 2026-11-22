@@ -313,7 +313,10 @@ export interface SubtitleIdbStore {
 }
 
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
-const DEFAULT_MEMORY_BACKING_SYMBOL = Symbol.for("biliscript.defaultSubtitleIdbMemoryBacking");
+declare const DEFAULT_MEMORY_BACKING_KEY: unique symbol;
+const DEFAULT_MEMORY_BACKING_SYMBOL: typeof DEFAULT_MEMORY_BACKING_KEY = Symbol.for(
+  "biliscript.defaultSubtitleIdbMemoryBacking"
+) as typeof DEFAULT_MEMORY_BACKING_KEY;
 
 export function buildSubtitlePageId(bvid: string, cid: string): string {
   const cleanBvid = String(bvid || "").trim();
@@ -672,8 +675,12 @@ interface SharedMemoryBacking {
   chatImages: Map<string, ChatImageRecord>;
 }
 
+type SubtitleIdbMemoryGlobal = typeof globalThis & {
+  [DEFAULT_MEMORY_BACKING_SYMBOL]?: SharedMemoryBacking;
+};
+
 function getSharedMemoryBacking(): SharedMemoryBacking {
-  const globals = globalThis as unknown as Record<symbol, SharedMemoryBacking | undefined>;
+  const globals = globalThis as SubtitleIdbMemoryGlobal;
   let backing = globals[DEFAULT_MEMORY_BACKING_SYMBOL];
   if (!backing) {
     backing = {

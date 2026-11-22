@@ -103,7 +103,10 @@ export {
 
 const CACHE_KEY_PREFIX = SUBTITLE_CACHE_KEY_PREFIX;
 export const DEFAULT_TRANSLATED_WRITE_DEBOUNCE_MS = 1500;
-const SUBTITLE_CACHE_LIFECYCLE_SYMBOL = Symbol.for("biliscript.subtitleCacheLifecycle");
+declare const SUBTITLE_CACHE_LIFECYCLE_KEY: unique symbol;
+const SUBTITLE_CACHE_LIFECYCLE_SYMBOL: typeof SUBTITLE_CACHE_LIFECYCLE_KEY = Symbol.for(
+  "biliscript.subtitleCacheLifecycle"
+) as typeof SUBTITLE_CACHE_LIFECYCLE_KEY;
 
 export interface SubtitleCacheKeyOptions {
   bvid: string;
@@ -245,9 +248,47 @@ interface PendingTranslatedWrite {
   items: SubtitleBodyItem[];
   replaceRange?: { from: number; to: number };
   timer: ReturnType<typeof setTimeout> | null;
+  commit?: (entry: PendingTranslatedWrite) => Promise<SaveSubtitleResult>;
 }
 
-const pendingTranslatedWrites = new Map<string, PendingTranslatedWrite>();
+interface SubtitleCacheLifecycleRegistry {
+  pendingTranslatedWrites: Map<string, PendingTranslatedWrite>;
+  flushRef: () => Promise<void>;
+  inFlightFlushes: Set<Promise<void>>;
+  bound: boolean;
+  onPageHide?: () => void;
+  onVisibilityChange?: () => void;
+}
+
+type SubtitleCacheLifecycleGlobal = typeof globalThis & {
+  [SUBTITLE_CACHE_LIFECYCLE_SYMBOL]?: SubtitleCacheLifecycleRegistry;
+};
+
+function getSubtitleCacheLifecycleRegistry(): SubtitleCacheLifecycleRegistry {
+  const globals = globalThis as SubtitleCacheLifecycleGlobal;
+  let registry = globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL];
+  if (!registry) {
+    registry = {
+      pendingTranslatedWrites: new Map<string, PendingTranslatedWrite>(),
+      flushRef: () => flushSubtitleCache(),
+      inFlightFlushes: new Set<Promise<void>>(),
+      bound: false
+    };
+    globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL] = registry;
+  } else {
+    if (!registry.pendingTranslatedWrites) {
+      registry.pendingTranslatedWrites = new Map<string, PendingTranslatedWrite>();
+    }
+    if (!registry.inFlightFlushes) {
+      registry.inFlightFlushes = new Set<Promise<void>>();
+    }
+  }
+  return registry;
+}
+
+function getPendingTranslatedWrites(): Map<string, PendingTranslatedWrite> {
+  return getSubtitleCacheLifecycleRegistry().pendingTranslatedWrites;
+}
 
 function buildPendingTranslatedKey(
   bvid: string,
@@ -306,75 +347,71 @@ export interface FlushSubtitleCacheFilter {
 }
 
 export async function flushSubtitleCache(filter?: FlushSubtitleCacheFilter): Promise<void> {
+  const registry = getSubtitleCacheLifecycleRegistry();
+  const priorFlushes = Array.from(registry.inFlightFlushes);
   const filterBvid = filter?.bvid ? String(filter.bvid).trim() : "";
   const filterCid = filter?.cid ? String(filter.cid).trim() : "";
 
   const snapshot: PendingTranslatedWrite[] = [];
-  for (const [key, entry] of pendingTranslatedWrites.entries()) {
+  for (const [key, entry] of registry.pendingTranslatedWrites.entries()) {
     if (filterBvid && entry.bvid !== filterBvid) continue;
     if (filterCid && entry.cid !== filterCid) continue;
     clearPendingWriteTimer(entry);
-    pendingTranslatedWrites.delete(key);
+    registry.pendingTranslatedWrites.delete(key);
     snapshot.push(entry);
   }
 
   if (snapshot.length === 0) {
+    if (priorFlushes.length > 0) {
+      await Promise.allSettled(priorFlushes);
+    }
     return;
   }
 
-  await Promise.allSettled(snapshot.map((entry) => commitTranslatedWriteToStore(entry)));
+  const currentFlush = Promise.allSettled(
+    snapshot.map((entry) => (entry.commit ?? commitTranslatedWriteToStore)(entry))
+  ).then(() => undefined);
+
+  registry.inFlightFlushes.add(currentFlush);
+  try {
+    await Promise.allSettled([...priorFlushes, currentFlush]);
+  } finally {
+    registry.inFlightFlushes.delete(currentFlush);
+  }
 }
 
 function registerLifecycleFlushHandlers(): void {
-  const globals = globalThis as unknown as Record<symbol, unknown>;
-  const existing = globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL] as
-    | {
-        flushRef: () => Promise<void>;
-        bound: boolean;
-        onPageHide?: () => void;
-        onVisibilityChange?: () => void;
-      }
-    | undefined;
+  const registry = getSubtitleCacheLifecycleRegistry();
+  registry.flushRef = () => flushSubtitleCache();
 
-  if (existing) {
-    existing.flushRef = () => flushSubtitleCache();
-    return;
-  }
-
-  const holder: {
-    flushRef: () => Promise<void>;
-    bound: boolean;
-    onPageHide?: () => void;
-    onVisibilityChange?: () => void;
-  } = {
-    flushRef: () => flushSubtitleCache(),
-    bound: false
-  };
-  globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL] = holder;
-
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    holder.onPageHide = () => {
-      void holder.flushRef();
+  if (!registry.onPageHide && typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    registry.onPageHide = () => {
+      void registry.flushRef();
     };
-    window.addEventListener("pagehide", holder.onPageHide);
-    holder.bound = true;
+    window.addEventListener("pagehide", registry.onPageHide);
+    registry.bound = true;
   }
-  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-    holder.onVisibilityChange = () => {
+  if (
+    !registry.onVisibilityChange &&
+    typeof document !== "undefined" &&
+    typeof document.addEventListener === "function"
+  ) {
+    registry.onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        void holder.flushRef();
+        void registry.flushRef();
       }
     };
-    document.addEventListener("visibilitychange", holder.onVisibilityChange);
-    holder.bound = true;
+    document.addEventListener("visibilitychange", registry.onVisibilityChange);
+    registry.bound = true;
   }
 }
 
 function clearPendingTranslatedWritesForReset(): void {
-  for (const entry of pendingTranslatedWrites.values()) {
+  const pendingWrites = getPendingTranslatedWrites();
+  for (const entry of pendingWrites.values()) {
     clearPendingWriteTimer(entry);
   }
-  pendingTranslatedWrites.clear();
+  pendingWrites.clear();
 }
 
 export function resetSubtitleCacheRuntimeForTests(): void {
@@ -577,7 +614,7 @@ export async function loadTranslatedSubtitleTrack({
     const pendingKey = translationSig
       ? buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, translationSig)
       : "";
-    const pendingEntry = pendingKey ? pendingTranslatedWrites.get(pendingKey) : undefined;
+    const pendingEntry = pendingKey ? getPendingTranslatedWrites().get(pendingKey) : undefined;
     if (pendingEntry) {
       const merged = mergeTranslatedItems(stored ?? [], pendingEntry.items, pendingEntry.replaceRange);
       return merged.length > 0 ? merged : null;
@@ -619,8 +656,9 @@ export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOption
 
   registerLifecycleFlushHandlers();
   registerSubtitleSessionBoundaryHooks(CACHE_FLUSH_BOUNDARY_HOOK);
+  const pendingWrites = getPendingTranslatedWrites();
   const pendingKey = buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, cleanSig);
-  const existing = pendingTranslatedWrites.get(pendingKey);
+  const existing = pendingWrites.get(pendingKey);
   const mergedItems = mergeTranslatedItems(existing?.items ?? [], cleanItems, options.replaceRange);
   if (mergedItems.length === 0) {
     return;
@@ -651,20 +689,21 @@ export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOption
               : options.replaceRange ?? existing?.replaceRange
         }
       : {}),
-    timer: null
+    timer: null,
+    commit: commitTranslatedWriteToStore
   };
 
   record.timer = setTimeout(() => {
-    const current = pendingTranslatedWrites.get(pendingKey);
+    const current = pendingWrites.get(pendingKey);
     if (current !== record) {
       return;
     }
     record.timer = null;
-    pendingTranslatedWrites.delete(pendingKey);
+    pendingWrites.delete(pendingKey);
     void commitTranslatedWriteToStore(record);
   }, debounceMs);
 
-  pendingTranslatedWrites.set(pendingKey, record);
+  pendingWrites.set(pendingKey, record);
 }
 
 export async function saveTranslatedSubtitleTrack(
@@ -680,11 +719,12 @@ export async function saveTranslatedSubtitleTrack(
     return { ok: false, error: new CacheWriteError("Invalid translated subtitle cache parameters") };
   }
 
+  const pendingWrites = getPendingTranslatedWrites();
   const pendingKey = buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, cleanSig);
-  const pending = pendingTranslatedWrites.get(pendingKey);
+  const pending = pendingWrites.get(pendingKey);
   if (pending) {
     clearPendingWriteTimer(pending);
-    pendingTranslatedWrites.delete(pendingKey);
+    pendingWrites.delete(pendingKey);
   }
 
   const merged = mergeTranslatedItems(pending?.items ?? [], cleanItems, options.replaceRange);
@@ -770,7 +810,7 @@ export async function loadSubtitleFromCache(cacheKey: string): Promise<SubtitleB
       return await readLegacyChromeStorageEntry(cacheKey);
     }
     if (parsed.kind === "translated") {
-      for (const entry of pendingTranslatedWrites.values()) {
+      for (const entry of getPendingTranslatedWrites().values()) {
         if (
           entry.bvid === parsed.bvid &&
           entry.cid === parsed.cid &&
@@ -906,14 +946,15 @@ export async function clearTranslatedSubtitleCache({
       return [];
     }
 
-    for (const [key, entry] of pendingTranslatedWrites.entries()) {
+    const pendingWrites = getPendingTranslatedWrites();
+    for (const [key, entry] of pendingWrites.entries()) {
       if (
         entry.bvid === cleanBvid &&
         entry.cid === cleanCid &&
         (!sourceTrackKey || entry.sourceTrackKey === sourceTrackKey)
       ) {
         clearPendingWriteTimer(entry);
-        pendingTranslatedWrites.delete(key);
+        pendingWrites.delete(key);
       }
     }
 
@@ -1107,10 +1148,11 @@ export async function clearVideoCache(bvid: string, cid?: string): Promise<Clear
     return { removedPageIds: [], removedArtifactKeys: [], removedLegacyKeys: [] };
   }
 
-  for (const [key, entry] of pendingTranslatedWrites.entries()) {
+  const pendingWrites = getPendingTranslatedWrites();
+  for (const [key, entry] of pendingWrites.entries()) {
     if (entry.bvid === cleanBvid && (!cleanCid || entry.cid === cleanCid)) {
       clearPendingWriteTimer(entry);
-      pendingTranslatedWrites.delete(key);
+      pendingWrites.delete(key);
     }
   }
 
