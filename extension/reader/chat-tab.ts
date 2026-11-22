@@ -784,8 +784,6 @@ function bindEvents(): void {
   }
 }
 
-export const INPUT_MAX_HEIGHT = 320;
-
 function isConversationViewActive(): boolean {
   return chatRuntime.isTurnActive();
 }
@@ -797,10 +795,6 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   if (isConversationViewActive() || setupFlow.isViewHeld()) {
     return;
   }
-  contextOrchestrator.renderInitialState();
-}
-
-export function renderInitialState(): void {
   contextOrchestrator.renderInitialState();
 }
 

@@ -943,24 +943,44 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
 describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + 内联引用）", () => {
   it("tool 轮消息渲染成时间线卡与 [n] 引用，JSON 不落正文", async () => {
     seedReadyContext();
+    const chromeStub = window.chrome as unknown as {
+      storage: { local: ChromeHostStorageArea };
+    };
+    await chromeStub.storage.local.set({
+      biliscript_ai_conversations_v1: [
+        {
+          id: "conv-web-search-replay",
+          title: "测试视频",
+          contextKey: "video:BV1test000000|101",
+          contextTitle: "测试视频",
+          contextUrl: "https://www.bilibili.com/video/BV1test000000/",
+          isVideoContext: true,
+          createdAt: 1000,
+          updatedAt: 2000,
+          contextRef: {
+            bvid: "BV1test000000",
+            cid: "101",
+            url: "https://www.bilibili.com/video/BV1test000000/"
+          },
+          messages: [
+            { role: "user", content: "视频里提到的 MoE 后来有什么进展？" },
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [{ id: "c1", function: { name: "web_search", arguments: '{"query":"MoE 新进展"}' } }]
+            },
+            {
+              role: "tool",
+              tool_call_id: "c1",
+              content: JSON.stringify([{ title: "来源A", url: "https://a.example.com/x", snippet: "摘录A" }])
+            },
+            { role: "assistant", content: "回答见 [1]。" }
+          ]
+        }
+      ]
+    });
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-
-    applyConversationIdentity({ history: [
-      { role: "user", content: "视频里提到的 MoE 后来有什么进展？" },
-      {
-        role: "assistant",
-        content: "",
-        tool_calls: [{ id: "c1", function: { name: "web_search", arguments: '{"query":"MoE 新进展"}' } }]
-      },
-      {
-        role: "tool",
-        tool_call_id: "c1",
-        content: JSON.stringify([{ title: "来源A", url: "https://a.example.com/x", snippet: "摘录A" }])
-      },
-      { role: "assistant", content: "回答见 [1]。" }
-    ] });
-    (await import("../../extension/reader/chat-tab.js")).renderInitialState();
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     await waitFor(() => Boolean(messages.querySelector(".chat-thought-chain")));

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSubtitleScrollFollowMachine,
-  formatFollowButtonClock
+  formatFollowButtonClock,
+  isElementScrollable
 } from "../../extension/reader/subtitle-scroll-follow.js";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -223,6 +224,22 @@ describe("字幕跟随状态机（纯状态机单测）", () => {
     expect(formatFollowButtonClock(Number.NaN)).toBeNull();
     expect(formatFollowButtonClock(-5)).toBeNull();
   });
+
+  it("isElementScrollable：隐藏或折叠容器（clientHeight === 0）不误判为可滚动，仅实际溢出时返回 true", () => {
+    const createBox = (clientHeight: number, scrollHeight: number) => {
+      const el = document.createElement("div");
+      Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+      Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
+      return el;
+    };
+
+    expect(isElementScrollable(null)).toBe(false);
+    expect(isElementScrollable(createBox(0, 0))).toBe(false);
+    expect(isElementScrollable(createBox(0, 600))).toBe(false);
+    expect(isElementScrollable(createBox(400, 400))).toBe(false);
+    expect(isElementScrollable(createBox(400, 401))).toBe(false);
+    expect(isElementScrollable(createBox(400, 402))).toBe(true);
+  });
 });
 
 describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + lifecycle）", () => {
@@ -420,6 +437,20 @@ describe("字幕精读列表跟随滚动集成（DOM + sync + subtitle-tab-ui + 
 
     subtitleList.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 354 }));
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
+  });
+
+  it("隐藏或折叠容器（clientHeight === 0）：滚轮、触摸与键盘滚动均不误判为手动暂停", () => {
+    const { subtitleList } = setupScrollableListGeometry({ listHeight: 0, scrollHeight: 1600 });
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+
+    video.currentTime = 512;
+    shell.syncReadingViewPlayback(true);
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
+
+    subtitleList.dispatchEvent(new WheelEvent("wheel", { deltaY: -120 }));
+    subtitleList.dispatchEvent(new Event("touchmove"));
+    subtitleList.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown" }));
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
   });
 
   it("切集（reset → rerender → subtitle-ready）：重置 manual 态、屏蔽重建 scroll 钳制、新集恢复自动跟随", () => {

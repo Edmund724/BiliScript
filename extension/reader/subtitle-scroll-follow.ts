@@ -385,7 +385,7 @@ export function isElementScrollable(element: HTMLElement | null): boolean {
   if (!element) {
     return false;
   }
-  return element.clientHeight === 0 || element.scrollHeight > element.clientHeight + 1;
+  return element.clientHeight > 0 && element.scrollHeight > element.clientHeight + 1;
 }
 
 export function isPointerOnVerticalScrollbar(element: HTMLElement, clientX: number): boolean {

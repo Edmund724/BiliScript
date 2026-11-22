@@ -284,23 +284,40 @@ describe("AI 对话实时伴看状态区", () => {
   });
 
   it("回放、空态清场和新会话上下文重建都保留同一个状态区节点", async () => {
-    const chat = await activateChat();
     const status = statusElement();
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     const chatState = await import("../../extension/chat/chat-state.js");
-
-    chatState.applyConversationIdentity({
-      history: [
-        { role: "user", content: "历史问题" },
-        { role: "assistant", content: "历史回答" }
+    await window.chrome.storage.local.set({
+      biliscript_ai_conversations_v1: [
+        {
+          id: "conv-live-status-replay",
+          title: "测试视频",
+          contextKey: "video:BV1test000000|101",
+          contextTitle: "测试视频",
+          contextUrl: "https://www.bilibili.com/video/BV1test000000/",
+          isVideoContext: true,
+          createdAt: 1000,
+          updatedAt: 2000,
+          contextRef: {
+            bvid: "BV1test000000",
+            cid: "101",
+            url: "https://www.bilibili.com/video/BV1test000000/"
+          },
+          messages: [
+            { role: "user", content: "历史问题" },
+            { role: "assistant", content: "历史回答" }
+          ]
+        }
       ]
     });
-    chat.renderInitialState();
+
+    const chat = await activateChat();
     await vi.waitFor(() => expect(messages.textContent).toContain("历史回答"));
     expect(statusElement()).toBe(status);
 
-    chatState.applyConversationIdentity({ history: [] });
-    chat.renderInitialState();
+    chatState.setSavedConversations([]);
+    chat.closeChatSession();
+    await chat.ensureChatTabActivated();
     expect(messages.querySelector(".chat-suggestions")).not.toBeNull();
     expect(statusElement()).toBe(status);
 
