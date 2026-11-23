@@ -6,6 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runDetachedReaderSmoke } from "./detached-reader-smoke.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -22,17 +23,18 @@ const args = new Set(process.argv.slice(2));
 if (args.has("--help") || args.has("-h")) {
   console.log(
     [
-      "Usage: node scripts/firefox-smoke/smoke-firefox.mjs [--headed]",
+      "Usage: node scripts/firefox-smoke/smoke-firefox.mjs [--headed] [--core-only]",
       "",
       "Options:",
       "  --headed     Launch Firefox with a visible window (default: headless)",
+      "  --core-only  Run only the 5 core extension checks (skip detached-reader checks)",
       "  -h, --help   Show this help message",
       "",
       "Environment:",
       "  FIREFOX_BIN  Override Firefox executable path",
       "",
       "Exit codes:",
-      "  0  All 5 checks passed",
+      "  0  All core and detached-reader checks passed",
       "  1  Missing dist-firefox build, invalid FIREFOX_BIN, or assertion/runtime failure",
       "  2  Firefox executable not found on this machine (skipped)"
     ].join("\n")
@@ -41,6 +43,7 @@ if (args.has("--help") || args.has("-h")) {
 }
 
 const headed = args.has("--headed");
+const coreOnly = args.has("--core-only");
 
 function log(message) {
   console.log(`[smoke:firefox] ${message}`);
@@ -847,6 +850,24 @@ async function main() {
     }
     client.close();
     await killFirefoxAndCleanup(child, profileDir);
+
+    if (!coreOnly) {
+      const detached = await runDetachedReaderSmoke({
+        firefoxBin: fx.bin,
+        distDir: DIST_FIREFOX,
+        headed,
+        log
+      });
+      evidence.checks = [...evidence.checks, ...detached.checks];
+      evidence.detachedReader = {
+        ok: detached.ok,
+        status: detached.status,
+        error: detached.error || null
+      };
+      if (!detached.ok) allPassed = false;
+      evidence.status = allPassed ? "passed" : "failed";
+      writeEvidence(evidence);
+    }
 
     process.exit(allPassed ? EXIT_PASS : EXIT_FAIL);
   } catch (err) {
