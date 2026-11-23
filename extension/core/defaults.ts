@@ -31,6 +31,7 @@ export interface KnownSettings {
   defaultModel: string;
   defaultAiModel: string;
   aiThinkingLevel: ThinkingLevelValue;
+  enableCostGuard: boolean;
   activeAsrProviderId: string;
   activeLiveProviderId: string;
   liveVoiceVolume: number;
@@ -99,6 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultModel: "",
   defaultAiModel: "",
   aiThinkingLevel: "default",
+  enableCostGuard: false,
   activeAsrProviderId: "",
   activeLiveProviderId: "",
   liveVoiceVolume: 100,

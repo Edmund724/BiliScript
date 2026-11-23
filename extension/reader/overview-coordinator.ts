@@ -387,7 +387,8 @@ export function createOverviewCoordinator(
             slot.lastActivityAt = deps.now();
             renderGeneratingProgressIfOpen();
           },
-          askCostGuard: (message) => deps.confirm({ message, confirmText: "继续" })
+          askCostGuard: (message) =>
+            deps.confirm({ title: "确认生成全片概览", message, confirmText: "继续" })
         }
       );
       if (inflightAbort !== slot || overview.generatedFor !== clipKey) {

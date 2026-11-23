@@ -83,6 +83,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   defaultModel: normalizeDefaultModel,
   defaultAiModel: normalizeDefaultAiModel,
   aiThinkingLevel: normalizeAiThinkingLevel,
+  enableCostGuard: booleanField(false),
   activeAsrProviderId: (value) => String(value || "").trim(),
   activeLiveProviderId: (value) => String(value || "").trim(),
   liveVoiceVolume: normalizeLiveVoiceVolume,

@@ -420,6 +420,7 @@ async function executeOverviewRun({
     await runCostGuard({
       estimatedCalls: windows.length + 1,
       estimatedTokens: estimateTokensFromChars(provider, relayDecision.totalChars),
+      taskLabel: "当前视频较长，生成「全片概览」",
       precheck: () => {
         if (signal?.aborted) {
           throw makeAbortedError();

@@ -125,7 +125,10 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   isReadingViewOpen: () => state.reader.readingViewOpen,
   resolveProvider: () => resolveActiveProvider(),
   loadAnalysis: () => import("../ai/analysis.js"),
-  confirm: (options) => (state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true)),
+  confirm: (options) =>
+    state.reader.readingViewOpen && state.settings?.enableCostGuard === true
+      ? confirmDialog(options)
+      : Promise.resolve(true),
   registerUiActions: (actions) => registerOverviewUiActions(actions),
   setupResume: {
     begin: (request) => {

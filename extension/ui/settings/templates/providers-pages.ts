@@ -20,6 +20,13 @@ export function buildProvidersPagesHtml(): string {
               <option value="">暂无可用模型</option>
             </select>
           </div>
+          <div class="biliscript-set-check biliscript-toggle-row" title="生成全片概览或 AI 对话分析超长视频预计消耗较多 Token 时弹窗确认">
+            <span class="biliscript-toggle-text">长视频高 Token 消耗前确认</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.enableCostGuard}" type="checkbox" class="biliscript-toggle-input" aria-label="长视频高 Token 消耗前确认" aria-description="生成全片概览或 AI 对话分析超长视频预计消耗较多 Token 时弹窗确认" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
         </div>
       </section>
     </div>

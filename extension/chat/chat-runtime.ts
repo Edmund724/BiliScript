@@ -91,6 +91,7 @@ export interface CreateChatRuntimeDeps {
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
+  isCostGuardEnabled?: () => boolean;
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
   confirmRegenerationContext?: (message: string) => boolean | Promise<boolean>;
   speechEngine?: ChatSpeechEngine;
@@ -331,12 +332,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         );
       }
     } else if (msg.type === "cost-guard") {
-      const confirmCostGuard = deps.confirmCostGuard || ((message: string) => confirmDialog({ message, confirmText: "继续" }));
+      if (deps.isCostGuardEnabled && !deps.isCostGuardEnabled()) {
+        try {
+          port?.postMessage({ action: "cost-guard-confirm", ok: true });
+        } catch {
+        }
+        return;
+      }
+      const confirmCostGuard =
+        deps.confirmCostGuard ||
+        ((message: string) =>
+          confirmDialog({
+            title: "确认 AI 对话长视频分析",
+            message,
+            confirmText: "继续"
+          }));
       const replyPort = port;
       const guardMessage =
         typeof msg.data?.message === "string" && msg.data.message
           ? msg.data.message
-          : "预计会有多次调用，是否继续？";
+          : "当前视频较长，进行「AI 对话」全片分析预计需要多次调用，是否继续？";
       void Promise.resolve(confirmCostGuard(guardMessage)).then((ok) => {
         try {
           replyPort?.postMessage({ action: "cost-guard-confirm", ok: Boolean(ok) });

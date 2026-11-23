@@ -51,7 +51,9 @@ async function ensureDefaultOverviewSource(): Promise<ReaderOverviewSource> {
       resolveProvider: () => resolveActiveProvider(),
       loadAnalysis: () => import("../ai/analysis.js"),
       confirm: (options) =>
-        state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true),
+        state.reader.readingViewOpen && state.settings?.enableCostGuard === true
+          ? confirmDialog(options)
+          : Promise.resolve(true),
       registerUiActions: () => {},
       now: () => Date.now(),
       setInterval: (...args) => setInterval(...args),

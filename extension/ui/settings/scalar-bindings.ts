@@ -343,6 +343,13 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   },
   {
     kind: "toggle",
+    key: "enableCostGuard",
+    getElement: (el) => el.enableCostGuard,
+    normalize: (val) => val === true,
+    watchSync: true
+  },
+  {
+    kind: "toggle",
     key: "enableExtraPlaybackRates",
     getElement: (el) => el.enableExtraPlaybackRates,
     normalize: (val) => Boolean(val)

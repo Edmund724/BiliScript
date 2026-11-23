@@ -134,6 +134,7 @@ export function collectElements(host: HTMLElement) {
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
     aiDefaultModel: byIdIn<HTMLSelectElement>(dom.aiDefaultModel),
+    enableCostGuard: byIdIn<HTMLInputElement>(dom.enableCostGuard),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
   };

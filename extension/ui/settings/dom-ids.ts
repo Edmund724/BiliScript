@@ -34,6 +34,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
   aiDefaultModel: "aiDefaultModel",
+  enableCostGuard: "enableCostGuard",
   liveSettingsHeader: "biliscript-live-settings",
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",

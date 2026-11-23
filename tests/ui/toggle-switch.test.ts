@@ -6,6 +6,7 @@ import { initToggleSwitch, syncToggleSwitch } from "../../extension/ui/toggle-sw
 
 const TOGGLE_IDS = [
   "asrAutoFallback",
+  "enableCostGuard",
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
   "autoOpenReader",

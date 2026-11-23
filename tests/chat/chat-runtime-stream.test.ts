@@ -760,13 +760,31 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     });
 
     feed(runtime, { type: "cost-guard" });
-    expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe("预计会有多次调用，是否继续？");
+    expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe(
+      "当前视频较长，进行「AI 对话」全片分析预计需要多次调用，是否继续？"
+    );
     document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
     await vi.waitFor(() => {
       expect(session.port.postMessage).toHaveBeenLastCalledWith({ action: "cost-guard-confirm", ok: false });
     });
 
     expect(runtime.isStreaming()).toBe(true);
+  });
+
+  it("cost-guard：关闭确认开关时默认静默放行 ok:true，不弹确认框", async () => {
+    const deps = makeDeps();
+    deps.isCostGuardEnabled = () => false;
+    deps.input.value = "帮我写个标题";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
+
+    feed(runtime, { type: "cost-guard", data: { message: "预计 12 次调用" } });
+    expect(document.querySelector(".confirm-dialog-confirm")).toBeNull();
+    await vi.waitFor(() => {
+      expect(session.port.postMessage).toHaveBeenCalledWith({ action: "cost-guard-confirm", ok: true });
+    });
   });
 });
 

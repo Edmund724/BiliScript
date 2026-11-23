@@ -170,6 +170,7 @@ export function buildDefaultPreferencePayload() {
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     detachedWindowMode: DEFAULT_SETTINGS.detachedWindowMode,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
+    enableCostGuard: DEFAULT_SETTINGS.enableCostGuard,
     enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
     reduceTransparency: DEFAULT_SETTINGS.reduceTransparency,

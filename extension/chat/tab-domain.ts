@@ -142,6 +142,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,
+    isCostGuardEnabled: () => deps.settings().enableCostGuard === true,
     getSpeechVolume: deps.getSpeechVolume,
     smoothStream: true
   });

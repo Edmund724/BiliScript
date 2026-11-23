@@ -146,12 +146,15 @@ describe("runLadderChat 分派", () => {
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () =>
-        makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, totalChars: 150000, estimatedTokens: 150000 })
+        makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 12, totalChars: 150000, estimatedTokens: 150000 })
     });
 
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
-    expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用 / 约 150,000 token，可取消");
+    expect(deps.askCostGuard).toHaveBeenCalledWith(
+      port,
+      "当前视频较长，进行「AI 对话」全片分析预计约 12 次调用 / 约 150,000 token，可取消"
+    );
     expect(deps.pauseIdleTimeout).toHaveBeenCalled();
     expect(calls.mapReduce).toHaveLength(1);
     expect(calls.mapReduce[0]).toMatchObject({ plan: { mode: "map-reduce" }, signal });
@@ -162,13 +165,16 @@ describe("runLadderChat 分派", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
-      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8, totalChars: 150000 }),
+      buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 12, totalChars: 150000 }),
       askCostGuard: vi.fn(async () => false)
     });
 
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
-    expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用 / 约 150,000 token，可取消");
+    expect(deps.askCostGuard).toHaveBeenCalledWith(
+      port,
+      "当前视频较长，进行「AI 对话」全片分析预计约 12 次调用 / 约 150,000 token，可取消"
+    );
     expect(calls.mapReduce).toHaveLength(0);
     expect(port.messages).toEqual([{ type: "stopped", reason: "已取消" }]);
   });

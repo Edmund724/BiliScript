@@ -327,6 +327,7 @@ export async function runLadderChat(
       const declined = await runCostGuard({
         estimatedCalls: plan.estimatedCalls,
         estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
+        taskLabel: "当前视频较长，进行「AI 对话」全片分析",
         ask: async (message) => {
           pauseIdleTimeout?.();
           return askCostGuard(port, message);
