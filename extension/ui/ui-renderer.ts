@@ -57,18 +57,9 @@ export function buildUiHtml(): string {
   const themeView = themeButtonView(state.reader.readingTheme, state.reader.readingThemeMode);
   return `
     <section id="${ids.readingView}" hidden aria-hidden="true" data-biliscript-reader-ready="0" aria-busy="true">
-      <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
-           AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
-           ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
-           面板没有常驻状态行：正常流程不提示，失败在出错处就地提示。
-           三 tab body 的内容模板随各自域叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
       <aside id="${ids.readingScriptPanel}" class="biliscript-reading-script-panel" aria-label="文摘面板">
             <header class="biliscript-reading-header">
               <div class="biliscript-reading-header-copy">
-                <!-- meta 行由 reader/lifecycle.js 的 renderReadingView 填充
-                     （「UP主：…」与「P{n}：…」各占一行，2026-10-04 用户决议不再
-                     标注字幕来源；网址已按 2026-09 用户决议删除）；
-                     字段全空时整块 hidden，初始态即 hidden -->
                 <div id="${ids.readingMeta}" class="biliscript-reading-meta" hidden></div>
               </div>
               <div class="biliscript-reading-actions">
@@ -85,11 +76,6 @@ export function buildUiHtml(): string {
             </header>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
-              <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
-                   由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
-                   页面本体已删除。顶部滚动/字幕/章节三开关已随三开关退役移除；
-                   三开关退役时移入字幕 tab 工具条的字幕语言下拉也已删除
-                   （2026-10 用户决议）。 -->
               <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
                 <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">
                   <div class="biliscript-settings-nav-bar">
@@ -102,14 +88,6 @@ export function buildUiHtml(): string {
               </section>
             </section>
 
-            <!-- 标签行（方案对比 .scratch/chat-top-layout 选定「头部归并」）：分段控件 +
-                 对话工具键（更多操作）同一行——原对话 tab 内的 .chat-header
-                 工具条整行退役，省出的纵高让给消息区。键是壳节点（id 不变，对话组合
-                 根照常 byId 接线），外观直接复用面板 header 的无框幽灵键
-                 （.biliscript-reading-icon-btn），不依赖按需装载的对话分区样式；
-                 只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。
-                 新建会话 / 历史对话收在更多操作菜单内；历史模式打开时整行由同一
-                 hidden 投影隐藏。 -->
             <div class="biliscript-reading-tabs-row">
               <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签" data-active-tab="subtitle">
                 <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
@@ -163,25 +141,14 @@ export function buildUiHtml(): string {
               </div>
             </div>
 
-            <!-- 字幕 tab body：工具条/转写横幅/列表容器/Follow 模板与交互绑定
-                 在 reader/subtitle-tab-ui.ts；选区「解释」浮层与卡片宿主在
-                 reader/explain-pop-ui.ts（arch-slim-2/06 下放） -->
             <div id="${ids.readingTabBodySubtitle}" class="biliscript-reading-tab-body is-active" role="tabpanel" aria-label="字幕">
               ${buildSubtitleTabBodyHtml()}
             </div>
 
-            <!-- 概览 tab（PR4）：占位模板 + 点击委托在 reader/overview-ui.ts，
-                 状态机/渲染在 reader/overview.ts（PR4 状态机宿主），内容由
-                 lifecycle/ui 触发路径按阶段整块重建——idle/generating/ready/
-                 partial/error/empty 全诚实态，不放假数据。此为未生成初值。 -->
             <div id="${ids.readingTabBodyOverview}" class="biliscript-reading-tab-body" role="tabpanel" aria-label="概览" hidden>
               ${buildOverviewTabBodyHtml()}
             </div>
 
-            <!-- AI 对话 tab（PR5）：真对话 UI 壳模板在 reader/chat-template.ts
-                 叶子（arch-slim-2/06 下放；组合根 reader/chat-tab.ts 首次激活时
-                 接线，含容器级事件委托），未激活前壳保持静默空态（空消息区 +
-                 空输入框），不放假数据。 -->
             <div id="${ids.readingTabBodyChat}" class="biliscript-reading-tab-body" role="tabpanel" aria-label="AI 对话" hidden>
               ${buildChatTabBodyHtml()}
             </div>

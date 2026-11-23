@@ -6,7 +6,6 @@ export function buildChatTabBodyHtml(): string {
   const liveEnabled = supportsLiveCompanion();
   return `
       <div id="${ids.readingChatRoot}" class="biliscript-reading-chat">
-        <!-- 历史对话整页：必须排在全部对话内容之前，兄弟选择器才成立（顺序即契约） -->
         <section id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>
           <div class="chat-history-popover-head">
             <button id="${ids.readingChatHistoryBackBtn}" type="button" class="chat-icon-btn" title="返回对话" aria-label="返回对话">
@@ -30,7 +29,6 @@ export function buildChatTabBodyHtml(): string {
           <blockquote class="biliscript-reading-chat-intent-quote"></blockquote>
         </div>
 
-        <!-- 转写状态行：默认基础句；等待发送期间文案由 chat-tab.ts 切换（唯一提示，不另起消息区通知） -->
         <div id="${ids.readingChatAsrNotice}" class="chat-asr-notice" hidden>当前视频无字幕，正在进行语音转写…</div>
         <section id="${ids.readingChatLiveStatus}" class="chat-live-status" aria-label="实时伴看状态" data-state="idle" hidden>
           <span class="chat-live-status-text" role="status" aria-atomic="true"></span>
@@ -47,28 +45,16 @@ export function buildChatTabBodyHtml(): string {
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
         <footer class="chat-footer">
-          <!-- 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。
-               默认 hidden——「回到底部」在底部是无意义的入口，初始/清场态一律不亮。
-               挂 footer 内而非消息区：消息区是滚动容器，绝对定位的子节点会跟着内容
-               滚走；footer 是 relative 的定位父级，按钮才固定浮在输入卡上方。历史
-               整页打开时 footer 整体 display:none，按钮随之退场，无需另判。 -->
           <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
             ${READING_CHEVRON_DOWN_ICON}
           </button>
-          <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
-               键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
             <div class="chat-subtitle-wait" role="status" aria-live="polite" hidden>
               <span class="chat-notice-spinner" aria-hidden="true"></span>
               <span class="chat-subtitle-wait-text">正在等待字幕，完成后自动发送</span>
               <button type="button" class="chat-subtitle-wait-cancel">取消</button>
             </div>
-            <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
-                 单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
             <div id="${ids.readingChatImageStrip}" class="chat-image-strip" hidden></div>
-            <!-- 输入框默认单行（省空间）：未聚焦高度由 rows=1 定；聚焦不撑高，
-                 长高只随内容换行走 chat-tab.ts 的 autosizeInput 写行内
-                 min-height（主轴上 flex-basis:0% 让 height 失效）。 -->
             <textarea
               id="${ids.readingChatInput}"
               rows="1"
@@ -76,14 +62,6 @@ export function buildChatTabBodyHtml(): string {
               autocomplete="off"
             ></textarea>
             <div id="${ids.readingChatInputBar}" class="chat-input-bar">
-              <!-- 联网搜索开关（spec §4）：输入行 + 右侧的描边圆开关，点击即改全局
-                   记忆；开启态 accent-soft 底 + accent 图标（DeepSeek 输入框工具 pill
-                   同款位）。只留地球图标、不带文字：输入行宽度留给模型名（模型名是这里
-                   最长的变量）。字形取地球（轮廓圆 + 赤道 + 一条 65° 经线），三条经线
-                   半弧（a / b / c）共用同一模板，见 reader-chat.css 的「地球转向」注：
-                   a、b 拼出静止时那条经线，c 在静止时是左半圆——正压在轮廓圆上，看不出。
-                   赤道两端内缩 0.93r，圆头端帽落在轮廓圆的描边里，接缝不断。两个静止态
-                   字形完全相同，方向只由切换动画表达。 -->
               <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
                 <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.334 22 16.226 17.523 16.226 12C16.226 6.477 14.334 2 12 2"></path>
@@ -93,19 +71,12 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M2.714 12h18.572"></path>
                 </svg>
               </button>
-              <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
-                   浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
-                   输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->
               <div class="chat-model-anchor">
                 <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位" aria-haspopup="true" aria-controls="${ids.readingChatModelPanel}" aria-expanded="false">
-                  <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
                   <span class="chat-model-chip-model">未配置平台</span>
                   <span class="chat-model-chip-level">Off</span>
                   ${READING_CHEVRON_DOWN_ICON}
                 </button>
-                <!-- 模型 + 思考档位面板：点 chip 弹出。上部分组模型列表（滚动），底部固定区
-                     内联「思考强度 <当前值> + ↻ 重置键」与胶囊滑轨/单档胶囊 + 「关不掉」提示行。
-                     档位由 reader/chat-model-panel.ts 按 chat/thinking-picker 的显示条目现渲。 -->
                 <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
                   <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
                   <div class="chat-model-panel-foot">
@@ -120,14 +91,11 @@ export function buildChatTabBodyHtml(): string {
                   </div>
                 </div>
               </div>
-              <!-- 主操作键：idle 空草稿时开启伴看；有正文或贴图时发送；流式中停止 -->
               <button id="${ids.readingChatSendBtn}" type="button" class="${liveEnabled ? "chat-send-btn is-live" : "chat-send-btn"}" aria-label="${liveEnabled ? "开启实时伴看" : "发送"}"${liveEnabled ? ' title="开启实时伴看"' : " disabled"}>
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>
                 </svg>
-                <!-- 停止键：实心圆底 + 一个白色圆角方块（无内环）。方块按 32px 圆键
-                     直径的 ~35% 取（viewBox 17/24），圆角 rx=4，与设计稿同比例。 -->
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
                 </svg>
@@ -141,8 +109,6 @@ export function buildChatTabBodyHtml(): string {
                 </svg>
               </button>
             </div>
-            <!-- 模型选择值源（chip 的展示对象）：视觉上隐藏，providers 渲染选项、
-                 change 持久化链不变 -->
             <select id="${ids.readingChatModelSelect}" class="chat-model-select" aria-label="选择模型平台" hidden></select>
           </div>
         </footer>

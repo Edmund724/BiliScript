@@ -42,8 +42,6 @@ interface PendingPlacementTarget {
 
 export function buildExplainPopHtml(): string {
   return `
-            <!-- 划词悬浮胶囊：单实例、绝对定位在文摘面板内（覆盖字幕与概览两 tab，
-                 不进滚动容器），默认置于选区上方并按边界自动防裁切 -->
             <div id="${ids.readingExplainPop}" class="biliscript-reading-explain-pop" role="toolbar" aria-label="划词快捷操作" hidden>
               <button type="button" class="biliscript-selection-pill-btn" data-selection-action="highlight">高亮存笔记</button>
               <button type="button" class="biliscript-selection-pill-btn biliscript-reading-explain-btn" data-selection-action="explain">AI 解释</button>
@@ -55,8 +53,6 @@ export function buildExplainPopHtml(): string {
 
 export function buildExplainCardHostHtml(): string {
   return `
-            <!-- 选区「解释」卡片宿主：覆盖整个面板的弹层（遮罩 + 对话框），
-                 内容由 reader/explain-card.ts 按状态机整块重建 -->
             <div id="${ids.readingExplainCard}" class="biliscript-reading-explain-card" hidden></div>
   `;
 }

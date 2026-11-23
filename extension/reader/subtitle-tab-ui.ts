@@ -105,14 +105,6 @@ export function buildSubtitleTabBodyHtml(): string {
                   disabled
                 >↓</button>
               </div>
-              <!-- 选轨控件（变体 A 一行内插入，02 号票裁定）：模板只给一个空的
-                   原生 select（值源 + 组件建壳锚点），选项由
-                   renderReadingSubtitleTrackPicker 投影 state.clip.subtitles，
-                   不预置假选项。initCustomSelect 建壳时把 wrapper 插在 select
-                   当前位置（= 搜索框与「复制」之间）并把 select 移入壳内；原生
-                   select 是隐藏值源（组件置 display:none），可见 affordance
-                   只有 custom-select 的 trigger。字段名走 aria-label（Q19：trigger
-                   的可见文本是裸语言名，字段名只在可访问名里）。 -->
               <select
                 id="${ids.readingSubtitleSelect}"
                 class="biliscript-reading-track-select"
@@ -124,11 +116,6 @@ export function buildSubtitleTabBodyHtml(): string {
 
             <p id="${ids.readingSubtitleNotice}" class="biliscript-reading-subtitle-notice" role="alert" hidden></p>
 
-            <!-- 转写中间态（PR3）：显隐与文案由 reader/transcribe-banner.ts 按
-                 shared/subtitle-status-bus 的进程内相位驱动（标题/副文案按相位
-                 取，见该模块的相位文案表）；进度为不确定样式（页面侧拿不到片
-                 x/y），进度行实时显示状态栏文本。初始文案是转写中相位的同款，
-                 供骨架先于首拍驱动的窗口期显示 -->
             <aside id="${ids.readingTranscribeBanner}" class="biliscript-reading-asr-banner" role="status" aria-live="polite" hidden>
               <div id="${ids.readingTranscribeBannerTitle}" class="biliscript-reading-asr-title">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].title}</div>
               <p id="${ids.readingTranscribeBannerCopy}" class="biliscript-reading-asr-copy">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy}</p>
@@ -140,9 +127,6 @@ export function buildSubtitleTabBodyHtml(): string {
               <div id="${ids.readingSubtitleList}" class="biliscript-reading-subtitle"></div>
             </section>
 
-            <!-- Follow playback 悬浮胶囊：显隐由 data-biliscript-reader-follow
-                 （manual/auto）的 CSS 驱动，实时展示当前视频进度；点击平滑滚回当前高亮句
-                 并恢复自动跟随。 -->
             <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn"><span class="biliscript-reading-follow-label">${FOLLOW_BUTTON_LABEL}</span><span class="biliscript-reading-follow-meta" hidden><span class="biliscript-reading-follow-sep" aria-hidden="true"> · </span><span class="biliscript-reading-follow-time"></span></span></button>
   `;
 }
