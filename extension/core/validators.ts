@@ -15,6 +15,7 @@ import {
 } from "./default-prompts.js";
 import {
   DEFAULT_SETTINGS,
+  type DetachedWindowMode,
   type Settings,
   type SubtitleSegmentationStrategy
 } from "./defaults.js";
@@ -286,6 +287,10 @@ export const normalizeCustomPanelWidth = clampedIntField(
   650,
   DEFAULT_SETTINGS.customPanelWidth
 );
+
+export function normalizeDetachedWindowMode(value: unknown): DetachedWindowMode {
+  return value === "popup" ? "popup" : "pip";
+}
 
 export const normalizeAutoOpenReader = booleanField(false);
 

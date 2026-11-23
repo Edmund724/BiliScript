@@ -84,6 +84,7 @@ export function collectElements(host: HTMLElement) {
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
     customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
+    detachedWindowMode: byIdIn<HTMLSelectElement>(dom.detachedWindowMode),
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
     enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),

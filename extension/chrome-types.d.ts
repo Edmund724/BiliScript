@@ -281,9 +281,22 @@ declare namespace chrome {
   }
 }
 
+interface DocumentPictureInPictureOptions {
+  width?: number;
+  height?: number;
+  disallowReturnToOpener?: boolean;
+  preferInitialWindowPlacement?: boolean;
+}
+
+interface DocumentPictureInPicture {
+  readonly window?: Window | null;
+  requestWindow(options?: DocumentPictureInPictureOptions): Promise<Window>;
+}
+
 interface Window {
   __BILISCRIPT_CONTENT_SCRIPT_LOADED__?: string;
   __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__?: boolean;
+  documentPictureInPicture?: DocumentPictureInPicture;
 }
 
 var __BILISCRIPT_CONTENT_SCRIPT_LOADED__: string | undefined;

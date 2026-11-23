@@ -1,6 +1,7 @@
 import { AI_PROVIDERS_STORAGE } from "../../core/ai-provider-store.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../core/default-prompts.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../core/defaults.js";
+import { resetDetachedWindowBounds } from "../../core/detached-bounds-store.js";
 import { getSettings } from "../../core/runtime.js";
 import { state } from "../../core/state.js";
 import {
@@ -167,6 +168,7 @@ export function buildDefaultPreferencePayload() {
     bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
+    detachedWindowMode: DEFAULT_SETTINGS.detachedWindowMode,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
     enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
@@ -196,6 +198,7 @@ export async function resetPreferences(
       setStatus(elements, resp?.error || "重置失败", true);
       return;
     }
+    await resetDetachedWindowBounds();
     state.patchSettings(payload);
     applyReadingViewTypography();
     applyChatDisplaySettings({
@@ -261,6 +264,10 @@ export function bindScalarFieldEvents(
           state.patchSettings(patch);
         }
         binding.onApply?.(val);
+        try {
+          binding.onChange?.(val, deps.hooks ?? {}, elements);
+        } catch {
+        }
         syncScalarSideEffects(binding.key, elements);
         deps.syncSummaries(elements);
         void saveSettingField(elements, patch);

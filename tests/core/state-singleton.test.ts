@@ -47,4 +47,22 @@ describe("core/state 单例跨实例共享", () => {
     expect(lazy.state.clip.currentUrl).toBe(resident.state.clip.currentUrl);
     expect(lazy.state.clip.currentUrl).toContain("/video/BV1test000000");
   });
+
+  it("readingDetached 派生 getter 跨实例共享且运行时只读，setDetachedMode 同步双端", () => {
+    expect(resident.state.reader.readingDetached).toBe(false);
+    expect(resident.state.reader.readingDetachedMode).toBeNull();
+    expect(Object.getOwnPropertyDescriptor(resident.state.reader, "readingDetached")?.set).toBeUndefined();
+
+    resident.state.reader.setDetachedMode("pip");
+    expect(lazy.state.reader.readingDetached).toBe(true);
+    expect(lazy.state.reader.readingDetachedMode).toBe("pip");
+
+    lazy.state.reader.setDetachedMode("popup");
+    expect(resident.state.reader.readingDetached).toBe(true);
+    expect(resident.state.reader.readingDetachedMode).toBe("popup");
+
+    resident.state.reader.setDetachedMode(null);
+    expect(lazy.state.reader.readingDetached).toBe(false);
+    expect(lazy.state.reader.readingDetachedMode).toBeNull();
+  });
 });

@@ -1,10 +1,11 @@
 import { cleanExpiredConversations } from "../../chat/conversation-store.js";
-import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "../../core/defaults.js";
+import { DEFAULT_SETTINGS, type DetachedWindowMode, type KnownSettingKey, type Settings } from "../../core/defaults.js";
 import { state } from "../../core/state.js";
 import {
   normalizeBilingualDisplayOrder,
   normalizeChatInputGlow,
   normalizeCustomPanelWidth,
+  normalizeDetachedWindowMode,
   normalizeDownloadFormat,
   normalizeLiveShareVideoAudio,
   normalizeLiveVoicePriority,
@@ -53,6 +54,7 @@ import type { SettingsElements } from "./elements.js";
 export interface ScalarBindingRuntimeHooks {
   onAgentBridgeSaved?: (val: boolean, elements: SettingsElements) => void;
   onAsrAutoFallbackSaved?: (val: boolean, elements: SettingsElements) => void;
+  onDetachedWindowModeChanged?: (val: DetachedWindowMode, elements: SettingsElements) => void;
 }
 
 export type ScalarFieldPersist = (patch: Record<string, unknown>) => Promise<SaveSettingsResponse>;
@@ -73,6 +75,7 @@ export interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly onApply?: (val: Settings[K] & string) => void;
+  readonly onChange?: (val: Settings[K] & string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
 export interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -268,6 +271,16 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     resetExtras: () => ({ customPanelWidthEnabled: false }),
     onPreview: () => {
       relayoutScriptHost();
+    }
+  },
+  {
+    kind: "select",
+    key: "detachedWindowMode",
+    getElement: (el) => el.detachedWindowMode,
+    normalize: normalizeDetachedWindowMode,
+    watchSync: true,
+    onChange: (val, hooks, elements) => {
+      hooks.onDetachedWindowModeChanged?.(val as DetachedWindowMode, elements);
     }
   },
   {

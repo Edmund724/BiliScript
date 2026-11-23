@@ -5,6 +5,7 @@ import { isChatDisplaySliderAvailable } from "../reader/chat-display-settings.js
 import { hasReaderSettingsOverlayOpen, stepBackReaderSettings } from "../reader/settings-mode.js";
 import { peekAsrSetupResumeToken } from "../reader/setup-resume.js";
 import { ids } from "../reader/state.js";
+import { isReaderDetached, requestDetachedModeSwitch } from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
 import {
@@ -78,6 +79,14 @@ const scalarHooks: ScalarBindingRuntimeHooks = {
   onAsrAutoFallbackSaved: (val) => {
     if (val && peekAsrSetupResumeToken() !== null && settingsHostRef) {
       void setupFlows.continueAsrSetupAfterToggleEnabled(collectElements(settingsHostRef));
+    }
+  },
+  onDetachedWindowModeChanged: (mode) => {
+    if (isReaderDetached()) {
+      try {
+        Promise.resolve(requestDetachedModeSwitch(mode)).catch(() => {});
+      } catch {
+      }
     }
   }
 };
