@@ -12,6 +12,7 @@ import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
+import { isReaderDetached } from "../shared/active-host.js";
 import { state } from "../core/state.js";
 import { playerAiState } from "./player-ai-state.js";
 import { isVisibleReaderControl } from "../shared/dom-utils.js";
@@ -699,7 +700,9 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     if (!state.settings?.enablePlayerAiQuickAction) {
       throw new Error("AI 按钮未开启");
     }
-    await exitPlayerFullscreenIfNeeded();
+    if (!isReaderDetached()) {
+      await exitPlayerFullscreenIfNeeded();
+    }
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");

@@ -456,3 +456,60 @@ describe("script-button 失锚期事件化（02）", () => {
     expect(document.getElementById("biliscript-script-button")!.nextElementSibling).toBe(secondComplaint);
   });
 });
+
+describe("script-button 独立窗口态挂载与聚焦路由", () => {
+  it("独立窗口打开时保留文摘按钮、不触发误恢复，点击聚焦独立窗口，归位后摘除", async () => {
+    document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
+    const { transitionReaderShell } = await import("../../extension/core/state.js");
+    const { setActiveReaderHost, resetActiveReaderHost } = await import(
+      "../../extension/shared/active-host.js"
+    );
+    const { registerContentScriptDispatcher } = await import("../../extension/shared/messaging.js");
+    const { READER_READY_ATTR } = await import("../../extension/reader/presentation-fields.js");
+
+    const dispatcher = vi.fn(() => true);
+    registerContentScriptDispatcher(dispatcher);
+
+    const childDoc = document.implementation.createHTMLDocument("Detached");
+    childDoc.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    childDoc.body.setAttribute("data-biliscript-reader-mode", "1");
+    const view = childDoc.createElement("section");
+    view.id = "biliscript-reading-view";
+    view.classList.add("open");
+    view.setAttribute(READER_READY_ATTR, "1");
+    childDoc.body.appendChild(view);
+
+    const childWin = new EventTarget() as unknown as Window & { closed: boolean };
+    childWin.closed = false;
+
+    transitionReaderShell("open");
+    setActiveReaderHost(childDoc, childWin);
+
+    await loadModule();
+
+    const btn = document.getElementById("biliscript-script-button") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    dispatcher.mockClear();
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(dispatcher).not.toHaveBeenCalled();
+
+    btn.click();
+    expect(dispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "reader-enter" }),
+      expect.any(Function)
+    );
+
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    const openerView = document.createElement("section");
+    openerView.id = "biliscript-reading-view";
+    openerView.classList.add("open");
+    openerView.setAttribute(READER_READY_ATTR, "1");
+    document.body.appendChild(openerView);
+
+    resetActiveReaderHost();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+  });
+});
