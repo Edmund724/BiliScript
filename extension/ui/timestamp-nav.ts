@@ -1,4 +1,6 @@
+import { getActiveReaderDocument } from "../shared/active-host.js";
 import { formatClock, parseClock } from "../shared/clock-text.js";
+import { isTextNode, resolveNodeDocument } from "../shared/cross-doc.js";
 import { isTimestampOnlyInlineCode } from "./markdown.js";
 import { animateTriggerEnter, animateTriggerExit, cancelTriggerExit } from "./trigger-motion.js";
 
@@ -127,23 +129,24 @@ function showTimestampTooltip(
   }
   hideTimestampTooltip(host, true);
 
-  const tip = document.createElement("div");
+  const doc = resolveNodeDocument(host);
+  const tip = doc.createElement("div");
   tip.className = "chat-timestamp-tooltip";
   tip.id = `biliscript-ts-tip-${++nextTooltipId}`;
   tip.setAttribute("role", "tooltip");
   tip.setAttribute("data-chat-timestamp-tooltip", "");
 
-  const head = document.createElement("div");
+  const head = doc.createElement("div");
   head.className = "chat-timestamp-tooltip-head";
-  const timeEl = document.createElement("span");
+  const timeEl = doc.createElement("span");
   timeEl.className = "chat-timestamp-tooltip-time";
   timeEl.textContent = preview.time;
-  const hintEl = document.createElement("span");
+  const hintEl = doc.createElement("span");
   hintEl.className = "chat-timestamp-tooltip-hint";
   hintEl.textContent = "点击跳转";
   head.append(timeEl, hintEl);
 
-  const textEl = document.createElement("div");
+  const textEl = doc.createElement("div");
   textEl.className = "chat-timestamp-tooltip-text";
   textEl.textContent = preview.text;
 
@@ -255,11 +258,12 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
   if (!root) {
     return 0;
   }
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const doc = resolveNodeDocument(root);
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes: Text[] = [];
   while (walker.nextNode()) {
     const current = walker.currentNode;
-    if (!(current instanceof Text)) {
+    if (!isTextNode(current)) {
       continue;
     }
     const parent = current.parentElement;
@@ -277,7 +281,7 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
 
   textNodes.forEach((node) => {
     const text = node.textContent || "";
-    const fragment = document.createDocumentFragment();
+    const fragment = doc.createDocumentFragment();
     let lastIndex = 0;
     let hasMatch = false;
     TIMESTAMP_CITATION_PATTERN.lastIndex = 0;
@@ -308,10 +312,10 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
       hasMatch = true;
       uniqueSeconds.add(seconds);
       if (replaceStart > lastIndex) {
-        fragment.append(document.createTextNode(text.slice(lastIndex, replaceStart)));
+        fragment.append(doc.createTextNode(text.slice(lastIndex, replaceStart)));
       }
 
-      const button = document.createElement("button");
+      const button = doc.createElement("button");
       button.type = "button";
       button.className = "chat-timestamp-link";
       button.dataset.timestampSeconds = String(seconds);
@@ -323,7 +327,7 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
         const resolveHost = () =>
           deps.tooltipContainer ||
           (button.closest(".chat-messages") as HTMLElement | null) ||
-          document.body;
+          getActiveReaderDocument().body;
         const triggerShow = () => {
           const preview = deps.getSubtitlePreview?.(seconds);
           if (!preview) {
@@ -344,7 +348,7 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
           const host =
             deps.tooltipContainer ||
             (button.closest(".chat-messages") as HTMLElement | null) ||
-            document.body;
+            getActiveReaderDocument().body;
           hideTimestampTooltip(host, true);
         }
         void jumpToAssistantTimestamp(seconds, timestamp, deps);
@@ -356,7 +360,7 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
       return;
     }
     if (lastIndex < text.length) {
-      fragment.append(document.createTextNode(text.slice(lastIndex)));
+      fragment.append(doc.createTextNode(text.slice(lastIndex)));
     }
     node.replaceWith(fragment);
   });

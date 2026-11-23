@@ -1,3 +1,5 @@
+import { getActiveReaderWindow } from "../../shared/active-host.js";
+import { isTextNode, resolveNodeDocument } from "../../shared/cross-doc.js";
 import {
   animateTriggerEnter,
   animateTriggerExit,
@@ -22,7 +24,7 @@ export function openSourceUrl(url: string): void {
   if (!target || !/^https?:\/\//i.test(target)) {
     return;
   }
-  window.open(target, "_blank", "noopener");
+  getActiveReaderWindow().open(target, "_blank", "noopener");
 }
 
 function hideSourcePreview(container: HTMLElement): void {
@@ -49,16 +51,17 @@ function showSourcePreview(container: HTMLElement, anchor: Element, source: Chat
   } catch {
     domain = "";
   }
-  const card = document.createElement("div");
+  const doc = resolveNodeDocument(container);
+  const card = doc.createElement("div");
   card.className = "chat-search-preview";
   card.setAttribute("data-chat-search-preview", "");
-  const title = document.createElement("div");
+  const title = doc.createElement("div");
   title.className = "chat-search-preview-title";
   title.textContent = source.title || source.url;
-  const host = document.createElement("div");
+  const host = doc.createElement("div");
   host.className = "chat-search-preview-host";
   host.textContent = domain || source.url;
-  const excerpt = document.createElement("div");
+  const excerpt = doc.createElement("div");
   excerpt.className = "chat-search-preview-excerpt";
   excerpt.textContent = String(source.snippet || "").slice(0, SEARCH_PREVIEW_MAX_CHARS);
   card.append(title, host);
@@ -126,11 +129,12 @@ export function createSourcePreviewController(deps: SourcePreviewDeps): SourcePr
     if (!sources.length) {
       return;
     }
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const doc = resolveNodeDocument(root);
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const textNodes: Text[] = [];
     while (walker.nextNode()) {
       const current = walker.currentNode;
-      if (!(current instanceof Text)) {
+      if (!isTextNode(current)) {
         continue;
       }
       const parent = current.parentElement;
@@ -145,7 +149,7 @@ export function createSourcePreviewController(deps: SourcePreviewDeps): SourcePr
     }
     textNodes.forEach((textNode) => {
       const text = textNode.textContent || "";
-      const fragment = document.createDocumentFragment();
+      const fragment = doc.createDocumentFragment();
       let lastIndex = 0;
       let hasMatch = false;
       citationPattern.lastIndex = 0;
@@ -153,15 +157,15 @@ export function createSourcePreviewController(deps: SourcePreviewDeps): SourcePr
       while ((match = citationPattern.exec(text))) {
         hasMatch = true;
         if (match.index > lastIndex) {
-          fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+          fragment.append(doc.createTextNode(text.slice(lastIndex, match.index)));
         }
         const marker = match[0];
         const index = Number(match[1]);
         const source = sources[index - 1];
         if (!source || !source.url) {
-          fragment.append(document.createTextNode(marker));
+          fragment.append(doc.createTextNode(marker));
         } else {
-          const cite = document.createElement("sup");
+          const cite = doc.createElement("sup");
           cite.className = "chat-cite";
           cite.tabIndex = 0;
           cite.setAttribute("role", "button");
@@ -187,7 +191,7 @@ export function createSourcePreviewController(deps: SourcePreviewDeps): SourcePr
         return;
       }
       if (lastIndex < text.length) {
-        fragment.append(document.createTextNode(text.slice(lastIndex)));
+        fragment.append(doc.createTextNode(text.slice(lastIndex)));
       }
       textNode.replaceWith(fragment);
     });

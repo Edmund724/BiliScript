@@ -1,4 +1,6 @@
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
+import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active-host.js";
+import { isTagElement } from "../shared/cross-doc.js";
 import type { AiContext, CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 import { buildContextKey, generateConversationId } from "../ai/conversation.js";
@@ -465,15 +467,29 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     const videoTitle = String(chatSessionState.currentConversationMeta?.contextTitle || chatSessionState.contextData?.title || "");
     const safeTitle = sanitizeFileName(videoTitle) || "BiliScript";
     const filename = `${safeTitle}-回答-${answerNumber}.md`;
-    const blob = new Blob([raw], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    const activeDoc = getActiveReaderDocument();
+    const activeWin = getActiveReaderWindow() as Window & {
+      URL?: typeof URL;
+      Blob?: typeof Blob;
+    };
+    const BlobCtor = activeWin?.Blob ?? Blob;
+    const urlApi =
+      activeWin?.URL && typeof activeWin.URL.createObjectURL === "function" ? activeWin.URL : URL;
+    const blob = new BlobCtor([raw], { type: "text/markdown;charset=utf-8" });
+    const url = urlApi.createObjectURL(blob);
+    const anchor = activeDoc.createElement("a");
     anchor.href = url;
     anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    (activeDoc.body ?? activeDoc.documentElement)?.appendChild(anchor);
+    try {
+      anchor.click();
+      anchor.remove();
+    } finally {
+      try {
+        urlApi.revokeObjectURL(url);
+      } catch {
+      }
+    }
   }
 
   function imagesEqual(a: readonly ImagePart[], b: readonly ImagePart[]): boolean {
@@ -553,7 +569,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (!branched) {
         messageArea.clearUncommittedFailedTurns?.();
         const appendedUserNode = messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot });
-        activeUserNode = appendedUserNode instanceof HTMLDivElement ? appendedUserNode : null;
+        activeUserNode = isTagElement(appendedUserNode, "div") ? appendedUserNode : null;
         if (preserveInputDraft) {
         } else if (retryDraft) {
           if (deps.input.value === text) {

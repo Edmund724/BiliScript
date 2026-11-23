@@ -1,5 +1,6 @@
 import { state } from "../core/state.js";
 import { ids } from "../reader/state.js";
+import { activeById } from "../shared/active-host.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 
 const THEME_TITLES: Record<string, string> = {
@@ -25,7 +26,7 @@ export function themeButtonView(theme: string, mode?: string): { icon: string; t
 let lastApplied: string | null = null;
 
 export function refreshThemeButton(): void {
-  const button = document.getElementById(ids.readingThemeSelect);
+  const button = activeById(ids.readingThemeSelect);
   if (!button) {
     return;
   }

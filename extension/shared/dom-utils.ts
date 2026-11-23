@@ -1,3 +1,5 @@
+import { getActiveReaderWindow } from "./active-host.js";
+
 export function byId(id: string): HTMLElement {
   const node = document.getElementById(id);
   if (!node) {
@@ -10,20 +12,34 @@ export function isVisibleReaderControl(node: unknown): boolean {
   if (!node || typeof (node as Element).getBoundingClientRect !== "function") {
     return false;
   }
-  const rect = (node as Element).getBoundingClientRect();
+  const el = node as Element;
+  const rect = el.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) {
     return false;
   }
-  const style = window.getComputedStyle(node as Element);
+  const view = el.ownerDocument?.defaultView ?? getActiveReaderWindow();
+  const style = view.getComputedStyle(el);
   return style.display !== "none" && style.visibility !== "hidden" && style.pointerEvents !== "none";
 }
 
 export function isDomExceptionNamed(error: unknown, names: readonly string[]): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const activeWin = getActiveReaderWindow() as Window & { DOMException?: typeof DOMException };
+  let isDomTag = false;
+  try {
+    isDomTag = Object.prototype.toString.call(error) === "[object DOMException]";
+  } catch {
+  }
   const isDomException =
     (typeof DOMException !== "undefined" && error instanceof DOMException) ||
     (typeof window !== "undefined" &&
       typeof window.DOMException === "function" &&
-      error instanceof window.DOMException);
+      error instanceof window.DOMException) ||
+    (typeof activeWin?.DOMException === "function" && error instanceof activeWin.DOMException) ||
+    (error as { constructor?: { name?: unknown } }).constructor?.name === "DOMException" ||
+    isDomTag;
   return isDomException && names.includes((error as DOMException).name);
 }
 

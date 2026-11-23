@@ -1,4 +1,5 @@
 import type { ImagePart } from "../ai/types.js";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import {
   IMAGE_MAX_BYTES,
@@ -107,8 +108,9 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     strip.innerHTML = "";
     strip.hidden = attachments.length === 0;
     strip.setAttribute("aria-busy", String(isPending()));
+    const doc = resolveNodeDocument(strip);
     attachments.forEach((item, index) => {
-      const node = document.createElement("div");
+      const node = doc.createElement("div");
       node.className = "chat-image-item";
       node.dataset.chatImageId = String(item.id);
       if (item.compressed) {
@@ -119,13 +121,13 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
         open.title = "预览图片";
         node.appendChild(open);
       } else {
-        const skeleton = document.createElement("span");
+        const skeleton = doc.createElement("span");
         skeleton.className = "chat-image-skeleton";
         skeleton.setAttribute("role", "img");
         skeleton.setAttribute("aria-label", `第 ${index + 1} 张图片处理中`);
         node.appendChild(skeleton);
       }
-      const remove = document.createElement("button");
+      const remove = doc.createElement("button");
       remove.type = "button";
       remove.className = "chat-image-remove";
       remove.dataset.chatImageRemove = String(index);

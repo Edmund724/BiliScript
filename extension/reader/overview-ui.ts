@@ -1,5 +1,10 @@
 import { state } from "../core/state.js";
-import { byId } from "../shared/dom-utils.js";
+import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
+import {
+  requireActiveById,
+  resolveNodeWindow,
+  writeActiveClipboardText,
+} from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
@@ -31,7 +36,7 @@ export function registerOverviewUiActions(actions: OverviewUiActions): void {
 }
 
 export function markOverviewPointerDownSelection(
-  hasSelection = Boolean(window.getSelection()?.toString().trim())
+  hasSelection = Boolean(getActiveReaderWindow().getSelection()?.toString().trim())
 ): void {
   hadSelectionOnOverviewPointerDown = hasSelection;
 }
@@ -62,7 +67,7 @@ export function buildOverviewTabBodyHtml(): string {
 }
 
 export function bindReadingOverviewEvents(): void {
-  const readingOverviewBody = byId(ids.readingOverviewBody);
+  const readingOverviewBody = requireActiveById(ids.readingOverviewBody);
   readingOverviewBody.addEventListener("pointerdown", () => {
     markOverviewPointerDownSelection();
   });
@@ -79,9 +84,9 @@ function getClipBody(): { from: number; to: number; content: string }[] {
 }
 
 export function updateGeneratingStripText(text: string): boolean {
-  const node = document
-    .getElementById(ids.readingOverviewBody)
-    ?.querySelector(".biliscript-reading-ov-strip.is-generating .biliscript-reading-ov-strip-text");
+  const node = activeById(ids.readingOverviewBody)?.querySelector(
+    ".biliscript-reading-ov-strip.is-generating .biliscript-reading-ov-strip-text"
+  );
   if (node) {
     const nextText = text || "正在生成概览…";
     if (node.textContent !== nextText) {
@@ -93,7 +98,7 @@ export function updateGeneratingStripText(text: string): boolean {
 }
 
 export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
-  const body = document.getElementById(ids.readingOverviewBody);
+  const body = activeById(ids.readingOverviewBody);
   if (!body) {
     return;
   }
@@ -372,7 +377,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   if (!seekTarget) {
     return;
   }
-  if (hadSelection || window.getSelection()?.toString().trim()) {
+  if (hadSelection || getActiveReaderWindow().getSelection()?.toString().trim()) {
     return;
   }
   jumpReadingTarget(seekTarget.dataset.seconds ?? 0);
@@ -389,7 +394,7 @@ async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
   }
 
   try {
-    await navigator.clipboard.writeText(text);
+    await writeActiveClipboardText(text, resolveNodeWindow(quoteEl));
     flashCopySuccess(quoteEl, { originalSvg: READING_COPY_ICON, originalLabel: "复制该金句" });
   } catch {
     flashCopyFailure(quoteEl, { originalLabel: "复制该金句" });

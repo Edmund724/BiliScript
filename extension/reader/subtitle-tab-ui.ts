@@ -1,4 +1,12 @@
-import { byId } from "../shared/dom-utils.js";
+import { activeById, onActiveHostChange } from "../shared/active-host.js";
+import {
+  isEditableTarget,
+  isHtmlElement,
+  requireActiveById,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+} from "../shared/cross-doc.js";
 import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -139,7 +147,7 @@ const SUBTITLE_TRACK_LOADING_TEXT = "抓取中…";
 const SUBTITLE_TRACK_FIELD_LABEL = "字幕轨";
 
 function findTrackValueById(trackId: string): string {
-  const select = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
+  const select = activeById<HTMLSelectElement>(ids.readingSubtitleSelect);
   if (!select) {
     return "";
   }
@@ -228,7 +236,7 @@ export function renderReadingSubtitleTrackPicker(
   selectFacts: () => SubtitleToolbarFacts = selectSubtitleToolbarFacts,
   context?: SubtitleToolbarContext
 ): void {
-  const select = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
+  const select = activeById<HTMLSelectElement>(ids.readingSubtitleSelect);
   if (!select) {
     return;
   }
@@ -381,7 +389,7 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
           render();
         }
         if (switched && state.reader.readingViewOpen) {
-          playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+          playTrackSwitchAnimation(requireActiveById(ids.readingSubtitleList));
         }
       }
     })();
@@ -467,15 +475,15 @@ interface BilingualCardNodes {
 
 let bilingualCardNodes: BilingualCardNodes | null = null;
 
-function buildColumnHead(text: string): HTMLElement {
-  const head = document.createElement("div");
+function buildColumnHead(text: string, doc: Document): HTMLElement {
+  const head = doc.createElement("div");
   head.className = "biliscript-bilingual-col-head";
   head.textContent = text;
   return head;
 }
 
 function ensureBilingualCard(): BilingualCardNodes | null {
-  const mainSelect = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
+  const mainSelect = activeById<HTMLSelectElement>(ids.readingSubtitleSelect);
   const pickerWrapper = mainSelect?.closest<HTMLElement>(".biliscript-reading-track-picker") ?? null;
   if (!mainSelect || !pickerWrapper) {
     return null;
@@ -489,66 +497,67 @@ function ensureBilingualCard(): BilingualCardNodes | null {
 }
 
 function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLElement): BilingualCardNodes {
-  const root = document.createElement("li");
+  const doc = resolveNodeDocument(mainSelect);
+  const root = doc.createElement("li");
   root.className = "biliscript-bilingual-popover";
   root.setAttribute("role", "presentation");
 
-  const main = document.createElement("div");
+  const main = doc.createElement("div");
   main.className = "biliscript-bilingual-main";
-  const cols = document.createElement("div");
+  const cols = doc.createElement("div");
   cols.className = "biliscript-bilingual-cols";
 
-  const mainCol = document.createElement("div");
+  const mainCol = doc.createElement("div");
   mainCol.className = "biliscript-bilingual-col";
   mainCol.dataset.col = "main";
-  const mainHead = buildColumnHead("主字幕");
+  const mainHead = buildColumnHead("主字幕", doc);
   mainHead.hidden = true;
-  const hint = document.createElement("div");
+  const hint = doc.createElement("div");
   hint.className = "biliscript-bilingual-hint";
   hint.textContent = SINGLE_TRACK_HINT_TEXT;
   hint.hidden = true;
-  const mainList = document.createElement("ul");
+  const mainList = doc.createElement("ul");
   mainList.className = "biliscript-bilingual-list";
   mainList.setAttribute("role", "presentation");
   mainCol.append(mainHead, hint, mainList);
 
-  const subCol = document.createElement("div");
+  const subCol = doc.createElement("div");
   subCol.className = "biliscript-bilingual-col";
   subCol.dataset.col = "sub";
-  const subHead = buildColumnHead(SUB_HEAD_TEXT_TRACK);
-  const aiRefine = document.createElement("button");
+  const subHead = buildColumnHead(SUB_HEAD_TEXT_TRACK, doc);
+  const aiRefine = doc.createElement("button");
   aiRefine.type = "button";
   aiRefine.className = "biliscript-bilingual-ai-refine";
   aiRefine.hidden = true;
   aiRefine.addEventListener("click", handleAiRefineClick);
-  const retry = document.createElement("button");
+  const retry = doc.createElement("button");
   retry.type = "button";
   retry.className = "biliscript-bilingual-retry";
   retry.textContent = SECONDARY_RETRY_TEXT;
   retry.hidden = true;
   retry.addEventListener("click", handleSecondaryRetryClick);
-  const secondaryHost = document.createElement("div");
+  const secondaryHost = doc.createElement("div");
   secondaryHost.className = "biliscript-bilingual-secondary";
-  const secondarySelect = document.createElement("select");
+  const secondarySelect = doc.createElement("select");
   secondarySelect.id = ids.readingSecondarySubtitleSelect;
   secondarySelect.className = "biliscript-reading-track-select";
   secondarySelect.setAttribute("aria-label", SECONDARY_SUBTITLE_FIELD_LABEL);
   secondaryHost.appendChild(secondarySelect);
-  const empty = document.createElement("div");
+  const empty = doc.createElement("div");
   empty.className = "biliscript-bilingual-empty";
   subCol.append(subHead, aiRefine, retry, empty, secondaryHost);
   cols.append(mainCol, subCol);
   main.appendChild(cols);
 
-  const footer = document.createElement("div");
+  const footer = doc.createElement("div");
   footer.className = "biliscript-bilingual-footer";
-  const label = document.createElement("span");
+  const label = doc.createElement("span");
   label.className = "biliscript-bilingual-footer-label";
   label.textContent = SUBTITLE_BILINGUAL_SWITCH_LABEL;
-  const footerNote = document.createElement("span");
+  const footerNote = doc.createElement("span");
   footerNote.className = "biliscript-bilingual-footer-note";
   footerNote.hidden = true;
-  const toggle = document.createElement("button");
+  const toggle = doc.createElement("button");
   toggle.type = "button";
   toggle.className = "biliscript-bilingual-switch";
   toggle.setAttribute("role", "switch");
@@ -556,7 +565,7 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   toggle.addEventListener("click", handleBilingualSwitchClick);
   footer.append(label, footerNote, toggle);
 
-  const badge = document.createElement("span");
+  const badge = doc.createElement("span");
   badge.className = "biliscript-bilingual-badge";
   badge.id = SUBTITLE_BILINGUAL_BADGE_ID;
   badge.textContent = SUBTITLE_BILINGUAL_BADGE_TEXT;
@@ -756,14 +765,14 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   if (outcome.kind === "main-track") {
     rerender();
     if (state.reader.readingViewOpen) {
-      playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+      playTrackSwitchAnimation(requireActiveById(ids.readingSubtitleList));
     }
     return;
   }
   projectSecondaryLoad(outcome);
   void outcome.settled.then((settlement) => {
     if (!settlement.error && state.reader.readingViewOpen) {
-      playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+      playTrackSwitchAnimation(requireActiveById(ids.readingSubtitleList));
     }
   });
 }
@@ -800,11 +809,16 @@ function handleAiRefineClick(event: Event): void {
   });
 }
 
+let cleanupSubtitleHostBindings: (() => void) | null = null;
+
 export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {
+  cleanupSubtitleHostBindings?.();
+  cleanupSubtitleHostBindings = null;
+
   const toolbar =
     (toolbarOrDeps && "bindEvents" in toolbarOrDeps ? toolbarOrDeps : toolbarOrDeps?.toolbar) ?? activeSubtitleToolbar;
   toolbar?.bindEvents();
-  const readingSearchInput = byId(ids.readingSearchInput) as HTMLInputElement;
+  const readingSearchInput = requireActiveById<HTMLInputElement>(ids.readingSearchInput);
   const SEARCH_DEBOUNCE_MS = 180;
   let searchDebounceTimer: number | null = null;
   const searchRefresh = () => {
@@ -846,16 +860,16 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       readingSearchInput.focus({ preventScroll: true });
     });
   });
-  byId(ids.readingSearchPrevBtn).addEventListener("click", () => {
+  requireActiveById(ids.readingSearchPrevBtn).addEventListener("click", () => {
     flushSearchDebounce();
     withReader("subtitle search prev", (reader) => reader.moveReadingSubtitleSearch(-1));
   });
-  byId(ids.readingSearchNextBtn).addEventListener("click", () => {
+  requireActiveById(ids.readingSearchNextBtn).addEventListener("click", () => {
     flushSearchDebounce();
     withReader("subtitle search next", (reader) => reader.moveReadingSubtitleSearch(1));
   });
 
-  document.getElementById(ids.readingSearchClearBtn)?.addEventListener("click", () => {
+  activeById(ids.readingSearchClearBtn)?.addEventListener("click", () => {
     flushSearchDebounce();
     readingSearchInput.value = "";
     withReader("subtitle search clear", (reader) => {
@@ -864,12 +878,6 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     readingSearchInput.focus({ preventScroll: true });
   });
 
-  const docWithSearchShortcut = document as Document & {
-    __biliscriptSubtitleSearchShortcut?: (event: KeyboardEvent) => void;
-  };
-  if (docWithSearchShortcut.__biliscriptSubtitleSearchShortcut) {
-    document.removeEventListener("keydown", docWithSearchShortcut.__biliscriptSubtitleSearchShortcut);
-  }
   const onDocumentSearchShortcut = (event: KeyboardEvent): void => {
     if (
       event.defaultPrevented ||
@@ -883,7 +891,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     if (!isReadingSubtitleBodyVisible()) {
       return;
     }
-    const input = document.getElementById(ids.readingSearchInput) as HTMLInputElement | null;
+    const input = activeById<HTMLInputElement>(ids.readingSearchInput);
     if (!input) {
       return;
     }
@@ -891,53 +899,51 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     input.focus({ preventScroll: true });
     input.select();
   };
-  docWithSearchShortcut.__biliscriptSubtitleSearchShortcut = onDocumentSearchShortcut;
-  document.addEventListener("keydown", onDocumentSearchShortcut);
 
   let subtitleCopyInFlight = false;
   let subtitleExportInFlight = false;
-  byId(ids.readingCopySubtitleBtn).addEventListener("click", async () => {
+  requireActiveById(ids.readingCopySubtitleBtn).addEventListener("click", async () => {
     if (subtitleCopyInFlight) return;
     subtitleCopyInFlight = true;
     try {
       const chain = await ensureSummarizeChain();
       const ok = await chain.copySubtitleTranscript();
       if (ok) {
-        flashCopySuccess(byId(ids.readingCopySubtitleBtn), {
+        flashCopySuccess(requireActiveById(ids.readingCopySubtitleBtn), {
           originalSvg: READING_COPY_ICON,
           originalLabel: "复制字幕"
         });
       } else {
-        flashCopyFailure(byId(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
+        flashCopyFailure(requireActiveById(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
       }
     } catch (error) {
       logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
-      flashCopyFailure(byId(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
+      flashCopyFailure(requireActiveById(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
     } finally {
       subtitleCopyInFlight = false;
     }
   });
-  byId(ids.readingExportSubtitleBtn).addEventListener("click", async () => {
+  requireActiveById(ids.readingExportSubtitleBtn).addEventListener("click", async () => {
     if (subtitleExportInFlight) return;
     subtitleExportInFlight = true;
     try {
       const chain = await ensureSummarizeChain();
       const ok = await chain.downloadSubtitle();
       if (ok) {
-        flashCopySuccess(byId(ids.readingExportSubtitleBtn), {
+        flashCopySuccess(requireActiveById(ids.readingExportSubtitleBtn), {
           originalSvg: READING_DOWNLOAD_ICON,
           originalLabel: "导出字幕",
           copiedLabel: "已导出"
         });
       } else {
-        flashCopyFailure(byId(ids.readingExportSubtitleBtn), {
+        flashCopyFailure(requireActiveById(ids.readingExportSubtitleBtn), {
           originalLabel: "导出字幕",
           failedLabel: "导出失败"
         });
       }
     } catch (error) {
       logWarn("[BILISCRIPT] download subtitle failed", error);
-      flashCopyFailure(byId(ids.readingExportSubtitleBtn), {
+      flashCopyFailure(requireActiveById(ids.readingExportSubtitleBtn), {
         originalLabel: "导出字幕",
         failedLabel: "导出失败"
       });
@@ -946,11 +952,11 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     }
   });
 
-  byId(ids.readingFollowBtn).addEventListener("click", () => {
+  requireActiveById(ids.readingFollowBtn).addEventListener("click", () => {
     withReader("resume reader follow", (reader) => reader.resumeReaderFollowPlayback());
   });
 
-  const subtitleList = byId(ids.readingSubtitleList);
+  const subtitleList = requireActiveById(ids.readingSubtitleList);
   const syncManualFollowUi = () => {
     projectReaderFollowUi(subtitleScrollFollow.getMode());
   };
@@ -999,11 +1005,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     { passive: true }
   );
   subtitleList.addEventListener("keydown", (event) => {
-    const target = event.target;
-    const editable =
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLElement && target.isContentEditable);
+    const editable = isEditableTarget(event.target);
     if (
       subtitleScrollFollow.handleKeyDown({
         key: event.key,
@@ -1015,7 +1017,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     }
   });
   subtitleList.addEventListener("pointerdown", (event) => {
-    const hasSelection = Boolean(window.getSelection()?.toString().trim());
+    const hasSelection = Boolean(resolveNodeWindow(subtitleList).getSelection()?.toString().trim());
     withReader(null, (reader) => {
       reader.markSubtitlePointerDownSelection(hasSelection);
     });
@@ -1032,25 +1034,54 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       syncManualFollowUi();
     }
   });
-  const docWithPointerUp = document as Document & {
-    __biliscriptSubtitleScrollPointerUp?: () => void;
-  };
-  if (docWithPointerUp.__biliscriptSubtitleScrollPointerUp) {
-    window.removeEventListener("pointerup", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
-    window.removeEventListener("pointercancel", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
-    window.removeEventListener("blur", docWithPointerUp.__biliscriptSubtitleScrollPointerUp);
-  }
   const onScrollPointerRelease = () => {
     subtitleScrollFollow.handlePointerUp();
   };
-  docWithPointerUp.__biliscriptSubtitleScrollPointerUp = onScrollPointerRelease;
-  window.addEventListener("pointerup", onScrollPointerRelease, { passive: true });
-  window.addEventListener("pointercancel", onScrollPointerRelease, { passive: true });
-  window.addEventListener("blur", onScrollPointerRelease, { passive: true });
+
+  let boundShortcutDoc: Document | null = null;
+  let boundReleaseWin: Window | null = null;
+
+  const unbindHostListeners = () => {
+    safeRemoveListener(boundShortcutDoc, "keydown", onDocumentSearchShortcut);
+    safeRemoveListener(boundReleaseWin, "pointerup", onScrollPointerRelease, { passive: true } as EventListenerOptions);
+    safeRemoveListener(boundReleaseWin, "pointercancel", onScrollPointerRelease, { passive: true } as EventListenerOptions);
+    safeRemoveListener(boundReleaseWin, "blur", onScrollPointerRelease, { passive: true } as EventListenerOptions);
+    boundShortcutDoc = null;
+    boundReleaseWin = null;
+  };
+
+  const bindHostListeners = (doc: Document, win: Window) => {
+    unbindHostListeners();
+    boundShortcutDoc = doc;
+    boundReleaseWin = win;
+    doc.addEventListener("keydown", onDocumentSearchShortcut);
+    win.addEventListener("pointerup", onScrollPointerRelease, { passive: true });
+    win.addEventListener("pointercancel", onScrollPointerRelease, { passive: true });
+    win.addEventListener("blur", onScrollPointerRelease, { passive: true });
+  };
+
+  bindHostListeners(resolveNodeDocument(readingSearchInput), resolveNodeWindow(subtitleList));
+  const stopHostWatch = onActiveHostChange((ctx) => {
+    unbindHostListeners();
+    let connected = false;
+    try {
+      connected = Boolean(subtitleList.isConnected);
+    } catch {
+      connected = false;
+    }
+    if (connected) {
+      bindHostListeners(ctx.doc, ctx.win);
+    }
+  });
+  cleanupSubtitleHostBindings = () => {
+    stopHostWatch();
+    unbindHostListeners();
+  };
+
   let retryFetchInFlight = false;
   subtitleList.addEventListener("click", (event) => {
     const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
-    if (actionNode instanceof HTMLElement) {
+    if (isHtmlElement(actionNode)) {
       const action = actionNode.dataset.subtitleAction;
       if (action === "asr-setup") {
         void beginReaderAsrSetupFlow();

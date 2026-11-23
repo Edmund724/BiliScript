@@ -1,3 +1,8 @@
+import { getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
+import {
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { chatSessionState } from "./chat-state.js";
 import { collectHistorySearchTurns, type HistorySearchTurn } from "./search-sources.js";
 import type { ChatMessageArea } from "./chat-stream-render.js";
@@ -25,13 +30,31 @@ export interface ConversationReplay {
 export function createConversationReplay(deps: CreateConversationReplayDeps): ConversationReplay {
   let generation = 0;
   let inFlight: Promise<void> | null = null;
+  let cancelPendingRafWait: (() => void) | null = null;
 
   function yieldToMainThread(): Promise<void> {
-    const schedulerApi = (globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
-    if (typeof schedulerApi?.yield === "function") {
-      return schedulerApi.yield();
+    const activeWin = getActiveReaderWindow();
+    try {
+      const schedulerApi =
+        (activeWin && !activeWin.closed
+          ? (activeWin as (Window & { scheduler?: { yield?: () => Promise<void> } }) | null)?.scheduler
+          : undefined) ??
+        (globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+      if (typeof schedulerApi?.yield === "function") {
+        return schedulerApi.yield();
+      }
+    } catch {
     }
-    return new Promise((resolve) => window.setTimeout(resolve, 0));
+    return new Promise((resolve) => {
+      try {
+        if (activeWin && !activeWin.closed && typeof activeWin.setTimeout === "function") {
+          activeWin.setTimeout(resolve, 0);
+          return;
+        }
+      } catch {
+      }
+      setTimeout(resolve, 0);
+    });
   }
 
   async function renderConversationMessages(): Promise<void> {
@@ -58,6 +81,8 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
 
   function invalidateReplay(): void {
     generation += 1;
+    cancelPendingRafWait?.();
+    cancelPendingRafWait = null;
   }
 
   async function runConversationReplay(): Promise<void> {
@@ -111,8 +136,95 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
       return;
     }
     await yieldToMainThread();
+    if (replayGeneration !== generation) {
+      return;
+    }
     await new Promise<void>((resolve) => {
-      window.requestAnimationFrame(() => resolve());
+      let settled = false;
+      let handle: ActiveAnimationFrameHandle | null = null;
+      let stopHostWatch: (() => void) | null = null;
+
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (cancelPendingRafWait === finish) {
+          cancelPendingRafWait = null;
+        }
+        stopHostWatch?.();
+        stopHostWatch = null;
+        if (handle) {
+          try {
+            handle.cancel();
+          } catch {
+          }
+          handle = null;
+        }
+        resolve();
+      };
+
+      const scheduleOn = (win: Window | null | undefined) => {
+        if (settled) {
+          return;
+        }
+        if (handle) {
+          try {
+            handle.cancel();
+          } catch {
+          }
+          handle = null;
+        }
+        const targetWin = win ?? getActiveReaderWindow();
+        if (typeof targetWin?.requestAnimationFrame === "function") {
+          handle = scheduleActiveAnimationFrame(() => {
+            handle = null;
+            finish();
+          }, targetWin);
+          return;
+        }
+        let cleared = false;
+        let timerId: ReturnType<typeof setTimeout> | number;
+        let usedWin = false;
+        try {
+          if (typeof targetWin?.setTimeout === "function") {
+            timerId = targetWin.setTimeout(finish, 0);
+            usedWin = true;
+          } else {
+            timerId = setTimeout(finish, 0);
+          }
+        } catch {
+          timerId = setTimeout(finish, 0);
+        }
+        handle = {
+          window: targetWin,
+          cancel() {
+            if (cleared) return;
+            cleared = true;
+            if (usedWin) {
+              try {
+                targetWin.clearTimeout(timerId as number);
+                return;
+              } catch {
+              }
+            }
+            clearTimeout(timerId);
+          }
+        };
+      };
+
+      cancelPendingRafWait = finish;
+      stopHostWatch = onActiveHostChange((ctx) => {
+        if (settled) {
+          return;
+        }
+        if (replayGeneration !== generation) {
+          finish();
+          return;
+        }
+        scheduleOn(ctx.win);
+      });
+      scheduleOn(getActiveReaderWindow());
     });
     if (replayGeneration !== generation) {
       return;

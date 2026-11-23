@@ -1,6 +1,8 @@
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";
+import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active-host.js";
+import { writeActiveClipboardText } from "../shared/cross-doc.js";
 import { createSecondaryLineResolver } from "../subtitle/alignment.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
@@ -90,7 +92,7 @@ export async function copyCurrentVideoNote(): Promise<boolean> {
     if (!rendered.markdown) {
       return false;
     }
-    await navigator.clipboard.writeText(rendered.markdown);
+    await writeActiveClipboardText(rendered.markdown);
     return true;
   } catch (error) {
     logWarn("[BILISCRIPT] copy templated note failed", error);
@@ -104,15 +106,29 @@ export async function downloadCurrentVideoNote(): Promise<boolean> {
     if (!rendered.markdown) {
       return false;
     }
-    const blob = new Blob([rendered.markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const activeDoc = getActiveReaderDocument();
+    const activeWin = getActiveReaderWindow() as Window & {
+      URL?: typeof URL;
+      Blob?: typeof Blob;
+    };
+    const BlobCtor = activeWin?.Blob ?? Blob;
+    const urlApi =
+      activeWin?.URL && typeof activeWin.URL.createObjectURL === "function" ? activeWin.URL : URL;
+    const blob = new BlobCtor([rendered.markdown], { type: "text/markdown;charset=utf-8" });
+    const url = urlApi.createObjectURL(blob);
+    const a = activeDoc.createElement("a");
     a.href = url;
     a.download = rendered.fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    (activeDoc.body ?? activeDoc.documentElement)?.appendChild(a);
+    try {
+      a.click();
+      a.remove();
+    } finally {
+      try {
+        urlApi.revokeObjectURL(url);
+      } catch {
+      }
+    }
     return true;
   } catch (error) {
     logWarn("[BILISCRIPT] download templated note failed", error);
@@ -128,11 +144,12 @@ export interface OpenObsidianResult {
 }
 
 function triggerProtocolUri(uri: string): void {
-  const link = document.createElement("a");
+  const activeDoc = getActiveReaderDocument();
+  const link = activeDoc.createElement("a");
   link.href = uri;
   link.rel = "noopener noreferrer";
   link.style.display = "none";
-  document.body.appendChild(link);
+  (activeDoc.body ?? activeDoc.documentElement)?.appendChild(link);
   link.click();
   link.remove();
 }
@@ -151,7 +168,7 @@ export async function openCurrentVideoInObsidian(): Promise<OpenObsidianResult> 
     });
     if (usedClipboardFallback) {
       try {
-        await navigator.clipboard.writeText(rendered.markdown);
+        await writeActiveClipboardText(rendered.markdown);
       } catch (clipError) {
         logWarn("[BILISCRIPT] obsidian clipboard fallback copy failed", clipError);
         return {

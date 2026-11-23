@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { activeById } from "../shared/active-host.js";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import {
   loadVideoHighlights,
   removeSubtitleIndexHighlights,
@@ -39,7 +41,7 @@ function ensureNoteBadge(itemEl: HTMLElement, highlighted: boolean): void {
   if (existing) {
     return;
   }
-  const badge = document.createElement("span");
+  const badge = resolveNodeDocument(itemEl).createElement("span");
   badge.className = SUBTITLE_HIGHLIGHT_BADGE_CLASS;
   badge.setAttribute("role", "button");
   badge.setAttribute("tabindex", "0");
@@ -51,7 +53,7 @@ function ensureNoteBadge(itemEl: HTMLElement, highlighted: boolean): void {
 }
 
 export function applySubtitleHighlightsToList(
-  listEl: HTMLElement | null = document.getElementById(ids.readingSubtitleList),
+  listEl: HTMLElement | null = activeById(ids.readingSubtitleList),
   indexes: ReadonlySet<number> = cachedSubtitleIndexes
 ): void {
   if (!listEl) {

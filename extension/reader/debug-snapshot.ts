@@ -2,16 +2,27 @@ import { state } from "../core/state.js";
 import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { cleanVideoUrl } from "../bilibili/video-id-shared.js";
 import { findReaderPlayerHost, getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  getOpenerDocument,
+  getOpenerWindow,
+  isReaderDetached,
+} from "../shared/active-host.js";
+import { resolveNodeWindow } from "../shared/cross-doc.js";
 import { ids } from "./state.js";
 
 export function createReaderDebugSnapshot(label = "manual") {
-  const pickNodeSnapshot = (selector: string) => {
-    const node = document.querySelector(selector);
+  const openerDoc = getOpenerDocument();
+  const openerWin = getOpenerWindow();
+  const activeDoc = getActiveReaderDocument();
+  const pickNodeSnapshot = (selector: string, targetDoc: Document = openerDoc) => {
+    const node = targetDoc.querySelector(selector);
     if (!node) {
       return null;
     }
     const rect = node.getBoundingClientRect();
-    const style = window.getComputedStyle(node);
+    const style = resolveNodeWindow(node).getComputedStyle(node);
     return {
       selector,
       tag: node.tagName,
@@ -46,7 +57,7 @@ export function createReaderDebugSnapshot(label = "manual") {
   let depth = 0;
   while (current && depth < 8) {
     const rect = current.getBoundingClientRect();
-    const style = window.getComputedStyle(current);
+    const style = openerWin.getComputedStyle(current);
     hostChain.push({
       tag: current.tagName,
       id: current.id || "",
@@ -75,12 +86,13 @@ export function createReaderDebugSnapshot(label = "manual") {
   return {
     label: String(label || "manual"),
     url: cleanVideoUrl(),
-    readerMode: document.documentElement.getAttribute("data-biliscript-reader-mode"),
-    readingActive: document.body.getAttribute("data-biliscript-reading-active"),
+    readerMode: openerDoc.documentElement.getAttribute("data-biliscript-reader-mode"),
+    readingActive: openerDoc.body.getAttribute("data-biliscript-reading-active"),
+    readingDetached: isReaderDetached(),
     readingViewOpen: state.reader.readingViewOpen,
     readingViewReady: state.reader.readingViewReady,
-    hasRoot: Boolean(document.getElementById(ids.root)),
-    hasReadingView: Boolean(document.getElementById(ids.readingView)),
+    hasRoot: Boolean(openerDoc.getElementById(ids.root)),
+    hasReadingView: Boolean(activeById(ids.readingView)),
     playerHost: playerHostNode
       ? {
           tag: playerHostNode.tagName,
@@ -97,12 +109,11 @@ export function createReaderDebugSnapshot(label = "manual") {
         }
       : null,
     nodes: [
-      ...BILI_HOST_SELECTORS.debugSnapshotNodes,
-      "#biliscript-reading-script-panel",
-      "#biliscript-reading-view"
-    ]
-      .map((selector) => pickNodeSnapshot(selector))
-      .filter(Boolean),
+      ...BILI_HOST_SELECTORS.debugSnapshotNodes.map((selector) => pickNodeSnapshot(selector, openerDoc)),
+      ...["#biliscript-reading-script-panel", "#biliscript-reading-view"].map((selector) =>
+        pickNodeSnapshot(selector, activeDoc)
+      )
+    ].filter(Boolean),
     hostChain
   };
 }

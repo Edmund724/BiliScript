@@ -1,3 +1,4 @@
+import { isHtmlElement, resolveNodeDocument } from "../shared/cross-doc.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { READING_SPEAKER_ICON, READING_STOP_ICON } from "../ui/reading-icons.js";
 import {
@@ -489,20 +490,21 @@ export function stripSpeechTimestamps(text: string): string {
 }
 
 export function speechTextFromElement(root: HTMLElement): string {
+  const doc = resolveNodeDocument(root);
   const clone = root.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("pre").forEach((block) => {
-    block.replaceWith(document.createTextNode("代码块，已跳过。"));
+    block.replaceWith(doc.createTextNode("代码块，已跳过。"));
   });
   clone.querySelectorAll("img").forEach((image) => {
-    image.replaceWith(document.createTextNode(image.getAttribute("alt") || ""));
+    image.replaceWith(doc.createTextNode(image.getAttribute("alt") || ""));
   });
   clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .chat-cite, .biliscript-md-code-bar, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
 
   function readNode(node: Node): string {
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === 3) {
       return node.nodeValue || "";
     }
-    if (!(node instanceof HTMLElement)) {
+    if (!isHtmlElement(node)) {
       return Array.from(node.childNodes).map(readNode).join("");
     }
     if (node.tagName === "BR") {

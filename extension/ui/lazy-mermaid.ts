@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { onActiveHostChange } from "../shared/active-host.js";
+import { isNode, resolveNodeDocument, resolveNodeWindow } from "../shared/cross-doc.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
 import { logWarnAlways } from "../shared/logging.js";
 import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR } from "./markdown.js";
@@ -20,17 +22,56 @@ async function hydrateMermaidNow(root: ParentNode, force: boolean): Promise<void
 }
 
 let visibilityObserver: IntersectionObserver | null = null;
+let observerDoc: Document | null = null;
+
+function resetVisibilityObserver(): void {
+  if (!visibilityObserver) {
+    observerDoc = null;
+    return;
+  }
+  try {
+    visibilityObserver.disconnect();
+  } catch {
+  }
+  visibilityObserver = null;
+  observerDoc = null;
+}
+
+onActiveHostChange(() => {
+  resetVisibilityObserver();
+});
+
+function resolveIntersectionObserver(node?: Node | null): typeof IntersectionObserver | undefined {
+  const win = resolveNodeWindow(node) as Window & {
+    IntersectionObserver?: typeof IntersectionObserver;
+  };
+  const globalObs =
+    typeof IntersectionObserver === "function" ? IntersectionObserver : undefined;
+  return win?.IntersectionObserver ?? globalObs;
+}
 
 function observeForHydration(block: Element): void {
-  visibilityObserver ??= new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) {
-        continue;
-      }
-      visibilityObserver?.unobserve(entry.target);
-      void hydrateMermaidNow(entry.target, false);
+  const doc = resolveNodeDocument(block);
+  if (visibilityObserver && observerDoc !== doc) {
+    resetVisibilityObserver();
+  }
+  if (!visibilityObserver) {
+    const Obs = resolveIntersectionObserver(block);
+    if (typeof Obs !== "function") {
+      void hydrateMermaidNow(block, false);
+      return;
     }
-  });
+    observerDoc = doc;
+    visibilityObserver = new Obs((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) {
+          continue;
+        }
+        visibilityObserver?.unobserve(entry.target);
+        void hydrateMermaidNow(entry.target, false);
+      }
+    });
+  }
   visibilityObserver.observe(block);
 }
 
@@ -43,7 +84,7 @@ function isInViewport(block: Element): boolean {
     rect.width > 0 &&
     rect.height > 0 &&
     rect.bottom >= 0 &&
-    rect.top <= window.innerHeight
+    rect.top <= resolveNodeWindow(block).innerHeight
   );
 }
 
@@ -54,7 +95,8 @@ export function hydrateMermaid(
   if (!root || !root.querySelector(MERMAID_BLOCK_SELECTOR)) {
     return;
   }
-  if (force || typeof IntersectionObserver === "undefined") {
+  const Obs = resolveIntersectionObserver(isNode(root) ? root : null);
+  if (force || typeof Obs !== "function") {
     void hydrateMermaidNow(root, force);
     return;
   }

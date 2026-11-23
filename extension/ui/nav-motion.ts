@@ -175,7 +175,7 @@ export function runHorizontalLayerTransition(options: HorizontalLayerTransitionO
     settleAll();
   };
 
-  if (prefersReducedMotion()) {
+  if (prefersReducedMotion(probe)) {
     settleExit();
     for (const item of incoming) {
       const anim = animateNavFadeIn(item.el, NAV_REDUCED_DURATION_MS);

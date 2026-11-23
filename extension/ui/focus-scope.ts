@@ -1,3 +1,11 @@
+import { activeById, onActiveHostChange } from "../shared/active-host.js";
+import {
+  isHtmlElement,
+  isNode,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+} from "../shared/cross-doc.js";
 import { ids } from "../shared/dom-ids.js";
 import {
   animateTriggerEnter,
@@ -26,15 +34,20 @@ export interface FocusScope {
 }
 
 function isVisible(element: HTMLElement): boolean {
-  if (element.hidden || element.closest("[hidden]")) return false;
-  if (element.closest('[aria-hidden="true"]')) return false;
-  for (let cur: HTMLElement | null = element; cur; cur = cur.parentElement) {
-    if (cur.inert || cur.hasAttribute("inert")) return false;
+  try {
+    if (element.hidden || element.closest("[hidden]")) return false;
+    if (element.closest('[aria-hidden="true"]')) return false;
+    for (let cur: HTMLElement | null = element; cur; cur = cur.parentElement) {
+      if (cur.inert || cur.hasAttribute("inert")) return false;
+    }
+    const view = element.ownerDocument?.defaultView;
+    if (!view) return true;
+    if (view.closed) return false;
+    const style = view.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden";
+  } catch {
+    return false;
   }
-  const view = element.ownerDocument.defaultView;
-  if (!view) return true;
-  const style = view.getComputedStyle(element);
-  return style.display !== "none" && style.visibility !== "hidden";
 }
 
 function focusableWithin(container: HTMLElement): HTMLElement[] {
@@ -43,11 +56,15 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
   );
 }
 
-function captureReturnTarget(explicit: HTMLElement | null | undefined): HTMLElement | null {
+function captureReturnTarget(
+  explicit: HTMLElement | null | undefined,
+  container?: HTMLElement | null
+): HTMLElement | null {
   if (explicit) return explicit;
-  const active = document.activeElement;
-  if (!(active instanceof HTMLElement)) return null;
-  if (active === document.body || active === document.documentElement) return null;
+  const doc = resolveNodeDocument(container);
+  const active = doc.activeElement;
+  if (!isHtmlElement(active)) return null;
+  if (active === doc.body || active === doc.documentElement) return null;
   return active;
 }
 
@@ -56,7 +73,7 @@ export function isolateHostSiblings(host: HTMLElement): () => void {
   if (!parent) return () => {};
   const isolated: HTMLElement[] = [];
   for (const child of Array.from(parent.children)) {
-    if (!(child instanceof HTMLElement) || child === host) continue;
+    if (!isHtmlElement(child) || child === host) continue;
     if (child.inert || child.hasAttribute("inert")) continue;
     child.inert = true;
     isolated.push(child);
@@ -73,16 +90,21 @@ export function isolateHostSiblings(host: HTMLElement): () => void {
 
 export function createFocusScope(container: HTMLElement, options: FocusScopeOptions = {}): FocusScope {
   const isActive = options.isActive ?? (() => true);
-  const returnTarget = captureReturnTarget(options.returnFocus);
+  const returnTarget = captureReturnTarget(options.returnFocus, container);
   let disposed = false;
 
   const restore = (): void => {
     if (!isActive()) return;
-    if (!returnTarget || !returnTarget.isConnected || !isVisible(returnTarget)) return;
-    if (returnTarget instanceof HTMLButtonElement || returnTarget instanceof HTMLInputElement) {
-      if (returnTarget.disabled) return;
+    try {
+      if (!returnTarget || !returnTarget.isConnected || !isVisible(returnTarget)) return;
+      if ("disabled" in returnTarget && Boolean((returnTarget as HTMLButtonElement).disabled)) {
+        return;
+      }
+      const targetWin = resolveNodeWindow(returnTarget);
+      if (!targetWin || targetWin.closed) return;
+      returnTarget.focus({ preventScroll: true });
+    } catch {
     }
-    returnTarget.focus({ preventScroll: true });
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -95,7 +117,7 @@ export function createFocusScope(container: HTMLElement, options: FocusScopeOpti
     }
     const first = items[0];
     const last = items[items.length - 1];
-    const active = document.activeElement;
+    const active = resolveNodeDocument(container).activeElement;
     if (event.shiftKey) {
       if (active === first || !container.contains(active)) {
         event.preventDefault();
@@ -112,20 +134,37 @@ export function createFocusScope(container: HTMLElement, options: FocusScopeOpti
   const onFocusIn = (event: Event): void => {
     if (!isActive()) return;
     const target = event.target;
-    if (target instanceof Node && container.contains(target)) return;
+    if (isNode(target) && container.contains(target)) return;
     container.focus({ preventScroll: true });
   };
 
-  document.addEventListener("keydown", onKeyDown, true);
-  document.addEventListener("focusin", onFocusIn, true);
+  let boundDoc = resolveNodeDocument(container);
+  const bindToDoc = (doc: Document): void => {
+    boundDoc = doc;
+    boundDoc.addEventListener("keydown", onKeyDown, true);
+    boundDoc.addEventListener("focusin", onFocusIn, true);
+  };
+  const unbindFromDoc = (): void => {
+    safeRemoveListener(boundDoc, "keydown", onKeyDown, true);
+    safeRemoveListener(boundDoc, "focusin", onFocusIn, true);
+  };
+
+  bindToDoc(boundDoc);
+  const stopHostWatch = onActiveHostChange((ctx) => {
+    if (disposed) return;
+    unbindFromDoc();
+    if (container.isConnected && container.ownerDocument === ctx.doc) {
+      bindToDoc(ctx.doc);
+    }
+  });
   (options.initialFocus ?? container).focus({ preventScroll: true });
 
   return {
     dispose(restoreFocus = true): void {
       if (disposed) return;
       disposed = true;
-      document.removeEventListener("keydown", onKeyDown, true);
-      document.removeEventListener("focusin", onFocusIn, true);
+      stopHostWatch();
+      unbindFromDoc();
       if (restoreFocus) {
         restore();
       }
@@ -155,21 +194,35 @@ export interface PanelModalShell {
 }
 
 export function observeSettingsPanelHidden(onHidden: () => void): () => void {
-  const panel = document.getElementById(ids.readingSettingsPanel);
-  if (!panel || typeof MutationObserver === "undefined") {
+  const panel = activeById(ids.readingSettingsPanel);
+  if (!panel) {
     return () => {};
   }
-  const observer = new MutationObserver(() => {
+  const win = resolveNodeWindow(panel) as Window & {
+    MutationObserver?: typeof MutationObserver;
+  };
+  const Ctor =
+    win?.MutationObserver ??
+    (typeof MutationObserver === "function" ? MutationObserver : undefined);
+  if (typeof Ctor !== "function") {
+    return () => {};
+  }
+  const observer = new Ctor(() => {
     if (panel.hidden) {
       onHidden();
     }
   });
   observer.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
-  return () => observer.disconnect();
+  return () => {
+    try {
+      observer.disconnect();
+    } catch {
+    }
+  };
 }
 
 export function mountPanelModalShell(options: PanelModalShellOptions): PanelModalShell {
-  const mountHost = options.mountHost || document.getElementById(ids.readingView);
+  const mountHost = options.mountHost || activeById(ids.readingView);
   if (!mountHost) {
     throw new Error("Panel modal mount host not found");
   }
@@ -179,7 +232,7 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
       cancelTriggerExit(el);
     }
   });
-  const host = document.createElement("div");
+  const host = resolveNodeDocument(mountHost).createElement("div");
   host.className = options.hostClassName;
   host.dataset.panelModalHost = "1";
   host.innerHTML = options.html;
@@ -195,8 +248,12 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
 
   const onDocumentClickCapture = (event: MouseEvent): void => {
     if (disposed || !isTopLayer()) return;
-    const view = host.parentElement || document.getElementById(ids.readingView);
-    if (view && event.target instanceof Node && view.contains(event.target)) {
+    if (!host.isConnected) {
+      options.onForceDismiss();
+      return;
+    }
+    const view = host.parentElement || activeById(ids.readingView);
+    if (view && isNode(event.target) && view.contains(event.target)) {
       return;
     }
     event.stopPropagation();
@@ -234,8 +291,33 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
     });
   }
 
-  document.addEventListener("click", onDocumentClickCapture, true);
-  document.addEventListener("keydown", onDocumentKeyDownCapture, true);
+  let boundDoc = resolveNodeDocument(host);
+  const bindToDoc = (doc: Document): void => {
+    boundDoc = doc;
+    boundDoc.addEventListener("click", onDocumentClickCapture, true);
+    boundDoc.addEventListener("keydown", onDocumentKeyDownCapture, true);
+  };
+  const unbindFromDoc = (): void => {
+    safeRemoveListener(boundDoc, "click", onDocumentClickCapture, true);
+    safeRemoveListener(boundDoc, "keydown", onDocumentKeyDownCapture, true);
+  };
+
+  bindToDoc(boundDoc);
+  const stopHostWatch = onActiveHostChange((ctx) => {
+    if (disposed) return;
+    unbindFromDoc();
+    let sameHost = false;
+    try {
+      sameHost = Boolean(host.isConnected && host.ownerDocument === ctx.doc);
+    } catch {
+      sameHost = false;
+    }
+    if (sameHost) {
+      bindToDoc(ctx.doc);
+      return;
+    }
+    options.onForceDismiss();
+  });
   const stopObservingHidden = observeSettingsPanelHidden(() => {
     if (!disposed) {
       options.onForceDismiss();
@@ -248,11 +330,17 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
     dispose(restoreFocus = true): void {
       if (disposed) return;
       disposed = true;
+      stopHostWatch();
       stopObservingHidden();
-      document.removeEventListener("click", onDocumentClickCapture, true);
-      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-      restoreSiblings();
-      focusScope?.dispose(restoreFocus);
+      unbindFromDoc();
+      try {
+        restoreSiblings();
+      } catch {
+      }
+      try {
+        focusScope?.dispose(restoreFocus);
+      } catch {
+      }
       if (dialog) {
         animateTriggerExit({
           target: dialog,
@@ -262,10 +350,18 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
           fallbackOrigin: "top right",
           toScale: 0.94,
           durationMs: 130,
-          onFinish: () => host.remove()
+          onFinish: () => {
+            try {
+              host.remove();
+            } catch {
+            }
+          }
         });
       } else {
-        host.remove();
+        try {
+          host.remove();
+        } catch {
+        }
       }
     }
   };

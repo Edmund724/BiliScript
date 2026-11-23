@@ -1,3 +1,6 @@
+import { getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
+import { isEditableTarget, resolveNodeWindow, scheduleActiveAnimationFrame } from "../shared/cross-doc.js";
+
 export const DEFAULT_FOLLOW_THRESHOLD_PX = 40;
 export const DEFAULT_BUTTON_THRESHOLD_PX = 120;
 
@@ -22,29 +25,69 @@ export interface ChatScrollFollowController {
   isHolding: () => boolean;
 }
 
-function scheduleDefaultFrame(cb: () => void): () => void {
-  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-    const id = window.requestAnimationFrame(cb);
-    return () => window.cancelAnimationFrame(id);
+function scheduleDefaultFrame(
+  cb: () => void,
+  targetNode?: unknown,
+  preferredWin?: Window | null
+): () => void {
+  let nodeWin: Window | null | undefined = preferredWin;
+  if (!nodeWin) {
+    try {
+      nodeWin =
+        targetNode && typeof targetNode === "object" && "nodeType" in targetNode
+          ? resolveNodeWindow(targetNode as Node)
+          : getActiveReaderWindow();
+    } catch {
+      nodeWin = getActiveReaderWindow();
+    }
   }
-  if (typeof window !== "undefined") {
-    const id = window.setTimeout(cb, 16);
-    return () => window.clearTimeout(id);
+  if (typeof nodeWin?.requestAnimationFrame === "function") {
+    const handle = scheduleActiveAnimationFrame(cb, nodeWin);
+    return () => handle.cancel();
   }
-  const id: ReturnType<typeof setTimeout> = setTimeout(cb, 16);
-  return () => clearTimeout(id);
+  let cleared = false;
+  let timerId: ReturnType<typeof setTimeout> | number;
+  let usedWin = false;
+  try {
+    if (typeof nodeWin?.setTimeout === "function") {
+      timerId = nodeWin.setTimeout(cb, 16);
+      usedWin = true;
+    } else {
+      timerId = setTimeout(cb, 16);
+    }
+  } catch {
+    timerId = setTimeout(cb, 16);
+  }
+  return () => {
+    if (cleared) return;
+    cleared = true;
+    if (usedWin) {
+      try {
+        nodeWin?.clearTimeout(timerId as number);
+        return;
+      } catch {
+      }
+    }
+    clearTimeout(timerId);
+  };
 }
 
 export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatScrollFollowController {
   const followThreshold = deps.followThresholdPx ?? DEFAULT_FOLLOW_THRESHOLD_PX;
   const buttonThreshold = deps.buttonThresholdPx ?? DEFAULT_BUTTON_THRESHOLD_PX;
 
-  const scheduleFrame: (cb: () => void) => () => void = deps.requestFrame
+  const scheduleCustomFrame: ((cb: () => void) => () => void) | null = deps.requestFrame
     ? (cb) => {
         const handle = deps.requestFrame!(cb);
         return () => {
+          const activeWin = getActiveReaderWindow();
           if (deps.cancelFrame) {
             deps.cancelFrame(handle);
+          } else if (typeof activeWin?.cancelAnimationFrame === "function") {
+            try {
+              activeWin.cancelAnimationFrame(handle);
+            } catch {
+            }
           } else if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
             window.cancelAnimationFrame(handle);
           } else if (typeof window !== "undefined") {
@@ -54,9 +97,10 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
           }
         };
       }
-    : scheduleDefaultFrame;
+    : null;
 
   let cancelScheduledFrame: (() => void) | null = null;
+  let stopFrameHostWatch: (() => void) | null = null;
   let scrollBottomHold = false;
 
   function computeDistances(): { nearBottom: boolean; showButton: boolean } {
@@ -100,15 +144,25 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     deps.messages.addEventListener("keydown", releaseScrollBottomHold);
   }
 
+  function clearFrameHostWatch(): void {
+    stopFrameHostWatch?.();
+    stopFrameHostWatch = null;
+  }
+
   function cancelPendingFrame(): void {
+    clearFrameHostWatch();
     if (cancelScheduledFrame !== null) {
       const cancel = cancelScheduledFrame;
       cancelScheduledFrame = null;
-      cancel();
+      try {
+        cancel();
+      } catch {
+      }
     }
   }
 
   function flushScrollAutoScrollSync(): void {
+    clearFrameHostWatch();
     cancelScheduledFrame = null;
     const { nearBottom, showButton } = computeDistances();
     if (!nearBottom && scrollBottomHold) {
@@ -120,11 +174,32 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     setScrollBottomVisible(showButton);
   }
 
+  function schedulePendingFrame(preferredWin?: Window | null): void {
+    cancelScheduledFrame = scheduleCustomFrame
+      ? scheduleCustomFrame(flushScrollAutoScrollSync)
+      : scheduleDefaultFrame(flushScrollAutoScrollSync, deps.messages, preferredWin);
+    if (!scheduleCustomFrame && !stopFrameHostWatch) {
+      stopFrameHostWatch = onActiveHostChange((ctx) => {
+        if (cancelScheduledFrame === null) {
+          clearFrameHostWatch();
+          return;
+        }
+        const cancel = cancelScheduledFrame;
+        cancelScheduledFrame = null;
+        try {
+          cancel();
+        } catch {
+        }
+        schedulePendingFrame(ctx.win);
+      });
+    }
+  }
+
   function notifyScrolled(): void {
     if (cancelScheduledFrame !== null) {
       return;
     }
-    cancelScheduledFrame = scheduleFrame(flushScrollAutoScrollSync);
+    schedulePendingFrame();
   }
 
   function onWheel(e: Event): void {
@@ -144,7 +219,7 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
 
   function onKeydown(e: KeyboardEvent): void {
     const target = e.target;
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) {
+    if (isEditableTarget(target)) {
       return;
     }
     if (e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home") {

@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { activeById, getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
+import { safeRemoveListener } from "../shared/cross-doc.js";
 import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
@@ -70,41 +72,41 @@ export {
 ensureReaderChatStyles();
 
 const els = {
-  root: document.getElementById(ids.readingChatRoot) as HTMLElement,
-  modelChip: document.getElementById(ids.readingChatModelChip) as HTMLButtonElement,
-  modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
-  modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
-  thinkingToggle: document.getElementById(ids.readingChatThinkingToggle) as HTMLElement,
-  thinkingRow: document.getElementById(ids.readingChatThinkingRow) as HTMLElement,
-  thinkingRowValue: document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement,
-  webSearchPill: document.getElementById(ids.readingChatWebSearchPill) as HTMLElement | null,
-  newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,
-  historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
-  moreBtn: document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement | null,
-  moreMenu: document.getElementById(ids.readingChatMoreMenu) as HTMLElement | null,
-  displaySettingsBtn: document.getElementById(ids.readingChatDisplaySettingsBtn) as HTMLButtonElement | null,
-  lineHeightSlider: document.getElementById(ids.readingChatLineHeight) as HTMLInputElement | null,
-  lineHeightValue: document.getElementById(ids.readingChatLineHeightValue) as HTMLElement | null,
-  lineHeightResetBtn: document.getElementById(ids.readingChatLineHeightResetBtn) as HTMLButtonElement | null,
-  paraSpacingSlider: document.getElementById(ids.readingChatParagraphSpacing) as HTMLInputElement | null,
-  paraSpacingValue: document.getElementById(ids.readingChatParagraphSpacingValue) as HTMLElement | null,
-  paraSpacingResetBtn: document.getElementById(ids.readingChatParagraphSpacingResetBtn) as HTMLButtonElement | null,
-  historyPopover: document.getElementById(ids.readingChatHistoryPopover) as HTMLElement,
-  historyList: document.getElementById(ids.readingChatHistoryList) as HTMLElement,
-  historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
-  historyBackBtn: document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement | null,
-  messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
-  scrollBottomBtn: document.getElementById(ids.readingChatScrollBottomBtn) as HTMLButtonElement,
-  input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
-  imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
-  sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
-  asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
-  liveStatus: document.getElementById(ids.readingChatLiveStatus) as HTMLElement | null,
-  intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
-  speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
-  speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
-  speechVolumeValue: document.getElementById(ids.readingChatSpeechVolumeValue) as HTMLElement | null,
-  speechVolumeResetBtn: document.getElementById(ids.readingChatSpeechVolumeResetBtn) as HTMLButtonElement | null
+  root: activeById(ids.readingChatRoot) as HTMLElement,
+  modelChip: activeById<HTMLButtonElement>(ids.readingChatModelChip) as HTMLButtonElement,
+  modelPanel: activeById(ids.readingChatModelPanel) as HTMLElement,
+  modelPanelList: activeById(ids.readingChatModelList) as HTMLElement,
+  thinkingToggle: activeById(ids.readingChatThinkingToggle) as HTMLElement,
+  thinkingRow: activeById(ids.readingChatThinkingRow) as HTMLElement,
+  thinkingRowValue: activeById(ids.readingChatThinkingRowValue) as HTMLElement,
+  webSearchPill: activeById(ids.readingChatWebSearchPill),
+  newChatBtn: activeById<HTMLButtonElement>(ids.readingChatNewBtn) as HTMLButtonElement,
+  historyBtn: activeById<HTMLButtonElement>(ids.readingChatHistoryBtn) as HTMLButtonElement,
+  moreBtn: activeById<HTMLButtonElement>(ids.readingChatMoreBtn),
+  moreMenu: activeById(ids.readingChatMoreMenu),
+  displaySettingsBtn: activeById<HTMLButtonElement>(ids.readingChatDisplaySettingsBtn),
+  lineHeightSlider: activeById<HTMLInputElement>(ids.readingChatLineHeight),
+  lineHeightValue: activeById(ids.readingChatLineHeightValue),
+  lineHeightResetBtn: activeById<HTMLButtonElement>(ids.readingChatLineHeightResetBtn),
+  paraSpacingSlider: activeById<HTMLInputElement>(ids.readingChatParagraphSpacing),
+  paraSpacingValue: activeById(ids.readingChatParagraphSpacingValue),
+  paraSpacingResetBtn: activeById<HTMLButtonElement>(ids.readingChatParagraphSpacingResetBtn),
+  historyPopover: activeById(ids.readingChatHistoryPopover) as HTMLElement,
+  historyList: activeById(ids.readingChatHistoryList) as HTMLElement,
+  historyClearBtn: activeById<HTMLButtonElement>(ids.readingChatHistoryClearBtn),
+  historyBackBtn: activeById<HTMLButtonElement>(ids.readingChatHistoryBackBtn),
+  messages: activeById(ids.readingChatMessages) as HTMLElement,
+  scrollBottomBtn: activeById<HTMLButtonElement>(ids.readingChatScrollBottomBtn) as HTMLButtonElement,
+  input: activeById<HTMLTextAreaElement>(ids.readingChatInput) as HTMLTextAreaElement,
+  imageStrip: activeById(ids.readingChatImageStrip),
+  sendBtn: activeById<HTMLButtonElement>(ids.readingChatSendBtn) as HTMLButtonElement,
+  asrNotice: activeById(ids.readingChatAsrNotice),
+  liveStatus: activeById(ids.readingChatLiveStatus),
+  intentCard: activeById(ids.readingChatIntent),
+  speechVolume: activeById(ids.readingChatSpeechVolume),
+  speechVolumeInput: activeById<HTMLInputElement>(ids.readingChatSpeechVolumeInput),
+  speechVolumeValue: activeById(ids.readingChatSpeechVolumeValue),
+  speechVolumeResetBtn: activeById<HTMLButtonElement>(ids.readingChatSpeechVolumeResetBtn)
 };
 
 function requireShell(): void {
@@ -418,7 +420,7 @@ const modelPanel = createReaderChatModelPanel({
   thinkingToggle: els.thinkingToggle,
   thinkingRow: els.thinkingRow,
   thinkingRowValue: els.thinkingRowValue,
-  thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
+  thinkingHint: activeById(ids.readingChatThinkingHint),
   webSearchPill: els.webSearchPill,
   storage: chrome.storage.local,
   hidePanel: () => popovers.hideModelPanel(),
@@ -525,8 +527,18 @@ const sessionTriggers = createReaderChatSessionTriggers({
     return () => setChatTabOutsideClickHandler(null);
   },
   escapeKey: () => {
-    window.addEventListener("keydown", onWindowEscapeKey);
-    return () => window.removeEventListener("keydown", onWindowEscapeKey);
+    let boundWin: Window | null = getActiveReaderWindow();
+    boundWin.addEventListener("keydown", onWindowEscapeKey);
+    const stopWatch = onActiveHostChange((ctx) => {
+      safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+      boundWin = ctx.win;
+      boundWin.addEventListener("keydown", onWindowEscapeKey);
+    });
+    return () => {
+      stopWatch();
+      safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+      boundWin = null;
+    };
   }
 });
 

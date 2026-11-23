@@ -1,3 +1,13 @@
+import { getActiveReaderDocument, onActiveHostChange } from "../shared/active-host.js";
+import {
+  dispatchCrossDocEvent,
+  isElementNode,
+  isHtmlElement,
+  isTagElement,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+} from "../shared/cross-doc.js";
 import { ensureCustomSelectStyles } from "../shared/style-injector.js";
 import { READING_CHEVRON_DOWN_ICON } from "./reading-icons.js";
 
@@ -45,19 +55,23 @@ export function rebuildCustomSelectOptions(select: HTMLSelectElement): void {
   if (!ops) return;
   const wrapper = select.closest<HTMLElement>(".custom-select-wrapper");
   const dropdown = wrapper?.querySelector<HTMLElement>(".custom-select-dropdown");
-  const hadListFocus = !!dropdown && !dropdown.hidden && document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement);
+  const doc = resolveNodeDocument(select);
+  const active = doc.activeElement;
+  const hadListFocus = !!dropdown && !dropdown.hidden && isHtmlElement(active) && dropdown.contains(active);
   const options = ops.rebuild();
   if (!hadListFocus || !dropdown) return;
-  if (dropdown.querySelector(".custom-select-search-input") === document.activeElement) return;
+  if (dropdown.querySelector(".custom-select-search-input") === doc.activeElement) return;
   (options.find((option) => option.dataset.value === select.value) ?? options[0])?.focus();
 }
 
 export function closeAllCustomSelects(except?: HTMLElement): void {
-  document.querySelectorAll<HTMLElement>('.custom-select-dropdown:not([data-inline="true"])').forEach((dropdown) => {
-    if (dropdown === except) return;
-    dropdown.hidden = true;
-    dropdown.closest(".custom-select-wrapper")?.querySelector<HTMLButtonElement>(".custom-select-trigger")?.setAttribute("aria-expanded", "false");
-  });
+  getActiveReaderDocument()
+    .querySelectorAll<HTMLElement>('.custom-select-dropdown:not([data-inline="true"])')
+    .forEach((dropdown) => {
+      if (dropdown === except) return;
+      dropdown.hidden = true;
+      dropdown.closest(".custom-select-wrapper")?.querySelector<HTMLButtonElement>(".custom-select-trigger")?.setAttribute("aria-expanded", "false");
+    });
   customSelectDismissal.sync();
 }
 
@@ -83,52 +97,112 @@ export function createOutsideClickDismissal({
   closeOnEscape
 }: OutsideClickDismissalConfig): OutsideClickDismissalController {
   const observedDropdowns = new WeakSet<HTMLElement>();
+  const trackedDropdowns = new Set<HTMLElement>();
   const openDropdowns = new Set<HTMLElement>();
   let listening = false;
+  let boundDoc: Document | null = null;
   let disposed = false;
+
+  const detachListeners = (): void => {
+    if (!listening) return;
+    safeRemoveListener(boundDoc, "click", onDocumentClickCapture, true);
+    safeRemoveListener(boundDoc, "keydown", onDocumentKeyDownCapture, true);
+    boundDoc = null;
+    listening = false;
+  };
+
+  const attachListeners = (doc: Document): void => {
+    boundDoc = doc;
+    boundDoc.addEventListener("click", onDocumentClickCapture, true);
+    boundDoc.addEventListener("keydown", onDocumentKeyDownCapture, true);
+    listening = true;
+  };
 
   const sync = (): void => {
     if (disposed) return;
-    for (const node of openDropdowns) {
-      if (node.hidden || !node.isConnected) {
+    for (const node of [...trackedDropdowns]) {
+      try {
+        if (!node.isConnected) {
+          trackedDropdowns.delete(node);
+          openDropdowns.delete(node);
+          continue;
+        }
+        if (node.hidden) {
+          openDropdowns.delete(node);
+        } else {
+          openDropdowns.add(node);
+        }
+      } catch {
+        trackedDropdowns.delete(node);
         openDropdowns.delete(node);
       }
     }
-    const hasOpen = openDropdowns.size > 0 || document.querySelector(openDropdownSelector) !== null;
-    if (hasOpen && !listening) {
-      document.addEventListener("click", onDocumentClickCapture, true);
-      document.addEventListener("keydown", onDocumentKeyDownCapture, true);
-      listening = true;
-    } else if (!hasOpen && listening) {
-      document.removeEventListener("click", onDocumentClickCapture, true);
-      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-      listening = false;
+    for (const node of [...openDropdowns]) {
+      try {
+        if (node.hidden || !node.isConnected) {
+          openDropdowns.delete(node);
+        }
+      } catch {
+        openDropdowns.delete(node);
+      }
+    }
+    const activeDoc = getActiveReaderDocument();
+    const hasOpen = openDropdowns.size > 0 || activeDoc.querySelector(openDropdownSelector) !== null;
+    if (hasOpen) {
+      if (!listening) {
+        attachListeners(activeDoc);
+      } else if (boundDoc !== activeDoc) {
+        detachListeners();
+        attachListeners(activeDoc);
+      }
+    } else if (listening) {
+      detachListeners();
     }
   };
 
-  const hiddenObserver =
-    typeof MutationObserver === "function"
-      ? new MutationObserver((records) => {
-          if (disposed) return;
-          for (const record of records) {
-            const target = record.target;
-            if (!(target instanceof HTMLElement)) continue;
-            if (target.hidden || !target.isConnected) {
-              openDropdowns.delete(target);
-            } else {
-              openDropdowns.add(target);
-            }
+  const observersByCtor = new Map<typeof MutationObserver, MutationObserver>();
+
+  const getDropdownObserver = (dropdown: HTMLElement): MutationObserver | null => {
+    const win = resolveNodeWindow(dropdown) as Window & {
+      MutationObserver?: typeof MutationObserver;
+    };
+    const Ctor =
+      win?.MutationObserver ??
+      (typeof MutationObserver === "function" ? MutationObserver : undefined);
+    if (typeof Ctor !== "function") {
+      return null;
+    }
+    const existing = observersByCtor.get(Ctor);
+    if (existing) {
+      return existing;
+    }
+    const observer = new Ctor((records) => {
+      if (disposed) return;
+      for (const record of records) {
+        try {
+          const target = record.target;
+          if (!isHtmlElement(target)) continue;
+          if (target.hidden || !target.isConnected) {
+            openDropdowns.delete(target);
+          } else {
+            openDropdowns.add(target);
           }
-          sync();
-        })
-      : null;
+        } catch {
+        }
+      }
+      sync();
+    });
+    observersByCtor.set(Ctor, observer);
+    return observer;
+  };
 
   const onDocumentClickCapture = (event: MouseEvent): void => {
-    if (document.querySelector(openDropdownSelector) === null) {
+    const activeDoc = getActiveReaderDocument();
+    if (activeDoc.querySelector(openDropdownSelector) === null) {
       sync();
       return;
     }
-    if (event.target instanceof Element && event.target.closest(wrapperSelector)) return;
+    if (isElementNode(event.target) && event.target.closest(wrapperSelector)) return;
     event.stopImmediatePropagation();
     closeAll();
     sync();
@@ -136,7 +210,8 @@ export function createOutsideClickDismissal({
 
   const onDocumentKeyDownCapture = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
-    const dropdown = document.querySelector<HTMLElement>(openDropdownSelector);
+    const activeDoc = getActiveReaderDocument();
+    const dropdown = activeDoc.querySelector<HTMLElement>(openDropdownSelector);
     if (!dropdown) {
       sync();
       return;
@@ -151,20 +226,60 @@ export function createOutsideClickDismissal({
     }
     sync();
     trigger?.focus({ preventScroll: true });
-    if (document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement)) {
-      document.activeElement.blur();
+    if (isHtmlElement(activeDoc.activeElement) && dropdown.contains(activeDoc.activeElement)) {
+      activeDoc.activeElement.blur();
     }
   };
 
+  const stopHostWatch = onActiveHostChange(() => {
+    if (disposed) return;
+    detachListeners();
+    for (const node of [...trackedDropdowns]) {
+      try {
+        if (!node.isConnected) {
+          trackedDropdowns.delete(node);
+          openDropdowns.delete(node);
+          continue;
+        }
+        if (!node.hidden) {
+          node.hidden = true;
+          node.closest(wrapperSelector)?.querySelector<HTMLElement>(triggerSelector)?.setAttribute("aria-expanded", "false");
+        }
+      } catch {
+        trackedDropdowns.delete(node);
+        openDropdowns.delete(node);
+      }
+    }
+    for (const node of [...openDropdowns]) {
+      try {
+        if (!node.hidden) {
+          node.hidden = true;
+          node.closest(wrapperSelector)?.querySelector<HTMLElement>(triggerSelector)?.setAttribute("aria-expanded", "false");
+        }
+      } catch {
+      }
+    }
+    openDropdowns.clear();
+    closeAll();
+    sync();
+  });
+
   const observeDropdown = (dropdown: HTMLElement): void => {
     if (disposed) return;
+    trackedDropdowns.add(dropdown);
     if (observedDropdowns.has(dropdown)) {
       if (!dropdown.hidden) openDropdowns.add(dropdown);
       sync();
       return;
     }
     observedDropdowns.add(dropdown);
-    hiddenObserver?.observe(dropdown, { attributes: true, attributeFilter: ["hidden"] });
+    try {
+      getDropdownObserver(dropdown)?.observe(dropdown, {
+        attributes: true,
+        attributeFilter: ["hidden"]
+      });
+    } catch {
+    }
     if (!dropdown.hidden) {
       openDropdowns.add(dropdown);
     }
@@ -174,13 +289,17 @@ export function createOutsideClickDismissal({
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
-    hiddenObserver?.disconnect();
-    openDropdowns.clear();
-    if (listening) {
-      document.removeEventListener("click", onDocumentClickCapture, true);
-      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-      listening = false;
+    stopHostWatch();
+    for (const observer of observersByCtor.values()) {
+      try {
+        observer.disconnect();
+      } catch {
+      }
     }
+    observersByCtor.clear();
+    trackedDropdowns.clear();
+    openDropdowns.clear();
+    detachListeners();
   };
 
   return { observeDropdown, sync, dispose };
@@ -234,10 +353,11 @@ export interface SearchableOptionListController {
 }
 
 export function createSearchableOptionList(config: SearchableOptionListConfig): SearchableOptionListController {
-  const searchItem = document.createElement("li");
+  const doc = resolveNodeDocument(config.dropdown);
+  const searchItem = doc.createElement("li");
   searchItem.className = config.searchItemClass;
   searchItem.setAttribute("role", "presentation");
-  const searchInput = document.createElement("input");
+  const searchInput = doc.createElement("input");
   searchInput.type = "text";
   searchInput.className = config.searchInputClass;
   searchInput.placeholder = config.placeholder;
@@ -246,7 +366,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
   searchInput.spellcheck = false;
   searchItem.appendChild(searchInput);
 
-  const emptyItem = document.createElement("li");
+  const emptyItem = doc.createElement("li");
   emptyItem.className = config.emptyItemClass;
   emptyItem.setAttribute("role", "presentation");
   emptyItem.textContent = "无匹配选项";
@@ -301,13 +421,12 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     }
   };
 
-  const listenerOpts = config.signal ? { signal: config.signal } : undefined;
-  searchInput.addEventListener("click", (e) => e.stopPropagation(), listenerOpts);
-  searchInput.addEventListener("input", (e) => {
+  const onSearchClick = (e: MouseEvent): void => e.stopPropagation();
+  const onSearchInput = (e: Event): void => {
     e.stopPropagation();
     filter();
-  }, listenerOpts);
-  searchInput.addEventListener("keydown", (e) => {
+  };
+  const onSearchKeyDown = (e: KeyboardEvent): void => {
     if (config.isDisabled?.()) return;
     if (e.isComposing) return;
     const options = config.getOptions();
@@ -327,7 +446,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     } else if (e.key === "Tab") {
       config.onTab?.();
     }
-  }, listenerOpts);
+  };
 
   function getOuterOpenDropdown(dropdown: HTMLElement): HTMLElement {
     let current = dropdown;
@@ -387,14 +506,15 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     });
   }
 
-  config.dropdown.addEventListener("keydown", (e) => {
+  const onDropdownKeyDown = (e: KeyboardEvent): void => {
     if (config.isDisabled?.()) return;
-    if (document.activeElement === searchInput) return;
+    const activeDoc = resolveNodeDocument(config.dropdown);
+    if (activeDoc.activeElement === searchInput) return;
     const outerDropdown = getOuterOpenDropdown(config.dropdown);
     const isNested = outerDropdown !== config.dropdown;
-    const active = document.activeElement;
+    const active = activeDoc.activeElement;
     const isForeignInteractiveControl =
-      active instanceof HTMLElement &&
+      isHtmlElement(active) &&
       active !== config.dropdown &&
       config.dropdown.contains(active) &&
       !active.classList.contains("custom-select-option") &&
@@ -411,13 +531,13 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       if (isNested) return;
       const tabbables = getInternalTabbables(outerDropdown);
       const hasTargetInside =
-        active instanceof HTMLElement && outerDropdown.contains(active)
+        isHtmlElement(active) && outerDropdown.contains(active)
           ? tabbables.some((el) => {
               if (el === active) return false;
               const pos = active.compareDocumentPosition(el);
               return e.shiftKey
-                ? Boolean(pos & Node.DOCUMENT_POSITION_PRECEDING)
-                : Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+                ? Boolean(pos & 2)
+                : Boolean(pos & 4);
             })
           : false;
       if (!hasTargetInside) {
@@ -428,9 +548,9 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
 
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       const columns = getVisibleOptionColumns(outerDropdown);
-      if (columns.length > 1 && active instanceof HTMLElement) {
+      if (columns.length > 1 && isHtmlElement(active)) {
         const currentCol = active.closest(".custom-select-list, .biliscript-bilingual-list, .custom-select-dropdown");
-        const colIdx = currentCol instanceof HTMLElement ? columns.indexOf(currentCol) : -1;
+        const colIdx = isHtmlElement(currentCol) ? columns.indexOf(currentCol) : -1;
         if (colIdx !== -1) {
           const targetIdx = e.key === "ArrowRight" ? colIdx + 1 : colIdx - 1;
           if (targetIdx >= 0 && targetIdx < columns.length) {
@@ -455,7 +575,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       return;
     }
     const current =
-      active instanceof HTMLLIElement && visibleOptions.includes(active)
+      isTagElement(active, "li") && visibleOptions.includes(active)
         ? visibleOptions.indexOf(active)
         : config.fallbackToSelectedOnRove
           ? visibleOptions.findIndex((o) => o.dataset.selected === "true")
@@ -490,7 +610,25 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
       if (option) config.onSelect(option);
     }
-  }, listenerOpts);
+  };
+
+  const cleanup = (): void => {
+    safeRemoveListener(searchInput, "click", onSearchClick);
+    safeRemoveListener(searchInput, "input", onSearchInput);
+    safeRemoveListener(searchInput, "keydown", onSearchKeyDown);
+    safeRemoveListener(config.dropdown, "keydown", onDropdownKeyDown);
+    if (config.signal) {
+      safeRemoveListener(config.signal, "abort", cleanup);
+    }
+  };
+
+  if (!config.signal?.aborted) {
+    searchInput.addEventListener("click", onSearchClick);
+    searchInput.addEventListener("input", onSearchInput);
+    searchInput.addEventListener("keydown", onSearchKeyDown);
+    config.dropdown.addEventListener("keydown", onDropdownKeyDown);
+    config.signal?.addEventListener("abort", cleanup, { once: true });
+  }
 
   return {
     searchItem,
@@ -504,14 +642,15 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
 }
 
 function resolveFieldLabel(select: HTMLSelectElement): HTMLLabelElement | null {
-  const explicit = select.labels?.[0] ?? (select.id ? document.querySelector<HTMLLabelElement>(`label[for="${select.id}"]`) : null);
+  const doc = resolveNodeDocument(select);
+  const explicit = select.labels?.[0] ?? (select.id ? doc.querySelector<HTMLLabelElement>(`label[for="${select.id}"]`) : null);
   if (explicit) return explicit;
   const prev = select.previousElementSibling;
-  return prev instanceof HTMLLabelElement ? prev : null;
+  return isTagElement(prev, "label") ? prev : null;
 }
 
 function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
-  const li = document.createElement("li");
+  const li = resolveNodeDocument(option).createElement("li");
   li.className = "custom-select-option";
   li.dataset.value = option.value;
   if (option.dataset.triggerLabel) {
@@ -551,12 +690,13 @@ export function initCustomSelect(
     select.addEventListener("change", () => onChange(select));
   }
 
+  const doc = resolveNodeDocument(select);
   const currentValue = select.value;
 
-  const wrapper = document.createElement("div");
+  const wrapper = doc.createElement("div");
   wrapper.className = wrapperClass;
 
-  const trigger = document.createElement("button");
+  const trigger = doc.createElement("button");
   trigger.type = "button";
   trigger.className = "custom-select-trigger";
   trigger.setAttribute("aria-haspopup", "listbox");
@@ -572,7 +712,7 @@ export function initCustomSelect(
     fieldLabel.htmlFor = trigger.id;
   }
 
-  const valueSpan = document.createElement("span");
+  const valueSpan = doc.createElement("span");
   valueSpan.className = "custom-select-value";
   if (fieldLabel) {
     valueSpan.id = `custom-select-value-${++customSelectSeq}`;
@@ -586,14 +726,14 @@ export function initCustomSelect(
   };
   syncLabelBasedName();
 
-  const arrow = document.createElement("span");
+  const arrow = doc.createElement("span");
   arrow.className = "custom-select-arrow";
   arrow.innerHTML = READING_CHEVRON_DOWN_ICON;
 
   trigger.appendChild(valueSpan);
   trigger.appendChild(arrow);
 
-  const dropdown = document.createElement("ul");
+  const dropdown = doc.createElement("ul");
   dropdown.className = "custom-select-dropdown";
   if (inline) {
     dropdown.dataset.inline = "true";
@@ -673,8 +813,9 @@ export function initCustomSelect(
     searchableList.reset();
     if (!refocusTrigger) return;
     trigger.focus({ preventScroll: true });
-    if (document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement)) {
-      document.activeElement.blur();
+    const activeEl = resolveNodeDocument(dropdown).activeElement;
+    if (isHtmlElement(activeEl) && dropdown.contains(activeEl)) {
+      activeEl.blur();
     }
   };
 
@@ -683,7 +824,7 @@ export function initCustomSelect(
     if (value === undefined) return;
     setCustomSelectValue(select, value);
     closeList(true);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    dispatchCrossDocEvent(select, "change", { bubbles: true });
   };
 
   const searchableList = createSearchableOptionList({
