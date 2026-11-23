@@ -331,7 +331,7 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
     });
 
     it("T1-F05-05: mirrored stylesheets and theme datasets survive in-place mode switch", async () => {
-      const h = await bootHarness({ sync: { readerTheme: "dark", readerPalette: "editorial" } });
+      const h = await bootHarness({ sync: { readerTheme: "dark", readerThemeUserSet: true, readerPalette: "editorial" } });
       await h.openReaderInPage();
       await h.detachReader();
       await switchDetachedModeInSettings(h, "popup");
@@ -785,10 +785,13 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       const { injectScriptButton } = await import("../../extension/ui/script-button.js");
       injectScriptButton();
       await h.openReaderInPage();
-      await h.detachReader();
+      const childWin = await h.detachReader();
+      const viewBefore = childWin.document.getElementById("biliscript-reading-view");
       await h.flushTimersAndMicrotasks(7000);
-      expect(document.getElementById("biliscript-script-button")).toBeNull();
-      expect(h.fakePlatform.getCurrentActiveChild()).not.toBeNull();
+      expect(h.fakePlatform.getCurrentActiveChild()).toBe(childWin);
+      expect(childWin.closed).toBe(false);
+      expect(childWin.document.getElementById("biliscript-reading-view")).toBe(viewBefore);
+      expect(document.querySelectorAll("#biliscript-script-button")).toHaveLength(1);
     });
 
     it("T1-F13-04: redocking resumes script-host anchoring and restores anchor vars", async () => {
@@ -888,10 +891,30 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
     });
 
     it("T1-F15-03: clicking overview chapter timestamp in detached window seeks opener <video>", async () => {
-      const h = await bootHarness();
+      const h = await bootHarness({
+        sync: {
+          defaultAiModel: "openai-1::gpt-4o-mini",
+          aiProviders: [{ id: "openai-1", name: "OpenAI", presetId: "openai", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true }]
+        },
+        local: {
+          aiProviderKeys: { "openai-1": "sk-test" }
+        }
+      });
+      const { state } = await import("../../extension/core/state.js");
+      const { buildClipOverviewIdentity, saveAnalysisFinal } = await import("../../extension/ai/l1-chapter-index.js");
+      const identity = buildClipOverviewIdentity(state.clip);
+      await saveAnalysisFinal(identity.finalKey, {
+        summary: "测试全片概览简介",
+        chapters: [
+          { from: 0, to: 30, title: "开篇简介", summary: "开篇" },
+          { from: 90, to: 180, title: "核心原理", summary: "核心" }
+        ],
+        quotes: []
+      });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       await h.switchTabInActiveHost("overview");
+      await h.flushTimersAndMicrotasks(60);
       const chapter = getFirstOverviewChapter(childWin.document, 1);
       expect(chapter).not.toBeNull();
       chapter?.click();
@@ -1178,7 +1201,15 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
     });
 
     it("T1-F20-03: quick AI prompt executes and records prompt in detached chat session", async () => {
-      const h = await bootHarness();
+      const h = await bootHarness({
+        sync: {
+          defaultAiModel: "openai-1::gpt-4o-mini",
+          aiProviders: [{ id: "openai-1", name: "OpenAI", presetId: "openai", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true }]
+        },
+        local: {
+          aiProviderKeys: { "openai-1": "sk-test" }
+        }
+      });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       await h.dispatchMessage({
@@ -1830,10 +1861,11 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       const h = await bootHarness();
       const activeHost = await loadActiveHostContract();
       const childDoc = document.implementation.createHTMLDocument("Child");
+      const childWin = { closed: false, document: childDoc } as unknown as Window;
       const listener = vi.fn();
       const unsub = activeHost.onActiveHostChange(listener);
-      activeHost.setActiveReaderHost(childDoc, window);
-      activeHost.setActiveReaderHost(childDoc, window);
+      activeHost.setActiveReaderHost(childDoc, childWin);
+      activeHost.setActiveReaderHost(childDoc, childWin);
       unsub();
       expect(listener).toHaveBeenCalledTimes(1);
       activeHost.resetActiveReaderHost();
@@ -1964,6 +1996,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
 
     it("T2-F08-04: mutating detached childDoc attributes does not fool Bilibili host theme probe", async () => {
       const h = await bootHarness({ sync: { readerTheme: "bilibili" } });
+      document.documentElement.setAttribute("data-theme", "light");
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       childWin.document.documentElement.setAttribute("data-theme", "dark");
@@ -2031,7 +2064,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
 
   describe("Feature #10: Live Presentation & Token Mirroring (Boundary & Negative)", () => {
     it("T2-F10-01: external storage.sync readerTheme change propagates live into detached window", async () => {
-      const h = await bootHarness({ sync: { readerTheme: "light" } });
+      const h = await bootHarness({ sync: { readerTheme: "light", readerThemeUserSet: true } });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       h.storage.emitExternalChange("sync", "readerTheme", "light", "dark");
@@ -2069,7 +2102,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
     });
 
     it("T2-F10-05: explicit dark readerTheme overrides light Bilibili host theme inside detached doc", async () => {
-      const h = await bootHarness({ sync: { readerTheme: "dark" } });
+      const h = await bootHarness({ sync: { readerTheme: "dark", readerThemeUserSet: true } });
       document.documentElement.removeAttribute("data-theme");
       await h.openReaderInPage();
       const childWin = await h.detachReader();
@@ -2160,8 +2193,9 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       const shell = await loadShellContract();
       await h.openReaderInPage();
       await h.attemptDetachReader();
-      await shell.exitReaderShell();
+      const exitPromise = shell.exitReaderShell();
       await h.flushTimersAndMicrotasks(450);
+      await exitPromise;
       expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
     });
 
@@ -2591,7 +2625,15 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
     });
 
     it("T2-F20-02: quick AI prompt while already on chat tab in detached window focuses and processes new prompt", async () => {
-      const h = await bootHarness();
+      const h = await bootHarness({
+        sync: {
+          defaultAiModel: "openai-1::gpt-4o-mini",
+          aiProviders: [{ id: "openai-1", name: "OpenAI", presetId: "openai", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true }]
+        },
+        local: {
+          aiProviderKeys: { "openai-1": "sk-test" }
+        }
+      });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       await h.switchTabInActiveHost("chat");
@@ -3197,10 +3239,12 @@ describe("Tier 3: Pairwise Feature Interactions", () => {
     expect(getReadingViewAnchorVars(firstWin.document.getElementById("biliscript-reading-view")!)).toEqual([]);
     await h.redockReader();
     expect(getReadingViewAnchorVars(document.getElementById("biliscript-reading-view")!).length).toBeGreaterThan(0);
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
     const secondWin = await h.detachReader();
     expect(getReadingViewAnchorVars(secondWin.document.getElementById("biliscript-reading-view")!)).toEqual([]);
     await h.flushTimersAndMicrotasks(5000);
-    expect(document.getElementById("biliscript-script-button")).toBeNull();
+    expect(secondWin.closed).toBe(false);
+    expect(document.querySelectorAll("#biliscript-script-button")).toHaveLength(1);
   });
 
   it("T3-15: F13 x F14 - header button swaps [弹出] <-> [归位] in place (always 4 buttons) as anchor pauses/resumes", async () => {

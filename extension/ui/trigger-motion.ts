@@ -120,6 +120,7 @@ function startAnimation(
 ): Animation | null {
   try {
     const anim = el.animate(keyframes, options);
+    if (!anim) return null;
     trackAnimation(el, anim);
     return anim;
   } catch (error) {

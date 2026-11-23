@@ -89,7 +89,17 @@ const scalarHooks: ScalarBindingRuntimeHooks = {
   onDetachedWindowModeChanged: (mode) => {
     if (isReaderDetached()) {
       try {
-        Promise.resolve(requestDetachedModeSwitch(mode)).catch(() => {});
+        void Promise.resolve(requestDetachedModeSwitch(mode))
+          .then((switched) => {
+            if (switched === false && settingsHostRef?.isConnected) {
+              setStatus(
+                collectElements(settingsHostRef),
+                "浏览器阻止了模式切换，已保留当前窗口；下次弹出时生效。",
+                true
+              );
+            }
+          })
+          .catch(() => {});
       } catch {
       }
     }

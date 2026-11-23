@@ -61,6 +61,7 @@ import {
   invalidateReaderSetupFlows
 } from "./setup-resume.js";
 import { closeReaderExplainCard } from "./explain-card.js";
+import { unbindReadingExplainEvents } from "./explain-pop-ui.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
 import { closeCommandPalette } from "./command-palette.js";
 import {
@@ -604,6 +605,7 @@ export function closeReadingView() {
   closeReaderExplainCard();
   closeQuoteShareModal({ restoreFocus: false });
   closeCommandPalette();
+  unbindReadingExplainEvents();
   if (isReaderChatTabLoaded()) {
     void closeChatSessionQuietly();
   }

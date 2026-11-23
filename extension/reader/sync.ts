@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
+import { activeById, getActiveReaderWindow, isReaderDetached } from "../shared/active-host.js";
 import { requireActiveById } from "../shared/cross-doc.js";
 import { findActiveSubtitleIndex, findActiveChapterIndex } from "../subtitle/core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
@@ -268,6 +268,9 @@ export function seekReadingTarget(
   video.currentTime = nextTime;
   if (resumePlayback && video.paused) {
     video.play().catch(() => {});
+  }
+  if (isReaderDetached()) {
+    getActiveReaderWindow().focus?.();
   }
   syncReadingViewPlayback(true, nextTime);
   return nextTime;

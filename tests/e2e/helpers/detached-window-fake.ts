@@ -340,6 +340,27 @@ export function installDetachedPlatformFake(options: DetachedPlatformFakeOptions
   const origFocus = openerWindow.focus;
   const origPipDescriptor = Object.getOwnPropertyDescriptor(openerWindow, "documentPictureInPicture");
   const origAvailHeightDescriptor = Object.getOwnPropertyDescriptor(openerWindow.screen, "availHeight");
+  const origHtmlFocusDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "focus");
+  const origHtmlBlurDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "blur");
+  const origHtmlFocus = HTMLElement.prototype.focus;
+  const origHtmlBlur = HTMLElement.prototype.blur;
+  const fakeDocs = new WeakSet<Document>();
+  const fakeActiveElements = new WeakMap<Document, Element>();
+
+  HTMLElement.prototype.focus = function focus(this: HTMLElement, focusOptions?: FocusOptions): void {
+    const ownerDoc = this.ownerDocument;
+    if (ownerDoc && fakeDocs.has(ownerDoc) && this.isConnected) {
+      fakeActiveElements.set(ownerDoc, this);
+    }
+    origHtmlFocus.call(this, focusOptions);
+  };
+  HTMLElement.prototype.blur = function blur(this: HTMLElement): void {
+    const ownerDoc = this.ownerDocument;
+    if (ownerDoc && fakeDocs.has(ownerDoc) && fakeActiveElements.get(ownerDoc) === this) {
+      fakeActiveElements.delete(ownerDoc);
+    }
+    origHtmlBlur.call(this);
+  };
 
   const openerFocusSpy = vi.fn(() => {
     lastFocusedWindow = openerWindow;
@@ -368,6 +389,17 @@ export function installDetachedPlatformFake(options: DetachedPlatformFakeOptions
         lastFocusedWindow = win;
       },
       onCloseThrows: () => closeThrows
+    });
+    fakeDocs.add(child.document);
+    Object.defineProperty(child.document, "activeElement", {
+      get: () => {
+        const tracked = fakeActiveElements.get(child.document);
+        if (tracked && tracked.isConnected && tracked.ownerDocument === child.document) {
+          return tracked;
+        }
+        return child.document.body ?? child.document.documentElement ?? null;
+      },
+      configurable: true
     });
     openedWindows.push(child);
     return child;
@@ -419,19 +451,19 @@ export function installDetachedPlatformFake(options: DetachedPlatformFakeOptions
     if (popupMode === "throw") {
       throw new Error("Popup blocked by browser policy");
     }
-    const width = parseFeatureNumber(String(features), "width", 540);
-    const height = parseFeatureNumber(String(features), "height", 760);
-    const child = createChild(width, height);
-    if (popupMode === "closed") {
-      child.closed = true;
-      return child as unknown as Window;
-    }
     if (popupMode === "no-doc") {
       return {
         closed: false,
         focus: vi.fn(),
         close: vi.fn()
       } as unknown as Window;
+    }
+    const width = parseFeatureNumber(String(features), "width", 540);
+    const height = parseFeatureNumber(String(features), "height", 760);
+    const child = createChild(width, height);
+    if (popupMode === "closed") {
+      child.closed = true;
+      return child as unknown as Window;
     }
     return child as unknown as Window;
   });
@@ -496,6 +528,16 @@ export function installDetachedPlatformFake(options: DetachedPlatformFakeOptions
       }
       if (origAvailHeightDescriptor) {
         Object.defineProperty(openerWindow.screen, "availHeight", origAvailHeightDescriptor);
+      }
+      if (origHtmlFocusDesc) {
+        Object.defineProperty(HTMLElement.prototype, "focus", origHtmlFocusDesc);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "focus");
+      }
+      if (origHtmlBlurDesc) {
+        Object.defineProperty(HTMLElement.prototype, "blur", origHtmlBlurDesc);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "blur");
       }
     }
   };

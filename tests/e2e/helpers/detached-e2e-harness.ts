@@ -138,17 +138,23 @@ function createReactiveMemoryArea(
   };
 }
 
+interface StorageBridgeInternal extends StorageBridge {
+  drain: () => Promise<void>;
+}
+
 function installStorageAndRuntimeBridge(options: {
   extensionBaseUrl: string;
   initialSync?: Record<string, unknown>;
   initialLocal?: Record<string, unknown>;
-}): StorageBridge {
+}): StorageBridgeInternal {
   const syncMap = new Map<string, unknown>(Object.entries(options.initialSync ?? {}));
   const localMap = new Map<string, unknown>(Object.entries(options.initialLocal ?? {}));
   const changeListeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void>();
   const messageListeners = new Set<
     (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => boolean | void
   >();
+  const pendingRoutes = new Set<Promise<unknown>>();
+  let disposed = false;
   let failSyncSet = false;
 
   const emitChanges = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
@@ -194,6 +200,32 @@ function installStorageAndRuntimeBridge(options: {
         );
       });
     }
+    if (type === "ai-providers-list") {
+      const { aiProviderStore } = await import("../../../extension/core/ai-provider-store.js");
+      const { createProviderMessageHandlers } = await import("../../../extension/core/provider-handlers.js");
+      const handlers = createProviderMessageHandlers({
+        loadProviders: () => aiProviderStore.loadProviders(),
+        saveProviders: (items) => aiProviderStore.saveProviders(items),
+        deleteProvider: (providerId) => aiProviderStore.deleteProvider(providerId),
+        loadKeys: () => aiProviderStore.loadKeys()
+      });
+      return await new Promise((resolve) => {
+        handlers.list(message, {}, resolve);
+      });
+    }
+    if (type === "resolve-ai-provider") {
+      const { aiProviderStore } = await import("../../../extension/core/ai-provider-store.js");
+      const { createAiResolvedProviderHandler } = await import("../../../extension/core/provider-handlers.js");
+      const { getSettingsSnapshot } = await import("../../../extension/core/settings-snapshot.js");
+      const handler = createAiResolvedProviderHandler({
+        getMergedSettings: getSettingsSnapshot,
+        loadProviders: () => aiProviderStore.loadProviders(),
+        loadKeys: () => aiProviderStore.loadKeys()
+      });
+      return await new Promise((resolve) => {
+        handler(message, {}, resolve);
+      });
+    }
     if (type === "agent-bridge-status") {
       return { ok: true, connected: false };
     }
@@ -213,6 +245,13 @@ function installStorageAndRuntimeBridge(options: {
       ...prevRuntime,
       lastError: null,
       getURL: vi.fn((path: string) => `${baseUrl}${String(path).replace(/^\/+/, "")}`),
+      connect: vi.fn((info?: { name?: string }) => ({
+        name: info?.name ?? "",
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn(() => false) },
+        onDisconnect: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn(() => false) }
+      })),
       onMessage: {
         addListener: vi.fn((listener) => messageListeners.add(listener)),
         removeListener: vi.fn((listener) => messageListeners.delete(listener)),
@@ -220,11 +259,21 @@ function installStorageAndRuntimeBridge(options: {
       },
       sendMessage: vi.fn((rawMessage: unknown, callback?: (resp: unknown) => void) => {
         const msg = (rawMessage && typeof rawMessage === "object" ? rawMessage : {}) as Record<string, unknown>;
-        const promise = handleBackgroundRoute(msg).then((resp) => {
-          callback?.(resp);
+        let tracked!: Promise<unknown>;
+        tracked = (async () => {
+          if (disposed) {
+            return { ok: false };
+          }
+          const resp = await handleBackgroundRoute(msg);
+          if (!disposed) {
+            callback?.(resp);
+          }
           return resp;
+        })().finally(() => {
+          pendingRoutes.delete(tracked);
         });
-        return callback ? undefined : promise;
+        pendingRoutes.add(tracked);
+        return callback ? undefined : tracked;
       })
     },
     storage: {
@@ -252,6 +301,12 @@ function installStorageAndRuntimeBridge(options: {
         targetMap.set(key, newValue);
       }
       emitChanges({ [key]: { oldValue, newValue } }, areaName);
+    },
+    drain: async () => {
+      disposed = true;
+      while (pendingRoutes.size > 0) {
+        await Promise.allSettled(Array.from(pendingRoutes));
+      }
     }
   };
 }
@@ -283,10 +338,11 @@ function mountBilibiliHostDom(options: { rightAnchorPresent: boolean }): HTMLVid
   }
 
   const toolbarAnchor = document.createElement("div");
-  toolbarAnchor.id = "biliscript-toolbar-anchor";
+  toolbarAnchor.id = "arc_toolbar_report";
+  toolbarAnchor.className = "video-toolbar-container";
   const complaint = document.createElement("span");
   complaint.className = "complaint";
-  complaint.textContent = "举报";
+  complaint.textContent = "稿件举报";
   toolbarAnchor.appendChild(complaint);
   document.body.appendChild(toolbarAnchor);
 
@@ -484,11 +540,26 @@ export async function bootBilibiliVideoPage(options: BootOptions = {}): Promise<
   resetModuleState();
   vi.useFakeTimers();
   const listenerTracker = installEventListenerTracker([window, document]);
+  const originalPushStateDesc = Object.getOwnPropertyDescriptor(history, "pushState");
+  const originalReplaceStateDesc = Object.getOwnPropertyDescriptor(history, "replaceState");
+  const trackedObservers = new Set<MutationObserver>();
+  const OriginalMutationObserver = globalThis.MutationObserver;
+  if (typeof OriginalMutationObserver === "function") {
+    class TrackedMutationObserver extends OriginalMutationObserver {
+      constructor(callback: MutationCallback) {
+        super(callback);
+        trackedObservers.add(this);
+      }
+    }
+    vi.stubGlobal("MutationObserver", TrackedMutationObserver);
+  }
 
   const originalFullscreenDesc = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
   const originalWebkitFullscreenDesc = Object.getOwnPropertyDescriptor(document, "webkitFullscreenElement");
   const originalBodyClassName = document.body.className;
   const originalDocElementClassName = document.documentElement.className;
+  const originalHtmlAttrs = Array.from(document.documentElement.attributes).map((attr) => [attr.name, attr.value] as const);
+  const originalBodyAttrs = Array.from(document.body.attributes).map((attr) => [attr.name, attr.value] as const);
 
   setLocationUrl(options.url ?? NORMAL_PAGE_URL);
   Object.defineProperty(window, "innerWidth", {
@@ -603,7 +674,7 @@ export async function bootBilibiliVideoPage(options: BootOptions = {}): Promise<
 
   if (options.bootContentScript) {
     await import("../../../extension/entry/content.js");
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 16; i += 1) {
       await flushStyles();
       await flushTimersAndMicrotasks(50);
     }
@@ -761,12 +832,15 @@ export async function bootBilibiliVideoPage(options: BootOptions = {}): Promise<
     nextClip?: { bvid?: string; cid?: string; title?: string; subtitleText?: string }
   ) => {
     setLocationUrl(nextUrl);
-    if (nextClip) {
-      await seedClipData(nextClip);
-    }
-    const { contentEventBus } = await import("../../../extension/shared/content-event-bus.js");
     window.dispatchEvent(new PopStateEvent("popstate"));
-    contentEventBus.emit("host:url-change", { url: nextUrl });
+    await flushTimersAndMicrotasks(20);
+    if (nextClip) {
+      const { clipState } = await import("../../../extension/core/state.js");
+      clipState.setFetchRunId(clipState.fetchRunId + 1);
+      await seedClipData(nextClip);
+      const { notifyReaderPresenter } = await import("../../../extension/reader/reader-bus.js");
+      notifyReaderPresenter({ kind: "subtitle-ready" });
+    }
     await flushStyles();
     await flushTimersAndMicrotasks(150);
   };
@@ -808,10 +882,28 @@ export async function bootBilibiliVideoPage(options: BootOptions = {}): Promise<
 
   const cleanup = async () => {
     await dismissOpenUiState();
+    await storage.drain();
+    for (const observer of trackedObservers) {
+      try {
+        observer.disconnect();
+      } catch {
+      }
+    }
+    trackedObservers.clear();
     for (const win of fakePlatform.openedWindows) {
       win.closed = true;
     }
     fakePlatform.restore();
+    if (originalPushStateDesc) {
+      Object.defineProperty(history, "pushState", originalPushStateDesc);
+    } else {
+      Reflect.deleteProperty(history, "pushState");
+    }
+    if (originalReplaceStateDesc) {
+      Object.defineProperty(history, "replaceState", originalReplaceStateDesc);
+    } else {
+      Reflect.deleteProperty(history, "replaceState");
+    }
     if (originalFullscreenDesc) {
       Object.defineProperty(document, "fullscreenElement", originalFullscreenDesc);
     } else {
@@ -824,11 +916,24 @@ export async function bootBilibiliVideoPage(options: BootOptions = {}): Promise<
     }
     document.body.innerHTML = "";
     document.head.innerHTML = "";
+    for (const attr of Array.from(document.documentElement.attributes)) {
+      document.documentElement.removeAttribute(attr.name);
+    }
+    for (const [name, value] of originalHtmlAttrs) {
+      document.documentElement.setAttribute(name, value);
+    }
+    for (const attr of Array.from(document.body.attributes)) {
+      document.body.removeAttribute(attr.name);
+    }
+    for (const [name, value] of originalBodyAttrs) {
+      document.body.setAttribute(name, value);
+    }
     document.body.className = originalBodyClassName;
     document.documentElement.className = originalDocElementClassName;
-    document.documentElement.removeAttribute("data-biliscript-reader-mode");
-    document.body.removeAttribute("data-biliscript-reader-mode");
-    document.body.removeAttribute("data-biliscript-reading-active");
+    try {
+      window.localStorage?.clear?.();
+    } catch {
+    }
     listenerTracker.removeTrackedListeners();
     vi.clearAllTimers();
     vi.useRealTimers();

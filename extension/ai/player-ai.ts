@@ -487,7 +487,9 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
 }
 
 function syncPlayerAiQuickActionButton(): void {
-  const enabled = Boolean(state.settings?.enablePlayerAiQuickAction);
+  const enabled =
+    Boolean(state.settings?.enablePlayerAiQuickAction) &&
+    Date.now() >= playerAiState.playerAiQuickActionSuppressedUntil;
   const calibrated = playerAiSubtitleControlCalibrated;
   const hasSubtitleControl = enabled && !calibrated ? Boolean(findPlayerSubtitleControlNode()) : false;
   const mountedStable = enabled ? isPlayerAiQuickActionMountedStable() : false;

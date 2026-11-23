@@ -144,9 +144,13 @@ export function computeSelectionPopPosition(params: {
 
 let cleanupExplainHostBindings: (() => void) | null = null;
 
-export function bindReadingExplainEvents(): void {
+export function unbindReadingExplainEvents(): void {
   cleanupExplainHostBindings?.();
   cleanupExplainHostBindings = null;
+}
+
+export function bindReadingExplainEvents(): void {
+  unbindReadingExplainEvents();
 
   const readingExplainPop = requireActiveById(ids.readingExplainPop);
   const popContainer =

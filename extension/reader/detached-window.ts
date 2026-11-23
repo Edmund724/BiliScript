@@ -106,12 +106,28 @@ function clearInstanceTimer(instance: DetachedWindowInstance): void {
   }
 }
 
+function unwaiveWindow(win: Window): Window {
+  const xpcWrap = (globalThis as unknown as { XPCNativeWrapper?: (obj: unknown) => Window }).XPCNativeWrapper;
+  if (typeof xpcWrap === "function") {
+    try {
+      const wrapped = xpcWrap(win);
+      if (wrapped && typeof wrapped === "object") {
+        return wrapped;
+      }
+    } catch {
+    }
+  }
+  return win;
+}
+
 function openPopupHost(
   bounds: DetachedWindowBounds,
   previousActive: DetachedWindowInstance | null
 ): CandidateHostResult {
   const openerWin = getOpenerWindow();
-  if (typeof openerWin.open !== "function") {
+  const pageOpenerWin = (openerWin as unknown as { wrappedJSObject?: Window }).wrappedJSObject;
+  const openTargetWin = pageOpenerWin && typeof pageOpenerWin.open === "function" ? pageOpenerWin : openerWin;
+  if (typeof openTargetWin.open !== "function") {
     return { ok: false, reason: "unsupported" };
   }
   const targetName =
@@ -119,13 +135,23 @@ function openPopupHost(
       ? POPUP_WINDOW_ALT_NAME
       : POPUP_WINDOW_BASE_NAME;
   const features = `popup=yes,width=${bounds.width},height=${bounds.height},resizable=yes,scrollbars=yes`;
-  let childWin: Window | null = null;
+  let rawChildWin: Window | null = null;
   try {
-    childWin = openerWin.open("about:blank", targetName, features);
+    rawChildWin = openTargetWin.open("about:blank", targetName, features);
   } catch {
     return { ok: false, reason: "blocked" };
   }
-  if (!childWin || childWin === openerWin || childWin === previousActive?.window || isWindowClosed(childWin)) {
+  if (!rawChildWin) {
+    return { ok: false, reason: "blocked" };
+  }
+  const childWin = openTargetWin === openerWin ? rawChildWin : unwaiveWindow(rawChildWin);
+  if (
+    childWin === openerWin ||
+    childWin === openTargetWin ||
+    rawChildWin === openTargetWin ||
+    childWin === previousActive?.window ||
+    isWindowClosed(childWin)
+  ) {
     return { ok: false, reason: "blocked" };
   }
   const childDoc = readWindowDocument(childWin);

@@ -30,7 +30,7 @@ import { confirmDialog } from "../confirm-dialog.js";
 import { initCustomSelect, setCustomSelectValue } from "../custom-select.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "../range-slider.js";
 import { initToggleSwitch, syncToggleSwitch } from "../toggle-switch.js";
-import { collectElements, debounce, setBusy, setStatus, type SettingsElements } from "./elements.js";
+import { collectElements, debounce, getStatusVersion, setBusy, setStatus, type SettingsElements } from "./elements.js";
 import {
   SCALAR_FIELD_BINDINGS,
   syncScalarSideEffects,
@@ -226,6 +226,7 @@ export async function saveSettingField(
   patch: Record<string, unknown>,
   persist?: ScalarFieldPersist
 ): Promise<boolean> {
+  const statusVerAtStart = getStatusVersion();
   try {
     const resp = persist
       ? await persist(patch)
@@ -234,14 +235,16 @@ export async function saveSettingField(
       setStatus(elements, resp?.error || "保存失败", true);
       return false;
     }
-    setStatus(elements, "已保存");
-    clearStatusClearTimer();
-    statusClearTimer = setTimeout(() => {
-      statusClearTimer = null;
-      if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
-        setStatus(elements, "");
-      }
-    }, 1500);
+    if (getStatusVersion() === statusVerAtStart) {
+      setStatus(elements, "已保存");
+      clearStatusClearTimer();
+      statusClearTimer = setTimeout(() => {
+        statusClearTimer = null;
+        if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
+          setStatus(elements, "");
+        }
+      }, 1500);
+    }
     return true;
   } catch (error) {
     setStatus(elements, getErrorMessage(error, "保存失败"), true);

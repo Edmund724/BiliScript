@@ -107,6 +107,9 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
   pendingDetachedExitFocusRestore = false;
   await ensureUiReady();
   await options.beforeEntry?.();
+  if (isReaderViewOpen() && !options.intent) {
+    return;
+  }
   const readerUrl = resolveReaderEntryUrl(options.readerUrl);
   if (readerUrl) {
     replaceReaderModeUrl(readerUrl);
@@ -463,7 +466,11 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
 
   suppressUntil(Date.now() + 2500);
 
-  if (intent !== "restore" && !alreadyDetached && isPlayerAiLoaded()) {
+  if (
+    intent !== "restore" &&
+    !alreadyDetached &&
+    (isPlayerAiLoaded() || Boolean(document.getElementById("biliscript-player-ai-quick-action")))
+  ) {
     void removePlayerAiQuickButtonQuietly();
   }
   return runReaderShellEnterTransaction(async () => {
@@ -605,8 +612,11 @@ export function redockReaderShell(): Promise<boolean> {
   return shellTransactionQueue.enqueue(async () => {
     const wasDetached =
       isReaderDetached() || state.reader.readingDetached || activeDetachedDoc !== null;
-    if (pendingDetachedExternalClose || !isReaderViewOpen() || !wasDetached) {
+    if (pendingDetachedExternalClose || !isReaderViewOpen()) {
       return false;
+    }
+    if (!wasDetached) {
+      return true;
     }
     const presentation = await import("./presentation.js");
     const stillDetached =

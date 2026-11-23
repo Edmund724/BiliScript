@@ -670,4 +670,50 @@ describe("detached-window 宿主工厂与生命周期", () => {
       closeSpy.mockRestore();
     }
   });
+
+  it("Firefox Xray 场景优先通过 wrappedJSObject.open 弹窗并通过 XPCNativeWrapper 还原 Xray 包装", async () => {
+    const mod = await loadDetachedModule();
+    const waivedPopup = new StubChildWindow({ width: 540, height: 720 });
+    const unwaivedPopup = new StubChildWindow({ width: 540, height: 720 });
+    const wrappedOpen = vi.fn(() => waivedPopup as unknown as Window);
+    const xpcNativeWrapper = vi.fn((win: unknown) =>
+      win === waivedPopup ? (unwaivedPopup as unknown as Window) : (win as Window)
+    );
+    const openerOpenSpy = vi.spyOn(window, "open");
+    Object.defineProperty(window, "wrappedJSObject", {
+      value: { open: wrappedOpen },
+      configurable: true
+    });
+    vi.stubGlobal("XPCNativeWrapper", xpcNativeWrapper);
+    try {
+      const opened = await mod.openDetachedWindowHost({
+        mode: "popup",
+        bounds: { width: 540, height: 720 },
+        onExternalClose: vi.fn(),
+        onResizeBounds: vi.fn()
+      });
+
+      expect(openerOpenSpy).not.toHaveBeenCalled();
+      expect(wrappedOpen).toHaveBeenCalledWith(
+        "about:blank",
+        "biliscript-detached-reader",
+        "popup=yes,width=540,height=720,resizable=yes,scrollbars=yes"
+      );
+      expect(xpcNativeWrapper).toHaveBeenCalledWith(waivedPopup);
+      expect(opened).toEqual({
+        ok: true,
+        window: unwaivedPopup,
+        document: unwaivedPopup.document,
+        actualMode: "popup"
+      });
+      expect(mod.getDetachedWindowHost()).toEqual({
+        window: unwaivedPopup,
+        document: unwaivedPopup.document,
+        actualMode: "popup"
+      });
+    } finally {
+      Reflect.deleteProperty(window, "wrappedJSObject");
+      Reflect.deleteProperty(globalThis, "XPCNativeWrapper");
+    }
+  });
 });

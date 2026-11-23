@@ -139,8 +139,22 @@ function playerResponse(pageIndex = 1) {
   };
 }
 
+function clipFixtureSubtitleBody(raw) {
+  const slice = (raw?.body || []).slice(0, 20);
+  const maxTo = Math.max(1, Number(slice.at(-1)?.to || slice.at(-1)?.from || 15));
+  const scale = maxTo > 14.5 ? 14.5 / maxTo : 1;
+  return {
+    ...raw,
+    body: slice.map((item) => ({
+      ...item,
+      from: Number((Number(item.from || 0) * scale).toFixed(3)),
+      to: Number((Number(item.to || 0) * scale).toFixed(3))
+    }))
+  };
+}
+
 function subtitleBodyForUrl(url) {
-  const baseZh = BODIES[`${VIDEO_BVID}-zh`];
+  const baseZh = clipFixtureSubtitleBody(BODIES[`${VIDEO_BVID}-zh`]);
   if (url.includes(`${VIDEO_BVID}-p2-zh.json`)) {
     return {
       ...baseZh,
@@ -150,7 +164,7 @@ function subtitleBodyForUrl(url) {
     };
   }
   if (url.includes(`${VIDEO_BVID}-en.json`)) {
-    return BODIES[`${VIDEO_BVID}-en`];
+    return clipFixtureSubtitleBody(BODIES[`${VIDEO_BVID}-en`]);
   }
   return baseZh;
 }
@@ -280,11 +294,28 @@ function installWorkerFixtures(handle) {
 
 async function hitTestInTarget(cdp, sessionId, label, locateExpr) {
   return cdp.evaluate(
-    `(() => {
+    `(async () => {
       const el = ${locateExpr};
       if (!el) return { ok: false, label: ${JSON.stringify(label)}, reason: "not-found" };
       el.scrollIntoView({ block: "center", inline: "nearest" });
-      const r = el.getBoundingClientRect();
+      const nextFrame = () => new Promise((res) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; res(); } };
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(finish);
+        setTimeout(finish, 34);
+      });
+      let r = el.getBoundingClientRect();
+      for (let i = 0; i < 30; i += 1) {
+        await nextFrame();
+        const nr = el.getBoundingClientRect();
+        const settled =
+          Math.abs(nr.left - r.left) <= 0.25 &&
+          Math.abs(nr.top - r.top) <= 0.25 &&
+          Math.abs(nr.width - r.width) <= 0.25 &&
+          Math.abs(nr.height - r.height) <= 0.25;
+        r = nr;
+        if (settled && nr.width > 0 && nr.height > 0) break;
+      }
       const vw = window.innerWidth || document.documentElement.clientWidth || 0;
       const vh = window.innerHeight || document.documentElement.clientHeight || 0;
       const cx = r.left + r.width / 2;
@@ -394,11 +425,16 @@ function createChildTargetTracker(browserCdp, openerTargetId) {
   }
 
   async function waitForNewDetachedTarget(prevIds, label = "detached target") {
+    let lastDebug = null;
     return waitFor(
       label,
       async () => {
-        const res = await browserCdp.send("Target.getTargets").catch(() => ({ targetInfos: [] }));
+        const res = await browserCdp.send("Target.getTargets").catch((e) => ({ targetInfos: [], err: String(e?.message || e) }));
+        const seen = [];
         for (const info of res.targetInfos || []) {
+          if (info.type === "page") {
+            seen.push({ id: info.targetId, url: info.url, openerId: info.openerId || "" });
+          }
           if (
             !info.targetId ||
             info.targetId === openerTargetId ||
@@ -432,7 +468,9 @@ function createChildTargetTracker(browserCdp, openerTargetId) {
                 await browserCdp.send("Page.enable", {}, attached.sessionId).catch(() => {});
                 await browserCdp.send("Log.enable", {}, attached.sessionId).catch(() => {});
               }
-            } catch {}
+            } catch (e) {
+              lastDebug = { attachErr: String(e?.message || e), seen };
+            }
           }
         }
         for (const item of targets.values()) {
@@ -443,12 +481,18 @@ function createChildTargetTracker(browserCdp, openerTargetId) {
               { sessionId: item.sessionId, timeoutMs: 2500 }
             );
             if (hasView) return item;
-          } catch {}
+            lastDebug = { targetId: item.targetId, hasView, seen };
+          } catch (e) {
+            lastDebug = { targetId: item.targetId, evalErr: String(e?.message || e), seen };
+          }
         }
+        if (!lastDebug) lastDebug = { seen };
         return null;
       },
       { timeoutMs: 12000, intervalMs: 150 }
-    );
+    ).catch((err) => {
+      throw new Error(`${err.message} debug=${JSON.stringify(lastDebug)}`);
+    });
   }
 
   async function waitForClosed(targetId, label = "detached target closed") {
@@ -537,7 +581,12 @@ async function main() {
     page = await attachPage(browser, { viewport: DEFAULT_VIEWPORT });
     cdps.push(page.cdp);
     const watcher = watchPage(page.cdp);
+    const exceptions = [];
+    page.cdp.on("Runtime.exceptionThrown", (params) => {
+      exceptions.push({ text: params.exceptionDetails?.text, desc: params.exceptionDetails?.exception?.description?.slice(0, 300) });
+    });
     evidence.notes.watcher = watcher;
+    evidence.notes.exceptions = exceptions;
 
     const versionWs = browser.version?.webSocketDebuggerUrl;
     browserCdp = await CDP.connect(versionWs);
@@ -567,14 +616,23 @@ async function main() {
     );
 
     await installPageFixtures(page);
+    await page.cdp.send("Page.bringToFront").catch(() => {});
     await page.cdp.send("Page.navigate", { url: VIDEO_URL_P1 });
 
-    await waitFor("opener video ready", async () =>
-      page.cdp.evaluate(`(() => {
+    await waitFor("opener video ready", async () => {
+      const state = await page.cdp.evaluate(`(() => {
         const v = document.querySelector("video");
-        return Boolean(v && v.readyState >= 2 && Number.isFinite(v.duration) && v.duration > 5);
-      })()`)
-    );
+        return {
+          visible: document.visibilityState === "visible",
+          ready: Boolean(v && v.readyState >= 2 && Number.isFinite(v.duration) && v.duration > 5)
+        };
+      })()`);
+      if (state && !state.visible) {
+        await page.cdp.send("Page.bringToFront").catch(() => {});
+        return false;
+      }
+      return Boolean(state?.ready);
+    });
     await page.cdp.evaluate(`(() => {
       const v = document.querySelector("video");
       if (v) { v.pause(); v.currentTime = 0; }
@@ -583,6 +641,13 @@ async function main() {
     await waitFor("script button mounted", async () =>
       page.cdp.evaluate("Boolean(document.getElementById('biliscript-script-button'))")
     );
+    await worker.evaluate(`(async () => {
+      const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("onboarding.html") });
+      const ids = tabs.map((t) => t.id).filter((id) => typeof id === "number");
+      if (ids.length) await chrome.tabs.remove(ids);
+      return ids.length;
+    })()`).catch(() => {});
+    await page.cdp.send("Page.bringToFront").catch(() => {});
     const openClick = await clickInTarget(
       page.cdp,
       null,
@@ -604,13 +669,34 @@ async function main() {
     const openerTokens = await readThemeTokens(page.cdp, null);
 
     const beforeD1 = tracker.snapshotActiveIds();
+    await page.cdp.send("Page.bringToFront").catch(() => {});
     const detachClick = await clickInTarget(
       page.cdp,
       null,
       "detach-btn-pip",
       "document.getElementById('biliscript-reading-detach-btn')"
     );
-    const pipChild = await tracker.waitForNewDetachedTarget(beforeD1, "D1 pip detached target");
+    if (!detachClick?.ok) {
+      throw new Error(`D1 detachClick failed: ${JSON.stringify(detachClick)}`);
+    }
+    const postClickSnap = await page.cdp.evaluate(`(() => ({
+      notice: document.getElementById("biliscript-reading-detached-notice")?.textContent || "",
+      hasFocus: document.hasFocus(),
+      visible: document.visibilityState,
+      active: Boolean(navigator.userActivation?.isActive),
+      hasBeenActive: Boolean(navigator.userActivation?.hasBeenActive)
+    }))()`).catch(() => null);
+    const pipChild = await tracker.waitForNewDetachedTarget(beforeD1, "D1 pip detached target").catch(async (err) => {
+      const diag = await page.cdp.evaluate(`(() => ({
+        visible: document.visibilityState,
+        hasFocus: document.hasFocus(),
+        hasPipWin: Boolean(window.documentPictureInPicture?.window),
+        notice: document.getElementById("biliscript-reading-detached-notice")?.textContent || "",
+        settingsHidden: document.getElementById("biliscript-reading-settings-panel")?.hidden,
+        viewOpen: Boolean(document.getElementById("biliscript-reading-view")?.classList.contains("open"))
+      }))()`).catch(() => null);
+      throw new Error(`${err.message} detachClick=${JSON.stringify(detachClick)} postClickSnap=${JSON.stringify(postClickSnap)} openerDiag=${JSON.stringify(diag)}`);
+    });
 
     const openerAfterD1 = await page.cdp.evaluate(`(() => ({
       hasPipWindow: Boolean(window.documentPictureInPicture && window.documentPictureInPicture.window),
@@ -731,6 +817,15 @@ async function main() {
         "settings-close",
         "document.getElementById('biliscript-reading-settings-btn')"
       );
+      await waitFor(
+        "settings panel hidden in D2",
+        async () =>
+          browserCdp.evaluate(
+            "Boolean(document.getElementById('biliscript-reading-settings-panel')?.hidden && !document.querySelector('[data-biliscript-settings-motion]'))",
+            { sessionId: pipChild.sessionId }
+          ),
+        { timeoutMs: 4000, intervalMs: 100 }
+      ).catch(() => false);
       return Boolean(expanded);
     })();
 
@@ -775,18 +870,45 @@ async function main() {
         "quote share dialog open",
         async () =>
           browserCdp.evaluate(
-            "Boolean(document.querySelector('.biliscript-quote-share-dialog'))",
+            `(() => {
+              const d = document.querySelector(".biliscript-quote-share-dialog");
+              return Boolean(d && !d.getAnimations().some((a) => a.playState === "running"));
+            })()`,
             { sessionId: pipChild.sessionId }
           ),
         { timeoutMs: 4000, intervalMs: 100 }
       ).catch(() => false);
-      await clickInTarget(
+    const closeClick = await clickInTarget(
         browserCdp,
         pipChild.sessionId,
         "quote-close",
         "document.querySelector('.biliscript-quote-share-close')"
       );
-      await browserCdp.evaluate("window.getSelection()?.removeAllRanges();", { sessionId: pipChild.sessionId });
+      const quoteClosed = await waitFor(
+        "quote share dialog closed",
+        async () =>
+          browserCdp.evaluate(
+            "!document.querySelector('.biliscript-quote-share-host')",
+            { sessionId: pipChild.sessionId }
+          ),
+        { timeoutMs: 4000, intervalMs: 100 }
+      ).catch(() => false);
+      if (!quoteClosed) {
+        const qDiag = await browserCdp.evaluate(`(() => {
+          const h = document.querySelector(".biliscript-quote-share-host");
+          return {
+            closeClick: ${JSON.stringify(closeClick)},
+            hasHost: Boolean(h),
+            closingAttr: h?.getAttribute("data-biliscript-closing") ?? null,
+            anims: h ? h.getAnimations({ subtree: true }).map((a) => ({ playState: a.playState, pending: a.pending })) : []
+          };
+        })()`, { sessionId: pipChild.sessionId }).catch(() => null);
+        throw new Error(`D2 quote share dialog did not close: ${JSON.stringify(qDiag)}`);
+      }
+      await browserCdp.evaluate(
+        "window.getSelection()?.removeAllRanges(); document.dispatchEvent(new Event('selectionchange'));",
+        { sessionId: pipChild.sessionId }
+      );
       return Boolean(dialogOpen);
     })();
 
@@ -796,7 +918,7 @@ async function main() {
       browserCdp,
       pipChild.sessionId,
       "subtitle-seek-item",
-      "document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item[data-index=\"3\"]')"
+      "document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item[data-index=\"3\"] .biliscript-reading-time') || document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item[data-index=\"3\"]')"
     );
     const seekResult = await waitFor(
       "opener video seeked without focus theft",
@@ -813,7 +935,23 @@ async function main() {
         return null;
       },
       { timeoutMs: 5000, intervalMs: 100 }
-    );
+    ).catch(async (err) => {
+      const openerSt = await page.cdp.evaluate(`(() => {
+        const v = document.querySelector("video");
+        return { currentTime: v?.currentTime, readyState: v?.readyState, paused: v?.paused };
+      })()`).catch(() => null);
+      const childSt = await browserCdp.evaluate(`(() => {
+        const item = document.querySelector('#biliscript-reading-subtitle .biliscript-reading-item[data-index="3"]');
+        return {
+          seconds: item?.dataset?.seconds,
+          sel: window.getSelection()?.toString() || "",
+          hasFocus: document.hasFocus(),
+          explainHidden: document.getElementById("biliscript-reading-explain-pop")?.hidden,
+          settingsHidden: document.getElementById("biliscript-reading-settings-panel")?.hidden
+        };
+      })()`, { sessionId: pipChild.sessionId }).catch(() => null);
+      throw new Error(`${err.message} seekClick=${JSON.stringify(seekClick)} openerSt=${JSON.stringify(openerSt)} childSt=${JSON.stringify(childSt)}`);
+    });
     const childFocusedAfterSeek = await browserCdp.evaluate("document.hasFocus()", {
       sessionId: pipChild.sessionId
     });
@@ -844,17 +982,27 @@ async function main() {
       "appearance entry visible",
       async () =>
         browserCdp.evaluate(
-          "Boolean(document.getElementById('openAppearanceBtn'))",
+          `(() => {
+            if (document.querySelector("[data-biliscript-settings-motion]")) return false;
+            const p = document.getElementById("biliscript-reading-settings-panel");
+            const b = document.getElementById("openAppearanceBtn");
+            if (!p || p.hidden || !b) return false;
+            const r = b.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          })()`,
           { sessionId: activeDetached.sessionId }
         ),
       { timeoutMs: 4000, intervalMs: 100 }
     );
-    await clickInTarget(
+    const appearanceClick = await clickInTarget(
       browserCdp,
       activeDetached.sessionId,
       "open-appearance-subpage",
       "document.getElementById('openAppearanceBtn')"
     );
+    if (!appearanceClick?.ok) {
+      throw new Error(`D3 open-appearance-subpage click failed: ${JSON.stringify(appearanceClick)}`);
+    }
     await waitFor(
       "appearance subpage visible",
       async () =>
@@ -934,6 +1082,10 @@ async function main() {
     } else {
       const noticeText = await browserCdp.evaluate(
         `(() => {
+          const notice = document.getElementById("biliscript-reading-detached-notice");
+          if (notice && !notice.hidden && notice.textContent.trim().length > 0) {
+            return notice.textContent.trim();
+          }
           const status = document.getElementById("biliscriptSettingsStatus");
           return status ? status.textContent.trim() : "";
         })()`,
@@ -1057,6 +1209,7 @@ async function main() {
     );
     await captureTargetPng(browserCdp, popupChild.sessionId, "03-d4-popup-resized.png").catch(() => {});
 
+    await page.cdp.send("Page.bringToFront");
     await page.cdp.send("Runtime.evaluate", {
       expression: "document.querySelector('.bpx-player-container').requestFullscreen()",
       userGesture: true,
@@ -1107,6 +1260,13 @@ async function main() {
       "Boolean(document.getElementById('biliscript-reading-view')?.classList.contains('open'))",
       { sessionId: popupChild.sessionId }
     );
+    const externalMsgFocused = await browserCdp.evaluate("document.hasFocus()", { sessionId: popupChild.sessionId });
+    const inPageEnterClick = await clickInTarget(
+      page.cdp,
+      null,
+      "inpage-reader-enter-for-focus",
+      "document.getElementById('biliscript-script-button')"
+    );
     const focusedOnEnter = await waitFor(
       "detached focused after reader-enter",
       async () => browserCdp.evaluate("document.hasFocus()", { sessionId: popupChild.sessionId }),
@@ -1132,10 +1292,11 @@ async function main() {
       "D6-external-reader-enter-and-toggle",
       Boolean(enterResp?.ok) &&
         stillOpenOnEnter &&
+        Boolean(inPageEnterClick?.ok) &&
         (headed ? Boolean(focusedOnEnter) : true) &&
         Boolean(toggleResp?.ok) &&
         openerClosedOnToggle,
-      { enterResp, stillOpenOnEnter, focusedOnEnter, toggleResp, openerClosedOnToggle }
+      { enterResp, stillOpenOnEnter, externalMsgFocused, inPageEnterClick, focusedOnEnter, toggleResp, openerClosedOnToggle }
     );
 
     await clickInTarget(
@@ -1214,16 +1375,38 @@ async function main() {
     });
     await page.cdp.evaluate("document.pictureInPictureElement ? document.exitPictureInPicture().catch(() => {}) : null");
     await page.cdp.evaluate("document.querySelector('video')?.pause();");
+    const d7TargetsAfter = await browserCdp.send("Target.getTargets").catch(() => ({ targetInfos: [] }));
+    const d7PipStillOpenAfterVideoPip = (d7TargetsAfter.targetInfos || []).some((t) => t.targetId === d7Pip.targetId);
 
     check(
       "D7-native-video-pip-coexistence",
       Boolean(nativePipResult?.result?.value?.pipActive) &&
         popupCoexistsWithVideoPip &&
         Boolean(d7Pip?.targetId),
-      { nativePip: nativePipResult?.result?.value, popupCoexistsWithVideoPip, videoPipAfterDocPip: videoPipAfterDocPip?.result?.value }
+      {
+        nativePip: nativePipResult?.result?.value,
+        popupCoexistsWithVideoPip,
+        videoPipAfterDocPip: videoPipAfterDocPip?.result?.value,
+        d7PipStillOpenAfterVideoPip
+      }
     );
 
-    const activeBeforeClose = tracker.activeList()[0] || d7Pip;
+    const liveTargetsNow = await browserCdp.send("Target.getTargets").catch(() => ({ targetInfos: [] }));
+    const liveIdsNow = new Set((liveTargetsNow.targetInfos || []).map((t) => t.targetId));
+    let activeBeforeClose = tracker.activeList().find((t) => liveIdsNow.has(t.targetId)) || (liveIdsNow.has(d7Pip.targetId) ? d7Pip : null);
+    if (!activeBeforeClose) {
+      await waitFor("opener exited after D7 auto-close", async () =>
+        page.cdp.evaluate("Boolean(!document.getElementById('biliscript-reading-view')?.classList.contains('open'))")
+      ).catch(() => {});
+      await page.cdp.send("Page.bringToFront").catch(() => {});
+      await clickInTarget(page.cdp, null, "reopen-for-d8-close", "document.getElementById('biliscript-script-button')");
+      await waitFor("reader reopened for D8 close", async () =>
+        page.cdp.evaluate("Boolean(document.getElementById('biliscript-reading-view')?.classList.contains('open'))")
+      );
+      const beforeD8 = tracker.snapshotActiveIds();
+      await clickInTarget(page.cdp, null, "detach-for-d8-close", "document.getElementById('biliscript-reading-detach-btn')");
+      activeBeforeClose = await tracker.waitForNewDetachedTarget(beforeD8, "D8 child target");
+    }
     await browserCdp.send("Target.closeTarget", { targetId: activeBeforeClose.targetId });
     await tracker.waitForClosed(activeBeforeClose.targetId, "D8 child target closed");
     const openerExitedOnChildClose = await waitFor(
@@ -1237,27 +1420,66 @@ async function main() {
     );
 
     await worker.evaluate("chrome.storage.sync.set({ detachedWindowMode: 'popup' })");
-    await clickInTarget(
+    await page.cdp.send("Page.bringToFront").catch(() => {});
+    const reopenResetClick = await clickInTarget(
       page.cdp,
       null,
       "reopen-for-reset",
       "document.getElementById('biliscript-script-button')"
     );
+    if (!reopenResetClick?.ok) {
+      throw new Error(`D8 reopenResetClick failed: ${JSON.stringify(reopenResetClick)}`);
+    }
     await waitFor("reader reopened for D8 reset", async () =>
-      page.cdp.evaluate("Boolean(document.getElementById('biliscript-reading-view')?.classList.contains('open'))")
+      page.cdp.evaluate(`(() => {
+        const v = document.getElementById("biliscript-reading-view");
+        return Boolean(v && v.classList.contains("open") && !v.hidden && v.getAttribute("data-biliscript-reader-ready") === "1");
+      })()`)
     );
-    await clickInTarget(
+    const motionBeforeResetSettings = await page.cdp.evaluate(
+      "document.querySelector('[data-biliscript-settings-motion]')?.getAttribute('data-biliscript-settings-motion') ?? null"
+    );
+    const openSettingsResetClick = await clickInTarget(
       page.cdp,
       null,
       "open-settings-for-reset",
       "document.getElementById('biliscript-reading-settings-btn')"
     );
+    if (!openSettingsResetClick?.ok) {
+      throw new Error(`D8 openSettingsResetClick failed: ${JSON.stringify(openSettingsResetClick)}`);
+    }
     await waitFor("reset btn visible", async () =>
       page.cdp.evaluate(`(() => {
+        if (document.querySelector("[data-biliscript-settings-motion]")) return false;
+        const p = document.getElementById("biliscript-reading-settings-panel");
         const b = document.getElementById("biliscriptSettingsResetBtn");
-        return Boolean(b && !b.hidden);
-      })()`)
-    );
+        if (!p || p.hidden || !b) return false;
+        if (b.hidden) {
+          document.getElementById("biliscriptSettingsBackBtn")?.click();
+          return false;
+        }
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      })()`),
+      { timeoutMs: 4000, intervalMs: 100 }
+    ).catch(async (err) => {
+      const diag = await page.cdp.evaluate(`(async () => {
+        const sp = document.querySelector("[data-biliscript-settings-motion]");
+        const timerOk = await new Promise((res) => setTimeout(() => res(true), 50));
+        return {
+          motionBeforeResetSettings: ${JSON.stringify(motionBeforeResetSettings)},
+          timerOk,
+          panelHidden: document.getElementById("biliscript-reading-settings-panel")?.hidden,
+          resetHidden: document.getElementById("biliscriptSettingsResetBtn")?.hidden,
+          title: document.getElementById("biliscriptSettingsTitle")?.textContent,
+          motion: sp?.getAttribute("data-biliscript-settings-motion") ?? null,
+          spId: sp?.id || sp?.className || null,
+          spConnected: sp?.isConnected ?? null,
+          animStates: sp ? sp.getAnimations({ subtree: true }).map((a) => ({ id: a.id, playState: a.playState, pending: a.pending })) : []
+        };
+      })()`).catch(() => null);
+      throw new Error(`${err.message} resetDiag=${JSON.stringify(diag)}`);
+    });
     const resetClick = await clickInTarget(
       page.cdp,
       null,

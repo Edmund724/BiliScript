@@ -644,20 +644,93 @@ function extractElementId(res) {
 }
 
 async function findAndClick(client, selector, label) {
-  const found = await waitFor(
+  await waitFor(
     `element ${label}`,
     async () => {
-      const res = await client.send("WebDriver:FindElement", {
-        using: "css selector",
-        value: selector
-      });
-      return extractElementId(res);
+      const box = await client.executeSync(
+        `const el = document.querySelector(arguments[0]);
+         if (!el) return null;
+         const r = el.getBoundingClientRect();
+         const cs = getComputedStyle(el);
+         const v = el.closest("#biliscript-reading-view");
+         const vcs = v ? getComputedStyle(v) : null;
+         const vr = v ? v.getBoundingClientRect() : null;
+         const viewReady = !v || (
+           vcs.display !== "none" &&
+           vcs.visibility !== "hidden" &&
+           Number(vcs.opacity) >= 0.99 &&
+           vr.left >= -2 &&
+           vr.right <= window.innerWidth + 2
+         );
+         if (r.width <= 0 || r.height <= 0 || cs.visibility === "hidden" || Number(cs.opacity) === 0 || !viewReady) return null;
+         return { w: r.width, h: r.height };`,
+        [selector]
+      );
+      return box;
     },
     { timeoutMs: 12000, intervalMs: 150 }
   );
-  await client.executeSync("arguments[0].scrollIntoView({ block: 'center', inline: 'nearest' });", [{ [ELEMENT_KEY]: found }]);
-  await client.send("WebDriver:ElementClick", { id: found });
-  return found;
+  await client.executeSync("document.querySelector(arguments[0])?.scrollIntoView({ block: 'center', inline: 'nearest' });", [selector]);
+  let lastClickErr = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const res = await client.send("WebDriver:FindElement", {
+      using: "css selector",
+      value: selector
+    });
+    const found = extractElementId(res);
+    if (!found) {
+      lastClickErr = new Error(`FindElement returned null after ready for ${label}`);
+      await new Promise((r) => setTimeout(r, 150));
+      continue;
+    }
+    try {
+      await client.send("WebDriver:ElementClick", { id: found });
+      return found;
+    } catch (err) {
+      lastClickErr = err;
+      const errStr = String(err?.message || err);
+      if (errStr.includes("not known in the current browsing context") && attempt === 3) {
+        const clickedFallback = await client.executeSync(
+          `if (location.href !== "about:blank") return false;
+           const el = document.querySelector(arguments[0]);
+           if (!el) return false;
+           el.click();
+           return true;`,
+          [selector]
+        );
+        if (clickedFallback) return found;
+      }
+      if (!errStr.includes("not known in the current browsing context") || attempt === 3) {
+        const info = await client.executeSync(
+          `const el = document.querySelector(arguments[0]);
+           if (!el) return null;
+           const r = el.getBoundingClientRect();
+           const cs = getComputedStyle(el);
+           const v = document.getElementById("biliscript-reading-view");
+           const vcs = v ? getComputedStyle(v) : null;
+           return { btn: { w: r.width, h: r.height, left: r.left, top: r.top, right: r.right, bottom: r.bottom, vis: cs.visibility, op: cs.opacity, pe: cs.pointerEvents }, view: v ? { cls: v.className, ready: v.getAttribute("data-biliscript-reader-ready"), float: v.getAttribute("data-biliscript-script-float"), rect: v.getBoundingClientRect(), disp: vcs.display, op: vcs.opacity, vis: vcs.visibility } : null, vw: window.innerWidth, vh: window.innerHeight };`,
+          [selector]
+        ).catch(() => null);
+        throw new Error(`${err.message} clickDiag(${label})=${JSON.stringify(info)}`);
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+  throw lastClickErr;
+}
+
+async function switchToSettledNewWindow(client, handlesBefore, label, requireReaderView = true) {
+  return waitFor(label, async () => {
+    const now = await client.getWindowHandles();
+    const candidate = now.find((h) => !handlesBefore.has(h));
+    if (!candidate) return null;
+    await client.send("WebDriver:SwitchToWindow", { handle: candidate, focus: true });
+    if (requireReaderView) {
+      const hasView = await client.executeSync("return Boolean(document.getElementById('biliscript-reading-view'));");
+      if (!hasView) return null;
+    }
+    return candidate;
+  });
 }
 
 async function waitForChromeExtensionReady(client, extensionId) {
@@ -761,6 +834,9 @@ export async function runDetachedReaderSmoke({
 
   const client = new MarionetteClient();
   let browserVersion = "";
+  let stepTag = "init";
+  let handlesBeforeF2List = [];
+  let detachedHandleSeen = null;
 
   try {
     await client.connect(marionettePort, 20_000, child);
@@ -796,16 +872,16 @@ export async function runDetachedReaderSmoke({
       `)
     );
     const openerHandle = await client.getWindowHandle();
-    const handlesBeforeF2 = new Set(await client.getWindowHandles());
+    handlesBeforeF2List = await client.getWindowHandles();
+    const handlesBeforeF2 = new Set(handlesBeforeF2List);
     record("fx-content-script-and-reader-open-on-bilibili-scope", Boolean(f1State?.ready), f1State);
 
+    stepTag = "F2-click-detach";
     await findAndClick(client, "#biliscript-reading-detach-btn", "F2-detach-btn");
-    const detachedHandle = await waitFor("F2 detached window handle", async () => {
-      const now = await client.getWindowHandles();
-      return now.find((h) => !handlesBeforeF2.has(h)) || null;
-    });
-
-    await client.send("WebDriver:SwitchToWindow", { handle: detachedHandle });
+    stepTag = "F2-switch-to-detached";
+    const detachedHandle = await switchToSettledNewWindow(client, handlesBeforeF2, "F2 detached window handle", true);
+    detachedHandleSeen = detachedHandle;
+    stepTag = "F2-initial";
     const f2Initial = await waitFor("F2 detached view & stylesheets", async () =>
       client.executeSync(`
         const extPrefix = arguments[0];
@@ -850,9 +926,11 @@ export async function runDetachedReaderSmoke({
       `)
     );
 
-    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle });
+    stepTag = "F2-switch-opener";
+    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
     const openerMoved = await client.executeSync("return !document.getElementById('biliscript-reading-view');");
-    await client.send("WebDriver:SwitchToWindow", { handle: detachedHandle });
+    stepTag = "F2-switch-back-detached";
+    await client.send("WebDriver:SwitchToWindow", { handle: detachedHandle, focus: true });
 
     record(
       "fx-detach-xray-and-cross-doc-stylesheets",
@@ -871,7 +949,7 @@ export async function runDetachedReaderSmoke({
       const now = await client.getWindowHandles();
       return !now.includes(detachedHandle);
     });
-    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle });
+    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
     const f3State = await waitFor("F3 opener shell restored", async () =>
       client.executeSync(`
         const nodes = document.querySelectorAll("#biliscript-reading-view");
@@ -895,15 +973,11 @@ export async function runDetachedReaderSmoke({
       browser.storage.sync.set({ detachedWindowMode: "popup" }).then(() => done(true), (err) => done(String(err)));
     `);
     await client.send("WebDriver:CloseWindow", {});
-    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle });
+    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
 
     const handlesBeforeF4 = new Set(await client.getWindowHandles());
     await findAndClick(client, "#biliscript-reading-detach-btn", "F4-popup-detach-btn");
-    const popupHandle = await waitFor("F4 popup window handle", async () => {
-      const now = await client.getWindowHandles();
-      return now.find((h) => !handlesBeforeF4.has(h)) || null;
-    });
-    await client.send("WebDriver:SwitchToWindow", { handle: popupHandle });
+    const popupHandle = await switchToSettledNewWindow(client, handlesBeforeF4, "F4 popup window handle", true);
     const f4PopupLoaded = await waitFor("F4 popup stylesheets loaded", async () =>
       client.executeSync(`
         const extPrefix = arguments[0];
@@ -915,7 +989,7 @@ export async function runDetachedReaderSmoke({
     );
 
     await client.send("WebDriver:CloseWindow", {});
-    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle });
+    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
     await waitFor("F4 popup handle removed", async () => !(await client.getWindowHandles()).includes(popupHandle));
     const f4OpenerClosed = await waitFor("F4 opener shell exited cleanly", async () =>
       client.executeSync(`
@@ -933,15 +1007,12 @@ export async function runDetachedReaderSmoke({
     );
     const handlesBeforeF5 = new Set(await client.getWindowHandles());
     await findAndClick(client, "#biliscript-reading-detach-btn", "F5-detach-btn");
-    const orphanHandle = await waitFor("F5 detached handle", async () => {
-      const now = await client.getWindowHandles();
-      return now.find((h) => !handlesBeforeF5.has(h)) || null;
-    });
-    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle });
+    const orphanHandle = await switchToSettledNewWindow(client, handlesBeforeF5, "F5 detached handle", true);
+    await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
     await client.send("WebDriver:Navigate", { url: TEST_HOME_URL });
     const f5OrphanClosed = await waitFor("F5 orphan detached window closed on opener pagehide", async () => {
       const now = await client.getWindowHandles();
-      return !now.includes(orphanHandle);
+      return !now.includes(orphanHandle) && !now.some((h) => !handlesBeforeF5.has(h));
     });
     record("fx-opener-pagehide-closes-detached-window", Boolean(f5OrphanClosed), { orphanHandle, f5OrphanClosed });
 
@@ -953,8 +1024,46 @@ export async function runDetachedReaderSmoke({
       checks
     };
   } catch (err) {
+    await new Promise((r) => setTimeout(r, 300));
     const msg = String(err?.message || err);
-    record("fx-detached-runner-error", false, { error: msg });
+    const handles = await client.getWindowHandles().catch(() => []);
+    const handleInfos = [];
+    for (const h of handles) {
+      try {
+        await client.send("WebDriver:SwitchToWindow", { handle: h });
+        const info = await client.executeSync("return { url: location.href, hasView: Boolean(document.getElementById('biliscript-reading-view')), text: (document.body?.innerText || '').slice(0, 80) };");
+        handleInfos.push({ h, ...info });
+      } catch (e) {
+        handleInfos.push({ h, err: String(e?.message || e) });
+      }
+    }
+    let chromeWindows = [];
+    try {
+      await client.setContext("chrome");
+      chromeWindows = await client.executeSync(`
+        const out = [];
+        for (const win of Services.wm.getEnumerator(null)) {
+          const tabs = win.gBrowser ? Array.from(win.gBrowser.tabs).map((t) => ({
+            url: t.linkedBrowser?.currentURI?.spec || "",
+            bcId: t.linkedBrowser?.browsingContext?.id ?? null
+          })) : [];
+          out.push({ type: win.document?.documentElement?.getAttribute("windowtype") || "", loc: win.location?.href || "", tabCount: tabs.length, tabs });
+        }
+        return out;
+      `);
+      await client.setContext("content");
+    } catch (ce) {
+      chromeWindows = [{ err: String(ce?.message || ce) }];
+    }
+    record("fx-detached-runner-error", false, {
+      error: msg,
+      stepTag,
+      handlesBeforeF2List,
+      detachedHandleSeen,
+      handles,
+      handleInfos,
+      chromeWindows
+    });
     return {
       ok: false,
       status: "error",
