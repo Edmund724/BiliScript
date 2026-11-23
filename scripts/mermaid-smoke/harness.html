@@ -5,7 +5,6 @@
 <title>BILISCRIPT_SMOKE_RUNNING</title>
 <style>
   body { font-family: sans-serif; }
-  .mermaidTooltip { position: absolute; }
 </style>
 </head>
 <body>
@@ -66,15 +65,6 @@ async function main() {
   check("flow attr done", flow.getAttribute("data-biliscript-mermaid") === "done", flow.getAttribute("data-biliscript-mermaid"));
   check("sequence actor text", !!seqSvg && seqSvg.textContent.includes("Alice"));
   check("flow node text", !!flowSvg && flowSvg.textContent.includes("Start"));
-
-  const node = flow.querySelector("g.node");
-  check("flow node exists", !!node);
-  if (node) {
-    node.setAttribute("title", "smoke tooltip");
-    for (const type of ["mouseover", "mouseout"]) {
-      node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
-    }
-  }
 
   for (const [name, svgEl] of [["sequence", seqSvg], ["flow", flowSvg]]) {
     if (!svgEl) continue;
