@@ -1,4 +1,5 @@
 import mermaid from "mermaid";
+import { isElementNode, resolveNodeDocument } from "../shared/cross-doc.js";
 import { logWarnAlways } from "../shared/logging.js";
 import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR, MERMAID_SOURCE_SELECTOR } from "./markdown.js";
 
@@ -84,7 +85,7 @@ function renderDiagram(source: string, theme: string): Promise<RenderedDiagram> 
 
 function mountDiagram(block: Element, diagram: RenderedDiagram, theme: string): void {
   const freshId = `biliscript-mermaid-${++idSeq}`;
-  const holder = document.createElement("div");
+  const holder = resolveNodeDocument(block).createElement("div");
   holder.className = "biliscript-md-mermaid-svg";
   holder.innerHTML = diagram.id === freshId ? diagram.svg : diagram.svg.split(diagram.id).join(freshId);
   block.querySelector(".biliscript-md-mermaid-svg")?.remove();
@@ -97,7 +98,7 @@ function mountDiagram(block: Element, diagram: RenderedDiagram, theme: string): 
 function setFallback(block: Element, message: string): void {
   block.querySelector(".biliscript-md-mermaid-svg")?.remove();
   block.querySelector(".biliscript-md-mermaid-fallback")?.remove();
-  const note = document.createElement("div");
+  const note = resolveNodeDocument(block).createElement("div");
   note.className = "biliscript-md-mermaid-fallback";
   note.textContent = message;
   block.appendChild(note);
@@ -126,7 +127,7 @@ export async function hydrateMermaidPlaceholders(
   const { theme = "light", force = false } = options;
   ensureConfigured(theme);
   const blocks = Array.from(
-    root instanceof Element && root.matches(MERMAID_BLOCK_SELECTOR)
+    isElementNode(root) && root.matches(MERMAID_BLOCK_SELECTOR)
       ? [root, ...root.querySelectorAll(MERMAID_BLOCK_SELECTOR)]
       : root.querySelectorAll(MERMAID_BLOCK_SELECTOR)
   ).filter((block) => {

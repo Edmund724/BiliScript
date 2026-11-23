@@ -1,3 +1,5 @@
+import { getActiveReaderDocument } from "../../shared/active-host.js";
+import { resolveNodeDocument } from "../../shared/cross-doc.js";
 import { READING_CHEVRON_DOWN_ICON } from "../../ui/reading-icons.js";
 import { formatClock } from "../../shared/clock-text.js";
 import { createChatImageViewButton, type ChatImageViewer } from "../chat-image-viewer.js";
@@ -9,8 +11,11 @@ import type { ThinkingBufferController } from "./thinking-buffer.js";
 const THINKING_ICON_SVG =
   '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
 
-function createChevronSpan(className: string): HTMLSpanElement {
-  const chevron = document.createElement("span");
+function createChevronSpan(
+  className: string,
+  doc: Document = getActiveReaderDocument()
+): HTMLSpanElement {
+  const chevron = doc.createElement("span");
   chevron.className = className;
   chevron.innerHTML = READING_CHEVRON_DOWN_ICON.trim();
   return chevron;
@@ -122,9 +127,12 @@ function setThoughtChainCollapsed(chain: ThoughtChainState, collapsed: boolean):
   chain.headBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
-function buildThoughtChainShell(opts: { collapsed?: boolean } = {}): ThoughtChainState {
+function buildThoughtChainShell(
+  opts: { collapsed?: boolean } = {},
+  doc: Document = getActiveReaderDocument()
+): ThoughtChainState {
   const collapsed = Boolean(opts.collapsed);
-  const root = document.createElement("div");
+  const root = doc.createElement("div");
   root.className = [
     "chat-thought-chain",
     "chat-thinking",
@@ -133,32 +141,32 @@ function buildThoughtChainShell(opts: { collapsed?: boolean } = {}): ThoughtChai
   ].join(" ");
   root.dataset.status = "searching";
 
-  const headBtn = document.createElement("button");
+  const headBtn = doc.createElement("button");
   headBtn.type = "button";
   headBtn.className = "chat-thought-chain-head chat-thinking-label";
   headBtn.disabled = false;
   headBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
 
-  const icon = document.createElement("span");
+  const icon = doc.createElement("span");
   icon.className = "chat-thought-chain-icon chat-thinking-icon";
   icon.innerHTML = THINKING_ICON_SVG;
 
-  const summaryEl = document.createElement("span");
+  const summaryEl = doc.createElement("span");
   summaryEl.className = "chat-thought-chain-summary chat-thinking-label-text";
   summaryEl.textContent = "思考过程";
 
-  headBtn.append(icon, summaryEl, createChevronSpan("chat-thought-chain-chevron chat-thinking-chevron"));
+  headBtn.append(icon, summaryEl, createChevronSpan("chat-thought-chain-chevron chat-thinking-chevron", doc));
 
-  const body = document.createElement("div");
+  const body = doc.createElement("div");
   body.className = "chat-thought-chain-body";
-  const innerEl = document.createElement("div");
+  const innerEl = doc.createElement("div");
   innerEl.className = "chat-thought-chain-inner";
-  const stepsEl = document.createElement("div");
+  const stepsEl = doc.createElement("div");
   stepsEl.className = "chat-thought-chain-steps";
   innerEl.appendChild(stepsEl);
   body.appendChild(innerEl);
 
-  const announcerEl = document.createElement("div");
+  const announcerEl = doc.createElement("div");
   announcerEl.className = "chat-search-announcer";
   announcerEl.setAttribute("role", "status");
   announcerEl.setAttribute("aria-live", "polite");
@@ -198,9 +206,10 @@ function createThoughtStep(
   detail: string,
   noteText: string,
   status: ThoughtStatus,
-  opts: { callId?: string; implicit?: boolean; thinkingText?: string } = {}
+  opts: { callId?: string; implicit?: boolean; thinkingText?: string; doc?: Document } = {}
 ): ThoughtStepState {
-  const row = document.createElement("div");
+  const doc = opts.doc ?? getActiveReaderDocument();
+  const row = doc.createElement("div");
   row.className = [
     "chat-thought-step",
     status === "searching"
@@ -213,31 +222,31 @@ function createThoughtStep(
   ].join(" ");
   row.dataset.stepKind = kind;
 
-  const dot = document.createElement("span");
+  const dot = doc.createElement("span");
   dot.className = "chat-thought-step-dot";
 
-  const main = document.createElement("div");
+  const main = doc.createElement("div");
   main.className = "chat-thought-step-main";
 
-  const line = document.createElement("div");
+  const line = doc.createElement("div");
   line.className = "chat-thought-step-row";
 
-  const titleEl = document.createElement("span");
+  const titleEl = doc.createElement("span");
   titleEl.className = "chat-thought-step-title";
   titleEl.textContent = stepTitleByKind(kind);
 
-  const detailEl = document.createElement("span");
+  const detailEl = doc.createElement("span");
   detailEl.className = "chat-thought-step-detail";
   detailEl.textContent = detail;
 
-  const noteEl = document.createElement("span");
+  const noteEl = doc.createElement("span");
   noteEl.className = "chat-thought-step-meta";
   noteEl.textContent = noteText;
 
   line.append(titleEl, detailEl, noteEl);
   main.appendChild(line);
 
-  const bodyEl = document.createElement("div");
+  const bodyEl = doc.createElement("div");
   if (kind === "thinking") {
     bodyEl.className = "chat-thinking-text";
     if (opts.thinkingText) {
@@ -479,7 +488,10 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     if (chain.steps.some((step) => step.kind === "read_subtitles")) {
       return;
     }
-    const step = createThoughtStep("read_subtitles", `共 ${subtitleCount} 条字幕`, "已完成", "done", { implicit: true });
+    const step = createThoughtStep("read_subtitles", `共 ${subtitleCount} 条字幕`, "已完成", "done", {
+      implicit: true,
+      doc: resolveNodeDocument(node),
+    });
     chain.steps.unshift(step);
     chain.stepsEl.prepend(step.row);
   }
@@ -487,7 +499,7 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
   function ensureThoughtChain(node: HTMLDivElement, opts: { collapsed?: boolean } = {}): ThoughtChainState {
     let chain = thoughtChainStates.get(node);
     if (!chain) {
-      chain = buildThoughtChainShell({ collapsed: opts.collapsed ?? false });
+      chain = buildThoughtChainShell({ collapsed: opts.collapsed ?? false }, resolveNodeDocument(node));
       thoughtChainStates.set(node, chain);
       node.prepend(chain.root);
     } else if (!chain.root.parentNode) {
@@ -545,7 +557,9 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     ensureImplicitSubtitleStep(node, chain, "thinking");
     let step = forceNewStep ? null : chain.activeThinkingStep;
     if (!step) {
-      step = createThoughtStep("thinking", "", "思考中…", "searching");
+      step = createThoughtStep("thinking", "", "思考中…", "searching", {
+        doc: resolveNodeDocument(node),
+      });
       step.startTime = Date.now();
       chain.steps.push(step);
       chain.stepsEl.appendChild(step.row);
@@ -567,14 +581,15 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     if (!sources.length && !opts.notice) {
       return;
     }
+    const doc = resolveNodeDocument(chain.innerEl);
     if (!chain.sourcesWrap) {
-      chain.sourcesWrap = document.createElement("div");
+      chain.sourcesWrap = doc.createElement("div");
       chain.sourcesWrap.className = "chat-search-sources";
       chain.sourcesWrap.addEventListener("scroll", () => deps.sourcePreview.hide(), { passive: true });
       chain.innerEl.appendChild(chain.sourcesWrap);
     }
     if (opts.notice && !chain.sourcesWrap.querySelector(".chat-search-sources-notice")) {
-      const notice = document.createElement("div");
+      const notice = doc.createElement("div");
       notice.className = "chat-search-sources-notice";
       notice.textContent = opts.notice;
       chain.sourcesWrap.appendChild(notice);
@@ -583,19 +598,19 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
       const index = chain.sources.length + 1;
       const marked = opts.paid ? ({ ...source, paid: true } as ChatSearchSource) : source;
       chain.sources.push(marked);
-      const row = document.createElement("button");
+      const row = doc.createElement("button");
       row.type = "button";
       row.className = "chat-search-source-row";
       row.setAttribute("title", source.url || source.title);
-      const idx = document.createElement("span");
+      const idx = doc.createElement("span");
       idx.className = "chat-search-source-idx";
       idx.textContent = String(index);
-      const title = document.createElement("span");
+      const title = doc.createElement("span");
       title.className = "chat-search-source-title";
       title.textContent = source.title || source.url;
       row.append(idx, title);
       if (marked.paid) {
-        const badge = document.createElement("span");
+        const badge = doc.createElement("span");
         badge.className = "chat-search-source-paid";
         badge.textContent = "付费";
         row.appendChild(badge);
@@ -615,17 +630,18 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     if (!frames.length) {
       return;
     }
-    const list = document.createElement("div");
+    const doc = resolveNodeDocument(step.bodyEl);
+    const list = doc.createElement("div");
     list.className = "chat-video-frame-results";
     step.bodyEl.appendChild(list);
     for (const frame of frames) {
       const time = formatVideoFrameTime(frame.currentTime);
-      const item = document.createElement("div");
+      const item = doc.createElement("div");
       item.className = "chat-video-frame-item";
       const button = createChatImageViewButton(frame.image, deps.imageViewer, `视频在 ${time} 的实际画面`);
       button.setAttribute("aria-label", `查看 ${time} 的实际画面`);
       button.title = `查看 ${time} 的实际画面`;
-      const caption = document.createElement("span");
+      const caption = doc.createElement("span");
       caption.className = "chat-video-frame-time";
       caption.textContent = time;
       item.append(button, caption);
@@ -671,7 +687,10 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
           : kind === "read_subtitles"
             ? "读取中…"
             : "搜索中…";
-      const step = createThoughtStep(kind, detailText, runningMeta, "searching", { callId: msg.callId });
+      const step = createThoughtStep(kind, detailText, runningMeta, "searching", {
+        callId: msg.callId,
+        doc: resolveNodeDocument(node),
+      });
       chain.steps.push(step);
       chain.stepsEl.appendChild(step.row);
       chain.announcerEl.textContent = "";
@@ -694,7 +713,10 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
         implicitSub.detailEl.textContent = detailText;
         step = implicitSub;
       } else {
-        step = createThoughtStep(kind, detailText, "", "searching", { callId: msg.callId });
+        step = createThoughtStep(kind, detailText, "", "searching", {
+          callId: msg.callId,
+          doc: resolveNodeDocument(node),
+        });
         chain.steps.push(step);
         chain.stepsEl.appendChild(step.row);
       }
@@ -790,8 +812,9 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
   }
 
   function attachHistorySearchToThoughtChain(node: HTMLDivElement, turn: HistorySearchTurn): void {
+    const doc = resolveNodeDocument(node);
     const existing = thoughtChainStates.get(node);
-    const chain = existing ?? buildThoughtChainShell({ collapsed: true });
+    const chain = existing ?? buildThoughtChainShell({ collapsed: true }, doc);
     if (!existing) {
       thoughtChainStates.set(node, chain);
       const uniqueTs = new Set(
@@ -804,7 +827,7 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     }
 
     const searchRows: ThoughtStepState[] = turn.queries.map((query, i) =>
-      createThoughtStep("web_search", query, `${turn.resultCounts[i] ?? 0} 条`, "done")
+      createThoughtStep("web_search", query, `${turn.resultCounts[i] ?? 0} 条`, "done", { doc })
     );
     const firstThinking = chain.steps.find((step) => step.kind === "thinking");
     if (firstThinking) {
@@ -839,8 +862,12 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
         return chain.root;
       }
       if (typeof opts.thinking === "string" && opts.thinking.trim()) {
-        chain = buildThoughtChainShell({ collapsed: true });
-        const step = createThoughtStep("thinking", "", "", "done", { thinkingText: opts.thinking });
+        const doc = resolveNodeDocument(node);
+        chain = buildThoughtChainShell({ collapsed: true }, doc);
+        const step = createThoughtStep("thinking", "", "", "done", {
+          thinkingText: opts.thinking,
+          doc,
+        });
         chain.steps.push(step);
         chain.stepsEl.appendChild(step.row);
         chain.citedSubtitleCount = opts.citedSubtitleCount;
@@ -855,8 +882,12 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
       let chain = thoughtChainStates.get(node);
       if (opts.createIfMissing) {
         if (!chain && typeof opts.thinking === "string" && opts.thinking.trim()) {
-          chain = buildThoughtChainShell({ collapsed: false });
-          const step = createThoughtStep("thinking", "", "已停止", "cancelled", { thinkingText: opts.thinking });
+          const doc = resolveNodeDocument(node);
+          chain = buildThoughtChainShell({ collapsed: false }, doc);
+          const step = createThoughtStep("thinking", "", "已停止", "cancelled", {
+            thinkingText: opts.thinking,
+            doc,
+          });
           chain.steps.push(step);
           chain.stepsEl.appendChild(step.row);
           thoughtChainStates.set(node, chain);

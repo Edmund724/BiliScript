@@ -210,21 +210,29 @@ export function endEditorSession(): void {
   bag.draft = null;
   bag.baselineDraft = null;
   if (closingHost) {
-    const dialog = closingHost.querySelector<HTMLElement>(".provider-editor-dialog");
-    const mask = closingHost.querySelector<HTMLElement>(".provider-editor-mask");
-    if (dialog) {
-      animateTriggerExit({
-        target: dialog,
-        host: closingHost,
-        mask,
-        trigger: closingTrigger,
-        fallbackOrigin: "top right",
-        toScale: 0.94,
-        durationMs: 140,
-        onFinish: () => closingHost.remove()
-      });
-    } else {
-      closingHost.remove();
+    try {
+      const dialog = closingHost.querySelector<HTMLElement>(".provider-editor-dialog");
+      const mask = closingHost.querySelector<HTMLElement>(".provider-editor-mask");
+      if (dialog) {
+        animateTriggerExit({
+          target: dialog,
+          host: closingHost,
+          mask,
+          trigger: closingTrigger,
+          fallbackOrigin: "top right",
+          toScale: 0.94,
+          durationMs: 140,
+          onFinish: () => {
+            try {
+              closingHost.remove();
+            } catch {
+            }
+          }
+        });
+      } else {
+        closingHost.remove();
+      }
+    } catch {
     }
   }
   if (onSessionEnd) {

@@ -1,5 +1,7 @@
 import { state } from "../core/state.js";
+import { activeById } from "../shared/active-host.js";
 import { formatClock } from "../shared/clock-text.js";
+import { resolveNodeWindow } from "../shared/cross-doc.js";
 import { ids } from "./state.js";
 
 export type SubtitleFollowMode = "auto" | "manual";
@@ -361,10 +363,11 @@ export function isPointerOnVerticalScrollbar(element: HTMLElement, clientX: numb
   if (rect.width <= 0) {
     return false;
   }
+  const view = resolveNodeWindow(element);
   const isRtl =
-    typeof window !== "undefined" &&
-    typeof window.getComputedStyle === "function" &&
-    window.getComputedStyle(element).direction === "rtl";
+    typeof view !== "undefined" &&
+    typeof view.getComputedStyle === "function" &&
+    view.getComputedStyle(element).direction === "rtl";
   if (isRtl) {
     return clientX >= rect.left && clientX <= rect.left + scrollbarWidth;
   }
@@ -398,7 +401,7 @@ export function projectReaderFollowUi(
   mode: SubtitleFollowMode = subtitleScrollFollow.getMode(),
   overrideSeconds?: number
 ): void {
-  const readingView = document.getElementById(ids.readingView);
+  const readingView = activeById(ids.readingView);
   if (readingView && readingView.getAttribute("data-biliscript-reader-follow") !== mode) {
     readingView.setAttribute("data-biliscript-reader-follow", mode);
   }
@@ -407,7 +410,7 @@ export function projectReaderFollowUi(
     return;
   }
 
-  const followBtn = document.getElementById(ids.readingFollowBtn);
+  const followBtn = activeById(ids.readingFollowBtn);
   if (!followBtn) {
     return;
   }

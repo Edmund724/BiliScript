@@ -1,6 +1,16 @@
 import { state } from "../core/state.js";
+import { activeById, onActiveHostChange } from "../shared/active-host.js";
 import { formatClock } from "../shared/clock-text.js";
-import { byId } from "../shared/dom-utils.js";
+import {
+  isNode,
+  requireActiveById,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+  scheduleActiveAnimationFrame,
+  writeActiveClipboardText,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { addVideoHighlight, type NoteHighlightSource } from "../notes/highlights-store.js";
 import { withReader } from "../ui/reader-gate.js";
@@ -132,18 +142,23 @@ export function computeSelectionPopPosition(params: {
   return { left, top, placedAbove, originX, originY };
 }
 
+let cleanupExplainHostBindings: (() => void) | null = null;
+
 export function bindReadingExplainEvents(): void {
-  const readingExplainPop = byId(ids.readingExplainPop);
+  cleanupExplainHostBindings?.();
+  cleanupExplainHostBindings = null;
+
+  const readingExplainPop = requireActiveById(ids.readingExplainPop);
   const popContainer =
-    (readingExplainPop.parentElement as HTMLElement | null) ?? byId(ids.readingScriptPanel);
-  const subtitleList = byId(ids.readingSubtitleList);
-  const overviewBody = document.getElementById(ids.readingOverviewBody);
+    (readingExplainPop.parentElement as HTMLElement | null) ?? requireActiveById(ids.readingScriptPanel);
+  const subtitleList = requireActiveById(ids.readingSubtitleList);
+  const overviewBody = activeById(ids.readingOverviewBody);
 
   let pendingSelection: SelectionSnapshot | null = null;
   let pendingTarget: PendingPlacementTarget | null = null;
   let lastPlacedTarget: PendingPlacementTarget | null = null;
-  let showFrameId = 0;
-  let measureFrameId = 0;
+  let showFrameHandle: ActiveAnimationFrameHandle | null = null;
+  let measureFrameHandle: ActiveAnimationFrameHandle | null = null;
   let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   const POP_WIDTH_FALLBACK = 286;
@@ -177,13 +192,13 @@ export function bindReadingExplainEvents(): void {
   };
 
   const cancelPopFrames = () => {
-    if (showFrameId) {
-      window.cancelAnimationFrame(showFrameId);
-      showFrameId = 0;
+    if (showFrameHandle) {
+      showFrameHandle.cancel();
+      showFrameHandle = null;
     }
-    if (measureFrameId) {
-      window.cancelAnimationFrame(measureFrameId);
-      measureFrameId = 0;
+    if (measureFrameHandle) {
+      measureFrameHandle.cancel();
+      measureFrameHandle = null;
     }
     pendingTarget = null;
   };
@@ -232,13 +247,14 @@ export function bindReadingExplainEvents(): void {
     const width = popWidth || POP_WIDTH_FALLBACK;
     const height = popHeight || POP_HEIGHT_FALLBACK;
 
+    const activeWin = resolveNodeWindow(readingExplainPop);
     const placed = computeSelectionPopPosition({
       containerRect,
       selectionRect: rect,
       popWidth: width,
       popHeight: height,
-      viewportWidth: typeof window !== "undefined" ? window.innerWidth : 0,
-      viewportHeight: typeof window !== "undefined" ? window.innerHeight : 0
+      viewportWidth: activeWin ? activeWin.innerWidth : 0,
+      viewportHeight: activeWin ? activeWin.innerHeight : 0
     });
 
     const wasHidden = readingExplainPop.hidden || readingExplainPop.hasAttribute("data-biliscript-closing");
@@ -255,7 +271,7 @@ export function bindReadingExplainEvents(): void {
     readingExplainPop.style.top = `${placed.top}px`;
     readingExplainPop.style.transformOrigin = `${Math.round(placed.originX)}px ${Math.round(placed.originY)}px`;
     readingExplainPop.hidden = false;
-    if (wasHidden && !prefersReducedMotion() && typeof readingExplainPop.animate === "function") {
+    if (wasHidden && !prefersReducedMotion(readingExplainPop) && typeof readingExplainPop.animate === "function") {
       try {
         readingExplainPop.animate(
           [
@@ -269,16 +285,16 @@ export function bindReadingExplainEvents(): void {
   };
 
   const runExplainPopFrame = () => {
-    showFrameId = 0;
+    showFrameHandle = null;
     const target = pendingTarget;
     pendingTarget = null;
     if (!target) {
       return;
     }
     placeExplainPop(target);
-    if (!popSizeMeasured && !measureFrameId) {
-      measureFrameId = window.requestAnimationFrame(() => {
-        measureFrameId = 0;
+    if (!popSizeMeasured && !measureFrameHandle) {
+      measureFrameHandle = scheduleActiveAnimationFrame(() => {
+        measureFrameHandle = null;
         if (readingExplainPop.hidden) {
           return;
         }
@@ -290,7 +306,7 @@ export function bindReadingExplainEvents(): void {
         if ((popWidth !== prevWidth || popHeight !== prevHeight) && lastPlacedTarget) {
           placeExplainPop(lastPlacedTarget);
         }
-      });
+      }, resolveNodeWindow(readingExplainPop));
     }
   };
 
@@ -300,8 +316,11 @@ export function bindReadingExplainEvents(): void {
       range: target.range.cloneRange(),
       snapshot: target.snapshot
     };
-    if (!showFrameId) {
-      showFrameId = window.requestAnimationFrame(runExplainPopFrame);
+    if (!showFrameHandle) {
+      showFrameHandle = scheduleActiveAnimationFrame(
+        runExplainPopFrame,
+        resolveNodeWindow(readingExplainPop)
+      );
     }
   };
 
@@ -309,7 +328,7 @@ export function bindReadingExplainEvents(): void {
     if (!node) {
       return null;
     }
-    return node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+    return node.nodeType === 3 ? node.parentElement : (node as Element);
   };
 
   const resolveSubtitleSelection = (
@@ -380,7 +399,7 @@ export function bindReadingExplainEvents(): void {
     endEl: Element | null,
     text: string
   ): PendingPlacementTarget | null => {
-    const currentOverviewBody = overviewBody ?? document.getElementById(ids.readingOverviewBody);
+    const currentOverviewBody = overviewBody ?? activeById(ids.readingOverviewBody);
     if (!currentOverviewBody || currentOverviewBody.closest("[hidden]")) {
       return null;
     }
@@ -427,7 +446,7 @@ export function bindReadingExplainEvents(): void {
       hideExplainPop();
       return;
     }
-    const selection = window.getSelection?.();
+    const selection = resolveNodeWindow(readingExplainPop).getSelection?.();
     const text = selection?.toString().trim() || "";
     if (!selection || !text || selection.rangeCount === 0) {
       hideExplainPop();
@@ -447,35 +466,86 @@ export function bindReadingExplainEvents(): void {
     showExplainPopForTarget(target);
   };
 
-  document.addEventListener("selectionchange", syncExplainPopWithSelection);
-  document.addEventListener("keydown", (event) => {
+  const onDocumentKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !readingExplainPop.hidden) {
       event.preventDefault();
       hideExplainPop();
     }
-  });
-  document.addEventListener("pointerdown", (event) => {
+  };
+
+  const onDocumentPointerDown = (event: PointerEvent) => {
     if (readingExplainPop.hidden) {
       return;
     }
-    if (readingExplainPop.contains(event.target as Node | null)) {
+    if (isNode(event.target) && readingExplainPop.contains(event.target)) {
       return;
     }
     hideExplainPop();
+  };
+
+  const onWindowResize = () => {
+    if (!readingExplainPop.hidden) {
+      hideExplainPop();
+    }
+  };
+
+  let boundDoc: Document | null = null;
+  let boundWin: Window | null = null;
+
+  const unbindHostListeners = () => {
+    safeRemoveListener(boundDoc, "selectionchange", syncExplainPopWithSelection);
+    safeRemoveListener(boundDoc, "keydown", onDocumentKeyDown);
+    safeRemoveListener(boundDoc, "pointerdown", onDocumentPointerDown);
+    safeRemoveListener(boundWin, "resize", onWindowResize);
+    boundDoc = null;
+    boundWin = null;
+  };
+
+  const bindHostListeners = (doc: Document, win: Window) => {
+    unbindHostListeners();
+    boundDoc = doc;
+    boundWin = win;
+    doc.addEventListener("selectionchange", syncExplainPopWithSelection);
+    doc.addEventListener("keydown", onDocumentKeyDown);
+    doc.addEventListener("pointerdown", onDocumentPointerDown);
+    win.addEventListener("resize", onWindowResize);
+  };
+
+  bindHostListeners(resolveNodeDocument(readingExplainPop), resolveNodeWindow(readingExplainPop));
+  const stopHostWatch = onActiveHostChange((ctx) => {
+    cancelPopFrames();
+    hideExplainPop();
+    let connected = false;
+    try {
+      connected = Boolean(readingExplainPop.isConnected);
+    } catch {
+      connected = false;
+    }
+    if (connected) {
+      bindHostListeners(ctx.doc, ctx.win);
+    } else {
+      unbindHostListeners();
+    }
   });
+  cleanupExplainHostBindings = () => {
+    stopHostWatch();
+    unbindHostListeners();
+    cancelPopFrames();
+    clearFeedbackTimer();
+  };
 
   readingExplainPop.addEventListener("mousedown", (event) => {
     event.preventDefault();
   });
   subtitleList.addEventListener("scroll", hideExplainPop, { passive: true });
   overviewBody?.addEventListener("scroll", hideExplainPop, { passive: true });
-  byId(ids.readingTabBodyOverview).addEventListener("scroll", hideExplainPop, { passive: true });
+  requireActiveById(ids.readingTabBodyOverview).addEventListener("scroll", hideExplainPop, { passive: true });
 
   const flashButtonAndClose = (btn: HTMLButtonElement, message: string) => {
     clearFeedbackTimer();
     btn.textContent = message;
     btn.classList.add("is-feedback");
-    window.getSelection?.()?.removeAllRanges();
+    resolveNodeWindow(readingExplainPop).getSelection?.()?.removeAllRanges();
     feedbackTimer = setTimeout(() => {
       feedbackTimer = null;
       hideExplainPop();
@@ -523,7 +593,7 @@ export function bindReadingExplainEvents(): void {
         from,
         index: itemNode ? itemIndex : -1
       };
-      window.getSelection?.()?.removeAllRanges();
+      resolveNodeWindow(readingExplainPop).getSelection?.()?.removeAllRanges();
       hideExplainPop();
       withReader("open explain card", (reader) => reader.openReaderExplainCard(payload));
       return;
@@ -531,7 +601,7 @@ export function bindReadingExplainEvents(): void {
 
     if (action === "quote-card") {
       const content = snapshot.selection;
-      window.getSelection?.()?.removeAllRanges();
+      resolveNodeWindow(readingExplainPop).getSelection?.()?.removeAllRanges();
       hideExplainPop();
       withReader("open quote share modal", (reader) =>
         reader.openQuoteShareModal({ content, triggerEl: btn })
@@ -545,7 +615,7 @@ export function bindReadingExplainEvents(): void {
       const copyText = formatSelectionTimestampCopy(snapshot.selection, snapshot.from, withHours);
       void (async () => {
         try {
-          await navigator.clipboard.writeText(copyText);
+          await writeActiveClipboardText(copyText, resolveNodeWindow(readingExplainPop));
           flashButtonAndClose(btn, "已复制 ✓");
         } catch {
           flashButtonAndClose(btn, "复制失败");
@@ -576,7 +646,7 @@ export function bindReadingExplainEvents(): void {
     }
   });
 
-  const readingExplainCard = byId(ids.readingExplainCard);
+  const readingExplainCard = requireActiveById(ids.readingExplainCard);
   readingExplainCard.addEventListener("click", (event) => {
     withReader("explain card click", (reader) => reader.onReaderExplainCardClick(event as MouseEvent));
   });

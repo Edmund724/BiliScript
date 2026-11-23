@@ -1,3 +1,4 @@
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 
 export interface CreateReaderChatFeedbackDeps {
@@ -82,7 +83,9 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
     } else {
       removeMessagesNotice();
     }
-    const notice = document.createElement("div");
+    const targetParent = isInputSlot && inputCard ? inputCard : messages;
+    const doc = resolveNodeDocument(targetParent);
+    const notice = doc.createElement("div");
     notice.className = "chat-context-notice";
     if (tone === "success") {
       notice.classList.add("is-success");
@@ -90,7 +93,7 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
     notice.setAttribute("role", placement === "input" ? "alert" : "status");
     notice.textContent = String(message || "").trim();
     if (spinner) {
-      const indicator = document.createElement("span");
+      const indicator = doc.createElement("span");
       indicator.className = "chat-notice-spinner";
       indicator.setAttribute("aria-hidden", "true");
       notice.insertBefore(indicator, notice.firstChild);
@@ -100,7 +103,7 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
       ...(openSettingsAction ? [{ label: "前往设置", onClick: () => onOpenSettings(settingsTarget) }] : [])
     ];
     for (const descriptor of actions) {
-      const link = document.createElement("a");
+      const link = doc.createElement("a");
       link.href = "#";
       link.textContent = descriptor.label;
       link.addEventListener("click", (event) => {
@@ -108,11 +111,11 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
         event.stopPropagation();
         descriptor.onClick();
       });
-      notice.appendChild(document.createTextNode(" "));
+      notice.appendChild(doc.createTextNode(" "));
       notice.appendChild(link);
     }
     if (dismissible) {
-      const closeBtn = document.createElement("button");
+      const closeBtn = doc.createElement("button");
       closeBtn.type = "button";
       closeBtn.className = "chat-notice-close";
       closeBtn.setAttribute("aria-label", "关闭提示");
@@ -127,10 +130,10 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
           removeMessagesNotice();
         }
       });
-      notice.appendChild(document.createTextNode(" "));
+      notice.appendChild(doc.createTextNode(" "));
       notice.appendChild(closeBtn);
     }
-    (isInputSlot && inputCard ? inputCard : messages).prepend(notice);
+    targetParent.prepend(notice);
     if (!isInputSlot) {
       messageNoticePersistent = autoHideMs <= 0 && !openSettingsAction && !action && tone !== "success";
     }
@@ -168,7 +171,7 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
     }
     removeConversationContextNotice();
     removeCenteredState();
-    const stateNode = document.createElement("div");
+    const stateNode = resolveNodeDocument(messages).createElement("div");
     stateNode.className = "chat-center-error";
     stateNode.textContent = String(message);
     messages.appendChild(stateNode);

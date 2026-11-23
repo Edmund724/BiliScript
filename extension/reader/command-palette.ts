@@ -1,4 +1,10 @@
 import { state } from "../core/state.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  onActiveHostChange,
+} from "../shared/active-host.js";
+import { resolveNodeDocument, safeRemoveListener } from "../shared/cross-doc.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
@@ -199,7 +205,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       kbd: [mod, "F"],
       run: async () => {
         await activateScriptTab("subtitle", { consumeIntent: false });
-        const input = document.getElementById(ids.readingSearchInput) as HTMLInputElement | null;
+        const input = activeById<HTMLInputElement>(ids.readingSearchInput);
         input?.focus({ preventScroll: true });
         input?.select();
       }
@@ -422,7 +428,14 @@ function isNativeModalDialog(dialog: HTMLDialogElement): boolean {
 }
 
 function isDialogOpen(dialog: HTMLDialogElement | null | undefined): boolean {
-  return Boolean(dialog && (dialog.open || dialog.hasAttribute("open")));
+  if (!dialog) {
+    return false;
+  }
+  try {
+    return Boolean(dialog.open || dialog.hasAttribute("open"));
+  } catch {
+    return false;
+  }
 }
 
 function onFallbackEscKeyDown(event: KeyboardEvent): void {
@@ -536,13 +549,16 @@ async function executeActiveItem(rt: PaletteRuntime, index: number): Promise<voi
 }
 
 function ensurePaletteDom(): PaletteRuntime {
-  if (runtime && runtime.dialog.isConnected) {
+  const activeDoc = getActiveReaderDocument();
+  if (runtime && runtime.dialog.isConnected && runtime.dialog.ownerDocument === activeDoc) {
     return runtime;
   }
-  const existing = document.getElementById(COMMAND_PALETTE_ID);
+  const existing = activeById(COMMAND_PALETTE_ID);
   existing?.remove();
 
-  const dialog = document.createElement("dialog");
+  const host = activeById(ids.readingView) || activeDoc.body;
+  const hostDoc = resolveNodeDocument(host);
+  const dialog = hostDoc.createElement("dialog");
   dialog.id = COMMAND_PALETTE_ID;
   dialog.className = "biliscript-cmd-palette";
   dialog.setAttribute("closedby", "any");
@@ -578,7 +594,6 @@ function ensurePaletteDom(): PaletteRuntime {
     </div>
   `;
 
-  const host = document.getElementById(ids.readingView) || document.body;
   host.appendChild(dialog);
 
   const input = dialog.querySelector<HTMLInputElement>(".biliscript-cmd-input")!;
@@ -703,11 +718,53 @@ export function isCommandPaletteOpen(): boolean {
   return isDialogOpen(runtime?.dialog);
 }
 
+let fallbackEscDoc: Document | null = null;
+let stopPaletteHostWatch: (() => void) | null = null;
+
+function unbindFallbackEsc(): void {
+  if (!fallbackEscBound) {
+    return;
+  }
+  safeRemoveListener(fallbackEscDoc, "keydown", onFallbackEscKeyDown, true);
+  fallbackEscDoc = null;
+  fallbackEscBound = false;
+}
+
+function ensurePaletteHostWatch(): void {
+  if (stopPaletteHostWatch) {
+    return;
+  }
+  stopPaletteHostWatch = onActiveHostChange((ctx) => {
+    closeCommandPalette();
+    if (!runtime) {
+      return;
+    }
+    let keepRuntime = false;
+    try {
+      const readingView = activeById(ids.readingView);
+      keepRuntime =
+        runtime.dialog.isConnected &&
+        runtime.dialog.ownerDocument === ctx.doc &&
+        Boolean(readingView && readingView.contains(runtime.dialog));
+    } catch {
+      keepRuntime = false;
+    }
+    if (!keepRuntime) {
+      try {
+        runtime.dialog.remove();
+      } catch {
+      }
+      runtime = null;
+    }
+  });
+}
+
 export function openCommandPalette(): void {
   if (!isReaderViewOpen()) {
     return;
   }
   const rt = ensurePaletteDom();
+  ensurePaletteHostWatch();
   if (rt.statusTimer !== null) {
     clearTimeout(rt.statusTimer);
     rt.statusTimer = null;
@@ -724,7 +781,8 @@ export function openCommandPalette(): void {
     } else {
       rt.dialog.setAttribute("open", "");
       if (!fallbackEscBound) {
-        document.addEventListener("keydown", onFallbackEscKeyDown, true);
+        fallbackEscDoc = resolveNodeDocument(rt.dialog);
+        fallbackEscDoc.addEventListener("keydown", onFallbackEscKeyDown, true);
         fallbackEscBound = true;
       }
     }
@@ -740,15 +798,19 @@ export function closeCommandPalette(): void {
     clearTimeout(runtime.statusTimer);
     runtime.statusTimer = null;
   }
-  if (fallbackEscBound) {
-    document.removeEventListener("keydown", onFallbackEscKeyDown, true);
-    fallbackEscBound = false;
-  }
-  if (isDialogOpen(runtime.dialog)) {
-    if (typeof runtime.dialog.close === "function") {
-      runtime.dialog.close();
-    } else {
+  unbindFallbackEsc();
+  try {
+    if (isDialogOpen(runtime.dialog)) {
+      if (typeof runtime.dialog.close === "function") {
+        runtime.dialog.close();
+      } else {
+        runtime.dialog.removeAttribute("open");
+      }
+    }
+  } catch {
+    try {
       runtime.dialog.removeAttribute("open");
+    } catch {
     }
   }
 }

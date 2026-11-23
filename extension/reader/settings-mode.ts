@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { activeById, getActiveReaderDocument } from "../shared/active-host.js";
+import { isHtmlElement } from "../shared/cross-doc.js";
 import { getReaderActiveScriptTab, ids } from "./state.js";
 import { invalidateReaderSetupFlows } from "./setup-resume.js";
 import { closeQuoteShareModal, isQuoteShareModalOpen } from "./quote-share-modal.js";
@@ -74,9 +76,9 @@ function collectActiveMainLayers(scriptPanel: HTMLElement | null): HTMLElement[]
 
 export function projectReaderSettingsMode(options: { onExitSettled?: () => void } = {}): void {
   const expanded = state.reader.readingSettingsExpanded;
-  const settingsPanel = document.getElementById(ids.readingSettingsPanel);
-  const settingsButton = document.getElementById(ids.readingSettingsBtn);
-  const scriptPanel = document.getElementById(ids.readingScriptPanel);
+  const settingsPanel = activeById(ids.readingSettingsPanel);
+  const settingsButton = activeById(ids.readingSettingsBtn);
+  const scriptPanel = activeById(ids.readingScriptPanel);
 
   settingsButton?.classList.toggle("is-active", expanded);
   settingsButton?.setAttribute("aria-pressed", expanded ? "true" : "false");
@@ -161,25 +163,26 @@ export function openReaderSettingsMode(): void {
   if (isQuoteShareModalOpen()) {
     closeQuoteShareModal({ restoreFocus: true });
   }
+  const activeDoc = getActiveReaderDocument();
   if (!state.reader.readingSettingsExpanded) {
-    const activeElement = document.activeElement;
-    settingsReturnFocus = activeElement instanceof HTMLElement && activeElement !== document.body
+    const activeElement = activeDoc.activeElement;
+    settingsReturnFocus = isHtmlElement(activeElement) && activeElement !== activeDoc.body
       ? activeElement
       : null;
   }
   state.reader.setSettingsExpanded(true);
   projectReaderSettingsMode();
-  focusWithoutScroll(document.getElementById(ids.readingSettingsBackBtn));
+  focusWithoutScroll(activeById(ids.readingSettingsBackBtn));
 }
 
 export function hasReaderSettingsDropdownOpen(): boolean {
-  return document.querySelector(
+  return getActiveReaderDocument().querySelector(
     '.custom-select-dropdown:not([hidden]):not([data-inline="true"]), .ai-provider-model-dropdown:not([hidden])'
   ) !== null;
 }
 
 export function hasReaderSettingsOverlayOpen(): boolean {
-  return hasReaderSettingsDropdownOpen() || document.querySelector(
+  return hasReaderSettingsDropdownOpen() || getActiveReaderDocument().querySelector(
     '.provider-editor-host:not([data-biliscript-closing="1"]), [data-panel-modal-host="1"]:not([data-biliscript-closing="1"]), .confirm-dialog-host:not([data-biliscript-closing="1"])'
   ) !== null;
 }
@@ -197,14 +200,15 @@ export function closeReaderSettingsMode({ restoreFocus = true }: { restoreFocus?
     if (returnTarget) {
       focusWithoutScroll(returnTarget);
     } else {
-      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
-      const active = document.activeElement;
+      const activeDoc = getActiveReaderDocument();
+      const settingsPanel = activeById(ids.readingSettingsPanel);
+      const active = activeDoc.activeElement;
       const focusAlreadyOutsideSettings =
-        active instanceof HTMLElement
-        && active !== document.body
+        isHtmlElement(active)
+        && active !== activeDoc.body
         && (!settingsPanel || !settingsPanel.contains(active));
       if (!focusAlreadyOutsideSettings) {
-        focusWithoutScroll(document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
+        focusWithoutScroll(activeById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
       }
     }
   }

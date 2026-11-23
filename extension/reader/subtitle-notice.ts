@@ -1,3 +1,4 @@
+import { activeById } from "../shared/active-host.js";
 import { ids } from "./state.js";
 
 export const SUBTITLE_NOTICE_AUTO_HIDE_MS = 6000;
@@ -12,7 +13,7 @@ function cancelAutoHide(node: NoticeNode): void {
 }
 
 export function showSubtitleNotice(text: string | number | null | undefined): void {
-  const node = document.getElementById(ids.readingSubtitleNotice) as NoticeNode | null;
+  const node = activeById<NoticeNode>(ids.readingSubtitleNotice);
   if (!node) {
     return;
   }

@@ -1,3 +1,8 @@
+import {
+  resolveNodeDocument,
+  resolveNodeWindow,
+  writeActiveClipboardText,
+} from "../shared/cross-doc.js";
 import { decodeHtmlEntities, escapeHtml } from "../shared/string-utils.js";
 import { flashCopySuccess } from "./copy-feedback.js";
 import { READING_COPY_ICON } from "./reading-icons.js";
@@ -973,18 +978,19 @@ export function enhanceMarkdownCodeBlocks(root: ParentNode): void {
     if (pre.classList.contains(MERMAID_SOURCE_CLASS) || pre.closest(".biliscript-md-mermaid") || pre.closest(".biliscript-md-code")) {
       continue;
     }
-    const wrapper = document.createElement("div");
+    const doc = resolveNodeDocument(pre);
+    const wrapper = doc.createElement("div");
     wrapper.className = "biliscript-md-code";
-    const bar = document.createElement("div");
+    const bar = doc.createElement("div");
     bar.className = "biliscript-md-code-bar";
     const lang = pre.getAttribute("data-lang")?.trim() || "";
     if (lang) {
-      const langEl = document.createElement("span");
+      const langEl = doc.createElement("span");
       langEl.className = "biliscript-md-code-lang";
       langEl.textContent = lang;
       bar.appendChild(langEl);
     }
-    const copyBtn = document.createElement("button");
+    const copyBtn = doc.createElement("button");
     copyBtn.type = "button";
     copyBtn.className = "biliscript-md-code-copy";
     copyBtn.setAttribute("aria-label", "复制代码");
@@ -993,7 +999,7 @@ export function enhanceMarkdownCodeBlocks(root: ParentNode): void {
     copyBtn.addEventListener("click", async () => {
       const text = pre.querySelector("code")?.textContent ?? pre.textContent ?? "";
       try {
-        await navigator.clipboard.writeText(text);
+        await writeActiveClipboardText(text, resolveNodeWindow(copyBtn));
         flashCopySuccess(copyBtn, { originalSvg: READING_COPY_ICON, originalLabel: "复制代码" });
       } catch {
       }

@@ -1,3 +1,4 @@
+import { isHtmlElement } from "../../shared/cross-doc.js";
 import type {
   BeginInPlaceTurnOptions,
   ChatAssistantTurn,
@@ -38,7 +39,7 @@ function createFollowingVisibilityScope(node: HTMLElement): { restore: () => voi
   const following: HTMLElement[] = [];
   let next = node.nextElementSibling;
   while (next) {
-    if (next instanceof HTMLElement) {
+    if (isHtmlElement(next)) {
       next.hidden = true;
       following.push(next);
     }

@@ -1,3 +1,4 @@
+import { getActiveReaderDocument } from "../shared/active-host.js";
 import {
   annotateAiCredentialRows,
   queryAiCredentialKey,
@@ -761,7 +762,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     linkedCredentialInFlight = true;
     const mountHost = options.getEditorMountHost?.() ?? null;
     const actionButtons = Array.from(
-      (mountHost ?? document).querySelectorAll<HTMLButtonElement>(".provider-editor-linked-credential-btn")
+      (mountHost ?? getActiveReaderDocument()).querySelectorAll<HTMLButtonElement>(".provider-editor-linked-credential-btn")
     );
     for (const btn of actionButtons) {
       btn.disabled = true;

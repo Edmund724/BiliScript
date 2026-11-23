@@ -1,5 +1,6 @@
 import { state } from "../core/state.js";
-import { byId } from "../shared/dom-utils.js";
+import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
+import { requireActiveById } from "../shared/cross-doc.js";
 import { findActiveSubtitleIndex, findActiveChapterIndex } from "../subtitle/core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
@@ -94,7 +95,7 @@ export function syncReadingOverviewActiveChapter(
     return;
   }
 
-  const body = document.getElementById(ids.readingOverviewBody);
+  const body = activeById(ids.readingOverviewBody);
   if (!body) return;
   const cards = Array.from(body.querySelectorAll<HTMLElement>(".biliscript-reading-ov-chapter"));
   let next: HTMLElement | null = null;
@@ -154,7 +155,7 @@ function setActiveReadingItems(
   shouldScroll = false,
   currentTime?: number
 ) {
-  const subtitleList = byId(ids.readingSubtitleList);
+  const subtitleList = requireActiveById(ids.readingSubtitleList);
   const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
 
   if (!subtitleHit.unchanged) {
@@ -219,7 +220,7 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
     return;
   }
 
-  const subtitleList = byId(ids.readingSubtitleList);
+  const subtitleList = requireActiveById(ids.readingSubtitleList);
   const listRect = subtitleList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {
@@ -277,7 +278,8 @@ export function jumpReadingTarget(seconds: number | string) {
 }
 
 export function markSubtitlePointerDownSelection(hasSelection?: boolean) {
-  hadSelectionOnPointerDown = hasSelection ?? Boolean(window.getSelection()?.toString().trim());
+  hadSelectionOnPointerDown =
+    hasSelection ?? Boolean(getActiveReaderWindow().getSelection()?.toString().trim());
 }
 
 export function onReadingSubtitleClick(event: MouseEvent) {
@@ -287,7 +289,7 @@ export function onReadingSubtitleClick(event: MouseEvent) {
   if (!target) {
     return;
   }
-  if (hadSelection || window.getSelection()?.toString().trim()) {
+  if (hadSelection || getActiveReaderWindow().getSelection()?.toString().trim()) {
     return;
   }
   jumpReadingTarget(target.dataset.seconds ?? 0);
@@ -307,7 +309,7 @@ export function resumeReaderFollowPlayback() {
 
 export function resetReaderScrollFollow() {
   subtitleScrollFollow.resetForVideoSwitch();
-  const readingView = document.getElementById(ids.readingView);
+  const readingView = activeById(ids.readingView);
   if (
     state.reader.readingViewOpen ||
     readingView?.getAttribute("data-biliscript-reader-follow") === "manual"

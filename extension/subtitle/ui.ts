@@ -1,4 +1,6 @@
 import { buildTxt, buildVtt } from "../notes/render.js";
+import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active-host.js";
+import { writeActiveClipboardText } from "../shared/cross-doc.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { getSettings } from "../core/runtime.js";
@@ -16,7 +18,7 @@ export async function copySubtitleTranscript(): Promise<boolean> {
   }
 
   try {
-    await navigator.clipboard.writeText(text);
+    await writeActiveClipboardText(text);
     return true;
   } catch (error) {
     logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
@@ -56,16 +58,30 @@ export async function downloadSubtitle(options?: { format?: string }): Promise<b
   const dateRaw = state.settings?.includeDateInFilename ? state.clip.uploadDate || formatLocalDate() : "";
   const datePrefix = dateRaw ? `${sanitizeFileName(dateRaw)}-` : "";
   const filename = `${datePrefix}${safeTitle}.${langSuffix}.${fileExt}`;
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+  const activeDoc = getActiveReaderDocument();
+  const activeWin = getActiveReaderWindow() as Window & {
+    URL?: typeof URL;
+    Blob?: typeof Blob;
+  };
+  const BlobCtor = activeWin?.Blob ?? Blob;
+  const urlApi =
+    activeWin?.URL && typeof activeWin.URL.createObjectURL === "function" ? activeWin.URL : URL;
+  const blob = new BlobCtor([content], { type: "text/plain;charset=utf-8" });
+  const url = urlApi.createObjectURL(blob);
 
-  const a = document.createElement("a");
+  const a = activeDoc.createElement("a");
   a.href = url;
   a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  (activeDoc.body ?? activeDoc.documentElement)?.appendChild(a);
+  try {
+    a.click();
+    a.remove();
+  } finally {
+    try {
+      urlApi.revokeObjectURL(url);
+    } catch {
+    }
+  }
 
   return true;
 }

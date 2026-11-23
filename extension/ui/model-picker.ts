@@ -1,3 +1,10 @@
+import { getActiveReaderDocument } from "../shared/active-host.js";
+import {
+  dispatchCrossDocEvent,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+} from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import {
@@ -75,11 +82,12 @@ const PROVIDER_ROW_COMBOBOX_CLASSES: ModelComboboxClasses = {
 
 export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox {
   const { input, toggle, dropdown, classes } = config;
-  const doc = dropdown.ownerDocument || document;
   const optionToken = classes.optionClass.trim().split(/\s+/)[0] || "model-picker-option";
   const optionSelector = `.${optionToken}`;
 
-  const abort = new AbortController();
+  const win = resolveNodeWindow(dropdown) as Window & { AbortController?: typeof AbortController };
+  const AbortCtor = typeof win?.AbortController === "function" ? win.AbortController : AbortController;
+  const abort = new AbortCtor();
   const { signal } = abort;
   let disposed = false;
   let availableModels: string[] = [];
@@ -150,6 +158,7 @@ export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox 
   });
 
   function renderOptions(): void {
+    const doc = resolveNodeDocument(dropdown);
     dropdown.innerHTML = "";
     optionLis = [];
     countLi = null;
@@ -210,6 +219,7 @@ export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox 
 
   function renderMessage(text: string, tone: ModelComboboxMessageTone = "neutral"): void {
     if (disposed) return;
+    const doc = resolveNodeDocument(dropdown);
     dropdown.innerHTML = "";
     optionLis = [];
     countLi = null;
@@ -241,14 +251,15 @@ export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox 
     return !dropdown.hidden;
   }
 
-  input.addEventListener("input", () => {
+  const onInputEvent = (): void => {
     if (!dropdown.hidden) {
       close(false);
     }
     config.onInput?.();
-  }, { signal });
+  };
+  input.addEventListener("input", onInputEvent);
 
-  input.addEventListener("keydown", (e) => {
+  const onInputKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "ArrowDown" && dropdown.hidden) {
       e.preventDefault();
       if (config.onArrowDownOpen) {
@@ -257,25 +268,28 @@ export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox 
         open();
       }
     }
-  }, { signal });
+  };
+  input.addEventListener("keydown", onInputKeyDown);
 
+  const onToggleClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    if (isOpen()) {
+      close(false);
+    } else {
+      open();
+    }
+  };
   if (config.bindToggleClick !== false) {
-    toggle.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (isOpen()) {
-        close(false);
-      } else {
-        open();
-      }
-    }, { signal });
+    toggle.addEventListener("click", onToggleClick);
   }
 
-  dropdown.addEventListener("click", (e) => {
+  const onDropdownClick = (e: MouseEvent): void => {
     const option = (e.target as HTMLElement | null)?.closest<HTMLElement>(optionSelector);
     if (!option || !option.dataset.model) return;
     e.stopPropagation();
     chooseOption(option);
-  }, { signal });
+  };
+  dropdown.addEventListener("click", onDropdownClick);
 
   const onExternalAbort = (): void => dispose();
   if (config.signal) {
@@ -289,7 +303,13 @@ export function createModelCombobox(config: ModelComboboxConfig): ModelCombobox 
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    config.signal?.removeEventListener("abort", onExternalAbort);
+    safeRemoveListener(config.signal, "abort", onExternalAbort);
+    safeRemoveListener(input, "input", onInputEvent);
+    safeRemoveListener(input, "keydown", onInputKeyDown);
+    if (config.bindToggleClick !== false) {
+      safeRemoveListener(toggle, "click", onToggleClick);
+    }
+    safeRemoveListener(dropdown, "click", onDropdownClick);
     abort.abort();
     close(false);
     ownedDismissal?.dispose();
@@ -372,7 +392,7 @@ export function wireModelPicker(
     dismissal: modelDropdownDismissal,
     bindToggleClick: false,
     onSelect: () => {
-      modelInput.dispatchEvent(new Event("input", { bubbles: true }));
+      dispatchCrossDocEvent(modelInput, "input", { bubbles: true });
     },
     onInput: cancelInFlight,
     onClose: cancelInFlight,
@@ -415,8 +435,13 @@ export function wireModelPicker(
 
     const generation = ++fetchGeneration;
     fetchInFlight = true;
-    const isStale = (): boolean =>
-      !toggle.isConnected || !dropdown.isConnected || generation !== fetchGeneration || !combobox.isOpen();
+    const isStale = (): boolean => {
+      try {
+        return !toggle.isConnected || !dropdown.isConnected || generation !== fetchGeneration || !combobox.isOpen();
+      } catch {
+        return true;
+      }
+    };
 
     try {
       const permission = await requestProviderOriginsViaBackground([baseUrl]);
@@ -441,11 +466,14 @@ export function wireModelPicker(
       }
     } catch (error) {
       if (isStale()) return;
-      const message = (error as Error).message;
-      combobox.renderMessage(
-        message && message.includes("port closed") ? "连接中断，请重试" : (message || "拉取失败"),
-        "error"
-      );
+      const message = (error as Error)?.message;
+      try {
+        combobox.renderMessage(
+          message && message.includes("port closed") ? "连接中断，请重试" : (message || "拉取失败"),
+          "error"
+        );
+      } catch {
+      }
     } finally {
       if (generation === fetchGeneration) {
         fetchInFlight = false;
@@ -455,10 +483,11 @@ export function wireModelPicker(
 }
 
 export function closeAllModelDropdowns(): void {
-  document.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
+  const doc = getActiveReaderDocument();
+  doc.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
     dropdown.hidden = true;
   });
-  document.querySelectorAll<HTMLElement>(".ai-provider-model-toggle").forEach((toggle) => {
+  doc.querySelectorAll<HTMLElement>(".ai-provider-model-toggle").forEach((toggle) => {
     toggle.setAttribute("aria-expanded", "false");
   });
   modelDropdownDismissal.sync();

@@ -1,3 +1,10 @@
+import {
+  getActiveReaderDocument,
+  getActiveReaderWindow,
+  getOpenerWindow,
+} from "../shared/active-host.js";
+import { isBlobLike } from "../shared/cross-doc.js";
+
 export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";
 
 export interface QuoteCardPattern {
@@ -182,11 +189,12 @@ const noiseCache = new Map<number, string>();
 const patternCache = new Map<QuotePatternId, string>();
 
 export function getQuoteShareNoiseDataUrl(customDpr?: number): string {
+  const activeWin = getActiveReaderWindow();
   const dpr =
     typeof customDpr === "number" && customDpr > 0
       ? customDpr
-      : typeof window !== "undefined" && window.devicePixelRatio > 0
-      ? window.devicePixelRatio
+      : typeof activeWin !== "undefined" && activeWin.devicePixelRatio > 0
+      ? activeWin.devicePixelRatio
       : 1;
 
   const cached = noiseCache.get(dpr);
@@ -200,7 +208,8 @@ export function getQuoteShareNoiseDataUrl(customDpr?: number): string {
 }
 
 function generateNoiseDataUrl(dpr: number): string {
-  if (typeof document === "undefined") {
+  const doc = getActiveReaderDocument();
+  if (!doc) {
     return createFallbackNoiseSvgDataUrl();
   }
 
@@ -208,7 +217,7 @@ function generateNoiseDataUrl(dpr: number): string {
   const height = Math.max(1, Math.round(NOISE_BASE_SIZE * dpr));
 
   try {
-    const canvas = document.createElement("canvas");
+    const canvas = doc.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
@@ -679,7 +688,8 @@ function drawQuoteCardMotif(ctx: CanvasRenderingContext2D): void {
 async function renderQuoteCardToCanvas(
   options: QuoteCardExportOptions
 ): Promise<HTMLCanvasElement> {
-  const canvas = document.createElement("canvas");
+  const doc = getActiveReaderDocument();
+  const canvas = doc.createElement("canvas");
   canvas.width = Math.round(CANONICAL_SHEET_WIDTH * EXPORT_SCALE);
   canvas.height = Math.round(CANONICAL_SHEET_HEIGHT * EXPORT_SCALE);
 
@@ -738,7 +748,7 @@ async function renderQuoteCardToCanvas(
       const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
       const patternImg = await loadImageFromDataUrl(svgDataUrl);
       if (patternImg) {
-        const tempCanvas = document.createElement("canvas");
+        const tempCanvas = doc.createElement("canvas");
         tempCanvas.width = Math.round(cardW * EXPORT_SCALE);
         tempCanvas.height = Math.round(cardH * EXPORT_SCALE);
         const tempCtx = tempCanvas.getContext("2d");
@@ -935,23 +945,47 @@ export async function copyQuoteCardBlobToClipboard(
   blobOrPromise: Blob | Promise<Blob>,
   mimeType = "image/png"
 ): Promise<boolean> {
-  try {
-    if (
-      typeof navigator !== "undefined" &&
-      navigator.clipboard &&
-      typeof navigator.clipboard.write === "function" &&
-      typeof ClipboardItem !== "undefined"
-    ) {
-      const type =
-        typeof Blob !== "undefined" && blobOrPromise instanceof Blob
-          ? blobOrPromise.type || mimeType
-          : mimeType;
-      const item = new ClipboardItem({ [type]: blobOrPromise });
-      await navigator.clipboard.write([item]);
-      return true;
+  const activeWin = getActiveReaderWindow() as Window & {
+    ClipboardItem?: typeof ClipboardItem;
+  };
+  const openerWin = getOpenerWindow() as Window & {
+    ClipboardItem?: typeof ClipboardItem;
+  };
+  const type = isBlobLike(blobOrPromise) ? blobOrPromise.type || mimeType : mimeType;
+  const writeToWin = async (
+    win: (Window & { ClipboardItem?: typeof ClipboardItem }) | undefined
+  ): Promise<boolean> => {
+    const clip = win?.navigator?.clipboard;
+    const ItemCtor =
+      win?.ClipboardItem ?? (typeof ClipboardItem !== "undefined" ? ClipboardItem : undefined);
+    if (!clip || typeof clip.write !== "function" || !ItemCtor) {
+      return false;
     }
-  } catch (err) {
-    console.warn("[quote-share-export] clipboard.write failed:", err);
+    const item = new ItemCtor({ [type]: blobOrPromise });
+    await clip.write([item]);
+    return true;
+  };
+  let lastError: unknown;
+  if (activeWin) {
+    try {
+      if (await writeToWin(activeWin)) {
+        return true;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (openerWin && openerWin !== activeWin) {
+    try {
+      if (await writeToWin(openerWin)) {
+        return true;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError !== undefined) {
+    console.warn("[quote-share-export] clipboard.write failed:", lastError);
   }
   return false;
 }
@@ -960,15 +994,33 @@ export function downloadQuoteCardBlob(
   blob: Blob,
   filename = `biliscript-quote-${Date.now()}.png`
 ): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const activeDoc = getActiveReaderDocument();
+  const activeWin = getActiveReaderWindow() as Window & { URL?: typeof URL };
+  const urlApi =
+    activeWin?.URL && typeof activeWin.URL.createObjectURL === "function" ? activeWin.URL : URL;
+  const url = urlApi.createObjectURL(blob);
+  const a = activeDoc.createElement("a");
   a.href = url;
   a.download = filename;
   a.style.display = "none";
-  document.body.appendChild(a);
+  (activeDoc.body ?? activeDoc.documentElement)?.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1000);
+  const revoke = (): void => {
+    try {
+      urlApi.revokeObjectURL(url);
+    } catch {
+    }
+  };
+  let scheduled = false;
+  try {
+    if (!activeWin?.closed && typeof activeWin?.setTimeout === "function") {
+      activeWin.setTimeout(revoke, 1000);
+      scheduled = true;
+    }
+  } catch {
+  }
+  if (!scheduled) {
+    setTimeout(revoke, 1000);
+  }
 }

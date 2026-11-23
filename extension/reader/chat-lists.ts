@@ -5,6 +5,7 @@ import {
   formatConversationTimestamp,
   buildConversationTitleDisplay
 } from "../ai/conversation.js";
+import { isElementNode } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { resolveInitialQuickPrompts } from "../chat/quick-prompts.js";
 import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
@@ -261,7 +262,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   function bindHistoryActions(): void {
     historyList.querySelectorAll<HTMLElement>(".chat-history-item").forEach((item) => {
       item.addEventListener("click", (event) => {
-        if (event.target instanceof Element && event.target.closest(".chat-history-remove")) return;
+        if (isElementNode(event.target) && event.target.closest(".chat-history-remove")) return;
         event.stopPropagation();
         openConversation(String(item.dataset.id || ""));
       });

@@ -1,6 +1,12 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
 import { clipState, state } from "../core/state.js";
+import { onActiveHostChange } from "../shared/active-host.js";
+import {
+  resolveNodeWindow,
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
 import {
@@ -21,7 +27,39 @@ interface SubtitleAppendTask {
 }
 
 let subtitleAppendTask: SubtitleAppendTask | null = null;
-let subtitleAppendRafId = 0;
+let subtitleAppendRaf: ActiveAnimationFrameHandle | null = null;
+let calibrationRaf: ActiveAnimationFrameHandle | null = null;
+let calibrationListEl: HTMLElement | null = null;
+let stopHostWatch: (() => void) | null = null;
+
+function maybeTeardownHostWatch(): void {
+  if (!subtitleAppendRaf && !calibrationRaf && stopHostWatch) {
+    stopHostWatch();
+    stopHostWatch = null;
+  }
+}
+
+function ensureHostWatch(): void {
+  if (stopHostWatch) {
+    return;
+  }
+  stopHostWatch = onActiveHostChange((ctx) => {
+    if (subtitleAppendRaf) {
+      subtitleAppendRaf.cancel();
+      subtitleAppendRaf = null;
+      if (subtitleAppendTask) {
+        subtitleAppendRaf = scheduleActiveAnimationFrame(appendReadingSubtitleBatch, ctx.win);
+      }
+    }
+    if (calibrationRaf && calibrationListEl) {
+      const targetList = calibrationListEl;
+      calibrationRaf.cancel();
+      calibrationRaf = null;
+      scheduleCalibration(targetList, ctx.win);
+    }
+    maybeTeardownHostWatch();
+  });
+}
 
 const SECONDARY_LOADING_TEXT = "译文加载中…";
 const SECONDARY_FAIL_TEXT = "译文加载失败";
@@ -135,32 +173,38 @@ function notifyReadingSubtitleBatchAppended(fromIndex: number, toIndex: number):
 }
 
 export function cancelReadingSubtitleAppend() {
-  if (subtitleAppendRafId) {
-    window.cancelAnimationFrame(subtitleAppendRafId);
-    subtitleAppendRafId = 0;
+  if (subtitleAppendRaf) {
+    subtitleAppendRaf.cancel();
+    subtitleAppendRaf = null;
   }
-  if (calibrationRafId) {
-    window.cancelAnimationFrame(calibrationRafId);
-    calibrationRafId = 0;
+  if (calibrationRaf) {
+    calibrationRaf.cancel();
+    calibrationRaf = null;
   }
+  calibrationListEl = null;
   subtitleAppendTask = null;
+  maybeTeardownHostWatch();
 }
 
 function scheduleReadingSubtitleAppend() {
-  if (subtitleAppendRafId) {
+  if (subtitleAppendRaf) {
     return;
   }
-  subtitleAppendRafId = window.requestAnimationFrame(appendReadingSubtitleBatch);
+  ensureHostWatch();
+  const targetWin = resolveNodeWindow(subtitleAppendTask?.listEl);
+  subtitleAppendRaf = scheduleActiveAnimationFrame(appendReadingSubtitleBatch, targetWin);
 }
 
 function appendReadingSubtitleBatch() {
-  subtitleAppendRafId = 0;
+  subtitleAppendRaf = null;
   const task = subtitleAppendTask;
   if (!task) {
+    maybeTeardownHostWatch();
     return;
   }
   if (!task.listEl?.isConnected) {
     subtitleAppendTask = null;
+    maybeTeardownHostWatch();
     return;
   }
   const end = Math.min(task.items.length, task.cursor + TRANSCRIPT_APPEND_BATCH);
@@ -172,6 +216,7 @@ function appendReadingSubtitleBatch() {
     scheduleReadingSubtitleAppend();
   } else {
     subtitleAppendTask = null;
+    maybeTeardownHostWatch();
   }
 }
 
@@ -210,14 +255,17 @@ export function startReadingSubtitleAppendTask(task: SubtitleAppendTask) {
 
 const ITEM_ESTIMATE_VAR = "--biliscript-reader-item-estimate";
 
-let calibrationRafId = 0;
-
-export function calibrateReadingSubtitleItemEstimate(listEl: HTMLElement) {
-  if (calibrationRafId) {
-    window.cancelAnimationFrame(calibrationRafId);
+function scheduleCalibration(listEl: HTMLElement, targetWin?: Window | null): void {
+  if (calibrationRaf) {
+    calibrationRaf.cancel();
+    calibrationRaf = null;
   }
-  calibrationRafId = window.requestAnimationFrame(() => {
-    calibrationRafId = 0;
+  calibrationListEl = listEl;
+  ensureHostWatch();
+  calibrationRaf = scheduleActiveAnimationFrame(() => {
+    calibrationRaf = null;
+    calibrationListEl = null;
+    maybeTeardownHostWatch();
     if (!listEl.isConnected) {
       return;
     }
@@ -239,7 +287,11 @@ export function calibrateReadingSubtitleItemEstimate(listEl: HTMLElement) {
       return;
     }
     listEl.style.setProperty(ITEM_ESTIMATE_VAR, `${Math.round(total / count)}px`);
-  });
+  }, targetWin ?? resolveNodeWindow(listEl));
+}
+
+export function calibrateReadingSubtitleItemEstimate(listEl: HTMLElement) {
+  scheduleCalibration(listEl);
 }
 
 export { SUBTITLE_FIRST_BATCH };

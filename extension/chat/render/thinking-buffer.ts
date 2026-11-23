@@ -1,9 +1,16 @@
+import { onActiveHostChange } from "../../shared/active-host.js";
+import {
+  resolveNodeWindow,
+  scheduleActiveAnimationFrame,
+} from "../../shared/cross-doc.js";
+
 const THINKING_NEAR_BOTTOM_PX = 24;
 
 export interface ThinkingDisplayState {
   text: string;
   renderedText: string;
   scrollFrame: number;
+  scrollCancel?: (() => void) | null;
   pinned: boolean;
   lastTop: number;
   syncedHeight: number;
@@ -28,6 +35,37 @@ function flushThinkingText(textNode: Element, state: ThinkingDisplayState): void
 
 export function createThinkingBufferController(deps: ThinkingBufferDeps): ThinkingBufferController {
   const thinkingDisplayStates = new WeakMap<Element, ThinkingDisplayState>();
+  const pendingNodes = new Set<Element>();
+  let stopHostWatch: (() => void) | null = null;
+
+  function syncHostWatch(): void {
+    if (pendingNodes.size === 0) {
+      stopHostWatch?.();
+      stopHostWatch = null;
+      return;
+    }
+    if (stopHostWatch) {
+      return;
+    }
+    stopHostWatch = onActiveHostChange((ctx) => {
+      const nodes = Array.from(pendingNodes);
+      for (const node of nodes) {
+        const st = thinkingDisplayStates.get(node);
+        if (!st || (!st.scrollFrame && !st.scrollCancel)) {
+          pendingNodes.delete(node);
+          continue;
+        }
+        try {
+          st.scrollCancel?.();
+        } catch {
+        }
+        st.scrollCancel = null;
+        st.scrollFrame = 0;
+        scheduleThinkingScroll(node, st, ctx.win);
+      }
+      syncHostWatch();
+    });
+  }
 
   function flushNode(textNode: Element | null): void {
     if (!textNode) {
@@ -43,23 +81,34 @@ export function createThinkingBufferController(deps: ThinkingBufferDeps): Thinki
     if (!textNode) {
       return;
     }
+    pendingNodes.delete(textNode);
     const state = thinkingDisplayStates.get(textNode);
-    if (state && state.scrollFrame) {
-      if (typeof window.cancelAnimationFrame === "function") {
-        window.cancelAnimationFrame(state.scrollFrame);
-      } else {
-        window.clearTimeout(state.scrollFrame);
+    if (state && (state.scrollCancel || state.scrollFrame)) {
+      try {
+        state.scrollCancel?.();
+      } catch {
       }
+      state.scrollCancel = null;
       state.scrollFrame = 0;
     }
+    syncHostWatch();
   }
 
-  function scheduleThinkingScroll(textNode: Element, state: ThinkingDisplayState): void {
-    if (state.scrollFrame) {
+  function scheduleThinkingScroll(
+    textNode: Element,
+    state: ThinkingDisplayState,
+    preferredWin?: Window | null
+  ): void {
+    if (state.scrollFrame || state.scrollCancel) {
       return;
     }
+    pendingNodes.add(textNode);
+    syncHostWatch();
     const scroll = () => {
       state.scrollFrame = 0;
+      state.scrollCancel = null;
+      pendingNodes.delete(textNode);
+      syncHostWatch();
       flushThinkingText(textNode, state);
       if (state.pinned) {
         const height = textNode.scrollHeight;
@@ -69,10 +118,38 @@ export function createThinkingBufferController(deps: ThinkingBufferDeps): Thinki
       }
       deps.scrollToBottom(false, { instant: true });
     };
-    if (typeof window.requestAnimationFrame === "function") {
-      state.scrollFrame = window.requestAnimationFrame(scroll);
+    const win = preferredWin ?? resolveNodeWindow(textNode);
+    if (typeof win?.requestAnimationFrame === "function") {
+      const handle = scheduleActiveAnimationFrame(scroll, win);
+      state.scrollFrame = 1;
+      state.scrollCancel = () => handle.cancel();
     } else {
-      state.scrollFrame = window.setTimeout(scroll, 16);
+      let cleared = false;
+      let timerId: ReturnType<typeof setTimeout> | number;
+      let usedWin = false;
+      try {
+        if (typeof win?.setTimeout === "function") {
+          timerId = win.setTimeout(scroll, 16);
+          usedWin = true;
+        } else {
+          timerId = setTimeout(scroll, 16);
+        }
+      } catch {
+        timerId = setTimeout(scroll, 16);
+      }
+      state.scrollFrame = 1;
+      state.scrollCancel = () => {
+        if (cleared) return;
+        cleared = true;
+        if (usedWin) {
+          try {
+            win.clearTimeout(timerId as number);
+            return;
+          } catch {
+          }
+        }
+        clearTimeout(timerId);
+      };
     }
   }
 

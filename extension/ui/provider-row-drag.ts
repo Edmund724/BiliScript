@@ -1,3 +1,11 @@
+import { onActiveHostChange } from "../shared/active-host.js";
+import {
+  isElementNode,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+} from "../shared/cross-doc.js";
+
 const DRAG_HANDLE_SELECTOR = ".provider-row-drag-handle";
 const ROW_SELECTOR = ".search-provider-row";
 const DRAG_THRESHOLD_PX = 4;
@@ -24,7 +32,7 @@ function ensureLiveStatusNode(listNode: HTMLElement): HTMLElement | null {
   if (!parent) return null;
   const existing = parent.querySelector<HTMLElement>('[data-search-order-live="1"]');
   if (existing) return existing;
-  const node = document.createElement("p");
+  const node = resolveNodeDocument(listNode).createElement("p");
   node.className = "biliscript-sr-only search-order-live-status";
   node.setAttribute("aria-live", "polite");
   node.setAttribute("aria-atomic", "true");
@@ -35,6 +43,9 @@ function ensureLiveStatusNode(listNode: HTMLElement): HTMLElement | null {
 
 export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: ProviderRowDragOptions): void {
   let session: DragSession | null = null;
+  let boundDragDoc: Document | null = null;
+  let boundDragWin: Window | null = null;
+  let stopHostWatch: (() => void) | null = null;
 
   const recordRows = (): HTMLElement[] =>
     Array.from(listNode.querySelectorAll<HTMLElement>(ROW_SELECTOR)).filter(
@@ -60,12 +71,14 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
   };
 
   function detachActiveListeners(): void {
-    document.removeEventListener("keydown", onKeyDown, true);
-    if (typeof window !== "undefined") {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-    }
+    stopHostWatch?.();
+    stopHostWatch = null;
+    safeRemoveListener(boundDragDoc, "keydown", onKeyDown, true);
+    safeRemoveListener(boundDragWin, "pointermove", onPointerMove);
+    safeRemoveListener(boundDragWin, "pointerup", onPointerUp);
+    safeRemoveListener(boundDragWin, "pointercancel", onPointerCancel);
+    boundDragDoc = null;
+    boundDragWin = null;
   }
 
   function end(commit: boolean): void {
@@ -111,7 +124,7 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
   const onPointerDown = (event: PointerEvent): void => {
     if (session || event.button !== 0) return;
     const target = event.target;
-    if (!(target instanceof Element)) return;
+    if (!isElementNode(target)) return;
     const handle = target.closest<HTMLElement>(DRAG_HANDLE_SELECTOR);
     if (!handle || !listNode.contains(handle)) return;
     const row = handle.closest<HTMLElement>(ROW_SELECTOR);
@@ -123,12 +136,14 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
       dragging: false,
       originalOrder: recordIds()
     };
-    document.addEventListener("keydown", onKeyDown, true);
-    if (typeof window !== "undefined") {
-      window.addEventListener("pointermove", onPointerMove);
-      window.addEventListener("pointerup", onPointerUp);
-      window.addEventListener("pointercancel", onPointerCancel);
-    }
+    boundDragDoc = resolveNodeDocument(listNode);
+    boundDragWin = resolveNodeWindow(listNode);
+    boundDragDoc.addEventListener("keydown", onKeyDown, true);
+    boundDragWin?.addEventListener("pointermove", onPointerMove);
+    boundDragWin?.addEventListener("pointerup", onPointerUp);
+    boundDragWin?.addEventListener("pointercancel", onPointerCancel);
+    stopHostWatch?.();
+    stopHostWatch = onActiveHostChange(() => end(false));
   };
 
   const onPointerMove = (event: PointerEvent): void => {
@@ -159,7 +174,7 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     if (listNode.classList.contains("search-chain-single-mode")) return;
     const target = event.target;
-    if (!(target instanceof Element)) return;
+    if (!isElementNode(target)) return;
     const handle = target.closest<HTMLElement>(DRAG_HANDLE_SELECTOR);
     if (!handle || !listNode.contains(handle)) return;
     const row = handle.closest<HTMLElement>(ROW_SELECTOR);

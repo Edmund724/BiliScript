@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { activeById, onActiveHostChange } from "../shared/active-host.js";
+import { isHtmlElement, resolveNodeDocument, safeRemoveListener } from "../shared/cross-doc.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
@@ -108,7 +110,7 @@ function focusExplainDialog(): void {
 }
 
 function getCardRoot(): HTMLElement | null {
-  return document.getElementById(ids.readingExplainCard);
+  return activeById(ids.readingExplainCard);
 }
 
 function getClipBody(): { from: number; content: string }[] {
@@ -130,7 +132,8 @@ function renderCard(): void {
   }
   root.hidden = false;
 
-  const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const docActive = resolveNodeDocument(root).activeElement;
+  const activeEl = isHtmlElement(docActive) ? docActive : null;
   const wasFocusInsideCard = Boolean(activeEl && root.contains(activeEl));
   const activeAction = wasFocusInsideCard ? activeEl?.dataset.explainCardAction ?? "" : "";
 
@@ -251,7 +254,7 @@ function onCardKeyDown(event: KeyboardEvent): void {
   }
   const first = focusables[0];
   const last = focusables[focusables.length - 1];
-  const active = document.activeElement;
+  const active = resolveNodeDocument(dialog).activeElement;
   if (event.shiftKey) {
     if (active === first || active === dialog || !dialog.contains(active)) {
       event.preventDefault();
@@ -265,12 +268,30 @@ function onCardKeyDown(event: KeyboardEvent): void {
   }
 }
 
+let boundKeyDownDoc: Document | null = null;
+let stopCardHostWatch: (() => void) | null = null;
+
 function bindCardEsc(): void {
-  document.addEventListener("keydown", onCardKeyDown, true);
+  unbindCardEsc();
+  const doc = resolveNodeDocument(getCardRoot());
+  boundKeyDownDoc = doc;
+  doc.addEventListener("keydown", onCardKeyDown, true);
+  stopCardHostWatch = onActiveHostChange((ctx) => {
+    if (!card.open) {
+      unbindCardEsc();
+      return;
+    }
+    safeRemoveListener(boundKeyDownDoc, "keydown", onCardKeyDown, true);
+    boundKeyDownDoc = ctx.doc;
+    ctx.doc.addEventListener("keydown", onCardKeyDown, true);
+  });
 }
 
 function unbindCardEsc(): void {
-  document.removeEventListener("keydown", onCardKeyDown, true);
+  stopCardHostWatch?.();
+  stopCardHostWatch = null;
+  safeRemoveListener(boundKeyDownDoc, "keydown", onCardKeyDown, true);
+  boundKeyDownDoc = null;
 }
 
 function startExplainRequest(): void {
@@ -394,9 +415,9 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
     return;
   }
   const root = getCardRoot();
-  const pop = document.getElementById(ids.readingExplainPop);
+  const pop = activeById(ids.readingExplainPop);
   const popBtn = pop?.querySelector<HTMLElement>(".biliscript-reading-explain-btn") ?? null;
-  const subtitleList = document.getElementById(ids.readingSubtitleList);
+  const subtitleList = activeById(ids.readingSubtitleList);
   const nextIndex = Number.isFinite(Number(payload?.index)) ? Number(payload.index) : -1;
   const fallbackItem = nextIndex >= 0 ? findSubtitleItem(subtitleList, nextIndex) : null;
   if (root) {
@@ -409,10 +430,11 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
     delete pop.dataset.itemIndex;
   }
   if (!card.open) {
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const doc = resolveNodeDocument(root ?? pop ?? subtitleList);
+    const active = isHtmlElement(doc.activeElement) ? doc.activeElement : null;
     const fromCardOrPop = Boolean(active && ((root && root.contains(active)) || (pop && pop.contains(active))));
     returnFocusEl =
-      active && active.isConnected && !fromCardOrPop && active !== document.body && active !== document.documentElement
+      active && active.isConnected && !fromCardOrPop && active !== doc.body && active !== doc.documentElement
         ? active
         : fallbackItem;
     pendingCardEnterAnimation = true;
@@ -474,7 +496,7 @@ export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): vo
     renderCard();
   }
   if (shouldRestoreFocus && !state.reader.readingSettingsExpanded && !hasReaderSettingsOverlayOpen()) {
-    const subtitleList = document.getElementById(ids.readingSubtitleList);
+    const subtitleList = activeById(ids.readingSubtitleList);
     const fallbackItem = savedIndex >= 0 ? findSubtitleItem(subtitleList, savedIndex) : null;
     const candidate =
       targetToRestore && isElementFocusable(targetToRestore)

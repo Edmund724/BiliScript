@@ -1,4 +1,15 @@
 import {
+  getActiveReaderDocument,
+  getActiveReaderWindow,
+  onActiveHostChange,
+} from "../../shared/active-host.js";
+import {
+  resolveNodeDocument,
+  resolveNodeWindow,
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../../shared/cross-doc.js";
+import {
   createMarkdownStreamSession,
   renderMarkdownStripped,
   type MarkdownRenderOptions,
@@ -37,11 +48,11 @@ export interface TokenStreamController {
   detachStreamDom: (node: HTMLElement) => void;
 }
 
-export function createStreamCursor(): HTMLSpanElement {
-  const cursor = document.createElement("span");
+export function createStreamCursor(doc: Document = getActiveReaderDocument()): HTMLSpanElement {
+  const cursor = doc.createElement("span");
   cursor.className = "chat-msg-cursor";
   for (let i = 0; i < 3; i += 1) {
-    cursor.appendChild(document.createElement("i"));
+    cursor.appendChild(doc.createElement("i"));
   }
   return cursor;
 }
@@ -58,17 +69,32 @@ function freshTokenStreamState(): TokenStreamState {
 }
 
 function yieldToMain(): Promise<void> {
-  const scheduler = (window as Window & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
-  if (scheduler && typeof scheduler.yield === "function") {
-    return scheduler.yield();
+  const activeWin = getActiveReaderWindow();
+  try {
+    if (activeWin && !activeWin.closed) {
+      const scheduler = (activeWin as Window & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+      if (scheduler && typeof scheduler.yield === "function") {
+        return scheduler.yield();
+      }
+    }
+  } catch {
   }
   return new Promise((resolve) => {
-    window.setTimeout(resolve, 0);
+    try {
+      if (activeWin && !activeWin.closed && typeof activeWin.setTimeout === "function") {
+        activeWin.setTimeout(resolve, 0);
+        return;
+      }
+    } catch {
+    }
+    setTimeout(resolve, 0);
   });
 }
 
 export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamController {
-  let tokenFlushFrame = 0;
+  let tokenFlushCancel: (() => void) | null = null;
+  let pendingTokenNode: HTMLDivElement | null = null;
+  let stopTokenHostWatch: (() => void) | null = null;
   let tokenFlushEpoch = 0;
   const tokenStreamStates = new WeakMap<HTMLElement, TokenStreamState>();
 
@@ -89,9 +115,10 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
     if (state.stableEl && state.tailEl && state.session) {
       return;
     }
-    const stableEl = document.createElement("div");
+    const doc = resolveNodeDocument(node);
+    const stableEl = doc.createElement("div");
     stableEl.className = "chat-stream-stable markdown-body";
-    const tailEl = document.createElement("div");
+    const tailEl = doc.createElement("div");
     tailEl.className = "chat-stream-tail markdown-body";
     node.appendChild(stableEl);
     node.appendChild(tailEl);
@@ -112,21 +139,30 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
     return sessionRaw + state.pending.join("") + state.charQueue;
   }
 
+  function clearTokenHostWatch(): void {
+    stopTokenHostWatch?.();
+    stopTokenHostWatch = null;
+  }
+
   function cancelFlush(): void {
     tokenFlushEpoch++;
-    if (!tokenFlushFrame) {
+    clearTokenHostWatch();
+    pendingTokenNode = null;
+    if (!tokenFlushCancel) {
       return;
     }
-    if (typeof window.cancelAnimationFrame === "function") {
-      window.cancelAnimationFrame(tokenFlushFrame);
-    } else {
-      window.clearTimeout(tokenFlushFrame);
+    const cancel = tokenFlushCancel;
+    tokenFlushCancel = null;
+    try {
+      cancel();
+    } catch {
     }
-    tokenFlushFrame = 0;
   }
 
   const flush = async (node: HTMLDivElement) => {
-    tokenFlushFrame = 0;
+    tokenFlushCancel = null;
+    pendingTokenNode = null;
+    clearTokenHostWatch();
     const epoch = ++tokenFlushEpoch;
     const state = getState(node);
     let delta: string;
@@ -176,19 +212,63 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
     }
   };
 
-  function scheduleTokenFlush(node: HTMLDivElement): void {
-    if (tokenFlushFrame) {
+  function scheduleTokenFlush(node: HTMLDivElement, preferredWin?: Window | null): void {
+    if (tokenFlushCancel) {
       return;
     }
+    pendingTokenNode = node;
     const runFlush = () => {
       flush(node).catch((err: unknown) => {
         console.error("[chat-runtime] 流式渲染 flush 失败：", err);
       });
     };
-    if (typeof window.requestAnimationFrame === "function") {
-      tokenFlushFrame = window.requestAnimationFrame(runFlush);
+    const win = preferredWin ?? resolveNodeWindow(node);
+    if (typeof win?.requestAnimationFrame === "function") {
+      const handle: ActiveAnimationFrameHandle = scheduleActiveAnimationFrame(runFlush, win);
+      tokenFlushCancel = () => handle.cancel();
     } else {
-      tokenFlushFrame = window.setTimeout(runFlush, 16);
+      let cleared = false;
+      let timerId: ReturnType<typeof setTimeout> | number;
+      let usedWin = false;
+      try {
+        if (typeof win?.setTimeout === "function") {
+          timerId = win.setTimeout(runFlush, 16);
+          usedWin = true;
+        } else {
+          timerId = setTimeout(runFlush, 16);
+        }
+      } catch {
+        timerId = setTimeout(runFlush, 16);
+      }
+      tokenFlushCancel = () => {
+        if (cleared) return;
+        cleared = true;
+        if (usedWin) {
+          try {
+            win.clearTimeout(timerId as number);
+            return;
+          } catch {
+          }
+        }
+        clearTimeout(timerId);
+      };
+    }
+    if (!stopTokenHostWatch) {
+      stopTokenHostWatch = onActiveHostChange((ctx) => {
+        if (!tokenFlushCancel || !pendingTokenNode) {
+          clearTokenHostWatch();
+          return;
+        }
+        const nodeToFlush = pendingTokenNode;
+        const cancel = tokenFlushCancel;
+        tokenFlushCancel = null;
+        pendingTokenNode = null;
+        try {
+          cancel();
+        } catch {
+        }
+        scheduleTokenFlush(nodeToFlush, ctx.win);
+      });
     }
   }
 
@@ -207,7 +287,7 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
   }
 
   function mountCursor(node: HTMLDivElement): void {
-    const cursor = createStreamCursor();
+    const cursor = createStreamCursor(resolveNodeDocument(node));
     const state = getState(node);
     state.cursor = cursor;
     node.appendChild(cursor);
@@ -220,7 +300,7 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
 
   function flushSyncInitial(node: HTMLDivElement, initialRaw: string): void {
     const state = getState(node);
-    state.cursor = createStreamCursor();
+    state.cursor = createStreamCursor(resolveNodeDocument(node));
     ensureContainers(node, state);
     state.session!.flush(initialRaw, { cursor: state.cursor });
   }

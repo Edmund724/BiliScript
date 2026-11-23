@@ -1,3 +1,4 @@
+import { isElementNode } from "../shared/cross-doc.js";
 import { ids } from "./state.js";
 
 export type HistoryExitFocus = "trigger" | "input" | "none";
@@ -130,7 +131,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
   }
 
   function handleDocumentClick(event: MouseEvent): void {
-    const target = event.target instanceof Element ? event.target : null;
+    const target = isElementNode(event.target) ? event.target : null;
     if (!historyPopover.hidden) {
       if (target?.closest(`#${ids.readingChatHistoryPopover}, #${ids.readingChatHistoryBtn}`)) return;
       hideHistoryPopover();
