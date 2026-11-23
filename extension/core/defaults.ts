@@ -7,6 +7,8 @@ import type {
 import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
 export type { SubtitleSegmentationStrategy, BilingualDisplayOrder };
 
+export type DetachedWindowMode = "pip" | "popup";
+
 export { BILISCRIPT_VERSION } from "./version.js";
 
 export interface KnownSettings {
@@ -62,6 +64,7 @@ export interface KnownSettings {
   chatParagraphSpacing: number;
   customPanelWidthEnabled: boolean;
   customPanelWidth: number;
+  detachedWindowMode: DetachedWindowMode;
   autoOpenReader: boolean;
   cleanConversationsOlderThan30Days: boolean;
   enableExtraPlaybackRates: boolean;
@@ -129,6 +132,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatParagraphSpacing: 12,
   customPanelWidthEnabled: false,
   customPanelWidth: 540,
+  detachedWindowMode: "pip",
   autoOpenReader: false,
   cleanConversationsOlderThan30Days: false,
   enableExtraPlaybackRates: false,

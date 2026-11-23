@@ -1,7 +1,14 @@
 import { state, transitionReaderShell } from "../core/state.js";
 import { getCurrentClipScope } from "../shared/content-event-bus.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
-import { byId } from "../shared/dom-utils.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  getOpenerDocument,
+  resetActiveReaderHost
+} from "../shared/active-host.js";
+import { closeDetachedWindowHost } from "./detached-window.js";
+import { clearMirroredStyles } from "../shared/style-injector.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts, readerPorts } from "./reader-bus.js";
@@ -54,6 +61,7 @@ import {
   invalidateReaderSetupFlows
 } from "./setup-resume.js";
 import { closeReaderExplainCard } from "./explain-card.js";
+import { unbindReadingExplainEvents } from "./explain-pop-ui.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
 import { closeCommandPalette } from "./command-palette.js";
 import {
@@ -82,7 +90,7 @@ subscribeReaderPresenter(handleReaderPresenterNotification);
 
 setReadingSubtitleBatchHook((fromIndex, toIndex) => {
   subtitleSearch.handleRangeAppended(fromIndex, toIndex);
-  applySubtitleHighlightsToRange(document.getElementById(ids.readingSubtitleList), fromIndex, toIndex);
+  applySubtitleHighlightsToRange(activeById(ids.readingSubtitleList), fromIndex, toIndex);
 }
 );
 bindReadingTranscribeBanner();
@@ -92,8 +100,8 @@ export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
 subtitleToolbar.bindEvents();
 
 const subtitleSearch = createSubtitleSearch({
-  getSearchInput: () => document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
-  getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
+  getSearchInput: () => activeById<HTMLInputElement>(ids.readingSearchInput),
+  getSubtitleList: () => activeById(ids.readingSubtitleList),
   flushReadingSubtitleToIndex: (itemIndex) => readerPorts.flushReadingSubtitleToIndex(itemIndex),
   noteManualReaderInteraction: () => noteManualReaderInteraction()
 });
@@ -129,19 +137,19 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
           const resumePromise = request.onResume();
           closeReaderSettingsMode({ restoreFocus: false });
           void resumePromise.then(() => {
-            const overviewBody = document.getElementById(ids.readingOverviewBody);
+            const overviewBody = activeById(ids.readingOverviewBody);
             if (overviewBody) {
               if (overviewBody.tabIndex < 0) overviewBody.tabIndex = -1;
               focusWithoutScroll(overviewBody);
               return;
             }
-            focusWithoutScroll(document.getElementById(ids.readingTabOverview));
+            focusWithoutScroll(activeById(ids.readingTabOverview));
           });
         },
         onCancel: (reason) => {
           if (reason === "stale") {
             closeReaderSettingsMode({ restoreFocus: false });
-            focusWithoutScroll(document.getElementById(ids.readingTabOverview));
+            focusWithoutScroll(activeById(ids.readingTabOverview));
           }
         }
       });
@@ -345,27 +353,40 @@ export function getReaderPanelSignal(): AbortSignal | undefined {
   return readerPanelScope?.signal;
 }
 
+function findReadingView(): HTMLElement | null {
+  return activeById(ids.readingView) ?? getOpenerDocument().getElementById(ids.readingView);
+}
+
+function requireReadingView(): HTMLElement {
+  const readingView = findReadingView();
+  if (!readingView) {
+    throw new Error(`Missing node: ${ids.readingView}`);
+  }
+  return readingView;
+}
+
 export function focusReadingView(): void {
   const tabId = READER_TAB_BUTTON_IDS[getReaderActiveScriptTab()];
-  focusWithoutScroll(document.getElementById(tabId) ?? document.getElementById(ids.readingCloseBtn));
+  focusWithoutScroll(activeById(tabId) ?? activeById(ids.readingCloseBtn));
 }
 
 function captureReaderReturnFocus(readingView: HTMLElement): void {
-  const active = document.activeElement;
+  const openerDoc = getOpenerDocument();
+  const active = openerDoc.activeElement;
   readerFocusRestorePending = false;
   restoreReaderFocusOnClose = false;
   readerReturnFocus = active instanceof HTMLElement &&
-    active !== document.body &&
-    active !== document.documentElement &&
+    active !== openerDoc.body &&
+    active !== openerDoc.documentElement &&
     !readingView.contains(active)
     ? active
     : null;
 }
 
-function isReaderFocusTargetAvailable(target: HTMLElement | null, readingView: HTMLElement): target is HTMLElement {
+function isReaderFocusTargetAvailable(target: HTMLElement | null, readingView: HTMLElement | null): target is HTMLElement {
   return Boolean(
     target?.isConnected &&
-    !readingView.contains(target) &&
+    (!readingView || !readingView.contains(target)) &&
     !target.closest("[hidden], [aria-hidden='true']") &&
     !(target instanceof HTMLButtonElement && target.disabled)
   );
@@ -377,12 +398,19 @@ export function restoreReadingViewFocus(): void {
   const returnFocus = readerReturnFocus;
   readerReturnFocus = null;
   if (state.reader.readingViewOpen) return;
-  const readingView = byId(ids.readingView);
-  const active = document.activeElement;
-  if (active instanceof Node && active !== document.body && active !== document.documentElement && !readingView.contains(active)) {
+  const openerDoc = getOpenerDocument();
+  const readingView =
+    activeById(ids.readingView) ?? openerDoc.getElementById(ids.readingView);
+  const active = openerDoc.activeElement;
+  if (
+    active instanceof Node &&
+    active !== openerDoc.body &&
+    active !== openerDoc.documentElement &&
+    (!readingView || !readingView.contains(active))
+  ) {
     return;
   }
-  const scriptButton = document.getElementById("biliscript-script-button");
+  const scriptButton = openerDoc.getElementById("biliscript-script-button");
   const target = isReaderFocusTargetAvailable(returnFocus, readingView)
     ? returnFocus
     : isReaderFocusTargetAvailable(scriptButton, readingView)
@@ -392,7 +420,7 @@ export function restoreReadingViewFocus(): void {
     focusWithoutScroll(target);
     return;
   }
-  const root = document.getElementById(ids.root);
+  const root = openerDoc.getElementById(ids.root);
   if (root) {
     root.tabIndex = -1;
     focusWithoutScroll(root);
@@ -403,7 +431,7 @@ export async function enterReaderMode(
   mode: "open" | "restore" = "open",
   options: { triggerRect?: DOMRect | null } = {}
 ) {
-  const readingView = byId(ids.readingView);
+  const readingView = requireReadingView();
   const launchTriggerRect =
     captureTriggerRect(options.triggerRect) ??
     captureTriggerRect(document.activeElement instanceof Element ? document.activeElement : null);
@@ -449,16 +477,26 @@ function setReadingViewInert(readingView: HTMLElement, inert: boolean): void {
 }
 
 function blurActiveFocusInside(container: HTMLElement): boolean {
-  const active = document.activeElement;
-  const contained = active instanceof Node && container.contains(active);
-  if (contained && active instanceof HTMLElement) {
-    active.blur();
+  const ownerDoc = container.ownerDocument ?? getActiveReaderDocument();
+  const active = ownerDoc.activeElement;
+  const contained = Boolean(active && container.contains(active as Node));
+  if (contained && typeof (active as HTMLElement | null)?.blur === "function") {
+    (active as HTMLElement).blur();
+  }
+  const openerDoc = getOpenerDocument();
+  if (contained && ownerDoc !== openerDoc) {
+    const openerActive = openerDoc.activeElement as
+      | (HTMLElement & { contentDocument?: Document | null })
+      | null;
+    if (openerActive?.contentDocument === ownerDoc && typeof openerActive.blur === "function") {
+      openerActive.blur();
+    }
   }
   return contained;
 }
 
 function openReaderViewShell(
-  readingView = byId(ids.readingView),
+  readingView = requireReadingView(),
   mode: "open" | "restore" = "open"
 ) {
   if (!readingView) {
@@ -479,10 +517,20 @@ function openReaderViewShell(
   focusReadingView();
 }
 
-export function beginClosingReadingView(): boolean {
-  const readingView = byId(ids.readingView);
+export function beginClosingReadingView(
+  options: { preserveFocusRestore?: boolean } = {}
+): boolean {
+  const readingView = findReadingView();
+  if (!readingView) {
+    restoreReaderFocusOnClose = Boolean(options.preserveFocusRestore);
+    if (isReaderChatTabLoaded()) {
+      void closeChatSessionQuietly();
+    }
+    return false;
+  }
   const wasOpen = readingView.classList.contains("open");
-  restoreReaderFocusOnClose = blurActiveFocusInside(readingView);
+  restoreReaderFocusOnClose =
+    Boolean(options.preserveFocusRestore) || blurActiveFocusInside(readingView);
   setReadingViewInert(readingView, true);
   readingView.classList.remove("open");
   readingView.classList.add("closing");
@@ -494,13 +542,34 @@ export function beginClosingReadingView(): boolean {
 }
 
 export function closeReadingView() {
-  const readingView = byId(ids.readingView);
-  const hadFocusInside = blurActiveFocusInside(readingView);
+  const openerDoc = getOpenerDocument();
+  let readingView = findReadingView();
+  const hadFocusInside = readingView ? blurActiveFocusInside(readingView) : false;
   readerFocusRestorePending = restoreReaderFocusOnClose || hadFocusInside;
   restoreReaderFocusOnClose = false;
   if (!readerFocusRestorePending) {
     readerReturnFocus = null;
   }
+  if (readingView && readingView.ownerDocument !== openerDoc) {
+    const detachedDoc = readingView.ownerDocument;
+    if (detachedDoc) {
+      clearMirroredStyles(detachedDoc);
+    }
+    let root = openerDoc.getElementById(ids.root);
+    if (!root) {
+      root = openerDoc.createElement("div");
+      root.id = ids.root;
+      openerDoc.body.appendChild(root);
+    }
+    try {
+      readingView = openerDoc.adoptNode(readingView) as HTMLElement;
+    } catch {
+    }
+    root.appendChild(readingView);
+  }
+  state.reader.setDetachedMode(null);
+  resetActiveReaderHost();
+  closeDetachedWindowHost(true);
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
   state.reader.setSettingsExpanded(false);
@@ -508,22 +577,25 @@ export function closeReadingView() {
   state.reader.setNextScrollBehavior("smooth");
   resetReaderScrollFollow();
 
-  readingView.classList.remove("open", "closing", "reader-page");
-  readingView.hidden = true;
-  setReadingViewInert(readingView, false);
-  readingView.getAnimations?.().forEach((animation) => animation.cancel());
-  readingView.setAttribute("aria-hidden", "true");
-  readingView.setAttribute(READER_READY_ATTR, "0");
-  readingView.removeAttribute("data-biliscript-reader-restore");
-  readingView.style.removeProperty("--biliscript-float-origin");
-  for (const attr of READER_CLOSE_ATTRS.readingView) {
-    readingView.removeAttribute(attr);
+  if (readingView) {
+    readingView.classList.remove("open", "closing", "reader-page");
+    readingView.hidden = true;
+    setReadingViewInert(readingView, false);
+    readingView.getAnimations?.().forEach((animation) => animation.cancel());
+    readingView.setAttribute("aria-hidden", "true");
+    readingView.setAttribute(READER_READY_ATTR, "0");
+    readingView.removeAttribute("data-biliscript-reader-restore");
+    readingView.removeAttribute("data-biliscript-detached");
+    readingView.style.removeProperty("--biliscript-float-origin");
+    for (const attr of READER_CLOSE_ATTRS.readingView) {
+      readingView.removeAttribute(attr);
+    }
   }
   for (const attr of READER_CLOSE_ATTRS.body) {
-    document.body.removeAttribute(attr);
+    openerDoc.body.removeAttribute(attr);
   }
   for (const attr of READER_CLOSE_ATTRS.html) {
-    document.documentElement.removeAttribute(attr);
+    openerDoc.documentElement.removeAttribute(attr);
   }
   cancelReadingSubtitleAppend();
   clearReadingSubtitleSearch();
@@ -533,6 +605,7 @@ export function closeReadingView() {
   closeReaderExplainCard();
   closeQuoteShareModal({ restoreFocus: false });
   closeCommandPalette();
+  unbindReadingExplainEvents();
   if (isReaderChatTabLoaded()) {
     void closeChatSessionQuietly();
   }
@@ -579,7 +652,8 @@ function persistReaderSettings() {
 
 function setReadingViewReady(ready: boolean) {
   state.reader.setViewReady(Boolean(ready));
-  const readingView = document.getElementById(ids.readingView);
+  const readingView =
+    activeById(ids.readingView) ?? getOpenerDocument().getElementById(ids.readingView);
   if (!readingView) {
     return;
   }

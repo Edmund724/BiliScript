@@ -1,6 +1,7 @@
 import type { SendTurnOptions } from "../chat/chat-runtime.js";
 import type { SendVerdict } from "../chat/turn-lifecycle.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
+import { dispatchCrossDocEvent } from "../shared/cross-doc.js";
 
 export const INPUT_MAX_HEIGHT = 320;
 export const SUBTITLE_WAIT_NOTICE = "正在等待字幕，完成后自动发送";
@@ -189,7 +190,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
         input.value = prevValue;
         autosizeInput();
         updateSendBtnState();
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+        dispatchCrossDocEvent(input, "input", { bubbles: true });
       }
       deps.onNotice?.(blockReason, 3000);
       return false;
@@ -202,7 +203,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
         input.value = prevValue;
         autosizeInput();
         updateSendBtnState();
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+        dispatchCrossDocEvent(input, "input", { bubbles: true });
       }
       return false;
     }

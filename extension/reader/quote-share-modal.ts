@@ -1,3 +1,19 @@
+import {
+  activeById,
+  getActiveReaderDocument,
+  getActiveReaderWindow,
+  onActiveHostChange,
+} from "../shared/active-host.js";
+import {
+  isHtmlButton,
+  isHtmlElement,
+  prefersActiveReducedMotion,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import {
   READING_CLOSE_ICON,
@@ -63,6 +79,8 @@ interface QuoteShareModalState {
   downloading: boolean;
   focusScope: FocusScope | null;
   restoreSiblings: (() => void) | null;
+  boundKeyDownDoc: Document | null;
+  stopHostWatch: (() => void) | null;
   sessionEpoch: number;
   feedbackTimers: Set<ReturnType<typeof setTimeout>>;
 }
@@ -82,6 +100,8 @@ const state: QuoteShareModalState = {
   downloading: false,
   focusScope: null,
   restoreSiblings: null,
+  boundKeyDownDoc: null,
+  stopHostWatch: null,
   sessionEpoch: 0,
   feedbackTimers: new Set()
 };
@@ -140,6 +160,7 @@ function createSpring2D(options: {
   dampingRatio?: number;
   precision?: number;
   velocityPrecision?: number;
+  getWindow?: () => Window;
   onUpdate?: (pos: SpringPoint2D) => void;
 }): Spring2DInstance {
   const stiffness = options.stiffness ?? 70;
@@ -154,7 +175,7 @@ function createSpring2D(options: {
   let velX = 0;
   let velY = 0;
   let settled = true;
-  let rafId: number | null = null;
+  let rafHandle: ActiveAnimationFrameHandle | null = null;
   let lastTimestamp = 0;
 
   function step(dt: number): void {
@@ -196,12 +217,12 @@ function createSpring2D(options: {
     options.onUpdate?.({ x: currentX, y: currentY });
 
     if (settled) {
-      rafId = null;
+      rafHandle = null;
       lastTimestamp = 0;
       return;
     }
 
-    rafId = requestAnimationFrame(tick);
+    rafHandle = scheduleActiveAnimationFrame(tick, options.getWindow?.() ?? getActiveReaderWindow());
   }
 
   function setTarget(x: number, y: number): void {
@@ -211,16 +232,16 @@ function createSpring2D(options: {
     targetX = x;
     targetY = y;
     settled = false;
-    if (rafId === null && typeof requestAnimationFrame === "function") {
+    if (rafHandle === null) {
       lastTimestamp = 0;
-      rafId = requestAnimationFrame(tick);
+      rafHandle = scheduleActiveAnimationFrame(tick, options.getWindow?.() ?? getActiveReaderWindow());
     }
   }
 
   function stop(): void {
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+    if (rafHandle !== null) {
+      rafHandle.cancel();
+      rafHandle = null;
     }
     lastTimestamp = 0;
   }
@@ -231,11 +252,8 @@ function createSpring2D(options: {
   };
 }
 
-function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function prefersReducedMotion(target?: Element | null): boolean {
+  return prefersActiveReducedMotion(target);
 }
 
 export function isQuoteShareModalOpen(): boolean {
@@ -297,10 +315,11 @@ function updatePatternSelectionInDom(patternId: QuotePatternId): void {
 }
 
 export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
-  const activeEl = document.activeElement;
+  const activeDoc = getActiveReaderDocument();
+  const activeEl = activeDoc.activeElement;
   const triggerEl =
     options.triggerEl ??
-    (activeEl instanceof HTMLElement && activeEl !== document.body && activeEl !== document.documentElement
+    (isHtmlElement(activeEl) && activeEl !== activeDoc.body && activeEl !== activeDoc.documentElement
       ? activeEl
       : null);
   closeQuoteShareModal({ restoreFocus: false });
@@ -324,14 +343,15 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
     state.activePattern = "none";
   }
 
-  const host = document.createElement("div");
+  const container = activeById(ids.readingView) || activeDoc.body;
+  const hostDoc = resolveNodeDocument(container);
+  const host = hostDoc.createElement("div");
   host.className = "biliscript-quote-share-host";
   host.innerHTML = buildModalHtml();
 
   bindModalEvents(host);
   setupMotionAndParallax(host);
 
-  const container = document.getElementById(ids.readingView) || document.body;
   container.querySelectorAll<HTMLElement>('.biliscript-quote-share-host[data-biliscript-closing="1"]').forEach((el) => {
     cancelTriggerExit(el);
   });
@@ -365,7 +385,28 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   fitQuoteCardText(host);
   observeCardResize(host);
 
-  document.addEventListener("keydown", onDocumentKeyDown, true);
+  state.boundKeyDownDoc = hostDoc;
+  hostDoc.addEventListener("keydown", onDocumentKeyDown, true);
+  state.stopHostWatch?.();
+  state.stopHostWatch = onActiveHostChange((ctx) => {
+    if (!state.open) {
+      return;
+    }
+    safeRemoveListener(state.boundKeyDownDoc, "keydown", onDocumentKeyDown, true);
+    state.boundKeyDownDoc = null;
+    let sameHost = false;
+    try {
+      sameHost = Boolean(state.host?.isConnected && state.host.ownerDocument === ctx.doc);
+    } catch {
+      sameHost = false;
+    }
+    if (sameHost) {
+      state.boundKeyDownDoc = ctx.doc;
+      ctx.doc.addEventListener("keydown", onDocumentKeyDown, true);
+      return;
+    }
+    closeQuoteShareModal({ restoreFocus: false });
+  });
 }
 
 export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void {
@@ -386,16 +427,25 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
     state.spring = null;
   }
   if (state.resizeObserver) {
-    state.resizeObserver.disconnect();
+    try {
+      state.resizeObserver.disconnect();
+    } catch {
+    }
     state.resizeObserver = null;
   }
   state.lastCardWidth = 0;
   state.lastCardHeight = 0;
 
-  state.restoreSiblings?.();
+  try {
+    state.restoreSiblings?.();
+  } catch {
+  }
   state.restoreSiblings = null;
 
-  document.removeEventListener("keydown", onDocumentKeyDown, true);
+  state.stopHostWatch?.();
+  state.stopHostWatch = null;
+  safeRemoveListener(state.boundKeyDownDoc, "keydown", onDocumentKeyDown, true);
+  state.boundKeyDownDoc = null;
   const closingHost = state.host;
   const closingTrigger = state.triggerEl;
   state.host = null;
@@ -403,24 +453,35 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
 
   const scope = state.focusScope;
   state.focusScope = null;
-  scope?.dispose(options?.restoreFocus !== false);
+  try {
+    scope?.dispose(options?.restoreFocus !== false);
+  } catch {
+  }
 
   if (closingHost) {
-    const dialog = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
-    const mask = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
-    if (dialog) {
-      animateTriggerExit({
-        target: dialog,
-        host: closingHost,
-        mask,
-        trigger: closingTrigger,
-        fallbackOrigin: "top right",
-        toScale: 0.94,
-        durationMs: 140,
-        onFinish: () => closingHost.remove()
-      });
-    } else {
-      closingHost.remove();
+    try {
+      const dialog = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
+      const mask = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
+      if (dialog) {
+        animateTriggerExit({
+          target: dialog,
+          host: closingHost,
+          mask,
+          trigger: closingTrigger,
+          fallbackOrigin: "top right",
+          toScale: 0.94,
+          durationMs: 140,
+          onFinish: () => {
+            try {
+              closingHost.remove();
+            } catch {
+            }
+          }
+        });
+      } else {
+        closingHost.remove();
+      }
+    } catch {
     }
   }
 }
@@ -432,7 +493,7 @@ function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
     return quoteTextMeasurer;
   }
   try {
-    const canvas = document.createElement("canvas");
+    const canvas = getActiveReaderDocument().createElement("canvas");
     quoteTextMeasurer = createQuoteCardTextMeasurer(canvas.getContext("2d"));
   } catch {
     quoteTextMeasurer = null;
@@ -467,7 +528,8 @@ function syncContinuousCornerFallback(card: HTMLElement, width: number, height: 
 
   let svg = card.querySelector<SVGSVGElement>(`.${QUOTE_CARD_BORDER_SVG_CLASS}`);
   if (!svg) {
-    svg = document.createElementNS(SVG_NS, "svg");
+    const svgDoc = resolveNodeDocument(card);
+    svg = svgDoc.createElementNS(SVG_NS, "svg");
     svg.setAttribute("class", QUOTE_CARD_BORDER_SVG_CLASS);
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("fill", "none");
@@ -478,7 +540,7 @@ function syncContinuousCornerFallback(card: HTMLElement, width: number, height: 
     svg.style.pointerEvents = "none";
     svg.style.zIndex = "3";
 
-    const path = document.createElementNS(SVG_NS, "path");
+    const path = svgDoc.createElementNS(SVG_NS, "path");
     path.setAttribute("stroke", "rgba(0, 0, 0, 0.12)");
     path.setAttribute("stroke-width", "1");
     svg.appendChild(path);
@@ -513,14 +575,18 @@ function fitQuoteCardText(host: HTMLElement): void {
 }
 
 function observeCardResize(host: HTMLElement): void {
-  if (typeof ResizeObserver !== "function") {
+  const win = resolveNodeWindow(host) as Window & {
+    ResizeObserver?: typeof ResizeObserver;
+  };
+  const Obs = win?.ResizeObserver ?? (typeof ResizeObserver === "function" ? ResizeObserver : null);
+  if (typeof Obs !== "function") {
     return;
   }
   const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
   if (!card) {
     return;
   }
-  state.resizeObserver = new ResizeObserver(() => {
+  state.resizeObserver = new Obs(() => {
     if (!state.host) {
       return;
     }
@@ -557,6 +623,7 @@ function setupMotionAndParallax(host: HTMLElement): void {
   const spring = createSpring2D({
     stiffness: 70,
     dampingRatio: 0.86,
+    getWindow: () => resolveNodeWindow(host),
     onUpdate: ({ x, y }) => {
       card.style.setProperty("--quote-spring-x", x.toFixed(4));
       card.style.setProperty("--quote-spring-y", y.toFixed(4));
@@ -565,7 +632,7 @@ function setupMotionAndParallax(host: HTMLElement): void {
   state.spring = spring;
 
   card.addEventListener("mousemove", (event) => {
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion(card)) {
       return;
     }
     const rect = card.getBoundingClientRect();
@@ -604,13 +671,13 @@ function bindModalEvents(host: HTMLElement): void {
       return;
     }
     if (action === "copy-image") {
-      if (target instanceof HTMLButtonElement) {
+      if (isHtmlButton(target)) {
         await handleCopyImageAction(target);
       }
       return;
     }
     if (action === "download-image") {
-      if (target instanceof HTMLButtonElement) {
+      if (isHtmlButton(target)) {
         await handleDownloadImageAction(target);
       }
       return;

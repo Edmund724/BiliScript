@@ -1,3 +1,4 @@
+import { activeById } from "../shared/active-host.js";
 import { ids } from "../shared/dom-ids.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { mountPanelModalShell, type PanelModalShell } from "./focus-scope.js";
@@ -38,9 +39,16 @@ function settle(generation: number, result: ConfirmDialogResult): void {
     return;
   }
   state.open = false;
-  state.shell?.dispose();
+  const shell = state.shell;
   state.shell = null;
-  resolvePending(result);
+  const cb = resolvePending;
+  resolvePending = () => {};
+  try {
+    shell?.dispose();
+  } catch {
+  } finally {
+    cb(result);
+  }
 }
 
 export function closeConfirmDialog(): void {
@@ -62,7 +70,7 @@ export async function confirmDialog(options: ConfirmDialogOptions): Promise<bool
 
 export function confirmDialogWithResult(options: ConfirmDialogOptions): Promise<ConfirmDialogResult> {
   settle(state.generation, "cancelled");
-  const mountHost = options.mountHost || document.getElementById(ids.readingView);
+  const mountHost = options.mountHost || activeById(ids.readingView);
   if (!mountHost) {
     return Promise.resolve("cancelled");
   }

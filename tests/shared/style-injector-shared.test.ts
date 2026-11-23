@@ -106,4 +106,42 @@ describe("style-injector 挂载记录跨实例共享", () => {
     await ready;
     expect(settled).toBe(true);
   });
+
+  it("跨实例子窗口镜像：一侧同步并卸载，另一侧新建懒加载表可立即镜像并等待子文档 load", async () => {
+    const activeHost = await import("../../extension/shared/active-host.js");
+    const detachedDoc = document.implementation.createHTMLDocument("Detached");
+    const detachedWin = { closed: false } as unknown as Window;
+
+    resident.ensureReaderStyles();
+    activeHost.setActiveReaderHost(detachedDoc, detachedWin);
+    lazy.syncStylesToDocument(detachedDoc);
+
+    lazy.ensureReaderSettingsStyles();
+    const ready = resident.whenReaderSettingsStylesReady();
+    let settled = false;
+    void ready.then(() => {
+      settled = true;
+    });
+
+    const settingsLinks = [
+      "entry/styles/reader-settings-shell.css",
+      "entry/styles/reader-settings-rows.css",
+      "entry/styles/reader-settings-providers.css"
+    ].map((path) => detachedDoc.head.querySelector(`link[href$="${path}"]`));
+
+    for (const link of settingsLinks.slice(0, 2)) {
+      expect(link).not.toBeNull();
+      link?.dispatchEvent(new Event("load"));
+    }
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    settingsLinks[2]?.dispatchEvent(new Event("load"));
+    await ready;
+    expect(settled).toBe(true);
+
+    resident.clearMirroredStyles(detachedDoc);
+    expect(detachedDoc.head.querySelectorAll('link[data-biliscript-style="1"]')).toHaveLength(0);
+    expect(injectedLinks().length).toBe(6);
+  });
 });

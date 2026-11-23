@@ -92,6 +92,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   customPanelWidth: "customPanelWidth",
   customPanelWidthValue: "customPanelWidthValue",
   customPanelWidthResetBtn: "customPanelWidthResetBtn",
+  detachedWindowMode: "detachedWindowMode",
   autoOpenReader: "autoOpenReader",
   enableExtraPlaybackRates: "enableExtraPlaybackRates",
   downloadFormat: "downloadFormat",

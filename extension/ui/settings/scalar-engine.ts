@@ -1,6 +1,7 @@
 import { AI_PROVIDERS_STORAGE } from "../../core/ai-provider-store.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../core/default-prompts.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../core/defaults.js";
+import { resetDetachedWindowBounds } from "../../core/detached-bounds-store.js";
 import { getSettings } from "../../core/runtime.js";
 import { state } from "../../core/state.js";
 import {
@@ -29,7 +30,7 @@ import { confirmDialog } from "../confirm-dialog.js";
 import { initCustomSelect, setCustomSelectValue } from "../custom-select.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "../range-slider.js";
 import { initToggleSwitch, syncToggleSwitch } from "../toggle-switch.js";
-import { collectElements, debounce, setBusy, setStatus, type SettingsElements } from "./elements.js";
+import { collectElements, debounce, getStatusVersion, setBusy, setStatus, type SettingsElements } from "./elements.js";
 import {
   SCALAR_FIELD_BINDINGS,
   syncScalarSideEffects,
@@ -167,6 +168,7 @@ export function buildDefaultPreferencePayload() {
     bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
+    detachedWindowMode: DEFAULT_SETTINGS.detachedWindowMode,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
     enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
@@ -196,6 +198,7 @@ export async function resetPreferences(
       setStatus(elements, resp?.error || "重置失败", true);
       return;
     }
+    await resetDetachedWindowBounds();
     state.patchSettings(payload);
     applyReadingViewTypography();
     applyChatDisplaySettings({
@@ -223,6 +226,7 @@ export async function saveSettingField(
   patch: Record<string, unknown>,
   persist?: ScalarFieldPersist
 ): Promise<boolean> {
+  const statusVerAtStart = getStatusVersion();
   try {
     const resp = persist
       ? await persist(patch)
@@ -231,14 +235,16 @@ export async function saveSettingField(
       setStatus(elements, resp?.error || "保存失败", true);
       return false;
     }
-    setStatus(elements, "已保存");
-    clearStatusClearTimer();
-    statusClearTimer = setTimeout(() => {
-      statusClearTimer = null;
-      if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
-        setStatus(elements, "");
-      }
-    }, 1500);
+    if (getStatusVersion() === statusVerAtStart) {
+      setStatus(elements, "已保存");
+      clearStatusClearTimer();
+      statusClearTimer = setTimeout(() => {
+        statusClearTimer = null;
+        if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
+          setStatus(elements, "");
+        }
+      }, 1500);
+    }
     return true;
   } catch (error) {
     setStatus(elements, getErrorMessage(error, "保存失败"), true);
@@ -261,6 +267,10 @@ export function bindScalarFieldEvents(
           state.patchSettings(patch);
         }
         binding.onApply?.(val);
+        try {
+          binding.onChange?.(val, deps.hooks ?? {}, elements);
+        } catch {
+        }
         syncScalarSideEffects(binding.key, elements);
         deps.syncSummaries(elements);
         void saveSettingField(elements, patch);

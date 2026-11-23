@@ -1,4 +1,5 @@
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
+import { isElementNode } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
@@ -76,7 +77,7 @@ export function createChatLiveTextRecords(deps: ChatLiveTextRecordsDeps): ChatLi
 
   deps.root?.addEventListener("click", (event) => {
     const target = event.target;
-    if (!(target instanceof Element)) return;
+    if (!isElementNode(target)) return;
     const button = target.closest<HTMLButtonElement>("button[data-live-record-action]");
     const callId = button?.dataset.callId;
     if (!button || !callId) return;

@@ -7,6 +7,20 @@ import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
+import {
+  getActiveReaderDocument,
+  getActiveReaderWindow,
+  onActiveHostChange,
+} from "../shared/active-host.js";
+import {
+  isHtmlElement,
+  prefersActiveReducedMotion,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import {
@@ -53,15 +67,13 @@ const MODEL_PANEL_MAX_WIDTH = 320;
 
 let chipMeasureCanvas: HTMLCanvasElement | null = null;
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined"
-    ? Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
-    : false;
+function prefersReducedMotion(target?: Element | null): boolean {
+  return prefersActiveReducedMotion(target);
 }
 
-function measureTextWidth(text: string, style?: CSSStyleDeclaration | null): number {
+function measureTextWidth(text: string, style?: CSSStyleDeclaration | null, doc?: Document): number {
   if (!chipMeasureCanvas) {
-    chipMeasureCanvas = document.createElement("canvas");
+    chipMeasureCanvas = (doc ?? getActiveReaderDocument()).createElement("canvas");
   }
   const ctx = chipMeasureCanvas.getContext("2d");
   if (!ctx) {
@@ -179,7 +191,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   let isBursting = false;
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
   let renderedWebSearchEnabled: boolean | null = null;
-  let widthRafId = 0;
+  let widthRafHandle: ActiveAnimationFrameHandle | null = null;
 
   function getProviderGroups(): ProviderGroup[] {
     return chatSessionState.providers
@@ -305,9 +317,12 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   function measureChipContentWidth(): number {
     const model = String(chipModel?.textContent || "").trim() || "未配置平台";
     const level = String(chipLevel?.textContent || "").trim();
-    const computedStyle = chip ? window.getComputedStyle(chip) : null;
+    const chipWin = chip ? resolveNodeWindow(chip) : getActiveReaderWindow();
+    const chipDoc = chip ? resolveNodeDocument(chip) : getActiveReaderDocument();
+    const computedStyle = chip ? chipWin.getComputedStyle(chip) : null;
     const measuredTextWidth =
-      measureTextWidth(model, computedStyle) + (level ? measureTextWidth(level, computedStyle) : 0);
+      measureTextWidth(model, computedStyle, chipDoc) +
+      (level ? measureTextWidth(level, computedStyle, chipDoc) : 0);
     const extraBuffer = chipMeasureCanvas?.getContext("2d") ? 48 : 44;
     return Math.ceil(measuredTextWidth + extraBuffer);
   }
@@ -332,13 +347,13 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   }
 
   function scheduleChipWidthUpdate(): void {
-    if (widthRafId) {
+    if (widthRafHandle) {
       return;
     }
-    widthRafId = window.requestAnimationFrame(() => {
-      widthRafId = 0;
+    widthRafHandle = scheduleActiveAnimationFrame(() => {
+      widthRafHandle = null;
       updateChipWidth();
-    });
+    }, chip ? resolveNodeWindow(chip) : getActiveReaderWindow());
   }
 
   function measureModelPanelWidth(): number {
@@ -348,7 +363,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   }
 
   function syncUltraBurst(nextAtMax: boolean): void {
-    if (nextAtMax && !wasAtMax && !prefersReducedMotion()) {
+    if (nextAtMax && !wasAtMax && !prefersReducedMotion(thinkingRow ?? chip)) {
       isBursting = true;
       if (burstTimer !== null) {
         clearTimeout(burstTimer);
@@ -495,8 +510,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     if (options.length === 0) {
       return;
     }
-    const active = document.activeElement instanceof HTMLElement
-      ? document.activeElement.closest<HTMLButtonElement>(".chat-model-option")
+    const docActive = resolveNodeDocument(panelList).activeElement;
+    const active = isHtmlElement(docActive)
+      ? docActive.closest<HTMLButtonElement>(".chat-model-option")
       : null;
     const activeIndex = active ? options.indexOf(active) : -1;
     const selectedIndex = options.findIndex((btn) => btn.classList.contains("is-selected"));
@@ -805,8 +821,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
 
     let currentTx = 0;
-    if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
-      const computed = window.getComputedStyle(thumb).transform;
+    const thumbWin = resolveNodeWindow(thumb);
+    if (typeof thumbWin !== "undefined" && typeof thumbWin.getComputedStyle === "function") {
+      const computed = thumbWin.getComputedStyle(thumb).transform;
       const tf = (computed && computed !== "none") ? computed : thumb.style.transform;
       if (tf && tf !== "none") {
         const matrixMatch = /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([^,\)]+)/.exec(tf);
@@ -931,6 +948,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return ratio * (n - 1);
     }
 
+    let dragResizeWin: Window | null = null;
+    let stopDragHostWatch: (() => void) | null = null;
+
     track.addEventListener("pointerdown", (e: PointerEvent) => {
       if (e.button !== 0 && e.button !== undefined) {
         return;
@@ -939,15 +959,23 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       isDraggingThumb = true;
       track.classList.add("is-dragging");
       refreshRangeRect();
-      window.addEventListener("resize", onDragWindowResize);
-      if (typeof ResizeObserver !== "undefined") {
-        dragObserver = new ResizeObserver(() => {
+      dragResizeWin = resolveNodeWindow(track);
+      dragResizeWin?.addEventListener("resize", onDragWindowResize);
+      const Obs =
+        (dragResizeWin as (Window & { ResizeObserver?: typeof ResizeObserver }) | null)?.ResizeObserver ??
+        (typeof ResizeObserver !== "undefined" ? ResizeObserver : undefined);
+      if (Obs) {
+        dragObserver = new Obs(() => {
           if (dragging) {
             refreshRangeRect();
           }
         });
         dragObserver.observe(range);
       }
+      stopDragHostWatch?.();
+      stopDragHostWatch = onActiveHostChange(() => {
+        finishDrag(false);
+      });
       const pos = posFromClientX(e.clientX);
       if (pos === null) {
         finishDrag(false);
@@ -974,9 +1002,15 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       }
       dragging = false;
       isDraggingThumb = false;
-      window.removeEventListener("resize", onDragWindowResize);
+      stopDragHostWatch?.();
+      stopDragHostWatch = null;
+      safeRemoveListener(dragResizeWin, "resize", onDragWindowResize);
+      dragResizeWin = null;
       if (dragObserver) {
-        dragObserver.disconnect();
+        try {
+          dragObserver.disconnect();
+        } catch {
+        }
         dragObserver = null;
       }
       cachedRangeRect = null;
@@ -1017,13 +1051,21 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  if (typeof window !== "undefined") {
-    window.addEventListener("resize", () => {
-      if (chip?.isConnected) {
-        scheduleChipWidthUpdate();
-      }
-    });
-  }
+  const onChipResize = () => {
+    if (chip?.isConnected) {
+      scheduleChipWidthUpdate();
+    }
+  };
+  let boundResizeWin: Window | null = chip ? resolveNodeWindow(chip) : getActiveReaderWindow();
+  boundResizeWin?.addEventListener("resize", onChipResize);
+  onActiveHostChange((ctx) => {
+    safeRemoveListener(boundResizeWin, "resize", onChipResize);
+    boundResizeWin = ctx.win;
+    boundResizeWin?.addEventListener("resize", onChipResize);
+    if (chip?.isConnected) {
+      scheduleChipWidthUpdate();
+    }
+  });
 
   return {
     reload,

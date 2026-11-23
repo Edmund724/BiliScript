@@ -220,6 +220,7 @@
 }
 
 .biliscript-reading-script-panel {
+  position: relative;
   min-height: 0;
   display: grid;
   grid-template-rows: auto auto 1fr;
@@ -2930,4 +2931,27 @@ math mo {
   .biliscript-quote-card-glow {
     display: none !important;
   }
+}
+
+.biliscript-reading-detached-notice {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 56px;
+  z-index: 40;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-surface-elevated, var(--biliscript-reader-surface));
+  color: var(--biliscript-reader-text);
+  box-shadow: var(--biliscript-reader-shadow);
+  font-size: var(--biliscript-font-size-xs);
+  line-height: 1.45;
+  pointer-events: auto;
+}
+
+.biliscript-reading-detached-notice[hidden] {
+  display: none;
 }

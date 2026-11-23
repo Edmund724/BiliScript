@@ -76,11 +76,14 @@ function safeCancel(animations: readonly Animation[]): void {
 }
 
 function waitForAnimations(animations: readonly Animation[], fallbackMs: number, onSettled: () => void): () => void {
-  if (animations.length === 0) {
+  const valid = animations.filter(
+    (anim): anim is Animation => Boolean(anim && typeof anim.addEventListener === "function")
+  );
+  if (valid.length === 0) {
     onSettled();
     return () => {};
   }
-  let remaining = animations.length;
+  let remaining = valid.length;
   let settled = false;
   let timer = 0;
 
@@ -101,7 +104,7 @@ function waitForAnimations(animations: readonly Animation[], fallbackMs: number,
     }
   };
 
-  for (const anim of animations) {
+  for (const anim of valid) {
     anim.addEventListener("finish", onOne, { once: true });
     anim.addEventListener("cancel", onOne, { once: true });
   }
@@ -175,7 +178,7 @@ export function runHorizontalLayerTransition(options: HorizontalLayerTransitionO
     settleAll();
   };
 
-  if (prefersReducedMotion()) {
+  if (prefersReducedMotion(probe)) {
     settleExit();
     for (const item of incoming) {
       const anim = animateNavFadeIn(item.el, NAV_REDUCED_DURATION_MS);
@@ -205,7 +208,7 @@ export function runHorizontalLayerTransition(options: HorizontalLayerTransitionO
         ],
         { duration: durationExitMs, easing: NAV_EXIT_EASING, fill: "forwards" }
       );
-      outgoingAnims.push(anim);
+      if (anim) outgoingAnims.push(anim);
     } catch {}
   }
 
@@ -225,7 +228,7 @@ export function runHorizontalLayerTransition(options: HorizontalLayerTransitionO
           fill: "backwards"
         }
       );
-      incomingAnims.push(anim);
+      if (anim) incomingAnims.push(anim);
     } catch {}
   }
 
@@ -239,7 +242,7 @@ export function runHorizontalLayerTransition(options: HorizontalLayerTransitionO
         ],
         { duration: NAV_TITLE_DURATION_MS, easing: NAV_ENTER_EASING, fill: "none" }
       );
-      incomingAnims.push(titleAnim);
+      if (titleAnim) incomingAnims.push(titleAnim);
     } catch {}
   }
 

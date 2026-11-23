@@ -466,6 +466,7 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "core/state.ts", mutable: true },
   { source: "reader/reader-bus.ts", mutable: true },
   { source: "reader/state.ts", mutable: true },
+  { source: "shared/active-host.ts", mutable: true },
   { source: "shared/content-event-bus.ts", mutable: true },
   { source: "shared/lazy-import.ts", mutable: true },
   { source: "shared/logging.ts", mutable: true },

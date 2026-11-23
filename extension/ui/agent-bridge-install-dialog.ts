@@ -1,3 +1,5 @@
+import { activeById } from "../shared/active-host.js";
+import { resolveNodeWindow, writeActiveClipboardText } from "../shared/cross-doc.js";
 import { ids } from "../shared/dom-ids.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { DEFAULT_COPY_FEEDBACK_MS } from "./copy-feedback.js";
@@ -95,13 +97,17 @@ function closeDialog(generation = state.generation): void {
   if (generation !== state.generation || !state.shell) return;
   clearCopyTimer();
   state.copySeq += 1;
-  state.shell.dispose();
+  const shell = state.shell;
   state.shell = null;
+  try {
+    shell.dispose();
+  } catch {
+  }
 }
 
 export function openAgentBridgeInstallDialog(address: string): void {
   closeDialog();
-  const mountHost = document.getElementById(ids.readingView);
+  const mountHost = activeById(ids.readingView);
   if (!mountHost) return;
   const prompt = buildAgentBridgeInstallPrompt(address);
   const generation = state.generation + 1;
@@ -160,10 +166,7 @@ export function openAgentBridgeInstallDialog(address: string): void {
 
     void (async () => {
       try {
-        if (!navigator.clipboard?.writeText) {
-          throw new Error("clipboard unavailable");
-        }
-        await navigator.clipboard.writeText(prompt);
+        await writeActiveClipboardText(prompt, resolveNodeWindow(shell.host));
         if (state.generation !== generation || state.copySeq !== seq) return;
         button.textContent = COPIED_LABEL;
         button.classList.add("is-copied");

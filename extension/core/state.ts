@@ -1,5 +1,5 @@
 // BILISCRIPT_DUAL_INSTANCE_STATEFUL
-import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
+import { DEFAULT_SETTINGS, type DetachedWindowMode, type Settings } from "./defaults.js";
 import { logWarnAlways } from "../shared/logging.js";
 import type {
   ChapterItem,
@@ -40,6 +40,8 @@ export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 
 type ReaderBusinessState = {
   readonly readingViewOpen: boolean;
+  readonly readingDetached: boolean;
+  readingDetachedMode: DetachedWindowMode | null;
   readingTheme: string;
   readingThemeMode: string;
   readingPalette: string;
@@ -57,6 +59,7 @@ type ReaderInternalState = {
 };
 
 type ReaderSetters = {
+  setDetachedMode(value: DetachedWindowMode | null): void;
   setTheme(value: string): void;
   setThemeMode(value: string): void;
   setPalette(value: string): void;
@@ -73,6 +76,8 @@ type ReaderStateWritable = ReaderBusinessState & ReaderInternalState & ReaderSet
 const localReaderState: ReaderStateWritable = {
   readingShellState: "closed",
   get readingViewOpen() { return this.readingShellState === "open"; },
+  get readingDetached() { return this.readingDetachedMode !== null; },
+  readingDetachedMode: null,
   readingTheme: "light",
   readingThemeMode: "bilibili",
   readingPalette: "flyme",
@@ -83,6 +88,7 @@ const localReaderState: ReaderStateWritable = {
   readingVideoEl: null,
   readingDocumentClickBound: false,
   readingViewReady: false,
+  setDetachedMode(value) { this.readingDetachedMode = value; },
   setTheme(value) { this.readingTheme = value; },
   setThemeMode(value) { this.readingThemeMode = value; },
   setPalette(value) { this.readingPalette = value; },

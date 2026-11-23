@@ -1,4 +1,5 @@
 import katex from "katex";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown.js";
 
 const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
@@ -130,19 +131,23 @@ function isTopLevelBinaryOp(node: Element): boolean {
   return node.tagName.toLowerCase() === "mo" && /^[+\-±∓−]$/.test(node.textContent?.trim() ?? "");
 }
 
-function createBlockMathFromNodes(nodes: Element[], annotation?: Element | null): Element {
-  const math = document.createElementNS(MATHML_NS, "math");
+function createBlockMathFromNodes(
+  doc: Document,
+  nodes: Element[],
+  annotation?: Element | null
+): Element {
+  const math = doc.createElementNS(MATHML_NS, "math");
   math.setAttribute("display", "block");
   math.setAttribute("aria-hidden", "true");
-  const mstyle = document.createElementNS(MATHML_NS, "mstyle");
+  const mstyle = doc.createElementNS(MATHML_NS, "mstyle");
   mstyle.setAttribute("displaystyle", "true");
-  const mrow = document.createElementNS(MATHML_NS, "mrow");
+  const mrow = doc.createElementNS(MATHML_NS, "mrow");
   for (const node of nodes) {
     mrow.appendChild(node);
   }
   mstyle.appendChild(mrow);
   if (annotation) {
-    const semantics = document.createElementNS(MATHML_NS, "semantics");
+    const semantics = doc.createElementNS(MATHML_NS, "semantics");
     semantics.appendChild(mstyle);
     semantics.appendChild(annotation);
     math.appendChild(semantics);
@@ -198,7 +203,8 @@ function alignEquationAtEquals(container: Element): void {
     rhsTerms.push(currentTerm);
   }
 
-  const aligned = document.createElement("span");
+  const doc = resolveNodeDocument(container);
+  const aligned = doc.createElement("span");
   aligned.className = "biliscript-math-aligned";
   aligned.setAttribute("role", "math");
   const accessibleTex = (annotation?.textContent ?? container.getAttribute("data-tex") ?? "").trim();
@@ -206,16 +212,16 @@ function alignEquationAtEquals(container: Element): void {
     aligned.setAttribute("aria-label", accessibleTex);
   }
 
-  const lhs = document.createElement("span");
+  const lhs = doc.createElement("span");
   lhs.className = "biliscript-math-lhs";
-  lhs.appendChild(createBlockMathFromNodes(lhsNodes, annotation));
+  lhs.appendChild(createBlockMathFromNodes(doc, lhsNodes, annotation));
 
-  const rhs = document.createElement("span");
+  const rhs = doc.createElement("span");
   rhs.className = "biliscript-math-rhs";
   for (const termNodes of rhsTerms) {
-    const term = document.createElement("span");
+    const term = doc.createElement("span");
     term.className = "biliscript-math-term";
-    term.appendChild(createBlockMathFromNodes(termNodes));
+    term.appendChild(createBlockMathFromNodes(doc, termNodes));
     rhs.appendChild(term);
   }
 

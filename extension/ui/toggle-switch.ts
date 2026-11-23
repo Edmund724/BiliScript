@@ -1,3 +1,15 @@
+import { onActiveHostChange } from "../shared/active-host.js";
+import {
+  dispatchCrossDocEvent,
+  isHtmlElement,
+  isNode,
+  prefersActiveReducedMotion,
+  resolveNodeDocument,
+  resolveNodeWindow,
+  safeRemoveListener,
+  scheduleActiveAnimationFrame,
+  type ActiveAnimationFrameHandle,
+} from "../shared/cross-doc.js";
 import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { ensureToggleSwitchStyles } from "../shared/style-injector.js";
 
@@ -11,10 +23,8 @@ const DRAG_THRESHOLD_PX = 3;
 
 const FALLBACK_TRAVEL_PX = 16;
 
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    : false;
+function prefersReducedMotion(target?: Element | null): boolean {
+  return prefersActiveReducedMotion(target);
 }
 
 const shellOps = new WeakMap<HTMLInputElement, { sync: () => void }>();
@@ -26,11 +36,11 @@ export function syncToggleSwitch(input: HTMLInputElement): void {
 export function initToggleSwitch(input: HTMLInputElement): void {
   if (input.dataset.toggleSwitchInitialized === "1") return;
   const track = input.nextElementSibling;
-  if (!(track instanceof HTMLElement) || !track.classList.contains("biliscript-toggle-track")) {
+  if (!isHtmlElement(track) || !track.classList.contains("biliscript-toggle-track")) {
     return;
   }
   const thumb = track.firstElementChild;
-  if (!(thumb instanceof HTMLElement)) return;
+  if (!isHtmlElement(thumb)) return;
   input.dataset.toggleSwitchInitialized = "1";
   const label = input.closest("label");
 
@@ -41,7 +51,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
 
   let pos = input.checked ? travel() : 0;
   let vel = 0;
-  let raf = 0;
+  let rafHandle: ActiveAnimationFrameHandle | null = null;
 
   const apply = (): void => {
     thumb.style.transform = pos === 0 ? "none" : `translateX(${pos}px)`;
@@ -49,15 +59,15 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   apply();
 
   const settle = (): void => {
-    if (raf) {
-      cancelAnimationFrame(raf);
-      raf = 0;
+    if (rafHandle) {
+      rafHandle.cancel();
+      rafHandle = null;
     }
   };
 
   const springTo = (target: number, initialVel = 0): void => {
     settle();
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion(input)) {
       pos = target;
       vel = 0;
       apply();
@@ -77,12 +87,12 @@ export function initToggleSwitch(input: HTMLInputElement): void {
         pos = target;
         vel = 0;
         apply();
-        raf = 0;
+        rafHandle = null;
         return;
       }
-      raf = requestAnimationFrame(tick);
+      rafHandle = scheduleActiveAnimationFrame(tick, resolveNodeWindow(input));
     };
-    raf = requestAnimationFrame(tick);
+    rafHandle = scheduleActiveAnimationFrame(tick, resolveNodeWindow(input));
   };
 
   const sync = (): void => springTo(input.checked ? travel() : 0);
@@ -99,12 +109,28 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   let startPos = 0;
   let cachedTravel: number | null = null;
   let dragObserver: ResizeObserver | null = null;
+  let dragWin: Window | null = null;
+  let stopHostWatch: (() => void) | null = null;
   const onDragResize = (): void => {
     if (dragging) {
       cachedTravel = travel();
     }
   };
   let samples: { x: number; t: number }[] = [];
+
+  const teardownDragTracking = (): void => {
+    stopHostWatch?.();
+    stopHostWatch = null;
+    safeRemoveListener(dragWin, "resize", onDragResize);
+    dragWin = null;
+    if (dragObserver) {
+      try {
+        dragObserver.disconnect();
+      } catch {
+      }
+      dragObserver = null;
+    }
+  };
 
   const releaseVelocity = (): number => {
     const end = samples[samples.length - 1];
@@ -124,11 +150,26 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     samples = [{ x: e.clientX, t: e.timeStamp }];
     settle();
     cachedTravel = travel();
-    window.addEventListener("resize", onDragResize);
-    if (typeof ResizeObserver !== "undefined") {
-      dragObserver = new ResizeObserver(onDragResize);
+    dragWin = resolveNodeWindow(input);
+    dragWin?.addEventListener("resize", onDragResize);
+    const Obs =
+      (dragWin as (Window & { ResizeObserver?: typeof ResizeObserver }) | null)?.ResizeObserver ??
+      (typeof ResizeObserver !== "undefined" ? ResizeObserver : undefined);
+    if (Obs) {
+      dragObserver = new Obs(onDragResize);
       dragObserver.observe(track);
     }
+    stopHostWatch?.();
+    stopHostWatch = onActiveHostChange(() => {
+      if (!dragging) return;
+      dragging = false;
+      teardownDragTracking();
+      const currentTravel = cachedTravel ?? travel();
+      cachedTravel = null;
+      if (moved) {
+        springTo(input.checked ? currentTravel : 0);
+      }
+    });
     trySetPointerCapture(track, e.pointerId);
   });
 
@@ -147,11 +188,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   const finishDrag = (e: PointerEvent): void => {
     if (!dragging) return;
     dragging = false;
-    window.removeEventListener("resize", onDragResize);
-    if (dragObserver) {
-      dragObserver.disconnect();
-      dragObserver = null;
-    }
+    teardownDragTracking();
     const currentTravel = cachedTravel ?? travel();
     cachedTravel = null;
     if (!moved) return;
@@ -165,9 +202,10 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     const projected = pos + vPxMs * VELOCITY_PROJECTION_MS;
     const target = projected >= range / 2 ? range : 0;
     if (e.type === "pointerup") {
+      const clickDoc = resolveNodeDocument(input);
       let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
       const cleanup = (): void => {
-        document.removeEventListener("click", suppress, true);
+        safeRemoveListener(clickDoc, "click", suppress, true);
         if (cleanupTimer !== null) {
           clearTimeout(cleanupTimer);
           cleanupTimer = null;
@@ -175,19 +213,19 @@ export function initToggleSwitch(input: HTMLInputElement): void {
       };
       const suppress = (clickEvent: Event): void => {
         cleanup();
-        if (label && clickEvent.target instanceof Node && label.contains(clickEvent.target)) {
+        if (label && isNode(clickEvent.target) && label.contains(clickEvent.target)) {
           clickEvent.preventDefault();
           clickEvent.stopPropagation();
         }
       };
-      document.addEventListener("click", suppress, { capture: true });
+      clickDoc.addEventListener("click", suppress, { capture: true });
       cleanupTimer = setTimeout(cleanup, 0);
     }
     const nextChecked = target === range;
     if (input.checked !== nextChecked) {
       dragHandledChange = true;
       input.checked = nextChecked;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      dispatchCrossDocEvent(input, "change", { bubbles: true });
       dragHandledChange = false;
     }
     springTo(target, vPxMs * 1000);

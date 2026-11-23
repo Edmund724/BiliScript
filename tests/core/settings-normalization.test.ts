@@ -587,3 +587,31 @@ describe("getMergedSettings：宽度自定义标记存量补齐", () => {
     expect(merged.customPanelWidthEnabled).toBe(true);
   });
 });
+
+describe("normalizeDetachedWindowMode 与 detachedWindowMode 持久化", () => {
+  it("normalizeDetachedWindowMode 放行 pip/popup，脏值回落 pip", async () => {
+    const { normalizeDetachedWindowMode } = await import("../../extension/core/validators.js");
+    expect(normalizeDetachedWindowMode("pip")).toBe("pip");
+    expect(normalizeDetachedWindowMode("popup")).toBe("popup");
+    for (const dirty of ["window", "PIP", "", null, undefined, 1, {}, []]) {
+      expect(normalizeDetachedWindowMode(dirty)).toBe("pip");
+    }
+  });
+
+  it("normalizeSettings / getMergedSettings / saveSettings 正确规范化并落盘 detachedWindowMode", async () => {
+    const { normalizeSettings, getMergedSettings, saveSettings } = await loadStoreModule();
+    expect(DEFAULT_SETTINGS.detachedWindowMode).toBe("pip");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, detachedWindowMode: "popup" }).detachedWindowMode).toBe("popup");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, detachedWindowMode: "invalid" }).detachedWindowMode).toBe("pip");
+
+    syncGetMock.mockImplementationOnce(async (defaults) => ({ ...defaults, detachedWindowMode: "popup" }));
+    const merged = await getMergedSettings();
+    expect(merged.detachedWindowMode).toBe("popup");
+
+    await saveSettings({ detachedWindowMode: "popup" });
+    expect(syncSetMock).toHaveBeenCalledWith({ detachedWindowMode: "popup" });
+
+    await saveSettings({ detachedWindowMode: "bogus" });
+    expect(syncSetMock).toHaveBeenCalledWith({ detachedWindowMode: "pip" });
+  });
+});

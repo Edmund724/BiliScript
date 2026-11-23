@@ -1,4 +1,5 @@
 import { contentFetchJson, type JsonTransport } from "../bilibili/gateway.js";
+import { getOpenerDocument } from "../shared/active-host.js";
 import {
   capturePageVideoFrame,
   type PageVideoFrameCaptureOptions,
@@ -154,7 +155,8 @@ export function createHistoricalVideoFrameSession(
           throw new Error("视频接口没有返回可直接截帧的 MP4");
         }
 
-        video = (options.createVideo ?? (() => document.createElement("video")))();
+        const openerDoc = getOpenerDocument();
+        video = (options.createVideo ?? (() => openerDoc.createElement("video")))();
         video.crossOrigin = "anonymous";
         video.muted = true;
         video.defaultMuted = true;
@@ -163,7 +165,7 @@ export function createHistoricalVideoFrameSession(
         video.dataset.biliscriptHistoricalFrame = "";
         video.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
         video.src = source;
-        document.body.appendChild(video);
+        openerDoc.body.appendChild(video);
         await waitForVideo(video, "loadedmetadata", () => video!.readyState >= 1, timeoutMs, controller.signal);
       }
       const media = video;

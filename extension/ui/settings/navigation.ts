@@ -4,6 +4,7 @@ import {
   registerReaderSettingsCloseListener
 } from "../../reader/settings-mode.js";
 import { ids } from "../../reader/state.js";
+import { activeById } from "../../shared/active-host.js";
 import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
 import type { AiCredentialLinkTarget } from "../ai-credential-link.js";
 import {
@@ -279,7 +280,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
       return;
     }
-    const host = deps.getHost() ?? document.getElementById(ids.readingSettingsHost);
+    const host = deps.getHost() ?? activeById(ids.readingSettingsHost);
     if (!host) return;
     pendingSettingsTarget = target;
     if (!host.dataset.biliscriptSettingsRendered) {

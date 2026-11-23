@@ -18,6 +18,10 @@ import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } fr
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 
+vi.mock("../../extension/subtitle/kick-subtitle-fetch.js", () => ({
+  kickSubtitleFetch: async () => true
+}));
+
 const TARGETS = ["html", "body", "readingView"] as const;
 const VALID_KINDS = new Set(["presentation", "enter-flag", "view-flag"]);
 

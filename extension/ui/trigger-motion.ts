@@ -1,3 +1,5 @@
+import { getActiveReaderDocument } from "../shared/active-host.js";
+import { isElementNode, prefersActiveReducedMotion, resolveNodeWindow } from "../shared/cross-doc.js";
 import { logWarn } from "../shared/logging.js";
 
 export interface TriggerEnterOptions {
@@ -31,23 +33,17 @@ const activeAnimations = new WeakMap<HTMLElement, Animation[]>();
 const savedTriggerRects = new WeakMap<HTMLElement, DOMRect>();
 const exitCleanups = new WeakMap<Element, () => void>();
 
-export function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+export function prefersReducedMotion(target?: Element | null): boolean {
+  return prefersActiveReducedMotion(target);
 }
 
 export function resolveTriggerElement(explicit?: Element | null): Element | null {
   if (explicit && explicit.isConnected) {
     return explicit;
   }
-  if (typeof document === "undefined") {
-    return null;
-  }
-  const active = document.activeElement;
-  if (active instanceof Element && active !== document.body && active !== document.documentElement) {
+  const doc = getActiveReaderDocument();
+  const active = doc.activeElement;
+  if (isElementNode(active) && active !== doc.body && active !== doc.documentElement) {
     return active;
   }
   return null;
@@ -62,7 +58,7 @@ export function captureTriggerRect(trigger?: Element | DOMRect | null): DOMRect 
   if (!trigger) {
     return null;
   }
-  if (trigger instanceof Element) {
+  if (isElementNode(trigger)) {
     if (!trigger.isConnected || typeof trigger.getBoundingClientRect !== "function") {
       return null;
     }
@@ -124,6 +120,7 @@ function startAnimation(
 ): Animation | null {
   try {
     const anim = el.animate(keyframes, options);
+    if (!anim) return null;
     trackAnimation(el, anim);
     return anim;
   } catch (error) {
@@ -186,7 +183,7 @@ export function animateTriggerEnter(options: TriggerEnterOptions): DOMRect | nul
   }
   applyElementTriggerOrigin(target, resolvedRect, fallbackOrigin);
 
-  if (prefersReducedMotion() || typeof target.animate !== "function") {
+  if (prefersReducedMotion(target) || typeof target.animate !== "function") {
     return resolvedRect;
   }
 
@@ -233,23 +230,33 @@ export function animateTriggerExit(options: TriggerExitOptions): void {
 
   let startOpacity = "1";
   let startScale = "1";
-  if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
-    const computed = window.getComputedStyle(target);
-    if (computed.opacity) startOpacity = computed.opacity;
-    if (computed.scale && computed.scale !== "none") startScale = computed.scale;
+  const targetWin = resolveNodeWindow(target);
+  if (typeof targetWin?.getComputedStyle === "function") {
+    try {
+      const computed = targetWin.getComputedStyle(target);
+      if (computed.opacity) startOpacity = computed.opacity;
+      if (computed.scale && computed.scale !== "none") startScale = computed.scale;
+    } catch {
+    }
   }
 
   let startMaskOpacity = "1";
-  if (mask && typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
-    const maskComputed = window.getComputedStyle(mask);
-    if (maskComputed.opacity) startMaskOpacity = maskComputed.opacity;
+  if (mask) {
+    const maskWin = resolveNodeWindow(mask);
+    if (typeof maskWin?.getComputedStyle === "function") {
+      try {
+        const maskComputed = maskWin.getComputedStyle(mask);
+        if (maskComputed.opacity) startMaskOpacity = maskComputed.opacity;
+      } catch {
+      }
+    }
   }
 
   cancelActiveAnimations(target);
   cancelActiveAnimations(mask);
   applyElementTriggerOrigin(target, resolvedRect, fallbackOrigin);
 
-  if (prefersReducedMotion() || typeof target.animate !== "function") {
+  if (prefersReducedMotion(target) || typeof target.animate !== "function") {
     onFinish();
     return;
   }

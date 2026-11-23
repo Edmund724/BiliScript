@@ -1,3 +1,5 @@
+import { activeById } from "../shared/active-host.js";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import {
   applyLiveContextToMain,
   chatSessionState,
@@ -121,7 +123,7 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
     deps.updateLayout();
     deps.messagesEl.innerHTML = "";
     if (stateHtml) {
-      const stateNode = document.createElement("div");
+      const stateNode = resolveNodeDocument(deps.messagesEl).createElement("div");
       stateNode.className = "chat-center-error";
       stateNode.innerHTML = stateHtml;
       deps.messagesEl.appendChild(stateNode);
@@ -158,7 +160,7 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
   function requestViewReset(intent: ViewResetIntent): void {
     if (intent.kind === "setup") {
       resetConversationView(deps.getSetupStateHtml());
-      document.getElementById(deps.openSettingsId)?.focus({ preventScroll: true });
+      activeById(deps.openSettingsId)?.focus({ preventScroll: true });
       deps.showNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
       return;
     }

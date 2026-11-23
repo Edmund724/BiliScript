@@ -1,3 +1,5 @@
+import { activeById, onActiveHostChange } from "../shared/active-host.js";
+import { isNode, resolveNodeDocument, safeRemoveListener } from "../shared/cross-doc.js";
 import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
@@ -148,6 +150,20 @@ const PLATFORM_PROBE_IO: Partial<Record<ProviderEditorKind, PlatformProbeIo>> = 
 let focusScope: FocusScope | null = null;
 let restoreSiblings: (() => void) | null = null;
 let stopObservingSettingsHidden: (() => void) | null = null;
+let boundDoc: Document | null = null;
+let stopHostWatch: (() => void) | null = null;
+
+function bindCaptureListeners(doc: Document): void {
+  boundDoc = doc;
+  boundDoc.addEventListener("click", onDocumentClickCapture, true);
+  boundDoc.addEventListener("keydown", onDocumentKeyDownCapture, true);
+}
+
+function unbindCaptureListeners(): void {
+  safeRemoveListener(boundDoc, "click", onDocumentClickCapture, true);
+  safeRemoveListener(boundDoc, "keydown", onDocumentKeyDownCapture, true);
+  boundDoc = null;
+}
 let saveInFlight = false;
 let deleteInFlight = false;
 let testInFlight = false;
@@ -330,19 +346,32 @@ export function closeProviderEditor(force = false): void {
   }
   stopObservingSettingsHidden?.();
   stopObservingSettingsHidden = null;
-  document.removeEventListener("click", onDocumentClickCapture, true);
-  document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-  closeFetchDialog(false);
-  restoreSiblings?.();
-  restoreSiblings = null;
-  focusScope?.dispose();
-  focusScope = null;
-  saveInFlight = false;
-  deleteInFlight = false;
-  testInFlight = false;
-  validationStatusActive = false;
-  reconfirmStatusActive = false;
-  endEditorSession();
+  stopHostWatch?.();
+  stopHostWatch = null;
+  unbindCaptureListeners();
+  try {
+    try {
+      closeFetchDialog(false);
+    } catch {
+    }
+    try {
+      restoreSiblings?.();
+    } catch {
+    }
+    restoreSiblings = null;
+    try {
+      focusScope?.dispose();
+    } catch {
+    }
+    focusScope = null;
+  } finally {
+    saveInFlight = false;
+    deleteInFlight = false;
+    testInFlight = false;
+    validationStatusActive = false;
+    reconfirmStatusActive = false;
+    endEditorSession();
+  }
 }
 
 export function requestClose(): void {
@@ -659,14 +688,14 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
 }
 
 export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
-  const view = mountHost || document.getElementById(ids.readingView);
+  const view = mountHost || activeById(ids.readingView);
   if (!view) {
     return null;
   }
   view.querySelectorAll<HTMLElement>('.provider-editor-host[data-biliscript-closing="1"]').forEach((el) => {
     cancelTriggerExit(el);
   });
-  const host = document.createElement("div");
+  const host = resolveNodeDocument(view).createElement("div");
   host.className = "provider-editor-host";
   view.appendChild(host);
   return host;
@@ -675,8 +704,8 @@ export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
 export function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
   if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
-  const view = state.host?.parentElement || document.getElementById(ids.readingView);
-  if (view && event.target instanceof Node && view.contains(event.target)) {
+  const view = state.host?.parentElement || activeById(ids.readingView);
+  if (view && isNode(event.target) && view.contains(event.target)) {
     return;
   }
   event.stopPropagation();
@@ -967,8 +996,23 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
     });
   }
   primeEditorVoices();
-  document.addEventListener("click", onDocumentClickCapture, true);
-  document.addEventListener("keydown", onDocumentKeyDownCapture, true);
+  bindCaptureListeners(resolveNodeDocument(host));
+  stopHostWatch?.();
+  stopHostWatch = onActiveHostChange((ctx) => {
+    if (!state.open) return;
+    unbindCaptureListeners();
+    let sameHost = false;
+    try {
+      sameHost = Boolean(state.host?.isConnected && state.host.ownerDocument === ctx.doc);
+    } catch {
+      sameHost = false;
+    }
+    if (sameHost) {
+      bindCaptureListeners(ctx.doc);
+      return;
+    }
+    closeProviderEditor(true);
+  });
   stopObservingSettingsHidden = observeSettingsPanelHidden(() => closeProviderEditor(true));
   if (PROVIDER_FAMILY_ROWS[options.kind].editor.modelSource === "catalog") {
     void primeModelCatalogMeta();

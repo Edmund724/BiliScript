@@ -11,6 +11,7 @@ import {
   setAsrSetupResumeToken
 } from "../../reader/setup-resume.js";
 import { ids } from "../../reader/state.js";
+import { activeById } from "../../shared/active-host.js";
 import { logWarn } from "../../shared/logging.js";
 import { sendRuntimeMessage } from "../../shared/messaging.js";
 import { whenReaderSettingsStylesReady } from "../../shared/style-injector.js";
@@ -188,7 +189,7 @@ export async function openReaderAiSetup(
   openReaderSettingsMode();
   await deps.ensureRendered();
   deps.openView("ai-providers");
-  const host = deps.getHost() ?? document.getElementById(ids.readingSettingsHost);
+  const host = deps.getHost() ?? activeById(ids.readingSettingsHost);
   const providerHost = deps.getProviderHost();
   const defaultBanner =
     errorClass === "missing-key"
@@ -259,7 +260,7 @@ export async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
   openReaderSettingsMode();
   await deps.ensureRendered();
   await whenReaderSettingsStylesReady();
-  const host = deps.getHost() ?? document.getElementById(ids.readingSettingsHost);
+  const host = deps.getHost() ?? activeById(ids.readingSettingsHost);
   if (!host) {
     return;
   }

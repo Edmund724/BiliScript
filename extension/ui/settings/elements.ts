@@ -84,6 +84,7 @@ export function collectElements(host: HTMLElement) {
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
     customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
+    detachedWindowMode: byIdIn<HTMLSelectElement>(dom.detachedWindowMode),
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
     enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
@@ -140,7 +141,14 @@ export function collectElements(host: HTMLElement) {
 
 export type SettingsElements = ReturnType<typeof collectElements>;
 
+let statusVersion = 0;
+
+export function getStatusVersion(): number {
+  return statusVersion;
+}
+
 export function setStatus(elements: SettingsElements, text: unknown, isError = false): void {
+  statusVersion += 1;
   elements.status.textContent = String(text || "");
   elements.status.dataset.error = isError ? "true" : "false";
 }

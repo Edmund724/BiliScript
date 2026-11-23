@@ -77,6 +77,14 @@ export function buildSystemPagesHtml(): string {
               <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
             </div>
           </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.detachedWindowMode}">独立窗口模式</label>
+            <select id="${ids.detachedWindowMode}" class="biliscript-set-select">
+              <option value="pip">置顶画中画</option>
+              <option value="popup">普通窗口</option>
+            </select>
+          </div>
         </div>
       </section>
 

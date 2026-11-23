@@ -6,6 +6,7 @@ import { isReaderShellIntact } from "../reader/shell-intact.js";
 import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "./panel-preload.js";
 import { TOOLBAR_HOST_SELECTOR } from "../bilibili/host-selectors.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
+import { isReaderDetached, onActiveHostChange } from "../shared/active-host.js";
 import { SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.js";
 import { logInfoAlways } from "../shared/logging.js";
 
@@ -29,6 +30,10 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 contentEventBus.on("reader:closed", () => {
+  setTickInterval(REINJECT_INTERVAL_MS);
+  syncScriptButton();
+});
+onActiveHostChange(() => {
   setTickInterval(REINJECT_INTERVAL_MS);
   syncScriptButton();
 });
@@ -66,7 +71,11 @@ function syncScriptButton(): void {
   if (viewOpen && isReaderShellIntact()) {
     brokenTicks = 0;
     setTickInterval(PAUSED_INTERVAL_MS);
-    removeScriptButton();
+    if (isReaderDetached()) {
+      injectScriptButton();
+    } else {
+      removeScriptButton();
+    }
     return;
   }
   if (viewOpen || readerUrlMode) {
@@ -317,7 +326,7 @@ function styleScriptButton(
 function handleScriptButtonClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
-  if (isReaderViewOpen() || isReaderMode()) {
+  if (!isReaderDetached() && (isReaderViewOpen() || isReaderMode())) {
     return;
   }
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;

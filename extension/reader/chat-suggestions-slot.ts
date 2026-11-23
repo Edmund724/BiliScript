@@ -1,3 +1,4 @@
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateChatSuggestionsSlotDeps {
@@ -20,7 +21,7 @@ export function createChatSuggestionsSlot(deps: CreateChatSuggestionsSlotDeps): 
 
   function ensureNode(): HTMLElement {
     if (!node || !node.isConnected) {
-      node = document.createElement("div");
+      node = resolveNodeDocument(deps.messages).createElement("div");
       node.className = "chat-suggestions";
       node.id = deps.id;
       deps.messages.appendChild(node);

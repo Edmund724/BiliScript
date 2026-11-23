@@ -1,5 +1,6 @@
 import { state } from "../core/state.js";
 import { isReaderTranscribing } from "../core/reader-transcribing.js";
+import { activeById } from "../shared/active-host.js";
 import { getSubtitleStatusPhase, subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ids } from "./state.js";
 
@@ -24,7 +25,7 @@ function bannerCopyForPhase(phase: string): TranscribeBannerCopy {
 }
 
 export function updateReadingTranscribeBanner(): void {
-  const banner = document.getElementById(ids.readingTranscribeBanner);
+  const banner = activeById(ids.readingTranscribeBanner);
   if (!banner) {
     return;
   }
@@ -33,19 +34,19 @@ export function updateReadingTranscribeBanner(): void {
   if (banner.hidden !== nextHidden) {
     banner.hidden = nextHidden;
   }
-  const tabBody = document.getElementById(ids.readingTabBodySubtitle);
+  const tabBody = activeById(ids.readingTabBodySubtitle);
   tabBody?.classList.toggle("is-transcribing", transcribing);
   if (transcribing) {
     const copy = bannerCopyForPhase(getSubtitleStatusPhase());
-    const titleNode = document.getElementById(ids.readingTranscribeBannerTitle);
+    const titleNode = activeById(ids.readingTranscribeBannerTitle);
     if (titleNode && titleNode.textContent !== copy.title) {
       titleNode.textContent = copy.title;
     }
-    const copyNode = document.getElementById(ids.readingTranscribeBannerCopy);
+    const copyNode = activeById(ids.readingTranscribeBannerCopy);
     if (copyNode && copyNode.textContent !== copy.copy) {
       copyNode.textContent = copy.copy;
     }
-    const progressNode = document.getElementById(ids.readingTranscribeProgress);
+    const progressNode = activeById(ids.readingTranscribeProgress);
     const text = String(state.ui.statusText || "").trim() || "正在转写…";
     if (progressNode && progressNode.textContent !== text) {
       progressNode.textContent = text;

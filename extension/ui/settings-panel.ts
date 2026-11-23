@@ -5,6 +5,12 @@ import { isChatDisplaySliderAvailable } from "../reader/chat-display-settings.js
 import { hasReaderSettingsOverlayOpen, stepBackReaderSettings } from "../reader/settings-mode.js";
 import { peekAsrSetupResumeToken } from "../reader/setup-resume.js";
 import { ids } from "../reader/state.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  isReaderDetached,
+  requestDetachedModeSwitch,
+} from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
 import {
@@ -79,6 +85,24 @@ const scalarHooks: ScalarBindingRuntimeHooks = {
     if (val && peekAsrSetupResumeToken() !== null && settingsHostRef) {
       void setupFlows.continueAsrSetupAfterToggleEnabled(collectElements(settingsHostRef));
     }
+  },
+  onDetachedWindowModeChanged: (mode) => {
+    if (isReaderDetached()) {
+      try {
+        void Promise.resolve(requestDetachedModeSwitch(mode))
+          .then((switched) => {
+            if (switched === false && settingsHostRef?.isConnected) {
+              setStatus(
+                collectElements(settingsHostRef),
+                "浏览器阻止了模式切换，已保留当前窗口；下次弹出时生效。",
+                true
+              );
+            }
+          })
+          .catch(() => {});
+      } catch {
+      }
+    }
   }
 };
 
@@ -140,7 +164,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     host,
     mountedFamilies: supportsLiveCompanion() ? ["ai", "live", "asr", "search"] : ["ai", "asr", "search"],
     onStatus: (message, isError) => setStatus(elements, message, isError),
-    canRestoreConsumerEditor: () => !document.getElementById(ids.readingSettingsPanel)?.hidden,
+    canRestoreConsumerEditor: () => !activeById(ids.readingSettingsPanel)?.hidden,
     onAiChanged: (providers, { settings: known }) => {
       if (known) {
         renderAiModelSelects(elements, providers, known, syncSummaries);
@@ -182,7 +206,7 @@ function bindSettingsEvents(host: HTMLElement): void {
 }
 
 export function renderReaderSettingsPanel(): Promise<void> {
-  const host = document.getElementById(ids.readingSettingsHost);
+  const host = activeById(ids.readingSettingsHost);
   if (!host) {
     return Promise.resolve();
   }
@@ -197,15 +221,15 @@ export function renderReaderSettingsPanel(): Promise<void> {
       if (!host.isConnected || host.dataset.biliscriptSettingsRendered) {
         return;
       }
-      const shouldRestoreBackFocus = document.activeElement?.id === ids.readingSettingsBackBtn;
+      const shouldRestoreBackFocus = getActiveReaderDocument().activeElement?.id === ids.readingSettingsBackBtn;
       host.innerHTML = buildSettingsHtml();
       applySectionContainment(host);
       bindSettingsEvents(host);
       if (shouldRestoreBackFocus) {
-        document.getElementById(ids.readingSettingsBackBtn)?.focus({ preventScroll: true });
+        activeById(ids.readingSettingsBackBtn)?.focus({ preventScroll: true });
       }
       host.dataset.biliscriptSettingsRendered = "1";
-      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
+      const settingsPanel = activeById(ids.readingSettingsPanel);
       if (settingsPanel && !settingsPanel.hidden) {
         const visibleView = host.querySelector<HTMLElement>(".biliscript-settings-view:not([hidden])");
         animateNavFadeIn(visibleView, 140);

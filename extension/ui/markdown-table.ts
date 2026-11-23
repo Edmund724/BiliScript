@@ -1,3 +1,5 @@
+import { onActiveHostChange } from "../shared/active-host.js";
+import { isHtmlElement } from "../shared/cross-doc.js";
 import {
   animateTriggerEnter,
   animateTriggerExit,
@@ -17,10 +19,29 @@ const EXPAND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 let activeDialog: HTMLDialogElement | null = null;
 
+onActiveHostChange(() => {
+  if (!activeDialog) {
+    return;
+  }
+  const dialog = activeDialog;
+  activeDialog = null;
+  cancelTriggerExit(dialog);
+  try {
+    if (dialog.open && typeof dialog.close === "function") {
+      dialog.close();
+    }
+  } catch {
+  }
+  try {
+    dialog.remove();
+  } catch {
+  }
+});
+
 function cellContentText(cell: HTMLTableCellElement): string {
   let text = "";
   for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof HTMLElement && node.classList.contains(TABLE_CELL_LABEL_CLASS)) {
+    if (isHtmlElement(node) && node.classList.contains(TABLE_CELL_LABEL_CLASS)) {
       continue;
     }
     text += node.textContent || "";

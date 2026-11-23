@@ -1,6 +1,9 @@
 // BILISCRIPT_DUAL_INSTANCE_STATEFUL
+import { getActiveReaderDocument, getOpenerDocument } from "./active-host.js";
+
 interface StyleInjectorSlots {
   mounted: Map<string, HTMLLinkElement>;
+  mirrored: WeakMap<Document, Map<string, HTMLLinkElement>>;
   readerSettingsReady: Promise<void> | null;
 }
 
@@ -8,7 +11,11 @@ const STYLE_SLOT_KEY = "__BILISCRIPT_STYLE_INJECTOR__";
 
 function styleSlots(): StyleInjectorSlots {
   const host = globalThis as unknown as Record<string, StyleInjectorSlots | undefined>;
-  return (host[STYLE_SLOT_KEY] ??= { mounted: new Map(), readerSettingsReady: null });
+  return (host[STYLE_SLOT_KEY] ??= {
+    mounted: new Map(),
+    mirrored: new WeakMap(),
+    readerSettingsReady: null
+  });
 }
 
 function getReaderStylePaths(): string[] {
@@ -47,23 +54,33 @@ const READER_SETTINGS_STYLE_PATHS = [
 
 export function ensureReaderSettingsStyles(): void {
   const slots = styleSlots();
-  const isFirstMount = READER_SETTINGS_STYLE_PATHS.some((path) => !slots.mounted.has(path));
-  const links = READER_SETTINGS_STYLE_PATHS.map((path) => mountStyleLink(path));
-  if (!isFirstMount) {
+  const openerDoc = getOpenerDocument();
+  const activeDoc = getActiveReaderDocument();
+  const detached = activeDoc !== openerDoc;
+  const isFirstMount = READER_SETTINGS_STYLE_PATHS.some((path) => !slots.mounted.get(path)?.isConnected);
+  const needsDetachedMount =
+    detached && READER_SETTINGS_STYLE_PATHS.some((path) => !hasReadyMirroredLink(activeDoc, path));
+  const targetLinks = READER_SETTINGS_STYLE_PATHS.map((path) => mountStyleLink(path));
+  if (!isFirstMount && !needsDetachedMount) {
     return;
   }
-  slots.readerSettingsReady = Promise.all(links.map(waitForStyleLinkLoad)).then(() => {});
+  slots.readerSettingsReady = Promise.all(targetLinks.map(waitForStyleLinkLoad)).then(() => {});
 }
 
-function waitForStyleLinkLoad(link: HTMLLinkElement): Promise<void> {
+function waitForStyleLinkLoad(link: HTMLLinkElement | null): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => resolve();
-    if (link.sheet) {
+    try {
+      if (!link || link.sheet) {
+        done();
+        return;
+      }
+      link.addEventListener("load", done, { once: true });
+      link.addEventListener("error", done, { once: true });
+    } catch {
       done();
       return;
     }
-    link.addEventListener("load", done, { once: true });
-    link.addEventListener("error", done, { once: true });
     window.setTimeout(done, 50);
   });
 }
@@ -106,27 +123,110 @@ export function ensureReaderChatStyles(): void {
   READER_CHAT_STYLE_PATHS.forEach((path) => mountStyleLink(path));
 }
 
-function mountStyleLink(path: string): HTMLLinkElement {
-  const { mounted } = styleSlots();
-  let link = mounted.get(path);
-  if (link) {
-    return link;
+function getMirroredDocMap(targetDoc: Document): Map<string, HTMLLinkElement> {
+  const { mirrored } = styleSlots();
+  let docMap = mirrored.get(targetDoc);
+  if (!docMap) {
+    docMap = new Map();
+    mirrored.set(targetDoc, docMap);
   }
-  link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = chrome.runtime.getURL(path);
-  link.dataset.biliscriptStyle = "1";
-  (document.head || document.documentElement).appendChild(link);
-  mounted.set(path, link);
-  return link;
+  return docMap;
 }
 
-function unmountStyleLink(path: string): void {
-  const { mounted } = styleSlots();
-  const link = mounted.get(path);
+function hasReadyMirroredLink(targetDoc: Document, path: string): boolean {
+  try {
+    const link = styleSlots().mirrored.get(targetDoc)?.get(path);
+    return Boolean(link?.isConnected && link.sheet);
+  } catch {
+    return false;
+  }
+}
+
+function appendStyleLink(
+  targetDoc: Document,
+  map: Map<string, HTMLLinkElement>,
+  path: string
+): HTMLLinkElement | null {
+  try {
+    const existing = map.get(path);
+    if (existing?.isConnected) {
+      return existing;
+    }
+    const container = targetDoc.head || targetDoc.documentElement;
+    if (!container) {
+      return null;
+    }
+    const link = targetDoc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = chrome.runtime.getURL(path);
+    link.dataset.biliscriptStyle = "1";
+    container.appendChild(link);
+    map.set(path, link);
+    return link;
+  } catch (error) {
+    if (targetDoc === getOpenerDocument()) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+function removeFromMap(map: Map<string, HTMLLinkElement> | undefined, path: string): void {
+  const link = map?.get(path);
   if (!link) {
     return;
   }
-  link.remove();
-  mounted.delete(path);
+  map!.delete(path);
+  try {
+    link.remove();
+  } catch {
+  }
+}
+
+function mountStyleLink(path: string): HTMLLinkElement | null {
+  const openerDoc = getOpenerDocument();
+  const link = appendStyleLink(openerDoc, styleSlots().mounted, path);
+  const activeDoc = getActiveReaderDocument();
+  return activeDoc !== openerDoc
+    ? appendStyleLink(activeDoc, getMirroredDocMap(activeDoc), path)
+    : link;
+}
+
+function unmountStyleLink(path: string): void {
+  const slots = styleSlots();
+  removeFromMap(slots.mounted, path);
+  removeFromMap(slots.mirrored.get(getActiveReaderDocument()), path);
+}
+
+export function syncStylesToDocument(targetDoc: Document): void {
+  if (!targetDoc || targetDoc === getOpenerDocument()) {
+    return;
+  }
+  const docMap = getMirroredDocMap(targetDoc);
+  for (const path of styleSlots().mounted.keys()) {
+    appendStyleLink(targetDoc, docMap, path);
+  }
+}
+
+export function clearMirroredStyles(targetDoc: Document): void {
+  if (!targetDoc || targetDoc === getOpenerDocument()) {
+    return;
+  }
+  const slots = styleSlots();
+  const docMap = slots.mirrored.get(targetDoc);
+  if (docMap) {
+    for (const link of docMap.values()) {
+      try {
+        link.remove();
+      } catch {
+      }
+    }
+    slots.mirrored.delete(targetDoc);
+  }
+  try {
+    targetDoc.querySelectorAll('link[data-biliscript-style="1"]').forEach((node) => {
+      node.remove();
+    });
+  } catch {
+  }
 }

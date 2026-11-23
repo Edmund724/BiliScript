@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { byId } from "../shared/dom-utils.js";
+import { requireActiveById } from "../shared/cross-doc.js";
 import {
   getReadingSubtitleItems,
   getReadingSubtitlePlaceholderText
@@ -33,7 +33,7 @@ export interface ReaderViewProjection {
 }
 
 function projectReadingMetaLine(): void {
-  const metaNode = byId(ids.readingMeta);
+  const metaNode = requireActiveById(ids.readingMeta);
   if (!metaNode) {
     return;
   }
@@ -61,7 +61,7 @@ function projectReadingSubtitleList(): void {
   const subtitleItems = getReadingSubtitleItems();
   const withHours = shouldShowHoursInNote(state.clip, body);
 
-  const subtitleList = byId(ids.readingSubtitleList);
+  const subtitleList = requireActiveById(ids.readingSubtitleList);
   subtitleScrollFollow.guardLayoutReset();
   clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {

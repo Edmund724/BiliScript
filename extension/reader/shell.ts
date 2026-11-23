@@ -10,16 +10,48 @@ import { createSerialQueue } from "./serial-queue.js";
 import { ensureUiReady } from "../ui/lazy-ui.js";
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
-import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
+import {
+  clearMirroredStyles,
+  ensureReaderStyles,
+  removeReaderStyles,
+  syncStylesToDocument
+} from "../shared/style-injector.js";
 import { applyPrePaintReaderTheme } from "../shared/host-theme.js";
 import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  getOpenerDocument,
+  getOpenerWindow,
+  isReaderDetached,
+  registerDetachedModeSwitchHandler,
+  resetActiveReaderHost,
+  setActiveReaderHost
+} from "../shared/active-host.js";
+import {
+  clampDetachedWindowBounds,
+  loadDetachedWindowBounds,
+  resolveInitialDetachedWindowBounds,
+  saveDetachedWindowBounds,
+  type DetachedWindowBounds
+} from "../core/detached-bounds-store.js";
+import { normalizeDetachedWindowMode } from "../core/validators.js";
 import { state, getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
 import { isReaderShellIntact } from "./shell-intact.js";
 import { requestUiCommand } from "./reader-bus.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { captureTriggerRect, resolveTriggerElement } from "../ui/trigger-motion.js";
+import {
+  closeDetachedWindowHost,
+  focusDetachedWindowHost,
+  getDetachedWindowHost,
+  openDetachedWindowHost,
+  switchDetachedWindowHostMode,
+  type DetachedWindowMode
+} from "./detached-window.js";
+import { closeScriptHost, openScriptHost } from "./script-host.js";
 
 export { isReaderShellIntact };
 
@@ -72,8 +104,12 @@ function runReaderShellEnterTransaction(
 }
 
 async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Promise<void> {
+  pendingDetachedExitFocusRestore = false;
   await ensureUiReady();
   await options.beforeEntry?.();
+  if (isReaderViewOpen() && !options.intent) {
+    return;
+  }
   const readerUrl = resolveReaderEntryUrl(options.readerUrl);
   if (readerUrl) {
     replaceReaderModeUrl(readerUrl);
@@ -99,7 +135,7 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
 }
 
 interface ReaderExitDomain {
-  beginClosingReadingView: () => boolean;
+  beginClosingReadingView: (options?: { preserveFocusRestore?: boolean }) => boolean;
   closeReadingView: () => void;
   restoreReadingViewFocus: () => void;
 }
@@ -125,22 +161,272 @@ function waitForReaderExitTransition(readingView: HTMLElement): Promise<void> {
   });
 }
 
-async function closeReaderViewAfterTransition(reader: ReaderExitDomain): Promise<void> {
-  const readingView = document.getElementById(ids.readingView);
-  const shouldWait = reader.beginClosingReadingView();
-  if (shouldWait && readingView) {
+const DETACHED_NOTICE_ID = "biliscript-reading-detached-notice";
+const DETACHED_NOTICE_DURATION_MS = 6000;
+
+let activeDetachedDoc: Document | null = null;
+let detachedNoticeTimer = 0;
+let pendingDetachedExternalClose = false;
+let pendingDetachedExitFocusRestore = false;
+
+interface ScrollSnapshotEntry {
+  element: HTMLElement;
+  top: number;
+  left: number;
+}
+
+function captureScrollPositions(readingView: HTMLElement | null): ScrollSnapshotEntry[] {
+  if (!readingView) {
+    return [];
+  }
+  const entries: ScrollSnapshotEntry[] = [];
+  const candidates = [readingView, ...Array.from(readingView.querySelectorAll<HTMLElement>("*"))];
+  for (const element of candidates) {
+    if (element.scrollTop > 0 || element.scrollLeft > 0) {
+      entries.push({ element, top: element.scrollTop, left: element.scrollLeft });
+    }
+  }
+  return entries;
+}
+
+function restoreScrollPositions(entries: ScrollSnapshotEntry[], targetWin: Window): void {
+  if (entries.length === 0) {
+    return;
+  }
+  const apply = () => {
+    for (const { element, top, left } of entries) {
+      if (!element.isConnected) {
+        continue;
+      }
+      element.scrollTop = top;
+      element.scrollLeft = left;
+    }
+  };
+  apply();
+  if (typeof targetWin.requestAnimationFrame === "function") {
+    targetWin.requestAnimationFrame(apply);
+  }
+}
+
+function isWindowClosed(win: Window | null | undefined): boolean {
+  if (!win) {
+    return true;
+  }
+  try {
+    return win.closed === true;
+  } catch {
+    return true;
+  }
+}
+
+function safeAdoptNode(targetDoc: Document, node: HTMLElement): HTMLElement {
+  if (node.ownerDocument === targetDoc) {
+    return node;
+  }
+  try {
+    return targetDoc.adoptNode(node) as HTMLElement;
+  } catch {
+    return node;
+  }
+}
+
+function ensureOpenerRoot(openerDoc: Document): HTMLElement {
+  let root = openerDoc.getElementById(ids.root);
+  if (!root) {
+    root = openerDoc.createElement("div");
+    root.id = ids.root;
+    openerDoc.body.appendChild(root);
+  }
+  return root;
+}
+
+function findReadingViewAcrossHosts(): HTMLElement | null {
+  return (
+    activeById(ids.readingView) ??
+    activeDetachedDoc?.getElementById(ids.readingView) ??
+    getDetachedWindowHost()?.document.getElementById(ids.readingView) ??
+    getOpenerDocument().getElementById(ids.readingView)
+  );
+}
+
+function clearDetachedNotice(readingView?: HTMLElement | null): void {
+  if (detachedNoticeTimer) {
+    getOpenerWindow().clearTimeout(detachedNoticeTimer);
+    detachedNoticeTimer = 0;
+  }
+  const view = readingView ?? findReadingViewAcrossHosts();
+  const notice =
+    view?.querySelector<HTMLElement>(`#${DETACHED_NOTICE_ID}`) ??
+    activeById<HTMLElement>(DETACHED_NOTICE_ID) ??
+    getOpenerDocument().getElementById(DETACHED_NOTICE_ID);
+  if (!notice) {
+    return;
+  }
+  notice.textContent = "";
+  notice.hidden = true;
+}
+
+function showDetachedNotice(readingView: HTMLElement | null, text: string): void {
+  clearDetachedNotice(readingView);
+  const view = readingView ?? findReadingViewAcrossHosts();
+  if (!view) {
+    return;
+  }
+  let notice =
+    view.querySelector<HTMLElement>(`#${DETACHED_NOTICE_ID}`) ??
+    activeById<HTMLElement>(DETACHED_NOTICE_ID);
+  if (!notice) {
+    const ownerDoc = view.ownerDocument || getActiveReaderDocument();
+    notice = ownerDoc.createElement("p");
+    notice.id = DETACHED_NOTICE_ID;
+    notice.className = "biliscript-reading-detached-notice";
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+    const hostPanel =
+      view.querySelector<HTMLElement>(`#${ids.readingScriptPanel}`) ?? view;
+    hostPanel.appendChild(notice);
+  }
+  notice.textContent = text;
+  notice.hidden = false;
+  detachedNoticeTimer = getOpenerWindow().setTimeout(() => {
+    clearDetachedNotice();
+  }, DETACHED_NOTICE_DURATION_MS);
+}
+
+function applyDetachedHostDocumentAttrs(targetDoc: Document): void {
+  try {
+    targetDoc.documentElement?.setAttribute("data-biliscript-reader-mode", "1");
+    targetDoc.documentElement?.setAttribute("data-biliscript-detached", "1");
+    targetDoc.body?.setAttribute("data-biliscript-reader-mode", "1");
+    targetDoc.body?.setAttribute("data-biliscript-reading-active", "1");
+    targetDoc.body?.setAttribute("data-biliscript-detached", "1");
+  } catch {
+  }
+}
+
+function clearDetachedHostDocumentAttrs(targetDoc: Document): void {
+  try {
+    targetDoc.documentElement?.removeAttribute("data-biliscript-detached");
+    targetDoc.documentElement?.removeAttribute("data-biliscript-reader-mode");
+    targetDoc.body?.removeAttribute("data-biliscript-detached");
+    targetDoc.body?.removeAttribute("data-biliscript-reader-mode");
+    targetDoc.body?.removeAttribute("data-biliscript-reading-active");
+  } catch {
+  }
+}
+
+function blurActiveFocusInsideDetachedView(readingView: HTMLElement | null): boolean {
+  if (!readingView) {
+    return false;
+  }
+  const ownerDoc = readingView.ownerDocument ?? getActiveReaderDocument();
+  const active = ownerDoc.activeElement;
+  const contained = Boolean(active && readingView.contains(active as Node));
+  if (contained && typeof (active as HTMLElement | null)?.blur === "function") {
+    (active as HTMLElement).blur();
+  }
+  const openerDoc = getOpenerDocument();
+  if (contained && ownerDoc !== openerDoc) {
+    const openerActive = openerDoc.activeElement as
+      | (HTMLElement & { contentDocument?: Document | null })
+      | null;
+    if (openerActive?.contentDocument === ownerDoc && typeof openerActive.blur === "function") {
+      openerActive.blur();
+    }
+  }
+  return contained;
+}
+
+function reclaimDetachedReadingViewToOpener(
+  options: { blurFocus?: boolean } = {}
+): HTMLElement | null {
+  const openerDoc = getOpenerDocument();
+  const activeDoc = getActiveReaderDocument();
+  const detachedDoc =
+    activeDetachedDoc ??
+    getDetachedWindowHost()?.document ??
+    (activeDoc !== openerDoc ? activeDoc : null);
+  const readingView = findReadingViewAcrossHosts();
+  clearDetachedNotice(readingView);
+  if (options.blurFocus && blurActiveFocusInsideDetachedView(readingView)) {
+    pendingDetachedExitFocusRestore = true;
+  }
+  if (detachedDoc && detachedDoc !== openerDoc) {
+    clearDetachedHostDocumentAttrs(detachedDoc);
+    clearMirroredStyles(detachedDoc);
+  }
+  let reclaimed: HTMLElement | null = readingView;
+  if (readingView) {
+    readingView.removeAttribute("data-biliscript-detached");
+    const root = ensureOpenerRoot(openerDoc);
+    if (readingView.ownerDocument !== openerDoc || !root.contains(readingView)) {
+      reclaimed = safeAdoptNode(openerDoc, readingView);
+      root.appendChild(reclaimed);
+    }
+  }
+  activeDetachedDoc = null;
+  state.reader.setDetachedMode(null);
+  resetActiveReaderHost();
+  return reclaimed;
+}
+
+function handleDetachedExternalClose(): void {
+  pendingDetachedExternalClose = true;
+  reclaimDetachedReadingViewToOpener({ blurFocus: true });
+  void exitReaderShell().catch((error) => {
+    logWarn("[BILISCRIPT] detached external close failed", error);
+  });
+}
+
+registerDetachedModeSwitchHandler((mode) => switchDetachedWindowMode(mode));
+
+async function resolveDetachedBoundsForOpen(): Promise<DetachedWindowBounds> {
+  const saved = await loadDetachedWindowBounds();
+  return resolveInitialDetachedWindowBounds({
+    saved,
+    customPanelWidthEnabled: state.settings?.customPanelWidthEnabled === true,
+    customPanelWidth: state.settings?.customPanelWidth,
+    availHeight: getOpenerWindow().screen?.availHeight
+  });
+}
+
+async function closeReaderViewAfterTransition(
+  reader: ReaderExitDomain,
+  options: { skipTransition?: boolean; preserveFocusRestore?: boolean } = {}
+): Promise<void> {
+  const readingView =
+    activeById(ids.readingView) ?? getOpenerDocument().getElementById(ids.readingView);
+  const shouldWait = reader.beginClosingReadingView(
+    options.preserveFocusRestore ? { preserveFocusRestore: true } : undefined
+  );
+  if (!options.skipTransition && shouldWait && readingView) {
     await waitForReaderExitTransition(readingView);
   }
   reader.closeReadingView();
 }
 
-async function restoreSelfHealBeforeEntry(): Promise<void> {
+async function restoreSelfHealBeforeEntry(
+  options: { skipTransition?: boolean } = {}
+): Promise<void> {
   if (!isReaderViewOpen() || isReaderShellIntact()) {
     return;
   }
+  const wasDetached =
+    pendingDetachedExternalClose ||
+    isReaderDetached() ||
+    state.reader.readingDetached ||
+    activeDetachedDoc !== null;
+  pendingDetachedExternalClose = false;
+  if (wasDetached) {
+    reclaimDetachedReadingViewToOpener({ blurFocus: true });
+    closeDetachedWindowHost(true);
+  }
+  pendingDetachedExitFocusRestore = false;
   try {
     const reader = await ensureReaderDomain();
-    await closeReaderViewAfterTransition(reader);
+    await closeReaderViewAfterTransition(reader, {
+      skipTransition: options.skipTransition || wasDetached
+    });
   } catch (error) {
     logWarn("[BILISCRIPT] reading view restore: close failed", error);
   }
@@ -169,18 +455,53 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
     );
   };
 
-  const launchTriggerRect = captureTriggerRect(
-    resolveTriggerElement() ??
-      document.getElementById("biliscript-script-button") ??
-      document.getElementById("biliscript-player-ai-quick-action")
-  );
+  const alreadyDetached = isReaderViewOpen() && isReaderDetached();
+  const launchTriggerRect = alreadyDetached
+    ? null
+    : captureTriggerRect(
+        resolveTriggerElement() ??
+          document.getElementById("biliscript-script-button") ??
+          document.getElementById("biliscript-player-ai-quick-action")
+      );
 
   suppressUntil(Date.now() + 2500);
 
-  if (intent !== "restore" && isPlayerAiLoaded()) {
+  if (
+    intent !== "restore" &&
+    !alreadyDetached &&
+    (isPlayerAiLoaded() || Boolean(document.getElementById("biliscript-player-ai-quick-action")))
+  ) {
     void removePlayerAiQuickButtonQuietly();
   }
   return runReaderShellEnterTransaction(async () => {
+    if (isReaderViewOpen() && isReaderDetached()) {
+      if (intent === "restore") {
+        if (isReaderShellIntact()) {
+          return;
+        }
+        await restoreSelfHealBeforeEntry({ skipTransition: true });
+        if (getReaderShellState() === "closed") {
+          transitionReaderShell("entering");
+        }
+      } else {
+        focusDetachedWindowHost();
+        if (intent === "open") {
+          const reader = await ensureReaderDomain();
+          reader.focusReadingView();
+        } else if (intent === "chat") {
+          if (prompt) {
+            const chat = await ensureReaderChatTab();
+            await chat.runQuickActionPrompt(prompt);
+          } else {
+            await activateScriptTab("chat", { consumeIntent: false });
+          }
+        }
+        if (options.settingsTarget) {
+          requestUiCommand("open-settings", { target: options.settingsTarget });
+        }
+        return;
+      }
+    }
     await runReaderEntrySequence({
       readerUrl,
       intent,
@@ -221,16 +542,244 @@ export function enterReaderShellOnUrlNavigation(
   }, onEnterFailed);
 }
 
+export function detachReaderShell(): Promise<boolean> {
+  return shellTransactionQueue.enqueue(async () => {
+    registerDetachedModeSwitchHandler((mode) => switchDetachedWindowMode(mode));
+    if (pendingDetachedExternalClose || !isReaderViewOpen()) {
+      return false;
+    }
+    if (isReaderDetached() && getDetachedWindowHost()) {
+      focusDetachedWindowHost();
+      return true;
+    }
+    const openerDoc = getOpenerDocument();
+    const readingView = openerDoc.getElementById(ids.readingView) ?? findReadingViewAcrossHosts();
+    if (!readingView) {
+      return false;
+    }
+    const [bounds, presentation] = await Promise.all([
+      resolveDetachedBoundsForOpen(),
+      import("./presentation.js")
+    ]);
+    if (pendingDetachedExternalClose || !isReaderViewOpen()) {
+      return false;
+    }
+    if (isReaderDetached() && getDetachedWindowHost()) {
+      focusDetachedWindowHost();
+      return true;
+    }
+    const mode = normalizeDetachedWindowMode(state.settings?.detachedWindowMode);
+    const opened = await openDetachedWindowHost({
+      mode,
+      bounds,
+      onExternalClose: handleDetachedExternalClose,
+      onResizeBounds: (nextBounds) => {
+        void saveDetachedWindowBounds(nextBounds);
+      }
+    });
+    if (!opened.ok) {
+      if (pendingDetachedExternalClose || !isReaderViewOpen()) {
+        return false;
+      }
+      showDetachedNotice(readingView, "浏览器阻止了独立窗口弹出，请允许弹窗后重试。");
+      return false;
+    }
+    if (pendingDetachedExternalClose || !isReaderViewOpen()) {
+      closeDetachedWindowHost(true);
+      return false;
+    }
+    clearDetachedNotice(readingView);
+    const scrollSnapshot = captureScrollPositions(readingView);
+    closeScriptHost();
+    syncStylesToDocument(opened.document);
+    applyDetachedHostDocumentAttrs(opened.document);
+    readingView.removeAttribute("data-biliscript-script-float");
+    readingView.style.removeProperty("--biliscript-float-origin");
+    readingView.setAttribute("data-biliscript-detached", "1");
+    const targetView = safeAdoptNode(opened.document, readingView);
+    (opened.document.body ?? opened.document.documentElement).appendChild(targetView);
+    activeDetachedDoc = opened.document;
+    state.reader.setDetachedMode(opened.actualMode);
+    setActiveReaderHost(opened.document, opened.window);
+    presentation.applyReadingViewPresentation();
+    restoreScrollPositions(scrollSnapshot, opened.window);
+    focusDetachedWindowHost();
+    return true;
+  });
+}
+
+export function redockReaderShell(): Promise<boolean> {
+  return shellTransactionQueue.enqueue(async () => {
+    const wasDetached =
+      isReaderDetached() || state.reader.readingDetached || activeDetachedDoc !== null;
+    if (pendingDetachedExternalClose || !isReaderViewOpen()) {
+      return false;
+    }
+    if (!wasDetached) {
+      return true;
+    }
+    const presentation = await import("./presentation.js");
+    const stillDetached =
+      isReaderDetached() || state.reader.readingDetached || activeDetachedDoc !== null;
+    if (pendingDetachedExternalClose || !isReaderViewOpen() || !stillDetached) {
+      return false;
+    }
+    const readingViewBefore = findReadingViewAcrossHosts();
+    const scrollSnapshot = captureScrollPositions(readingViewBefore);
+    pendingDetachedExitFocusRestore = false;
+    const readingView = reclaimDetachedReadingViewToOpener();
+    closeDetachedWindowHost(true);
+    const openerDoc = getOpenerDocument();
+    openerDoc.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    openerDoc.body.setAttribute("data-biliscript-reader-mode", "1");
+    openerDoc.body.setAttribute("data-biliscript-reading-active", "1");
+    if (readingView) {
+      readingView.hidden = false;
+      readingView.classList.remove("closing");
+      readingView.classList.add("open", "reader-page");
+      readingView.setAttribute("aria-hidden", "false");
+    }
+    openScriptHost();
+    presentation.applyReadingViewPresentation();
+    restoreScrollPositions(scrollSnapshot, getOpenerWindow());
+    const reader = await ensureReaderDomain();
+    reader.focusReadingView();
+    return true;
+  });
+}
+
+export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<boolean> {
+  return shellTransactionQueue.enqueue(async () => {
+    if (pendingDetachedExternalClose || !isReaderViewOpen() || !isReaderDetached()) {
+      return false;
+    }
+    const currentHost = getDetachedWindowHost();
+    if (!currentHost || isWindowClosed(currentHost.window)) {
+      return false;
+    }
+    if (currentHost.actualMode === nextMode) {
+      focusDetachedWindowHost();
+      return true;
+    }
+    const previousDoc = currentHost.document;
+    const previousWin = currentHost.window;
+    const previousMode = currentHost.actualMode;
+    const w = Number(previousWin.innerWidth);
+    const h = Number(previousWin.innerHeight);
+    const bounds =
+      Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0
+        ? clampDetachedWindowBounds({ width: w, height: h })
+        : await resolveDetachedBoundsForOpen();
+    const presentation = await import("./presentation.js");
+    if (
+      pendingDetachedExternalClose ||
+      !isReaderViewOpen() ||
+      !isReaderDetached() ||
+      getDetachedWindowHost()?.window !== previousWin ||
+      isWindowClosed(previousWin)
+    ) {
+      return false;
+    }
+    const readingView = findReadingViewAcrossHosts();
+    if (!readingView) {
+      return false;
+    }
+    let scrollSnapshot: ScrollSnapshotEntry[] = [];
+    let migratedView: HTMLElement = readingView;
+    const switched = await switchDetachedWindowHostMode({
+      mode: nextMode,
+      bounds,
+      onExternalClose: handleDetachedExternalClose,
+      onResizeBounds: (nextBounds) => {
+        void saveDetachedWindowBounds(nextBounds);
+      },
+      beforeClosePrevious: (next) => {
+        if (
+          pendingDetachedExternalClose ||
+          !isReaderViewOpen() ||
+          isWindowClosed(previousWin) ||
+          isWindowClosed(next.window)
+        ) {
+          throw new Error("Detached host closed");
+        }
+        scrollSnapshot = captureScrollPositions(readingView);
+        syncStylesToDocument(next.document);
+        applyDetachedHostDocumentAttrs(next.document);
+        readingView.setAttribute("data-biliscript-detached", "1");
+        migratedView = safeAdoptNode(next.document, readingView);
+        (next.document.body ?? next.document.documentElement).appendChild(migratedView);
+        activeDetachedDoc = next.document;
+        state.reader.setDetachedMode(next.actualMode);
+        setActiveReaderHost(next.document, next.window);
+        presentation.applyReadingViewPresentation();
+        if (previousDoc !== next.document) {
+          clearDetachedHostDocumentAttrs(previousDoc);
+          clearMirroredStyles(previousDoc);
+        }
+      }
+    });
+    if (!switched.ok) {
+      if (
+        pendingDetachedExternalClose ||
+        !isReaderViewOpen() ||
+        isWindowClosed(previousWin)
+      ) {
+        if (migratedView.ownerDocument !== getOpenerDocument()) {
+          reclaimDetachedReadingViewToOpener({ blurFocus: true });
+        }
+        return false;
+      }
+      if (migratedView.ownerDocument !== previousDoc) {
+        syncStylesToDocument(previousDoc);
+        applyDetachedHostDocumentAttrs(previousDoc);
+        migratedView.setAttribute("data-biliscript-detached", "1");
+        const restoredView = safeAdoptNode(previousDoc, migratedView);
+        (previousDoc.body ?? previousDoc.documentElement).appendChild(restoredView);
+        activeDetachedDoc = previousDoc;
+        state.reader.setDetachedMode(previousMode);
+        setActiveReaderHost(previousDoc, previousWin);
+        presentation.applyReadingViewPresentation();
+        migratedView = restoredView;
+      }
+      showDetachedNotice(
+        migratedView,
+        "浏览器阻止了模式切换，已保留当前窗口；下次弹出时生效。"
+      );
+      return false;
+    }
+    clearDetachedNotice(migratedView);
+    restoreScrollPositions(scrollSnapshot, switched.window);
+    focusDetachedWindowHost();
+    return true;
+  });
+}
+
 export function exitReaderShell(): Promise<void> {
   return runReaderEntryExclusive(async () => {
     if (getReaderShellState() !== "closed") {
       transitionReaderShell("exiting");
     }
+    const wasDetached =
+      pendingDetachedExternalClose ||
+      isReaderDetached() ||
+      state.reader.readingDetached ||
+      activeDetachedDoc !== null;
+    pendingDetachedExternalClose = false;
+    clearDetachedNotice();
+    if (wasDetached) {
+      reclaimDetachedReadingViewToOpener({ blurFocus: true });
+      closeDetachedWindowHost(true);
+    }
+    const preserveFocusRestore = pendingDetachedExitFocusRestore;
+    pendingDetachedExitFocusRestore = false;
     if (isReaderMode()) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
     }
     const reader = await ensureReaderDomain();
-    await closeReaderViewAfterTransition(reader);
+    await closeReaderViewAfterTransition(reader, {
+      skipTransition: wasDetached,
+      preserveFocusRestore
+    });
     removeReaderStyles();
     contentEventBus.emit("reader:closed");
     reader.restoreReadingViewFocus();

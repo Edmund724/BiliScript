@@ -1,4 +1,10 @@
 import type { ImagePart } from "../../ai/types.js";
+import { getActiveReaderDocument } from "../../shared/active-host.js";
+import {
+  resolveNodeDocument,
+  resolveNodeWindow,
+  writeActiveClipboardText,
+} from "../../shared/cross-doc.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { supportsTtsSpeech } from "../../shared/runtime-capabilities.js";
 import { flashCopySuccess } from "../../ui/copy-feedback.js";
@@ -74,8 +80,13 @@ export interface MessageActionsController {
   appendBadge: (node: HTMLElement, className: string, text: string) => void;
 }
 
-function createActionButton(className: string, label: string, icon: string): HTMLButtonElement {
-  const button = document.createElement("button");
+function createActionButton(
+  className: string,
+  label: string,
+  icon: string,
+  doc: Document = getActiveReaderDocument()
+): HTMLButtonElement {
+  const button = doc.createElement("button");
   button.type = "button";
   button.className = `chat-msg-action-btn ${className}`;
   button.setAttribute("aria-label", label);
@@ -85,7 +96,7 @@ function createActionButton(className: string, label: string, icon: string): HTM
 }
 
 function appendBadge(node: HTMLElement, className: string, text: string): void {
-  const badge = document.createElement("div");
+  const badge = resolveNodeDocument(node).createElement("div");
   badge.className = className;
   badge.textContent = text;
   node.appendChild(badge);
@@ -98,12 +109,12 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
     return explicit || `chat-message-${++nextMessageId}`;
   }
 
-  function createCopyButton(label: string, getRaw: () => string): HTMLButtonElement {
-    const button = createActionButton("chat-msg-copy-btn", label, READING_COPY_ICON);
+  function createCopyButton(label: string, getRaw: () => string, doc?: Document): HTMLButtonElement {
+    const button = createActionButton("chat-msg-copy-btn", label, READING_COPY_ICON, doc);
     button.disabled = !getRaw().trim();
     button.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(getRaw());
+        await writeActiveClipboardText(getRaw(), resolveNodeWindow(button));
         flashCopySuccess(button, { originalSvg: READING_COPY_ICON, originalLabel: label });
       } catch {
         deps.onNotice?.("复制失败，请检查浏览器剪贴板权限后重试");
@@ -113,7 +124,12 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
   }
 
   function createContinueButton(node: HTMLDivElement, historyIndex?: number): HTMLButtonElement {
-    const button = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
+    const button = createActionButton(
+      "chat-msg-continue-btn",
+      "继续生成",
+      READING_PLAY_ICON,
+      resolveNodeDocument(node)
+    );
     button.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
     button.addEventListener("click", () => {
       if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
@@ -133,10 +149,16 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
       cleanedRaw = ""
     }: CreateActionBarOptions = {}
   ): HTMLDivElement {
-    const actions = document.createElement("div");
+    const doc = resolveNodeDocument(node);
+    const actions = doc.createElement("div");
     actions.className = "chat-msg-actions";
 
-    const regenerateBtn = createActionButton("chat-msg-regenerate-btn", "重新生成", READING_RESET_ICON);
+    const regenerateBtn = createActionButton(
+      "chat-msg-regenerate-btn",
+      "重新生成",
+      READING_RESET_ICON,
+      doc
+    );
     regenerateBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
     regenerateBtn.addEventListener("click", () => {
       if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
@@ -186,9 +208,10 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
   }
 
   function createRetryActionBar(onRetry: () => void): HTMLDivElement {
-    const actions = document.createElement("div");
+    const doc = resolveNodeDocument(deps.messages);
+    const actions = doc.createElement("div");
     actions.className = "chat-msg-actions";
-    const retryBtn = createActionButton("chat-msg-retry-btn", "重试", READING_RESET_ICON);
+    const retryBtn = createActionButton("chat-msg-retry-btn", "重试", READING_RESET_ICON, doc);
     retryBtn.disabled = Boolean(deps.isRegenerationDisabled?.());
     retryBtn.addEventListener("click", () => {
       if (!deps.isRegenerationDisabled?.()) {
@@ -205,27 +228,28 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
     messageId?: string,
     images: ImagePart[] = []
   ): HTMLDivElement {
-    const node = document.createElement("div");
+    const doc = resolveNodeDocument(deps.messages);
+    const node = doc.createElement("div");
     node.className = "chat-msg chat-msg-user";
     node.setAttribute("data-message-id", allocateMessageId(messageId));
     if (images.length) {
-      const imageStrip = document.createElement("div");
+      const imageStrip = doc.createElement("div");
       imageStrip.className = "chat-image-strip chat-msg-user-images";
       images.forEach((image) => {
-        const item = document.createElement("div");
+        const item = doc.createElement("div");
         item.className = "chat-image-item";
         item.appendChild(createChatImageViewButton(image, deps.imageViewer, "已发送的图片"));
         imageStrip.appendChild(item);
       });
       node.appendChild(imageStrip);
     }
-    const body = document.createElement("div");
+    const body = doc.createElement("div");
     body.className = "chat-msg-user-body";
     body.textContent = text;
     node.appendChild(body);
-    const actions = document.createElement("div");
+    const actions = doc.createElement("div");
     actions.className = "chat-msg-actions";
-    actions.appendChild(createCopyButton("复制消息", () => text));
+    actions.appendChild(createCopyButton("复制消息", () => text, doc));
     node.appendChild(actions);
     deps.messages.appendChild(node);
     if (source === "live") {
@@ -239,8 +263,9 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
     runId?: string,
     messageId?: string
   ): HTMLDivElement {
+    const doc = resolveNodeDocument(deps.messages);
     if (source === "replay") {
-      const replayed = document.createElement("div");
+      const replayed = doc.createElement("div");
       replayed.className = "chat-msg chat-msg-assistant";
       if (runId) replayed.setAttribute("data-run-id", runId);
       replayed.setAttribute("data-message-id", allocateMessageId(messageId));
@@ -250,7 +275,7 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
     deps.messages
       .querySelectorAll(".chat-msg-assistant.chat-msg-streaming")
       .forEach((el) => el.classList.remove("chat-msg-streaming"));
-    const node = document.createElement("div");
+    const node = doc.createElement("div");
     node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
     if (runId) node.setAttribute("data-run-id", runId);
     node.setAttribute("data-message-id", allocateMessageId(messageId));
@@ -269,7 +294,7 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
       return;
     }
     const cleanedRaw = stripThinkBlocks(raw);
-    const content = document.createElement("div");
+    const content = resolveNodeDocument(node).createElement("div");
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     const citedSubtitleCount = linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());

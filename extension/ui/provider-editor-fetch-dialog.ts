@@ -1,3 +1,4 @@
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { fetchProviderModels, resolveAiModelListTarget } from "../ai/provider-models.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state, getDialog } from "./provider-editor-state.js";
@@ -315,7 +316,7 @@ export function renderFetchError(message: string): void {
   setFetchState(dialog, "error");
   error.hidden = false;
   error.textContent = `${message} `;
-  const retry = document.createElement("button");
+  const retry = resolveNodeDocument(dialog).createElement("button");
   retry.type = "button";
   retry.className = "provider-editor-fetch-retry";
   retry.dataset.providerEditorAction = "retry-fetch";

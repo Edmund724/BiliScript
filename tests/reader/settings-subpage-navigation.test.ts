@@ -5,6 +5,8 @@ import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
 const mocks = vi.hoisted(() => ({
   exitReaderShell: vi.fn(),
+  detachReaderShell: vi.fn(),
+  redockReaderShell: vi.fn(),
   renderReaderSettingsPanel: vi.fn(),
   openLiveSettings: vi.fn(),
   updateReaderPreferences: vi.fn(),
@@ -13,7 +15,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../extension/reader/shell.js", () => ({
-  exitReaderShell: mocks.exitReaderShell
+  exitReaderShell: mocks.exitReaderShell,
+  detachReaderShell: mocks.detachReaderShell,
+  redockReaderShell: mocks.redockReaderShell
 }));
 vi.mock("../../extension/ui/settings-panel.js", () => ({
   renderReaderSettingsPanel: mocks.renderReaderSettingsPanel,
@@ -51,7 +55,9 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
   vi.mocked(chrome.storage.local.set).mockReset().mockResolvedValue(undefined);
-  mocks.exitReaderShell.mockResolvedValue(undefined);
+    mocks.exitReaderShell.mockResolvedValue(undefined);
+  mocks.detachReaderShell.mockResolvedValue(true);
+  mocks.redockReaderShell.mockResolvedValue(true);
   mocks.ensureChatTabActivated.mockResolvedValue(undefined);
 
   const coreState = await import("../../extension/core/state.js");
@@ -87,7 +93,7 @@ describe("设置子页导航", () => {
   it("保留全局顶栏，设置内容包含返回图标按钮并投影齿轮与灰化状态", () => {
     const header = document.querySelector<HTMLElement>(".biliscript-reading-header")!;
     const back = element(ids.readingSettingsBackBtn);
-    expect(header.querySelectorAll(".biliscript-reading-actions > button")).toHaveLength(3);
+    expect(header.querySelectorAll(".biliscript-reading-actions > button")).toHaveLength(4);
     expect(back.closest(".biliscript-reading-header")).toBeNull();
     expect(back.closest(".biliscript-reading-actions")).toBeNull();
     expect(back.getAttribute("aria-label")).toBe("返回");

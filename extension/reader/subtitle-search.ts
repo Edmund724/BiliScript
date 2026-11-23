@@ -1,4 +1,6 @@
 import { clipState, state } from "../core/state.js";
+import { activeById } from "../shared/active-host.js";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
 import { getReadingSubtitleItems } from "../subtitle/core.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
@@ -71,21 +73,25 @@ function resolveSecondarySearchAlignment(): SecondaryAlignment | null {
   return secondaryAlignmentFor(slot.body);
 }
 
-function buildHighlightFragment(source: string, ranges: SearchRange[]): DocumentFragment {
-  const fragment = document.createDocumentFragment();
+function buildHighlightFragment(
+  source: string,
+  ranges: SearchRange[],
+  doc: Document
+): DocumentFragment {
+  const fragment = doc.createDocumentFragment();
   let cursor = 0;
   for (const range of ranges) {
     if (range.start > cursor) {
-      fragment.appendChild(document.createTextNode(source.slice(cursor, range.start)));
+      fragment.appendChild(doc.createTextNode(source.slice(cursor, range.start)));
     }
-    const mark = document.createElement("mark");
+    const mark = doc.createElement("mark");
     mark.className = SEARCH_HIT_MARK_CLASS;
     mark.textContent = source.slice(range.start, range.end);
     fragment.appendChild(mark);
     cursor = range.end;
   }
   if (cursor < source.length) {
-    fragment.appendChild(document.createTextNode(source.slice(cursor)));
+    fragment.appendChild(doc.createTextNode(source.slice(cursor)));
   }
   return fragment;
 }
@@ -153,9 +159,9 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     const subtextSpan = getSubtextNode(node);
     if (subtextSpan && isSubtextReady(node) && secondaryRanges.length > 0) {
       const subtextRaw = secondaryText ?? subtextSpan.textContent ?? "";
-      subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, secondaryRanges));
+      subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, secondaryRanges, resolveNodeDocument(node)));
     }
-    return replaceMainLineContent(node, buildHighlightFragment(mainText, mainRanges));
+    return replaceMainLineContent(node, buildHighlightFragment(mainText, mainRanges, resolveNodeDocument(node)));
   }
 
   function clearSearchHighlights(): void {
@@ -165,7 +171,7 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
       return;
     }
     list.querySelectorAll(`mark.${SEARCH_HIT_MARK_CLASS}`).forEach((mark) => {
-      mark.replaceWith(document.createTextNode(mark.textContent || ""));
+      mark.replaceWith(resolveNodeDocument(mark).createTextNode(mark.textContent || ""));
     });
     list.normalize();
   }
@@ -234,10 +240,10 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   }
 
   function updateSearchControls(): void {
-    const clearBtn = document.getElementById(ids.readingSearchClearBtn) as HTMLButtonElement | null;
-    const countNode = document.getElementById(ids.readingSearchCount);
-    const prev = document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement | null;
-    const next = document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement | null;
+    const clearBtn = activeById<HTMLButtonElement>(ids.readingSearchClearBtn);
+    const countNode = activeById(ids.readingSearchCount);
+    const prev = activeById<HTMLButtonElement>(ids.readingSearchPrevBtn);
+    const next = activeById<HTMLButtonElement>(ids.readingSearchNextBtn);
     if (clearBtn) {
       clearBtn.hidden = !query;
     }
