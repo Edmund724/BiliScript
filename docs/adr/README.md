@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | [0001](0001-background-no-runtime-lazy.md) | background 禁运行时惰性加载与 256KB 静态图守卫 | 后台 `splitting: false`，体积靠 minify 与静态拆链；动态 `import()` 仅限页面环境 |
 | [0002](0002-state-bag-write-discipline.md) | 状态袋维持页面单例与 `Readonly` 写门禁 | `core/state` 与 `chat-state` 不按目录拆碎散字段、不改构造注入（DI），写门禁由 `tsc` 兜底 |
-| [0003](0003-light-dom-script-panel.md) | Light DOM 右栏文摘面板、几何降级链与宿主碰撞边界 | 不迁 Shadow DOM、不搬宿主节点；右栏锚点三级降级；防宿主 `[hidden] !important` 与控制栏 `createOverflowCheck` 塌陷 |
+| [0003](0003-light-dom-script-panel.md) | Light DOM 右栏文摘面板、几何降级链与宿主碰撞边界 | 不迁 Shadow DOM、不搬宿主节点；右栏锚点三级降级；防宿主 `[hidden] !important` 与控制栏 `createOverflowCheck` 塌陷；壳层/按需样式边界与浮层挂载隔离 |
 | [0004](0004-content-two-round-build-and-reader-gate.md) | Content 两轮构建、双实例共享槽与懒域宽类型门面 | 首帧常驻 2 请求；共享可变态挂 `globalThis` 槽并承接同帧消息分发；`ReaderDomain` 维持宽类型双通道 |
 | [0005](0005-provider-http-dual-relay.md) | 跨上下文 AI 请求双代发通道与宿主权限代查 | 禁页面源直发；SW 15s 短代发 vs Offscreen 流式分块长代发（配 2s 活性确认）；权限统一经后台真门预检 |
 | [0006](0006-output-budget-wide-default-retreat-learned-cap.md) | 输出上限宽默认、平台拒收退回与会话内学习上限 | 三层单源预算；仅 `anthropic` 声明默认 `32768`；超限 400 无感退回 `8192` 并按会话内存记忆 |
@@ -24,7 +24,7 @@
 | [0016](0016-live-companion-overlay-hosts.md) | 实时伴看浮窗主承载架构：视频页与直播间双宿主边界 | 双端共用跨全屏吸附浮窗；视频页会话独立于面板并保留状态条与只读记录；直播间走独立 `live-room` 懒包且禁页面工具 |
 | [0017](0017-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 清单派生 Event Page、28 常驻域与显式 CSP（防本机连接强升 HTTPS）；隐藏 `iframe` 承载 Offscreen；禁裸写标准滚动条 |
 | [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
-| [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算 |
+| [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
 
 ## 审查红线
 

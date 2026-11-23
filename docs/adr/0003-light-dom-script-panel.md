@@ -24,6 +24,12 @@
 - **宿主 `[hidden] !important` 与全局重置防护**：B 站 `video.*.css` 含全局 `[hidden] { display: none !important }` 及标题、链接、列表重置。双语选轨外层浮层 `.custom-select-dropdown[hidden]` 须以 `(1,3,0)` 特指度显式声明 `display: none` 压过 `:has()`，内嵌副列以 `initCustomSelect(..., { inline: true })` 常显（不带 `hidden` 属性，规避宿主 `[hidden] !important` 与外点收起拦截）；面板与 Markdown 区显式恢复标题、链接令牌色与列表标记。
 - **播放器控制栏 `createOverflowCheck` 防塌陷**：B 站 `bpx-player` 内部监测控制栏相邻子元素几何越界，一旦 `rect.left < prev.right - 1` 会判定空间不足并折叠隐藏整条控制栏。`player-ai.css` 仅在紧邻带大右外边距的可见 Hi-Res / Dolby 按钮之后才施加负左外边距补偿，严禁对零外边距前序兄弟无条件负偏移。
 
+### 4. 壳层/按需样式拆分与浮层挂载边界
+
+- **对话工具键归属常驻壳与样式拆分守卫**：AI 对话「更多操作」入口（`#biliscript-reading-chat-more-btn` 与 `#biliscript-reading-chat-more-menu`，由 `extension/ui/ui-renderer.ts` 渲染）保留在面板常驻标签行 `.biliscript-reading-tabs-row > .biliscript-reading-tabs-tools` 内，入口按钮复用壳层 `.biliscript-reading-icon-btn` 外观，初始渲染不依赖按需加载的 `extension/entry/styles/reader-chat.css`。显隐由 `extension/entry/styles/reader.css` 的 `:has(#biliscript-reading-tab-chat.is-active)` 与 `reader-chat.css` 的历史模式 `:has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row` 声明式控制；懒加载组合根 `extension/reader/chat-tab.ts` 仅经 `extension/shared/dom-ids.ts` 稳定 DOM ID 跨层接线。`reader-chat.css` 由 `extension/shared/style-injector.ts`（`ensureReaderChatStyles`，挂载点在 `ui-renderer.ts` 切入 `chat` 分支与 `chat-tab.ts` 模块顶）按需挂载，`tests/entry/reader-chat-css-split.test.ts` 守卫对话 `.chat-*` 规则不回流 `reader.css`。
+- **滚底按钮隔离于消息滚动容器**：`.chat-scroll-bottom`（`#biliscript-reading-chat-scroll-bottom`，见 `extension/reader/chat-template.ts`）必须挂载在 `position: relative` 的非滚动 `<footer class="chat-footer">` 内（以 `bottom: calc(100% + 6px)` 定位），**禁止移入滚动容器 `<main class="chat-messages">`**，防止绝对定位按钮随消息流漂移，并在历史记录整页隐藏 `.chat-footer` 时自动同步退场。
+- **划词悬浮胶囊为面板壳级单实例**：`#biliscript-reading-explain-pop`（由 `extension/reader/explain-pop-ui.ts` 构建并经 `computeSelectionPopPosition` 防裁切定位）以单实例直接挂载在 `<aside id="biliscript-reading-script-panel">` 顶层，**禁止落入「字幕」或「概览」各自的 tab 滚动容器内**，以支持跨双 tab 复用并以面板与视口坐标系统一计算定位边界。
+
 ## 考虑过的方案
 
 - **整页接管（搬移 B 站 `<main>` 与播放器入扩展壳并剪枝页面）**：进出模式往返重、遮蔽弹幕评论，且重度耦合脆弱的播放器挂载与控制条生命周期，已彻底退役。

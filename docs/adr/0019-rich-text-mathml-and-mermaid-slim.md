@@ -16,6 +16,7 @@
 - **不污染 `node_modules` 的构建区副本裁剪**：`scripts/vendor-mermaid-slim.mjs` 将 Mermaid chunk 复制到构建临时区，按源码内容锚点（不依赖易变哈希文件名）剥离未使用的图类、重型布局引擎（`cose-bilkent`、`ELK`）与重复 `katex` 副本；`scripts/build-content.js` 锁定 Mermaid 版本号与源码哈希，并在分包轮（[ADR-0004](0004-content-two-round-build-and-reader-gate.md)）通过 sourcemap `inputs` 守卫防止重型依赖回流或产生双实例。
 - **最小构建期替身（`iconify` / `marked` / `d3-slim`）**：由 `scripts/vendor-iconify-stub.mjs`、`vendor-marked-stub.mjs` 与 `vendor-d3-slim.mjs` 在打包期替换重型传递依赖。其中 `vendor-d3-slim.mjs` 的 `transition().style(k, v)` **必须同步立即写入样式而非做成空操作**（Mermaid 节点提示层初始为 `opacity: 0`，空操作会导致元素永久透明不可见），且仅放行经校验的终态 setter 子集（`duration`/`style`/`attr`/`text`/`html`/`remove`/`selection`）；对生命周期回调（如 `on("end")`）、插值/延迟、getter 误用、具名过渡及 `interrupt()` 在运行时立即抛错，并由 `scripts/vendor-mermaid-slim.mjs` 在构建期对裁剪后 Mermaid 闭包静态审计全部 `.transition()` / `.interrupt()` 调用点。
 - **运行时宿主隔离**（`extension/ui/mermaid-render.ts`）：在调用 `detectType()` 前必须先执行 `initialize()` 完成图表探测注册，按图类型显式补齐 Mermaid 12 `look` 配置（全局配置在 Mermaid 12 中不生效），重写产出 SVG 的根 ID 与内部引用以防与宿主同页多图冲突，且仅在渲染确认成功后才隐藏源码 `<pre>` 兜底。
+- **换 ID 前缀契约与 CSSOM 校验边界**：`extension/ui/mermaid-render.ts` 的 `mountDiagram` 通过 `diagram.svg.split(diagram.id).join(freshId)` 复用缓存 SVG 并隔离同页多图，该机制依赖的隐含契约是**所有被引用的 SVG 内部 ID（`url(#…)`、`href="#…"`、`xlink:href="#…"`）及全部内嵌 `<style>` 规则选择器均以根 ID 为前缀**；`sequenceDiagram` 产出的未引用裸 ID（`actor<N>` / `root-<N>`）属于 Mermaid 11/12 上游既有输出，不纳入前缀契约。校验或处理内嵌 `<style>` 选择器前缀时必须走浏览器 CSSOM（筛选 `CSSStyleRule`），严禁做纯文本或正则切分以免误伤 `@keyframes` 等 at-rule（由 `scripts/mermaid-smoke/harness.html` 冒烟断言常驻守卫）。
 
 ## 考虑过的方案
 
