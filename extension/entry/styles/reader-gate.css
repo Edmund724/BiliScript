@@ -18,11 +18,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view.closing {
   display: block;
 }
 
-body:has(.bpx-player-container[data-screen="web"]) #biliscript-reading-view,
-body:has(.bpx-player-container.bpx-state-web-fullscreen) #biliscript-reading-view,
-body:has(.bpx-player-container.bpx-state-fullscreen) #biliscript-reading-view,
-body.player-mode-webfullscreen #biliscript-reading-view,
-body.player-full-win #biliscript-reading-view {
+body:has(.bpx-player-container[data-screen="web"]) #biliscript-reading-view:not([data-biliscript-detached="1"]),
+body:has(.bpx-player-container.bpx-state-web-fullscreen) #biliscript-reading-view:not([data-biliscript-detached="1"]),
+body:has(.bpx-player-container.bpx-state-fullscreen) #biliscript-reading-view:not([data-biliscript-detached="1"]),
+body.player-mode-webfullscreen #biliscript-reading-view:not([data-biliscript-detached="1"]),
+body.player-full-win #biliscript-reading-view:not([data-biliscript-detached="1"]) {
   display: none !important;
   pointer-events: none !important;
 }
@@ -1535,5 +1535,51 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-fill {
     animation: none;
   }
+}
+
+html[data-biliscript-detached="1"],
+body[data-biliscript-detached="1"] {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view#biliscript-reading-view[data-biliscript-detached="1"],
+#biliscript-reading-view#biliscript-reading-view[data-biliscript-detached="1"] {
+  --biliscript-script-width: 100vw;
+  position: fixed;
+  inset: 0;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  translate: none;
+  scale: 1;
+  transform: none;
+  opacity: 1;
+  transition: none;
+  pointer-events: auto;
+}
+
+#biliscript-reading-view[data-biliscript-detached="1"] .biliscript-reading-script-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 

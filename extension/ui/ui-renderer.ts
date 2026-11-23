@@ -1,5 +1,12 @@
 import { state, uiState } from "../core/state.js";
-import { byId } from "../shared/dom-utils.js";
+import {
+  activeById,
+  getActiveReaderDocument,
+  getOpenerDocument,
+  isReaderDetached,
+  onActiveHostChange,
+  resetActiveReaderHost
+} from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
@@ -17,14 +24,18 @@ import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettin
 import { beginReaderAsrSetupFlow } from "../reader/setup-resume.js";
 import { isReaderScriptTab } from "../reader/script-tab-persistence.js";
 import { logWarn } from "../shared/logging.js";
-import { exitReaderShell } from "../reader/shell.js";
-import { ensureReaderChatStyles, ensureReaderSettingsStyles } from "../shared/style-injector.js";
+import { closeDetachedWindowHost } from "../reader/detached-window.js";
+import { detachReaderShell, exitReaderShell, redockReaderShell } from "../reader/shell.js";
+import { clearMirroredStyles, ensureReaderChatStyles, ensureReaderSettingsStyles } from "../shared/style-injector.js";
 import { withReader } from "./reader-gate.js";
 import { reportTabIntent, subscribeUiCommand } from "../reader/reader-bus.js";
 import { buildChatTabBodyHtml } from "../reader/chat-template.js";
 import { buildSubtitleTabBodyHtml, bindSubtitleTabEvents } from "../reader/subtitle-tab-ui.js";
 import { buildExplainPopHtml, buildExplainCardHostHtml, bindReadingExplainEvents } from "../reader/explain-pop-ui.js";
 import { buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/overview-ui.js";
+
+export const DETACH_BTN_ID = "biliscript-reading-detach-btn";
+export const DETACHED_NOTICE_ID = "biliscript-reading-detached-notice";
 
 function buildChatMoreSliderRowHtml(
   key: ChatDisplaySettingKey,
@@ -63,6 +74,9 @@ export function buildUiHtml(): string {
                 <div id="${ids.readingMeta}" class="biliscript-reading-meta" hidden></div>
               </div>
               <div class="biliscript-reading-actions">
+                <button id="${DETACH_BTN_ID}" type="button" class="biliscript-reading-icon-btn" title="弹出独立窗口" aria-label="弹出独立窗口" aria-pressed="false">
+                  ${READING_HEADER_ICONS.detach}
+                </button>
                 <button id="${ids.readingThemeSelect}" type="button" class="biliscript-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
                   ${themeView.icon}
                 </button>
@@ -74,6 +88,7 @@ export function buildUiHtml(): string {
                 </button>
               </div>
             </header>
+            <p id="${DETACHED_NOTICE_ID}" class="biliscript-reading-detached-notice" role="status" aria-live="polite" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
@@ -168,13 +183,25 @@ const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: 
   { name: "chat", buttonId: ids.readingTabChat, bodyId: ids.readingTabBodyChat }
 ];
 
+export function refreshDetachButton(detached = isReaderDetached()): void {
+  const button = activeById<HTMLButtonElement>(DETACH_BTN_ID);
+  if (!button) {
+    return;
+  }
+  const label = detached ? "归位回页面" : "弹出独立窗口";
+  button.innerHTML = detached ? READING_HEADER_ICONS.redock : READING_HEADER_ICONS.detach;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.setAttribute("aria-pressed", detached ? "true" : "false");
+}
+
 export function setReaderScriptTab(tab: ReaderScriptTab): void {
   if (tab === "chat") {
     ensureReaderChatStyles();
   }
   for (const def of SCRIPT_TAB_DEFS) {
-    const button = document.getElementById(def.buttonId);
-    const body = document.getElementById(def.bodyId);
+    const button = activeById(def.buttonId);
+    const body = activeById(def.bodyId);
     if (!button || !body) {
       continue;
     }
@@ -258,12 +285,66 @@ subscribeUiCommand((name, payload) => {
   }
 });
 
+const ACTIVE_HOST_DOC_CLEANUP_KEY = Symbol.for("biliscript.uiActiveHostDocCleanup");
+type ActiveHostDocCleanupHost = typeof globalThis & Record<symbol, (() => void) | undefined>;
+
+let activeHostUnsubscribe: (() => void) | null = null;
+
+function clearActiveHostDocListeners(): void {
+  const host = globalThis as ActiveHostDocCleanupHost;
+  const cleanup = host[ACTIVE_HOST_DOC_CLEANUP_KEY];
+  host[ACTIVE_HOST_DOC_CLEANUP_KEY] = undefined;
+  cleanup?.();
+}
+
+function rebindActiveHostDocumentListeners(doc: Document): void {
+  clearActiveHostDocListeners();
+  const onDocClick = (event: MouseEvent) => {
+    dispatchChatTabOutsideClick(event);
+    if (!state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) return;
+    const scriptPanel = doc.getElementById(ids.readingScriptPanel);
+    const readingHeader = scriptPanel?.querySelector<HTMLElement>(".biliscript-reading-header");
+    if (!scriptPanel || readingHeader?.contains(event.target as Node | null)) return;
+    if (!scriptPanel.contains(event.target as Node | null)) {
+      closeReaderSettingsMode({ restoreFocus: false });
+    }
+  };
+  const onDocKeydown = (event: KeyboardEvent) => {
+    if (
+      !event.defaultPrevented &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === "k" &&
+      isReaderViewOpen()
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      withReader("toggle command palette", (reader) => reader.toggleCommandPalette());
+      return;
+    }
+    if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stepBackReaderSettings();
+  };
+  doc.addEventListener("click", onDocClick);
+  doc.addEventListener("keydown", onDocKeydown);
+  (globalThis as ActiveHostDocCleanupHost)[ACTIVE_HOST_DOC_CLEANUP_KEY] = () => {
+    try {
+      doc.removeEventListener("click", onDocClick);
+      doc.removeEventListener("keydown", onDocKeydown);
+    } catch {}
+  };
+}
+
 export function bindUiEvents(): void {
-  const readingView = byId(ids.readingView);
-  const readingCloseBtn = byId(ids.readingCloseBtn);
-  const readingThemeSelect = byId(ids.readingThemeSelect);
-  const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
-  const readingSettingsBackBtn = byId(ids.readingSettingsBackBtn);
+  const readingView = activeById(ids.readingView)!;
+  const readingDetachBtn = activeById<HTMLButtonElement>(DETACH_BTN_ID);
+  const readingCloseBtn = activeById(ids.readingCloseBtn)!;
+  const readingThemeSelect = activeById(ids.readingThemeSelect)!;
+  const readingSettingsToggleBtn = activeById(ids.readingSettingsBtn)!;
+  const readingSettingsBackBtn = activeById(ids.readingSettingsBackBtn)!;
   const readingHeader = readingView.querySelector<HTMLElement>(".biliscript-reading-header")!;
 
   bindSubtitleTabEvents();
@@ -271,7 +352,7 @@ export function bindUiEvents(): void {
   bindReadingOverviewEvents();
 
   for (const def of SCRIPT_TAB_DEFS) {
-    byId(def.buttonId).addEventListener("click", () => {
+    activeById(def.buttonId)!.addEventListener("click", () => {
       reportTabIntent(def.name);
     });
   }
@@ -281,6 +362,11 @@ export function bindUiEvents(): void {
     event.stopPropagation();
     return true;
   };
+  readingDetachBtn?.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
+    const run = isReaderDetached() ? redockReaderShell() : detachReaderShell();
+    void run.catch((error) => logWarn("[BILISCRIPT] detach/redock failed", error));
+  });
   readingCloseBtn.addEventListener("click", (event) => {
     if (consumeOverlayClick(event)) return;
     exitReaderShell().catch((error) => logWarn("[BILISCRIPT] close reading view failed", error));
@@ -299,8 +385,11 @@ export function bindUiEvents(): void {
     stepBackReaderSettings();
   });
   readingView.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement | null;
-    const backBtn = target?.closest<HTMLButtonElement>(`#${ids.readingSettingsBackBtn}`);
+    const target = event.target as { closest?: (selector: string) => Element | null } | null;
+    const backBtn =
+      typeof target?.closest === "function"
+        ? target.closest(`#${ids.readingSettingsBackBtn}`)
+        : null;
     if (backBtn && backBtn !== readingSettingsBackBtn) {
       if (consumeOverlayClick(event)) return;
       stepBackReaderSettings();
@@ -320,42 +409,20 @@ export function bindUiEvents(): void {
   readingHeader.addEventListener("click", (event) => {
     if (!state.reader.readingSettingsExpanded) return;
     if (consumeOverlayClick(event)) return;
-    if (event.target instanceof Element && event.target.closest("button")) return;
+    const target = event.target as { closest?: (selector: string) => Element | null } | null;
+    if (typeof target?.closest === "function" && target.closest("button")) return;
     event.stopPropagation();
     closeReaderSettingsMode();
   });
 
-  if (!state.reader.readingDocumentClickBound) {
-    document.addEventListener("click", (event) => {
-      dispatchChatTabOutsideClick(event);
-      if (!state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) return;
-      const scriptPanel = document.getElementById(ids.readingScriptPanel);
-      if (!scriptPanel || readingHeader.contains(event.target as Node | null)) return;
-      if (!scriptPanel.contains(event.target as Node | null)) {
-        closeReaderSettingsMode({ restoreFocus: false });
-      }
-    });
-    document.addEventListener("keydown", (event) => {
-      if (
-        !event.defaultPrevented &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.shiftKey &&
-        !event.altKey &&
-        event.key.toLowerCase() === "k" &&
-        isReaderViewOpen()
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        withReader("toggle command palette", (reader) => reader.toggleCommandPalette());
-        return;
-      }
-      if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
-      event.preventDefault();
-      event.stopPropagation();
-      stepBackReaderSettings();
-    });
-    state.reader.readingDocumentClickBound = true;
-  }
+  activeHostUnsubscribe?.();
+  activeHostUnsubscribe = onActiveHostChange(({ doc, detached }) => {
+    rebindActiveHostDocumentListeners(doc);
+    refreshDetachButton(detached);
+  });
+  rebindActiveHostDocumentListeners(getActiveReaderDocument());
+  refreshDetachButton(isReaderDetached());
+  state.reader.readingDocumentClickBound = true;
 
   readingView.addEventListener("transitionend", () => {
     if (!isReaderViewOpen()) {
@@ -365,18 +432,47 @@ export function bindUiEvents(): void {
 }
 
 export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boolean } = {}): void {
-  const existingRoot = document.getElementById(ids.root);
-  if (existingRoot && forceRecreate) {
+  const openerDoc = getOpenerDocument();
+  if (!forceRecreate && isReaderDetached() && activeById(ids.readingView)) {
+    let root = openerDoc.getElementById(ids.root);
+    if (!root) {
+      root = openerDoc.createElement("div");
+      root.id = ids.root;
+      openerDoc.body.appendChild(root);
+    }
+    if (!state.ui.uiEventsBound) {
+      bindUiEvents();
+      uiState.setEventsBound(true);
+    }
+    return;
+  }
+
+  if (isReaderDetached() || state.reader.readingDetached) {
+    const staleDetachedDoc = getActiveReaderDocument();
+    if (staleDetachedDoc !== openerDoc) {
+      clearMirroredStyles(staleDetachedDoc);
+    }
+    closeDetachedWindowHost(true);
+    state.reader.setDetachedMode(null);
+    resetActiveReaderHost();
+  }
+
+  const existingRoot = openerDoc.getElementById(ids.root);
+  const hasOpenerReadingView = Boolean(openerDoc.getElementById(ids.readingView));
+  if (existingRoot && (forceRecreate || !hasOpenerReadingView)) {
+    clearActiveHostDocListeners();
+    activeHostUnsubscribe?.();
+    activeHostUnsubscribe = null;
     existingRoot.remove();
     uiState.setEventsBound(false);
   }
 
-  let root = document.getElementById(ids.root);
+  let root = openerDoc.getElementById(ids.root);
   if (!root) {
-    root = document.createElement("div");
+    root = openerDoc.createElement("div");
     root.id = ids.root;
     root.innerHTML = buildUiHtml();
-    document.body.appendChild(root);
+    openerDoc.body.appendChild(root);
     uiState.setEventsBound(false);
   }
 

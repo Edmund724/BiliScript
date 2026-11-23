@@ -1,6 +1,7 @@
 import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
+import { activeById, getOpenerDocument, isReaderDetached } from "../shared/active-host.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import { ids } from "./state.js";
 
@@ -78,6 +79,9 @@ export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
 }
 
 export function openScriptHost(): void {
+  if (isReaderDetached()) {
+    return;
+  }
   if (hostScope && !hostScope.isDisposed()) {
     return;
   }
@@ -89,6 +93,9 @@ export function openScriptHost(): void {
 }
 
 export function relayoutScriptHost(): void {
+  if (isReaderDetached()) {
+    return;
+  }
   scheduleScriptLayout();
 }
 
@@ -105,7 +112,7 @@ export function closeScriptHost(): void {
   scrollIdleTimer = 0;
   endScriptScroll();
   lastSnapshot = null;
-  const readingView = document.getElementById(ids.readingView);
+  const readingView = activeById(ids.readingView) ?? getOpenerDocument().getElementById(ids.readingView);
   if (!readingView) {
     return;
   }
@@ -173,10 +180,15 @@ function endScriptScroll(): void {
     }
     scrollIdleTimer = 0;
   }
-  document.getElementById(ids.readingView)?.removeAttribute(SCROLLING_ATTR);
+  (activeById(ids.readingView) ?? getOpenerDocument().getElementById(ids.readingView))?.removeAttribute(
+    SCROLLING_ATTR
+  );
 }
 
 function scheduleScriptLayout(finding?: AnchorFinding): void {
+  if (isReaderDetached()) {
+    return;
+  }
   if (layoutRafId) {
     return;
   }
@@ -187,7 +199,7 @@ function scheduleScriptLayout(finding?: AnchorFinding): void {
 
 function runScriptLayout(finding?: AnchorFinding): void {
   layoutRafId = 0;
-  if (!document.getElementById(ids.readingView)) {
+  if (isReaderDetached() || !document.getElementById(ids.readingView)) {
     return;
   }
   applyScriptRect(finding);
@@ -227,6 +239,9 @@ function observeScriptAnchor(anchor: Element | null): void {
 }
 
 function applyScriptRect(finding?: AnchorFinding): void {
+  if (isReaderDetached()) {
+    return;
+  }
   const readingView = document.getElementById(ids.readingView);
   if (!readingView) {
     return;

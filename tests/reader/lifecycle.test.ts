@@ -156,6 +156,24 @@ describe("reader 生命周期", () => {
     expect(document.activeElement).toBe(outside);
   });
 
+  it("beginClosingReadingView({ preserveFocusRestore: true }) 在节点提前失焦归位后仍保留返回焦点", async () => {
+    state.clip.bvid = "BV1test000000";
+    const source = document.createElement("button");
+    document.body.appendChild(source);
+    source.focus();
+
+    await shell.enterReaderMode();
+    const activeEl = document.activeElement as HTMLElement;
+    activeEl.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    shell.beginClosingReadingView({ preserveFocusRestore: true });
+    shell.closeReadingView();
+    shell.restoreReadingViewFocus();
+
+    expect(document.activeElement).toBe(source);
+  });
+
   it("URL 等无可靠来源：打开聚焦当前标签，无新按钮时关闭聚焦安全宿主", async () => {
     state.clip.bvid = "BV1test000000";
     expect(document.activeElement).toBe(document.body);
