@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
+import { TOOLBAR_HOST_SELECTOR } from "../../extension/bilibili/host-selectors.js";
 
 type ScriptButtonModule = typeof import("../../extension/ui/script-button.js");
 
@@ -351,6 +352,78 @@ describe("script-button 幂等与自查", () => {
     expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   });
 
+  it("自查周期：收藏夹播单页（/list/ml...?bvid=）挂载在 .video-complaint 左侧且不摘按钮", async () => {
+    document.body.innerHTML = `
+      <div id="playlistToolbar" class="video-toolbar-container">
+        <div class="video-toolbar-left"><div class="video-toolbar-left-main"></div></div>
+        <div class="video-toolbar-right">
+          <div class="video-complaint video-toolbar-right-item"><span>稿件举报</span></div>
+          <div class="video-note"></div>
+        </div>
+      </div>
+      <video src="blob:test"></video>`;
+    setLocationUrl("https://www.bilibili.com/list/ml4110522184?oid=117323927129038&bvid=BV1RWaw6jEay");
+    const complaint = document.querySelector(".video-complaint")!;
+
+    await loadModule();
+
+    const button = document.getElementById("biliscript-script-button");
+    expect(button).not.toBeNull();
+    expect(button!.nextElementSibling).toBe(complaint);
+
+    await vi.advanceTimersByTimeAsync(201);
+    expect(document.getElementById("biliscript-script-button")).toBe(button);
+  });
+
+  it("自查周期：活动专题页（/festival/<slug>?bvid=）挂载在 .complaints 左侧且不摘按钮", async () => {
+    document.body.innerHTML = `
+      <div id="videoToolbar" class="video-toolbar">
+        <div class="video-toobar_title">27考研数学最后一轮大冲刺1/4</div>
+        <div class="video-toolbar-content">
+          <div class="video-toolbar-content_left"><div class="video-toolbar-content_item">点赞</div></div>
+          <div class="video-toolbar-content_right">
+            <div class="complaints video-toolbar-hover">稿件投诉</div>
+            <div class="open-note-btn">笔记</div>
+          </div>
+        </div>
+      </div>
+      <video src="blob:test"></video>`;
+    setLocationUrl("https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f");
+    const complaint = document.querySelector(".complaints")!;
+
+    await loadModule();
+
+    const button = document.getElementById("biliscript-script-button");
+    expect(button).not.toBeNull();
+    expect(button!.nextElementSibling).toBe(complaint);
+
+    await vi.advanceTimersByTimeAsync(201);
+    expect(document.getElementById("biliscript-script-button")).toBe(button);
+  });
+
+  it("活动专题页缺少右区时挂在 .video-toolbar-content_left 之后；无 bvid 裸链接不挂载，切入 bvid 后自动补回", async () => {
+    document.body.innerHTML = `
+      <div id="videoToolbar" class="video-toolbar">
+        <div class="video-toolbar-content">
+          <div class="video-toolbar-content_left"><div class="video-toolbar-content_item">点赞</div></div>
+        </div>
+      </div>
+      <video src="blob:test"></video>`;
+    setLocationUrl("https://www.bilibili.com/festival/27kaoyanshangan");
+
+    await loadModule();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+
+    setLocationUrl("https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f&p=1");
+    await vi.advanceTimersByTimeAsync(201);
+
+    const button = document.getElementById("biliscript-script-button");
+    const left = document.querySelector(".video-toolbar-content_left")!;
+    expect(button).not.toBeNull();
+    expect(button!.previousElementSibling).toBe(left);
+    expect(button!.style.marginLeft).toBe("auto");
+  });
+
   it("健康态自查零扫描：按钮就位时一拍只 getElementById 一次，不寻锚", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
@@ -395,7 +468,7 @@ describe("script-button 失锚期事件化（02）", () => {
     expect(docAll).not.toHaveBeenCalled();
     expect(elementAll).not.toHaveBeenCalled();
     expect(
-      docQuery.mock.calls.some((args) => args[0] === "#arc_toolbar_report, .video-toolbar-container")
+      docQuery.mock.calls.some((args) => args[0] === TOOLBAR_HOST_SELECTOR)
     ).toBe(true);
   });
 

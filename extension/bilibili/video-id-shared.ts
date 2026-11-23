@@ -16,9 +16,30 @@ export function stripReaderModeUrl(url: string = location.href): string {
   }
 }
 
+const PLAYLIST_PATH_RE = /^\/list\/(?:watchlater|ml\d+|\d+)\/?$/;
+const FESTIVAL_PATH_RE = /^\/festival\/[^/]+\/?$/;
+
 export function isWatchlaterPage(url: string = location.href): boolean {
   try {
     return new URL(url).pathname.replace(/\/+$/, "") === "/list/watchlater";
+  } catch {
+    return false;
+  }
+}
+
+export function isPlaylistPage(url: string = location.href): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "www.bilibili.com" && PLAYLIST_PATH_RE.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function isFestivalPage(url: string = location.href): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "www.bilibili.com" && FESTIVAL_PATH_RE.test(parsed.pathname);
   } catch {
     return false;
   }
@@ -59,8 +80,11 @@ export function isAutoOpenEligible(url: string = location.href): boolean {
 }
 
 export function isSupportedVideoPage(url: string = location.href): boolean {
-  if (isWatchlaterPage(url)) {
+  if (isPlaylistPage(url)) {
     return true;
+  }
+  if (isFestivalPage(url)) {
+    return Boolean(extractBvid(url));
   }
   try {
     return /\/video\//.test(new URL(url).pathname);
@@ -136,8 +160,8 @@ function isWatchlaterTrackingParam(name: string): boolean {
   return WATCHLATER_TRACKING_PARAM_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-function cleanWatchlaterUrl(parsed: URL): string {
-  const cleaned = new URL("https://www.bilibili.com/list/watchlater");
+function cleanContextPreservingUrl(parsed: URL, normalizedPath: string): string {
+  const cleaned = new URL(`https://www.bilibili.com${normalizedPath}`);
   for (const [key, value] of parsed.searchParams.entries()) {
     if (!isWatchlaterTrackingParam(key)) {
       cleaned.searchParams.append(key, value);
@@ -153,8 +177,8 @@ export function cleanVideoUrl(href: string = location.href): string {
       return href;
     }
 
-    if (parsed.pathname === "/list/watchlater" || parsed.pathname === "/list/watchlater/") {
-      return cleanWatchlaterUrl(parsed);
+    if (PLAYLIST_PATH_RE.test(parsed.pathname) || FESTIVAL_PATH_RE.test(parsed.pathname)) {
+      return cleanContextPreservingUrl(parsed, parsed.pathname.replace(/\/+$/, ""));
     }
 
     const bvid = extractBvid(href);
@@ -206,15 +230,18 @@ export function buildCanonicalVideoUrl(bvid: string, pageIndex: number | string 
 
 export function isSupportedBilibiliPage(url: unknown): boolean {
   try {
-    const parsed = new URL(String(url || ""));
+    const raw = String(url || "");
+    const parsed = new URL(raw);
     if (parsed.hostname !== "www.bilibili.com") {
       return false;
     }
-    return (
-      parsed.pathname === "/list/watchlater" ||
-      parsed.pathname === "/list/watchlater/" ||
-      parsed.pathname.startsWith("/video/")
-    );
+    if (PLAYLIST_PATH_RE.test(parsed.pathname)) {
+      return true;
+    }
+    if (FESTIVAL_PATH_RE.test(parsed.pathname)) {
+      return Boolean(extractBvid(raw));
+    }
+    return parsed.pathname.startsWith("/video/");
   } catch {
     return false;
   }

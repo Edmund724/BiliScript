@@ -139,6 +139,26 @@ describe("createLiveToolsBridge", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("matches multi-part videos in /list/ml... collection playlist without explicit p query param", async () => {
+    const mlUrl = "https://www.bilibili.com/list/ml4110522184?bvid=BV1test000000&oid=123";
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip({ pageIndex: 2, cid: "123" }),
+      getUrl: () => mlUrl
+    });
+    const context = bridge.getVideoContext();
+    expect(context).not.toBeNull();
+    expect(context?.pageIndex).toBe(2);
+    expect(context?.bvid).toBe("BV1test000000");
+
+    const result = await bridge.executeTool({
+      callId: "c-ml",
+      name: "search_video_subtitles",
+      arguments: { query: "开场" },
+      video: { bvid: "BV1test000000", cid: "123", pageIndex: 2 }
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it.each<Partial<ClipState>>([
     { subtitleFetchState: "loading", subtitleBody: [] },
     { subtitleFetchState: "empty", subtitleBody: [] },

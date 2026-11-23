@@ -109,6 +109,27 @@ describe("watchlater 页面状态路径（oid 为 aid）", () => {
     expect(result.pageIndex).toBe(2);
     expect(result.cid).toBe("102");
   });
+
+  it("收藏夹播单 /list/ml... 同样按 oid === cid 或 oid === aid 解析对应分P", () => {
+    const byCid = resolvePageContext(
+      "https://www.bilibili.com/list/ml4110522184?oid=103&bvid=BV1RWaw6jEay",
+      buildMeta(),
+      { getVideo: () => null }
+    );
+    expect(byCid.pageIndex).toBe(3);
+    expect(byCid.cid).toBe("103");
+
+    const byAid = resolvePageContext(
+      "https://www.bilibili.com/list/ml4110522184?oid=170001&bvid=BV1RWaw6jEay",
+      buildMeta(),
+      {
+        ctx: { __INITIAL_STATE__: { player: { page: 2 } } },
+        getVideo: () => null
+      }
+    );
+    expect(byAid.pageIndex).toBe(2);
+    expect(byAid.cid).toBe("102");
+  });
 });
 
 describe("player DOM 推断路径", () => {

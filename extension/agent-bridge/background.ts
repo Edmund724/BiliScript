@@ -19,8 +19,8 @@ const RECONNECT_BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000] as const;
 const TAB_SNAPSHOT_TIMEOUT_MS = 2000;
 const VIDEO_URL_PATTERNS = [
   "https://www.bilibili.com/video/*",
-  "https://www.bilibili.com/list/watchlater",
-  "https://www.bilibili.com/list/watchlater/*"
+  "https://www.bilibili.com/list/*",
+  "https://www.bilibili.com/festival/*"
 ];
 
 interface AgentBridgeDeps {

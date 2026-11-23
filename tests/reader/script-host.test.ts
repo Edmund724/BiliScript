@@ -16,7 +16,9 @@ const ANCHOR_SELECTORS = [
   ".playlist-container--right",
   "#reco_list",
   "#viewbox_report",
-  ".up-info-container"
+  ".up-info-container",
+  ".grid-right",
+  ".video-sections"
 ];
 
 function makeRect(left: number, top: number, width: number, height: number) {
@@ -155,7 +157,9 @@ describe("script-host 锚点命中", () => {
     [".playlist-container--right", "合集/列表态"],
     ["#reco_list", "旧版播放页"],
     ["#viewbox_report", "旧版无推荐列表"],
-    [".up-info-container", "旧版无推荐列表兜底"]
+    [".up-info-container", "旧版无推荐列表兜底"],
+    [".grid-right", "活动专题页右栏"],
+    [".video-sections", "活动专题页节目单兜底"]
   ])("优先级锚点 %s（%s）命中时写入四个变量", async (selector) => {
     await loadModules();
     const rect = makeRect(1520, 80, 360, 2000);

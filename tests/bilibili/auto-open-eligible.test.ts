@@ -16,9 +16,11 @@ describe("isAutoOpenEligible (自动打开文摘面板判定)", () => {
     expect(isAutoOpenEligible("https://www.bilibili.com/video/BV1xx411c7mD/?business=watchlater")).toBe(false);
   });
 
-  it("收藏夹与媒体列表播放页面应排除", () => {
+  it("收藏夹、媒体列表与活动专题页面应排除", () => {
     expect(isAutoOpenEligible("https://www.bilibili.com/list/ml12345678?bvid=BV1xx411c7mD")).toBe(false);
     expect(isAutoOpenEligible("https://www.bilibili.com/medialist/play/ml12345678/BV1xx411c7mD")).toBe(false);
+    expect(isAutoOpenEligible("https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f")).toBe(false);
+    expect(isAutoOpenEligible("https://www.bilibili.com/festival/27kaoyanshangan")).toBe(false);
     expect(isAutoOpenEligible("https://www.bilibili.com/video/BV1xx411c7mD/?business=space_favlist")).toBe(false);
     expect(isAutoOpenEligible("https://www.bilibili.com/video/BV1xx411c7mD/?from=space_favlist")).toBe(false);
     expect(isAutoOpenEligible("https://www.bilibili.com/video/BV1xx411c7mD/?business=space_collection")).toBe(false);

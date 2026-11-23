@@ -152,6 +152,8 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
       expect(war.matches).not.toContain(LIVE_MATCH_PATTERN);
     }
     expect(derived.web_accessible_resources[0]?.matches).toEqual(["https://www.bilibili.com/*"]);
+    expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/list/*");
+    expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/festival/*");
   });
 
   it("显式声明 extension_pages CSP 为 script-src 'self'，解除 Firefox MV3 默认 upgrade-insecure-requests", () => {

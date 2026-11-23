@@ -8,7 +8,8 @@ import {
   ensureDerivedContent,
   rebuildDerivedContent,
   invalidateDerived,
-  refreshHotComments
+  refreshHotComments,
+  readVideoTitle
 } from "../../extension/subtitle/core.js";
 import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
@@ -485,5 +486,19 @@ describe("getReadingSubtitlePlaceholderText：空态跟随 reason", () => {
     state.clip.setNoSubtitleReason("asr-empty");
     expect(getReadingSubtitlePlaceholderText()).toBe("未识别到语音内容，这个视频可能没有人声。");
     expect(getReadingSubtitlePlaceholderText()).not.toMatch(/\s$/);
+  });
+});
+
+describe("readVideoTitle：活动专题页单稿件标题读取", () => {
+  it("存在 .video-toobar_title 时优先返回单稿件标题，不误取活动总 document.title", () => {
+    const prevTitle = document.title;
+    document.title = "27届 | 考研冲刺上大分";
+    document.body.innerHTML = `<div id="videoToolbar"><div class="video-toobar_title">  27考研数学最后一轮大冲刺1/4  </div></div>`;
+    try {
+      expect(readVideoTitle()).toBe("27考研数学最后一轮大冲刺1/4");
+    } finally {
+      document.body.innerHTML = "";
+      document.title = prevTitle;
+    }
   });
 });

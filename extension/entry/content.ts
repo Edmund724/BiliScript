@@ -1,7 +1,7 @@
 import { state } from "../core/state.js";
 import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 
-import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible, isLiveRoomPage } from "../bilibili/video-id-shared.js";
+import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible, isLiveRoomPage, isFestivalPage } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { logInfo, logWarn } from "../shared/logging.js";
@@ -68,7 +68,7 @@ function init(): void {
       });
     return;
   }
-  if (!isSupportedUrl()) {
+  if (!isSupportedUrl() && !isFestivalPage()) {
     return;
   }
 
@@ -96,7 +96,9 @@ function init(): void {
   });
   bindNormalPageStateGuard();
   bindUrlChangeHandler();
-  startSubtitlePrefetch();
+  if (isSupportedVideoPage()) {
+    startSubtitlePrefetch();
+  }
   bindPlayerAiSettingsWatcher();
   bindPlaybackRateSettingsWatcher();
   loadScriptButton().catch((error) => {

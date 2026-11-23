@@ -302,10 +302,10 @@ function findComplaintNode(): HTMLElement | null {
 
 function findToolbarLeftWithoutRight(): HTMLElement | null {
   for (const host of document.querySelectorAll(TOOLBAR_HOST_SELECTOR)) {
-    if (host.querySelector(".video-toolbar-right")) {
+    if (host.querySelector(".video-toolbar-right, .video-toolbar-content_right")) {
       continue;
     }
-    const left = host.querySelector(".video-toolbar-left");
+    const left = host.querySelector(".video-toolbar-left, .video-toolbar-content_left");
     if (left instanceof HTMLElement && left.parentElement) {
       return left;
     }

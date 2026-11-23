@@ -12,6 +12,7 @@ import { logWarn } from "../shared/logging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
+import { BILI_HOST_SELECTORS, querySelectorFallback } from "../bilibili/host-selectors.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { normalizeChapters } from "./chapters.js";
 import { createSecondaryLineResolver } from "./alignment.js";
@@ -41,9 +42,13 @@ interface ChapterItemLike {
 }
 
 export function readVideoTitle(): string {
-  const h1 = document.querySelector("h1.video-title");
-  if (h1?.textContent?.trim()) {
-    return h1.textContent.trim();
+  const titleNode = querySelectorFallback(
+    BILI_HOST_SELECTORS.videoTitles,
+    document,
+    (el) => Boolean(el.textContent?.trim())
+  );
+  if (titleNode?.textContent?.trim()) {
+    return titleNode.textContent.trim();
   }
 
   const metaTitle = document.querySelector('meta[property="og:title"]');

@@ -1,117 +1,92 @@
-export const BILI_HOST_SELECTORS = Object.freeze({
-  playerPrimary: Object.freeze([".bpx-player-container", "#bilibili-player"] as const),
-  playerContainers: Object.freeze([
-    ".bpx-player-container",
-    "#bilibili-player",
-    ".player-wrap",
-    "#playerWrap"
+const freeze = Object.freeze;
+const join = (list: readonly string[]) => list.join(", ");
+
+const BPX = ".bpx-player-container";
+const BILI_PLAYER = "#bilibili-player";
+const CTRL_WRAP = ".bpx-player-control-wrap";
+const VIDEO_AREA = ".bpx-player-video-area";
+const PLAYER_WRAP = ".player-wrap";
+const PLAYER_WRAP_ID = "#playerWrap";
+
+export const BILI_HOST_SELECTORS = freeze({
+  playerPrimary: freeze([BPX, BILI_PLAYER] as const),
+  playerContainers: freeze([BPX, BILI_PLAYER, PLAYER_WRAP, PLAYER_WRAP_ID] as const),
+  playerContainersWithVideoArea: freeze([BPX, VIDEO_AREA, BILI_PLAYER, PLAYER_WRAP_ID, PLAYER_WRAP] as const),
+  playerVideoHosts: freeze([BPX, VIDEO_AREA, BILI_PLAYER] as const),
+  liveRoomPlayers: freeze(["#live-player", ".live-player-mounter", "#live-player-ctnr"] as const),
+  liveRoomVideos: freeze(["#live-player video", ".live-player-mounter video", "video"] as const),
+  playerControlContainers: freeze([".bpx-player-control-bottom-right", CTRL_WRAP] as const),
+  playerControlBars: freeze([CTRL_WRAP, ".bpx-player-control-entity", ".bpx-player-control-bottom"] as const),
+  playerSubtitleControlRoots: freeze([
+    `${BILI_PLAYER} ${CTRL_WRAP}`,
+    `${PLAYER_WRAP_ID} ${CTRL_WRAP}`,
+    `${BPX} ${CTRL_WRAP}`,
+    BILI_PLAYER,
+    PLAYER_WRAP_ID,
+    BPX,
+    PLAYER_WRAP
   ] as const),
-  playerContainersWithVideoArea: Object.freeze([
-    ".bpx-player-container",
-    ".bpx-player-video-area",
-    "#bilibili-player",
-    "#playerWrap",
-    ".player-wrap"
+  playerWebFullscreen: freeze([
+    `${BPX}[data-screen="web"]`,
+    `${BPX}.bpx-state-web-fullscreen`
   ] as const),
-  playerVideoHosts: Object.freeze([
-    ".bpx-player-container",
-    ".bpx-player-video-area",
-    "#bilibili-player"
-  ] as const),
-  liveRoomPlayers: Object.freeze([
-    "#live-player",
-    ".live-player-mounter",
-    "#live-player-ctnr"
-  ] as const),
-  liveRoomVideos: Object.freeze([
-    "#live-player video",
-    ".live-player-mounter video",
-    "video"
-  ] as const),
-  playerControlContainers: Object.freeze([
-    ".bpx-player-control-bottom-right",
-    ".bpx-player-control-wrap"
-  ] as const),
-  playerControlBars: Object.freeze([
-    ".bpx-player-control-wrap",
-    ".bpx-player-control-entity",
-    ".bpx-player-control-bottom"
-  ] as const),
-  playerSubtitleControlRoots: Object.freeze([
-    "#bilibili-player .bpx-player-control-wrap",
-    "#playerWrap .bpx-player-control-wrap",
-    ".bpx-player-container .bpx-player-control-wrap",
-    "#bilibili-player",
-    "#playerWrap",
-    ".bpx-player-container",
-    ".player-wrap"
-  ] as const),
-  playerWebFullscreen: Object.freeze([
-    '.bpx-player-container[data-screen="web"]',
-    ".bpx-player-container.bpx-state-web-fullscreen"
-  ] as const),
-  playerWebFullscreenToggle: Object.freeze([
-    ".bpx-player-ctrl-web",
-    ".squirtle-video-pagefullscreen"
-  ] as const),
-  playerIframes: Object.freeze([
-    "#bilibili-player iframe",
-    ".bpx-player-container iframe",
+  playerWebFullscreenToggle: freeze([".bpx-player-ctrl-web", ".squirtle-video-pagefullscreen"] as const),
+  playerIframes: freeze([
+    `${BILI_PLAYER} iframe`,
+    `${BPX} iframe`,
     "iframe[src*='player.bilibili.com']",
     "iframe[src*='bilibili.com/player']"
   ] as const),
-  toolbarHosts: Object.freeze([
-    "#arc_toolbar_report",
-    ".video-toolbar-container"
-  ] as const),
-  rightColumnAnchors: Object.freeze([
+  toolbarHosts: freeze(["#arc_toolbar_report", ".video-toolbar-container", ".video-toolbar-content"] as const),
+  rightColumnAnchors: freeze([
     ".right-container-inner",
     ".right-container",
     ".playlist-container--right",
     "#reco_list",
     "#viewbox_report",
-    ".up-info-container"
+    ".up-info-container",
+    ".grid-right",
+    ".video-sections"
   ] as const),
-  debugSnapshotNodes: Object.freeze([
+  videoTitles: freeze(["h1.video-title", ".video-toobar_title", ".video-toolbar_title"] as const),
+  debugSnapshotNodes: freeze([
     "#app",
-    "#playerWrap",
-    ".player-wrap",
-    "#bilibili-player",
-    ".bpx-player-container",
-    ".bpx-player-video-area",
+    PLAYER_WRAP_ID,
+    PLAYER_WRAP,
+    BILI_PLAYER,
+    BPX,
+    VIDEO_AREA,
     ".bpx-player-primary-area"
   ] as const),
-  playerBpxContainer: ".bpx-player-container",
-  playerVideoArea: ".bpx-player-video-area",
+  playerBpxContainer: BPX,
+  playerVideoArea: VIDEO_AREA,
   playerVideoWrap: ".bpx-player-video-wrap",
-  playerControlWrap: ".bpx-player-control-wrap",
+  playerControlWrap: CTRL_WRAP,
   playerControlBottomRight: ".bpx-player-control-bottom-right",
   playerQualityControl: ".bpx-player-ctrl-quality",
   playerVolumeControl: ".bpx-player-ctrl-volume",
   liveRoomExtNodes: ".live-web-player-controller .right-area .ext-nodes"
 } as const);
 
-export const PLAYER_PRIMARY_SELECTOR = BILI_HOST_SELECTORS.playerPrimary.join(", ");
-export const VIDEO_PLAYER_CONTAINER_SELECTOR = BILI_HOST_SELECTORS.playerContainers.join(", ");
-export const PLAYER_VIDEO_HOST_MATCH_SELECTOR = BILI_HOST_SELECTORS.playerVideoHosts.join(", ");
-export const LIVE_ROOM_PLAYER_HOST_SELECTOR = BILI_HOST_SELECTORS.liveRoomPlayers.join(", ");
-export const LIVE_ROOM_VIDEO_SELECTOR = BILI_HOST_SELECTORS.liveRoomVideos.join(", ");
-export const ANY_PLAYER_HOST_SELECTOR = [
+export const PLAYER_PRIMARY_SELECTOR = join(BILI_HOST_SELECTORS.playerPrimary);
+export const VIDEO_PLAYER_CONTAINER_SELECTOR = join(BILI_HOST_SELECTORS.playerContainers);
+export const PLAYER_VIDEO_HOST_MATCH_SELECTOR = join(BILI_HOST_SELECTORS.playerVideoHosts);
+export const LIVE_ROOM_PLAYER_HOST_SELECTOR = join(BILI_HOST_SELECTORS.liveRoomPlayers);
+export const LIVE_ROOM_VIDEO_SELECTOR = join(BILI_HOST_SELECTORS.liveRoomVideos);
+export const ANY_PLAYER_HOST_SELECTOR = join([
   ...BILI_HOST_SELECTORS.playerContainers,
   ...BILI_HOST_SELECTORS.liveRoomPlayers
-].join(", ");
-export const PLAYBACK_RATE_CONTAINER_SELECTOR = [
+]);
+export const PLAYBACK_RATE_CONTAINER_SELECTOR = join([
   ...BILI_HOST_SELECTORS.playerPrimary,
   BILI_HOST_SELECTORS.playerControlWrap,
   BILI_HOST_SELECTORS.playerControlBottomRight
-].join(", ");
-export const PLAYER_CONTROL_BAR_SELECTOR = BILI_HOST_SELECTORS.playerControlBars.join(", ");
-export const PLAYER_SUBTITLE_CONTROL_ROOTS_SELECTOR =
-  BILI_HOST_SELECTORS.playerSubtitleControlRoots.join(", ");
-export const PLAYER_WEB_FULLSCREEN_SELECTOR = BILI_HOST_SELECTORS.playerWebFullscreen.join(", ");
-export const PLAYER_WEB_FULLSCREEN_TOGGLE_SELECTOR =
-  BILI_HOST_SELECTORS.playerWebFullscreenToggle.join(", ");
-export const TOOLBAR_HOST_SELECTOR = BILI_HOST_SELECTORS.toolbarHosts.join(", ");
+]);
+export const PLAYER_CONTROL_BAR_SELECTOR = join(BILI_HOST_SELECTORS.playerControlBars);
+export const PLAYER_SUBTITLE_CONTROL_ROOTS_SELECTOR = join(BILI_HOST_SELECTORS.playerSubtitleControlRoots);
+export const PLAYER_WEB_FULLSCREEN_SELECTOR = join(BILI_HOST_SELECTORS.playerWebFullscreen);
+export const PLAYER_WEB_FULLSCREEN_TOGGLE_SELECTOR = join(BILI_HOST_SELECTORS.playerWebFullscreenToggle);
+export const TOOLBAR_HOST_SELECTOR = join(BILI_HOST_SELECTORS.toolbarHosts);
 
 export type QuerySelectorRoot = {
   querySelector(selectors: string): Element | null;

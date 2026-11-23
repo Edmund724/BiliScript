@@ -92,9 +92,38 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     });
   });
 
-  it("非 B 站页 / 非视频路径 / 缺 tab.url / 缺 tab.id：零派发", async () => {
+  it("收藏夹播单页 /list/ml...：派发 reader-enter，readerUrl 保留路径与 oid/bvid 并剥离追踪参数", async () => {
+    onClickedListener({
+      id: 10,
+      url: "https://www.bilibili.com/list/ml4110522184?spm_id_from=333.1387.0.0&oid=117323927129038&bvid=BV1RWaw6jEay"
+    });
+
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+
+    expect(sendMessageToTab).toHaveBeenCalledWith(10, {
+      type: "reader-enter",
+      readerUrl: "https://www.bilibili.com/list/ml4110522184?oid=117323927129038&bvid=BV1RWaw6jEay&biliscript_reader=1"
+    });
+  });
+
+  it("活动专题页（带 bvid）：派发 reader-enter，readerUrl 保留 /festival/<slug> 与 bvid/p 并剥离追踪参数", async () => {
+    onClickedListener({
+      id: 9,
+      url: "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f&p=1&spm_id_from=333.40164.0.0"
+    });
+
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+
+    expect(sendMessageToTab).toHaveBeenCalledWith(9, {
+      type: "reader-enter",
+      readerUrl: "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f&p=1&biliscript_reader=1"
+    });
+  });
+
+  it("非 B 站页 / 非视频路径 / 无 bvid 活动页 / 缺 tab.url / 缺 tab.id：零派发", async () => {
     onClickedListener({ id: 7, url: "https://example.com/video/BV1abc000000/" });
     onClickedListener({ id: 7, url: "https://www.bilibili.com/" });
+    onClickedListener({ id: 7, url: "https://www.bilibili.com/festival/27kaoyanshangan" });
     onClickedListener({ id: 7 });
     onClickedListener({ url: VIDEO_URL });
 
