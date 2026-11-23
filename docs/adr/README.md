@@ -25,6 +25,7 @@
 | [0017](0017-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 清单派生 Event Page、28 常驻域与显式 CSP（防本机连接强升 HTTPS）；隐藏 `iframe` 承载 Offscreen；禁裸写标准滚动条 |
 | [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
 | [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
+| [0020](0020-detached-reader-window.md) | 文摘面板独立窗口双模式承载与跨文档 DOM 搬移边界 | 同源跨文档搬移整棵面板；置顶画中画（Document PiP）与普通窗口（`window.open`）双模式；固定 4 键位与系统 `×` 关壳；尺寸记本机 `local`；禁跨进程扩展页与搬移宿主 `<video>` |
 
 ## 审查红线
 
@@ -38,6 +39,7 @@
 - **ADR-0012：不得引入本地向量库、Embedding 模型或第三方分词词典依赖，也不得将长视频字幕召回构建为多轮自主检索 Agent 循环**。
 - **ADR-0015：不得将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script**（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017：不得将 `<all_urls>` 或 `https://*/*` 移入任一端常驻 `host_permissions`；不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`；二期立项前不得在 Firefox 暴露未验收的 `live` 或 `tts` 入口**。
+- **ADR-0020：不得为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像同步）或将 B 站 `<video>` 宿主节点搬入独立窗口；独立窗口像素宽高记忆不得写入 `chrome.storage.sync`**。
 
 红线只覆盖已被否决过的方向，未裁决事项按常规架构评审走。
 

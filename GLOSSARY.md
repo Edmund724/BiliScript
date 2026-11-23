@@ -92,10 +92,15 @@ _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 
 _Avoid_: 预热、预取（quick-prompts 的 warmUpInitialQuickPrompts 已占用「预热」）；把预抓取当成会触发 ASR 的路径；给预抓取单开设置开关（见 ADR-0011）
 
 **文摘面板**:
-阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。贴栏态以右缘为锚，独立位移与缩放开合；浮层态保持居中并原位缩放；restore 与减少动态偏好均跳过过渡。ADR-0003。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 = `reader/script-tab-activation.ts` 的 `activateScriptTab`：状态位 → 持久化写穿 → `project-tab` 投影命令 → 二级激活，同处一条串行队列；壳侧 `setReaderScriptTab` 只做 DOM 投影）。
+阅读模式的承载主体，包含三标签（字幕 / 概览 / AI 对话）及面板内子浮层，支持「页内面板」与「独立窗口」两种呈现宿主，共用同一阅读壳与壳根。页内面板为右栏固定定位面板，不接管页面、不搬播放器，贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）；贴栏态以右缘为锚，独立位移与缩放开合，浮层态保持居中并原位缩放，restore 与减少动态偏好均跳过过渡（ADR-0003）。独立窗口通过同源跨文档 DOM 搬移脱离浏览器主窗口承载整棵面板（ADR-0020）。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 = `reader/script-tab-activation.ts` 的 `activateScriptTab`：状态位 → 持久化写穿 → `project-tab` 投影命令 → 二级激活，同处一条串行队列；壳侧 `setReaderScriptTab` 只做 DOM 投影）。
 代码名：`#biliscript-reading-view` / `#biliscript-reading-script-panel` / `reader/script-host.ts` / `--biliscript-script-*` / `data-biliscript-script-float` / `readingActiveScriptTab` / `activateScriptTab` / `project-tab` / `reportTabIntent` / `customPanelWidthEnabled` / `customPanelWidth` / `autoOpenReader`
 口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 文摘面板）
 _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 DOM class 取当前标签
+
+**独立窗口**:
+文摘面板脱离浏览器主窗口时的呈现形态，与页内面板并列为同一阅读壳的双宿主（ADR-0020）：通过同源跨文档 DOM 搬移完整承载三标签与全部子浮层，并在顶栏保持固定 4 键位（弹出键原地切换为「归位」，系统标题栏 `×` 对齐关闭阅读壳）。按底层窗口能力分两种模式：**置顶画中画**（`pip`，Document PiP API，始终置顶且无地址栏，不支持时自动回落普通窗口）与 **普通窗口**（`popup`，同源 `window.open`，不置顶但支持系统分屏且可与 B 站原生视频画中画并存）；模式偏好存 `sync`，共享像素宽高记忆仅存本机 `local`。
+代码名：`detached` / `detachedWindow`（词根）
+_Avoid_: 浮窗（已属伴看浮窗与居中浮层）、弹窗（避免与扩展 action popup 或权限授权弹窗混淆）、小窗（避免与 B 站视频小窗混淆）
 
 **右栏锚点**:
 文摘面板贴栏定位的参考节点，按优先级串行试探的右栏候选链（新版 `.right-container-inner` 起，旧版 `#reco_list` 止），有效判据 = 存在 + 宽度 ≥ 280 + 未滚出视口。唯一随 B 站改版会坏的面板依赖；坏的表现是降级跑位，不是功能失效。

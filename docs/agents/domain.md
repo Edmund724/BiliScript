@@ -23,6 +23,7 @@ Architecture review — human or AI — must not re-propose the directions below
 - **ADR-0012**: 引入本地向量库、Embedding 模型或第三方分词依赖；将长视频字幕召回构建为多轮自主检索 Agent 循环。
 - **ADR-0015**: 将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017**: 将 `<all_urls>` / `https://*/*` 移入常驻 `host_permissions`；在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` 或 `scrollbar-color`；二期立项前在 Firefox 暴露未验收的 `live` 或 `tts` 入口。
+- **ADR-0020**: 为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像）或搬移 B 站 `<video>` 宿主节点；将独立窗口像素宽高记忆写入 `chrome.storage.sync`。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 

@@ -2,7 +2,7 @@
 
 > 状态：有效
 
-阅读模式唯一载体为留在 B 站页面 **Light DOM** 内的右栏固定定位文摘面板（`#biliscript-reading-view`），**不搬移任何 B 站宿主节点、不给宿主页面加遮挡或让位规则，也不将扩展子树迁入 Shadow DOM**。
+阅读模式页内宿主为留在 B 站页面 **Light DOM** 内的右栏固定定位文摘面板（`#biliscript-reading-view`），并支持经同源跨文档 DOM 搬移切入**独立窗口**（见 [ADR-0020](0020-detached-reader-window.md)）；两种宿主均**不搬移任何 B 站宿主节点、不给宿主页面加遮挡或让位规则，也不将扩展子树迁入 Shadow DOM**。
 
 ## 已定决策
 
