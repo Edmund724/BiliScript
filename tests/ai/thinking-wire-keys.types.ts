@@ -1,6 +1,3 @@
-//   - 每条 `@ts-expect-error` 断言的直写都必须编译失败（缺一格 / 孤儿键 / 词表叶外的键）；
-//     tsc 会报 "Unused '@ts-expect-error' directive"，断言随即失败；
-
 import { PLATFORM_IDENTITY_KEYS, type PlatformKey } from "../../extension/ai/platform-identity-vocab.js";
 import { PROVIDERS } from "../../extension/ai/thinking-profiles.js";
 import {

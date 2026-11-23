@@ -1,5 +1,3 @@
-//   已经是合法档位）时，下面的直写不再编译失败，tsc 报 "Unused '@ts-expect-error'
-
 import type { ChatMsg, StreamChatArgs } from "../../extension/ai/ladder.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 import type { ThinkingRequestFacts } from "../../extension/ai/plan-thinking.js";

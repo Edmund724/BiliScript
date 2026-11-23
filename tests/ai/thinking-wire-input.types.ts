@@ -1,6 +1,3 @@
-// - 每条 `@ts-expect-error` 断言的直写都必须编译失败；若哪天某协议行重新收下它不读的字段、
-//   或必填事实变成可选，tsc 会报 "Unused '@ts-expect-error' directive"，断言随即失败；
-
 import { THINKING_WIRE_MAPS, type AnthropicWireInput, type OpenAiWireInput } from "../../extension/ai/thinking-wire-map.js";
 import { enableThinking, reasoningEffort } from "../../extension/ai/thinking-profiles.js";
 
