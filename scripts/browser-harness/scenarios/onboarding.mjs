@@ -331,10 +331,9 @@ try {
     "AI 对话同步新配置",
     async () =>
       videoPage.cdp.evaluate(`(() => {
-        const modelBtn = document.getElementById("biliscript-reading-chat-model-chip") ||
-          document.getElementById("biliscript-reading-chat-model-select");
+        const modelBtn = document.getElementById("biliscript-reading-chat-model-chip");
         const pill = document.getElementById("biliscript-reading-chat-web-search-pill");
-        const modelText = (modelBtn?.textContent || modelBtn?.value || "").trim();
+        const modelText = (modelBtn?.textContent || "").trim();
         const pillActive = Boolean(pill?.classList.contains("is-active"));
         return modelText.includes("deepseek-chat") && pillActive ? { modelText, pillActive } : null;
       })()`),

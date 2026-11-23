@@ -89,7 +89,9 @@ describe("统一 文摘面板三标签", () => {
     expect(chatRoot).not.toBe(null);
     expect(document.getElementById(ids.readingChatMessages)).not.toBe(null);
     expect(document.getElementById(ids.readingChatInput)).not.toBe(null);
-    expect(document.getElementById(ids.readingChatModelSelect)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatModelChip)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatModelPanel)).not.toBe(null);
+    expect(document.getElementById("biliscript-reading-chat-model-select")).toBe(null);
     expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSendBtn)).not.toBe(null);
     expect(document.getElementById("biliscript-reading-chat-preset-btn")).toBe(null);

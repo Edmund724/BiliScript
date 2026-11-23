@@ -52,22 +52,11 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
 
   const SEP = String.fromCharCode(1);
 
-  function makeSelect() {
-    const select = document.createElement("select");
-    select.innerHTML =
-      '<optgroup label="测试平台">' +
-      `<option value="p1${SEP}m1" selected>m1</option>` +
-      "</optgroup>";
-    document.body.appendChild(select);
-    return select;
-  }
-
   function view(over: Pick<ThinkingView, "label" | "entries"> & Partial<ThinkingView>): ThinkingView {
     return { hint: null, ...over };
   }
 
   function makeHarness() {
-    const select = makeSelect();
     const chip = document.createElement("button");
     const chipModel = document.createElement("span");
     const chipLevel = document.createElement("span");
@@ -87,7 +76,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     const hidePanel = vi.fn();
     const pickLevel = vi.fn();
     const modelPanel = createReaderChatModelPanel({
-      modelSelect: select,
       chip,
       chipModel,
       chipLevel,
@@ -102,7 +90,6 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       pickLevel
     });
     return {
-      select,
       thinkingToggle,
       thinkingRow,
       thinkingRowValue,

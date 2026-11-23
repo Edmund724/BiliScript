@@ -340,7 +340,7 @@ async function openChatPage(page, pageUrl) {
   await page.cdp.evaluate("document.getElementById('biliscript-script-button').click()");
   await waitFor("对话标签", () => page.cdp.evaluate("!!document.getElementById('biliscript-reading-tab-chat')"), { timeoutMs: 20000, intervalMs: 200 });
   await page.cdp.evaluate("document.getElementById('biliscript-reading-tab-chat').click()");
-  await waitFor("对话输入框与模型", () => page.cdp.evaluate(`!!document.getElementById('biliscript-reading-chat-input') && document.getElementById('biliscript-reading-chat-model-select')?.value.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
+  await waitFor("对话输入框与模型", () => page.cdp.evaluate(`!!document.getElementById('biliscript-reading-chat-input') && document.getElementById('biliscript-reading-chat-model-chip')?.dataset.selectedValue?.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
   await sleep(1500);
 }
 
@@ -581,7 +581,7 @@ if (liveGemini && !geminiApiKey) {
       await waitFor("对话标签", () => page.cdp.evaluate("!!document.getElementById('biliscript-reading-tab-chat')"), { timeoutMs: 20000, intervalMs: 200 });
       await page.cdp.evaluate("document.getElementById('biliscript-reading-tab-chat').click()");
       await waitFor("对话输入框", () => page.cdp.evaluate("!!document.getElementById('biliscript-reading-chat-input')"), { timeoutMs: 20000, intervalMs: 200 });
-      await waitFor("对话模型选项", () => page.cdp.evaluate(`document.getElementById('biliscript-reading-chat-model-select')?.value.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
+      await waitFor("对话模型选项", () => page.cdp.evaluate(`document.getElementById('biliscript-reading-chat-model-chip')?.dataset.selectedValue?.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
       await sleep(1500);
       await page.cdp.evaluate(`(() => {
         const input = document.getElementById("biliscript-reading-chat-input");

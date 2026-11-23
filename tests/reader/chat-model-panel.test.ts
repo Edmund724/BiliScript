@@ -99,7 +99,6 @@ function makeHarness(options: {
     withInputBar = false
   } = options;
   void (seedProviders && seedDefaultProviders());
-  const select = document.createElement("select");
   const chip = document.createElement("button");
   const chipModel = document.createElement("span");
   const chipLevel = document.createElement("span");
@@ -118,12 +117,12 @@ function makeHarness(options: {
   const webSearchPill = withWebSearchPill ? document.createElement("button") : null;
   const inputBar = withInputBar ? document.createElement("div") : null;
   void (inputBar && ((inputBar.className = "chat-input-bar"), inputBar.append(chip)));
-  document.body.append(...[select, inputBar ?? chip, panel, ...(webSearchPill ? [webSearchPill] : [])]);
+  document.body.append(...[inputBar ?? chip, panel, ...(webSearchPill ? [webSearchPill] : [])]);
   const hidePanel = vi.fn();
   const openSettings = vi.fn();
   const pickLevel = vi.fn();
+  const onSelect = vi.fn();
   const modelPanel = createReaderChatModelPanel({
-    modelSelect: select,
     chip,
     chipModel,
     chipLevel,
@@ -137,10 +136,10 @@ function makeHarness(options: {
     storage,
     hidePanel,
     openSettings,
-    pickLevel
+    pickLevel,
+    onSelect
   });
   return {
-    select,
     chip,
     chipModel,
     chipLevel,
@@ -156,6 +155,7 @@ function makeHarness(options: {
     hidePanel,
     openSettings,
     pickLevel,
+    onSelect,
     modelPanel
   };
 }
@@ -181,7 +181,7 @@ function stubNoCanvas() {
 }
 
 describe("reload 与持久化状态水合", () => {
-  it("双消息并行拉取 + storage 读取，enabled 过滤后写 chatSessionState 并同步隐藏 select 与 chip", async () => {
+  it("双消息并行拉取 + storage 读取，enabled 过滤后写 chatSessionState 并同步内存选中值与 chip", async () => {
     mockRuntimeReplies({
       providers: {
         providers: [
@@ -200,7 +200,7 @@ describe("reload 与持久化状态水合", () => {
         }
       })
     });
-    const { select, chipModel, chipLevel, storage, modelPanel } = makeHarness({ seedProviders: false });
+    const { chip, chipModel, chipLevel, storage, modelPanel } = makeHarness({ seedProviders: false });
 
     await modelPanel.reload();
 
@@ -215,8 +215,9 @@ describe("reload 与持久化状态水合", () => {
       defaultAiModel: ""
     });
     expect(chatSessionState.aiThinkingLevel).toBe("low");
-    expect(select.value).toBe(buildModelOptionValue("p3", "模型三"));
-    expect(select.disabled).toBe(false);
+    expect(modelPanel.getSelectedValue()).toBe(buildModelOptionValue("p3", "模型三"));
+    expect(chatSessionState.selectedModelValue).toBe(buildModelOptionValue("p3", "模型三"));
+    expect(chip.dataset.selectedValue).toBe(buildModelOptionValue("p3", "模型三"));
     expect(chipModel.textContent).toBe("模型三·模型三");
     expect(chipLevel.textContent).toBe("Low");
   });
@@ -289,17 +290,17 @@ describe("reload 与持久化状态水合", () => {
     const prefStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
     const h1 = makeHarness({ seedProviders: false, storage: prefStorage });
     await h1.modelPanel.reload({ preferredProviderId: "p1" });
-    expect(h1.select.value).toBe(buildModelOptionValue("p1", "m1"));
+    expect(h1.modelPanel.getSelectedValue()).toBe(buildModelOptionValue("p1", "m1"));
 
     const exactStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p1", "m1b") });
     const h2 = makeHarness({ seedProviders: false, storage: exactStorage });
     await h2.modelPanel.reload();
-    expect(h2.select.value).toBe(buildModelOptionValue("p1", "m1b"));
+    expect(h2.modelPanel.getSelectedValue()).toBe(buildModelOptionValue("p1", "m1b"));
 
     const staleStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p9", "m9") });
     const h3 = makeHarness({ seedProviders: false, storage: staleStorage });
     await h3.modelPanel.reload();
-    expect(h3.select.value).toBe(buildModelOptionValue("p1", "m1"));
+    expect(h3.modelPanel.getSelectedValue()).toBe(buildModelOptionValue("p1", "m1"));
 
     mockRuntimeReplies({
       providers: {
@@ -313,7 +314,7 @@ describe("reload 与持久化状态水合", () => {
     const legacyStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
     const h4 = makeHarness({ seedProviders: false, storage: legacyStorage });
     await h4.modelPanel.reload();
-    expect(h4.select.value).toBe(buildModelOptionValue("p2", "m2"));
+    expect(h4.modelPanel.getSelectedValue()).toBe(buildModelOptionValue("p2", "m2"));
   });
 
   it("零模型平台不进选择器，并经 hasSelectableModels / resolveSetupTarget 区分无平台与缺模型", async () => {
@@ -322,8 +323,8 @@ describe("reload 与持久化状态水合", () => {
     h1.modelPanel.renderChip();
     expect(h1.modelPanel.hasSelectableModels()).toBe(false);
     expect(h1.modelPanel.resolveSetupTarget()).toEqual({ errorClass: "no-provider", providerId: "" });
-    expect(h1.select.disabled).toBe(true);
-    expect(h1.select.innerHTML).toContain("未配置平台");
+    expect(h1.modelPanel.getSelectedValue()).toBe("");
+    expect(h1.chipModel.textContent).toBe("未配置平台");
 
     mockRuntimeReplies({
       providers: { providers: [{ id: "p-empty", name: "空目录平台", models: [], enabled: true }] },
@@ -332,8 +333,8 @@ describe("reload 与持久化状态水合", () => {
     await h1.modelPanel.reload();
     expect(h1.modelPanel.hasSelectableModels()).toBe(false);
     expect(h1.modelPanel.resolveSetupTarget()).toEqual({ errorClass: "no-model", providerId: "p-empty" });
-    expect(h1.select.disabled).toBe(true);
-    expect(h1.select.innerHTML).toContain("未配置模型");
+    expect(h1.modelPanel.getSelectedValue()).toBe("");
+    expect(h1.chipModel.textContent).toBe("未配置模型");
   });
 });
 
@@ -489,10 +490,9 @@ describe("renderChip", () => {
 
 describe("renderPanel", () => {
   it("按平台分组渲染，当前选中项 is-selected、带 ✓ 并接管焦点", () => {
-    const { select, panelList, modelPanel } = makeHarness();
+    const { panelList, modelPanel } = makeHarness();
     modelPanel.renderChip();
-    select.value = `p1${SEP}m1b`;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    modelPanel.selectValue(`p1${SEP}m1b`);
 
     modelPanel.renderPanel();
 
@@ -508,17 +508,17 @@ describe("renderPanel", () => {
     expect(document.activeElement).toBe(selected[0]);
   });
 
-  it("点击选项：直接同步 select.value 并持久化（不派发合成冒泡 change），原位换勾且焦点与面板保持稳定", () => {
-    const { select, chipModel, panelList, storage, hidePanel, modelPanel } = makeHarness();
-    const onBubbledChange = vi.fn();
-    select.addEventListener("change", onBubbledChange);
+  it("点击选项：同步内存状态、chip 与回调并持久化，原位换勾且焦点与面板保持稳定", () => {
+    const { chip, chipModel, panelList, storage, hidePanel, onSelect, modelPanel } = makeHarness();
 
     modelPanel.renderPanel();
     const target = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p2${SEP}m2"]`)!;
     click(target);
 
-    expect(select.value).toBe(`p2${SEP}m2`);
-    expect(onBubbledChange).not.toHaveBeenCalled();
+    expect(modelPanel.getSelectedValue()).toBe(`p2${SEP}m2`);
+    expect(chatSessionState.selectedModelValue).toBe(`p2${SEP}m2`);
+    expect(chip.dataset.selectedValue).toBe(`p2${SEP}m2`);
+    expect(onSelect).toHaveBeenCalledWith(`p2${SEP}m2`);
     expect(chipModel.textContent).toBe("平台二·m2");
     expect(storage.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: `p2${SEP}m2` });
     expect(sendRuntimeMessageMock).not.toHaveBeenCalledWith(
@@ -531,8 +531,27 @@ describe("renderPanel", () => {
     expect(panelList.querySelectorAll(".chat-model-check")).toHaveLength(1);
   });
 
+  it("清空选择：selectValue 空串同步清内存、chip 与 local 存储，不发 save-settings", () => {
+    const { chip, storage, onSelect, modelPanel } = makeHarness();
+    modelPanel.renderChip();
+    storage.set.mockClear();
+    sendRuntimeMessageMock.mockClear();
+    onSelect.mockClear();
+
+    modelPanel.selectValue("");
+
+    expect(modelPanel.getSelectedValue()).toBe("");
+    expect(chatSessionState.selectedModelValue).toBe("");
+    expect(chip.dataset.selectedValue).toBeUndefined();
+    expect(onSelect).toHaveBeenCalledWith("");
+    expect(storage.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: "" });
+    expect(sendRuntimeMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "save-settings" })
+    );
+  });
+
   it("点击当前已选项：不重复持久化，不关面板", () => {
-    const { select, panelList, storage, hidePanel, modelPanel } = makeHarness();
+    const { panelList, storage, hidePanel, modelPanel } = makeHarness();
 
     modelPanel.renderPanel();
     sendRuntimeMessageMock.mockClear();
@@ -540,7 +559,7 @@ describe("renderPanel", () => {
     const current = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p1${SEP}m1a"]`)!;
     click(current);
 
-    expect(select.value).toBe(`p1${SEP}m1a`);
+    expect(modelPanel.getSelectedValue()).toBe(`p1${SEP}m1a`);
     expect(storage.set).not.toHaveBeenCalled();
     expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
     expect(hidePanel).not.toHaveBeenCalled();
@@ -548,7 +567,7 @@ describe("renderPanel", () => {
   });
 
   it("方向键/Home/End 移动焦点，Enter/Space 选中且不重建当前行", () => {
-    const { select, panelList, hidePanel, modelPanel } = makeHarness();
+    const { panelList, hidePanel, modelPanel } = makeHarness();
     modelPanel.renderPanel();
     const options = Array.from(panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option"));
     const key = (value: string) => (document.activeElement as HTMLElement).dispatchEvent(
@@ -565,11 +584,11 @@ describe("renderPanel", () => {
     key("ArrowDown");
     key("ArrowDown");
     key("Enter");
-    expect(select.value).toBe(`p2${SEP}m2`);
+    expect(modelPanel.getSelectedValue()).toBe(`p2${SEP}m2`);
     expect(document.activeElement).toBe(options[2]);
     key("ArrowUp");
     key(" ");
-    expect(select.value).toBe(`p1${SEP}m1b`);
+    expect(modelPanel.getSelectedValue()).toBe(`p1${SEP}m1b`);
     expect(document.activeElement).toBe(options[1]);
     expect(hidePanel).not.toHaveBeenCalled();
   });
@@ -1064,16 +1083,14 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
   });
 
   it("chip：无斜杠裸名与尾斜杠 id 原样显示（不误伤、不剥成空串）", () => {
-    const { select, chipModel, modelPanel } = makeHarness({ seedProviders: false });
+    const { chipModel, modelPanel } = makeHarness({ seedProviders: false });
     seedNamespacedProviders();
     modelPanel.renderChip();
 
-    select.value = `siliconflow${SEP}glm-4.6`;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    modelPanel.selectValue(`siliconflow${SEP}glm-4.6`);
     expect(chipModel.textContent).toBe("硅基流动·glm-4.6");
 
-    select.value = `siliconflow${SEP}org/`;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    modelPanel.selectValue(`siliconflow${SEP}org/`);
     expect(chipModel.textContent).toBe("硅基流动·org/");
   });
 
@@ -1095,7 +1112,7 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
   });
 
   it("点被剥名的条目：值源与持久化落完整复合值（剥前缀不渗进落盘值）", () => {
-    const { select, panelList, storage, modelPanel } = makeHarness({ seedProviders: false });
+    const { panelList, storage, modelPanel } = makeHarness({ seedProviders: false });
     seedNamespacedProviders();
     modelPanel.renderPanel();
 
@@ -1104,7 +1121,7 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
     )!;
     click(qwen);
 
-    expect(select.value).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
+    expect(modelPanel.getSelectedValue()).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
     expect(storage.data.get(SELECTED_PROVIDER_KEY)).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
   });
 });

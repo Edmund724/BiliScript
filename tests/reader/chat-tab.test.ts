@@ -169,9 +169,11 @@ describe("组合根装配与懒加载边界", () => {
     await chat.ensureChatTabActivated();
 
     expect(lazyChat.isReaderChatTabLoaded()).toBe(true);
-    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
-    expect(modelSelect.disabled).toBe(false);
-    expect(modelSelect.value).toBe("p1\u0001模型一");
+    expect(document.getElementById("biliscript-reading-chat-model-select")).toBe(null);
+    expect(chatSessionState.selectedModelValue).toBe("p1\u0001模型一");
+    expect(
+      document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-model`)?.textContent
+    ).toBe("平台一·模型一");
     expect(chatSessionState.contextData?.title).toContain("测试视频");
     const tools = document.querySelector(".biliscript-reading-tabs-tools")!;
     expect(Array.from(tools.children).map((node) => (node as HTMLElement).id)).toEqual([
@@ -298,7 +300,8 @@ describe("组合根装配与懒加载边界", () => {
 });
 
 describe("模型选择变化只落本地对话键，不覆写 defaultModel", () => {
-  async function activateWithModelSelect() {
+  async function activateWithModelPanel() {
+    providerList = [{ id: "p1", name: "平台一", models: ["模型一", "模型二"], enabled: true }];
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -312,8 +315,7 @@ describe("模型选择变化只落本地对话键，不覆写 defaultModel", () 
     chromeStub.runtime.sendMessage.mockClear();
     chromeStub.storage.sync.set.mockClear();
     chromeStub.storage.local.set.mockClear();
-    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
-    return { chromeStub, modelSelect };
+    return { chromeStub };
   }
 
   function directDefaultModelWrites(syncSet: Sendstub): unknown[][] {
@@ -323,29 +325,18 @@ describe("模型选择变化只落本地对话键，不覆写 defaultModel", () 
   }
 
   it("选中平台模型：仅写 local[SELECTED_PROVIDER_KEY]，不发 save-settings{defaultModel} 也不写 sync", async () => {
-    const { chromeStub, modelSelect } = await activateWithModelSelect();
+    const { chromeStub } = await activateWithModelPanel();
 
-    modelSelect.value = "p1\u0001模型一";
-    modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(chromeStub.storage.local.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: "p1\u0001模型一" });
-    expect(directDefaultModelWrites(chromeStub.storage.sync.set)).toEqual([]);
-    expect(
-      chromeStub.runtime.sendMessage.mock.calls.some(
-        ([message]) => (message as { type?: string })?.type === "save-settings"
-      )
-    ).toBe(false);
-  });
-
-  it("清空选择：仅写 local[SELECTED_PROVIDER_KEY] 空串，不发 save-settings{defaultModel}", async () => {
-    const { chromeStub, modelSelect } = await activateWithModelSelect();
-
-    modelSelect.value = "";
-    modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const option = document.querySelector<HTMLButtonElement>(
+      `#${ids.readingChatModelList} .chat-model-option[data-value="p1\u0001模型二"]`
+    )!;
+    expect(option).not.toBe(null);
+    option.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(chromeStub.storage.local.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: "" });
+    expect(chromeStub.storage.local.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: "p1\u0001模型二" });
     expect(directDefaultModelWrites(chromeStub.storage.sync.set)).toEqual([]);
     expect(
       chromeStub.runtime.sendMessage.mock.calls.some(
@@ -855,8 +846,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
-    expect(modelSelect.value).toBe("p1\u0001模型一");
+    expect(chatSessionState.selectedModelValue).toBe("p1\u0001模型一");
 
     chat.closeChatSession();
 
@@ -869,7 +859,12 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
 
     await chat.ensureChatTabActivated();
 
-    expect(Array.from(modelSelect.options).map((option) => option.value)).toContain("p2\u0001模型二");
+    const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const optionValues = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(`#${ids.readingChatModelList} .chat-model-option`)
+    ).map((option) => option.getAttribute("data-value"));
+    expect(optionValues).toContain("p2\u0001模型二");
   });
 
   it("关闭前有置顶会话、关闭后切换视频再重开：未命中历史会话时同步新视频字幕", async () => {
@@ -1897,6 +1892,14 @@ describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归 + �
 });
 
 describe("输入框高度：聚焦不撑高、只随内容走", () => {
+  beforeEach(() => {
+    vi.spyOn(CSS, "supports").mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   async function mountChat(): Promise<HTMLTextAreaElement> {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
@@ -1904,16 +1907,16 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
     return document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
   }
 
-  it("聚焦/失焦都不写行内 min-height（空输入恒一行，高度落回 CSS 自然高）", async () => {
+  it("聚焦/失焦都不写行内 height（空输入恒一行，高度落回 CSS 自然高）", async () => {
     const input = await mountChat();
 
-    expect(input.style.minHeight).toBe("");
+    expect(input.style.height).toBe("");
 
     input.focus();
-    expect(input.style.minHeight).toBe("");
+    expect(input.style.height).toBe("");
 
     input.blur();
-    expect(input.style.minHeight).toBe("");
+    expect(input.style.height).toBe("");
   });
 
   it("内容长高、封顶 320", async () => {
@@ -1922,11 +1925,11 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
     Object.defineProperty(input, "scrollHeight", { value: 140, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("140px");
+    expect(input.style.height).toBe("140px");
 
     Object.defineProperty(input, "scrollHeight", { value: 500, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("320px");
+    expect(input.style.height).toBe("320px");
   });
 
   it("删回单行：行内高跟着缩回自然高，不残留上次撑起的高", async () => {
@@ -1935,11 +1938,11 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
     Object.defineProperty(input, "scrollHeight", { value: 200, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("200px");
+    expect(input.style.height).toBe("200px");
 
     Object.defineProperty(input, "scrollHeight", { value: 56, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("56px");
+    expect(input.style.height).toBe("56px");
   });
 
   it("未封顶 overflow-y hidden（两行边界不闪滚动条）；封顶 320 才放行 auto", async () => {
@@ -1948,12 +1951,12 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
     Object.defineProperty(input, "scrollHeight", { value: 48, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("48px");
+    expect(input.style.height).toBe("48px");
     expect(input.style.overflowY).toBe("hidden");
 
     Object.defineProperty(input, "scrollHeight", { value: 500, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("320px");
+    expect(input.style.height).toBe("320px");
     expect(input.style.overflowY).toBe("auto");
   });
 
@@ -1963,22 +1966,30 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
     Object.defineProperty(input, "scrollHeight", { value: 260, configurable: true });
     input.focus();
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("");
+    expect(input.style.height).toBe("");
     expect(input.style.overflowY).toBe("hidden");
 
     input.value = "很长的一段文字";
     Object.defineProperty(input, "scrollHeight", { value: 120, configurable: true });
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("120px");
+    expect(input.style.height).toBe("120px");
 
     input.value = "";
     input.dispatchEvent(new Event("input"));
-    expect(input.style.minHeight).toBe("");
+    expect(input.style.height).toBe("");
   });
 });
 
 describe("输入框自适应高度：逐键回写不得被自己放大", () => {
   const PADDING = 4;
+
+  beforeEach(() => {
+    vi.spyOn(CSS, "supports").mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   async function mountAutosizingInput(): Promise<HTMLTextAreaElement> {
     seedReadyContext();
@@ -1989,7 +2000,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
     Object.defineProperty(input, "scrollHeight", {
       configurable: true,
       get: () => {
-        const inline = Number.parseFloat(input.style.minHeight || "0");
+        const inline = Number.parseFloat(input.style.height || "0");
         return Math.max(naturalContentHeight(), inline) + PADDING;
       }
     });
@@ -2009,7 +2020,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
       typeChar(input, "d");
     }
 
-    expect(input.style.minHeight).toBe("56px");
+    expect(input.style.height).toBe("56px");
   });
 
   it("删除逐字退格：长内容删除后高度跟着缩回，不朝反向继续长", async () => {
@@ -2018,7 +2029,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
     for (let i = 0; i < 30; i += 1) {
       typeChar(input, "d");
     }
-    const grown = Number.parseFloat(input.style.minHeight);
+    const grown = Number.parseFloat(input.style.height);
     expect(grown).toBeGreaterThan(56);
 
     for (let i = 0; i < 25; i += 1) {
@@ -2026,7 +2037,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
       input.dispatchEvent(new Event("input"));
     }
 
-    expect(input.style.minHeight).toBe("56px");
+    expect(input.style.height).toBe("56px");
   });
 
   it("内容真的变长时仍然长高并封顶 320（屏上盒高，不再多出内边距）", async () => {
@@ -2036,7 +2047,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
       typeChar(input, "d");
     }
 
-    expect(input.style.minHeight).toBe("320px");
+    expect(input.style.height).toBe("320px");
   });
 });
 
@@ -2246,7 +2257,7 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
     target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   }
 
-  it("chip 与弹层条目剥前缀，option 文本、复合值与落盘选中值保持完整", async () => {
+  it("chip 与弹层条目剥前缀，复合值与落盘选中值保持完整", async () => {
     providerList = [
       { id: "modelscope", name: "ModelScope", models: [PREFIXED, "Qwen/Qwen3-32B", "glm-4.6"], enabled: true }
     ];
@@ -2254,16 +2265,17 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
 
-    const select = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
     const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
     const chipModel = chip.querySelector(".chat-model-chip-model") as HTMLElement;
     const panelList = document.getElementById(ids.readingChatModelList) as HTMLElement;
     const steps: string[] = [];
 
-    expect([...select.options].map((option) => option.textContent)).toEqual([PREFIXED, "Qwen/Qwen3-32B", "glm-4.6"]);
     expect(chipModel.textContent).toBe("ModelScope·DeepSeek-V4.1-Flash");
-    expect(select.value).toBe(`modelscope${SEP}${PREFIXED}`);
-    steps.push(`1 激活（首项 = ${PREFIXED}） | chip=${chipModel.textContent} | 值源=${shown(select.value)}`);
+    expect(chatSessionState.selectedModelValue).toBe(`modelscope${SEP}${PREFIXED}`);
+    expect(chip.dataset.selectedValue).toBe(`modelscope${SEP}${PREFIXED}`);
+    steps.push(
+      `1 激活（首项 = ${PREFIXED}） | chip=${chipModel.textContent} | 值源=${shown(chatSessionState.selectedModelValue)}`
+    );
 
     chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     const names = optionTexts(panelList);
@@ -2279,20 +2291,24 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
     clickModelOption(panelList, `modelscope${SEP}Qwen/Qwen3-32B`);
     const setMock = (window.chrome as unknown as { storage: { local: { set: ReturnType<typeof vi.fn> } } })
       .storage.local.set;
-    expect(select.value).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
+    expect(chatSessionState.selectedModelValue).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
+    expect(chip.dataset.selectedValue).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
     expect(chipModel.textContent).toBe("ModelScope·Qwen3-32B");
     expect(setMock).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: `modelscope${SEP}Qwen/Qwen3-32B` });
     steps.push(
-      `3 点 Qwen/Qwen3-32B（带前缀） | chip=${chipModel.textContent} | 值源=${shown(select.value)} | 落盘=${shown(
+      `3 点 Qwen/Qwen3-32B（带前缀） | chip=${chipModel.textContent} | 值源=${shown(chatSessionState.selectedModelValue)} | 落盘=${shown(
         `modelscope${SEP}Qwen/Qwen3-32B`
       )}`
     );
 
     chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     clickModelOption(panelList, `modelscope${SEP}glm-4.6`);
-    expect(select.value).toBe(`modelscope${SEP}glm-4.6`);
+    expect(chatSessionState.selectedModelValue).toBe(`modelscope${SEP}glm-4.6`);
+    expect(chip.dataset.selectedValue).toBe(`modelscope${SEP}glm-4.6`);
     expect(chipModel.textContent).toBe("ModelScope·glm-4.6");
-    steps.push(`4 点 glm-4.6（无斜杠裸名） | chip=${chipModel.textContent} | 值源=${shown(select.value)}`);
+    steps.push(
+      `4 点 glm-4.6（无斜杠裸名） | chip=${chipModel.textContent} | 值源=${shown(chatSessionState.selectedModelValue)}`
+    );
 
     expect(steps).toHaveLength(4);
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "chat-model-name-display", "artifacts");
@@ -2302,7 +2318,7 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
       [
         "# 集合站模型名显示走查工件（由 tests/reader/chat-tab.test.ts 生成）",
         "# 用例：ModelScope 平台（模型 id 带 org 命名空间前缀）激活对话 tab → 看 chip → 开面板看条目名与 data-value → 点选换模型",
-        "# 判据：chip 与弹层条目只显示裸名（剥最后一段斜杠之前的前缀）；option 文本、复合值（data-value / select.value）、",
+        "# 判据：chip 与弹层条目只显示裸名（剥最后一段斜杠之前的前缀）；复合值（data-value / chatSessionState.selectedModelValue）、",
         "#       落盘选中值仍是完整 id；无斜杠裸名不受影响。复合值里的 \\u0001 分隔符在工件里写作 <SEP>",
         "# 每行 = 一步；同命令重跑逐字节一致",
         ...steps,

@@ -364,4 +364,23 @@ describe("图片发送守卫", () => {
     expect(onNotice).toHaveBeenCalledWith("已取消等待", 3000);
     expect(harness.input.value).toBe("");
   });
+
+  it("支持 field-sizing: content 时 autosizeInput 不写行内 height 与 overflowY，仍同步发送键状态", () => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn((prop: string, value: string) => prop === "field-sizing" && value === "content")
+    });
+    try {
+      const { input, sendBtn, composer } = setupComposer();
+      input.value = "多行测试内容";
+      Object.defineProperty(input, "scrollHeight", { value: 240, configurable: true });
+      composer.autosizeInput();
+
+      expect(input.style.height).toBe("");
+      expect(input.style.overflowY).toBe("");
+      expect(sendBtn.disabled).toBe(false);
+      expect(sendBtn.classList.contains("is-live")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

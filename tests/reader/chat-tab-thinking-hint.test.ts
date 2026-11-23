@@ -133,8 +133,17 @@ function getHint(): HTMLElement {
   return document.getElementById(ids.readingChatThinkingHint) as HTMLElement;
 }
 
-function getModelSelect(): HTMLSelectElement {
-  return document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
+function selectModel(providerId: string, model: string): void {
+  const panel = document.getElementById(ids.readingChatModelPanel) as HTMLElement;
+  if (panel.hidden) {
+    click(document.getElementById(ids.readingChatModelChip) as HTMLButtonElement);
+  }
+  const value = modelOptionValue(providerId, model);
+  const option = [...document.querySelectorAll<HTMLButtonElement>(`#${ids.readingChatModelList} .chat-model-option`)].find(
+    (btn) => btn.getAttribute("data-value") === value
+  );
+  expect(option, `模型选项 ${value} 不存在`).toBeTruthy();
+  click(option!);
 }
 
 function getThinkingBtn(level: string): HTMLButtonElement | null {
@@ -199,7 +208,6 @@ describe("口径 ③/⑤ 统一：偏好 ≠ 实发档 → 一级行/chip/勾都
 
     await activateChatTab();
 
-    const select = getModelSelect();
     const steps: string[] = [];
     function snap(label: string): void {
       steps.push(
@@ -236,8 +244,7 @@ describe("口径 ③/⑤ 统一：偏好 ≠ 实发档 → 一级行/chip/勾都
     expect(getHint().hidden).toBe(true);
     snap("3 qwen/qwen3.8-max（偏好落盘 off）");
 
-    select.value = modelOptionValue("p2", "glm-5.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", "glm-5.2");
     expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
     expect(effectiveThinkingLevels()).toEqual(["high"]);
     expect(chipLevelText()).toBe("High");
@@ -245,15 +252,13 @@ describe("口径 ③/⑤ 统一：偏好 ≠ 实发档 → 一级行/chip/勾都
     expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
     snap("4 sensenova/glm-5.2（偏好 off → 实发 high）");
 
-    select.value = modelOptionValue("p1", "qwen3.8-max");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p1", "qwen3.8-max");
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevelText()).toBe("Off");
     expect(getHint().hidden).toBe(true);
     snap("5 qwen/qwen3.8-max（偏好仍 off，未被 ④ 迁移）");
 
-    select.value = modelOptionValue("p2", "glm-5.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", "glm-5.2");
     clickThinking("high");
     expect(chatSessionState.aiThinkingLevel).toBe("high");
     expect(chipLevelText()).toBe("High");
@@ -373,16 +378,13 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
 
-    const select = getModelSelect();
-    select.value = modelOptionValue("p2", "deepseek-v4-pro");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", "deepseek-v4-pro");
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevel()).toBe("Off");
     expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(getHint().hidden).toBe(true);
 
-    select.value = modelOptionValue("p1", "glm-5.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p1", "glm-5.2");
     expect(chipLevel()).toBe("High");
     clickThinking("high");
     expect(chatSessionState.aiThinkingLevel).toBe("high");
@@ -424,18 +426,14 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     await activateChatTab();
     expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
 
-    const select = getModelSelect();
-    select.value = modelOptionValue("p2", "llama3.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", "llama3.2");
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
 
-    select.value = modelOptionValue("p3", "anthropic/claude-haiku-4.5");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p3", "anthropic/claude-haiku-4.5");
     expect(renderedThinkingLevels()).toEqual(["default"]);
     expect(thinkingRow().hidden).toBe(false);
 
-    select.value = modelOptionValue("p1", "glm-4.6");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p1", "glm-4.6");
     expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
     expect(thinkingRow().hidden).toBe(false);
   });
@@ -516,7 +514,7 @@ describe("内联思考强度滑块端到端走查", () => {
     click(nextModelOption);
     expect(panel.hidden).toBe(false);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(getModelSelect().value).toBe(modelOptionValue("p2", "qwen3.8-max"));
+    expect(chatSessionState.selectedModelValue).toBe(modelOptionValue("p2", "qwen3.8-max"));
     expect(document.activeElement).toBe(nextModelOption);
     expect(list.querySelector(".chat-model-option.is-selected")).toBe(nextModelOption);
     expect(chipLevel.textContent).toBe("Xhigh");
@@ -548,7 +546,6 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
 
     await activateChatTab();
 
-    const select = getModelSelect();
     const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
     const steps: string[] = [];
     function snap(label: string): void {
@@ -579,8 +576,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevel.textContent).toBe("Off");
 
-    select.value = modelOptionValue("p2", "glm-5.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", "glm-5.2");
     expect(renderedThinkingLevels()).toEqual(["default", "off", "high", "max"]);
     expect(getHint().hidden).toBe(true);
     snap("2 qwen/glm-5.2（托管·借词）");
@@ -591,8 +587,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       ["p5", "opencodego/glm-5.2", "glm-5.2"]
     ];
     for (const [index, [providerId, label, model]] of unregistered.entries()) {
-      select.value = modelOptionValue(providerId, model);
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      selectModel(providerId, model);
       expect(renderedThinkingLevels(), label).toEqual(["default", "high", "max"]);
       expect(effectiveThinkingLevels(), label).toEqual(["high"]);
       expect(chipLevel.textContent, label).toBe("High");
@@ -601,8 +596,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       snap(`${3 + index} ${label}（平台形状未登记）`);
     }
 
-    select.value = modelOptionValue("p6", "glm-5.2-air");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p6", "glm-5.2-air");
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
     expect(getHint().hidden).toBe(true);
     expect(chipLevel.textContent).toBe("Off");
@@ -640,7 +634,6 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
 
     await activateChatTab();
 
-    const select = getModelSelect();
     const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
     const thinkingRowValue = document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement;
     const steps: string[] = [];
@@ -678,8 +671,7 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     expect(chipLevel.textContent).toBe("Default");
     snap("3 点回 Default（不干预）");
 
-    select.value = modelOptionValue("p2", ZERO_TIER_MODEL);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", ZERO_TIER_MODEL);
     expect(renderedThinkingLevels()).toEqual(["default"]);
     expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(thinkingRow().hidden).toBe(false);
@@ -687,12 +679,10 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     expect(getHint().hidden).toBe(true);
     snap(`4 openrouter/${ZERO_TIER_MODEL}（零档行，偏好 default）`);
 
-    select.value = modelOptionValue("p1", "deepseek-v4-pro");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p1", "deepseek-v4-pro");
     clickThinking("high");
     expect(chatSessionState.aiThinkingLevel).toBe("high");
-    select.value = modelOptionValue("p2", ZERO_TIER_MODEL);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    selectModel("p2", ZERO_TIER_MODEL);
     expect(chipLevel.textContent).toBe("Default");
     expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(getHint().hidden).toBe(false);

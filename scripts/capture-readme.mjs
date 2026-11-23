@@ -206,7 +206,7 @@ try {
   await click(`document.getElementById('biliscript-reading-tab-chat')`);
   await waitFor("对话恢复", () => pageCdp.evaluate(`document.querySelectorAll('#biliscript-reading-chat-messages .chat-msg-assistant').length > 0`), { timeoutMs: 20000 }).catch(async (error) => {
     console.log(error.message);
-    console.log(await pageCdp.evaluate(`({ text: document.getElementById('biliscript-reading-chat-messages')?.innerText, options: document.getElementById('biliscript-reading-chat-model-select')?.innerText, active: document.getElementById('biliscript-reading-tabbody-chat')?.className })`));
+    console.log(await pageCdp.evaluate(`({ text: document.getElementById('biliscript-reading-chat-messages')?.innerText, selectedModel: document.getElementById('biliscript-reading-chat-model-chip')?.dataset.selectedValue, active: document.getElementById('biliscript-reading-tabbody-chat')?.className })`));
     console.log(await worker.evaluate(`chrome.storage.local.get(['aiProviders','biliscript_ai_conversations_v1'])`));
   });
   await capture("demo-ai-chat.png");

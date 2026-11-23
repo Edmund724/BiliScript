@@ -140,14 +140,24 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     updateSendBtnState();
   }
 
+  function supportsFieldSizing(): boolean {
+    return (
+      typeof CSS !== "undefined" &&
+      typeof CSS.supports === "function" &&
+      CSS.supports("field-sizing", "content")
+    );
+  }
+
   function autosizeInput(): void {
-    input.style.minHeight = "";
-    input.style.overflowY = "hidden";
-    if (input.value !== "") {
-      const naturalHeight = input.scrollHeight;
-      if (naturalHeight > 0) {
-        input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
-        input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
+    if (!supportsFieldSizing()) {
+      input.style.height = "";
+      input.style.overflowY = "hidden";
+      if (input.value !== "") {
+        const naturalHeight = input.scrollHeight;
+        if (naturalHeight > 0) {
+          input.style.height = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
+          input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
+        }
       }
     }
     updateSendBtnState();

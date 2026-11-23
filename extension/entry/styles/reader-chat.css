@@ -2449,11 +2449,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   display: none;
 }
 
-.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .biliscript-reading-chat-intent,
-.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-asr-notice,
-.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-live-status,
-.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-messages,
-.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-footer {
+.biliscript-reading-chat:has(> .chat-history-popover:not([hidden])) > :not(.chat-history-popover) {
   display: none;
 }
 
@@ -2838,7 +2834,10 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 }
 
 .biliscript-reading-chat #biliscript-reading-chat-input {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  min-height: calc(1lh + 4px);
   box-sizing: border-box;
   max-height: 320px;
   padding: 2px 4px;
@@ -2848,9 +2847,16 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   font: inherit;
   font-size: var(--chat-input-font-size, var(--biliscript-font-size-base));
   line-height: var(--chat-input-line-height, 1.45);
+  field-sizing: content;
   resize: none;
   outline: none;
-  overflow-y: hidden;
+  overflow-y: auto;
+}
+
+@supports not (field-sizing: content) {
+  .biliscript-reading-chat #biliscript-reading-chat-input {
+    overflow-y: hidden;
+  }
 }
 
 .biliscript-reading-chat .chat-search-card {

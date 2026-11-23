@@ -71,7 +71,6 @@ ensureReaderChatStyles();
 
 const els = {
   root: document.getElementById(ids.readingChatRoot) as HTMLElement,
-  modelSelect: document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement,
   modelChip: document.getElementById(ids.readingChatModelChip) as HTMLButtonElement,
   modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
   modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
@@ -210,7 +209,7 @@ const explainIntentController = createExplainIntentController({
 });
 
 const imageSupportGate = createImageSupportGate({
-  getSelectedModelValue: () => els.modelSelect.value,
+  getSelectedModelValue: () => modelPanel.getSelectedValue(),
   notify: (message) => showConversationContextNotice(message, 4000)
 });
 
@@ -326,8 +325,8 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
-  getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
-  getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
+  getProviderId: () => parseModelOptionValue(modelPanel.getSelectedValue()).providerId,
+  getSelectedModel: () => parseModelOptionValue(modelPanel.getSelectedValue()).model,
   getInputImages: () => inputImages.getImages(),
   takeInputImages: (snapshot) => {
     const images = inputImages.takeImages(snapshot);
@@ -411,7 +410,6 @@ const popovers = createReaderChatPopovers({
 });
 
 const modelPanel = createReaderChatModelPanel({
-  modelSelect: els.modelSelect,
   chip: els.modelChip,
   chipModel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-model") as HTMLElement,
   chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
@@ -788,7 +786,7 @@ function isConversationViewActive(): boolean {
 }
 
 async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
-  const previousProviderId = String(els.modelSelect?.value || "").trim();
+  const previousProviderId = String(modelPanel.getSelectedValue() || "").trim();
   await modelPanel.reload({ preferredProviderId: previousProviderId || undefined });
   lists.renderHistoryList();
   if (isConversationViewActive() || setupFlow.isViewHeld()) {

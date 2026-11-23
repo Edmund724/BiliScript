@@ -20,6 +20,7 @@ import {
   applyProviderPrefs,
   chatSessionState,
   setAiThinkingLevel,
+  setSelectedModelValue,
   setWebSearchEnabled as setWebSearchEnabledState,
   type ChatSessionProvider
 } from "../chat/chat-state.js";
@@ -50,7 +51,7 @@ const MODEL_CHIP_MIN_WIDTH = 92;
 const MODEL_PANEL_MIN_WIDTH = 240;
 const MODEL_PANEL_MAX_WIDTH = 320;
 
-let modelSelectMeasureCanvas: HTMLCanvasElement | null = null;
+let chipMeasureCanvas: HTMLCanvasElement | null = null;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"
@@ -59,10 +60,10 @@ function prefersReducedMotion(): boolean {
 }
 
 function measureTextWidth(text: string, style?: CSSStyleDeclaration | null): number {
-  if (!modelSelectMeasureCanvas) {
-    modelSelectMeasureCanvas = document.createElement("canvas");
+  if (!chipMeasureCanvas) {
+    chipMeasureCanvas = document.createElement("canvas");
   }
-  const ctx = modelSelectMeasureCanvas.getContext("2d");
+  const ctx = chipMeasureCanvas.getContext("2d");
   if (!ctx) {
     return text.length * 8;
   }
@@ -113,7 +114,6 @@ function resolveOptionValue(
 }
 
 export interface CreateReaderChatModelPanelDeps {
-  modelSelect: HTMLSelectElement;
   chip: HTMLButtonElement;
   chipModel: HTMLElement;
   chipLevel: HTMLElement;
@@ -128,12 +128,15 @@ export interface CreateReaderChatModelPanelDeps {
   hidePanel: () => void;
   openSettings: () => void;
   pickLevel?: (level: ThinkingLevelInput) => void;
+  onSelect?: (value: string) => void;
 }
 
 export interface ReaderChatModelPanel {
   reload: (opts?: { preferredProviderId?: string }) => Promise<void>;
   setThinkingLevel: (level: ThinkingLevelInput) => Promise<void>;
   setWebSearchEnabled: (enabled: boolean) => Promise<void>;
+  getSelectedValue: () => string;
+  selectValue: (value: string) => void;
   hasSelectableModels: () => boolean;
   resolveSetupTarget: () => ChatSetupTarget;
   renderChip: () => void;
@@ -143,7 +146,6 @@ export interface ReaderChatModelPanel {
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
   const {
-    modelSelect,
     chip,
     chipModel,
     chipLevel,
@@ -226,29 +228,20 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
   }
 
-  function syncModelSelectElement(groups: ProviderGroup[]): void {
-    if (!groups.length) {
-      const emptyLabel = chatSessionState.providers.length > 0 ? "未配置模型" : "未配置平台";
-      modelSelect.innerHTML = `<option value="">${emptyLabel}</option>`;
-      modelSelect.disabled = true;
-      modelSelect.style.width = "96px";
-      modelSelect.value = "";
-      return;
+  function syncSelectedValueState(nextValue: string): void {
+    selectedValue = nextValue;
+    setSelectedModelValue(nextValue);
+    if (chip) {
+      if (nextValue) {
+        chip.dataset.selectedValue = nextValue;
+      } else {
+        delete chip.dataset.selectedValue;
+      }
     }
+  }
 
-    modelSelect.innerHTML = groups
-      .map((group) => {
-        const options = group.models
-          .map(
-            (model) =>
-              `<option value="${escapeHtml(buildModelOptionValue(group.providerId, model))}">${escapeHtml(model)}</option>`
-          )
-          .join("");
-        return `<optgroup label="${escapeHtml(group.label)}">${options}</optgroup>`;
-      })
-      .join("");
-    modelSelect.disabled = false;
-    modelSelect.value = selectedValue;
+  function getSelectedValue(): string {
+    return selectedValue;
   }
 
   function syncCatalogFromState({
@@ -270,9 +263,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     lastCatalogKey = catalogKey;
 
     if (!groups.length) {
-      selectedValue = "";
+      syncSelectedValueState("");
       explicitlyCleared = false;
-      syncModelSelectElement(groups);
       return groups;
     }
 
@@ -282,8 +274,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     const firstValue = buildModelOptionValue(groups[0].providerId, groups[0].models[0]);
 
     if (explicitlyCleared && !preferredProviderId) {
-      selectedValue = "";
-      syncModelSelectElement(groups);
+      syncSelectedValueState("");
       return groups;
     }
 
@@ -302,13 +293,12 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       matched = resolveOptionValue(String(candidate || "").trim(), groups, optionValues);
       if (matched) break;
     }
-    selectedValue = matched || firstValue;
+    syncSelectedValueState(matched || firstValue);
     explicitlyCleared = false;
 
     if (persistFallback && selectedValue && selectedValue !== storedSelectedProviderId) {
       setSelectedProvider(selectedValue);
     }
-    syncModelSelectElement(groups);
     return groups;
   }
 
@@ -318,7 +308,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     const computedStyle = chip ? window.getComputedStyle(chip) : null;
     const measuredTextWidth =
       measureTextWidth(model, computedStyle) + (level ? measureTextWidth(level, computedStyle) : 0);
-    const extraBuffer = modelSelectMeasureCanvas?.getContext("2d") ? 48 : 44;
+    const extraBuffer = chipMeasureCanvas?.getContext("2d") ? 48 : 44;
     return Math.ceil(measuredTextWidth + extraBuffer);
   }
 
@@ -441,13 +431,11 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     const normalizedValue = String(nextValue || "");
     const { providerId } = parseModelOptionValue(normalizedValue);
     explicitlyCleared = !providerId;
-    selectedValue = normalizedValue;
-    if (modelSelect.value !== normalizedValue) {
-      modelSelect.value = normalizedValue;
-    }
+    syncSelectedValueState(normalizedValue);
     setSelectedProvider(providerId ? normalizedValue : "");
     syncSelectedModel();
     refreshThinkingUi();
+    deps.onSelect?.(selectedValue);
   }
 
   function renderPanel(): void {
@@ -532,10 +520,6 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
     event.preventDefault();
     focusModelOption(options[nextIndex]);
-  });
-
-  modelSelect.addEventListener("change", () => {
-    applySelectedValue(modelSelect.value);
   });
 
   function commitButton(btn: HTMLElement | null | undefined): void {
@@ -1045,6 +1029,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     reload,
     setThinkingLevel,
     setWebSearchEnabled,
+    getSelectedValue,
+    selectValue: applySelectedValue,
     hasSelectableModels,
     resolveSetupTarget,
     renderChip,

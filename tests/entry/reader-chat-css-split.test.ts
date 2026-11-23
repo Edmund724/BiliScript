@@ -136,8 +136,10 @@ describe("历史内容模式投影", () => {
     expect(end).toBeGreaterThan(start);
     const block = css.slice(start, end);
     expect(block).toContain(":has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row");
-    expect(block).toContain(".chat-history-popover:not([hidden]) ~ .chat-live-status");
-    expect(block).toContain(".chat-history-popover:not([hidden]) ~ .chat-footer");
+    expect(block).toContain(
+      ".biliscript-reading-chat:has(> .chat-history-popover:not([hidden])) > :not(.chat-history-popover)"
+    );
+    expect(block).not.toContain("~");
     expect(block).not.toMatch(/opacity|transition|@starting-style/);
   });
 });

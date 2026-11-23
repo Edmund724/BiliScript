@@ -109,7 +109,6 @@ export function buildChatTabBodyHtml(): string {
                 </svg>
               </button>
             </div>
-            <select id="${ids.readingChatModelSelect}" class="chat-model-select" aria-label="选择模型平台" hidden></select>
           </div>
         </footer>
       </div>

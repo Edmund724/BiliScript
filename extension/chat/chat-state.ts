@@ -58,6 +58,7 @@ type ChatSessionOpenState = {
   asrTranscribingActive: boolean;
   aiThinkingLevel: ChatThinkingLevel;
   webSearchEnabled: boolean;
+  selectedModelValue: string;
 };
 
 export type ChatSessionState = Readonly<ChatSessionGuardedState> &
@@ -86,7 +87,8 @@ function createInitialChatSessionState(): ChatSessionStateWritable {
     },
     asrTranscribingActive: false,
     aiThinkingLevel: "default",
-    webSearchEnabled: false
+    webSearchEnabled: false,
+    selectedModelValue: ""
   };
 }
 
@@ -199,6 +201,10 @@ export function setAiThinkingLevel(level: ChatThinkingLevel): void {
 
 export function setWebSearchEnabled(enabled: boolean): void {
   chatSessionStateMutable.webSearchEnabled = enabled;
+}
+
+export function setSelectedModelValue(value: string): void {
+  chatSessionStateMutable.selectedModelValue = value;
 }
 
 export function noteLiveTabUrl(url: string): void {
