@@ -753,3 +753,107 @@ describe("script-host close", () => {
     });
   });
 });
+
+describe("script-host 活动专题页顶边上移", () => {
+  const FESTIVAL_URL = "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f&biliscript_reader=1";
+
+  it("活动页存在顶栏 .bili-header__bar 与 .grid-right：顶边上移至顶栏底边 + 8px", async () => {
+    await loadModules();
+    setLocationUrl(FESTIVAL_URL);
+    mountAnchor(".bili-header__bar", makeRect(0, 0, 1425, 64));
+    mountAnchor(".grid-right", makeRect(1020, 324, 302, 2000));
+
+    scriptHost.openScriptHost();
+
+    expect(vars(readingView())).toEqual({
+      left: "1380px",
+      top: "72px",
+      width: "540px",
+      height: "696px"
+    });
+  });
+
+  it("活动页向下滚动顶栏滚出视口：顶边钳至 0px 并撑满视口高度", async () => {
+    await loadModules();
+    setLocationUrl(FESTIVAL_URL);
+    mountAnchor(".bili-header__bar", makeRect(0, -300, 1425, 64));
+    mountAnchor(".grid-right", makeRect(1020, 24, 302, 2000));
+
+    scriptHost.openScriptHost();
+
+    expect(vars(readingView())).toEqual({
+      left: "1380px",
+      top: "0px",
+      width: "540px",
+      height: "768px"
+    });
+  });
+
+  it("活动页无右栏锚点降级贴播放器右缘：顶边同样上移至顶栏底边 + 8px", async () => {
+    await loadModules();
+    setLocationUrl(FESTIVAL_URL);
+    mountAnchor(".bili-header__bar", makeRect(0, 0, 1425, 64));
+    mountPlayerChain(makeRect(102, 324, 906, 556));
+
+    scriptHost.openScriptHost();
+
+    expect(vars(readingView())).toEqual({
+      left: "1020px",
+      top: "72px",
+      width: "900px",
+      height: "696px"
+    });
+  });
+
+  it("活动页高优先顶栏 0x0 时顺延命中 #biliMainHeader，无顶栏时回退锚点 top", async () => {
+    await loadModules();
+    setLocationUrl(FESTIVAL_URL);
+    mountAnchor(".bili-header__bar", makeRect(0, 0, 0, 0));
+    const mainHeader = mountAnchor("#biliMainHeader", makeRect(0, 0, 1425, 56));
+    mountAnchor(".grid-right", makeRect(1020, 324, 302, 2000));
+
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({
+      top: "64px",
+      height: "704px"
+    });
+
+    mainHeader.remove();
+    runRafSynchronously();
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({
+      top: "324px",
+      height: "444px"
+    });
+    vi.restoreAllMocks();
+  });
+
+  it("活动页锚点本就高于顶栏底边 + 8px 时取较靠上的锚点 top，不往下压", async () => {
+    await loadModules();
+    setLocationUrl(FESTIVAL_URL);
+    mountAnchor(".bili-header__bar", makeRect(0, 0, 1425, 64));
+    mountAnchor(".grid-right", makeRect(1020, 24, 302, 2000));
+
+    scriptHost.openScriptHost();
+
+    expect(vars(readingView())).toMatchObject({
+      top: "24px",
+      height: "744px"
+    });
+  });
+
+  it("非活动页即使存在 .bili-header__bar 也不上移顶边", async () => {
+    await loadModules();
+    mountAnchor(".bili-header__bar", makeRect(0, 0, 1425, 64));
+    mountAnchor(".right-container-inner", makeRect(1520, 324, 360, 2000));
+
+    scriptHost.openScriptHost();
+
+    expect(vars(readingView())).toEqual({
+      left: "1380px",
+      top: "324px",
+      width: "540px",
+      height: "444px"
+    });
+  });
+});

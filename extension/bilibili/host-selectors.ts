@@ -38,6 +38,7 @@ export const BILI_HOST_SELECTORS = freeze({
     "iframe[src*='bilibili.com/player']"
   ] as const),
   toolbarHosts: freeze(["#arc_toolbar_report", ".video-toolbar-container", ".video-toolbar-content"] as const),
+  topHeaderBars: freeze([".bili-header__bar", ".bili-header", "#biliMainHeader"] as const),
   rightColumnAnchors: freeze([
     ".right-container-inner",
     ".right-container",

@@ -1,4 +1,5 @@
 import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
+import { isFestivalPage } from "../bilibili/video-id-shared.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
 import { activeById, getOpenerDocument, isReaderDetached } from "../shared/active-host.js";
@@ -6,6 +7,8 @@ import { createDisposableContext, type DisposableContext } from "../shared/typed
 import { ids } from "./state.js";
 
 const ANCHOR_SELECTORS = BILI_HOST_SELECTORS.rightColumnAnchors;
+const TOP_HEADER_SELECTORS = BILI_HOST_SELECTORS.topHeaderBars;
+const FESTIVAL_HEADER_GAP = 8;
 
 const ANCHOR_MIN_WIDTH = 280;
 const PANEL_MIN_WIDTH = 300;
@@ -270,7 +273,7 @@ function applyScriptRect(finding?: AnchorFinding): void {
       if (available >= PANEL_MIN_WIDTH) {
         const custom = getCustomPanelWidth();
         const width = custom == null ? available : Math.min(custom, available);
-        const top = clampTopIntoViewport(playerRect.top);
+        const top = resolvePinnedTop(playerRect.top);
         applyPinnedRect(readingView, {
           left,
           top,
@@ -296,11 +299,35 @@ function clampTopIntoViewport(rawTop: number): number {
   );
 }
 
+function findFestivalHeaderBottom(): number | null {
+  if (!isFestivalPage()) {
+    return null;
+  }
+  for (const selector of TOP_HEADER_SELECTORS) {
+    const candidate = document.querySelector(selector);
+    if (!candidate) {
+      continue;
+    }
+    const rect = candidate.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      return rect.bottom;
+    }
+  }
+  return null;
+}
+
+function resolvePinnedTop(rawTop: number): number {
+  const headerBottom = findFestivalHeaderBottom();
+  const effectiveTop =
+    headerBottom === null ? rawTop : Math.min(rawTop, headerBottom + FESTIVAL_HEADER_GAP);
+  return clampTopIntoViewport(effectiveTop);
+}
+
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
   const width = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
   const left = right - width;
-  const top = clampTopIntoViewport(rect.top);
+  const top = resolvePinnedTop(rect.top);
   return { left, top, width, height: window.innerHeight - top };
 }
 
