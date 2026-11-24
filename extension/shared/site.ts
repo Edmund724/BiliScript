@@ -35,7 +35,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
     supportsAsr: false,
     supportsLiveCompanion: false,
     supportsPlayerInterpretOverlay: false,
-    supportsPlayerQuickAiButton: false,
+    supportsPlayerQuickAiButton: true,
     supportsExtraPlaybackRates: false,
     supportsCurrentFrameCapture: true,
     supportsHistoricalFrameCapture: false,

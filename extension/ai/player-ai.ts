@@ -33,6 +33,13 @@ import {
   findPlayerHostFromVideo,
   findPlayerHostWithVideoArea
 } from "../bilibili/host-adapter.js";
+import { detectActiveSite, getSiteCapabilities, type SiteCapabilities } from "../shared/site.js";
+import {
+  YOUTUBE_PLAYER_SELECTORS,
+  findYoutubePlayerHost,
+  getYoutubeVideoElement,
+  isYoutubeWatchDocument
+} from "../youtube/host-adapter.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 
 ensurePlayerAiStyles();
@@ -165,11 +172,19 @@ const PLAYER_AI_HIT_SIZE_PX = 36;
 const PLAYER_AI_ICON_SIZE_PX = 26;
 const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 
+function isYoutubeSite(): boolean {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube";
+}
+
+function getActiveSiteCapabilities(): SiteCapabilities {
+  return getSiteCapabilities(isYoutubeSite() ? "youtube" : "bilibili");
+}
+
 function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
   if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     return true;
   } else {
-    if (!supportsLiveCompanion()) {
+    if (!supportsLiveCompanion() || !getActiveSiteCapabilities().supportsLiveCompanion) {
       return true;
     }
     const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
@@ -194,6 +209,9 @@ function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
 }
 
 function isPlayerInterpretQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  if (!getActiveSiteCapabilities().supportsPlayerInterpretOverlay) {
+    return true;
+  }
   const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
   const interpretButton = document.getElementById("biliscript-player-interpret-quick-action");
   if (!interpretWrap || !interpretButton || !interpretWrap.isConnected || !interpretWrap.contains(interpretButton)) {
@@ -290,7 +308,7 @@ export function startPlayerAiQuickActionObserver(): void {
   const scope = createDisposableContext();
   playerAiObserverScope = scope;
   observePlayerContainer({
-    containerSelector: DEFAULT_PLAYER_CONTAINER_SELECTOR,
+    containerSelector: isYoutubeSite() ? YOUTUBE_PLAYER_SELECTORS : DEFAULT_PLAYER_CONTAINER_SELECTOR,
     containerObserveOptions: {
       childList: true,
       subtree: true,
@@ -376,7 +394,7 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     document.getElementById("biliscript-player-live-quick-action")?.remove();
     return;
   } else {
-    if (!supportsLiveCompanion()) {
+    if (!supportsLiveCompanion() || !getActiveSiteCapabilities().supportsLiveCompanion) {
       document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
       document.getElementById("biliscript-player-live-quick-action")?.remove();
       return;
@@ -425,6 +443,12 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
 }
 
 function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
+  if (!getActiveSiteCapabilities().supportsPlayerInterpretOverlay) {
+    closePlayerInterpretMenuLazy();
+    document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
+    document.getElementById("biliscript-player-interpret-quick-action")?.remove();
+    return;
+  }
   const existing = document.getElementById("biliscript-player-interpret-quick-action");
   let button = existing instanceof HTMLButtonElement ? existing : null;
   const existingWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
@@ -483,6 +507,7 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
     button.setAttribute("aria-label", "用 AI 分析这期视频");
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
+    button.addEventListener("dblclick", stopPlayerAiButtonPropagation, true);
   }
 
   if (button.parentElement !== wrap) {
@@ -512,11 +537,17 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
 }
 
 function syncPlayerAiQuickActionButton(): void {
+  const youtubeSite = isYoutubeSite();
+  const siteAllowed =
+    getActiveSiteCapabilities().supportsPlayerQuickAiButton &&
+    (!youtubeSite || isYoutubeWatchDocument());
   const enabled =
+    siteAllowed &&
     Boolean(state.settings?.enablePlayerAiQuickAction) &&
     Date.now() >= playerAiState.playerAiQuickActionSuppressedUntil;
   const calibrated = playerAiSubtitleControlCalibrated;
-  const hasSubtitleControl = enabled && !calibrated ? Boolean(findPlayerSubtitleControlNode()) : false;
+  const hasSubtitleControl =
+    enabled && !calibrated && !youtubeSite ? Boolean(findPlayerSubtitleControlNode()) : false;
   const mountedStable = enabled ? isPlayerAiQuickActionMountedStable() : false;
   const host = enabled ? findPlayerAiQuickActionHost() : null;
 
@@ -531,6 +562,7 @@ function syncPlayerAiQuickActionButton(): void {
   switch (decision) {
     case "none":
       removePlayerAiQuickActionButton();
+      resetPlayerAiQuickActionRetryCount();
       return;
 
     case "refresh-visuals":
@@ -675,7 +707,30 @@ function isPlayerSubtitleControlNode(node: unknown): boolean {
   return /字幕|subtitle/i.test(text);
 }
 
+function findYoutubePlayerAiQuickActionHost(): HTMLElement | null {
+  const direct = findYoutubePlayerHost(document);
+  if (direct && isVisibleReaderControl(direct)) {
+    return direct;
+  }
+
+  const video = getYoutubeVideoElement(document);
+  if (!video) {
+    return null;
+  }
+
+  const host = video.closest<HTMLElement>("#movie_player, ytd-player");
+  if (host && isVisibleReaderControl(host)) {
+    return host;
+  }
+
+  return null;
+}
+
 function findPlayerAiQuickActionHost(): HTMLElement | null {
+  if (isYoutubeSite()) {
+    return findYoutubePlayerAiQuickActionHost();
+  }
+
   const direct = findPlayerHostWithVideoArea(document, (node) => isVisibleReaderControl(node));
   if (direct) {
     return direct;
@@ -692,6 +747,11 @@ function findPlayerAiQuickActionHost(): HTMLElement | null {
   }
 
   return null;
+}
+
+function stopPlayerAiButtonPropagation(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function syncPlayerAiQuickActionVisuals(button: HTMLElement): void {
@@ -760,6 +820,9 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
 async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise<void> {
   event.preventDefault();
   event.stopPropagation();
+  if (!getActiveSiteCapabilities().supportsPlayerInterpretOverlay) {
+    return;
+  }
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
   if (!button || button.disabled) return;
   const wrap = button.parentElement;
@@ -774,7 +837,7 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
   if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     return;
   } else {
-    if (!supportsLiveCompanion()) {
+    if (!supportsLiveCompanion() || !getActiveSiteCapabilities().supportsLiveCompanion) {
       return;
     }
     liveQuickActionTargetButton =

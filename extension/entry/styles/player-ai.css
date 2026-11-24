@@ -18,6 +18,10 @@
   z-index: 30;
 }
 
+#movie_player > .biliscript-player-ai-wrap {
+  z-index: 40;
+}
+
 .biliscript-player-ai-wrap.is-active,
 .biliscript-player-ai-wrap:hover,
 .biliscript-player-ai-wrap:focus-within {

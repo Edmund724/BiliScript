@@ -1334,7 +1334,7 @@ export async function runYoutubeSmoke({
         const heading = document.getElementById("chatPreferencesHeading")?.textContent?.trim() || "";
         const hasWebSpeech = typeof window.speechSynthesis?.speak === "function" && typeof window.speechSynthesis?.getVoices === "function";
         return {
-          aiBtnSectionGated: Boolean(aiBtnSection && aiBtnSection.hidden && aiBtnSection.getAttribute("aria-hidden") === "true"),
+          aiBtnSectionVisible: Boolean(aiBtnSection && !aiBtnSection.hidden && aiBtnSection.getAttribute("aria-hidden") !== "true"),
           hasWebSpeech,
           speechRowHidden: Boolean(speechRow?.hidden),
           heading
@@ -1392,7 +1392,7 @@ export async function runYoutubeSmoke({
     const pagePlayerGating = await client.executeSync(
       `
       return {
-        noPlayerQuickAi: !document.getElementById("biliscript-player-ai-quick-action"),
+        hasPlayerQuickAi: Boolean(document.getElementById("biliscript-player-ai-quick-action")),
         noPlayerLiveQuick: !document.getElementById("biliscript-player-live-quick-action"),
         noPlayerInterpretQuick: !document.getElementById("biliscript-player-interpret-quick-action")
       };
@@ -1427,12 +1427,11 @@ export async function runYoutubeSmoke({
         rootGatingState.subtitleVisible &&
         rootGatingState.aiPromptVisible &&
         rootGatingState.appearanceVisible &&
-        aiPromptGatingState?.aiBtnSectionGated &&
+        aiPromptGatingState?.aiBtnSectionVisible &&
         appearanceGatingState?.extraRatesGated &&
         subtitleSettingsState?.visible &&
         subtitleSettingsState.hasIndexTranslate &&
-        pagePlayerGating?.noPlayerQuickAi &&
-        pagePlayerGating.noPlayerLiveQuick &&
+        pagePlayerGating?.noPlayerLiveQuick &&
         pagePlayerGating.noPlayerInterpretQuick
       ),
       {

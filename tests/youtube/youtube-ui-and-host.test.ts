@@ -435,8 +435,8 @@ describe("YouTube script-host 右栏锚定、剧场降级与实时重排", () =>
   });
 });
 
-describe("YouTube 设置抽屉 5 项站点门控与进入阻断", () => {
-  it("YouTube 页面隐藏 5 项、阻断入口跳转并保留 Index-Translate 与通用设置", async () => {
+describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
+  it("YouTube 页面隐藏 4 项 B 站专属设置、保留播放器快捷 AI 按钮与 Index-Translate", async () => {
     const { clipState, transitionReaderShell } = await import("../../extension/core/state.js");
     const { requestUiCommand } = await import("../../extension/reader/reader-bus.js");
     const { isSettingsViewAllowed } = await import("../../extension/ui/settings/navigation.js");
@@ -453,7 +453,7 @@ describe("YouTube 设置抽屉 5 项站点门控与进入阻断", () => {
     expect(document.getElementById("openLiveSettingsBtn")!.hidden).toBe(true);
     expect(document.getElementById("openAsrSettingsBtn")!.hidden).toBe(true);
     expect(document.getElementById("openAgentSettingsBtn")!.hidden).toBe(true);
-    expect(host.querySelector<HTMLElement>('[data-settings-section="ai-button"]')!.hidden).toBe(true);
+    expect(host.querySelector<HTMLElement>('[data-settings-section="ai-button"]')!.hidden).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-settings-item="extra-playback-rates"]')!.hidden).toBe(true);
 
     expect(host.querySelector<HTMLElement>("#autoOpenReader")!.closest<HTMLElement>(".biliscript-toggle-row")!.hidden).toBe(false);
@@ -462,7 +462,7 @@ describe("YouTube 设置抽屉 5 项站点门控与进入阻断", () => {
     expect(
       host.querySelector('#subtitleTranslateSource option[value="bilibili-index-translate"]')
     ).not.toBeNull();
-    expect(document.getElementById("aiPromptSummary")!.textContent).not.toContain("播放器快捷开");
+    expect(document.getElementById("aiPromptSummary")!.textContent).toContain("播放器快捷开");
 
     expect(isSettingsViewAllowed("live")).toBe(false);
     expect(isSettingsViewAllowed("asr")).toBe(false);
@@ -807,5 +807,90 @@ describe("YouTube 视频绑定、PageContext、独立窗口 SPA 换片保持与�
     expect(document.body.getAttribute("data-biliscript-reader-mode")).toBeNull();
 
     scriptBtnMod.removeScriptButton();
+  });
+});
+
+describe("YouTube player-ai 快捷按钮挂载、隔离、点击总结与 SPA 卸载", () => {
+  it("在 #movie_player 挂载 AI 快捷按钮且不挂载 live/interpret，支持悬停显隐、防双击冒泡、退全屏并发送 player-ai-quick-action", async () => {
+    const { clipState, state } = await import("../../extension/core/state.js");
+    const playerAi = await import("../../extension/ai/player-ai.js");
+    const { player, video } = makeYoutubeWatchDom();
+    mockElementRect(player, makeRect(24, 56, 960, 540));
+    mockElementRect(video, makeRect(24, 56, 960, 540));
+    stubSettingsChromeMessages({ enablePlayerAiQuickAction: true });
+
+    clipState.setSite("youtube");
+    state.setSettings({
+      ...state.settings,
+      enablePlayerAiQuickAction: true
+    });
+
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 1;
+    });
+
+    const playerClickSpy = vi.fn();
+    const playerDblClickSpy = vi.fn();
+    player.addEventListener("click", playerClickSpy);
+    player.addEventListener("dblclick", playerDblClickSpy);
+
+    const exitFullscreenMock = vi.fn(async () => {});
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => player
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: exitFullscreenMock
+    });
+
+    try {
+      playerAi.startPlayerAiQuickAction();
+
+      const button = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement | null;
+      const wrap = button?.closest(".biliscript-player-ai-wrap") as HTMLElement | null;
+      expect(button).not.toBeNull();
+      expect(wrap).not.toBeNull();
+      expect(wrap?.parentElement).toBe(player);
+      expect(document.getElementById("biliscript-player-live-quick-action")).toBeNull();
+      expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();
+
+      player.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      expect(wrap?.classList.contains("is-active")).toBe(true);
+      player.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+      expect(wrap?.classList.contains("is-active")).toBe(false);
+
+      button!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      expect(playerDblClickSpy).not.toHaveBeenCalled();
+
+      (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>).mockClear();
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => {
+        expect(getSentRuntimeMessageTypes()).toContain("player-ai-quick-action");
+      });
+      expect(playerClickSpy).not.toHaveBeenCalled();
+      expect(exitFullscreenMock).toHaveBeenCalledTimes(1);
+
+      setTestUrl(YOUTUBE_HOME);
+      playerAi.schedulePlayerAiQuickActionSync(0);
+      expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
+
+      setTestUrl(YOUTUBE_WATCH_B);
+      player.closest("ytd-watch-flexy")!.setAttribute("hidden", "");
+      playerAi.schedulePlayerAiQuickActionSync(0);
+      expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
+
+      player.closest("ytd-watch-flexy")!.removeAttribute("hidden");
+      playerAi.schedulePlayerAiQuickActionSync(0);
+      expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
+    } finally {
+      playerAi.stopPlayerAiQuickAction();
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => null
+      });
+      rafSpy.mockRestore();
+    }
   });
 });

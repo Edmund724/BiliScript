@@ -126,8 +126,8 @@ _Avoid_: 宿主、播放器宿主（那是 video-probe 的概念）
 _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 
 **播放器快捷按钮**:
-播放器控制条上唤起 AI 快捷追问的按钮（player-ai 链）。宿主门（`.bpx-player-container` 优先链）过即挂正式位，不等字幕控件——字幕控件门自 2026-09 起软化为校准信号：控件首次就绪只触发一次性位置复校（防控制条水合改变容器几何导致漂移），复校只跑一次；挂早被 B 站水合冲掉走现有自愈链（容器 observer → rAF 快车道 → 退避兜底）重挂，不新增降级位（用户不接受按钮位置跳变）。
-代码名：`player-ai.ts` / `findPlayerAiQuickActionHost` / `findPlayerSubtitleControlNode`（校准探针，非定位/行为依赖）/ `playerAiSubtitleControlCalibrated`
+播放器右侧居中位（`right: 14px; top: 50%`）唤起 AI 快捷总结的按钮（player-ai 链），同时覆盖 B 站（`.bpx-player-container` 优先链）与 YouTube 桌面端 `/watch` 页（`#movie_player`）。宿主门过即挂正式位，不等字幕控件——B 站字幕控件门软化为一次性校准信号（防控制条水合改变容器几何导致漂移）；挂早被页面水合冲掉走现有自愈链（容器 observer → rAF 快车道 → 退避兜底）重挂，不新增降级位。YouTube 仅挂载 AI 快捷按钮，按站点能力门控隔离 B 站专属的实时伴看与字幕同传控制栏按钮。
+代码名：`player-ai.ts` / `findPlayerAiQuickActionHost` / `findYoutubePlayerHost` / `findPlayerSubtitleControlNode`（B 站校准探针，非定位/行为依赖）/ `playerAiSubtitleControlCalibrated`
 _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
 **明暗模式**:

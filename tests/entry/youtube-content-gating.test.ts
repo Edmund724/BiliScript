@@ -128,17 +128,19 @@ afterEach(() => {
 });
 
 describe("YouTube 内容脚本启动门控与 Agent 桥接懒加载", () => {
-  it("YouTube watch 页启动同步 site=youtube 且门控跳过 player-ai 与 playback-rate，仅加载 script-button", async () => {
+  it("YouTube watch 页启动同步 site=youtube，加载 script-button 与 player-ai，门控跳过 playback-rate", async () => {
     setCrossOriginLocation(YT_WATCH_URL);
     stubYoutubeRuntime();
 
     const { state } = await import("../../extension/core/state.js");
     await import("../../extension/entry/content.js");
-    await vi.waitFor(() => expect(mocks.loadScriptButton).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => {
+      expect(mocks.loadScriptButton).toHaveBeenCalledTimes(1);
+      expect(mocks.loadPlayerAi).toHaveBeenCalledTimes(1);
+    });
 
     expect(state.clip.site).toBe("youtube");
     expect(state.clip.currentClipSignature).toBe("youtube|dQw4w9WgXcQ|yt");
-    expect(mocks.loadPlayerAi).not.toHaveBeenCalled();
     expect(mocks.loadPlaybackRate).not.toHaveBeenCalled();
   });
 

@@ -745,6 +745,44 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
   }, { timeoutMs: 8000, intervalMs: 200 });
   check("offline.1-actions-button-self-heal", Boolean(healed), healed);
 
+  const playerAiInfo = await waitFor("youtube player-ai quick button mounted in #movie_player", async () => {
+    return page.cdp.evaluate(`(() => {
+      const player = document.querySelector("ytd-watch-flexy #movie_player");
+      const btn = document.getElementById("biliscript-player-ai-quick-action");
+      const wrap = btn?.closest(".biliscript-player-ai-wrap");
+      if (!player || !btn || !wrap || wrap.parentElement !== player) return null;
+      player.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const pr = player.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      const cs = getComputedStyle(wrap);
+      return {
+        active: wrap.classList.contains("is-active"),
+        zIndex: cs.zIndex,
+        noLive: !document.getElementById("biliscript-player-live-quick-action"),
+        noInterpret: !document.getElementById("biliscript-player-interpret-quick-action"),
+        rightGap: +(pr.right - wr.right).toFixed(2),
+        cyDelta: +(((wr.top + wr.bottom) / 2) - ((pr.top + pr.bottom) / 2)).toFixed(2),
+        w: +wr.width.toFixed(2),
+        h: +wr.height.toFixed(2)
+      };
+    })()`);
+  }, { timeoutMs: 8000, intervalMs: 150 });
+  check(
+    "offline.1-player-ai-button-mount-and-position",
+    Boolean(
+      playerAiInfo &&
+        playerAiInfo.active &&
+        playerAiInfo.zIndex === "40" &&
+        playerAiInfo.noLive &&
+        playerAiInfo.noInterpret &&
+        Math.abs(playerAiInfo.rightGap - 14) <= 10 &&
+        Math.abs(playerAiInfo.cyDelta) <= 2 &&
+        playerAiInfo.w === 36 &&
+        playerAiInfo.h === 36
+    ),
+    playerAiInfo
+  );
+
   const openClick = await clickInTarget(page.cdp, null, "yt-script-button", "document.getElementById('biliscript-script-button')");
   check("offline.open-reader-click", openClick.ok, openClick);
 
@@ -1046,13 +1084,13 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
 
   const isGated = (entry) => Boolean(entry && entry.hidden === true && entry.ariaHidden === "true" && entry.w === 0 && entry.h === 0);
   check(
-    "offline.5-settings-hides-5-bili-only-and-keeps-index-translate",
+    "offline.5-settings-hides-4-bili-only-and-keeps-player-ai-and-index-translate",
     Boolean(
       openSettingsClick.ok &&
         isGated(rootGating.asrBtn) &&
         isGated(rootGating.liveBtn) &&
         isGated(rootGating.agentBtn) &&
-        isGated(playerAiSection) &&
+        Boolean(playerAiSection && !playerAiSection.hidden && playerAiSection.w > 0 && playerAiSection.h > 0) &&
         isGated(extraRatesRow) &&
         indexTranslateState.subVisible &&
         indexTranslateState.hasIndexOption &&
@@ -1236,8 +1274,52 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
     offlineFrame
   );
 
+  await clickInTarget(page.cdp, null, "close-reader-before-player-ai", "document.getElementById('biliscript-reading-close-btn')");
+  await waitFor("reader closed before player-ai click", async () => {
+    return page.cdp.evaluate(`(() => {
+      const v = document.getElementById("biliscript-reading-view");
+      return !v || !v.classList.contains("open");
+    })()`);
+  }, { timeoutMs: 8000, intervalMs: 150 });
+
+  await waitFor("player-ai button ready after close", async () => {
+    return page.cdp.evaluate(`(() => {
+      window.__BILISCRIPT_FORCE_SYNC_PLAYER_AI__?.();
+      const player = document.querySelector("ytd-watch-flexy #movie_player");
+      const btn = document.getElementById("biliscript-player-ai-quick-action");
+      const wrap = btn?.closest(".biliscript-player-ai-wrap");
+      if (!player || !btn || !wrap) return false;
+      player.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const cs = getComputedStyle(wrap);
+      return wrap.classList.contains("is-active") && cs.pointerEvents !== "none";
+    })()`);
+  }, { timeoutMs: 8000, intervalMs: 200 });
+
+  const playerAiClick = await clickInTarget(
+    page.cdp,
+    null,
+    "yt-player-ai-quick-action",
+    "document.getElementById('biliscript-player-ai-quick-action')"
+  );
+  const playerAiOpenedChat = await waitFor("player-ai click opens reader chat tab", async () => {
+    return page.cdp.evaluate(`(() => {
+      const v = document.getElementById("biliscript-reading-view");
+      const chatTab = document.getElementById("biliscript-reading-tab-chat");
+      if (!v || !v.classList.contains("open") || !chatTab) return false;
+      const selected = chatTab.getAttribute("aria-selected") === "true" || chatTab.classList.contains("active");
+      return selected ? { open: true, chatSelected: true } : false;
+    })()`);
+  }, { timeoutMs: 10000, intervalMs: 150 });
+  check(
+    "offline.8-player-ai-click-opens-chat-summary",
+    Boolean(playerAiClick.ok && playerAiOpenedChat?.open && playerAiOpenedChat?.chatSelected),
+    { playerAiClick, playerAiOpenedChat }
+  );
+
   evidence.offline = {
     btnInfo,
+    playerAiInfo,
+    playerAiOpenedChat,
     docked,
     theaterFloat,
     fullBleedFloat,
