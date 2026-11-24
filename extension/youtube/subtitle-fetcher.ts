@@ -162,6 +162,14 @@ function findMatchingObservedPot(
   return fallbackPot;
 }
 
+export function hasMatchingYoutubeObservedPot(
+  observedUrls: readonly string[] | null | undefined,
+  videoId: string,
+  languageCode = ""
+): boolean {
+  return findMatchingObservedPot(observedUrls, videoId, languageCode) !== "";
+}
+
 export function resolveYoutubeTimedtextRequestUrl({
   baseUrl,
   videoId = "",
@@ -507,6 +515,36 @@ function assertWebInnertubeContext(context: Record<string, unknown> | null | und
   return context;
 }
 
+function readContextClientString(client: Record<string, unknown> | null, key: string): string {
+  if (!client) {
+    return "";
+  }
+  const raw = client[key];
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function buildWebInnertubeHeaders(context: Record<string, unknown>): Record<string, string> {
+  const rawClient = (context as { client?: unknown }).client;
+  const client =
+    rawClient && typeof rawClient === "object" && !Array.isArray(rawClient)
+      ? (rawClient as Record<string, unknown>)
+      : null;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Youtube-Client-Name": "1",
+    "X-Origin": "https://www.youtube.com"
+  };
+  const clientVersion = readContextClientString(client, "clientVersion");
+  if (clientVersion) {
+    headers["X-Youtube-Client-Version"] = clientVersion;
+  }
+  const visitorData = readContextClientString(client, "visitorData");
+  if (visitorData) {
+    headers["X-Goog-Visitor-Id"] = visitorData;
+  }
+  return headers;
+}
+
 async function readResponseJsonSafely(response: Awaited<ReturnType<YoutubeSameOriginFetch>>): Promise<{
   ok: boolean;
   status: number;
@@ -606,9 +644,7 @@ export async function fetchYoutubeGetTranscript({
     method: "POST",
     credentials: "include",
     cache: "no-store",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: buildWebInnertubeHeaders(safeContext),
     body: JSON.stringify({
       context: safeContext,
       params: cleanParams

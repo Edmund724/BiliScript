@@ -32,11 +32,15 @@ let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let state: (typeof import("../../extension/core/state.js"))["state"];
 let transitionReaderShell: (typeof import("../../extension/core/state.js"))["transitionReaderShell"];
 let clearYoutubeGatewayCacheForTests: (typeof import("../../extension/youtube/gateway.js"))["clearYoutubeGatewayCacheForTests"];
+let fetchYoutubeSubtitleBody: (typeof import("../../extension/youtube/gateway.js"))["fetchYoutubeSubtitleBody"];
+let fetchYoutubeVideoBundle: (typeof import("../../extension/youtube/gateway.js"))["fetchYoutubeVideoBundle"];
+let getCachedYoutubeSnapshot: (typeof import("../../extension/youtube/gateway.js"))["getCachedYoutubeSnapshot"];
 let readYoutubePageSnapshot: (typeof import("../../extension/youtube/main-world-bridge.js"))["readYoutubePageSnapshot"];
 let setYoutubeMainWorldReaderForTests: (typeof import("../../extension/youtube/main-world-bridge.js"))["setYoutubeMainWorldReaderForTests"];
 let setYoutubeSameOriginFetchForTests: (typeof import("../../extension/youtube/main-world-bridge.js"))["setYoutubeSameOriginFetchForTests"];
 let YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE"];
 let YoutubeSubtitleError: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["YoutubeSubtitleError"];
+let fetchYoutubeGetTranscript: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeGetTranscript"];
 let fetchYoutubeSubtitleTrackBody: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeSubtitleTrackBody"];
 let mapYoutubeCaptionTracks: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["mapYoutubeCaptionTracks"];
 let parseYoutubeGetTranscriptSubtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeGetTranscriptSubtitles"];
@@ -277,12 +281,18 @@ beforeEach(async () => {
   ]);
 
   ({ clipState, state, transitionReaderShell } = coreStateMod);
-  ({ clearYoutubeGatewayCacheForTests } = ytGatewayMod);
+  ({
+    clearYoutubeGatewayCacheForTests,
+    fetchYoutubeSubtitleBody,
+    fetchYoutubeVideoBundle,
+    getCachedYoutubeSnapshot
+  } = ytGatewayMod);
   ({ readYoutubePageSnapshot, setYoutubeMainWorldReaderForTests, setYoutubeSameOriginFetchForTests } =
     ytBridgeMod);
   ({
     YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE,
     YoutubeSubtitleError,
+    fetchYoutubeGetTranscript,
     fetchYoutubeSubtitleTrackBody,
     mapYoutubeCaptionTracks,
     parseYoutubeGetTranscriptSubtitles,
@@ -507,6 +517,160 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     ).toContain("fmt=json3");
     expect(parseYoutubeJson3Subtitles({})).toEqual([]);
     expect(parseYoutubeGetTranscriptSubtitles({})).toEqual([]);
+  });
+
+  it("get_transcript 请求体与请求头同时携带 WEB 上下文及标准请求头，且继续拒绝 ANDROID / IOS / MWEB", async () => {
+    const transcriptFixture = readYoutubeFixture<unknown>("get-transcript.json");
+    const fetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeJsonFetchResponse(transcriptFixture, 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(transcriptFixture, 200));
+
+    const webContextWithVisitor = {
+      client: {
+        clientName: "WEB",
+        clientVersion: "2.20260315.01.00",
+        visitorData: "Cgt2aXNpdG9yMTIz%3D"
+      }
+    };
+
+    const fullRes = await fetchYoutubeGetTranscript({
+      innertubeContext: webContextWithVisitor,
+      innertubeApiKey: "AIzaSanitizedTestKey",
+      transcriptParams: "PARAMS_WITH_HEADERS",
+      fetchFn: fetchMock
+    });
+
+    expect(fullRes.items).toHaveLength(3);
+    const [fullUrl, fullInit] = fetchMock.mock.calls[0];
+    expect(fullUrl).toBe(
+      "https://www.youtube.com/youtubei/v1/get_transcript?key=AIzaSanitizedTestKey"
+    );
+    expect(fullInit?.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-Youtube-Client-Name": "1",
+      "X-Origin": "https://www.youtube.com",
+      "X-Youtube-Client-Version": "2.20260315.01.00",
+      "X-Goog-Visitor-Id": "Cgt2aXNpdG9yMTIz%3D"
+    });
+    expect(JSON.parse(String(fullInit?.body || "{}"))).toEqual({
+      context: webContextWithVisitor,
+      params: "PARAMS_WITH_HEADERS"
+    });
+
+    const minimalWebContext = {
+      client: {
+        clientName: "WEB",
+        clientVersion: "   "
+      }
+    };
+    await fetchYoutubeGetTranscript({
+      innertubeContext: minimalWebContext,
+      innertubeApiKey: "AIzaSanitizedTestKey",
+      transcriptParams: "PARAMS_MINIMAL",
+      fetchFn: fetchMock
+    });
+    const [, minimalInit] = fetchMock.mock.calls[1];
+    expect(minimalInit?.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-Youtube-Client-Name": "1",
+      "X-Origin": "https://www.youtube.com"
+    });
+
+    const rejectedFetchMock = vi.fn<YoutubeSameOriginFetch>();
+    await expect(
+      fetchYoutubeGetTranscript({
+        innertubeContext: { client: { clientName: "ANDROID", clientVersion: "19.01.1" } },
+        transcriptParams: "PARAMS_DISALLOWED",
+        fetchFn: rejectedFetchMock
+      })
+    ).rejects.toMatchObject({ code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE });
+    await expect(
+      fetchYoutubeGetTranscript({
+        innertubeContext: { client: { clientName: "IOS", clientVersion: "19.01.1" } },
+        transcriptParams: "PARAMS_DISALLOWED",
+        fetchFn: rejectedFetchMock
+      })
+    ).rejects.toMatchObject({ code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE });
+    await expect(
+      fetchYoutubeGetTranscript({
+        innertubeContext: { client: { clientName: "MWEB", clientVersion: "2.20260315.01.00" } },
+        transcriptParams: "PARAMS_DISALLOWED",
+        fetchFn: rejectedFetchMock
+      })
+    ).rejects.toMatchObject({ code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE });
+    expect(rejectedFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("首次快照无 pot 失败后，第二次快照包含新 pot 时点击重试即可命中 Tier 1 timedtext 成功", async () => {
+    setLocationUrl("https://www.youtube.com/watch?v=ytDemo01234");
+    const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");
+    const baseSnapshot = buildSnapshotFromFixtures({
+      captionTracks: [buildSnapshotFromFixtures().captionTracks[0]]
+    });
+    const snapshotWithoutPot: YoutubePageSnapshot = {
+      ...baseSnapshot,
+      observedTimedtextUrls: [
+        "https://www.youtube.com/api/timedtext?v=OTHERVIDEO1&lang=en&pot=WRONG_VIDEO_POT"
+      ]
+    };
+    const snapshotWithPot: YoutubePageSnapshot = {
+      ...baseSnapshot,
+      observedTimedtextUrls: [
+        "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&pot=NEW_RETRY_POT"
+      ]
+    };
+
+    const reader = vi.fn<() => Promise<YoutubePageSnapshot>>().mockResolvedValue(snapshotWithoutPot);
+    setYoutubeMainWorldReaderForTests(reader);
+
+    const fetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
+      .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200));
+    setYoutubeSameOriginFetchForTests(fetchMock);
+
+    await fetchYoutubeVideoBundle("ytDemo01234", { retryDelayMs: 0 });
+    await expect(
+      fetchYoutubeSubtitleBody({
+        videoId: "ytDemo01234",
+        trackUrl: baseSnapshot.captionTracks[0].baseUrl,
+        lang: "en"
+      })
+    ).rejects.toMatchObject({ code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE });
+    expect(getCachedYoutubeSnapshot("ytDemo01234")?.observedTimedtextUrls).toEqual(
+      snapshotWithoutPot.observedTimedtextUrls
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    reader.mockResolvedValue(snapshotWithPot);
+    const readerCallsBeforeRetry = reader.mock.calls.length;
+
+    const retryItems = await fetchYoutubeSubtitleBody({
+      videoId: "ytDemo01234",
+      trackUrl: baseSnapshot.captionTracks[0].baseUrl,
+      lang: "en"
+    });
+
+    expect(retryItems).toHaveLength(4);
+    expect(reader.mock.calls.length).toBeGreaterThan(readerCallsBeforeRetry);
+    expect(getCachedYoutubeSnapshot("ytDemo01234")?.observedTimedtextUrls).toEqual(
+      snapshotWithPot.observedTimedtextUrls
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const retryRequestUrl = new URL(fetchMock.mock.calls[2][0]);
+    expect(retryRequestUrl.pathname).toContain("/api/timedtext");
+    expect(retryRequestUrl.searchParams.get("pot")).toBe("NEW_RETRY_POT");
+
+    await fetcher.refreshClip({ forceRefresh: true });
+    expect(state.clip.subtitleFetchState).toBe("ready");
+    expect(state.clip.noSubtitleReason).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const refreshRetryUrl = new URL(fetchMock.mock.calls[3][0]);
+    expect(refreshRetryUrl.pathname).toContain("/api/timedtext");
+    expect(refreshRetryUrl.searchParams.get("pot")).toBe("NEW_RETRY_POT");
   });
 });
 
@@ -769,6 +933,80 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     showNoSubtitleNotice("youtube-captions-unavailable");
     expect(noticeEl.hidden).toBe(false);
     expect(noticeEl.textContent).toContain("CC");
+  });
+
+  it("31 轨多语言视频双路不可用时经 tryLoadSubtitleCandidates / fetcher 立即熔断，仅单轨错误继续下一候选", async () => {
+    const langs31 = [
+      "en", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es", "pt", "ru",
+      "it", "nl", "pl", "tr", "ar", "hi", "th", "vi", "id", "ms",
+      "sv", "no", "da", "fi", "cs", "hu", "ro", "el", "uk", "he", "bg"
+    ];
+    const tracks31 = langs31.map((languageCode, idx) => ({
+      baseUrl: `https://www.youtube.com/api/timedtext?v=yt31Tracks1&lang=${languageCode}`,
+      languageCode,
+      name: `Language ${idx + 1}`,
+      vssId: `.${languageCode}`
+    }));
+    const snapshot31 = buildSnapshotFromFixtures({
+      videoId: "yt31Tracks1",
+      captionTracks: tracks31
+    });
+
+    setLocationUrl("https://www.youtube.com/watch?v=yt31Tracks1");
+    setYoutubeMainWorldReaderForTests(async () => snapshot31);
+    const refreshFetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500));
+    setYoutubeSameOriginFetchForTests(refreshFetchMock);
+
+    await fetcher.refreshClip();
+
+    expect(state.clip.subtitles).toHaveLength(31);
+    expect(state.clip.subtitleFetchState).toBe("empty");
+    expect(state.clip.noSubtitleReason).toBe("youtube-captions-unavailable");
+    expect(refreshFetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      refreshFetchMock.mock.calls.filter(([url]) => url.includes("/api/timedtext"))
+    ).toHaveLength(1);
+    expect(
+      refreshFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_transcript"))
+    ).toHaveLength(1);
+
+    const directFetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500));
+    setYoutubeSameOriginFetchForTests(directFetchMock);
+    clipState.setSite("youtube");
+    clipState.setBvid("yt31Tracks1");
+    clipState.setCid(YOUTUBE_UNIT_CID);
+    clipState.setVideoDuration(212);
+    clipState.setFetchRunId(42);
+
+    const mapped31 = mapYoutubeCaptionTracks(tracks31);
+    await expect(fetcher.tryLoadSubtitleCandidates(mapped31, 42, true)).rejects.toMatchObject({
+      code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE
+    });
+    expect(directFetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      directFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_transcript"))
+    ).toHaveLength(1);
+
+    const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");
+    const shortMismatchPayload = {
+      events: [{ tStartMs: 0, dDurationMs: 5000, segs: [{ utf8: "Too short track" }] }]
+    };
+    const twoTracks = mapYoutubeCaptionTracks(tracks31.slice(0, 2));
+    const fallbackFetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeJsonFetchResponse(shortMismatchPayload, 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200));
+    setYoutubeSameOriginFetchForTests(fallbackFetchMock);
+
+    const selected = await fetcher.tryLoadSubtitleCandidates(twoTracks, 42, true);
+    expect(selected.id).toBe(twoTracks[1].id);
+    expect(fallbackFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("跨语种原生多轨零 Token 配对（排除同语种族），单语种自动轨走 boundary-v3 与 90s 游标调度", async () => {

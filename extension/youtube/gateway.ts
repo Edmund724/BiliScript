@@ -10,7 +10,9 @@ import {
   YOUTUBE_NO_SUBTITLES_ERROR_CODE,
   YoutubeSubtitleError,
   fetchYoutubeSubtitleTrackBody,
+  hasMatchingYoutubeObservedPot,
   mapYoutubeCaptionTracks,
+  normalizeYoutubeTimedtextUrl,
   type YoutubeSubtitleSnapshotInput
 } from "./subtitle-fetcher.js";
 
@@ -57,6 +59,18 @@ export async function fetchYoutubeVideoBundle(
   };
 }
 
+function extractVideoIdFromTimedtextUrl(trackUrl: string): string {
+  const normalized = normalizeYoutubeTimedtextUrl(trackUrl);
+  if (!normalized) {
+    return "";
+  }
+  try {
+    return (new URL(normalized).searchParams.get("v") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 export async function fetchYoutubeSubtitleBody({
   videoId = "",
   trackUrl,
@@ -68,25 +82,50 @@ export async function fetchYoutubeSubtitleBody({
   lang?: string;
   snapshot?: YoutubeSubtitleSnapshotInput | null;
 }): Promise<SubtitleBodyItem[]> {
-  const cleanVideoId = String(videoId || "").trim();
-  let resolvedSnapshot: YoutubeSubtitleSnapshotInput | null =
-    snapshot ?? getCachedYoutubeSnapshot(cleanVideoId);
-  if (!resolvedSnapshot && cleanVideoId) {
-    try {
-      const fresh = await readYoutubePageSnapshot({ expectedVideoId: cleanVideoId });
-      if (fresh.videoId) {
-        snapshotCacheByVideoId.set(fresh.videoId, fresh);
+  const cleanVideoId = String(videoId || "").trim() || extractVideoIdFromTimedtextUrl(trackUrl);
+  let resolvedSnapshot: YoutubeSubtitleSnapshotInput | null = snapshot ?? null;
+  let usedCachedWithPot = false;
+
+  if (!resolvedSnapshot) {
+    const cachedSnapshot = getCachedYoutubeSnapshot(cleanVideoId);
+    const cachedHasPot = Boolean(
+      cachedSnapshot &&
+        hasMatchingYoutubeObservedPot(
+          cachedSnapshot.observedTimedtextUrls,
+          cleanVideoId || cachedSnapshot.videoId,
+          lang
+        )
+    );
+    if (cachedSnapshot && cachedHasPot) {
+      resolvedSnapshot = cachedSnapshot;
+      usedCachedWithPot = true;
+    } else if (cleanVideoId) {
+      try {
+        const fresh = await readYoutubePageSnapshot({ expectedVideoId: cleanVideoId });
+        if (fresh.videoId) {
+          snapshotCacheByVideoId.set(fresh.videoId, fresh);
+        }
+        resolvedSnapshot = fresh;
+      } catch {
+        resolvedSnapshot = cachedSnapshot;
       }
-      resolvedSnapshot = fresh;
-    } catch {
-      resolvedSnapshot = null;
+    } else {
+      resolvedSnapshot = cachedSnapshot;
     }
   }
-  const result = await fetchYoutubeSubtitleTrackBody({
-    trackUrl,
-    videoId: cleanVideoId || resolvedSnapshot?.videoId || "",
-    languageCode: lang,
-    snapshot: resolvedSnapshot
-  });
-  return result.items;
+
+  try {
+    const result = await fetchYoutubeSubtitleTrackBody({
+      trackUrl,
+      videoId: cleanVideoId || resolvedSnapshot?.videoId || "",
+      languageCode: lang,
+      snapshot: resolvedSnapshot
+    });
+    return result.items;
+  } catch (error) {
+    if (!snapshot && usedCachedWithPot && cleanVideoId) {
+      snapshotCacheByVideoId.delete(cleanVideoId);
+    }
+    throw error;
+  }
 }

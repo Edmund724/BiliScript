@@ -70,6 +70,16 @@ configureCommitUi({
   setStatus
 });
 
+const YOUTUBE_CAPTIONS_UNAVAILABLE_CODE = "YOUTUBE_CAPTIONS_UNAVAILABLE";
+
+function isYoutubeCaptionsUnavailableError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === YOUTUBE_CAPTIONS_UNAVAILABLE_CODE
+  );
+}
+
 export async function tryLoadSubtitleCandidates(
   candidates: SubtitleTrack[],
   runId: number,
@@ -109,6 +119,9 @@ export async function tryLoadSubtitleCandidates(
         logWarn(`[BILISCRIPT] subtitle track rejected ${JSON.stringify(meta)}`);
       }
       ensureRunActive(runId, state.clip.fetchRunId);
+      if (isYoutubeCaptionsUnavailableError(error)) {
+        throw error;
+      }
       continue;
     }
   }
@@ -212,6 +225,9 @@ async function loadNativeCandidatesWithRetry({
   try {
     return await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
   } catch (error) {
+    if (isYoutubeCaptionsUnavailableError(error)) {
+      throw error;
+    }
     const message = getErrorMessage(error, "");
     if (!message.includes("HTTP") && (error as { code?: string }).code !== "SUBTITLE_DURATION_MISMATCH") {
       throw error;
