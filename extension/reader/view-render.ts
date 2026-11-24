@@ -45,7 +45,8 @@ function projectReadingMetaLine(): void {
 function buildReadingMetaLine() {
   const head = [];
   if (state.clip.author) {
-    head.push(`UP主：${state.clip.author}`);
+    const authorLabel = state.clip.site === "youtube" ? "作者" : "UP主";
+    head.push(`${authorLabel}：${state.clip.author}`);
   }
   if (Number(state.clip.pageCount) > 1) {
     const page = `P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`;

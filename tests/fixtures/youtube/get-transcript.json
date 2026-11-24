@@ -1,0 +1,68 @@
+{
+  "actions": [
+    {
+      "updateEngagementPanelAction": {
+        "targetId": "engagement-panel-searchable-transcript",
+        "content": {
+          "transcriptRenderer": {
+            "body": {
+              "transcriptBodyRenderer": {
+                "cueGroups": [
+                  {
+                    "transcriptCueGroupRenderer": {
+                      "cues": [
+                        {
+                          "transcriptCueRenderer": {
+                            "cue": {
+                              "simpleText": "Hello everyone welcome back"
+                            },
+                            "startOffsetMs": "1200",
+                            "durationMs": "2200"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "transcriptCueGroupRenderer": {
+                      "cues": [
+                        {
+                          "transcriptCueRenderer": {
+                            "cue": {
+                              "runs": [
+                                {
+                                  "text": "today we test fallback transcript"
+                                }
+                              ]
+                            },
+                            "startOffsetMs": "3600",
+                            "durationMs": "2400"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "transcriptCueGroupRenderer": {
+                      "cues": [
+                        {
+                          "transcriptCueRenderer": {
+                            "cue": {
+                              "simpleText": "thanks for watching"
+                            },
+                            "startOffsetMs": "180000",
+                            "durationMs": "20000"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

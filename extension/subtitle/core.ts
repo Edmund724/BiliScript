@@ -11,6 +11,7 @@ import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
+import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
 import { BILI_HOST_SELECTORS, querySelectorFallback } from "../bilibili/host-selectors.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
@@ -41,7 +42,27 @@ interface ChapterItemLike {
   title?: string;
 }
 
+function isYoutubeContext(): boolean {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube";
+}
+
 export function readVideoTitle(): string {
+  if (isYoutubeContext()) {
+    const ytTitle = querySelectorFallback(
+      ["ytd-watch-metadata h1 yt-formatted-string", "#title h1 yt-formatted-string", "h1.ytd-watch-metadata yt-formatted-string"],
+      document,
+      (el) => Boolean(el.textContent?.trim())
+    );
+    if (ytTitle?.textContent?.trim()) {
+      return ytTitle.textContent.trim();
+    }
+    const ytMetaTitle = document.querySelector('meta[property="og:title"]');
+    if (ytMetaTitle?.getAttribute("content")) {
+      return ytMetaTitle.getAttribute("content")!.trim();
+    }
+    return document.title.replace(/\s*-\s*YouTube$/i, "").trim();
+  }
+
   const titleNode = querySelectorFallback(
     BILI_HOST_SELECTORS.videoTitles,
     document,
@@ -60,6 +81,19 @@ export function readVideoTitle(): string {
 }
 
 export function readVideoAuthor(): string {
+  if (isYoutubeContext()) {
+    const ytChannel = querySelectorFallback(
+      ["ytd-watch-metadata #channel-name a", "#owner #channel-name a", "ytd-channel-name a"],
+      document,
+      (el) => Boolean(el.textContent?.trim())
+    );
+    if (ytChannel?.textContent?.trim()) {
+      return ytChannel.textContent.trim();
+    }
+    const ytAuthor = document.querySelector('meta[name="author"], link[itemprop="name"]');
+    return ytAuthor?.getAttribute("content")?.trim() || "";
+  }
+
   const owner = document.querySelector(".up-name");
   if (owner?.textContent?.trim()) {
     return owner.textContent.trim();
@@ -70,6 +104,18 @@ export function readVideoAuthor(): string {
 }
 
 export function readUploadDate(): string {
+  if (isYoutubeContext()) {
+    const rawDate =
+      document.querySelector('meta[itemprop="datePublished"]')?.getAttribute("content")?.trim() ||
+      document.querySelector('meta[itemprop="uploadDate"]')?.getAttribute("content")?.trim() ||
+      "";
+    const isoMatch = rawDate.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (isoMatch) {
+      return isoMatch[1];
+    }
+    return rawDate || formatLocalDate();
+  }
+
   const publishNode = document.querySelector('meta[itemprop="uploadDate"]');
   if (publishNode?.getAttribute("content")) {
     return publishNode.getAttribute("content")!.trim();
@@ -84,6 +130,18 @@ export function readUploadDate(): string {
 }
 
 export function readVideoDescription(): string {
+  if (isYoutubeContext()) {
+    const ytDesc = querySelectorFallback(
+      ["ytd-text-inline-expander #plain-snippet-text", "ytd-watch-metadata #description-inline-expander"],
+      document,
+      (el) => Boolean(el.textContent?.trim())
+    );
+    if (ytDesc?.textContent?.trim()) {
+      return ytDesc.textContent.trim();
+    }
+    return document.querySelector('meta[name="description"]')?.getAttribute("content")?.trim() || "";
+  }
+
   const descNode = document.querySelector(
     ".desc-info-text, .video-desc .desc-info-text, .video-info-detail .text, .basic-desc-info"
   );
@@ -268,6 +326,14 @@ export function ensureDerivedContent(): void {
 }
 
 export async function refreshHotComments({ refreshComments = false } = {}): Promise<void> {
+  if (!getSiteCapabilities(state.clip.site).supportsHotComments) {
+    if (state.clip.hotComments.length > 0 || state.clip.hotCommentsNotice) {
+      clipState.setHotComments([]);
+      clipState.setHotCommentsNotice("");
+      notifyReaderPresenter({ kind: "rerender" });
+    }
+    return;
+  }
   const shouldFetchComments =
     refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
   if (shouldFetchComments) {

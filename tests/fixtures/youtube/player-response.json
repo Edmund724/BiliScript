@@ -1,0 +1,53 @@
+{
+  "videoDetails": {
+    "videoId": "ytDemo01234",
+    "title": "YouTube Multisite Subtitle Demo",
+    "author": "Demo Channel",
+    "shortDescription": "Demo video description\n0:00 Intro\n1:05 Core Pipeline",
+    "lengthSeconds": "212",
+    "isLiveContent": false,
+    "isLive": false
+  },
+  "microformat": {
+    "playerMicroformatRenderer": {
+      "publishDate": "2026-03-15T08:30:00-07:00"
+    }
+  },
+  "captions": {
+    "playerCaptionsTracklistRenderer": {
+      "captionTracks": [
+        {
+          "baseUrl": "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&expire=1900000000&sparams=v,lang,expire",
+          "languageCode": "en",
+          "name": {
+            "simpleText": "English"
+          },
+          "vssId": ".en",
+          "isTranslatable": true
+        },
+        {
+          "baseUrl": "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=zh-Hans&expire=1900000000&sparams=v,lang,expire",
+          "languageCode": "zh-Hans",
+          "name": {
+            "simpleText": "中文（简体）"
+          },
+          "vssId": ".zh-Hans",
+          "isTranslatable": true
+        },
+        {
+          "baseUrl": "https://www.youtube.com/api/timedtext?v=ytDemo01234&kind=asr&lang=en&expire=1900000000&sparams=v,kind,lang,expire",
+          "languageCode": "en",
+          "name": {
+            "runs": [
+              {
+                "text": "English (auto-generated)"
+              }
+            ]
+          },
+          "kind": "asr",
+          "vssId": "a.en"
+        }
+      ]
+    }
+  }
+}

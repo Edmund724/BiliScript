@@ -1,0 +1,95 @@
+{
+  "wireMagic": "pb3",
+  "events": [
+    {
+      "tStartMs": 0,
+      "dDurationMs": 212000,
+      "id": 1,
+      "wpWinPosId": 1,
+      "wsWinStyleId": 1
+    },
+    {
+      "tStartMs": 1200,
+      "dDurationMs": 2200,
+      "segs": [
+        {
+          "utf8": "Hello"
+        },
+        {
+          "utf8": " everyone",
+          "tOffsetMs": 400
+        },
+        {
+          "utf8": " welcome",
+          "tOffsetMs": 900
+        },
+        {
+          "utf8": " back",
+          "tOffsetMs": 1500
+        }
+      ]
+    },
+    {
+      "tStartMs": 3400,
+      "dDurationMs": 200,
+      "wWinId": 1,
+      "aAppend": 1,
+      "segs": [
+        {
+          "utf8": "\n"
+        }
+      ]
+    },
+    {
+      "tStartMs": 3600,
+      "dDurationMs": 2400,
+      "segs": [
+        {
+          "utf8": "today"
+        },
+        {
+          "utf8": " we",
+          "tOffsetMs": 350
+        },
+        {
+          "utf8": " test",
+          "tOffsetMs": 700
+        },
+        {
+          "utf8": " youtube",
+          "tOffsetMs": 1200
+        },
+        {
+          "utf8": " captions",
+          "tOffsetMs": 1800
+        }
+      ]
+    },
+    {
+      "tStartMs": 6500,
+      "dDurationMs": 1500,
+      "segs": [
+        {
+          "utf8": "[Music]"
+        }
+      ]
+    },
+    {
+      "tStartMs": 180000,
+      "dDurationMs": 20000,
+      "segs": [
+        {
+          "utf8": "thanks"
+        },
+        {
+          "utf8": " for",
+          "tOffsetMs": 500
+        },
+        {
+          "utf8": " watching",
+          "tOffsetMs": 1200
+        }
+      ]
+    }
+  ]
+}

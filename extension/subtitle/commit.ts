@@ -49,6 +49,9 @@ export async function acceptSubtitle({
     url: selectedSubtitleUrl
   });
   const trackLan = typeof matchedTrack?.lan === "string" ? matchedTrack.lan : undefined;
+  const trackOrigin = matchedTrack?.origin;
+  const trackKind = matchedTrack?.kind;
+  const trackSource = matchedTrack?.source;
   const strategy = normalizeSubtitleSegmentationStrategy(state.settings?.subtitleSegmentationStrategy);
   const segmented = Array.isArray(sortedInput)
     ? shouldSegmentTrack({
@@ -56,6 +59,9 @@ export async function acceptSubtitle({
         selectedSubtitleId,
         selectedSubtitleLang,
         trackLan,
+        origin: trackOrigin,
+        kind: trackKind,
+        source: trackSource,
         items: sortedInput
       })
     : false;
@@ -64,7 +70,10 @@ export async function acceptSubtitle({
         strategy,
         selectedSubtitleId,
         selectedSubtitleLang,
-        trackLan
+        trackLan,
+        origin: trackOrigin,
+        kind: trackKind,
+        source: trackSource
       })
     : sortedInput;
   const sortedBody = sortSubtitleBodyByFrom(segmentedBody);

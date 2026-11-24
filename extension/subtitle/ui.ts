@@ -53,7 +53,8 @@ export async function downloadSubtitle(options?: { format?: string }): Promise<b
     return false;
   }
 
-  const safeTitle = sanitizeFileName(state.clip.title || state.clip.bvid || "bilibili-subtitle");
+  const fallbackName = state.clip.site === "youtube" ? "youtube-subtitle" : "bilibili-subtitle";
+  const safeTitle = sanitizeFileName(state.clip.title || state.clip.bvid || fallbackName);
   const langSuffix = sanitizeFileName(langSuffixRaw) || "subtitle";
   const dateRaw = state.settings?.includeDateInFilename ? state.clip.uploadDate || formatLocalDate() : "";
   const datePrefix = dateRaw ? `${sanitizeFileName(dateRaw)}-` : "";

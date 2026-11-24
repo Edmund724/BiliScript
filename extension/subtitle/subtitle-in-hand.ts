@@ -1,10 +1,14 @@
 import { state } from "../core/state.js";
-import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
+import { detectSiteFromUrl } from "../shared/site.js";
+import { extractPageIndex, extractVideoId } from "../bilibili/video-id-shared.js";
 
 export function isSubtitleInHandOrInFlight(): boolean {
-  const sameClipAsPage = Boolean(state.clip.bvid) &&
-    state.clip.bvid === extractBvid(location.href) &&
-    state.clip.pageIndex === extractPageIndex(location.href);
+  const href = location.href;
+  const pageSite = detectSiteFromUrl(href);
+  const pageVideoId = extractVideoId(href);
+  const sameSite = state.clip.site === pageSite;
+  const samePage = pageSite === "youtube" || state.clip.pageIndex === extractPageIndex(href);
+  const sameClipAsPage = Boolean(state.clip.bvid) && sameSite && state.clip.bvid === pageVideoId && samePage;
   if (!sameClipAsPage) {
     return false;
   }

@@ -1,4 +1,10 @@
 import { logInfo, logWarn } from "../shared/logging.js";
+import {
+  YOUTUBE_UNIT_CID,
+  detectSiteFromUrl,
+  normalizeSiteId,
+  type SiteId
+} from "../shared/site.js";
 import type { JsonTransport } from "../bilibili/gateway-core.js";
 import { fetchSubtitleBodyJson, type SubtitleTrack } from "../bilibili/video-api.js";
 import { validateSubtitleByDuration } from "./duration-validation.js";
@@ -25,6 +31,7 @@ interface SubtitleDurationMismatchError extends Error {
 }
 
 export interface SubtitleBodyRequest {
+  site?: SiteId;
   bvid: string;
   cid: string;
   videoDuration: number;
@@ -54,8 +61,19 @@ const DEFAULT_BODY_LOG: SubtitleBodyLog = {
   cacheMismatch: "[BILISCRIPT] cached subtitle duration mismatch, clearing cache"
 };
 
+function resolveBodySite(site: SiteId | undefined, cid: string, url: string): SiteId {
+  if (site !== undefined) {
+    return normalizeSiteId(site);
+  }
+  if (String(cid || "").trim() === YOUTUBE_UNIT_CID) {
+    return "youtube";
+  }
+  return detectSiteFromUrl(url);
+}
+
 export async function loadTrackBody<T = unknown>(
   {
+    site,
     bvid,
     cid,
     videoDuration,
@@ -72,6 +90,7 @@ export async function loadTrackBody<T = unknown>(
   if (!url) {
     throw new Error("字幕 URL 为空。");
   }
+  const activeSite = resolveBodySite(site, cid, url);
   const cacheKey = getSubtitleCacheKey({
     bvid,
     cid,
@@ -94,7 +113,17 @@ export async function loadTrackBody<T = unknown>(
     }
   }
 
-  const body = await fetchSubtitleBodyJson<T>(transport, url);
+  let body: T[];
+  if (activeSite === "youtube") {
+    const youtubeGateway = await import("../youtube/gateway.js");
+    body = (await youtubeGateway.fetchYoutubeSubtitleBody({
+      videoId: bvid,
+      trackUrl: url,
+      lang
+    })) as T[];
+  } else {
+    body = await fetchSubtitleBodyJson<T>(transport, url);
+  }
   checkActive?.();
   if (!Array.isArray(body) || body.length === 0) {
     throw new Error("字幕文件为空。");
@@ -119,6 +148,7 @@ export async function loadTrackBody<T = unknown>(
 export type { SubtitleTrackCandidate };
 
 export interface PreferredNativeSubtitleRequest<TTrack extends SubtitleTrackCandidate = SubtitleTrack> {
+  site?: SiteId;
   tracks: TTrack[] | null | undefined;
   preferred?: PreferredSubtitleContext;
   bvid: string;
@@ -141,6 +171,7 @@ export async function loadPreferredNativeSubtitle<
   TBody = unknown,
   TTrack extends SubtitleTrackCandidate = SubtitleTrack
 >({
+  site,
   tracks,
   preferred,
   bvid,
@@ -168,6 +199,7 @@ export async function loadPreferredNativeSubtitle<
       const target = resolveTrackTarget(track);
       const body = await loadTrackBody<TBody>(
         {
+          site: track.site ?? site,
           bvid,
           cid,
           videoDuration,

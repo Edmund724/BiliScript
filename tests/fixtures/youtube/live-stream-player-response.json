@@ -1,0 +1,20 @@
+{
+  "videoDetails": {
+    "videoId": "ytLive12345",
+    "title": "Live Stream Demo",
+    "author": "Live Channel",
+    "shortDescription": "Currently live",
+    "lengthSeconds": "0",
+    "isLiveContent": true,
+    "isLive": true
+  },
+  "microformat": {
+    "playerMicroformatRenderer": {
+      "publishDate": "2026-03-15",
+      "liveBroadcastDetails": {
+        "isLiveNow": true,
+        "startTimestamp": "2026-03-15T10:00:00+00:00"
+      }
+    }
+  }
+}
