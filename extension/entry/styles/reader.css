@@ -2960,7 +2960,7 @@ math mo {
   display: none;
 }
 
-#biliscript-reading-view {
+#biliscript-reading-view .markdown-body {
   --base-size-4: var(--biliscript-primitive-space-4);
   --base-size-8: var(--biliscript-primitive-space-8);
   --base-size-16: var(--biliscript-primitive-space-16);

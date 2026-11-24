@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState } from "../setup.js";
 
@@ -165,6 +167,22 @@ function expectDetachedShellOpen(mode: "pip" | "popup"): {
     }
   };
   return { mode, childWin, setupOpenerMocks };
+}
+
+function emitSyncStorageChanged(changes: Record<string, { newValue: unknown }>): void {
+  const addListener = chrome.storage.onChanged.addListener as unknown as ReturnType<typeof vi.fn>;
+  for (const [listener] of addListener.mock.calls) {
+    if (typeof listener === "function") {
+      listener(changes, "sync");
+    }
+  }
+}
+
+function getSentRuntimeMessageTypes(): string[] {
+  const sendMessage = chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>;
+  return sendMessage.mock.calls
+    .map((args) => String((args[0] as { type?: unknown } | undefined)?.type || ""))
+    .filter(Boolean);
 }
 
 beforeEach(() => {
@@ -478,6 +496,27 @@ describe("YouTube 设置抽屉 5 项站点门控与进入阻断", () => {
       expect(document.getElementById("biliscriptSettingsSubpageAiPrompt")!.hidden).toBe(false);
     });
     await ensureReaderDomain();
+
+    (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>).mockClear();
+    emitSyncStorageChanged({
+      enableAgentBridge: { newValue: true },
+      agentBridgeUrl: { newValue: "http://127.0.0.1:9999" }
+    });
+    await flushMicrotasks();
+    expect(getSentRuntimeMessageTypes()).not.toContain("agent-bridge-status");
+  });
+
+  it("reader.css 通过 #biliscript-reading-view .markdown-body 覆盖 --base-size-* 并隔离 YouTube 根字号", () => {
+    const readerCss = readFileSync(
+      join(process.cwd(), "extension/entry/styles/reader.css"),
+      "utf8"
+    );
+    expect(readerCss).toMatch(
+      /#biliscript-reading-view\s+\.markdown-body\s*\{[^}]*--base-size-16:\s*var\(--biliscript-primitive-space-16\)/s
+    );
+    expect(readerCss).toMatch(
+      /body:has\(ytd-watch-flexy\[fullscreen\]\)\s+#biliscript-reading-view:not\(\[data-biliscript-detached="1"\]\)/
+    );
   });
 
   it("B 站页面保留全部 5 项设置入口可用", async () => {

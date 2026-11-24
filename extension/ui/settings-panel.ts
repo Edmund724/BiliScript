@@ -256,8 +256,12 @@ function bindSettingsEvents(host: HTMLElement): void {
 
   bindScalarExternalSync(host, elements, {
     syncSummaries,
-    onAgentBridgeUrlChanged: (newValue) => agentBridgeSettings?.updateUrl(newValue),
+    onAgentBridgeUrlChanged: (newValue) => {
+      if (!getPanelSiteCapabilities().supportsAgentBridge) return;
+      agentBridgeSettings?.updateUrl(newValue);
+    },
     onEnableAgentBridgeChanged: () => {
+      if (!getPanelSiteCapabilities().supportsAgentBridge) return;
       void agentBridgeSettings?.refresh();
     },
     onAiModelsExternalChanged: (currentElements) => {
