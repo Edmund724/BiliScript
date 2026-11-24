@@ -1398,8 +1398,10 @@ async function runLiveSuite({ page, worker, evidence }) {
     if (!firstLiveHitFail) firstLiveHitFail = info;
     return false;
   }, { timeoutMs: 12000, intervalMs: 250 }).catch(() => null);
+  let beforeOpenNetIdx = liveNet.length;
   let openLiveClick = { ok: false, firstLiveHitFail };
   if (openLiveHit?.ok) {
+    beforeOpenNetIdx = liveNet.length;
     await dispatchClick(page.cdp, null, openLiveHit.center.x, openLiveHit.center.y);
     openLiveClick = { ok: true, label: "live-script-button", rect: openLiveHit.rect, center: openLiveHit.center, firstLiveHitFail };
   }
@@ -1430,11 +1432,11 @@ async function runLiveSuite({ page, worker, evidence }) {
     })()`);
   }, { timeoutMs: 50000, intervalMs: 500 });
 
-  const preCcNet = [...liveNet];
+  const preCcNet = liveNet.slice(beforeOpenNetIdx);
   const gtReqsA = preCcNet.filter((e) => e.phase === "request" && e.kind === "get_transcript");
   const gtRespsA = preCcNet.filter((e) => e.phase === "response" && e.kind === "get_transcript");
   const ttReqsA = preCcNet.filter((e) => e.phase === "request" && e.kind === "timedtext");
-  const extTtReqsA = ttReqsA.filter((e) => e.hasFmtJson3);
+  const extTtReqsA = ttReqsA.filter((e) => e.hasFmtJson3 && !e.webHeaders?.visitorId);
   const hasWebHeadersOnGt = gtReqsA.every(
     (r) => r.webHeaders?.clientName && r.webHeaders?.clientVersion && r.webHeaders?.origin
   );
