@@ -708,6 +708,14 @@ async function main() {
       `(() => {
         const view = document.getElementById("biliscript-reading-view");
         const actions = Array.from(document.querySelectorAll(".biliscript-reading-actions > button")).map((b) => b.id);
+        const detachBtn = document.getElementById("biliscript-reading-detach-btn");
+        const closeBtn = document.getElementById("biliscript-reading-close-btn");
+        const themeBtn = document.getElementById("biliscript-reading-theme-select");
+        const settingsBtn = document.getElementById("biliscript-reading-settings-btn");
+        const detachHidden = Boolean(detachBtn?.hidden) && getComputedStyle(detachBtn).display === "none";
+        const closeHidden = Boolean(closeBtn?.hidden) && getComputedStyle(closeBtn).display === "none";
+        const themeHidden = Boolean(themeBtn?.hidden) || getComputedStyle(themeBtn).display === "none";
+        const settingsHidden = Boolean(settingsBtn?.hidden) || getComputedStyle(settingsBtn).display === "none";
         const links = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => ({
           href: l.getAttribute("href"),
           loaded: Boolean(l.sheet)
@@ -716,6 +724,10 @@ async function main() {
         return {
           open: Boolean(view && view.classList.contains("open") && !view.hidden),
           actions,
+          detachHidden,
+          closeHidden,
+          themeHidden,
+          settingsHidden,
           links,
           allLinksLoaded: links.length >= 3 && links.every((l) => l.loaded),
           scrollWidth: docEl.scrollWidth,
@@ -742,6 +754,10 @@ async function main() {
         openerAfterD1.readerModeAttr === "1" &&
         childD1.open &&
         childD1.actions.length === 4 &&
+        childD1.detachHidden &&
+        childD1.closeHidden &&
+        !childD1.themeHidden &&
+        !childD1.settingsHidden &&
         childD1.allLinksLoaded &&
         tokensMatch &&
         !childD1.overflowX &&
@@ -1117,12 +1133,20 @@ async function main() {
     ).catch(() => {});
 
     const redockTargetId = activeDetached.targetId;
-    const redockClick = await clickInTarget(
-      browserCdp,
-      activeDetached.sessionId,
-      "redock-btn",
-      "document.getElementById('biliscript-reading-detach-btn')"
-    );
+    let redockTriggered = false;
+    let redockClick = { ok: false, mode: d3Outcome.switchedInPlace ? "popup-header-btn" : "pip-external-close" };
+    if (d3Outcome.switchedInPlace) {
+      redockClick = await clickInTarget(
+        browserCdp,
+        activeDetached.sessionId,
+        "redock-btn",
+        "document.getElementById('biliscript-reading-detach-btn')"
+      );
+      redockTriggered = Boolean(redockClick?.ok);
+    } else {
+      await browserCdp.send("Target.closeTarget", { targetId: redockTargetId });
+      redockTriggered = true;
+    }
     await tracker.waitForClosed(redockTargetId, "detached window closed on redock");
     const openerAfterRedock = await waitFor(
       "reading view returned to opener",
@@ -1197,7 +1221,7 @@ async function main() {
 
     check(
       "D4-redock-shell-preservation-and-popup-resize-clamping",
-      redockClick.ok &&
+      redockTriggered &&
         openerAfterRedock?.open &&
         openerAfterRedock?.sameRoot &&
         repopClick.ok &&
@@ -1205,7 +1229,7 @@ async function main() {
         clampedBounds.height < 560 &&
         clampedBounds.width >= 360 &&
         clampedBounds.height >= 420,
-      { openerAfterRedock, savedNormalBounds, clampedBounds }
+      { openerAfterRedock, redockClick, savedNormalBounds, clampedBounds }
     );
     await captureTargetPng(browserCdp, popupChild.sessionId, "03-d4-popup-resized.png").catch(() => {});
 
@@ -1395,42 +1419,44 @@ async function main() {
     const liveIdsNow = new Set((liveTargetsNow.targetInfos || []).map((t) => t.targetId));
     let activeBeforeClose = tracker.activeList().find((t) => liveIdsNow.has(t.targetId)) || (liveIdsNow.has(d7Pip.targetId) ? d7Pip : null);
     if (!activeBeforeClose) {
-      await waitFor("opener exited after D7 auto-close", async () =>
-        page.cdp.evaluate("Boolean(!document.getElementById('biliscript-reading-view')?.classList.contains('open'))")
-      ).catch(() => {});
-      await page.cdp.send("Page.bringToFront").catch(() => {});
-      await clickInTarget(page.cdp, null, "reopen-for-d8-close", "document.getElementById('biliscript-script-button')");
-      await waitFor("reader reopened for D8 close", async () =>
-        page.cdp.evaluate("Boolean(document.getElementById('biliscript-reading-view')?.classList.contains('open'))")
+      await waitFor("opener redocked after D7 auto-close", async () =>
+        page.cdp.evaluate(`(() => {
+          const v = document.getElementById("biliscript-reading-view");
+          const detachBtn = document.getElementById("biliscript-reading-detach-btn");
+          return Boolean(v && v.classList.contains("open") && !v.hidden && detachBtn && !detachBtn.hidden);
+        })()`)
       );
+      await page.cdp.send("Page.bringToFront").catch(() => {});
       const beforeD8 = tracker.snapshotActiveIds();
       await clickInTarget(page.cdp, null, "detach-for-d8-close", "document.getElementById('biliscript-reading-detach-btn')");
       activeBeforeClose = await tracker.waitForNewDetachedTarget(beforeD8, "D8 child target");
     }
     await browserCdp.send("Target.closeTarget", { targetId: activeBeforeClose.targetId });
     await tracker.waitForClosed(activeBeforeClose.targetId, "D8 child target closed");
-    const openerExitedOnChildClose = await waitFor(
-      "opener shell exited on child pagehide",
+    const openerRedockedOnChildClose = await waitFor(
+      "opener shell redocked on child pagehide",
       async () =>
         page.cdp.evaluate(`(() => {
           const v = document.getElementById("biliscript-reading-view");
-          return Boolean(v && v.hidden && !v.classList.contains("open") && !document.documentElement.hasAttribute("data-biliscript-reader-mode"));
+          const detachBtn = document.getElementById("biliscript-reading-detach-btn");
+          const closeBtn = document.getElementById("biliscript-reading-close-btn");
+          return Boolean(
+            v &&
+              !v.hidden &&
+              v.classList.contains("open") &&
+              document.documentElement.hasAttribute("data-biliscript-reader-mode") &&
+              detachBtn &&
+              !detachBtn.hidden &&
+              closeBtn &&
+              !closeBtn.hidden
+          );
         })()`),
       { timeoutMs: 6000, intervalMs: 150 }
     );
 
     await worker.evaluate("chrome.storage.sync.set({ detachedWindowMode: 'popup' })");
     await page.cdp.send("Page.bringToFront").catch(() => {});
-    const reopenResetClick = await clickInTarget(
-      page.cdp,
-      null,
-      "reopen-for-reset",
-      "document.getElementById('biliscript-script-button')"
-    );
-    if (!reopenResetClick?.ok) {
-      throw new Error(`D8 reopenResetClick failed: ${JSON.stringify(reopenResetClick)}`);
-    }
-    await waitFor("reader reopened for D8 reset", async () =>
+    await waitFor("reader open for D8 reset", async () =>
       page.cdp.evaluate(`(() => {
         const v = document.getElementById("biliscript-reading-view");
         return Boolean(v && v.classList.contains("open") && !v.hidden && v.getAttribute("data-biliscript-reader-ready") === "1");
@@ -1514,8 +1540,8 @@ async function main() {
 
     check(
       "D8-child-close-alignment-and-reset-preferences",
-      openerExitedOnChildClose && resetClick.ok && confirmResetClick.ok && Boolean(resetStorage),
-      { openerExitedOnChildClose, resetStorage }
+      openerRedockedOnChildClose && resetClick.ok && confirmResetClick.ok && Boolean(resetStorage),
+      { openerRedockedOnChildClose, resetStorage }
     );
   } catch (error) {
     check("scenario-unhandled-error", false, { message: String(error?.message || error), stack: String(error?.stack || "").slice(0, 600) });

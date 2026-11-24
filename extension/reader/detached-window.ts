@@ -185,7 +185,7 @@ function openCandidateHost(
       pipRequest = pipApi.requestWindow({
         width: bounds.width,
         height: bounds.height,
-        disallowReturnToOpener: true
+        disallowReturnToOpener: false
       });
     }
   } catch {

@@ -1,3 +1,4 @@
+import type { DetachedWindowMode } from "../core/defaults.js";
 import { state, uiState } from "../core/state.js";
 import {
   activeById,
@@ -183,16 +184,23 @@ const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: 
   { name: "chat", buttonId: ids.readingTabChat, bodyId: ids.readingTabBodyChat }
 ];
 
-export function refreshDetachButton(detached = isReaderDetached()): void {
+export function refreshDetachButton(
+  detached = isReaderDetached(),
+  detachedMode: DetachedWindowMode | null = detached ? state.reader.readingDetachedMode : null
+): void {
   const button = activeById<HTMLButtonElement>(DETACH_BTN_ID);
-  if (!button) {
-    return;
+  const closeBtn = activeById<HTMLButtonElement>(ids.readingCloseBtn);
+  if (button) {
+    const label = detached ? "归位回页面" : "弹出独立窗口";
+    button.innerHTML = detached ? READING_HEADER_ICONS.redock : READING_HEADER_ICONS.detach;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", detached ? "true" : "false");
+    button.hidden = detached && detachedMode === "pip";
   }
-  const label = detached ? "归位回页面" : "弹出独立窗口";
-  button.innerHTML = detached ? READING_HEADER_ICONS.redock : READING_HEADER_ICONS.detach;
-  button.title = label;
-  button.setAttribute("aria-label", label);
-  button.setAttribute("aria-pressed", detached ? "true" : "false");
+  if (closeBtn) {
+    closeBtn.hidden = detached;
+  }
 }
 
 export function setReaderScriptTab(tab: ReaderScriptTab): void {

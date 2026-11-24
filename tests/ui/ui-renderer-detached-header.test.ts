@@ -91,13 +91,17 @@ describe("ui-renderer 固定 4 按钮顶栏与 Active Host 监听重绑", () => 
       ids.readingCloseBtn
     ]);
     expect(buttons.every((b) => b.classList.contains("biliscript-reading-icon-btn"))).toBe(true);
+    expect(buttons.every((b) => !b.hidden)).toBe(true);
     expect(document.getElementById(DETACHED_NOTICE_ID)?.hidden).toBe(true);
   });
 
-  it("refreshDetachButton 与点击分发根据独立窗口状态切换", async () => {
+  it("refreshDetachButton 与点击分发根据独立窗口状态及模式切换显隐", async () => {
     const btn = document.getElementById(DETACH_BTN_ID) as HTMLButtonElement;
+    const closeBtn = document.getElementById(ids.readingCloseBtn) as HTMLButtonElement;
     expect(btn.title).toBe("弹出独立窗口");
     expect(btn.getAttribute("aria-pressed")).toBe("false");
+    expect(btn.hidden).toBe(false);
+    expect(closeBtn.hidden).toBe(false);
 
     btn.click();
     expect(mocks.detachReaderShell).toHaveBeenCalledTimes(1);
@@ -106,18 +110,34 @@ describe("ui-renderer 固定 4 按钮顶栏与 Active Host 监听重绑", () => 
     childWin.document.body.appendChild(
       childWin.document.adoptNode(document.getElementById(ids.readingView)!)
     );
+    state.reader.setDetachedMode("pip");
     setActiveReaderHost(childWin.document, childWin as unknown as Window);
 
     const movedBtn = childWin.document.getElementById(DETACH_BTN_ID) as HTMLButtonElement;
+    const movedCloseBtn = childWin.document.getElementById(ids.readingCloseBtn) as HTMLButtonElement;
+    const movedThemeBtn = childWin.document.getElementById(ids.readingThemeSelect) as HTMLButtonElement;
+    const movedSettingsBtn = childWin.document.getElementById(ids.readingSettingsBtn) as HTMLButtonElement;
     expect(movedBtn.title).toBe("归位回页面");
     expect(movedBtn.getAttribute("aria-label")).toBe("归位回页面");
     expect(movedBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(movedBtn.hidden).toBe(true);
+    expect(movedCloseBtn.hidden).toBe(true);
+    expect(movedThemeBtn.hidden).toBe(false);
+    expect(movedSettingsBtn.hidden).toBe(false);
+
+    state.reader.setDetachedMode("popup");
+    refreshDetachButton(true);
+    expect(movedBtn.hidden).toBe(false);
+    expect(movedCloseBtn.hidden).toBe(true);
 
     movedBtn.click();
     expect(mocks.redockReaderShell).toHaveBeenCalledTimes(1);
 
+    state.reader.setDetachedMode(null);
     refreshDetachButton(false);
     expect(movedBtn.title).toBe("弹出独立窗口");
+    expect(movedBtn.hidden).toBe(false);
+    expect(movedCloseBtn.hidden).toBe(false);
   });
 
   it("文档级 click/keydown 通过 onActiveHostChange 重绑且不残留旧宿主或旧闭包", async () => {

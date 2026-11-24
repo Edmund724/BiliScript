@@ -67,13 +67,13 @@ afterEach(async () => {
 
 describe("Tier 1: Category-Partition Equivalence Coverage", () => {
   describe("Feature #1: pip Mode Host Factory", () => {
-    it("T1-F01-01: default pip detach requests Document PiP with disallowReturnToOpener=true", async () => {
+    it("T1-F01-01: default pip detach requests Document PiP with disallowReturnToOpener=false", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       await h.detachReader();
       expect(h.fakePlatform.pipRequests).toHaveLength(1);
       expect(h.fakePlatform.pipRequests[0]).toMatchObject({
-        disallowReturnToOpener: true
+        disallowReturnToOpener: false
       });
       expect(h.fakePlatform.pipRequests[0].width).toBeGreaterThanOrEqual(EXPECTED_MIN_WIDTH);
       expect(h.fakePlatform.pipRequests[0].height).toBeGreaterThanOrEqual(EXPECTED_MIN_HEIGHT);
@@ -223,28 +223,30 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
     });
   });
 
-  describe("Feature #4: Child pagehide Close Alignment", () => {
-    it("T1-F04-01: user closing pip window fires exitReaderShell and clears opener reader attrs", async () => {
+  describe("Feature #4: Child pagehide Redock Alignment", () => {
+    it("T1-F04-01: user closing pip window redocks reader in-page and preserves opener reader attrs", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       childWin.simulateUserClose();
       await h.flushTimersAndMicrotasks(450);
-      expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBeNull();
-      expect(document.body.getAttribute("data-biliscript-reader-mode")).toBeNull();
+      expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+      expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
+      expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
     });
 
-    it("T1-F04-02: user closing popup window fires exitReaderShell", async () => {
+    it("T1-F04-02: user closing popup window redocks reader in-page", async () => {
       const h = await bootHarness({ sync: { detachedWindowMode: "popup" } });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       childWin.simulateUserClose();
       await h.flushTimersAndMicrotasks(450);
-      expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBeNull();
-      expect(document.body.getAttribute("data-biliscript-reading-active")).toBeNull();
+      expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+      expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
+      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
     });
 
-    it("T1-F04-03: child pagehide preserves hidden #biliscript-reading-view root inside opener body", async () => {
+    it("T1-F04-03: child pagehide restores open #biliscript-reading-view root inside opener body", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const originalView = document.getElementById("biliscript-reading-view");
@@ -253,11 +255,11 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       await h.flushTimersAndMicrotasks(450);
       const restoredView = document.getElementById("biliscript-reading-view");
       expect(restoredView).toBe(originalView);
-      expect(restoredView?.hidden).toBe(true);
-      expect(restoredView?.classList.contains("open")).toBe(false);
+      expect(restoredView?.hidden).toBe(false);
+      expect(restoredView?.classList.contains("open")).toBe(true);
     });
 
-    it("T1-F04-04: child pagehide clears mirrored styles and resets active host to opener", async () => {
+    it("T1-F04-04: child pagehide clears mirrored styles, resets active host to opener, and restores header buttons", async () => {
       const h = await bootHarness();
       const activeHost = await loadActiveHostContract();
       await h.openReaderInPage();
@@ -267,6 +269,8 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(getMirroredStyleHrefs(childWin.document)).toHaveLength(0);
       expect(activeHost.isReaderDetached()).toBe(false);
       expect(activeHost.getActiveReaderDocument()).toBe(document);
+      expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+      expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
     });
 
     it("T1-F04-05: intentional redock closes child window without exiting reader shell", async () => {
@@ -833,38 +837,65 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(label).toContain("弹出");
     });
 
-    it("T1-F14-03: when detached, detach button swaps in place to redock label without changing button count", async () => {
+    it("T1-F14-03: when detached in pip, detach and close buttons are hidden; popup keeps detach visible and hides close", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
-      const childWin = await h.detachReader();
-      assertHeaderButtonOrder(childWin.document);
-      const btn = childWin.document.getElementById(EXPECTED_DETACH_BTN_ID);
-      const label = `${btn?.getAttribute("aria-label") ?? ""} ${btn?.getAttribute("title") ?? ""}`;
+      const pipWin = await h.detachReader();
+      assertHeaderButtonOrder(pipWin.document);
+      const pipDetach = pipWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement;
+      const pipClose = pipWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement;
+      const label = `${pipDetach.getAttribute("aria-label") ?? ""} ${pipDetach.title ?? ""}`;
       expect(label).toContain("归位");
+      expect(pipDetach.hidden).toBe(true);
+      expect(pipClose.hidden).toBe(true);
+      expect((pipWin.document.getElementById("biliscript-reading-theme-select") as HTMLButtonElement).hidden).toBe(false);
+      expect((pipWin.document.getElementById("biliscript-reading-settings-btn") as HTMLButtonElement).hidden).toBe(false);
+
+      await switchDetachedModeInSettings(h, "popup");
+      const popupWin = h.fakePlatform.getCurrentActiveChild()!;
+      assertHeaderButtonOrder(popupWin.document);
+      expect((popupWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+      expect((popupWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
     });
 
-    it("T1-F14-04: clicking [弹出/归位] button toggles docked -> detached -> docked", async () => {
+    it("T1-F14-04: pip external close redocks and restores visible controls; popup header redock button toggles back", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
-      const childWin = await h.detachReader();
-      expect(childWin.document.getElementById(EXPECTED_DETACH_BTN_ID)).not.toBeNull();
-      childWin.document.getElementById(EXPECTED_DETACH_BTN_ID)?.click();
+      const pipWin = await h.detachReader();
+      pipWin.simulateUserClose();
+      await h.flushTimersAndMicrotasks(80);
+      expect(pipWin.closed).toBe(true);
+      expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+      expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
+
+      await switchDetachedModeInSettings(h, "popup");
+      const popupWin = await h.detachReader();
+      const popupDetach = popupWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement;
+      expect(popupDetach.hidden).toBe(false);
+      popupDetach.click();
       await h.flushStyles();
       await h.flushTimersAndMicrotasks(80);
-      expect(childWin.closed).toBe(true);
-      expect(document.getElementById(EXPECTED_DETACH_BTN_ID)).not.toBeNull();
+      expect(popupWin.closed).toBe(true);
+      expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+      expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
     });
 
-    it("T1-F14-05: theme, settings, and close buttons remain interactive inside detached window", async () => {
+    it("T1-F14-05: theme and settings remain interactive inside pip window, and external redock restores in-page close button", async () => {
       const h = await bootHarness({ sync: { readerTheme: "light" } });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
+      expect((childWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
       await h.clickHeaderThemeInActiveHost();
       expect(childWin.document.documentElement.dataset.biliscriptReaderTheme).toBe("dark");
       await h.openSettingsInActiveHost();
       expect(childWin.document.getElementById("biliscript-reading-settings-panel")?.hidden).toBe(false);
-      await h.clickHeaderCloseInActiveHost();
+      childWin.simulateUserClose();
+      await h.flushTimersAndMicrotasks(80);
       expect(childWin.closed).toBe(true);
+      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
+      expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
+      await h.clickHeaderCloseInActiveHost();
+      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
     });
   });
 
@@ -1721,29 +1752,33 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
     });
   });
 
-  describe("Feature #4: Child pagehide Close Alignment (Boundary & Negative)", () => {
-    it("T2-F04-01: duplicate child pagehide events do not double-exit or throw", async () => {
+  describe("Feature #4: Child pagehide Redock Alignment (Boundary & Negative)", () => {
+    it("T2-F04-01: duplicate child pagehide events redock idempotently without throwing", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       childWin.simulateUserClose();
       childWin.dispatchEvent(new Event("pagehide"));
       await h.flushTimersAndMicrotasks(450);
-      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
+      const view = document.getElementById("biliscript-reading-view");
+      expect(view?.hidden).toBe(false);
+      expect(view?.classList.contains("open")).toBe(true);
     });
 
-    it("T2-F04-02: child pagehide while settings panel is expanded resets settingsExpanded and exits", async () => {
+    it("T2-F04-02: child pagehide while settings panel is expanded preserves open panel and settings in opener", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       await h.openSettingsInActiveHost();
       childWin.simulateUserClose();
       await h.flushTimersAndMicrotasks(450);
+      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
+      expect(document.getElementById("biliscript-reading-settings-panel")?.hidden).toBe(false);
+      await dispatchEscapeInDoc(h, document);
       expect(document.getElementById("biliscript-reading-settings-panel")?.hidden).toBe(true);
-      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
     });
 
-    it("T2-F04-03: child pagehide while confirm dialog is open dismisses dialog and exits cleanly", async () => {
+    it("T2-F04-03: child pagehide while confirm dialog is open migrates dialog back to opener cleanly", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
@@ -1753,19 +1788,26 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       childWin.simulateUserClose();
       await h.flushTimersAndMicrotasks(450);
       expect(childWin.document.querySelector(".confirm-dialog")).toBeNull();
-      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
+      expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
+      const migratedCancel = document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel");
+      expect(migratedCancel).not.toBeNull();
+      migratedCancel?.click();
+      await h.flushTimersAndMicrotasks(200);
+      expect(document.querySelector(".confirm-dialog")).toBeNull();
     });
 
-    it("T2-F04-04: reopening reader after child pagehide restores functional panel in-page", async () => {
+    it("T2-F04-04: child pagehide redocks functional panel in-page and allows detaching again", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
-      const childWin = await h.detachReader();
-      childWin.simulateUserClose();
+      const firstWin = await h.detachReader();
+      firstWin.simulateUserClose();
       await h.flushTimersAndMicrotasks(450);
-      await h.openReaderInPage();
       const view = document.getElementById("biliscript-reading-view");
       expect(view?.hidden).toBe(false);
       expect(view?.classList.contains("open")).toBe(true);
+      const secondWin = await h.detachReader();
+      expect(secondWin).not.toBe(firstWin);
+      expect(secondWin.closed).toBe(false);
     });
 
     it("T2-F04-05: child pagehide triggered during mode switch closing old window does not close new window", async () => {
@@ -2269,11 +2311,12 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       assertHeaderButtonOrder(document);
     });
 
-    it("T2-F14-02: clicking close button while detached exits shell and clears opener reader attrs", async () => {
+    it("T2-F14-02: detached window hides header close button while reader-toggle exits shell and clears opener reader attrs", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
-      await h.clickHeaderCloseInActiveHost();
+      expect((childWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
+      await h.dispatchMessage({ type: "reader-toggle", readerUrl: READER_MODE_URL });
       expect(childWin.closed).toBe(true);
       expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBeNull();
     });
@@ -2300,13 +2343,17 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       expect(buttons.every((btn) => (btn.textContent ?? "").trim() === "")).toBe(true);
     });
 
-    it("T2-F14-05: 4-button header contract survives pip to popup mode switch", async () => {
+    it("T2-F14-05: 4-button header contract survives pip to popup mode switch with expected visibility", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
-      await h.detachReader();
+      const pipWin = await h.detachReader();
+      expect((pipWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(true);
+      expect((pipWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
       await switchDetachedModeInSettings(h, "popup");
       const popupWin = h.fakePlatform.getCurrentActiveChild()!;
       assertHeaderButtonOrder(popupWin.document);
+      expect((popupWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+      expect((popupWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
     });
   });
 
@@ -2499,7 +2546,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
   });
 
   describe("Feature #18: reader-enter While Detached (Boundary & Negative)", () => {
-    it("T2-F18-01: reader-enter after child window closed reopens reader in-page", async () => {
+    it("T2-F18-01: reader-enter after child window closed keeps redocked reader open in-page", async () => {
       const h = await bootHarness();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
@@ -2507,6 +2554,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       await h.flushTimersAndMicrotasks(450);
       await h.dispatchMessage({ type: "reader-enter", readerUrl: READER_MODE_URL });
       expect(document.getElementById("biliscript-reading-view")?.classList.contains("open")).toBe(true);
+      expect(h.fakePlatform.getCurrentActiveChild()).toBeNull();
     });
 
     it("T2-F18-02: repeated reader-enter calls while detached never duplicate #biliscript-reading-view", async () => {
@@ -3087,22 +3135,22 @@ describe("Tier 3: Pairwise Feature Interactions", () => {
     expect(pipWin.document.getElementById("biliscript-reading-view")?.classList.contains("open")).toBe(true);
   });
 
-  it("T3-04: F3 x F4 - child pagehide exits shell without firing opener guard; opener pagehide closes active child", async () => {
+  it("T3-04: F3 x F4 - child pagehide redocks without firing opener guard; opener pagehide closes active child", async () => {
     const h = await bootHarness();
     await h.openReaderInPage();
     const firstChild = await h.detachReader();
     firstChild.simulateUserClose();
     await h.flushTimersAndMicrotasks(450);
-    expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
-    await h.openReaderInPage();
+    expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
+    expect(document.getElementById("biliscript-reading-view")?.classList.contains("open")).toBe(true);
     const secondChild = await h.detachReader();
     h.fakePlatform.simulateOpenerPageHide();
     await h.flushTimersAndMicrotasks(40);
     expect(secondChild.closed).toBe(true);
   });
 
-  it("T3-05: F4 x F12 x F14 - OS close vs header redock vs header close transition serialization", async () => {
-    const h = await bootHarness();
+  it("T3-05: F4 x F12 x F14 - popup header redock vs pip external redock vs reader-toggle exit serialization", async () => {
+    const h = await bootHarness({ sync: { detachedWindowMode: "popup" } });
     await h.openReaderInPage();
     const winA = await h.detachReader();
     winA.document.getElementById(EXPECTED_DETACH_BTN_ID)?.click();
@@ -3110,10 +3158,16 @@ describe("Tier 3: Pairwise Feature Interactions", () => {
     await h.flushTimersAndMicrotasks(60);
     expect(winA.closed).toBe(true);
     expect(document.getElementById("biliscript-reading-view")?.classList.contains("open")).toBe(true);
+    await switchDetachedModeInSettings(h, "pip");
     const winB = await h.detachReader();
-    winB.document.getElementById("biliscript-reading-close-btn")?.click();
-    await h.flushTimersAndMicrotasks(450);
+    winB.simulateUserClose();
+    await h.flushTimersAndMicrotasks(80);
     expect(winB.closed).toBe(true);
+    expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(false);
+    const winC = await h.detachReader();
+    await h.dispatchMessage({ type: "reader-toggle", readerUrl: READER_MODE_URL });
+    await h.flushTimersAndMicrotasks(450);
+    expect(winC.closed).toBe(true);
     expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
   });
 
@@ -3247,17 +3301,30 @@ describe("Tier 3: Pairwise Feature Interactions", () => {
     expect(document.querySelectorAll("#biliscript-script-button")).toHaveLength(1);
   });
 
-  it("T3-15: F13 x F14 - header button swaps [弹出] <-> [归位] in place (always 4 buttons) as anchor pauses/resumes", async () => {
+  it("T3-15: F13 x F14 - header visibility swaps cleanly across docked, pip, external redock, and popup", async () => {
     const h = await bootHarness();
     await h.openReaderInPage();
     assertHeaderButtonOrder(document);
     expect(document.getElementById(EXPECTED_DETACH_BTN_ID)?.getAttribute("aria-label")).toContain("弹出");
-    const childWin = await h.detachReader();
-    assertHeaderButtonOrder(childWin.document);
-    expect(childWin.document.getElementById(EXPECTED_DETACH_BTN_ID)?.getAttribute("aria-label")).toContain("归位");
-    await h.redockReader();
+    expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
+    const pipWin = await h.detachReader();
+    assertHeaderButtonOrder(pipWin.document);
+    expect(pipWin.document.getElementById(EXPECTED_DETACH_BTN_ID)?.getAttribute("aria-label")).toContain("归位");
+    expect((pipWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(true);
+    expect((pipWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
+    pipWin.simulateUserClose();
+    await h.flushTimersAndMicrotasks(80);
     assertHeaderButtonOrder(document);
     expect(document.getElementById(EXPECTED_DETACH_BTN_ID)?.getAttribute("aria-label")).toContain("弹出");
+    expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
+    await switchDetachedModeInSettings(h, "popup");
+    const popupWin = await h.detachReader();
+    assertHeaderButtonOrder(popupWin.document);
+    expect(popupWin.document.getElementById(EXPECTED_DETACH_BTN_ID)?.getAttribute("aria-label")).toContain("归位");
+    expect((popupWin.document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((popupWin.document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(true);
   });
 
   it("T3-16: F16 x F17 - entering webpage fullscreen while detached then SPA switching to p=2 retains window & refreshes clip", async () => {
@@ -3478,7 +3545,7 @@ describe("Tier 4: Real-World Application Scenarios", () => {
     expect(hDesktop.storage.localMap.has(EXPECTED_BOUNDS_KEY)).toBe(false);
   });
 
-  it("T4-04: Firefox-like environment without PiP falls back to popup, mirrors moz-extension CSS, and exits on OS close", async () => {
+  it("T4-04: Firefox-like environment without PiP falls back to popup, mirrors moz-extension CSS, and redocks on OS close", async () => {
     const h = await bootHarness({
       extensionBaseUrl: "moz-extension://fx-profile-153/",
       pipMode: "unsupported"
@@ -3490,7 +3557,11 @@ describe("Tier 4: Real-World Application Scenarios", () => {
     childWin.simulateUserClose();
     await h.flushTimersAndMicrotasks(450);
     expect(getMirroredStyleHrefs(childWin.document)).toHaveLength(0);
-    expect(document.getElementById("biliscript-reading-view")?.hidden).toBe(true);
+    const view = document.getElementById("biliscript-reading-view");
+    expect(view?.hidden).toBe(false);
+    expect(view?.classList.contains("open")).toBe(true);
+    expect((document.getElementById(EXPECTED_DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((document.getElementById("biliscript-reading-close-btn") as HTMLButtonElement).hidden).toBe(false);
   });
 
   it("T4-05: live AI chat session across detach -> lazy CSS mirror -> theme/typography tweak -> redock preserving draft", async () => {

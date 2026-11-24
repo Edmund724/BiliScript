@@ -370,12 +370,62 @@ function reclaimDetachedReadingViewToOpener(
   return reclaimed;
 }
 
+function restoreOpenerInPageReadingView(readingView: HTMLElement | null): void {
+  const openerDoc = getOpenerDocument();
+  openerDoc.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+  openerDoc.body.setAttribute("data-biliscript-reader-mode", "1");
+  openerDoc.body.setAttribute("data-biliscript-reading-active", "1");
+  if (readingView) {
+    readingView.hidden = false;
+    readingView.classList.remove("closing");
+    readingView.classList.add("open", "reader-page");
+    readingView.setAttribute("aria-hidden", "false");
+  }
+  openScriptHost();
+}
+
 function handleDetachedExternalClose(): void {
+  const scrollSnapshot = captureScrollPositions(findReadingViewAcrossHosts());
+  if (!isReaderViewOpen()) {
+    reclaimDetachedReadingViewToOpener();
+    return;
+  }
   pendingDetachedExternalClose = true;
-  reclaimDetachedReadingViewToOpener({ blurFocus: true });
-  void exitReaderShell().catch((error) => {
-    logWarn("[BILISCRIPT] detached external close failed", error);
-  });
+  pendingDetachedExitFocusRestore = false;
+  const readingView = reclaimDetachedReadingViewToOpener();
+  if (readingView) {
+    restoreOpenerInPageReadingView(readingView);
+  }
+  void shellTransactionQueue
+    .enqueue(async () => {
+      if (!pendingDetachedExternalClose) {
+        return;
+      }
+      pendingDetachedExternalClose = false;
+      if (!isReaderViewOpen() || isReaderDetached()) {
+        return;
+      }
+      const presentation = await import("./presentation.js");
+      if (!isReaderViewOpen() || isReaderDetached()) {
+        return;
+      }
+      presentation.applyReadingViewPresentation();
+      restoreScrollPositions(scrollSnapshot, getOpenerWindow());
+      const reader = await ensureReaderDomain();
+      if (
+        isReaderViewOpen() &&
+        !isReaderDetached() &&
+        !getOpenerDocument()
+          .getElementById(ids.readingView)
+          ?.querySelector('[data-panel-modal-host="1"]')
+      ) {
+        reader.focusReadingView();
+      }
+    })
+    .catch((error) => {
+      pendingDetachedExternalClose = false;
+      logWarn("[BILISCRIPT] detached external redock failed", error);
+    });
 }
 
 registerDetachedModeSwitchHandler((mode) => switchDetachedWindowMode(mode));
@@ -629,21 +679,19 @@ export function redockReaderShell(): Promise<boolean> {
     pendingDetachedExitFocusRestore = false;
     const readingView = reclaimDetachedReadingViewToOpener();
     closeDetachedWindowHost(true);
-    const openerDoc = getOpenerDocument();
-    openerDoc.documentElement.setAttribute("data-biliscript-reader-mode", "1");
-    openerDoc.body.setAttribute("data-biliscript-reader-mode", "1");
-    openerDoc.body.setAttribute("data-biliscript-reading-active", "1");
-    if (readingView) {
-      readingView.hidden = false;
-      readingView.classList.remove("closing");
-      readingView.classList.add("open", "reader-page");
-      readingView.setAttribute("aria-hidden", "false");
-    }
-    openScriptHost();
+    restoreOpenerInPageReadingView(readingView);
     presentation.applyReadingViewPresentation();
     restoreScrollPositions(scrollSnapshot, getOpenerWindow());
     const reader = await ensureReaderDomain();
-    reader.focusReadingView();
+    if (
+      isReaderViewOpen() &&
+      !isReaderDetached() &&
+      !getOpenerDocument()
+        .getElementById(ids.readingView)
+        ?.querySelector('[data-panel-modal-host="1"]')
+    ) {
+      reader.focusReadingView();
+    }
     return true;
   });
 }

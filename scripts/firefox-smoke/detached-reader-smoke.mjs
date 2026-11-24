@@ -980,10 +980,13 @@ export async function runDetachedReaderSmoke({
         const surface = getComputedStyle(probe).backgroundColor;
         probe.remove();
         const docEl = document.documentElement;
+        const detachBtn = document.getElementById("biliscript-reading-detach-btn");
+        const closeBtn = document.getElementById("biliscript-reading-close-btn");
         return {
           open: true,
           linkHrefs,
           sheetHrefs,
+          headerButtonsOk: Boolean(detachBtn && !detachBtn.hidden && closeBtn && closeBtn.hidden),
           allLinksInSheets: linkHrefs.length >= 3 && linkHrefs.every((h) => h.startsWith(extPrefix) && sheetHrefs.includes(h)),
           display: cs.display,
           surface,
@@ -1017,7 +1020,16 @@ export async function runDetachedReaderSmoke({
 
     record(
       "fx-detach-xray-and-cross-doc-stylesheets",
-      Boolean(f2Initial?.allLinksInSheets && f2Initial.display !== "none" && f2Initial.surface && !f2Initial.overflowX && lazyChatCss && lazySettingsCss && openerMoved),
+      Boolean(
+        f2Initial?.allLinksInSheets &&
+          f2Initial.headerButtonsOk &&
+          f2Initial.display !== "none" &&
+          f2Initial.surface &&
+          !f2Initial.overflowX &&
+          lazyChatCss &&
+          lazySettingsCss &&
+          openerMoved
+      ),
       { f2Initial, lazyChatCss, lazySettingsCss, openerMoved }
     );
 
@@ -1074,18 +1086,27 @@ export async function runDetachedReaderSmoke({
     await client.send("WebDriver:CloseWindow", {});
     await client.send("WebDriver:SwitchToWindow", { handle: openerHandle, focus: true });
     await waitFor("F4 popup handle removed", async () => !(await client.getWindowHandles()).includes(popupHandle));
-    const f4OpenerClosed = await waitFor("F4 opener shell exited cleanly", async () =>
+    const f4OpenerRedocked = await waitFor("F4 opener shell redocked cleanly", async () =>
       client.executeSync(`
         const v = document.getElementById("biliscript-reading-view");
-        const btn = document.getElementById("biliscript-script-button");
-        const modeAttr = document.documentElement.getAttribute("data-biliscript-reader-mode") || document.body.getAttribute("data-biliscript-reader-mode");
-        return Boolean(v && v.hidden && !v.classList.contains("open") && !modeAttr && btn);
+        const detachBtn = document.getElementById("biliscript-reading-detach-btn");
+        const closeBtn = document.getElementById("biliscript-reading-close-btn");
+        const modeAttr = document.documentElement.getAttribute("data-biliscript-reader-mode");
+        return Boolean(
+          v &&
+            !v.hidden &&
+            v.classList.contains("open") &&
+            modeAttr === "1" &&
+            detachBtn &&
+            !detachBtn.hidden &&
+            closeBtn &&
+            !closeBtn.hidden
+        );
       `)
     );
-    record("fx-popup-fallback-and-native-close-lifecycle", Boolean(f4PopupLoaded && f4OpenerClosed), { f4PopupLoaded, f4OpenerClosed });
+    record("fx-popup-fallback-and-native-redock-lifecycle", Boolean(f4PopupLoaded && f4OpenerRedocked), { f4PopupLoaded, f4OpenerRedocked });
 
-    await findAndClick(client, "#biliscript-script-button", "F5-reopen-btn");
-    await waitFor("F5 reader reopened", async () =>
+    await waitFor("F5 reader open in-page", async () =>
       client.executeSync("return Boolean(document.getElementById('biliscript-reading-view')?.classList.contains('open'));")
     );
     const handlesBeforeF5 = new Set(await client.getWindowHandles());

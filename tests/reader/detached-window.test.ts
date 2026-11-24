@@ -43,7 +43,7 @@ afterEach(async () => {
 });
 
 describe("detached-window 宿主工厂与生命周期", () => {
-  it("pip 模式调用 documentPictureInPicture.requestWindow({ disallowReturnToOpener: true }) 并钳制最小尺寸", async () => {
+  it("pip 模式调用 documentPictureInPicture.requestWindow({ disallowReturnToOpener: false }) 并钳制最小尺寸", async () => {
     const childWin = new StubChildWindow({ width: 540, height: 720 });
     const requestWindow = vi.fn(async () => childWin as unknown as Window);
     vi.stubGlobal("documentPictureInPicture", { requestWindow });
@@ -59,7 +59,7 @@ describe("detached-window 宿主工厂与生命周期", () => {
     expect(requestWindow).toHaveBeenCalledWith({
       width: 360,
       height: 420,
-      disallowReturnToOpener: true
+      disallowReturnToOpener: false
     });
     expect(res).toEqual({
       ok: true,

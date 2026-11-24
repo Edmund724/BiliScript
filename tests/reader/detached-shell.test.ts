@@ -217,6 +217,8 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(pipWin.focus).toHaveBeenCalled();
     expect(pipWin.document.getElementById(uiRenderer.DETACH_BTN_ID)!.getAttribute("aria-pressed")).toBe("true");
     expect(pipWin.document.getElementById(uiRenderer.DETACH_BTN_ID)!.title).toBe("归位回页面");
+    expect((pipWin.document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(true);
+    expect((pipWin.document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(true);
   });
 
   it("弹窗被拦截时 detachReaderShell 保持面板留在页内并展示非阻塞提示", async () => {
@@ -269,16 +271,21 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(scriptHost.openScriptHost).toHaveBeenCalledTimes(1);
     expect(document.getElementById(uiRenderer.DETACH_BTN_ID)!.getAttribute("aria-pressed")).toBe("false");
     expect(document.getElementById(uiRenderer.DETACH_BTN_ID)!.title).toBe("弹出独立窗口");
+    expect((document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(false);
   });
 
-  it("子窗口外部 pagehide 关闭时同步抢救面板回 #biliscript-root 并完整退出阅读壳", async () => {
+  it("子窗口外部 pagehide 关闭时同步抢救面板回 #biliscript-root 并完整归位回页内", async () => {
     const pipWin = new StubChildWindow({ width: 540, height: 760 });
     vi.stubGlobal("documentPictureInPicture", {
       requestWindow: vi.fn(async () => pipWin as unknown as Window)
     });
 
     await shell.enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
+    await styleInjector.ensureReaderStyles();
     await shell.detachReaderShell();
+    pipWin.document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop = 275;
+    vi.mocked(scriptHost.openScriptHost).mockClear();
 
     pipWin.closed = true;
     pipWin.dispatchEvent(new Event("pagehide"));
@@ -287,13 +294,22 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
       document.getElementById(readerState.ids.root)!.contains(document.getElementById(readerState.ids.readingView))
     ).toBe(true);
     expect(activeHost.isReaderDetached()).toBe(false);
+    expect(state.reader.readingDetached).toBe(false);
+    expect(scriptHost.openScriptHost).toHaveBeenCalledTimes(1);
 
     await vi.waitFor(() => {
-      expect(readerState.isReaderViewOpen()).toBe(false);
-      expect(document.getElementById(readerState.ids.readingView)!.hidden).toBe(true);
+      expect(getReaderShellState()).toBe("open");
+      expect(readerState.isReaderViewOpen()).toBe(true);
+      expect(shell.isReaderShellIntact()).toBe(true);
     });
     const view = document.getElementById(readerState.ids.readingView)!;
+    expect(view.hidden).toBe(false);
+    expect(view.classList.contains("open")).toBe(true);
     expect(view.getAttribute("data-biliscript-detached")).toBeNull();
+    expect(document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(275);
+    expect((document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(false);
+    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
   });
 
   it("原位模式切换迁移 DOM/样式并在被拦截时保留原窗口且显示非阻塞提示", async () => {
@@ -314,6 +330,8 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(popupWin.closed).toBe(false);
     expect(state.reader.readingDetachedMode).toBe("popup");
     expect(activeHost.getActiveReaderDocument()).toBe(popupWin.document);
+    expect((popupWin.document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
+    expect((popupWin.document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(true);
     expect(popupWin.document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(220);
     expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
     expect(popupWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBeGreaterThan(0);
@@ -575,12 +593,14 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(await switchPromise).toBe(false);
     expect(pipRequest).not.toHaveBeenCalled();
     await vi.waitFor(() => {
-      expect(getReaderShellState()).toBe("closed");
-      expect(readerState.isReaderViewOpen()).toBe(false);
+      expect(getReaderShellState()).toBe("open");
+      expect(readerState.isReaderViewOpen()).toBe(true);
+      expect(activeHost.isReaderDetached()).toBe(false);
     });
     const openerView = document.getElementById(readerState.ids.readingView)!;
     expect(document.getElementById(readerState.ids.root)!.contains(openerView)).toBe(true);
-    expect(openerView.hidden).toBe(true);
+    expect(openerView.hidden).toBe(false);
+    expect(openerView.classList.contains("open")).toBe(true);
   });
 
   it("requestWindow 期间触发子窗口 pagehide 且切换被拦截时不将面板重迁回已关闭子窗口", async () => {
@@ -608,8 +628,9 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(activeHost.isReaderDetached()).toBe(false);
 
     await vi.waitFor(() => {
-      expect(getReaderShellState()).toBe("closed");
-      expect(readerState.isReaderViewOpen()).toBe(false);
+      expect(getReaderShellState()).toBe("open");
+      expect(readerState.isReaderViewOpen()).toBe(true);
+      expect(originalView.hidden).toBe(false);
     });
   });
 
@@ -747,7 +768,7 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     iframe.remove();
   });
 
-  it("跨 realm 独立窗口内元素聚焦时，外部 pagehide 关闭也能先 blur 并恢复宿主焦点", async () => {
+  it("跨 realm 独立窗口内元素聚焦时，外部 pagehide 归位不触发退出焦点恢复且保持阅读视图开启并聚焦", async () => {
     const iframe = document.createElement("iframe");
     document.body.appendChild(iframe);
     const childDoc = iframe.contentDocument!;
@@ -774,11 +795,13 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     childWin.closed = true;
     childWin.dispatchEvent(new Event("pagehide"));
 
-    expect(blurSpy).toHaveBeenCalledTimes(1);
+    expect(blurSpy).not.toHaveBeenCalled();
     await vi.waitFor(() => {
-      expect(getReaderShellState()).toBe("closed");
+      expect(getReaderShellState()).toBe("open");
+      expect(readerState.isReaderViewOpen()).toBe(true);
+      expect(activeHost.isReaderDetached()).toBe(false);
     });
-    expect(document.activeElement).toBe(returnBtn);
+    expect(document.activeElement).not.toBe(returnBtn);
     iframe.remove();
   });
 
@@ -845,9 +868,11 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(await queuedDetach).toBe(false);
     expect(requestWindow).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => {
-      expect(getReaderShellState()).toBe("closed");
-      expect(readerState.isReaderViewOpen()).toBe(false);
+      expect(getReaderShellState()).toBe("open");
+      expect(readerState.isReaderViewOpen()).toBe(true);
+      expect(activeHost.isReaderDetached()).toBe(false);
     });
+    expect(document.getElementById(readerState.ids.readingView)!.hidden).toBe(false);
   });
 
   it("跨 realm iframe 独立窗口态 detachReaderShell 与完整态 ensureUiReady 正确切换按钮并单次响应子文档监听", async () => {
@@ -868,8 +893,11 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(await shell.detachReaderShell()).toBe(true);
 
     const detachBtn = childDoc.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement;
+    const closeBtn = childDoc.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement;
     expect(detachBtn.title).toBe("归位回页面");
     expect(detachBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(detachBtn.hidden).toBe(true);
+    expect(closeBtn.hidden).toBe(true);
 
     state.reader.setSettingsExpanded(true);
     mocks.dispatchChatTabOutsideClick.mockClear();
