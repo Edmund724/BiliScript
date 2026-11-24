@@ -101,6 +101,19 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
     });
   });
 
+  it("按下 toggle-reader 且当前页为 YouTube watch 页时向该标签页派发 reader-toggle", async () => {
+    onCommandListener("toggle-reader", {
+      id: 13,
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s"
+    });
+
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+    expect(sendMessageToTab).toHaveBeenCalledWith(13, {
+      type: "reader-toggle",
+      readerUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&biliscript_reader=1"
+    });
+  });
+
   it("回调未传 tab 时回退查询 currentWindow 活动标签页", async () => {
     onCommandListener("toggle-reader");
 

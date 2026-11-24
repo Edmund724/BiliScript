@@ -192,6 +192,8 @@ declare namespace chrome {
   }
 
   namespace scripting {
+    type ExecutionWorld = "ISOLATED" | "MAIN";
+
     interface InjectionTarget {
       tabId: number;
     }
@@ -200,9 +202,22 @@ declare namespace chrome {
       result?: unknown;
     }
 
-    function executeScript(injection: { target: InjectionTarget; files: string[] }): Promise<InjectionResult[]>;
-    function executeScript(injection: { target: InjectionTarget; func: () => unknown }): Promise<InjectionResult[]>;
-    function executeScript(injection: { target: InjectionTarget; func: (...args: never[]) => unknown; args?: unknown[] }): Promise<InjectionResult[]>;
+    function executeScript(injection: {
+      target: InjectionTarget;
+      files: string[];
+      world?: ExecutionWorld;
+    }): Promise<InjectionResult[]>;
+    function executeScript(injection: {
+      target: InjectionTarget;
+      func: () => unknown;
+      world?: ExecutionWorld;
+    }): Promise<InjectionResult[]>;
+    function executeScript(injection: {
+      target: InjectionTarget;
+      func: (...args: never[]) => unknown;
+      args?: unknown[];
+      world?: ExecutionWorld;
+    }): Promise<InjectionResult[]>;
     function insertCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
   }
 

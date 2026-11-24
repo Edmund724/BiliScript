@@ -1,4 +1,20 @@
-export function isReaderMode(url: string = location.href): boolean {
+import {
+  YOUTUBE_UNIT_CID,
+  cleanYoutubeWatchUrl,
+  decodeVideoStorageBvid,
+  detectSiteFromUrl,
+  extractYoutubeVideoId,
+  isYoutubeAutoOpenEligible,
+  isYoutubeWatchPage,
+  normalizeSiteId,
+  type SiteId
+} from "../shared/site.js";
+
+function defaultHref(): string {
+  return typeof location !== "undefined" ? location.href : "";
+}
+
+export function isReaderMode(url: string = defaultHref()): boolean {
   try {
     return new URL(url).searchParams.get("biliscript_reader") === "1";
   } catch {
@@ -6,7 +22,7 @@ export function isReaderMode(url: string = location.href): boolean {
   }
 }
 
-export function stripReaderModeUrl(url: string = location.href): string {
+export function stripReaderModeUrl(url: string = defaultHref()): string {
   try {
     const parsed = new URL(url);
     parsed.searchParams.delete("biliscript_reader");
@@ -19,7 +35,7 @@ export function stripReaderModeUrl(url: string = location.href): string {
 const PLAYLIST_PATH_RE = /^\/list\/(?:watchlater|ml\d+|\d+)\/?$/;
 const FESTIVAL_PATH_RE = /^\/festival\/[^/]+\/?$/;
 
-export function isWatchlaterPage(url: string = location.href): boolean {
+export function isWatchlaterPage(url: string = defaultHref()): boolean {
   try {
     return new URL(url).pathname.replace(/\/+$/, "") === "/list/watchlater";
   } catch {
@@ -27,7 +43,7 @@ export function isWatchlaterPage(url: string = location.href): boolean {
   }
 }
 
-export function isPlaylistPage(url: string = location.href): boolean {
+export function isPlaylistPage(url: string = defaultHref()): boolean {
   try {
     const parsed = new URL(url);
     return parsed.hostname === "www.bilibili.com" && PLAYLIST_PATH_RE.test(parsed.pathname);
@@ -36,7 +52,7 @@ export function isPlaylistPage(url: string = location.href): boolean {
   }
 }
 
-export function isFestivalPage(url: string = location.href): boolean {
+export function isFestivalPage(url: string = defaultHref()): boolean {
   try {
     const parsed = new URL(url);
     return parsed.hostname === "www.bilibili.com" && FESTIVAL_PATH_RE.test(parsed.pathname);
@@ -45,7 +61,10 @@ export function isFestivalPage(url: string = location.href): boolean {
   }
 }
 
-export function isAutoOpenEligible(url: string = location.href): boolean {
+export function isAutoOpenEligible(url: string = defaultHref()): boolean {
+  if (detectSiteFromUrl(url) === "youtube") {
+    return isYoutubeAutoOpenEligible(url);
+  }
   try {
     const parsed = new URL(url);
     if (parsed.hostname !== "www.bilibili.com") {
@@ -79,7 +98,10 @@ export function isAutoOpenEligible(url: string = location.href): boolean {
   }
 }
 
-export function isSupportedVideoPage(url: string = location.href): boolean {
+export function isSupportedVideoPage(url: string = defaultHref()): boolean {
+  if (detectSiteFromUrl(url) === "youtube") {
+    return isYoutubeWatchPage(url);
+  }
   if (isPlaylistPage(url)) {
     return true;
   }
@@ -93,7 +115,7 @@ export function isSupportedVideoPage(url: string = location.href): boolean {
   }
 }
 
-export function parseLiveRoomId(url: string = location.href): string {
+export function parseLiveRoomId(url: string = defaultHref()): string {
   try {
     const parsed = new URL(url);
     if (parsed.hostname !== "live.bilibili.com") {
@@ -105,12 +127,19 @@ export function parseLiveRoomId(url: string = location.href): string {
   }
 }
 
-export function isLiveRoomPage(url: string = location.href, embedded: boolean = window.self !== window.top): boolean {
+export function isLiveRoomPage(
+  url: string = defaultHref(),
+  embedded: boolean = typeof window !== "undefined" ? window.self !== window.top : false
+): boolean {
   if (!parseLiveRoomId(url)) return false;
   return embedded || !new URL(url).pathname.startsWith("/blanc/");
 }
 
-export function computeCurrentClipSignature(url: string = location.href): string {
+export function computeCurrentClipSignature(url: string = defaultHref()): string {
+  if (detectSiteFromUrl(url) === "youtube") {
+    const videoId = extractYoutubeVideoId(url);
+    return `youtube|${videoId}|${YOUTUBE_UNIT_CID}`;
+  }
   const bvid = extractBvid(url);
   const page = extractPageIndex(url);
   return [bvid, page].map((item) => String(item || "").trim()).join("|");
@@ -132,6 +161,13 @@ export function extractBvid(url: string): string {
   }
 
   return "";
+}
+
+export function extractVideoId(url: string = defaultHref()): string {
+  if (detectSiteFromUrl(url) === "youtube") {
+    return extractYoutubeVideoId(url);
+  }
+  return extractBvid(url);
 }
 
 const WATCHLATER_TRACKING_PARAM_NAMES = new Set([
@@ -170,7 +206,10 @@ function cleanContextPreservingUrl(parsed: URL, normalizedPath: string): string 
   return cleaned.toString();
 }
 
-export function cleanVideoUrl(href: string = location.href): string {
+export function cleanVideoUrl(href: string = defaultHref()): string {
+  if (detectSiteFromUrl(href) === "youtube") {
+    return cleanYoutubeWatchUrl(href);
+  }
   try {
     const parsed = new URL(href);
     if (parsed.hostname !== "www.bilibili.com") {
@@ -217,15 +256,23 @@ export function extractPageIndexFromUrl(url: string): number {
   }
 }
 
-export function buildCanonicalVideoUrl(bvid: string, pageIndex: number | string = 1): string {
-  const safeBvid = String(bvid || "").trim();
-  if (!safeBvid) {
+export function buildCanonicalVideoUrl(
+  videoId: string,
+  pageIndex: number | string = 1,
+  site?: SiteId
+): string {
+  const safeId = String(videoId || "").trim();
+  if (!safeId) {
     return "";
   }
-  if (Number(pageIndex) > 1) {
-    return `https://www.bilibili.com/video/${safeBvid}/?p=${Number(pageIndex)}`;
+  if (normalizeSiteId(site) === "youtube") {
+    const decoded = decodeVideoStorageBvid(safeId);
+    return decoded ? `https://www.youtube.com/watch?v=${encodeURIComponent(decoded)}` : "";
   }
-  return `https://www.bilibili.com/video/${safeBvid}/`;
+  if (Number(pageIndex) > 1) {
+    return `https://www.bilibili.com/video/${safeId}/?p=${Number(pageIndex)}`;
+  }
+  return `https://www.bilibili.com/video/${safeId}/`;
 }
 
 export function isSupportedBilibiliPage(url: unknown): boolean {
@@ -245,4 +292,11 @@ export function isSupportedBilibiliPage(url: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+export function isSupportedPage(url: unknown): boolean {
+  if (typeof url !== "string" || !url) {
+    return false;
+  }
+  return isSupportedBilibiliPage(url) || isYoutubeWatchPage(url);
 }

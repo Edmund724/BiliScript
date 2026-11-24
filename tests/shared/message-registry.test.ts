@@ -49,7 +49,8 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "player-ai-quick-action": "branch",
   "fetch-json": "branch",
   "get-ai-provider-key": "branch",
-  "offload-task": "branch"
+  "offload-task": "branch",
+  "youtube-page-snapshot": "branch"
 };
 
 const SHAPE_REGISTERED_TYPES = [

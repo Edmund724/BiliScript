@@ -49,6 +49,22 @@ const COPY_TABLE: Record<NonNullReason, CopyEntry> = {
     retryOnSend: true,
     isAsrFailureKind: false
   },
+  "youtube-no-subtitles": {
+    cause: "该 YouTube 视频未提供原生字幕或自动字幕。",
+    remedyText: "",
+    remedy: "none",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: false
+  },
+  "youtube-captions-unavailable": {
+    cause: "未能获取该 YouTube 视频的字幕正文。",
+    remedyText: "请尝试在页面开启视频原生字幕开关后重试",
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: true,
+    isAsrFailureKind: false
+  },
   "no-asr-config": {
     cause: "语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。",
     remedyText: "请到设置页检查语音转写平台",

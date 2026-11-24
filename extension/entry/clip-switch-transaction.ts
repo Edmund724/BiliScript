@@ -117,7 +117,11 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
       if (deps.isReaderViewOpen()) {
         started.push(
           (async () => {
-            await deps.exitReaderShell();
+            try {
+              await deps.exitReaderShell();
+            } catch (error) {
+              deps.logWarn("[BILISCRIPT] reading shell exit after URL change failed", error);
+            }
           })()
         );
       }

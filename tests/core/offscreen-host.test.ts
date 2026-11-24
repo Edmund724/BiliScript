@@ -342,6 +342,22 @@ describe("SW 侧串行生命周期队列与关闭代际号", () => {
     query.mockRejectedValueOnce(new Error("tabs unavailable"));
     await expect(host.hasOpenBilibiliTabs()).resolves.toBe(true);
   });
+
+  it("hasOpenSupportedTabs 按 B 站与 YouTube 显式模式查询；异常时保守返回 true", async () => {
+    stubHostEnv();
+    const query = vi.fn(async () => [{ id: 2, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }]);
+    (chrome.tabs as unknown as { query: typeof query }).query = query;
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    await expect(host.hasOpenSupportedTabs()).resolves.toBe(true);
+    expect(query).toHaveBeenCalledWith({ url: [...host.SUPPORTED_TAB_URL_PATTERNS] });
+
+    query.mockResolvedValueOnce([]);
+    await expect(host.hasOpenSupportedTabs()).resolves.toBe(false);
+
+    query.mockRejectedValueOnce(new Error("tabs unavailable"));
+    await expect(host.hasOpenSupportedTabs()).resolves.toBe(true);
+  });
 });
 
 describe("B 站媒体防盗链 DNR 会话规则生命周期", () => {

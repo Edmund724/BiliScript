@@ -107,7 +107,7 @@ describe("handleOffscreenRequestClose 执行器", () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });
 
-  it("onlyIfNoBilibiliTabs=true 且仍有打开的 B 站标签页：跳过关闭并回 { ok:true, closed:false }", async () => {
+  it("onlyIfNoBilibiliTabs=true 且仍有打开的 B 站或 YouTube 标签页：跳过关闭并回 { ok:true, closed:false }", async () => {
     const { closeDocument, tabsQuery } = stubSwEnv({
       bilibiliTabs: [{ id: 12, url: "https://www.bilibili.com/video/BV1/" }]
     });
@@ -120,12 +120,14 @@ describe("handleOffscreenRequestClose 执行器", () => {
       sendResponse
     );
 
-    expect(tabsQuery).toHaveBeenCalledWith({ url: "*://*.bilibili.com/*" });
+    expect(tabsQuery).toHaveBeenCalledWith({
+      url: ["*://*.bilibili.com/*", "https://www.youtube.com/*"]
+    });
     expect(closeDocument).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, closed: false });
   });
 
-  it("onlyIfNoBilibiliTabs=true 且全部 B 站标签页已关闭：执行 closeDocument 并回 { ok:true }", async () => {
+  it("onlyIfNoBilibiliTabs=true 且全部支持站点标签页已关闭：执行 closeDocument 并回 { ok:true }", async () => {
     const { closeDocument, tabsQuery } = stubSwEnv({ bilibiliTabs: [] });
     const bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
 
@@ -136,7 +138,9 @@ describe("handleOffscreenRequestClose 执行器", () => {
       sendResponse
     );
 
-    expect(tabsQuery).toHaveBeenCalledWith({ url: "*://*.bilibili.com/*" });
+    expect(tabsQuery).toHaveBeenCalledWith({
+      url: ["*://*.bilibili.com/*", "https://www.youtube.com/*"]
+    });
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });

@@ -3,7 +3,7 @@ import {
   BILI_MEDIA_ORIGIN_PAGE,
   OFFSCREEN_SENDER_REJECTION_MESSAGE,
   acquireBiliMediaSessionRule,
-  hasOpenBilibiliTabs,
+  hasOpenSupportedTabs,
   isOffscreenDocumentSender,
   reapAllBiliMediaSessionRules,
   releaseBiliMediaSessionRule,
@@ -101,7 +101,7 @@ export async function handleOffscreenRequestClose(
   }
   const request = message as Partial<OffscreenRequestCloseMessage> | null | undefined;
   try {
-    if (request?.onlyIfNoBilibiliTabs && (await hasOpenBilibiliTabs())) {
+    if (request?.onlyIfNoBilibiliTabs && (await hasOpenSupportedTabs())) {
       sendResponse({ ok: true, closed: false });
       return;
     }

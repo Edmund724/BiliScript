@@ -19,7 +19,7 @@ import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/read
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
-import { collectAgentBridgeTabSnapshot } from "../agent-bridge/content.js";
+import { detectSiteFromUrl, getSiteCapabilities } from "../shared/site.js";
 
 import {
   isReaderMode,
@@ -127,12 +127,31 @@ function handleReaderToggle(message: Msg<"reader-toggle">, sendResponse: SendRes
   return true;
 }
 
+function isAgentBridgeSupportedForActiveSite(): boolean {
+  return getSiteCapabilities(state.clip.site).supportsAgentBridge;
+}
+
 function handleAgentBridgeSnapshot(_message: Msg<"agent-bridge-snapshot">, sendResponse: SendResponse): boolean {
-  sendResponse({ ok: true, snapshot: collectAgentBridgeTabSnapshot() });
-  return false;
+  if (!isAgentBridgeSupportedForActiveSite()) {
+    sendResponse({ ok: false, error: "当前站点不支持 Agent 桥接" });
+    return false;
+  }
+  void (async () => {
+    try {
+      const { collectAgentBridgeTabSnapshot } = await import("../agent-bridge/content.js");
+      sendResponse({ ok: true, snapshot: collectAgentBridgeTabSnapshot() });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
 }
 
 function handleAgentBridgeSubtitles(_message: Msg<"agent-bridge-subtitles">, sendResponse: SendResponse): boolean {
+  if (!isAgentBridgeSupportedForActiveSite()) {
+    sendResponse({ ok: false, error: "当前站点不支持 Agent 桥接" });
+    return false;
+  }
   void (async () => {
     try {
       const { getAgentBridgeSubtitles } = await import("../agent-bridge/content-subtitles.js");
@@ -145,6 +164,10 @@ function handleAgentBridgeSubtitles(_message: Msg<"agent-bridge-subtitles">, sen
 }
 
 function handleAgentBridgeFrame(message: Msg<"agent-bridge-frame">, sendResponse: SendResponse): boolean {
+  if (!isAgentBridgeSupportedForActiveSite()) {
+    sendResponse({ ok: false, error: "当前站点不支持 Agent 桥接" });
+    return false;
+  }
   void (async () => {
     try {
       const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
@@ -225,6 +248,7 @@ export function bindUrlChangeHandler() {
     computeSignature: computeCurrentClipSignature,
     readSignature: () => state.clip.currentClipSignature,
     writeIdentity: (url, signature) => {
+      clipState.setSite(detectSiteFromUrl(url));
       clipState.setCurrentUrl(url);
       clipState.setCurrentClipSignature(signature);
     },
@@ -238,7 +262,7 @@ export function bindUrlChangeHandler() {
     isReaderMode,
     isSupportedVideoPage,
     shouldAutoOpen: (url: string) => Boolean(state.settings?.autoOpenReader && isAutoOpenEligible(url)),
-    isPlayerAiLoaded,
+    isPlayerAiLoaded: () => getSiteCapabilities(state.clip.site).supportsPlayerQuickAiButton && isPlayerAiLoaded(),
     ensureUiReady,
     resetClipState: async () => {
       const chain = await ensureSummarizeChain();

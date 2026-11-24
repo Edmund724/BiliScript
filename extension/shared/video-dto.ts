@@ -1,9 +1,13 @@
+import type { SiteId } from "./site.js";
+
 export type SubtitleFetchState = "idle" | "loading" | "ready" | "error" | "empty";
 
 export type NoSubtitleReason =
   | null
   | "upower-exclusive"
   | "bili-login-required"
+  | "youtube-no-subtitles"
+  | "youtube-captions-unavailable"
   | "no-asr-config"
   | "asr-disabled"
   | "asr-auth"
@@ -15,7 +19,7 @@ export type NoSubtitleReason =
   | "asr-unknown"
   | "asr-empty";
 
-export type SubtitleTrackOrigin = "bilibili" | "asr";
+export type SubtitleTrackOrigin = "bilibili" | "youtube" | "asr";
 
 export interface SubtitleTrack {
   id: string;
@@ -24,6 +28,8 @@ export interface SubtitleTrack {
   subtitleUrl: string;
   source?: string;
   origin?: SubtitleTrackOrigin;
+  kind?: string;
+  site?: SiteId;
 }
 
 export type SubtitleOption = SubtitleTrack;

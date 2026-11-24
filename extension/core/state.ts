@@ -1,6 +1,7 @@
 // BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import { DEFAULT_SETTINGS, type DetachedWindowMode, type Settings } from "./defaults.js";
 import { logWarnAlways } from "../shared/logging.js";
+import { detectActiveSite, type SiteId } from "../shared/site.js";
 import type {
   ChapterItem,
   HotComment,
@@ -11,6 +12,8 @@ import type {
   SubtitleTrack,
   SubtitleTrackOrigin
 } from "../shared/video-dto.js";
+
+export type { SiteId } from "../shared/site.js";
 
 export type {
   ChapterItem,
@@ -100,6 +103,7 @@ const localReaderState: ReaderStateWritable = {
 };
 
 type ClipBusinessState = {
+  site: SiteId;
   currentUrl: string;
   fetchRunId: number;
   acquisitionVersion: number;
@@ -135,6 +139,7 @@ type ClipBusinessState = {
 };
 
 type ClipSetters = {
+  setSite(value: SiteId): void;
   setCurrentUrl(value: string): void;
   setFetchRunId(value: number): void;
   advanceSubtitleVersions(scope?: "both" | "processing"): { acquisitionVersion: number; processingVersion: number };
@@ -175,6 +180,7 @@ export type ClipState = Readonly<ClipBusinessState> & ClipSetters;
 type ClipStateWritable = ClipBusinessState & ClipSetters;
 
 const localClipState: ClipStateWritable = {
+  site: detectActiveSite(),
   currentUrl: typeof location !== "undefined" ? location.href : "",
   fetchRunId: 0,
   acquisitionVersion: 0,
@@ -207,6 +213,7 @@ const localClipState: ClipStateWritable = {
   srt: "",
   txt: "",
   currentClipSignature: "",
+  setSite(value) { this.site = value; },
   setCurrentUrl(value) { this.currentUrl = value; },
   setFetchRunId(value) { this.fetchRunId = value; },
   advanceSubtitleVersions(scope = "both") {

@@ -1,10 +1,13 @@
 import { logWarnAlways } from "../shared/logging.js";
+import { isToastEligibleHostPage } from "../shared/site.js";
+
+export { isToastEligibleHostPage };
 
 export const UNSUPPORTED_PAGE_BADGE_TEXT = "!";
 export const UNSUPPORTED_PAGE_ACTION_TITLE =
-  "BiliScript｜当前页面不支持，请前往普通视频页或稍后再看页";
+  "BiliScript｜当前页面不支持，请前往 B 站或 YouTube 视频页";
 export const UNSUPPORTED_PAGE_TOAST_MESSAGE =
-  "当前页面打不开文摘面板，请前往普通视频页或稍后再看页";
+  "当前页面打不开文摘面板，请前往 B 站或 YouTube 视频页";
 export const UNSUPPORTED_PAGE_TOAST_DURATION_MS = 6000;
 
 const BADGE_BACKGROUND_COLOR = "#D92D20";
