@@ -40,8 +40,12 @@ import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 import type { L1VideoIndexCacheRecord } from "../../extension/ai/long-video-hybrid-types.js";
 import type { ChapterItem } from "../../extension/ai/types.js";
 import { clipState } from "../../extension/core/state.js";
+import { createInProcessContextFetch } from "../../extension/core/context-assembly.js";
+import { createSubtitleBodySlot } from "../../extension/entry/offscreen-subtitle-slot.js";
+import { attachOffscreenChatPort } from "../../extension/entry/offscreen-chat-port.js";
 import { createOverviewCoordinator } from "../../extension/reader/overview-coordinator.js";
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
+import { installMinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const PROVIDER = {
   baseUrl: "https://api.example.com/v1",
@@ -955,5 +959,117 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
     expect(biliPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(true);
     expect(biliCalls[0].fetchHotComments).toBe(fetchHotComments);
     expect(biliCalls[0].userImages).toHaveLength(3);
+  });
+
+  it("全链路集成：context-assembly → offscreen-chat-port → runLadderChat → streamChat → runToolLoop 在 YouTube 下禁历史帧与热评且保留当前帧", async () => {
+    installMinimalChromeHost({
+      preserveExisting: true,
+      replies: {
+        "check-provider-origin": () => ({ granted: true, status: "granted" }),
+        "resolve-ai-provider": () => ({
+          ok: true,
+          provider: {
+            id: "prov-yt",
+            presetId: "custom",
+            name: "Test",
+            baseUrl: "https://api.example.com/v1",
+            model: "test-model",
+            enabled: true
+          },
+          apiKey: "sk-test"
+        })
+      }
+    });
+
+    const requests: Array<{ tools?: Array<{ function: { name: string } }> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const parsed = JSON.parse(String(init?.body || "{}"));
+        requests.push(parsed);
+        return sseResponse([sseData({ content: "已结合当前画面回答。" }), sseData({}, "stop")]);
+      })
+    );
+
+    const subtitleBody = [
+      { from: 0, to: 10, content: "开场白" },
+      { from: 120, to: 135, content: "这里展示公式板书" }
+    ];
+    const l1Index = buildL1VideoIndex({
+      bvid: "yt~_a_b-C12_34",
+      cid: "yt",
+      subtitleId: "en",
+      subtitleLang: "en",
+      subtitleSignature: "sig-chain1",
+      videoDuration: 3600,
+      globalSummary: "讲解板书推导。",
+      lines: subtitleBody,
+      chapters: [
+        { from: 0, to: 100, title: "开场", coreThesis: "开场", keyEntities: ["开场"] },
+        { from: 100, to: 3600, title: "推导", coreThesis: "板书", keyEntities: ["公式"] }
+      ]
+    });
+
+    const fetchHotComments = vi.fn(async () => [{ uname: "u", like: 10, message: "hot" }]);
+    const fetchContext = createInProcessContextFetch({
+      url: () => "https://www.youtube.com/watch?v=_a_b-C12_34",
+      clip: () => ({
+        site: "youtube",
+        bvid: "_a_b-C12_34",
+        cid: "yt",
+        aid: "999999",
+        title: "YT Chain 1",
+        author: "Channel",
+        subtitleFetchState: "ready",
+        selectedSubtitleId: "en",
+        selectedSubtitleUrl: "https://www.youtube.com/api/timedtext?v=_a_b-C12_34",
+        selectedSubtitleLang: "English",
+        subtitleBody,
+        videoDuration: 3600,
+        chapters: []
+      }),
+      fetchHotComments
+    });
+    const outcome = await fetchContext({ forceRefresh: true, ifSignature: "" });
+    expect(fetchHotComments).not.toHaveBeenCalled();
+    expect(outcome.kind).toBe("payload");
+    const payload = (outcome as { payload: Record<string, unknown> }).payload;
+    expect(payload.site).toBe("youtube");
+
+    const messageListeners: Array<(msg: unknown) => void> = [];
+    const postedMessages: Array<Record<string, unknown>> = [];
+    const port = {
+      name: "offscreen-chat",
+      onMessage: { addListener: (fn: (msg: unknown) => void) => messageListeners.push(fn) },
+      onDisconnect: { addListener: vi.fn() },
+      postMessage: vi.fn((m: Record<string, unknown>) => {
+        postedMessages.push(m);
+      })
+    } as unknown as chrome.runtime.Port;
+
+    attachOffscreenChatPort(port, {
+      subtitleSlot: createSubtitleBodySlot(),
+      loadLadder: async () => runLadderChat
+    });
+
+    messageListeners[0]({
+      action: "chat",
+      providerId: "prov-yt",
+      model: "test-model",
+      videoFrameToolEnabled: true,
+      contextKey: "video:youtube:_a_b-C12_34",
+      context: { ...payload, l1Index },
+      prompt: "02:00 这里的黑板公式写的是什么？",
+      thinkingLevel: "off",
+      history: []
+    });
+
+    await vi.waitFor(() =>
+      expect(postedMessages.some((m) => m.type === "done")).toBe(true)
+    );
+
+    expect(postedMessages.some((m) => m.type === "video-frame-request")).toBe(false);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].tools?.map((t) => t.function.name)).toEqual(["capture_current_video_frame"]);
   });
 });

@@ -886,4 +886,83 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
       "今天我们来测试 YouTube 字幕"
     ]);
   });
+
+  it("Chain 3 互通：含前导/中间 _ 的 ID（_a_b-C12_34）经 fetcher + loadTrackBody(fetchBody) 写入 IDB 后，context-resolver 同键读回", async () => {
+    const rawId = "_a_b-C12_34";
+    setLocationUrl(`https://www.youtube.com/watch?v=${rawId}`);
+    const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");
+    const snapshot = buildSnapshotFromFixtures({
+      videoId: rawId,
+      title: "Underscore ID Video",
+      author: "Channel",
+      duration: 212,
+      captionTracks: [buildSnapshotFromFixtures().captionTracks[0]]
+    });
+    setYoutubeMainWorldReaderForTests(async () => snapshot);
+    const fetchMock = vi.fn(async () => makeJsonFetchResponse(json3Fixture));
+    setYoutubeSameOriginFetchForTests(fetchMock);
+
+    await fetcher.refreshClip();
+
+    expect(state.clip.site).toBe("youtube");
+    expect(state.clip.bvid).toBe(rawId);
+    expect(state.clip.cid).toBe(YOUTUBE_UNIT_CID);
+    expect(state.clip.subtitleBody.length).toBeGreaterThan(0);
+
+    const { resolveAiConversationContext } = await import("../../extension/ai/context-resolver.js");
+    const { buildAiContextRef } = await import("../../extension/ai/conversation.js");
+    const ref = buildAiContextRef({
+      site: "youtube",
+      bvid: rawId,
+      cid: YOUTUBE_UNIT_CID,
+      title: state.clip.title,
+      author: state.clip.author,
+      url: `https://www.youtube.com/watch?v=${rawId}`,
+      videoDuration: state.clip.videoDuration,
+      selectedSubtitleId: state.clip.selectedSubtitleId,
+      selectedSubtitleUrl: state.clip.selectedSubtitleUrl,
+      subtitleLang: state.clip.selectedSubtitleLang
+    });
+
+    const resolved = await resolveAiConversationContext(ref);
+    expect(resolved.site).toBe("youtube");
+    expect(resolved.bvid).toBe(rawId);
+    expect(resolved.cid).toBe(YOUTUBE_UNIT_CID);
+    expect(
+      (resolved.subtitleBody ?? []).map(({ from, to, content }) => ({ from, to, content }))
+    ).toEqual(
+      state.clip.subtitleBody.map(({ from, to, content }) => ({ from, to, content }))
+    );
+
+    const customBody = [{ from: 0, to: 212, content: "Injected fetchBody line" }];
+    const fetchBodySpy = vi.fn(async () => customBody);
+    const customUrl = "https://www.youtube.com/api/timedtext?v=_a_b-C12_34&lang=fr";
+    const freshLoaded = await loadTrackBody({
+      site: "youtube",
+      bvid: rawId,
+      cid: YOUTUBE_UNIT_CID,
+      videoDuration: 212,
+      url: customUrl,
+      lang: "fr",
+      subtitleId: "track-fr",
+      transport: vi.fn(),
+      fetchBody: fetchBodySpy
+    });
+    expect(freshLoaded).toEqual(customBody);
+    expect(fetchBodySpy).toHaveBeenCalledTimes(1);
+
+    const hitLoaded = await loadTrackBody({
+      site: "youtube",
+      bvid: rawId,
+      cid: YOUTUBE_UNIT_CID,
+      videoDuration: 212,
+      url: customUrl,
+      lang: "fr",
+      subtitleId: "track-fr",
+      transport: vi.fn(),
+      fetchBody: fetchBodySpy
+    });
+    expect(hitLoaded).toEqual(customBody);
+    expect(fetchBodySpy).toHaveBeenCalledTimes(1);
+  });
 });

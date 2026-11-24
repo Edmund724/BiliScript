@@ -8,8 +8,7 @@ import { createDisposableContext, type DisposableContext } from "../shared/typed
 import {
   findYoutubePlayerHost,
   findYoutubeScriptAnchor,
-  getYoutubeWatchFlexy,
-  isYoutubeTheaterOrFullBleed
+  getYoutubeWatchFlexy
 } from "../youtube/host-adapter.js";
 import { ids } from "./state.js";
 

@@ -74,6 +74,7 @@ async function buildResidentBundleForBudgetTest() {
       platform: "browser",
       minify: true,
       target: "chrome120",
+      metafile: true,
       plugins: [lazyPlugin]
     })
   ]);
@@ -82,7 +83,28 @@ async function buildResidentBundleForBudgetTest() {
   const mainBytes = mainResult.outputFiles[0].contents.byteLength;
   return {
     residentBytes: bootstrapBytes + mainBytes,
-    mainText: mainResult.outputFiles[0].text
+    mainText: mainResult.outputFiles[0].text,
+    mainInputs: Object.keys(mainResult.metafile.inputs)
+  };
+}
+
+async function buildBackgroundBundleForBudgetTest() {
+  const extensionRoot = resolve(ROOT, "extension");
+  const result = await build({
+    entryPoints: [resolve(extensionRoot, "entry", "background.ts")],
+    bundle: true,
+    splitting: false,
+    write: false,
+    format: "esm",
+    platform: "browser",
+    minify: true,
+    target: "chrome120",
+    metafile: true
+  });
+
+  return {
+    backgroundBytes: result.outputFiles[0].contents.byteLength,
+    backgroundInputs: Object.keys(result.metafile.inputs)
   };
 }
 
@@ -142,11 +164,27 @@ describe("常驻内容包瘦身与 40 KB 预算", () => {
     expect(kickText).not.toContain("host-selectors");
   });
 
-  it("实包打包：常驻包（bootstrap + main）严格低于 40960 B 且不含 host-selectors / agent-bridge-content 静态代码", async () => {
-    const { residentBytes, mainText } = await buildResidentBundleForBudgetTest();
+  it("实包打包：常驻包（bootstrap + main）严格低于 40960 B 且不含 host-selectors / agent-bridge-content / youtube/ 静态代码", async () => {
+    const { residentBytes, mainText, mainInputs } = await buildResidentBundleForBudgetTest();
 
     expect(residentBytes).toBeLessThanOrEqual(40960);
     expect(mainText).not.toContain(".bpx-player-container");
     expect(mainText).toContain("./chunks/agent-bridge-content.mjs");
+    expect(mainInputs.some((input) => input.replace(/\\/g, "/").includes("extension/youtube/"))).toBe(false);
+  });
+
+  it("background 静态打包不含 extension/youtube/，subtitle/body 不直连 youtube/gateway，且 build.js 禁区清单已登记", async () => {
+    const { backgroundBytes, backgroundInputs } = await buildBackgroundBundleForBudgetTest();
+    const buildJsText = readText("scripts/build.js");
+    const forbiddenBlock = buildJsText.slice(
+      buildJsText.indexOf("BACKGROUND_FORBIDDEN_STATIC_SOURCES"),
+      buildJsText.indexOf("function assertBackgroundStaticGraphSlim")
+    );
+    const bodyText = readText("extension/subtitle/body.ts");
+
+    expect(backgroundBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(backgroundInputs.some((input) => input.replace(/\\/g, "/").includes("extension/youtube/"))).toBe(false);
+    expect(bodyText).not.toContain("youtube/gateway");
+    expect(forbiddenBlock).toContain("youtube\\/");
   });
 });

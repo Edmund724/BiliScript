@@ -646,4 +646,116 @@ describe("YouTube 视频绑定、PageContext、独立窗口 SPA 换片保持与�
     expect(popupHarness.childWin.closed).toBe(true);
     expect(state.reader.readingViewOpen).toBe(false);
   });
+
+  it("Chain 4 协同：clip-switch-transaction 驱动 script-button / script-host / detached-window / shell 完成 SPA 切片与离开 /watch 收口", async () => {
+    const pipHarness = expectDetachedShellOpen("pip");
+    pipHarness.setupOpenerMocks(pipHarness.childWin);
+
+    const { clipState, state } = await import("../../extension/core/state.js");
+    const { detectSiteFromUrl, isYoutubeWatchPage } = await import("../../extension/shared/site.js");
+    const { computeCurrentClipSignature, isReaderMode, isSupportedVideoPage } = await import(
+      "../../extension/bilibili/video-id-shared.js"
+    );
+    const { contentEventBus } = await import("../../extension/shared/content-event-bus.js");
+    const { createClipSwitchTransaction } = await import("../../extension/entry/clip-switch-transaction.js");
+    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    const shell = await import("../../extension/reader/shell.js");
+    const { notifyReaderPresenter } = await import("../../extension/reader/reader-bus.js");
+    const { enforceNormalPageStateIfNeeded } = await import("../../extension/reader/state.js");
+    const scriptBtnMod = await import("../../extension/ui/script-button.js");
+    const { player, secondary } = makeYoutubeWatchDom();
+    mockElementRect(player, makeRect(24, 80, 960, 540));
+    mockElementRect(secondary, makeRect(1020, 80, 400, 700));
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("biliscript-script-button")).not.toBeNull();
+    });
+
+    clipState.setSite("youtube");
+    clipState.setBvid("dQw4w9WgXcQ");
+    clipState.setCid("yt");
+    clipState.setTitle("Clip A");
+    clipState.setCurrentUrl(YOUTUBE_WATCH_A);
+    clipState.setCurrentClipSignature(computeCurrentClipSignature(YOUTUBE_WATCH_A));
+    await shell.enterReaderShell({ readerUrl: YOUTUBE_WATCH_A, intent: "open" });
+
+    const readingView = document.getElementById("biliscript-reading-view")!;
+    expect(readingView.getAttribute("data-biliscript-script-float")).not.toBe("1");
+    expect(Number.parseInt(getVars(readingView).left, 10)).toBeGreaterThan(0);
+
+    expect(await shell.detachReaderShell()).toBe(true);
+    expect(pipHarness.childWin.document.title).toContain("Clip A");
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
+
+    const transaction = createClipSwitchTransaction({
+      readUrl: () => location.href,
+      computeSignature: () => computeCurrentClipSignature(),
+      readSignature: () => state.clip.currentClipSignature,
+      writeIdentity: (url, signature) => {
+        clipState.setSite(detectSiteFromUrl(url));
+        clipState.setCurrentUrl(url);
+        clipState.setCurrentClipSignature(signature);
+      },
+      readRunId: () => clipState.fetchRunId,
+      writeRunId: (runId) => clipState.setFetchRunId(runId),
+      enforceNormalPageStateIfNeeded,
+      isReaderViewOpen: () => state.reader.readingViewOpen,
+      isReaderMode,
+      isSupportedVideoPage: (url) => (detectSiteFromUrl(url) === "youtube" ? isYoutubeWatchPage(url) : isSupportedVideoPage(url)),
+      isPlayerAiLoaded: () => false,
+      ensureUiReady: async () => {
+        uiRenderer.ensureUiReady();
+      },
+      resetClipState: () => {
+        clipState.setTitle("");
+        clipState.setSubtitleBody([]);
+        notifyReaderPresenter({ kind: "reset" });
+      },
+      syncPlayerAiQuickAction: () => {},
+      enterReaderShellOnUrlNavigation: async (url) => {
+        await shell.enterReaderShellOnUrlNavigation({ readerUrl: url });
+      },
+      refreshReaderClip: async () => {
+        await flushMicrotasks();
+        clipState.setTitle("Clip B");
+        clipState.setSubtitleBody([{ from: 0, to: 10, content: "Subtitle B" }]);
+        notifyReaderPresenter({ kind: "subtitle-ready" });
+      },
+      exitReaderShell: () => shell.exitReaderShell(),
+      startSubtitlePrefetch: () => {},
+      logWarn: () => {}
+    });
+
+    const settledPromises: Array<Promise<void>> = [];
+    const waitSettled = () =>
+      new Promise<void>((resolve) => {
+        transaction.subscribeSettled(() => resolve(), { once: true });
+      });
+
+    setTestUrl(YOUTUBE_WATCH_B);
+    settledPromises.push(waitSettled());
+    transaction.handleUrlChange();
+    contentEventBus.emit("host:url-change", { url: YOUTUBE_WATCH_B });
+    await settledPromises[0];
+
+    expect(pipHarness.childWin.closed).toBe(false);
+    expect(pipHarness.childWin.document.title).toContain("Clip B");
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
+
+    setTestUrl(YOUTUBE_HOME);
+    settledPromises.push(waitSettled());
+    transaction.handleUrlChange();
+    contentEventBus.emit("host:url-change", { url: YOUTUBE_HOME });
+    await settledPromises[1];
+
+    expect(pipHarness.childWin.closed).toBe(true);
+    expect(state.reader.readingViewOpen).toBe(false);
+    expect(state.reader.readingDetached).toBe(false);
+    expect(getVars(readingView).left).toBe("");
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+    expect(location.href).toBe(YOUTUBE_HOME);
+    expect(location.href).not.toContain("biliscript_reader");
+
+    scriptBtnMod.removeScriptButton();
+  });
 });

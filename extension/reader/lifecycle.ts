@@ -32,7 +32,7 @@ import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js"
 import { clearSubtitleNotice, showSubtitleNotice } from "./subtitle-notice.js";
 
 import { getReaderActiveScriptTab, ids } from "./state.js";
-import { openScriptHost, closeScriptHost, waitForScriptAnchor } from "./script-host.js";
+import { openScriptHost, closeScriptHost, relayoutScriptHost, waitForScriptAnchor } from "./script-host.js";
 
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -262,6 +262,8 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
       if (clipTitle) {
         syncDetachedWindowHostTitle(`${clipTitle} - 文摘`);
       }
+    } else {
+      relayoutScriptHost();
     }
     renderReadingView();
 
@@ -300,6 +302,7 @@ function warmUpReaderQuickPrompts() {
     return;
   }
   void warmUpInitialQuickPrompts({
+    site: state.clip.site,
     bvid: state.clip.bvid,
     cid: state.clip.cid,
     aid: state.clip.aid,
@@ -320,6 +323,9 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent): 
       clearPendingExplainIntent();
       invalidateReaderSetupFlows("all");
       resetReaderOverviewState();
+      if (state.reader.readingViewOpen && isReaderDetached()) {
+        syncDetachedWindowHostTitle("文摘");
+      }
       return;
     case "subtitle-ready":
       subtitleReadyNotificationSeq += 1;
@@ -331,6 +337,12 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent): 
       return;
     case "rerender":
       if (state.reader.readingViewOpen) {
+        if (isReaderDetached()) {
+          const clipTitle = String(state.clip.title || "").trim();
+          if (clipTitle) {
+            syncDetachedWindowHostTitle(`${clipTitle} - 文摘`);
+          }
+        }
         renderReadingView();
       }
       return;
