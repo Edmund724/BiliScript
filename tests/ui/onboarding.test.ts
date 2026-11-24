@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { mountOnboardingPage } from "../../extension/entry/onboarding.js";
+import { resetUiState, waitForFast } from "../helpers/reset-ui-state.js";
 
 const ONBOARDING_HTML = readFileSync(join(process.cwd(), "extension", "onboarding.html"), "utf8");
 
@@ -115,14 +116,13 @@ function loadOnboardingDom(): void {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetUiState();
   loadOnboardingDom();
 });
 
 describe("onboarding.html 与引导页配置读写同步", () => {
   it("包含三部分引导结构、GitHub Pages 外链与默认 ModelScope / XingChenASR-V3.2 预设", async () => {
     installOnboardingRuntimeMock();
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     expect(document.getElementById("aiPresetSelect") instanceof HTMLSelectElement).toBe(true);
@@ -153,7 +153,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
   it("在引导页保存 ModelScope 与硅基流动配置后同步落盘并展示就绪状态", async () => {
     const store = installOnboardingRuntimeMock();
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     const aiKey = document.getElementById("aiApiKeyInput") as HTMLInputElement;
@@ -164,8 +163,9 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     aiModel.value = "Qwen/Qwen3-235B-A22B-Instruct-2507";
     aiForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(store.getAiProviders()).toHaveLength(1);
+      expect(document.getElementById("aiReadyBadge")?.getAttribute("data-ready")).toBe("true");
     });
     expect(store.getAiProviders()[0].presetId).toBe("modelscope");
     expect(store.getAiKeys()[String(store.getAiProviders()[0].id)]).toBe("ms-test-token-123");
@@ -178,8 +178,9 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     asrKey.value = "sf-test-key-456";
     asrForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(store.getAsrProviders()).toHaveLength(1);
+      expect(document.getElementById("asrReadyBadge")?.getAttribute("data-ready")).toBe("true");
     });
     expect(store.getAsrProviders()[0].model).toBe("XingChenAGI/XingChenASR-V3.2");
     expect(store.getAsrKeys()[String(store.getAsrProviders()[0].id)]).toBe("sf-test-key-456");
@@ -191,20 +192,19 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
   it("开启免 Key 联网搜索时必须走现有 opt-in 授权确认弹窗闭环", async () => {
     const store = installOnboardingRuntimeMock();
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     const toggle = document.getElementById("webSearchToggle") as HTMLInputElement;
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".confirm-dialog")).not.toBeNull();
     });
     expect(store.getSettings().searchOptInNoticeAcknowledged).toBe(false);
 
     (document.querySelector(".confirm-dialog-cancel") as HTMLButtonElement).click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(toggle.checked).toBe(false);
     });
     expect(store.getSettings().webSearchEnabled).toBe(false);
@@ -212,12 +212,13 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".confirm-dialog")).not.toBeNull();
     });
     (document.querySelector(".confirm-dialog-confirm") as HTMLButtonElement).click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(store.getSettings().searchOptInNoticeAcknowledged).toBe(true);
+      expect(document.getElementById("searchReadyBadge")?.getAttribute("data-ready")).toBe("true");
     });
     expect(store.getSettings().webSearchEnabled).toBe(true);
     expect(document.getElementById("searchReadyBadge")?.getAttribute("data-ready")).toBe("true");
@@ -230,7 +231,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     const runtime = globalThis.chrome.runtime as unknown as { getURL: (p: string) => string };
     runtime.getURL = (p: string) => `chrome-extension://test-id/${p}`;
 
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const chromeCtrl = await mountOnboardingPage(document);
     expect(document.getElementById("onboardingExtMenuTitle")?.textContent).toBe("扩展程序");
     expect(document.getElementById("onboardingPinCaption")?.textContent).toBe("点击图钉固定到工具栏");
@@ -252,7 +252,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     installOnboardingRuntimeMock();
     const requestMock = (globalThis.chrome as unknown as { permissions: { request: ReturnType<typeof vi.fn> } })
       .permissions.request;
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     (document.getElementById("aiFetchModelsBtn") as HTMLButtonElement).click();
@@ -277,7 +276,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
       i === 0 ? "Qwen/Qwen3-235B-A22B-Instruct-2507" : `vendor/model-${i + 1}`
     );
     installOnboardingRuntimeMock({ fetchedModels });
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     const toggle = document.getElementById("aiModelDropdownToggle") as HTMLButtonElement;
@@ -294,7 +292,7 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
     apiKeyInput.value = "ms-test-key";
     fetchBtn.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.getElementById("aiStatus")?.textContent).toBe("已获取 12 个可用模型");
     });
 
@@ -333,7 +331,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
       aiKeys: { p_existing: "ms-saved-key" },
       settings: { defaultModel: "p_existing", defaultAiModel: "ZhipuAI/GLM-4.6" }
     });
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     const aiModel = document.getElementById("aiModelInput") as HTMLInputElement;
@@ -341,7 +338,7 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     aiModel.value = "Qwen/Qwen3-235B-A22B-Instruct-2507";
     aiForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(store.getSettings().defaultAiModel).toBe("Qwen/Qwen3-235B-A22B-Instruct-2507");
     });
     expect(store.getAiProviders()).toHaveLength(1);
@@ -360,7 +357,6 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
   it("平台预设 / 接口协议 / 转写平台接入 custom-select，全页下拉箭头与设置回退样式统一为 14px chevron", async () => {
     installOnboardingRuntimeMock();
-    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
     const ctrl = await mountOnboardingPage(document);
 
     const modelArrowPath = document

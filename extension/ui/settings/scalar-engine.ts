@@ -66,12 +66,25 @@ export interface ScalarExternalSyncDeps {
 let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 let unwatchChatDisplay: (() => void) | null = null;
 let unwatchStorageSync: (() => void) | null = null;
+const pendingDebounceCancels = new Set<() => void>();
 
 export function clearStatusClearTimer(): void {
   if (statusClearTimer) {
     clearTimeout(statusClearTimer);
     statusClearTimer = null;
   }
+}
+
+export function disposeScalarBindings(): void {
+  clearStatusClearTimer();
+  for (const cancel of pendingDebounceCancels) {
+    cancel();
+  }
+  pendingDebounceCancels.clear();
+  unwatchChatDisplay?.();
+  unwatchChatDisplay = null;
+  unwatchStorageSync?.();
+  unwatchStorageSync = null;
 }
 
 export function hydrateScalarField(
@@ -341,6 +354,7 @@ export function bindScalarFieldEvents(
         void saveSettingField(elements, { [binding.key]: val });
       };
       const debouncedSave = debounce(save, 400);
+      pendingDebounceCancels.add(debouncedSave.cancel);
       el.addEventListener("input", () => {
         debouncedSave();
         deps.syncSummaries(elements);
@@ -361,6 +375,7 @@ export function bindScalarSectionActions(
     void saveSettingField(elements, { aiInitialQuickPrompts: prompts });
   };
   const debouncedSaveInitialQuickPrompts = debounce(saveInitialQuickPrompts, 400);
+  pendingDebounceCancels.add(debouncedSaveInitialQuickPrompts.cancel);
   elements.aiInitialQuickPrompts.forEach((input) => {
     input.addEventListener("input", () => {
       debouncedSaveInitialQuickPrompts();

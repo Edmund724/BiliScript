@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 const GEMINI_LIVE = {
   id: "live_gemini",
@@ -58,30 +60,25 @@ async function mountPanel(overrides: Record<string, BusResponder<BusMessage>> = 
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
   });
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(host.querySelector("#liveProvidersList .live-provider-row")).toBeTruthy();
-  });
+  expect(host.querySelector("#liveProvidersList .live-provider-row")).toBeTruthy();
   return { host, sent: bus.sent };
 }
 
 async function openLiveGeminiEditor(host: HTMLElement): Promise<HTMLElement> {
   click(host.querySelector("#liveProvidersList .provider-row-edit"));
-  await vi.waitFor(() => expect(dialog()).not.toBeNull());
+  await waitForFast(() => expect(dialog()).not.toBeNull());
   return dialog()!;
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
+afterEach(() => {
   const panel = document.getElementById("biliscript-reading-settings-panel");
   if (panel) panel.hidden = true;
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
   closeProviderEditor(true);
 });
 
@@ -143,7 +140,7 @@ describe("凭据动作同层进入 AI 族编辑器", () => {
     const editor = await openLiveGeminiEditor(host);
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
     const aiDialog = dialog()!;
@@ -165,7 +162,7 @@ describe("凭据动作同层进入 AI 族编辑器", () => {
     const editor = await openLiveGeminiEditor(host);
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑AI 平台");
     });
     const aiDialog = dialog()!;
@@ -184,7 +181,7 @@ describe("凭据动作同层进入 AI 族编辑器", () => {
     const editor = await openLiveGeminiEditor(host);
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
     const aiDialog = dialog()!;
@@ -203,17 +200,17 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
+    await waitForFast(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-cancel"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     const restored = dialog()!;
     expect(restored.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
     expect(restored.querySelector(".provider-editor-status")!.textContent).not.toContain("请继续保存伴看平台记录");
     pressEsc();
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
   });
 
   it("保存成功后恢复草稿、刷新行状态并提示仍需显式保存伴看记录；Key 只落 AI 族", async () => {
@@ -234,19 +231,19 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
+    await waitForFast(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-roundtrip");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     const restored = dialog()!;
     expect(restored.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(restored.querySelector(".provider-editor-status")!.textContent).toContain("请继续保存伴看平台记录");
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector("#liveProvidersList .provider-row-model")!.textContent)
         .toContain("已复用 AI 平台 Key");
     });
@@ -258,7 +255,7 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     expect(aiSave?.providers?.[0]?.presetId).toBe("gemini");
 
     click(restored.querySelector<HTMLButtonElement>(".provider-editor-save"));
-    await vi.waitFor(() => expect(sent.some((message) => message.type === "live-providers-save")).toBe(true));
+    await waitForFast(() => expect(sent.some((message) => message.type === "live-providers-save")).toBe(true));
     const liveSave = sent.find((message) => message.type === "live-providers-save") as {
       providers?: Array<{ apiKey?: string; hasSavedKey?: boolean; model?: string }>;
     };
@@ -272,19 +269,19 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     const editor = await openLiveGeminiEditor(host);
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
-    await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
+    await waitForFast(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
 
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-typed");
     pressEsc();
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     expect(dialog()).not.toBeNull();
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel"));
     expect(document.querySelector(".confirm-dialog")).toBeNull();
 
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-cancel"));
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
@@ -295,10 +292,10 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     const editor = await openLiveGeminiEditor(host);
     input(editor.querySelector<HTMLInputElement>(".provider-editor-model")!, "gemini-3.9-live");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
-    await vi.waitFor(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
+    await waitForFast(() => expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台"));
 
     document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
-    await vi.waitFor(() => expect(dialog()).toBeNull());
+    await waitForFast(() => expect(dialog()).toBeNull());
     expect(dialog()).toBeNull();
     expect(host.querySelector("#biliscriptSettingsStatus")!.textContent).not.toContain("请继续保存伴看平台记录");
   });

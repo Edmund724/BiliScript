@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus, type BusMessage } from "../helpers/settings-panel-bus.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type ProvidersReply = { ok: boolean; providers?: Record<string, unknown>[]; error?: string };
 
@@ -20,8 +21,7 @@ function installBus() {
 
 async function mountPanel(): Promise<HTMLElement> {
   document.body.innerHTML = '<div id="biliscript-reading-view"><div id="biliscript-reading-settings-host"></div></div>';
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   return document.getElementById("biliscript-reading-settings-host")!;
 }
 
@@ -53,11 +53,14 @@ const TWO_PROVIDERS = [
 ];
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
   aiProvidersReply = { ok: true, providers: [] };
   settingsReply = {};
   saveSettingsHook = null;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("设置面板独立模型选择器（无默认按钮/提示）", () => {
@@ -72,7 +75,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     installBus();
     const host = await mountPanel();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-reasoner`);
     });
 
@@ -104,7 +107,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     installBus();
     const host = await mountPanel();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
     });
 
@@ -112,7 +115,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     overviewSelect.value = `p2${String.fromCharCode(1)}Qwen3-8B`;
     overviewSelect.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toHaveLength(1);
     });
     expect(sent[0]?.settings).toEqual({ defaultModel: "p2", defaultAiModel: "Qwen3-8B" });
@@ -122,7 +125,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     subSelect.value = `p1${String.fromCharCode(1)}deepseek-reasoner`;
     subSelect.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toHaveLength(2);
     });
     expect(sent[1]?.settings).toEqual({
@@ -137,7 +140,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     installBus();
     const host = await mountPanel();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).disabled).toBe(true);
     });
     expect(defaultModelSelect(host).options[0]?.textContent).toBe("暂无可用模型");
@@ -164,12 +167,12 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     installBus();
     const host = await mountPanel();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
     });
 
     fireChanged(listeners, SELECTED_KEY);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushMicrotasks();
     expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
     expect(subtitleModelSelect(host).value).toBe(`p2${String.fromCharCode(1)}Qwen3-8B`);
   });
@@ -186,7 +189,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     installBus();
     const host = await mountPanel();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
     });
 
@@ -198,7 +201,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     };
     fireChanged(listeners, "defaultAiModel");
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-reasoner`);
       expect(subtitleModelSelect(host).value).toBe(`p2${String.fromCharCode(1)}Qwen3-8B`);
     });
@@ -206,7 +209,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     aiProvidersReply = { ok: true, providers: [TWO_PROVIDERS[1]] };
     fireChanged(listeners, "aiProviders");
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(defaultModelSelect(host).value).toBe(`p2${String.fromCharCode(1)}Qwen3-8B`);
     });
   });

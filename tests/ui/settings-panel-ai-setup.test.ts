@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 
 type SentMessage = { type: string } & Record<string, any>;
@@ -16,6 +15,13 @@ vi.mock("../../extension/asr/provider-test.js", () => ({
 vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
+
+import { state } from "../../extension/core/state.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import * as settingsPanel from "../../extension/ui/settings-panel.js";
+import { loadAiProviders, loadAsrProviders, resolveEditableAiProviderId } from "../../extension/ui/settings/setup-flows.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
@@ -38,14 +44,11 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
       </section>
     </div>`;
   const sent = installMessageBus(busOverrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
-  await vi.waitFor(() => {
-    expect(
-      chromeStub().runtime.sendMessage.mock.calls.some(([m]) => m.type === "asr-providers-list")
-    ).toBe(true);
-  });
-  return { sent, panel };
+  await settingsPanel.renderReaderSettingsPanel();
+  expect(
+    chromeStub().runtime.sendMessage.mock.calls.some(([m]) => m.type === "asr-providers-list")
+  ).toBe(true);
+  return { sent, panel: settingsPanel };
 }
 
 const SESSION = {
@@ -54,12 +57,10 @@ const SESSION = {
 };
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -76,7 +77,6 @@ describe("openReaderAiSetup：无记录 → 新增 AI 平台流程", () => {
     expect(document.activeElement).not.toBe(
       dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")
     );
-    const { state } = await import("../../extension/core/state.js");
     expect(state.reader.readingSettingsExpanded).toBe(true);
     expect(document.getElementById("biliscript-reading-settings-panel")?.hidden).toBe(false);
   });
@@ -133,7 +133,6 @@ describe("openReaderAiSetup：缺 Key → 编辑该记录并聚焦 Key", () => {
     });
     await panel.openReaderAiSetup("missing-key", SESSION);
     expect(document.querySelector(".provider-editor-dialog")).toBeNull();
-    const { state } = await import("../../extension/core/state.js");
     expect(state.reader.readingSettingsExpanded).toBe(true);
   });
 
@@ -188,11 +187,9 @@ describe("openReaderAiSetup：缺模型 → 无需 Key 平台（如 Ollama）也
 
 describe("setup-flows：配置拉取异常留痕（不静默吞错）", () => {
   it("loadAiProviders / loadAsrProviders 在通信抛错或返回 !ok 时通过 logWarn 留痕并返回空数组", async () => {
-    const { registerDebugGate } = await import("../../extension/shared/logging.js");
     registerDebugGate(() => true);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const { loadAiProviders, loadAsrProviders } = await import("../../extension/ui/settings/setup-flows.js");
       const aiTransportError = new Error("ai channel closed");
       const asrTransportError = new Error("asr channel closed");
 
@@ -222,11 +219,9 @@ describe("setup-flows：配置拉取异常留痕（不静默吞错）", () => {
   });
 
   it("resolveEditableAiProviderId 在读取宿主/设置抛错时通过 logWarn 留痕并返回空字符串", async () => {
-    const { registerDebugGate } = await import("../../extension/shared/logging.js");
     registerDebugGate(() => true);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const { resolveEditableAiProviderId } = await import("../../extension/ui/settings/setup-flows.js");
       const hostError = new Error("host loadRows failed");
       const fakeHost = {
         loadRows: vi.fn(async () => {

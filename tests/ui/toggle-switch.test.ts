@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
 import { initToggleSwitch, syncToggleSwitch } from "../../extension/ui/toggle-switch.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 const TOGGLE_IDS = [
   "asrAutoFallback",
@@ -62,8 +63,7 @@ function stubReducedMotion(): void {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
   window.matchMedia = ((query: string) => ({
     matches: false,
     media: query,
@@ -373,11 +373,8 @@ describe("设置面板集成：接线与水合", () => {
       return origSendMessage(message, callback);
     }) as typeof chrome.runtime.sendMessage;
 
-    const panel = await import("../../extension/ui/settings-panel.js");
-    panel.renderReaderSettingsPanel();
-    await vi.waitFor(() => {
-      expect(sent.some((m) => m.type === "asr-providers-list")).toBe(true);
-    });
+    await renderReaderSettingsPanel();
+    expect(sent.some((m) => m.type === "asr-providers-list")).toBe(true);
 
     TOGGLE_IDS.forEach((id) => {
       const input = host.querySelector<HTMLInputElement>(`#${id}`)!;

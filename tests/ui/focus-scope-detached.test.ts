@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { createDetachedRealm, type DetachedRealm } from "../helpers/detached-realm.js";
+import { ASR_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import * as coreState from "../../extension/core/state.js";
+import * as activeHost from "../../extension/shared/active-host.js";
+import { ids } from "../../extension/shared/dom-ids.js";
+import * as bridgeMod from "../../extension/ui/agent-bridge-install-dialog.js";
+import * as confirmMod from "../../extension/ui/confirm-dialog.js";
+import * as focusScopeMod from "../../extension/ui/focus-scope.js";
+import * as providerEditorMod from "../../extension/ui/provider-editor.js";
+import * as settingsPanelMod from "../../extension/ui/settings-panel.js";
+import * as themeBtnMod from "../../extension/ui/theme-button.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 let realm: DetachedRealm | null = null;
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
 afterEach(() => {
@@ -19,9 +28,6 @@ afterEach(() => {
 describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移", () => {
   it("focusScope 与 mountPanelModalShell 支持跨 Realm 节点并在宿主切换时安全重绑或关闭", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const focusScopeMod = await import("../../extension/ui/focus-scope.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = realm.doc.createElement("div");
     readingView.id = ids.readingView;
@@ -80,9 +86,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
   });
 
   it("mountPanelModalShell 在同一文档模型 adoptNode 切换宿主时自动重绑监听而不误关", async () => {
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const focusScopeMod = await import("../../extension/ui/focus-scope.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = document.createElement("div");
     readingView.id = ids.readingView;
@@ -113,10 +116,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("confirmDialog 与 agentBridgeInstallDialog 挂载在 detached readingView 并写入 detached 剪贴板", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const confirmMod = await import("../../extension/ui/confirm-dialog.js");
-    const bridgeMod = await import("../../extension/ui/agent-bridge-install-dialog.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = realm.doc.createElement("div");
     readingView.id = ids.readingView;
@@ -142,11 +141,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("refreshThemeButton 与 renderReaderSettingsPanel 解析 detached 宿主 DOM", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const coreState = await import("../../extension/core/state.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
-    const themeBtnMod = await import("../../extension/ui/theme-button.js");
-    const settingsPanelMod = await import("../../extension/ui/settings-panel.js");
 
     const themeBtn = realm.doc.createElement("button");
     themeBtn.id = ids.readingThemeSelect;
@@ -172,9 +166,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("confirmDialogWithResult 在死亡窗口 getComputedStyle 抛错时仍可安全 settle 不挂起", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const confirmMod = await import("../../extension/ui/confirm-dialog.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = realm.doc.createElement("div");
     readingView.id = ids.readingView;
@@ -203,7 +194,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("focusScope.dispose 在死亡窗口 getComputedStyle 与 focus 抛错时不向外抛异常", async () => {
     realm = createDetachedRealm();
-    const focusScopeMod = await import("../../extension/ui/focus-scope.js");
 
     const triggerBtn = realm.doc.createElement("button");
     const container = realm.doc.createElement("div");
@@ -224,9 +214,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("confirmDialogWithResult 在 host.isConnected 抛错时仍通过 onForceDismiss 安全 settle", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const confirmMod = await import("../../extension/ui/confirm-dialog.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = realm.doc.createElement("div");
     readingView.id = ids.readingView;
@@ -254,10 +241,6 @@ describe("ui 核心浮层、弹窗、主题与设置面板的独立宿主迁移"
 
   it("openProviderEditor 在 host.isConnected 与 remove 抛错时仍关闭会话并触发 onSessionEnd", async () => {
     realm = createDetachedRealm();
-    const activeHost = await import("../../extension/shared/active-host.js");
-    const providerEditorMod = await import("../../extension/ui/provider-editor.js");
-    const { ASR_PROVIDER_PRESETS } = await import("../../extension/core/presets.js");
-    const { ids } = await import("../../extension/shared/dom-ids.js");
 
     const readingView = realm.doc.createElement("div");
     readingView.id = ids.readingView;

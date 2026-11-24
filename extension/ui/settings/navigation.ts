@@ -116,10 +116,10 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   function navigateSettingsView(
     host: HTMLElement,
     view: SettingsViewId,
-    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean } = {}
+    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean; elements?: SettingsElements } = {}
   ): void {
     const targetView: SettingsViewId = view === "live" && !supportsLiveCompanion() ? "root" : view;
-    const elements = collectElements(host);
+    const elements = options.elements ?? collectElements(host);
     const previousView = activeSettingsView;
     const scrollContainer = getScrollContainer(host);
 
@@ -235,7 +235,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     activeSettingsView = "root";
     savedRootScrollTop = 0;
     subpageReturnButton = null;
-    navigateSettingsView(host, "root", { focusOnEnter: false, animate: false });
+    navigateSettingsView(host, "root", { focusOnEnter: false, animate: false, elements });
 
     const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
       [elements.openAiProvidersBtn, "ai-providers"],
@@ -251,7 +251,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
 
     for (const [button, view] of entries) {
       button.addEventListener("click", () => {
-        navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true });
+        navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true, elements });
       });
     }
 
@@ -259,10 +259,10 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     unregisterBackInterceptor = registerReaderSettingsBackInterceptor(() => {
       if (activeSettingsView === "root") return false;
       if (activeSettingsView === "agent-address") {
-        navigateSettingsView(host, "agent", { focusOnEnter: true });
+        navigateSettingsView(host, "agent", { focusOnEnter: true, elements });
         return true;
       }
-      navigateSettingsView(host, "root", { focusOnEnter: true });
+      navigateSettingsView(host, "root", { focusOnEnter: true, elements });
       return true;
     });
 
@@ -271,7 +271,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       savedRootScrollTop = 0;
       subpageReturnButton = null;
       if (activeSettingsView !== "root") {
-        navigateSettingsView(host, "root", { focusOnEnter: false, animate: false });
+        navigateSettingsView(host, "root", { focusOnEnter: false, animate: false, elements });
       }
     });
   }
@@ -324,6 +324,10 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
 
   function dispose(): void {
     cancelNavTransition(deps.getHost());
+    pendingSettingsTarget = null;
+    activeSettingsView = "root";
+    savedRootScrollTop = 0;
+    subpageReturnButton = null;
     unregisterBackInterceptor?.();
     unregisterBackInterceptor = null;
     unregisterCloseListener?.();

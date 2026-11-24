@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 
 type SentMessage = BusMessage;
@@ -28,6 +27,10 @@ vi.mock("../../extension/search/search-executor.js", () => ({
   SEARCH_RESULT_COUNT: 5
 }));
 
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
+
 function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
@@ -49,12 +52,9 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
     </div>
   `;
   const sent = installMessageBus(busOverrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   return { sent, host };
 }
 
@@ -69,7 +69,7 @@ function setFieldValue(input: HTMLInputElement, value: string) {
 
 async function openSearchEditor(host: HTMLElement, buttonSelectorOrElement: string | Element = "#addSearchProviderBtn") {
   fireClick(typeof buttonSelectorOrElement === "string" ? host.querySelector(buttonSelectorOrElement) : buttonSelectorOrElement);
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(document.querySelector(".provider-editor-dialog")).toBeTruthy();
   });
   return document.querySelector<HTMLElement>(".provider-editor-dialog")!;
@@ -96,20 +96,18 @@ function fillBaseUrl(dialog: HTMLElement, url = "https://api.firecrawl.dev") {
 
 async function clickTest(dialog: HTMLElement) {
   fireClick(dialog.querySelector(".provider-editor-test"));
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(statusNode(dialog).hidden).toBe(false);
     expect(statusNode(dialog).textContent).not.toBe("正在测试...");
   });
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
   executeWebSearchMock.mockReset();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 

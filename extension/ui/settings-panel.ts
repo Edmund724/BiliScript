@@ -13,6 +13,7 @@ import {
 } from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
+import { closeAgentBridgeInstallDialog } from "./agent-bridge-install-dialog.js";
 import {
   bindAgentBridgeSettings,
   type AgentBridgeSettingsController,
@@ -33,7 +34,7 @@ import {
   bindScalarExternalSync,
   bindScalarFieldEvents,
   bindScalarSectionActions,
-  clearStatusClearTimer,
+  disposeScalarBindings,
   loadSettings,
   saveSettingField
 } from "./settings/scalar-engine.js";
@@ -114,11 +115,13 @@ function loadPanelSettings(elements: SettingsElements): Promise<void> {
   });
 }
 
-function bindSettingsEvents(host: HTMLElement): void {
+function bindSettingsEvents(host: HTMLElement): SettingsElements {
   const elements = collectElements(host);
   lastProviderSnapshot = null;
   lastAgentBridgeState = null;
-  clearStatusClearTimer();
+  disposeScalarBindings();
+  agentBridgeSettings?.dispose();
+  agentBridgeSettings = null;
 
   navigator.bindSettingsNavigation(host, elements);
 
@@ -154,7 +157,7 @@ function bindSettingsEvents(host: HTMLElement): void {
       },
       onStateChange: (bridgeState) => {
         lastAgentBridgeState = bridgeState;
-        syncSummaries(collectElements(host));
+        syncSummaries(elements);
       }
     }
   );
@@ -176,7 +179,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     },
     onSummaryChange: (snapshot) => {
       lastProviderSnapshot = snapshot;
-      syncSummaries(collectElements(host));
+      syncSummaries(elements);
     }
   });
 
@@ -203,6 +206,8 @@ function bindSettingsEvents(host: HTMLElement): void {
       });
     }
   });
+
+  return elements;
 }
 
 export function renderReaderSettingsPanel(): Promise<void> {
@@ -224,7 +229,7 @@ export function renderReaderSettingsPanel(): Promise<void> {
       const shouldRestoreBackFocus = getActiveReaderDocument().activeElement?.id === ids.readingSettingsBackBtn;
       host.innerHTML = buildSettingsHtml();
       applySectionContainment(host);
-      bindSettingsEvents(host);
+      const elements = bindSettingsEvents(host);
       if (shouldRestoreBackFocus) {
         activeById(ids.readingSettingsBackBtn)?.focus({ preventScroll: true });
       }
@@ -234,8 +239,10 @@ export function renderReaderSettingsPanel(): Promise<void> {
         const visibleView = host.querySelector<HTMLElement>(".biliscript-settings-view:not([hidden])");
         animateNavFadeIn(visibleView, 140);
       }
-      await loadPanelSettings(collectElements(host));
-      navigator.flushPendingTarget();
+      await loadPanelSettings(elements);
+      if (settingsHostRef === host) {
+        navigator.flushPendingTarget();
+      }
     })().finally(() => {
       if (renderSettingsPromise === promise) {
         renderSettingsPromise = null;
@@ -246,6 +253,21 @@ export function renderReaderSettingsPanel(): Promise<void> {
     return promise;
   }
   return loadPanelSettings(collectElements(host));
+}
+
+export function disposeReaderSettingsPanel(): void {
+  navigator.dispose();
+  disposeScalarBindings();
+  agentBridgeSettings?.dispose();
+  agentBridgeSettings = null;
+  providerHost?.dispose();
+  providerHost = null;
+  closeAgentBridgeInstallDialog();
+  settingsHostRef = null;
+  renderSettingsPromise = null;
+  renderSettingsHost = null;
+  lastProviderSnapshot = null;
+  lastAgentBridgeState = null;
 }
 
 export function openLiveSettings(target: LiveSettingsTarget): Promise<void> {

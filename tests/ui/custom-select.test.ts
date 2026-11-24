@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
+import * as customSelectMod from "../../extension/ui/custom-select.js";
+import {
+  initCustomSelect,
+  rebuildCustomSelectOptions,
+  setCustomSelectSlots,
+  setCustomSelectState,
+  setCustomSelectValue
+} from "../../extension/ui/custom-select.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 function installMessageBus(overrides: Record<string, BusResponder> = {}): BusMessage[] {
   return installSettingsPanelBus<BusMessage>({ ...overrides }).sent;
@@ -8,17 +18,13 @@ function installMessageBus(overrides: Record<string, BusResponder> = {}): BusMes
 
 async function mountPanel() {
   document.body.innerHTML = '<div id="biliscript-reading-settings-host"></div>';
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   return document.getElementById("biliscript-reading-settings-host")!;
 }
 
 async function waitForCustomSelect(host: HTMLElement, selectId: string): Promise<HTMLSelectElement> {
-  let select: HTMLSelectElement | null = null;
-  await vi.waitFor(() => {
-    select = host.querySelector<HTMLSelectElement>(`#${selectId}`);
-    expect(select?.dataset.customSelectInitialized, `#${selectId} 的自定义下拉壳未挂载`).toBe("1");
-  });
+  const select = host.querySelector<HTMLSelectElement>(`#${selectId}`);
+  expect(select?.dataset.customSelectInitialized, `#${selectId} 的自定义下拉壳未挂载`).toBe("1");
   return select!;
 }
 
@@ -31,7 +37,7 @@ function keydown(node: Element, key: string) {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetSettingsPanelState();
 });
 
 describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
@@ -81,7 +87,6 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
   it("展开节点已脱离文档时不拦截后续点击，只清理残留监听", async () => {
     document.body.innerHTML = '<select id="trackSelect"><option value="ai-zh">中文</option></select>';
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     wrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!.click();
@@ -153,7 +158,6 @@ describe("custom-select 无障碍接线", () => {
     document.body.innerHTML =
       '<label class="provider-editor-label">协议</label>' +
       '<select id="protocolSelect"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>';
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(document.getElementById("protocolSelect") as HTMLSelectElement);
     const trigger = document.querySelector<HTMLElement>(".custom-select-trigger")!;
     expect(labelledbyText(trigger)).toBe("协议 OpenAI");
@@ -165,7 +169,6 @@ describe("custom-select 无障碍接线", () => {
       '<option value="ai-zh" selected>中文</option>' +
       '<option value="ai-en">English</option>' +
       "</select>";
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(document.getElementById("subtitleTrackSelect") as HTMLSelectElement);
     const wrapper = document.querySelector<HTMLElement>(".custom-select-wrapper")!;
     const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
@@ -210,7 +213,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   async function mountBareSelect() {
     document.body.innerHTML = bareMarkup;
     const select = document.getElementById("downloadFormat") as HTMLSelectElement;
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     return {
@@ -221,7 +223,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   }
 
   it("init 后写值：trigger 文本、可访问名与选中态跟随现值", async () => {
-    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
     const { select, trigger, options } = await mountBareSelect();
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("SRT");
 
@@ -237,7 +238,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   });
 
   it("不派发 change：外部写值不是用户改选（水合不得触发即时保存）", async () => {
-    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
     const { select } = await mountBareSelect();
     let changes = 0;
     select.addEventListener("change", () => {
@@ -253,7 +253,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   it("未初始化的 select：只写值不建壳，init 时按现值派生显示", async () => {
     document.body.innerHTML = bareMarkup;
     const select = document.getElementById("downloadFormat") as HTMLSelectElement;
-    const { initCustomSelect, setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
 
     setCustomSelectValue(select, "txt");
 
@@ -268,7 +267,6 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   });
 
   it("写未知 value 镜像原生：写入后实际值为空，显示从实际值派生且不抛错", async () => {
-    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
     const { select, trigger, options } = await mountBareSelect();
 
     expect(() => setCustomSelectValue(select, "nope")).not.toThrow();
@@ -286,7 +284,6 @@ describe("哨兵选项（空态 / 转写态的载体，10 号票）", () => {
   it("只含哨兵项时：值区显示哨兵文字、aria-selected 正确、可访问名按现值拼装", async () => {
     document.body.innerHTML = sentinelMarkup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
@@ -307,7 +304,6 @@ describe("哨兵选项（空态 / 转写态的载体，10 号票）", () => {
       '<option value="">暂无字幕</option>' +
       "</select>";
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { initCustomSelect, setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
@@ -333,7 +329,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
   async function mountInitialized() {
     document.body.innerHTML = baseMarkup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     return {
@@ -347,7 +342,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("扩容：重读 options 后 listbox 项与 trigger 显示跟随现值，旧项不残留", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     select.innerHTML =
       '<option value="ai-zh" selected>中文</option><option value="ai-en">English</option>' +
@@ -362,7 +356,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("缩容：只剩一条哨兵项时仍正确显示且被标为选中", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     select.innerHTML = '<option value="">暂无字幕</option>';
     rebuildCustomSelectOptions(select);
@@ -375,7 +368,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("换整批选项：按写入后的实际值重派生显示（现值存活则跟随，不回落首项）", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     select.value = "ai-en";
     select.innerHTML =
@@ -389,7 +381,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("现值不在新选项集里：镜像原生（实际值为空 → 文本回落首项、无选中项），不抛错", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     select.innerHTML = '<option value="ai-ja">日本語</option>';
     rebuildCustomSelectOptions(select);
@@ -400,7 +391,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("重建后没有任何 option 匹配现值（现值空）：无选中项、文本按同款回落首项、不抛错", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     select.innerHTML = '<option value="ai-ja">日本語</option><option value="ai-ar">العربية</option>';
     expect(select.value).toBe("ai-ja");
@@ -417,7 +407,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("壳不重建：trigger / dropdown 元素与 id、aria 关系、label 的 for 全部原样，焦点不动", async () => {
     const { select, wrapper, trigger, dropdown } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
     const selectIdBefore = select.id;
     const triggerIdBefore = trigger.id;
     const dropdownIdBefore = dropdown.id;
@@ -450,7 +439,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("重复调用幂等：项集与显示稳定，且不派发 change（换选项不是用户改选）", async () => {
     const { select, trigger, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
     const changes: Event[] = [];
     select.addEventListener("change", (event) => changes.push(event));
     select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ar">العربية</option>';
@@ -471,7 +459,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
   it("未初始化时调用不抛、不建壳（退化为 no-op，不替调用方凭空建壳）", async () => {
     document.body.innerHTML = baseMarkup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     expect(() => rebuildCustomSelectOptions(select)).not.toThrow();
     expect(select.closest(".custom-select-wrapper")).toBeNull();
@@ -480,7 +467,6 @@ describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
 
   it("列表展开时换选项：浮层保持打开，焦点按现值重认一项", async () => {
     const { select, trigger, dropdown, options } = await mountInitialized();
-    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     fireClick(trigger);
     expect(dropdown.hidden).toBe(false);
@@ -508,7 +494,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
   async function mount() {
     document.body.innerHTML = markup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     return {
@@ -521,7 +506,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("disabled 写到 trigger 且同步原生 select，不动 select.value", async () => {
     const { select, trigger } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
 
     setCustomSelectState(select, { disabled: true });
 
@@ -532,7 +516,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("busy 写 aria-busy；两者可同时置，复位各自独立（省略的键保持现态）", async () => {
     const { select, trigger } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
 
     setCustomSelectState(select, { disabled: true, busy: true });
     expect(trigger.disabled).toBe(true);
@@ -552,7 +535,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("只置 busy 从不触碰 disabled（未置过时保持原生默认 false）", async () => {
     const { select, trigger } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
 
     setCustomSelectState(select, { busy: true });
 
@@ -563,7 +545,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("禁用时点击不展开列表（真守卫；jsdom 对 disabled 仍派发 click）", async () => {
     const { select, trigger, dropdown } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
     setCustomSelectState(select, { disabled: true });
 
     fireClick(trigger);
@@ -574,7 +555,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("禁用时开合键与选项漫游都不生效", async () => {
     const { select, trigger, dropdown, options } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
     setCustomSelectState(select, { disabled: true });
 
     for (const key of ["Enter", " ", "ArrowDown", "ArrowUp"]) keydown(trigger, key);
@@ -588,7 +568,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("打开态中被禁用：收拢列表且焦点离开已收起的选项（只置 busy 不收拢）", async () => {
     const { select, trigger, dropdown, options } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
     fireClick(trigger);
     expect(dropdown.hidden).toBe(false);
     expect(document.activeElement).toBe(options()[0]);
@@ -606,7 +585,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("复位后交互恢复：又能展开列表", async () => {
     const { select, trigger, dropdown } = await mount();
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
     setCustomSelectState(select, { disabled: true, busy: true });
 
     setCustomSelectState(select, { disabled: false, busy: false });
@@ -619,7 +597,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
 
   it("状态在 rebuildCustomSelectOptions 后存活（换选项不抹状态）", async () => {
     const { select, trigger } = await mount();
-    const { setCustomSelectState, rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
 
     setCustomSelectState(select, { disabled: true, busy: true });
     select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ja">日本語</option>';
@@ -635,7 +612,6 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
   it("未初始化时调用不抛、不建壳、不写 select.disabled（与 rebuild 同口径的 no-op）", async () => {
     document.body.innerHTML = markup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
 
     expect(() => setCustomSelectState(select, { disabled: true, busy: true })).not.toThrow();
 
@@ -653,7 +629,7 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
   async function mount() {
     document.body.innerHTML = markup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const mod = await import("../../extension/ui/custom-select.js");
+    const mod = customSelectMod;
     mod.initCustomSelect(select);
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     return {
@@ -744,7 +720,6 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
   it("未初始化时调用不抛、不建壳（与另三条入口同口径的 no-op）", async () => {
     document.body.innerHTML = markup;
     const select = document.getElementById("trackSelect") as HTMLSelectElement;
-    const { setCustomSelectSlots } = await import("../../extension/ui/custom-select.js");
     const extra = document.createElement("li");
 
     expect(() => setCustomSelectSlots(select, { extras: [extra] })).not.toThrow();
@@ -756,6 +731,7 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
 
 describe("组件表随组件挂载（extension/entry/styles/custom-select.css）", () => {
   it("导入组件模块即挂组件表 link，不依赖设置抽屉的装载时机", async () => {
+    resetModuleState();
     document.head.innerHTML = "";
 
     await import("../../extension/ui/custom-select.js");
@@ -773,7 +749,6 @@ describe("组件表随组件挂载（extension/entry/styles/custom-select.css）
 describe("外点收起控制器：不覆写 DOM hidden 自有属性（Firefox Xray 兼容）", () => {
   it("初始化后 dropdown 不带自有 hidden 描述符，外部改写 hidden 后由 MutationObserver 接管外点关闭", async () => {
     document.body.innerHTML = '<div><select id="xraySelect"><option value="a">A</option><option value="b">B</option></select></div>';
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     const select = document.getElementById("xraySelect") as HTMLSelectElement;
     initCustomSelect(select);
     const dropdown = select.closest(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-dropdown")!;
@@ -795,7 +770,7 @@ describe("内嵌模式（initCustomSelect inline: true）", () => {
       '<select id="outerSelect"><option value="zh" selected>中文</option><option value="en">English</option></select>' +
       '</div>';
     const outerSelect = document.getElementById("outerSelect") as HTMLSelectElement;
-    const mod = await import("../../extension/ui/custom-select.js");
+    const mod = customSelectMod;
     mod.initCustomSelect(outerSelect);
 
     const extra = document.createElement("li");

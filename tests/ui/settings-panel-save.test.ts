@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
@@ -9,6 +8,10 @@ import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../
 vi.mock("../../extension/ai/provider-test.js", () => ({
   testAiProviderConnection: vi.fn(async () => ({ ok: true }))
 }));
+
+import { state } from "../../extension/core/state.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
 type MessageResponder = (message: SentMessage) => Record<string, unknown>;
@@ -29,12 +32,9 @@ function installMessageBus(overrides: Record<string, MessageResponder> = {}): Se
 
 async function mountPanel(): Promise<HTMLElement> {
   document.body.innerHTML = '<div id="biliscript-reading-view"><div id="biliscript-reading-settings-host"></div></div>';
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(sendMessageMock!.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(sendMessageMock!.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   return host;
 }
 
@@ -51,7 +51,11 @@ function fireClick(node: Element): void {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetSettingsPanelState();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
@@ -151,7 +155,7 @@ describe("设置项即时保存与生效", () => {
     debugLogsInput.checked = true;
     debugLogsInput.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
     });
 
@@ -179,7 +183,7 @@ describe("设置项即时保存与生效", () => {
     formatSelect.value = "txt";
     formatSelect.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
     });
 
@@ -198,7 +202,7 @@ describe("设置项即时保存与生效", () => {
     debugLogsInput.checked = true;
     debugLogsInput.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(lastStatus(host).textContent).toBe("写入失败");
     });
 
@@ -310,7 +314,6 @@ describe("对话与伴看偏好同源读写", () => {
   it("五个滑块即时预览、提交原键并能单项恢复默认，两个开关立即保存", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
-    const { state } = await import("../../extension/core/state.js");
     const cases = [
       ["chatLineHeight", 185],
       ["chatParagraphSpacing", 18],
@@ -326,14 +329,14 @@ describe("对话与伴看偏好同源读写", () => {
       expect(input.value).toBe(String(value));
       expect(state.settings?.[key]).toBe(value);
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === value)).toBe(true);
       });
 
       host.querySelector<HTMLButtonElement>(`#${key}ResetBtn`)!.click();
       expect(input.value).toBe(String(DEFAULT_SETTINGS[key]));
       expect(state.settings?.[key]).toBe(DEFAULT_SETTINGS[key]);
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === DEFAULT_SETTINGS[key])).toBe(true);
       });
     }
@@ -343,7 +346,7 @@ describe("对话与伴看偏好同源读写", () => {
       input.checked = value;
       input.dispatchEvent(new Event("change", { bubbles: true }));
       expect(state.settings?.[key]).toBe(value);
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === value)).toBe(true);
       });
     }
@@ -378,7 +381,7 @@ describe("对话与伴看偏好同源读写", () => {
 
 describe("恢复默认偏好按钮", () => {
   async function openResetDialog() {
-    const button = await vi.waitFor(() => {
+    const button = await waitForFast(() => {
       const node = document.querySelector(".confirm-dialog-confirm");
       if (!node) throw new Error("确认弹层未打开");
       return node;
@@ -389,7 +392,6 @@ describe("恢复默认偏好按钮", () => {
   it("面板内确认弹层：点「恢复默认」后把偏好键面写回默认值，平台域键不参与", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
-    const { state } = await import("../../extension/core/state.js");
     const preferenceKeys = [
       "chatLineHeight",
       "chatParagraphSpacing",
@@ -414,7 +416,7 @@ describe("恢复默认偏好按钮", () => {
     expect(document.querySelector(".confirm-dialog-confirm-danger")).toBeTruthy();
     fireClick(confirmBtn);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       const payloads = sent
         .filter((message) => message.type === "save-settings")
         .map((message) => message.settings);
@@ -448,7 +450,7 @@ describe("恢复默认偏好按钮", () => {
     ]) {
       expect(resetPayload, `${key} 不应出现在重置载荷里`).not.toHaveProperty(key);
     }
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(lastStatus(host).textContent).toContain("已恢复默认设置");
     });
     for (const key of preferenceKeys) {
@@ -464,7 +466,7 @@ describe("恢复默认偏好按钮", () => {
     const confirmBtn = await openResetDialog();
     fireClick(confirmBtn);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
     });
     const payload = sent
@@ -483,13 +485,13 @@ describe("恢复默认偏好按钮", () => {
     const host = await mountPanel();
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
-    const cancelBtn = await vi.waitFor(() => {
+    const cancelBtn = await waitForFast(() => {
       const node = document.querySelector(".confirm-dialog-cancel");
       if (!node) throw new Error("确认弹层未打开");
       return node;
     });
     fireClick(cancelBtn);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushMicrotasks();
 
     expect(sent.some((message) => message.type === "save-settings")).toBe(false);
     expect(lastStatus(host).textContent).not.toContain("已恢复默认设置");

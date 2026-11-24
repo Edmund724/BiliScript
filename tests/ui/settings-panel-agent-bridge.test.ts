@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
+import { buildAgentBridgeInstallPrompt } from "../../extension/ui/agent-bridge-install-dialog.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 let clipboardWrite: ReturnType<typeof vi.fn>;
 
@@ -20,7 +22,7 @@ function setHostPlatform(options: { uaDataPlatform?: string; platform?: string; 
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetSettingsPanelState();
   setHostPlatform({ uaDataPlatform: "Windows", platform: "Win32", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
   clipboardWrite = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -37,10 +39,9 @@ async function mountPanel(overrides: Record<string, BusResponder> = {}) {
       </section>
     </div>`;
   const bus = installSettingsPanelBus<BusMessage>(overrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => expect(host.dataset.biliscriptSettingsRendered).toBe("1"));
+  expect(host.dataset.biliscriptSettingsRendered).toBe("1");
   return { host, sent: bus.sent };
 }
 
@@ -51,13 +52,13 @@ describe("本地 Agent 设置", () => {
     expect(toggle.checked).toBe(false);
 
     toggle.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     });
     expect(toggle.checked).toBe(true);
 
     toggle.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: false } });
     });
     expect(toggle.checked).toBe(false);
@@ -71,7 +72,7 @@ describe("本地 Agent 设置", () => {
 
     host.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
 
-    const prompt = await vi.waitFor(() => {
+    const prompt = await waitForFast(() => {
       const element = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt");
       if (!element) throw new Error("安装 Prompt 弹窗未打开");
       return element;
@@ -90,7 +91,7 @@ describe("本地 Agent 设置", () => {
     expect(copyButton.closest(".agent-bridge-install-prompt-card")).not.toBeNull();
     expect(document.querySelector(".agent-bridge-install-dialog .confirm-dialog-foot")).toBeNull();
     copyButton.click();
-    await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledWith(prompt.value));
+    await waitForFast(() => expect(clipboardWrite).toHaveBeenCalledWith(prompt.value));
     expect(copyButton.textContent).toBe("已复制");
     document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
   });
@@ -114,13 +115,13 @@ describe("本地 Agent 设置", () => {
     const toggle = host.querySelector<HTMLInputElement>("#enableAgentBridge")!;
 
     button.click();
-    await vi.waitFor(() => expect(button.textContent).toBe("断开"));
+    await waitForFast(() => expect(button.textContent).toBe("断开"));
     expect(toggle.checked).toBe(true);
     expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     expect(document.querySelector(".agent-bridge-install-prompt")).toBeNull();
 
     button.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: false } });
     });
     expect(toggle.checked).toBe(false);
@@ -148,12 +149,12 @@ describe("本地 Agent 设置", () => {
 
     input.value = "ws://127.0.0.1:19000";
     host.querySelector<HTMLButtonElement>("#agentBridgeTestBtn")!.click();
-    await vi.waitFor(() => expect(host.querySelector("#agentBridgeAddressStatus")?.textContent).toBe("连接成功"));
+    await waitForFast(() => expect(host.querySelector("#agentBridgeAddressStatus")?.textContent).toBe("连接成功"));
     expect(sent).toContainEqual({ type: "agent-bridge-test", url: "ws://127.0.0.1:19000" });
     expect(sent.some((message) => message.type === "save-settings")).toBe(false);
 
     host.querySelector<HTMLButtonElement>("#agentBridgeSaveBtn")!.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } });
     });
     expect(host.querySelector<HTMLElement>("#agentBridgeAddressSummary")?.textContent).toBe("ws://127.0.0.1:19000");
@@ -181,13 +182,13 @@ describe("本地 Agent 设置", () => {
 
     input.value = "ws://localhost:19000";
     host.querySelector<HTMLButtonElement>("#agentBridgeTestBtn")!.click();
-    await vi.waitFor(() => expect(status.textContent).toBe("连接成功"));
+    await waitForFast(() => expect(status.textContent).toBe("连接成功"));
     expect(input.value).toBe("ws://127.0.0.1:19000");
     expect(sent).toContainEqual({ type: "agent-bridge-test", url: "ws://127.0.0.1:19000" });
 
     input.value = "ws://[::1]:19001";
     host.querySelector<HTMLButtonElement>("#agentBridgeSaveBtn")!.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { agentBridgeUrl: "ws://127.0.0.1:19001" } });
     });
     expect(input.value).toBe("ws://127.0.0.1:19001");
@@ -230,7 +231,7 @@ describe("本地 Agent 设置", () => {
     });
     document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
 
-    const prompt = await vi.waitFor(() => {
+    const prompt = await waitForFast(() => {
       const element = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt");
       if (!element) throw new Error("安装 Prompt 弹窗未打开");
       return element;
@@ -246,7 +247,7 @@ describe("本地 Agent 设置", () => {
     });
     document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
     });
 
@@ -257,7 +258,7 @@ describe("本地 Agent 设置", () => {
     expect(status.textContent).toBe("");
 
     copyButton.click();
-    await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
+    await waitForFast(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
     expect(clipboardWrite).toHaveBeenLastCalledWith(prompt.value);
     expect(copyButton.textContent).toBe("已复制");
     expect(copyButton.disabled).toBe(false);
@@ -267,7 +268,7 @@ describe("本地 Agent 设置", () => {
     expect(copyButton.textContent).toBe("已复制");
 
     copyButton.click();
-    await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(2));
+    await waitForFast(() => expect(clipboardWrite).toHaveBeenCalledTimes(2));
     expect(copyButton.disabled).toBe(false);
     expect(copyButton.textContent).toBe("已复制");
 
@@ -287,7 +288,7 @@ describe("本地 Agent 设置", () => {
     });
     document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
     });
 
@@ -296,7 +297,7 @@ describe("本地 Agent 设置", () => {
     const prompt = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt")!;
 
     copyButton.click();
-    await vi.waitFor(() => expect(copyButton.textContent).toBe("请手动复制"));
+    await waitForFast(() => expect(copyButton.textContent).toBe("请手动复制"));
     expect(copyButton.disabled).toBe(false);
     expect(document.activeElement).toBe(prompt);
     expect(prompt.selectionStart).toBe(0);
@@ -307,7 +308,6 @@ describe("本地 Agent 设置", () => {
   });
 
   it("按宿主系统生成 Windows / macOS / Linux 安装 Prompt（含默认与自定义端口）", async () => {
-    const { buildAgentBridgeInstallPrompt } = await import("../../extension/ui/agent-bridge-install-dialog.js");
 
     setHostPlatform({ uaDataPlatform: "macOS", platform: "MacIntel", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)" });
     const macDefault = buildAgentBridgeInstallPrompt("ws://127.0.0.1:18492");
@@ -335,7 +335,7 @@ describe("本地 Agent 设置", () => {
       "agent-bridge-connect": () => ({ ok: true, connected: false })
     });
     document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
-    const dialogPrompt = await vi.waitFor(() => {
+    const dialogPrompt = await waitForFast(() => {
       const element = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt");
       if (!element) throw new Error("安装 Prompt 弹窗未打开");
       return element;

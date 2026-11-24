@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusResponder } from "../helpers/settings-panel-bus.js";
 
 type SentMessage = { type: string } & Record<string, any>;
@@ -15,6 +14,10 @@ vi.mock("../../extension/asr/provider-test.js", () => ({
 vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
+
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import * as settingsPanel from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 const AI_PROVIDERS = [
   {
@@ -100,9 +103,8 @@ async function mountPanel(overrides: Record<string, BusResponder<SentMessage>> =
     "remove-provider-origins": () => ({ ok: true }),
     ...overrides
   });
-  const panel = await import("../../extension/ui/settings-panel.js");
-  await panel.renderReaderSettingsPanel();
-  return { panel, host, sent: bus.sent };
+  await settingsPanel.renderReaderSettingsPanel();
+  return { panel: settingsPanel, host, sent: bus.sent };
 }
 
 function fireClick(el: Element | null): void {
@@ -110,7 +112,7 @@ function fireClick(el: Element | null): void {
 }
 
 async function confirmModalDelete(): Promise<void> {
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(document.querySelector(".confirm-dialog-confirm")).not.toBeNull();
   });
   fireClick(document.querySelector(".confirm-dialog-confirm"));
@@ -121,12 +123,10 @@ function statusEl(host: HTMLElement): HTMLElement {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -144,7 +144,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     fireClick(removeBtn);
     await confirmModalDelete();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusEl(host).dataset.error).toBe("true");
     });
     expect(statusEl(host).textContent).toBe("删除失败：写入拒绝");
@@ -169,7 +169,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
       }
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector<HTMLElement>(".search-chain-mode-note")?.hidden).toBe(false);
     });
 
@@ -177,7 +177,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     fireClick(row.querySelector(".provider-row-remove"));
     await confirmModalDelete();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((m) => m.type === "save-settings" && m.settings?.activeSearchProviderId === "")).toBe(
         true
       );
@@ -202,7 +202,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
       })
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(2);
@@ -211,7 +211,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     fireClick(row.querySelector(".provider-row-remove"));
     await confirmModalDelete();
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
     });
     expect(host.querySelector<HTMLSelectElement>("#subtitleTranslateSource")?.value).toBe("bilibili-index-translate");
@@ -231,7 +231,7 @@ describe("Wave 2 [P0-2]: 动态跨族凭据引用与双击互斥锁", () => {
     });
 
     fireClick(host.querySelector("#addSearchProviderBtn"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
     });
 
@@ -268,7 +268,7 @@ describe("Wave 2 [P0-2]: 动态跨族凭据引用与双击互斥锁", () => {
     });
 
     fireClick(host.querySelector("#addLiveProviderBtn"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
     });
     editorOpened = true;
@@ -284,13 +284,13 @@ describe("Wave 2 [P0-2]: 动态跨族凭据引用与双击互斥锁", () => {
     fireClick(btn);
     expect(btn.disabled).toBe(true);
     fireClick(btn);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(aiListAfterEditorOpen).toBe(1);
     });
     expect(aiListAfterEditorOpen).toBe(1);
 
     aiListResolves[0]?.({ ok: true, providers: [] });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
   });
@@ -311,25 +311,25 @@ describe("Wave 2 [P1-1]: 概览与解释模型选择器及失败回滚", () => {
     });
 
     const select = host.querySelector<HTMLSelectElement>("#aiDefaultModel")!;
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(select.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
     });
     expect(host.querySelector(".ai-provider-default-btn")).toBeNull();
 
     select.value = `ai-2${String.fromCharCode(1)}deepseek-chat`;
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((m) => m.type === "save-settings" && m.settings?.defaultModel === "ai-2")).toBe(true);
     });
 
     failSave = true;
     select.value = `ai-1${String.fromCharCode(1)}gpt-4o-mini`;
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusEl(host).dataset.error).toBe("true");
     });
     expect(statusEl(host).textContent).toBe("保存模型失败");
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(select.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
     });
   });
@@ -357,7 +357,7 @@ describe("Wave 2 [P1-3]: 行内单选切换与重置顺序失败回滚", () => {
     r2.checked = true;
     r2.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusEl(host).dataset.error).toBe("true");
     });
     expect(statusEl(host).textContent).toBe("切换失败");
@@ -377,7 +377,7 @@ describe("Wave 2 [P1-3]: 行内单选切换与重置顺序失败回滚", () => {
     vi.spyOn(chrome.storage.sync, "remove").mockRejectedValueOnce(new Error("sync remove failed"));
     fireClick(resetBtn);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusEl(host).dataset.error).toBe("true");
     });
     expect(statusEl(host).textContent).toBe("sync remove failed");
@@ -406,7 +406,7 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索平台平铺展示与 Modal 保存/删除�
     });
 
     fireClick(host.querySelector("#addSearchProviderBtn"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
     });
 
@@ -416,7 +416,7 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索平台平铺展示与 Modal 保存/删除�
     keyInput.dispatchEvent(new Event("input", { bubbles: true }));
     fireClick(dialog.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".provider-editor-dialog")).toBeNull();
     });
     expect(host.querySelectorAll("#searchProvidersList .search-provider-row").length).toBeGreaterThan(0);
@@ -441,13 +441,13 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索平台平铺展示与 Modal 保存/删除�
       });
 
       fireClick(host.querySelector('.ai-provider-row[data-provider-id="ai-1"] .provider-row-edit'));
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
       });
       fireClick(document.querySelector(".provider-editor-delete"));
       await confirmModalDelete();
 
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(document.querySelector(".provider-editor-dialog")).toBeNull();
       });
       expect(statusEl(host).textContent).toBe("平台已删除");
@@ -455,13 +455,13 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索平台平铺展示与 Modal 保存/删除�
 
       revokeShouldFail = true;
       fireClick(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-edit'));
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
       });
       fireClick(document.querySelector(".provider-editor-delete"));
       await confirmModalDelete();
 
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(document.querySelector(".provider-editor-dialog")).toBeNull();
       });
       expect(statusEl(host).dataset.error).toBe("true");
@@ -479,7 +479,7 @@ describe("Wave 2 [P1-冷启动闭环]: openReaderAiSetup 冷启动导航、no-mo
       "ai-providers-list": () => ({ ok: true, providers: [] }),
       "request-provider-origins": () => ({ ok: true })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
     const onAfterSave = vi.fn();
     const onSessionEnd = vi.fn();
 
@@ -512,7 +512,7 @@ describe("Wave 2 [P1-冷启动闭环]: openReaderAiSetup 冷启动导航、no-mo
         ]
       })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
 
     await panel.openReaderAiSetup(
       "no-model",

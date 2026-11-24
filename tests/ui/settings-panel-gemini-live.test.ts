@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import * as settingsPanel from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 const GEMINI_LIVE = {
   id: "live_gemini",
@@ -57,12 +59,9 @@ async function mountPanel(overrides: Record<string, BusResponder<BusMessage>> = 
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
   });
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await settingsPanel.renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(host.querySelector("#liveProvidersList .live-provider-row")).toBeTruthy();
-  });
+  expect(host.querySelector("#liveProvidersList .live-provider-row")).toBeTruthy();
   return { host, sent: bus.sent };
 }
 
@@ -71,12 +70,10 @@ function liveSubtitle(host: HTMLElement): string {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -101,11 +98,11 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
 
     await panel.openLiveSettings("gemini-key");
 
-    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    await waitForFast(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     const key = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
     expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("gemini");
@@ -120,7 +117,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [customGemini, nonGemini, defaultGemini] })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
 
     await panel.openLiveSettings("gemini-key");
 
@@ -133,7 +130,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [] })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
 
     await panel.openLiveSettings("gemini-key");
 
@@ -155,7 +152,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
 
     click(host.querySelector("#addAiProviderBtn"));
-    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    await waitForFast(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     const preset = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     preset.value = "gemini";
@@ -165,7 +162,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     input(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gemini-3.8-live");
     click(dialog.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
     });
   });
@@ -185,7 +182,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     click(host.querySelector("#aiProvidersList .provider-row-remove"));
     click(document.querySelector(".confirm-dialog-confirm"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
     });
   });
@@ -197,14 +194,14 @@ describe("设置面板 Gemini Live 凭据引用", () => {
       "provider-http": () => ({ ok: true, status: 200, body: JSON.stringify({ models: [] }) })
     });
     click(host.querySelector("#liveProvidersList .provider-row-edit"));
-    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    await waitForFast(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     const key = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
     expect(key.closest<HTMLElement>(".provider-editor-field")!.hidden).toBe(true);
     expect(key.required).toBe(false);
 
     click(dialog.querySelector(".provider-editor-test"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog.querySelector(".provider-editor-status")!.textContent).toBe("连接成功");
     });
     const request = sent.find((message) => message.type === "provider-http");
@@ -218,7 +215,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     expect(host.querySelector("#liveGeminiNativeSearch")).toBeNull();
 
     click(host.querySelector("#liveProvidersList .provider-row-edit"));
-    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    await waitForFast(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     const searchField = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search")!;
     expect(searchField).toBeTruthy();
@@ -231,7 +228,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
 
     click(dialog.querySelector(".provider-editor-save"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((msg) => msg.type === "live-providers-save")).toBe(true);
     });
 
@@ -261,10 +258,10 @@ describe("MOSS Live 音色选择器与回退提示", () => {
     });
 
     click(host.querySelector("#liveProvidersList .provider-row-edit"));
-    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    await waitForFast(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     const voice = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice")!;
-    await vi.waitFor(() => expect(voice.options).toHaveLength(3));
+    await waitForFast(() => expect(voice.options).toHaveLength(3));
 
     expect(Array.from(voice.options).map((option) => option.textContent)).toEqual([
       "默认音色",
@@ -275,7 +272,7 @@ describe("MOSS Live 音色选择器与回退提示", () => {
     voice.dispatchEvent(new Event("change", { bubbles: true }));
 
     click(dialog.querySelector(".provider-editor-save"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === "live-providers-save")).toBe(true);
     });
 
@@ -303,9 +300,9 @@ describe("MOSS Live 音色选择器与回退提示", () => {
     const stored = await chrome.storage.local.get(["liveVoiceFallbackNotice"]);
     expect(stored.liveVoiceFallbackNotice).toBeUndefined();
 
-    const panel = await import("../../extension/ui/settings-panel.js");
+    const panel = settingsPanel;
     panel.renderReaderSettingsPanel();
-    await vi.waitFor(() => expect(hint.hidden).toBe(true));
+    await waitForFast(() => expect(hint.hidden).toBe(true));
     expect(hint.textContent).toBe("");
   });
 });

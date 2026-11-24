@@ -105,6 +105,10 @@ function closeDialog(generation = state.generation): void {
   }
 }
 
+export function closeAgentBridgeInstallDialog(): void {
+  closeDialog();
+}
+
 export function openAgentBridgeInstallDialog(address: string): void {
   closeDialog();
   const mountHost = activeById(ids.readingView);

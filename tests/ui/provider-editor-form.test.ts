@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { ASR_PROVIDER_PRESETS, PRESETS } from "../../extension/core/presets.js";
 import { LIVE_PROVIDER_PRESETS } from "../../extension/live/live-provider-store.js";
 import type { ProviderRowItem } from "../../extension/ui/provider-row.js";
@@ -20,6 +19,9 @@ vi.mock("../../extension/live/live-provider-probe.js", () => ({
   listLiveVoices: vi.fn(async () => ({ ok: false, error: "not used" })),
   listLiveModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
+
+import { closeProviderEditor, openProviderEditor } from "../../extension/ui/provider-editor.js";
+import { resetProviderEditorState, waitForFast } from "../helpers/reset-provider-editor-state.js";
 
 let sent: SentMessage[] = [];
 let denyOrigins: string | null = null;
@@ -58,7 +60,6 @@ async function openEditor(options: {
       : kind === "live"
         ? LIVE_PROVIDER_PRESETS
         : PRESETS;
-  const { openProviderEditor } = await import("../../extension/ui/provider-editor.js");
   openProviderEditor({
     kind,
     item: options.item ?? null,
@@ -87,7 +88,7 @@ function dialog(): HTMLElement | null {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetProviderEditorState();
   mountView();
   installBus();
   denyOrigins = null;
@@ -97,8 +98,7 @@ beforeEach(() => {
   testLiveConnection.mockResolvedValue({ ok: true });
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -116,7 +116,7 @@ describe("语义化表单提交", () => {
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
   });
@@ -129,7 +129,7 @@ describe("语义化表单提交", () => {
 
     fireClick(editor.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
   });
@@ -229,7 +229,7 @@ describe("字段级校验与焦点定位", () => {
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(editor.querySelector(".provider-editor-save"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("sync 配额不足");
     });
 
@@ -258,7 +258,7 @@ describe("重复提交拦截", () => {
     expect(editor.querySelector<HTMLButtonElement>(".provider-editor-save")!.disabled).toBe(true);
 
     resolveSave!({ ok: true });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()).toBeNull();
     });
   });
@@ -330,7 +330,7 @@ describe("焦点约束与归还", () => {
     expect(document.querySelector(".confirm-dialog")).toBeTruthy();
 
     document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()).toBeNull();
       expect(document.querySelector(".confirm-dialog-host")).toBeNull();
     });
@@ -349,7 +349,7 @@ describe("权限失败区分与重新授权", () => {
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
     fireClick(editor.querySelector(".provider-editor-save"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toContain("未保存");
     });
     const status = editor.querySelector<HTMLElement>(".provider-editor-status")!;
@@ -357,7 +357,7 @@ describe("权限失败区分与重新授权", () => {
     expect(editor.querySelector<HTMLButtonElement>(".provider-editor-save")!.disabled).toBe(false);
 
     fireClick(editor.querySelector(".provider-editor-save"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(2);
     });
   });
@@ -371,7 +371,7 @@ describe("权限失败区分与重新授权", () => {
 
     fireClick(editor.querySelector(".provider-editor-test"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toContain("未测试");
     });
     const status = editor.querySelector<HTMLElement>(".provider-editor-status")!;
@@ -388,7 +388,7 @@ describe("权限失败区分与重新授权", () => {
 
     fireClick(editor.querySelector(".provider-editor-fetch"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector<HTMLElement>(".provider-editor-fetch-error")!.hidden).toBe(false);
     });
     const error = document.querySelector<HTMLElement>(".provider-editor-fetch-error")!;
@@ -398,7 +398,7 @@ describe("权限失败区分与重新授权", () => {
     expect(retry.textContent).toBe("重试");
 
     fireClick(retry);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.filter((message) => message.type === "request-provider-origins")).toHaveLength(2);
     });
   });
@@ -419,7 +419,7 @@ describe("权限失败区分与重新授权", () => {
       "https://draft.mosi.cn",
       "wss://draft.mosi.cn/v1/realtime?model=moss-live-draft"
     ]);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(testLiveConnection).toHaveBeenCalledTimes(1);
     });
     expect(testLiveConnection.mock.calls[0][0]).toMatchObject({

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { PRESETS } from "../../extension/core/presets.js";
 import type { ProviderRowItem } from "../../extension/ui/provider-row.js";
+import { closeProviderEditor, openProviderEditor } from "../../extension/ui/provider-editor.js";
+import { save } from "../../extension/ui/provider-editor-modal.js";
+import { resetProviderEditorState, waitForFast } from "../helpers/reset-provider-editor-state.js";
 
 type SaveResult = { ok: boolean; error?: string };
 
@@ -12,7 +14,6 @@ async function openFirstSetupEditor(session: {
   firstSetup?: boolean;
   submitLabel?: string;
 }) {
-  const { openProviderEditor } = await import("../../extension/ui/provider-editor.js");
   const firstSetup = session.firstSetup ?? true;
   openProviderEditor({
     kind: "ai",
@@ -54,12 +55,11 @@ function fillRequiredFields(model = "test-model") {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetProviderEditorState();
   document.body.innerHTML = `<div id="biliscript-reading-view"></div>`;
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -82,7 +82,7 @@ describe("首配模型门槛", () => {
     setFieldValue(".provider-editor-baseurl", "https://api.test/v1");
     setFieldValue(".provider-editor-apikey", "sk-test");
     fireClick(document.querySelector('[data-provider-editor-action="save"]')!);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusText()).toContain("请至少添加一个模型");
     });
     expect(onSave).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe("首配模型门槛", () => {
     await openFirstSetupEditor({ onSave });
     fillRequiredFields();
     fireClick(document.querySelector('[data-provider-editor-action="save"]')!);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
     const upsert = onSave.mock.calls[0][1] as ProviderRowItem;
@@ -108,7 +108,7 @@ describe("首配模型门槛", () => {
     setFieldValue(".provider-editor-baseurl", "https://api.test/v1");
     setFieldValue(".provider-editor-apikey", "sk-test");
     fireClick(document.querySelector('[data-provider-editor-action="save"]')!);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
     expect((onSave.mock.calls[0][1] as ProviderRowItem).models).toEqual([]);
@@ -128,7 +128,7 @@ describe("首配会话回调", () => {
     });
     fillRequiredFields();
     fireClick(document.querySelector('[data-provider-editor-action="save"]')!);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(events.length).toBe(2);
     });
     expect(events[0]).toBe("afterSave:dialog=true");
@@ -144,7 +144,7 @@ describe("首配会话回调", () => {
     });
     fillRequiredFields();
     fireClick(document.querySelector('[data-provider-editor-action="save"]')!);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(statusText()).toContain("落盘失败");
     });
     expect(dialog()).not.toBeNull();
@@ -162,13 +162,13 @@ describe("首配会话回调", () => {
   it("重复保存：合法提交在飞时忽略后一次，只落盘一次、装配方出口只触发一次", async () => {
     const onSave = vi.fn(async (_kind: string, _upsert: ProviderRowItem) => ({ ok: true }));
     const onAfterSave = vi.fn();
-    const { save } = await import("../../extension/ui/provider-editor-modal.js");
     await openFirstSetupEditor({ onSave, onAfterSave });
     fillRequiredFields();
     void save();
     void save();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
+      expect(dialog()).toBeNull();
     });
     expect(onAfterSave).toHaveBeenCalledTimes(1);
     expect(dialog()).toBeNull();

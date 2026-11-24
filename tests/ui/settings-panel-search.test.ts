@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type SentMessage = BusMessage;
 type MessageResponder = BusResponder<SentMessage>;
@@ -84,7 +85,7 @@ function handleOf(host: HTMLElement, recordId: string): HTMLElement {
 }
 
 async function waitForSearchRows(host: HTMLElement, count: number): Promise<void> {
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(recordRows(host)).toHaveLength(count);
   });
 }
@@ -106,18 +107,14 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
     </div>
   `;
   const sent = installMessageBus(busOverrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "search-providers-list")).toBe(true);
-  });
+  expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "search-providers-list")).toBe(true);
   return { sent, host };
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
   const sync = syncStorage();
   sync.get.mockReset();
   sync.get.mockResolvedValue({});
@@ -167,7 +164,7 @@ describe("设置页搜索节：悬空链首提示行（spec §6.8）", () => {
     });
     const hint = host.querySelector<HTMLElement>("#searchProvidersDanglingHint")!;
     expect(hint).toBeTruthy();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(hint.hidden).toBe(false);
     });
     expect(hint.textContent).toBe("原选用的平台已不可用，当前按默认顺序搜索");
@@ -235,7 +232,7 @@ describe("设置页搜索节：「智能」虚拟条目（spec §6.10 / §10 第
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: [] })
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(smartRow(host)).toBeTruthy();
     });
     expect(recordRowIds(host)).toEqual([]);
@@ -266,7 +263,7 @@ describe("设置页搜索节：「智能」虚拟条目（spec §6.10 / §10 第
     radio.checked = true;
     radio.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({
         type: "save-settings",
         settings: { activeSearchProviderId: SMART_ID }
@@ -385,7 +382,7 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
       "search_anysearch",
       "search_parallel"
     ];
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(syncStorage().set).toHaveBeenCalled();
     });
     expect(syncStorage().set).toHaveBeenCalledWith({ searchProviderOrder: expected });
@@ -405,7 +402,7 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
     handle.dispatchEvent(dragPointer("pointermove", 62));
     handle.dispatchEvent(dragPointer("pointerup", 62));
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushMicrotasks();
     expect(syncStorage().set).not.toHaveBeenCalled();
     expect(recordRowIds(host)).toEqual(DEFAULT_ORDER_IDS);
   });
@@ -423,7 +420,7 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
     handle.dispatchEvent(dragPointer("pointermove", 130));
     handle.dispatchEvent(dragPointer("pointerup", 130));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector<HTMLElement>("#biliscriptSettingsStatus")?.dataset.error).toBe("true");
     });
     expect(recordRowIds(host)).toEqual(DEFAULT_ORDER_IDS);
@@ -459,11 +456,11 @@ describe("设置页搜索节：「恢复默认顺序」（spec §6.10 / §12.3 /
 
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(syncStorage().remove).toHaveBeenCalledWith("searchProviderOrder");
     });
     expect(syncStorage().set).not.toHaveBeenCalled();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(recordRowIds(host)).toEqual(DEFAULT_ORDER_IDS);
     });
     expect(button.disabled).toBe(true);
@@ -518,7 +515,7 @@ describe("搜索平台列表平铺展示与模式控件切换", () => {
     expect(toggle.checked).toBe(true);
     toggle.checked = false;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { allowPaidSearchProviders: false } });
     });
   });
@@ -568,7 +565,7 @@ describe("票 06：单轮搜索次数上限两种模式均可见且生效", () =
     const slider = host.querySelector<HTMLInputElement>("#webSearchMaxToolCalls")!;
     slider.value = "8";
     slider.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchMaxToolCalls: 8 } });
     });
   });
@@ -585,7 +582,7 @@ describe("票 06：单轮搜索次数上限两种模式均可见且生效", () =
     const slider = host.querySelector<HTMLInputElement>("#webSearchMaxToolCalls")!;
     slider.value = "3";
     slider.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchMaxToolCalls: 3 } });
     });
   });
@@ -616,7 +613,7 @@ describe("票 06：模式切换保留原排序与付费偏好", () => {
     const radio = smartRadio(host);
     radio.checked = true;
     radio.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { activeSearchProviderId: SMART_ID } });
     });
 

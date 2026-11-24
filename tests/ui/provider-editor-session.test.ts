@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import type { ProviderRowPreset } from "../../extension/ui/provider-row.js";
 
 vi.mock("../../extension/ai/provider-test.js", () => ({
@@ -21,6 +20,13 @@ vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
     fetchProviderModels: vi.fn(async () => ({ ok: true, models: [] }))
   };
 });
+
+import { fetchProviderModels } from "../../extension/ai/provider-models.js";
+import { testAiProviderConnection } from "../../extension/ai/provider-test.js";
+import { listAsrModels } from "../../extension/asr/provider-models.js";
+import { testAsrConnection } from "../../extension/asr/provider-test.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { flushMicrotasks, resetProviderEditorState } from "../helpers/reset-provider-editor-state.js";
 
 const PRESETS: ProviderRowPreset[] = [
   { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }
@@ -65,12 +71,6 @@ function setFieldValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-async function flushMicrotasks() {
-  for (let i = 0; i < 12; i++) {
-    await Promise.resolve();
-  }
-}
-
 function dialogNode(): HTMLElement {
   return document.querySelector<HTMLElement>(".provider-editor-dialog")!;
 }
@@ -80,13 +80,16 @@ function statusNode(dialog: HTMLElement): HTMLElement {
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetProviderEditorState();
+  vi.mocked(testAiProviderConnection).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(testAsrConnection).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(listAsrModels).mockReset().mockResolvedValue({ ok: false, error: "not used" });
+  vi.mocked(fetchProviderModels).mockReset().mockResolvedValue({ ok: true, models: [] });
   installBus();
   mountView();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 

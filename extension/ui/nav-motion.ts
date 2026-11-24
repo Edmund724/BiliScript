@@ -108,7 +108,9 @@ function waitForAnimations(animations: readonly Animation[], fallbackMs: number,
     anim.addEventListener("finish", onOne, { once: true });
     anim.addEventListener("cancel", onOne, { once: true });
   }
-  timer = window.setTimeout(done, fallbackMs);
+  if (!settled) {
+    timer = window.setTimeout(done, fallbackMs);
+  }
 
   return () => {
     if (timer) {

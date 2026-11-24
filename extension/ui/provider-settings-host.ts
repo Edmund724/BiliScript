@@ -51,6 +51,7 @@ import {
   type ProviderFamilyTable
 } from "./provider-transaction.js";
 import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
+import { queryElementByIdIn } from "./settings/elements.js";
 
 type EditorModule = typeof import("./provider-editor.js");
 type ActiveRadioFamilyKind = "live" | "asr";
@@ -140,7 +141,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   const mountedSet = new Set<ProviderEditorKind>(options.mountedFamilies);
   const hasFamily = (kind: ProviderEditorKind): boolean => mountedSet.has(kind);
   const byId = <T extends HTMLElement>(id: SettingsPanelDomId): T | null =>
-    options.host.querySelector<T>(`#${id}`);
+    queryElementByIdIn<T>(options.host, id);
 
   function resolveFamilyNodes(
     kind: ProviderEditorKind,

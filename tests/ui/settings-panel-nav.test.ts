@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusResponder } from "../helpers/settings-panel-bus.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
 async function mountPanel(overrides: Record<string, BusResponder> = {}): Promise<HTMLElement> {
@@ -18,12 +18,9 @@ async function mountPanel(overrides: Record<string, BusResponder> = {}): Promise
     </div>
   `;
   installSettingsPanelBus(overrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(host.dataset.biliscriptSettingsRendered).toBe("1");
-  });
+  expect(host.dataset.biliscriptSettingsRendered).toBe("1");
   return host;
 }
 
@@ -138,7 +135,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     expect(btn).not.toBeNull();
     expect(btn.textContent).toContain("新手引导 / 快速上手");
     btn.click();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sentMessages).toContainEqual({ type: "open-onboarding" });
     });
   });
@@ -204,7 +201,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     expect(glow.disabled).toBe(false);
     expect(glowRow.classList.contains("is-disabled")).toBe(false);
     expect(glow.checked).toBe(true);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sentMessages).toContainEqual({ type: "save-settings", settings: { readerPalette: "flyme" } });
     });
   });
@@ -245,7 +242,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     await panel.openLiveSettings("live");
 
     const host = document.getElementById("biliscript-reading-settings-host")!;
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.dataset.biliscriptSettingsRendered).toBe("1");
       expect(host.querySelector<HTMLElement>("#biliscriptSettingsSubpageLive")?.hidden).toBe(false);
     });

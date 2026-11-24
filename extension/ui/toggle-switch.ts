@@ -67,7 +67,7 @@ export function initToggleSwitch(input: HTMLInputElement): void {
 
   const springTo = (target: number, initialVel = 0): void => {
     settle();
-    if (prefersReducedMotion(input)) {
+    if (prefersReducedMotion(input) || (Math.abs(pos - target) < 0.05 && Math.abs(initialVel) < 5)) {
       pos = target;
       vel = 0;
       apply();
@@ -77,6 +77,10 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     vel = initialVel;
     let last = performance.now();
     const tick = (now: number): void => {
+      if (!input.isConnected) {
+        rafHandle = null;
+        return;
+      }
       const dt = Math.min((now - last) / 1000, MAX_FRAME_DT);
       last = now;
       const accel = -SPRING_STIFFNESS * (pos - target) - SPRING_DAMPING * vel;

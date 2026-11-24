@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { DETACHED_WINDOW_BOUNDS_KEY } from "../../extension/core/detached-bounds-store.js";
+import * as activeHost from "../../extension/shared/active-host.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
 
@@ -18,17 +20,18 @@ async function mountPanel(initialSettings: Record<string, unknown> = {}): Promis
   });
   document.body.innerHTML =
     '<div id="biliscript-reading-view"><div id="biliscript-reading-settings-host"></div></div>';
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(bus.sent.some((message) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(bus.sent.some((message) => message.type === "asr-providers-list")).toBe(true);
   return { host, sent: bus.sent };
 }
 
 beforeEach(() => {
-  resetModuleState();
+  resetSettingsPanelState();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("detachedWindowMode 设置控件与偏好重置", () => {
@@ -45,7 +48,7 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
     const subpage = host.querySelector("#biliscriptSettingsSubpageAppearance")!;
     const select = subpage.querySelector<HTMLSelectElement>("#detachedWindowMode")!;
     expect(select).toBeTruthy();
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(select.value).toBe("popup");
     });
 
@@ -53,7 +56,7 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
     const pipOption = wrapper.querySelector<HTMLElement>('.custom-select-option[data-value="pip"]')!;
     fireClick(pipOption);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(
         sent.some(
           (message) =>
@@ -74,7 +77,6 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
   });
 
   it("停靠态切换不触发模式迁移钩子；独立窗口态下在 change 同步栈内立即触发 requestDetachedModeSwitch", async () => {
-    const activeHost = await import("../../extension/shared/active-host.js");
     const switchEvents: string[] = [];
     const unregister = activeHost.registerDetachedModeSwitchHandler((mode) => {
       switchEvents.push(mode);
@@ -104,7 +106,6 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
   });
 
   it("独立窗口态模式切换回调异步拒绝时不产生未处理 rejection", async () => {
-    const activeHost = await import("../../extension/shared/active-host.js");
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => {
       unhandled.push(reason);
@@ -123,7 +124,7 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
       const select = host.querySelector<HTMLSelectElement>("#detachedWindowMode")!;
       select.value = "popup";
       select.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await flushMicrotasks();
       expect(unhandled).toEqual([]);
     } finally {
       unregister();
@@ -132,7 +133,6 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
   });
 
   it("独立窗口态模式切换回调同步抛出时不触发 window error 且仍保存设置", async () => {
-    const activeHost = await import("../../extension/shared/active-host.js");
     const windowErrors: unknown[] = [];
     const onWindowError = (event: ErrorEvent) => {
       event.preventDefault();
@@ -154,7 +154,7 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
       select.value = "popup";
       select.dispatchEvent(new Event("change", { bubbles: true }));
 
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(
           sent
             .slice(sentBefore)
@@ -176,26 +176,26 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
     const { host, sent } = await mountPanel({ detachedWindowMode: "popup" });
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
-    const cancelBtn = await vi.waitFor(() => {
+    const cancelBtn = await waitForFast(() => {
       const node = document.querySelector(".confirm-dialog-cancel");
       if (!node) throw new Error("确认弹层未打开");
       return node;
     });
     fireClick(cancelBtn);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushMicrotasks();
 
     const storedAfterCancel = await chrome.storage.local.get([DETACHED_WINDOW_BOUNDS_KEY]);
     expect(storedAfterCancel[DETACHED_WINDOW_BOUNDS_KEY]).toEqual({ width: 620, height: 700 });
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
-    const confirmBtn = await vi.waitFor(() => {
+    const confirmBtn = await waitForFast(() => {
       const node = document.querySelector(".confirm-dialog-confirm");
       if (!node) throw new Error("确认弹层未打开");
       return node;
     });
     fireClick(confirmBtn);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(
         sent.some(
           (message) =>
@@ -204,7 +204,7 @@ describe("detachedWindowMode 设置控件与偏好重置", () => {
       ).toBe(true);
     });
 
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       const storedAfterReset = await chrome.storage.local.get([DETACHED_WINDOW_BOUNDS_KEY]);
       expect(storedAfterReset[DETACHED_WINDOW_BOUNDS_KEY]).toBeUndefined();
     });

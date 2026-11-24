@@ -33,6 +33,7 @@ export interface AgentBridgeSettingsController {
   refresh(): Promise<void>;
   onAddressViewClosed(options?: { focusButton?: boolean }): void;
   getSummaryState(): AgentBridgeSettingsState;
+  dispose(): void;
 }
 
 export function bindAgentBridgeSettings(
@@ -40,6 +41,7 @@ export function bindAgentBridgeSettings(
   setStatus: (text: string, isError?: boolean) => void,
   options?: AgentBridgeSettingsOptions
 ): AgentBridgeSettingsController {
+  let disposed = false;
   let savedUrl = DEFAULT_SETTINGS.agentBridgeUrl;
   let connected = false;
   let pending: "connect" | "disconnect" | null = null;
@@ -60,6 +62,7 @@ export function bindAgentBridgeSettings(
   }
 
   function emitStateChange(): void {
+    if (disposed) return;
     renderAddressSummary();
     options?.onStateChange?.(getSummaryState());
   }
@@ -73,14 +76,14 @@ export function bindAgentBridgeSettings(
   }
 
   async function refresh(): Promise<void> {
-    if (pending) return;
+    if (disposed || pending) return;
     const generation = ++statusGeneration;
     try {
       const response = await sendRuntimeMessage({ type: "agent-bridge-status" });
-      if (generation !== statusGeneration) return;
+      if (disposed || generation !== statusGeneration) return;
       connected = response?.ok === true && response.connected === true;
     } catch {
-      if (generation !== statusGeneration) return;
+      if (disposed || generation !== statusGeneration) return;
       connected = false;
     }
     renderConnection();
@@ -126,12 +129,14 @@ export function bindAgentBridgeSettings(
   }
 
   async function connect(): Promise<void> {
+    if (disposed) return;
     statusGeneration++;
     if (connected) {
       pending = "disconnect";
       renderConnection();
       try {
         const response = await sendRuntimeMessage({ type: "save-settings", settings: { enableAgentBridge: false } });
+        if (disposed) return;
         if (!response?.ok) {
           setStatus(response?.error || "断开失败", true);
           return;
@@ -141,11 +146,14 @@ export function bindAgentBridgeSettings(
         connected = false;
         setStatus("已断开本地 Agent");
       } catch (error) {
+        if (disposed) return;
         setStatus((error as Error).message || "断开失败", true);
       } finally {
-        pending = null;
-        renderConnection();
-        emitStateChange();
+        if (!disposed) {
+          pending = null;
+          renderConnection();
+          emitStateChange();
+        }
       }
       return;
     }
@@ -154,12 +162,14 @@ export function bindAgentBridgeSettings(
     renderConnection();
     try {
       const response = await sendRuntimeMessage({ type: "agent-bridge-connect" });
+      if (disposed) return;
       connected = response?.ok === true && response.connected === true;
       if (!connected) {
         openAgentBridgeInstallDialog(savedUrl);
         return;
       }
       const saved = await sendRuntimeMessage({ type: "save-settings", settings: { enableAgentBridge: true } });
+      if (disposed) return;
       if (!saved?.ok) {
         setStatus(saved?.error || "无法启用本地 Agent 桥接", true);
         return;
@@ -168,16 +178,20 @@ export function bindAgentBridgeSettings(
       syncToggleSwitch(elements.enableAgentBridge);
       setStatus("本地 Agent 已连接");
     } catch {
+      if (disposed) return;
       connected = false;
       openAgentBridgeInstallDialog(savedUrl);
     } finally {
-      pending = null;
-      renderConnection();
-      emitStateChange();
+      if (!disposed) {
+        pending = null;
+        renderConnection();
+        emitStateChange();
+      }
     }
   }
 
   async function testAddress(): Promise<void> {
+    if (disposed) return;
     const url = readAddress();
     if (!url || addressBusy) return;
     elements.agentBridgeUrl.value = url;
@@ -185,21 +199,27 @@ export function bindAgentBridgeSettings(
     setAddressStatus("");
     try {
       const response = await sendRuntimeMessage({ type: "agent-bridge-test", url });
+      if (disposed) return;
       const ok = response?.ok === true && response.connected === true;
       setAddressStatus(ok ? "连接成功" : response?.error || "连接失败，请确认本地 Agent 已启动", !ok);
     } catch {
+      if (disposed) return;
       setAddressStatus("连接失败，请确认本地 Agent 已启动", true);
     } finally {
-      setAddressBusy(false);
+      if (!disposed) {
+        setAddressBusy(false);
+      }
     }
   }
 
   async function saveAddress(): Promise<void> {
+    if (disposed) return;
     const url = readAddress();
     if (!url || addressBusy) return;
     setAddressBusy(true);
     try {
       const response = await sendRuntimeMessage({ type: "save-settings", settings: { agentBridgeUrl: url } });
+      if (disposed) return;
       if (!response?.ok) {
         setAddressStatus(response?.error || "保存失败", true);
         return;
@@ -210,9 +230,12 @@ export function bindAgentBridgeSettings(
       emitStateChange();
       void refresh();
     } catch (error) {
+      if (disposed) return;
       setAddressStatus((error as Error).message || "保存失败", true);
     } finally {
-      setAddressBusy(false);
+      if (!disposed) {
+        setAddressBusy(false);
+      }
     }
   }
 
@@ -230,6 +253,7 @@ export function bindAgentBridgeSettings(
 
   return {
     sync(settings) {
+      if (disposed) return;
       elements.enableAgentBridge.checked = settings.enableAgentBridge === true;
       savedUrl = normalizeAgentBridgeUrl(settings.agentBridgeUrl);
       if (!addressOpen) elements.agentBridgeUrl.value = savedUrl;
@@ -237,12 +261,21 @@ export function bindAgentBridgeSettings(
       void refresh();
     },
     updateUrl(value) {
+      if (disposed) return;
       savedUrl = normalizeAgentBridgeUrl(value);
       if (!addressOpen) elements.agentBridgeUrl.value = savedUrl;
       emitStateChange();
     },
     refresh,
     onAddressViewClosed,
-    getSummaryState
+    getSummaryState,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      statusGeneration += 1;
+      pending = null;
+      addressOpen = false;
+      addressBusy = false;
+    }
   };
 }

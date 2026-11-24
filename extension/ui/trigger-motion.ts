@@ -315,5 +315,7 @@ export function animateTriggerExit(options: TriggerExitOptions): void {
   }
   anim.addEventListener("finish", finish, { once: true });
   anim.addEventListener("cancel", finish, { once: true });
-  fallbackTimer = window.setTimeout(finish, durationMs + 80);
+  if (!settled) {
+    fallbackTimer = window.setTimeout(finish, durationMs + 80);
+  }
 }

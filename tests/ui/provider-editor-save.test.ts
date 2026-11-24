@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 
 type SentMessage = { type: string } & Record<string, any>;
@@ -16,6 +15,10 @@ vi.mock("../../extension/asr/provider-test.js", () => ({
 vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
+
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
@@ -40,18 +43,15 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
       </section>
     </div>`;
   const sent = installMessageBus(busOverrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   return { sent, host };
 }
 
 async function openEditor(host: HTMLElement, buttonSelector: string) {
   host.querySelector(buttonSelector)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(document.querySelector(".provider-editor-dialog")).toBeTruthy();
   });
   return document.querySelector<HTMLElement>(".provider-editor-dialog")!;
@@ -67,12 +67,10 @@ function setFieldValue(input: HTMLInputElement, value: string) {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
 });
 
@@ -142,7 +140,7 @@ describe("Modal 保存：三族序列化走族声明（替源码切片断言）"
     testCase.fill(dialog);
     fireClick(dialog.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === testCase.saveType)).toBe(true);
     });
     const payload = sent.find((message) => message.type === testCase.saveType)!.providers[0];

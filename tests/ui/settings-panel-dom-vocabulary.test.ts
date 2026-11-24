@@ -1,15 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import {
   buildSettingsHtml,
   SETTINGS_PANEL_DOM_IDS
 } from "../../extension/ui/settings-panel-html.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 const QUICK_PROMPT_CLASS_SELECTOR = ".ai-initial-quick-prompt";
 
 beforeEach(() => {
-  resetModuleState();
+  resetSettingsPanelState();
 });
 
 function declaredIds(): string[] {
@@ -35,6 +36,7 @@ async function mountAndRecordCollectorReads(): Promise<{
   const classSelectors: string[] = [];
   const querySelector = host.querySelector.bind(host);
   const querySelectorAll = host.querySelectorAll.bind(host);
+  const origGetElementById = document.getElementById.bind(document);
   host.querySelector = ((selector: string) => {
     if (typeof selector === "string" && selector.startsWith("#")) {
       readIds.add(selector.slice(1));
@@ -47,14 +49,22 @@ async function mountAndRecordCollectorReads(): Promise<{
     }
     return querySelectorAll(selector);
   }) as typeof host.querySelectorAll;
+  document.getElementById = ((id: string) => {
+    const el = origGetElementById(id);
+    if (el && el !== host && host.contains(el)) {
+      readIds.add(id);
+    }
+    return el;
+  }) as typeof document.getElementById;
 
-  installSettingsPanelBus();
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
-  await vi.waitFor(() => {
+  try {
+    installSettingsPanelBus();
+    await renderReaderSettingsPanel();
     expect(host.dataset.biliscriptSettingsRendered).toBe("1");
-  });
-  return { host, readIds, classSelectors };
+    return { host, readIds, classSelectors };
+  } finally {
+    document.getElementById = origGetElementById;
+  }
 }
 
 describe("设置抽屉 DOM 词汇表：声明表 ↔ 模板", () => {

@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusMessage } from "../helpers/settings-panel-bus.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
 describe("设置面板字幕翻译", () => {
@@ -49,10 +49,9 @@ describe("设置面板字幕翻译", () => {
         ]
       })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
-    panel.renderReaderSettingsPanel();
+    await renderReaderSettingsPanel();
     const host = document.getElementById("biliscript-reading-settings-host")!;
-    await vi.waitFor(() => expect(host.querySelector("#subtitleTranslateModel")).toBeTruthy());
+    await waitForFast(() => expect(host.querySelector("#subtitleTranslateModel")).toBeTruthy());
 
     const select = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
     expect(Array.from(select.options).some((opt) => opt.value === "")).toBe(false);
@@ -70,7 +69,7 @@ describe("设置面板字幕翻译", () => {
     select.value = "provider-2\u0001gpt-4o-mini";
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await vi.waitFor(() => expect(bus.sent.filter((message) => message.type === "save-settings")).toHaveLength(1));
+    await waitForFast(() => expect(bus.sent.filter((message) => message.type === "save-settings")).toHaveLength(1));
     const saves = bus.sent.filter((message) => message.type === "save-settings");
     expect(saves[0]?.settings).toEqual({
       subtitleTranslateProviderId: "provider-2",
@@ -94,10 +93,9 @@ describe("设置面板字幕翻译", () => {
       }),
       "ai-providers-list": () => ({ ok: true, providers: [] })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
-    panel.renderReaderSettingsPanel();
+    await renderReaderSettingsPanel();
     const host = document.getElementById("biliscript-reading-settings-host")!;
-    const textarea = await vi.waitFor(() => {
+    const textarea = await waitForFast(() => {
       const el = host.querySelector<HTMLTextAreaElement>("#subtitleTranslateGlossary");
       expect(el).toBeTruthy();
       expect(el!.value).toBe("CUDA = CUDA\nTensor Core =");
@@ -111,7 +109,7 @@ describe("设置面板字幕翻译", () => {
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.dispatchEvent(new Event("blur", { bubbles: true }));
 
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateGlossary !== undefined)).toBe(true)
     );
     const saved = bus.sent.find((m) => m.type === "save-settings" && m.settings?.subtitleTranslateGlossary !== undefined);
@@ -142,15 +140,14 @@ describe("设置面板字幕翻译", () => {
         ]
       })
     });
-    const panel = await import("../../extension/ui/settings-panel.js");
-    panel.renderReaderSettingsPanel();
+    await renderReaderSettingsPanel();
     const host = document.getElementById("biliscript-reading-settings-host")!;
 
-    await vi.waitFor(() => expect(host.querySelector("#subtitleTranslateSource")).toBeTruthy());
+    await waitForFast(() => expect(host.querySelector("#subtitleTranslateSource")).toBeTruthy());
     const sourceSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateSource")!;
     const modelSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
 
-    await vi.waitFor(() => expect(modelSelect.disabled).toBe(false));
+    await waitForFast(() => expect(modelSelect.disabled).toBe(false));
     expect(sourceSelect.value).toBe("bilibili-index-translate");
     expect(Array.from(modelSelect.options).map((o) => o.textContent)).toEqual([
       "Index-Translate-35B-A3B",
@@ -162,14 +159,14 @@ describe("设置面板字幕翻译", () => {
 
     modelSelect.value = "bilibili-index-translate\u0001Index-Translate-9B";
     modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateModel === "Index-Translate-9B")).toBe(true)
     );
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("Index-Translate-9B");
 
     sourceSelect.value = "custom";
     sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateProviderId === "provider-1")).toBe(true)
     );
     expect(modelSelect.value).toBe("provider-1\u0001deepseek-chat");
@@ -177,7 +174,7 @@ describe("设置面板字幕翻译", () => {
 
     sourceSelect.value = "bilibili-index-translate";
     sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(
         bus.sent.some(
           (m) =>

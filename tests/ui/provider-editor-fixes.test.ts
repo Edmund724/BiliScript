@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { ASR_PROVIDER_PRESETS, PRESETS, SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import type { ProviderRowElement, ProviderRowItem } from "../../extension/ui/provider-row.js";
 import type { ProviderEditorSave } from "../../extension/ui/provider-editor.js";
@@ -48,6 +47,10 @@ vi.mock("../../extension/search/search-provider-store.js", () => ({
     }
   }
 }));
+
+import { closeConfirmDialog } from "../../extension/ui/confirm-dialog.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { flushMicrotasks, resetProviderEditorState, waitForFast } from "../helpers/reset-provider-editor-state.js";
 
 type SentMessage = { type: string } & Record<string, unknown>;
 let sent: SentMessage[] = [];
@@ -103,14 +106,8 @@ function switchPreset(dialog: HTMLElement, presetId: string): void {
   select.dispatchEvent(new Event("change"));
 }
 
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 12; i++) {
-    await Promise.resolve();
-  }
-}
-
 beforeEach(() => {
-  resetModuleState();
+  resetProviderEditorState();
   installBus();
   mountView();
   mocks.fetchProviderModels.mockReset().mockResolvedValue({ ok: true, models: [] });
@@ -123,9 +120,7 @@ beforeEach(() => {
   mocks.searchGetKey.mockReset().mockResolvedValue("sk-stored-search");
 });
 
-afterEach(async () => {
-  const { closeConfirmDialog } = await import("../../extension/ui/confirm-dialog.js");
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeConfirmDialog();
   closeProviderEditor(true);
 });
@@ -154,7 +149,7 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     mocks.fetchProviderModels.mockResolvedValueOnce({ ok: true, models: ["gpt-4o-mini"] });
     fireClick(dialog.querySelector(".provider-editor-fetch"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
     });
 
@@ -187,7 +182,7 @@ describe("1. inert 隔离与嵌套焦点圈禁", () => {
     expect(settingsPanel.inert).toBe(true);
 
     fireClick(document.querySelector(".confirm-dialog-cancel"));
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorHost.inert).toBe(false);
     expect(settingsPanel.inert).toBe(true);
     expect(main.inert).toBe(true);
@@ -572,7 +567,7 @@ describe("6. 模型拉取子视图四态 UX + 快捷键 + 前置定位", () => {
     fireClick(retriedSubview.querySelector(".provider-editor-fetch-back"));
     mocks.fetchProviderModels.mockResolvedValueOnce({ ok: true, models: ["gpt-4o", "o3-mini"] });
     fireClick(dialog.querySelector(".provider-editor-fetch"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
     });
     const subview2 = document.querySelector<HTMLElement>(".provider-editor-fetch-dialog")!;

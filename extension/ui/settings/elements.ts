@@ -6,10 +6,21 @@ export function applySectionContainment(host: HTMLElement): void {
   });
 }
 
+export function queryElementByIdIn<T extends HTMLElement>(host: HTMLElement, id: SettingsPanelDomId): T | null {
+  const doc = host.ownerDocument;
+  if (host.isConnected && doc) {
+    const candidate = doc.getElementById(id);
+    if (candidate && candidate !== host && host.contains(candidate)) {
+      return candidate as T;
+    }
+  }
+  return host.querySelector<T>(`#${id}`);
+}
+
 export function collectElements(host: HTMLElement) {
   const dom = SETTINGS_PANEL_DOM_IDS;
   const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T => {
-    const el = host.querySelector<T>(`#${id}`);
+    const el = queryElementByIdIn<T>(host, id);
     if (!el) {
       throw new Error(`Missing required settings element: #${id}`);
     }

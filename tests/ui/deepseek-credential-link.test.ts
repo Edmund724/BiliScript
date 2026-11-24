@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 const DEEPSEEK_SEARCH = {
   id: "search_deepseek",
@@ -74,12 +76,9 @@ async function mountPanel(overrides: Record<string, BusResponder<BusMessage>> = 
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
   });
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(searchRow(host)).toBeTruthy();
-  });
+  expect(searchRow(host)).toBeTruthy();
   return { host, sent: bus.sent };
 }
 
@@ -103,7 +102,7 @@ function liveSubtitle(host: HTMLElement): string {
 
 async function openDeepseekEditor(host: HTMLElement): Promise<HTMLElement> {
   click(searchRow(host)!.querySelector(".provider-row-edit"));
-  await vi.waitFor(() => expect(dialog()).not.toBeNull());
+  await waitForFast(() => expect(dialog()).not.toBeNull());
   return dialog()!;
 }
 
@@ -120,14 +119,12 @@ function linkedButton(): HTMLButtonElement | null {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
+afterEach(() => {
   const panel = document.getElementById("biliscript-reading-settings-panel");
   if (panel) panel.hidden = true;
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
   closeProviderEditor(true);
 });
 
@@ -179,7 +176,7 @@ describe("DeepSeek 搜索列表行状态由结构化凭据状态驱动", () => {
       { providers: [relay], note: "AI 平台配置的并非 DeepSeek 官方接口地址" }
     ];
     for (const testCase of cases) {
-      resetModuleState();
+      resetSettingsPanelState();
       const { host } = await mountPanel({
         "ai-providers-list": () => ({ ok: true, providers: testCase.providers })
       });
@@ -219,7 +216,7 @@ describe("非官方地址同层新建官方记录", () => {
     const editor = await openDeepseekEditor(host);
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
     const aiDialog = dialog()!;
@@ -241,18 +238,18 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     input(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://search.example.com");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-cancel"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑搜索平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value)
       .toBe("https://search.example.com");
     pressEsc();
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     click(document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel"));
   });
 
@@ -276,22 +273,22 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     input(editor.querySelector<HTMLInputElement>(".provider-editor-name")!, "DeepSeek 搜索草稿");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-deepseek");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑搜索平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-name")!.value)
       .toBe("DeepSeek 搜索草稿");
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()!.querySelector(".provider-editor-status")!.textContent)
         .toContain("请继续保存搜索平台记录");
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方");
     });
     expect(linkedButton()).toBeNull();
@@ -304,7 +301,7 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     expect(sent.some((message) => message.type === "search-providers-save")).toBe(false);
 
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
-    await vi.waitFor(() => expect(sent.some((message) => message.type === "search-providers-save")).toBe(true));
+    await waitForFast(() => expect(sent.some((message) => message.type === "search-providers-save")).toBe(true));
     const searchSave = sent.find((message) => message.type === "search-providers-save") as {
       providers?: Array<{ apiKey?: string; hasSavedKey?: boolean; presetId?: string }>;
     };
@@ -318,12 +315,12 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     const editor = await openDeepseekEditor(host);
     input(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://search.example.com");
     click(editor.querySelector(".provider-editor-linked-credential-btn"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("添加AI 平台");
     });
 
     document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
-    await vi.waitFor(() => expect(dialog()).toBeNull());
+    await waitForFast(() => expect(dialog()).toBeNull());
     expect(host.querySelector("#biliscriptSettingsStatus")!.textContent)
       .not.toContain("请继续保存搜索平台记录");
   });
@@ -342,7 +339,7 @@ describe("AI 族变更联动两类引用行", () => {
     expect(rowSubtitle(host)).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
 
     click(host.querySelector("#addAiProviderBtn"));
-    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    await waitForFast(() => expect(dialog()).not.toBeNull());
     const aiDialog = dialog()!;
     const preset = aiDialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     preset.value = "deepseek";
@@ -352,7 +349,7 @@ describe("AI 族变更联动两类引用行", () => {
     input(aiDialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "deepseek-chat");
     click(aiDialog.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方");
     });
   });
@@ -369,11 +366,11 @@ describe("AI 族变更联动两类引用行", () => {
     expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方");
 
     click(host.querySelector('#aiProvidersList .ai-provider-row[data-provider-id="p_deepseek"] .provider-row-edit'));
-    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    await waitForFast(() => expect(dialog()).not.toBeNull());
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-name")!, "DeepSeek 官方（改名）");
     click(dialog()!.querySelector(".provider-editor-save"));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方（改名）");
     });
   });
@@ -391,7 +388,7 @@ describe("AI 族变更联动两类引用行", () => {
         return { ok: true, providers: aiProviders };
       }
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(host.querySelector("#liveProvidersList .live-provider-row")).toBeTruthy();
     });
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
@@ -399,14 +396,14 @@ describe("AI 族变更联动两类引用行", () => {
 
     click(host.querySelector('#aiProvidersList .ai-provider-row[data-provider-id="p_deepseek"] .provider-row-remove'));
     click(document.querySelector(".confirm-dialog-confirm"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方 B");
     });
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
 
     click(host.querySelector('#aiProvidersList .ai-provider-row[data-provider-id="p_gemini"] .provider-row-remove'));
     click(document.querySelector(".confirm-dialog-confirm"));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
     });
     expect(rowSubtitle(host)).toBe("已复用 AI 平台 Key · DeepSeek 官方 B");

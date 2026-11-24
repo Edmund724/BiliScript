@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
+import { NORMAL_PAGE_URL, setLocationUrl } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
+import {
+  closeReaderSettingsMode,
+  openReaderSettingsMode,
+  projectReaderSettingsMode,
+  registerReaderSettingsCloseListener
+} from "../../extension/reader/settings-mode.js";
+import { ids } from "../../extension/reader/state.js";
+import * as settingsPanel from "../../extension/ui/settings-panel.js";
+import * as uiRenderer from "../../extension/ui/ui-renderer.js";
+import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 interface FakeAnimationRecord {
   target: HTMLElement;
@@ -69,9 +79,8 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
   const origMatchMedia = window.matchMedia;
 
   beforeEach(() => {
-    resetModuleState();
+    resetSettingsPanelState();
     setLocationUrl(NORMAL_PAGE_URL);
-    document.body.innerHTML = "";
     mockReducedMotion(false);
   });
 
@@ -84,17 +93,10 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
 
   it("主视图 ↔ 设置面板走双向水平推入/退回，关闭离场期间延迟复位子页并在收尾清理状态属性", async () => {
     const records = installFakeWaapi();
-    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
-    const {
-      closeReaderSettingsMode,
-      openReaderSettingsMode,
-      registerReaderSettingsCloseListener
-    } = await import("../../extension/reader/settings-mode.js");
-    const { ids } = await import("../../extension/reader/state.js");
 
     uiRenderer.ensureUiReady({ forceRecreate: true });
     const scriptPanel = document.getElementById(ids.readingScriptPanel)!;
-    const settingsPanel = document.getElementById(ids.readingSettingsPanel)!;
+    const settingsPanelEl = document.getElementById(ids.readingSettingsPanel)!;
     const tabsRow = scriptPanel.querySelector<HTMLElement>(".biliscript-reading-tabs-row")!;
     const subtitleBody = document.getElementById(ids.readingTabBodySubtitle)!;
 
@@ -103,12 +105,12 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
 
     try {
       openReaderSettingsMode();
-      expect(settingsPanel.hidden).toBe(false);
+      expect(settingsPanelEl.hidden).toBe(false);
       expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBe("opening");
 
       const tabsExit = records.find((r) => r.target === tabsRow);
       const bodyExit = records.find((r) => r.target === subtitleBody);
-      const settingsEnter = records.find((r) => r.target === settingsPanel);
+      const settingsEnter = records.find((r) => r.target === settingsPanelEl);
 
       expect(tabsExit?.keyframes[1]?.transform).toBe("translate3d(-14px, 0px, 0)");
       expect(bodyExit?.keyframes[1]?.transform).toBe("translate3d(-14px, 0px, 0)");
@@ -116,7 +118,6 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(settingsEnter?.keyframes[1]?.transform).toBe("translate3d(0, 0, 0)");
 
       const countBeforeSecondProject = records.length;
-      const { projectReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
       projectReaderSettingsMode();
       expect(records.length).toBe(countBeforeSecondProject);
 
@@ -127,12 +128,12 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
 
       records.length = 0;
       closeReaderSettingsMode();
-      expect(settingsPanel.hidden).toBe(true);
-      expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBe("1");
+      expect(settingsPanelEl.hidden).toBe(true);
+      expect(settingsPanelEl.getAttribute("data-biliscript-settings-leaving")).toBe("1");
       expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBe("closing");
       expect(onClose).not.toHaveBeenCalled();
 
-      const settingsExit = records.find((r) => r.target === settingsPanel);
+      const settingsExit = records.find((r) => r.target === settingsPanelEl);
       const tabsEnter = records.find((r) => r.target === tabsRow);
       const bodyEnter = records.find((r) => r.target === subtitleBody);
 
@@ -141,7 +142,7 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       expect(bodyEnter?.keyframes[0]?.transform).toBe("translate3d(-14px, 0, 0)");
 
       settingsExit!.finish();
-      expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBeNull();
+      expect(settingsPanelEl.getAttribute("data-biliscript-settings-leaving")).toBeNull();
       expect(onClose).toHaveBeenCalledTimes(1);
 
       tabsEnter!.finish();
@@ -154,17 +155,10 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
 
   it("关闭中途再次点击打开会立即中断并结算待执行复位，不残留离场标记", async () => {
     const records = installFakeWaapi();
-    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
-    const {
-      closeReaderSettingsMode,
-      openReaderSettingsMode,
-      registerReaderSettingsCloseListener
-    } = await import("../../extension/reader/settings-mode.js");
-    const { ids } = await import("../../extension/reader/state.js");
 
     uiRenderer.ensureUiReady({ forceRecreate: true });
     const scriptPanel = document.getElementById(ids.readingScriptPanel)!;
-    const settingsPanel = document.getElementById(ids.readingSettingsPanel)!;
+    const settingsPanelEl = document.getElementById(ids.readingSettingsPanel)!;
     const onClose = vi.fn();
     const unregister = registerReaderSettingsCloseListener(onClose);
 
@@ -174,13 +168,13 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       records.length = 0;
 
       closeReaderSettingsMode();
-      expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBe("1");
+      expect(settingsPanelEl.getAttribute("data-biliscript-settings-leaving")).toBe("1");
       expect(onClose).not.toHaveBeenCalled();
 
       openReaderSettingsMode();
       expect(onClose).toHaveBeenCalledTimes(1);
-      expect(settingsPanel.getAttribute("data-biliscript-settings-leaving")).toBeNull();
-      expect(settingsPanel.hidden).toBe(false);
+      expect(settingsPanelEl.getAttribute("data-biliscript-settings-leaving")).toBeNull();
+      expect(settingsPanelEl.hidden).toBe(false);
       expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBe("opening");
     } finally {
       unregister();
@@ -199,8 +193,7 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
       </div>
     `;
     installSettingsPanelBus();
-    const panel = await import("../../extension/ui/settings-panel.js");
-    await panel.renderReaderSettingsPanel();
+    await settingsPanel.renderReaderSettingsPanel();
 
     const host = document.getElementById("biliscript-reading-settings-host")!;
     const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
@@ -254,17 +247,14 @@ describe("设置导航水平过渡（主视图 ↔ 设置面板 & 总览 ↔ 多
   it("prefers-reduced-motion: reduce 退化为纯透明度淡入且不产生水平位移", async () => {
     mockReducedMotion(true);
     const records = installFakeWaapi();
-    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
-    const { openReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
-    const { ids } = await import("../../extension/reader/state.js");
 
     uiRenderer.ensureUiReady({ forceRecreate: true });
     const scriptPanel = document.getElementById(ids.readingScriptPanel)!;
-    const settingsPanel = document.getElementById(ids.readingSettingsPanel)!;
+    const settingsPanelEl = document.getElementById(ids.readingSettingsPanel)!;
 
     openReaderSettingsMode();
     expect(scriptPanel.getAttribute("data-biliscript-settings-motion")).toBeNull();
-    const enterAnim = records.find((r) => r.target === settingsPanel);
+    const enterAnim = records.find((r) => r.target === settingsPanelEl);
     expect(enterAnim?.keyframes).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   });
 });

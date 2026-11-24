@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 import type { ProviderRowItem } from "../../extension/ui/provider-row.js";
+import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
+import { loadOriginSharingProviders } from "../../extension/ui/provider-transaction.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type FamilyStub = {
   list: ReturnType<typeof vi.fn>;
@@ -76,31 +79,23 @@ async function mountPanel({ live = false }: { live?: boolean } = {}) {
     "live-providers-list": () => ({ ok: true, providers: [LIVE_ITEM] }),
     "live-providers-delete": () => ({ ok: true, providers: [] })
   } : {});
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   return { sent, host };
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
-  delete (globalThis.chrome as unknown as { permissions?: unknown }).permissions;
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+afterEach(() => {
   closeProviderEditor(true);
   delete (globalThis.chrome as unknown as { permissions?: unknown }).permissions;
 });
 
 describe("loadOriginSharingProviders：并集由 optionalHostPermission 推导", () => {
   it("参与并集的是 optional 族：翻转标志即翻转行为（不按族名点名单、不取反）", async () => {
-    const { loadOriginSharingProviders } = await import("../../extension/ui/provider-transaction.js");
-
     const first = { ai: familyStub(true), asr: familyStub(false), search: familyStub(false) };
     await loadOriginSharingProviders(first as never);
     expect(first.ai.loadProviders).toHaveBeenCalledTimes(1);
@@ -115,7 +110,6 @@ describe("loadOriginSharingProviders：并集由 optionalHostPermission 推导",
   });
 
   it("并集 = 各族现查结果拼接（分派表顺序）", async () => {
-    const { loadOriginSharingProviders } = await import("../../extension/ui/provider-transaction.js");
     const families = {
       ai: familyStub(true, [{ id: "a1" }]),
       asr: familyStub(true, [{ id: "s1" }]),
@@ -136,15 +130,15 @@ describe("行删除路径：回收并集只含 optional 族", () => {
 
     const row = host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!;
     row.querySelector(".provider-row-remove")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".confirm-dialog-confirm")).toBeTruthy();
     });
     document.querySelector(".confirm-dialog-confirm")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(countOf(sent, "ai-providers-delete")).toBe(1);
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(countOf(sent, "ai-providers-list")).toBeGreaterThan(aiBefore);
       expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
       expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);
@@ -162,15 +156,15 @@ describe("行删除路径：回收并集只含 optional 族", () => {
 
     const row = host.querySelector<HTMLElement>("#liveProvidersList .live-provider-row")!;
     row.querySelector(".provider-row-remove")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(document.querySelector(".confirm-dialog-confirm")).toBeTruthy();
     });
     document.querySelector(".confirm-dialog-confirm")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(countOf(sent, "live-providers-delete")).toBe(1);
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(countOf(sent, "ai-providers-list")).toBeGreaterThan(aiBefore);
       expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
       expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);

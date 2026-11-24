@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
+import { initCustomSelect } from "../../extension/ui/custom-select.js";
+import { isDirty } from "../../extension/ui/provider-editor-modal.js";
+import * as projectionModule from "../../extension/ui/provider-editor-projection.js";
+import * as stateModule from "../../extension/ui/provider-editor-state.js";
 import type { EditorDraft } from "../../extension/ui/provider-editor-state.js";
 import type { ProviderRowPreset } from "../../extension/ui/provider-row.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 const PRESETS: ProviderRowPreset[] = [
   { id: "custom", name: "自定义", baseUrl: "", requiresKey: true },
@@ -31,13 +36,11 @@ function draftOf(overrides: Partial<EditorDraft> = {}): EditorDraft {
 }
 
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetSettingsPanelState();
 });
 
-afterEach(async () => {
-  const { endEditorSession } = await import("../../extension/ui/provider-editor-state.js");
-  endEditorSession();
+afterEach(() => {
+  stateModule.endEditorSession();
 });
 
 async function mountProjectionSession(draft: EditorDraft, kind: "ai" | "asr" = "ai") {
@@ -62,17 +65,15 @@ async function mountProjectionSession(draft: EditorDraft, kind: "ai" | "asr" = "
         </section>
       </div>
     </div>`;
-  const state = await import("../../extension/ui/provider-editor-state.js");
-  const projection = await import("../../extension/ui/provider-editor-projection.js");
   const host = document.querySelector<HTMLElement>(".provider-editor-host")!;
-  state.beginEditorSession({
+  stateModule.beginEditorSession({
     kind,
     host,
     presets: PRESETS,
     hasSavedKey: false,
     draft
   });
-  return { state, projection, host, dialog: document.querySelector<HTMLElement>(".provider-editor-dialog")! };
+  return { state: stateModule, projection: projectionModule, host, dialog: document.querySelector<HTMLElement>(".provider-editor-dialog")! };
 }
 
 function context(kind: "ai" | "asr" = "ai") {
@@ -162,7 +163,6 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
       current.protocol = presetProtocol(next);
       current.baseUrl = presetBaseUrlForProtocol(next, current.protocol);
     });
-    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     initCustomSelect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!);
     initCustomSelect(dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!);
     projection.renderProjection();
@@ -181,7 +181,7 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
 
 describe("draft 真源与 dirty（F3/F5）", () => {
   it("EditorDraft 全键穷举：任一字段变化都判脏（draftsEqual 漏比即红）", async () => {
-    const { cloneDraft, draftsEqual } = await import("../../extension/ui/provider-editor-state.js");
+    const { cloneDraft, draftsEqual } = stateModule;
     const base = draftOf({ presetId: "custom", name: "n", baseUrl: "https://a.example.com", apiKey: "k", protocol: "openai", models: ["m"], model: "x" });
     expect(draftsEqual(base, cloneDraft(base))).toBe(true);
 
@@ -194,7 +194,7 @@ describe("draft 真源与 dirty（F3/F5）", () => {
   });
 
   it("models 顺序不同同样判脏（不只看长度）", async () => {
-    const { draftsEqual } = await import("../../extension/ui/provider-editor-state.js");
+    const { draftsEqual } = stateModule;
     expect(draftsEqual(draftOf({ models: ["a", "b"] }), draftOf({ models: ["b", "a"] }))).toBe(false);
   });
 });
@@ -219,19 +219,16 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
       </section>
     </div>`;
   const sent = installMessageBus(busOverrides);
-  const panel = await import("../../extension/ui/settings-panel.js");
-  panel.renderReaderSettingsPanel();
+  await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
   const sendMessage = (chrome as unknown as { runtime: { sendMessage: { mock: { calls: [{ type: string }][] } } } }).runtime.sendMessage;
-  await vi.waitFor(() => {
-    expect(sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
-  });
+  expect(sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   return { sent, host };
 }
 
 async function openEditor(host: HTMLElement, buttonSelector: string) {
   host.querySelector(buttonSelector)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => {
+  await waitForFast(() => {
     expect(document.querySelector(".provider-editor-dialog")).toBeTruthy();
   });
   return document.querySelector<HTMLElement>(".provider-editor-dialog")!;
@@ -249,7 +246,6 @@ describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
     ["apiKey", "#addAiProviderBtn", ".provider-editor-apikey", "sk-test"],
     ["model", "#addAsrProviderBtn", ".provider-editor-model", "whisper-1"]
   ])("%s 经 input 事件写入即判脏（回写漏字段即红）", async (_key, button, selector, value) => {
-    const { isDirty } = await import("../../extension/ui/provider-editor-modal.js");
     const { host } = await mountPanel();
     const dialog = await openEditor(host, button);
 
@@ -275,7 +271,7 @@ describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     dialog.querySelector(".provider-editor-save")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
     });
     const saveMessage = sent.find((message) => message.type === "ai-providers-save")!;
