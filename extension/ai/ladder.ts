@@ -20,6 +20,7 @@ import type { ChatPort } from "../chat/protocol.js";
 import type { WebSearchRuntime } from "../search/search-runtime.js";
 import { formatClock } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
+import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type {
@@ -209,6 +210,13 @@ export async function runLadderChat(
 
   const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
   try {
+    const site = normalizeSiteId(
+      msg.context?.site ?? (msg.context?.url ? detectSiteFromUrl(msg.context.url) : undefined)
+    );
+    const capabilities = getSiteCapabilities(site);
+    const effectiveCaptureFrame = capabilities.supportsCurrentFrameCapture ? captureCurrentVideoFrame : undefined;
+    const effectiveFetchHotComments = capabilities.supportsHotComments ? fetchHotComments : undefined;
+
     const plan = buildBudgetPlan({
       body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
       chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
@@ -244,17 +252,25 @@ export async function runLadderChat(
         routeChatCompletion: deps.routeChatCompletion,
         routerTimeoutMs: deps.routerTimeoutMs
       });
-      const visual = await preCaptureVisualFramesIfNeeded({
-        userPrompt,
-        coreTimestamp: resolution.coreTimestamp,
-        captureCurrentVideoFrame,
-        userImages,
-        port,
-        signal,
-        onActivity
-      });
+      const visual = capabilities.supportsHistoricalFrameCapture
+        ? await preCaptureVisualFramesIfNeeded({
+            userPrompt,
+            coreTimestamp: resolution.coreTimestamp,
+            captureCurrentVideoFrame: effectiveCaptureFrame,
+            userImages,
+            port,
+            signal,
+            onActivity
+          })
+        : {
+            finalUserImages: userImages,
+            frameContextNote: undefined,
+            remainingCaptureFn: effectiveCaptureFrame
+          };
+      const resolvedContextSite = args.baseContext.site ?? msg.context?.site;
       const hybridContext: ChatContext = {
         ...args.baseContext,
+        ...(resolvedContextSite !== undefined ? { site: resolvedContextSite } : {}),
         hybridRetrievalMarkdown: resolution.hybridRetrievalMarkdown,
         ...(visual.frameContextNote ? { frameContextNote: visual.frameContextNote } : {}),
         subtitleBody: []
@@ -273,7 +289,7 @@ export async function runLadderChat(
           onActivity,
           webSearch,
           captureCurrentVideoFrame: visual.remainingCaptureFn,
-          fetchHotComments
+          fetchHotComments: effectiveFetchHotComments
         });
       } catch (e) {
         if (!(e as { overflow?: boolean }).overflow) {
@@ -381,8 +397,8 @@ export async function runLadderChat(
         signal,
         onActivity,
         webSearch,
-        captureCurrentVideoFrame,
-        fetchHotComments
+        captureCurrentVideoFrame: effectiveCaptureFrame,
+        fetchHotComments: effectiveFetchHotComments
       });
     } catch (e) {
       if (!(e as { overflow?: boolean }).overflow) {

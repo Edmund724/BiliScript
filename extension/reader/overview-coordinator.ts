@@ -1,5 +1,6 @@
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
+import { getSiteCapabilities, normalizeSiteId, YOUTUBE_UNIT_CID, type SiteId } from "../shared/site.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiContext, AiProvider, ChapterItem, HotComment } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
@@ -49,6 +50,7 @@ export interface OverviewSetupRequest {
 }
 
 interface OverviewClipSource {
+  site?: SiteId;
   bvid: string;
   cid: string;
   aid: string;
@@ -154,9 +156,14 @@ export function createOverviewCoordinator(
     return Array.isArray(body) ? body : [];
   }
 
+  function resolveClipSite(clip: OverviewClipSource): SiteId {
+    return normalizeSiteId(clip.site ?? (clip.cid === YOUTUBE_UNIT_CID ? "youtube" : undefined));
+  }
+
   function currentChapterSource(): ChapterSource {
     const clip = deps.getClip();
-    return resolveChapterSource(clip.description, clip.hotComments, clip.chapters);
+    const supportsHotComments = getSiteCapabilities(resolveClipSite(clip)).supportsHotComments;
+    return resolveChapterSource(clip.description, supportsHotComments ? clip.hotComments : [], clip.chapters);
   }
 
   function currentOverviewKey(): string {
@@ -175,14 +182,17 @@ export function createOverviewCoordinator(
 
   function buildOverviewContext(): AiContext {
     const clip = deps.getClip();
+    const site = resolveClipSite(clip);
+    const supportsHotComments = getSiteCapabilities(site).supportsHotComments;
     return {
+      site,
       bvid: clip.bvid,
       cid: clip.cid,
       aid: clip.aid,
       title: clip.title,
       author: clip.author,
       videoDescription: clip.description,
-      hotComments: Array.isArray(clip.hotComments) ? clip.hotComments : [],
+      hotComments: supportsHotComments && Array.isArray(clip.hotComments) ? clip.hotComments : [],
       videoDuration: clip.videoDuration,
       subtitleLang: clip.selectedSubtitleLang,
       selectedSubtitleId: clip.selectedSubtitleId,

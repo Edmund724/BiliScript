@@ -12,7 +12,8 @@ import {
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4,
+  getDefaultAiSystemPrompt
 } from "../../extension/core/default-prompts.js";
 import {
   normalizeAiInitialQuickPrompts,
@@ -36,10 +37,21 @@ describe("default-prompts 键面契约", () => {
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V4",
-      "MAX_INITIAL_QUICK_PROMPTS"
+      "MAX_INITIAL_QUICK_PROMPTS",
+      "getDefaultAiSystemPrompt"
     ].sort();
     const actualKeys = Object.keys(defaultPrompts).sort();
     expect(actualKeys).toEqual(expectedKeys);
+  });
+
+  it("getDefaultAiSystemPrompt 按站点返回对应默认提示词并保持向后兼容", () => {
+    expect(getDefaultAiSystemPrompt()).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(getDefaultAiSystemPrompt("bilibili")).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    const youtubePrompt = getDefaultAiSystemPrompt("youtube");
+    expect(youtubePrompt).toContain("YouTube 视频");
+    expect(youtubePrompt).toContain("频道作者");
+    expect(youtubePrompt).not.toContain("B 站");
+    expect(youtubePrompt).not.toContain("UP 主");
   });
 });
 

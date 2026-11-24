@@ -1,3 +1,10 @@
+import {
+  detectSiteFromUrl,
+  getSiteCapabilities,
+  normalizeSiteId,
+  YOUTUBE_UNIT_CID,
+  type SiteId
+} from "../shared/site.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { logError } from "../shared/logging.js";
@@ -19,10 +26,9 @@ import {
   buildStateRelayFinalSummaryPrompt,
   buildStateRelayStepPrompt,
   estimateOutputTokens,
+  getOverviewSystemPrompt,
+  getStateRelaySystemPrompt,
   STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
-  STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT,
-  STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT,
-  STATE_RELAY_SYSTEM_PROMPT,
   type BuiltAnalysisPrompt
 } from "./analysis-prompts.js";
 import { resolveChapterPlan, flagMissingChapterSummaries, type ChapterPlan } from "./chapter-plan.js";
@@ -226,13 +232,26 @@ function buildTokenProgressReporter(
   };
 }
 
-function selectRelaySystemPrompt(chapterPlan: ChapterPlan): string {
-  if (!chapterPlan.hasGivenChapters) {
-    return STATE_RELAY_SYSTEM_PROMPT;
-  }
-  return chapterPlan.titlesOnly
-    ? STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT
-    : STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT;
+function resolveOverviewSite(ctx: AiContext): SiteId {
+  return normalizeSiteId(
+    ctx.site ?? (ctx.cid === YOUTUBE_UNIT_CID ? "youtube" : ctx.url ? detectSiteFromUrl(ctx.url) : undefined)
+  );
+}
+
+function selectOverviewSystemPrompt(chapterPlan: ChapterPlan, site: SiteId): string {
+  return getOverviewSystemPrompt({
+    site,
+    hasGivenChapters: chapterPlan.hasGivenChapters,
+    titlesOnly: chapterPlan.titlesOnly
+  });
+}
+
+function selectRelaySystemPrompt(chapterPlan: ChapterPlan, site: SiteId): string {
+  return getStateRelaySystemPrompt({
+    site,
+    hasGivenChapters: chapterPlan.hasGivenChapters,
+    titlesOnly: chapterPlan.titlesOnly
+  });
 }
 
 async function persistL1IndexForOverview({
@@ -296,7 +315,11 @@ export function runOverviewAnalysis(
   { provider, context, signal, thinkingLevel, forceRefresh = false }: RunOverviewAnalysisArgs,
   deps: RunOverviewAnalysisDeps = {}
 ): Promise<OverviewAnalysis> {
-  const ctx = context || {};
+  const rawCtx = context || {};
+  const site = resolveOverviewSite(rawCtx);
+  const ctx: AiContext = getSiteCapabilities(site).supportsHotComments
+    ? { ...rawCtx, site }
+    : { ...rawCtx, site, hotComments: [] };
   const identity = buildClipOverviewIdentity(ctx);
   const { finalKey } = identity;
 
@@ -308,6 +331,7 @@ export function runOverviewAnalysis(
   const promise = executeOverviewRun({
     provider: runProvider,
     ctx,
+    site,
     identity,
     signal,
     thinkingLevel,
@@ -331,6 +355,7 @@ export function runOverviewAnalysis(
 interface ExecuteOverviewRunArgs {
   provider: ProviderRequest;
   ctx: AiContext;
+  site: SiteId;
   identity: ClipOverviewIdentity;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
@@ -343,6 +368,7 @@ interface ExecuteOverviewRunArgs {
 async function executeOverviewRun({
   provider,
   ctx,
+  site,
   identity,
   signal,
   thinkingLevel,
@@ -383,6 +409,7 @@ async function executeOverviewRun({
     const startSeconds = Math.max(0, Math.floor(Number(normalizedItems[0]?.from) || 0));
     const built = buildAnalysisPrompt({
       ...chapterPlan.promptVars,
+      site,
       items: body,
       contextItems: [],
       videoDuration: ctx.videoDuration,
@@ -392,7 +419,7 @@ async function executeOverviewRun({
     });
     const text = await requestStreamedAnalysisText({
       provider,
-      systemPrompt: chapterPlan.systemPrompt,
+      systemPrompt: selectOverviewSystemPrompt(chapterPlan, site),
       built,
       thinkingLevel,
       signal,
@@ -433,7 +460,7 @@ async function executeOverviewRun({
     });
   }
 
-  const relaySystemPrompt = selectRelaySystemPrompt(chapterPlan);
+  const relaySystemPrompt = selectRelaySystemPrompt(chapterPlan, site);
   const totalWindows = windows.length;
   const stepOutcomes: Array<{ ok: true; data: RawRelayStepData } | { ok: false; from: number; to: number; error: unknown }> = [];
   let previousStateCard: StateRelayCard | null = null;
@@ -460,6 +487,7 @@ async function executeOverviewRun({
       }
 
       const built = buildStateRelayStepPrompt({
+        site,
         title: ctx.title,
         ownerName: ctx.author,
         videoDescription: ctx.videoDescription,

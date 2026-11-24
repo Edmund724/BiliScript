@@ -325,6 +325,7 @@ function startExplainRequest(): void {
       }
       const text = await explainSelection({
         provider,
+        site: state.clip.site,
         videoTitle: state.clip.title,
         selection: card.selection,
         line: card.line,
