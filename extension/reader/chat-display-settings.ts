@@ -278,3 +278,7 @@ export function bindChatDisplaySliders(
     syncVisibility
   };
 }
+
+export function clearChatDisplaySettingsListenersForTests(): void {
+  localListeners.clear();
+}

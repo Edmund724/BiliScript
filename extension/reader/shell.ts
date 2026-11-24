@@ -839,3 +839,15 @@ export function exitReaderShell(): Promise<void> {
     throw error;
   });
 }
+
+export function resetDetachedShellStateForTests(): void {
+  if (detachedNoticeTimer) {
+    getOpenerWindow().clearTimeout(detachedNoticeTimer);
+    detachedNoticeTimer = 0;
+  }
+  activeDetachedDoc = null;
+  pendingDetachedExternalClose = false;
+  pendingDetachedExitFocusRestore = false;
+  closeDetachedWindowHost(true);
+  registerDetachedModeSwitchHandler((mode) => switchDetachedWindowMode(mode));
+}

@@ -822,3 +822,16 @@ export function toggleCommandPalette(): void {
     openCommandPalette();
   }
 }
+
+export function disposeCommandPalette(): void {
+  closeCommandPalette();
+  stopPaletteHostWatch?.();
+  stopPaletteHostWatch = null;
+  if (runtime) {
+    try {
+      runtime.dialog.remove();
+    } catch {
+    }
+    runtime = null;
+  }
+}

@@ -811,9 +811,14 @@ function handleAiRefineClick(event: Event): void {
 
 let cleanupSubtitleHostBindings: (() => void) | null = null;
 
-export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {
+export function unbindSubtitleTabEvents(): void {
   cleanupSubtitleHostBindings?.();
   cleanupSubtitleHostBindings = null;
+  bilingualCardNodes = null;
+}
+
+export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {
+  unbindSubtitleTabEvents();
 
   const toolbar =
     (toolbarOrDeps && "bindEvents" in toolbarOrDeps ? toolbarOrDeps : toolbarOrDeps?.toolbar) ?? activeSubtitleToolbar;
