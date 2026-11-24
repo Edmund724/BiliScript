@@ -9,6 +9,7 @@ import {
   resetActiveReaderHost
 } from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
+import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
@@ -281,11 +282,25 @@ subscribeUiCommand((name, payload) => {
   }
   if (name === "open-settings") {
     const target = (payload as { target?: unknown } | null)?.target;
-    if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
+    const site =
+      state.clip.site === "youtube" || detectActiveSite() === "youtube"
+        ? "youtube"
+        : state.clip.site;
+    const siteCaps = getSiteCapabilities(site);
+    if (
+      (target === "live" || target === "gemini-key") &&
+      (!supportsLiveCompanion() || !siteCaps.supportsLiveCompanion)
+    ) {
       return;
     }
     if (target === "asr") {
+      if (!siteCaps.supportsAsr) {
+        return;
+      }
       void beginReaderAsrSetupFlow();
+      return;
+    }
+    if ((target === "agent" || target === "agent-address") && !siteCaps.supportsAgentBridge) {
       return;
     }
     openReaderSettingsPanel();

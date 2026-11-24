@@ -2959,3 +2959,16 @@ math mo {
 .biliscript-reading-detached-notice[hidden] {
   display: none;
 }
+
+#biliscript-reading-view {
+  --base-size-4: var(--biliscript-primitive-space-4);
+  --base-size-8: var(--biliscript-primitive-space-8);
+  --base-size-16: var(--biliscript-primitive-space-16);
+  --base-size-24: var(--biliscript-primitive-space-24);
+}
+
+body:has(ytd-watch-flexy[fullscreen]) #biliscript-reading-view:not([data-biliscript-detached="1"]),
+body:has(#movie_player.ytp-fullscreen) #biliscript-reading-view:not([data-biliscript-detached="1"]) {
+  display: none !important;
+  pointer-events: none !important;
+}

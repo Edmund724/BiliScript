@@ -5,9 +5,10 @@ import {
   activeById,
   getActiveReaderDocument,
   getOpenerDocument,
+  isReaderDetached,
   resetActiveReaderHost
 } from "../shared/active-host.js";
-import { closeDetachedWindowHost } from "./detached-window.js";
+import { closeDetachedWindowHost, syncDetachedWindowHostTitle } from "./detached-window.js";
 import { clearMirroredStyles } from "../shared/style-injector.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -255,6 +256,13 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   } = options;
 
   if (state.reader.readingViewOpen) {
+    if (isReaderDetached()) {
+      applyReadingViewPresentation();
+      const clipTitle = String(state.clip.title || "").trim();
+      if (clipTitle) {
+        syncDetachedWindowHostTitle(`${clipTitle} - 文摘`);
+      }
+    }
     renderReadingView();
 
     if (syncPlayback) {
@@ -556,6 +564,11 @@ export function closeReadingView() {
   if (readingView && readingView.ownerDocument !== openerDoc) {
     const detachedDoc = readingView.ownerDocument;
     if (detachedDoc) {
+      detachedDoc.documentElement?.removeAttribute("data-biliscript-detached");
+      detachedDoc.documentElement?.removeAttribute("data-biliscript-reader-mode");
+      detachedDoc.body?.removeAttribute("data-biliscript-detached");
+      detachedDoc.body?.removeAttribute("data-biliscript-reader-mode");
+      detachedDoc.body?.removeAttribute("data-biliscript-reading-active");
       clearMirroredStyles(detachedDoc);
     }
     let root = openerDoc.getElementById(ids.root);

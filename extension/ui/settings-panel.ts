@@ -1,5 +1,6 @@
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { getSettings } from "../core/runtime.js";
+import { state } from "../core/state.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { isChatDisplaySliderAvailable } from "../reader/chat-display-settings.js";
 import { hasReaderSettingsOverlayOpen, stepBackReaderSettings } from "../reader/settings-mode.js";
@@ -12,6 +13,7 @@ import {
   requestDetachedModeSwitch,
 } from "../shared/active-host.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
+import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
 import {
   bindAgentBridgeSettings,
@@ -77,11 +79,60 @@ const setupFlows = createSetupFlows({
   openView: (view) => navigator.focusSettingsView(view)
 });
 
+function getPanelSiteCapabilities() {
+  const site =
+    state.clip.site === "youtube" || detectActiveSite() === "youtube"
+      ? "youtube"
+      : state.clip.site;
+  return getSiteCapabilities(site);
+}
+
+function setElementGated(el: HTMLElement | null | undefined, gated: boolean): void {
+  if (!el) return;
+  el.hidden = gated;
+  if (gated) {
+    el.setAttribute("aria-hidden", "true");
+  } else {
+    el.removeAttribute("aria-hidden");
+  }
+}
+
+function applySiteSettingsGating(host: HTMLElement, elements: SettingsElements): void {
+  const siteCaps = getPanelSiteCapabilities();
+  const liveAvailable = supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+
+  setElementGated(elements.openLiveSettingsBtn, !liveAvailable);
+  if (!liveAvailable) {
+    elements.subpageLive.hidden = true;
+  }
+
+  setElementGated(elements.openAsrSettingsBtn, !siteCaps.supportsAsr);
+  if (!siteCaps.supportsAsr) {
+    elements.subpageAsr.hidden = true;
+  }
+
+  setElementGated(elements.openAgentSettingsBtn, !siteCaps.supportsAgentBridge);
+  if (!siteCaps.supportsAgentBridge) {
+    elements.subpageAgent.hidden = true;
+    elements.agentBridgeAddressView.hidden = true;
+  }
+
+  const aiButtonSection = host.querySelector<HTMLElement>(
+    '.biliscript-set-group[data-settings-section="ai-button"]'
+  );
+  setElementGated(aiButtonSection, !siteCaps.supportsPlayerQuickAiButton);
+
+  const extraRatesRow = elements.enableExtraPlaybackRates.closest<HTMLElement>(".biliscript-toggle-row");
+  setElementGated(extraRatesRow, !siteCaps.supportsExtraPlaybackRates);
+}
+
 const scalarHooks: ScalarBindingRuntimeHooks = {
   onAgentBridgeSaved: () => {
+    if (!getPanelSiteCapabilities().supportsAgentBridge) return;
     void agentBridgeSettings?.refresh();
   },
   onAsrAutoFallbackSaved: (val) => {
+    if (!getPanelSiteCapabilities().supportsAsr) return;
     if (val && peekAsrSetupResumeToken() !== null && settingsHostRef) {
       void setupFlows.continueAsrSetupAfterToggleEnabled(collectElements(settingsHostRef));
     }
@@ -107,8 +158,13 @@ const scalarHooks: ScalarBindingRuntimeHooks = {
 };
 
 function loadPanelSettings(elements: SettingsElements): Promise<void> {
+  const siteCaps = getPanelSiteCapabilities();
   return loadSettings(elements, {
-    syncAgentBridge: (settings) => agentBridgeSettings?.sync(settings),
+    syncAgentBridge: (settings) => {
+      if (siteCaps.supportsAgentBridge) {
+        agentBridgeSettings?.sync(settings);
+      }
+    },
     loadProviders: (settings) => providerHost?.load(settings) ?? Promise.resolve(),
     syncSummaries
   });
@@ -121,12 +177,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   clearStatusClearTimer();
 
   navigator.bindSettingsNavigation(host, elements);
-
-  if (!supportsLiveCompanion()) {
-    elements.openLiveSettingsBtn.hidden = true;
-    elements.openLiveSettingsBtn.setAttribute("aria-hidden", "true");
-    elements.subpageLive.hidden = true;
-  }
+  applySiteSettingsGating(host, elements);
   if (!isChatDisplaySliderAvailable("speechVoiceVolume")) {
     elements.chatPreferencesHeading.textContent = "对话阅读";
     const speechVolumeRow = elements.speechVoiceVolume.closest<HTMLElement>(".biliscript-slider-row");
@@ -150,6 +201,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     (text, isError) => setStatus(elements, text, isError),
     {
       onOpenAddress: () => {
+        if (!getPanelSiteCapabilities().supportsAgentBridge) return;
         navigator.navigateSettingsView(host, "agent-address", { focusOnEnter: false });
       },
       onStateChange: (bridgeState) => {
@@ -159,10 +211,21 @@ function bindSettingsEvents(host: HTMLElement): void {
     }
   );
 
+  const siteCaps = getPanelSiteCapabilities();
+  const liveAvailable = supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+  const mountedFamilies: Array<"ai" | "live" | "asr" | "search"> = ["ai"];
+  if (liveAvailable) {
+    mountedFamilies.push("live");
+  }
+  if (siteCaps.supportsAsr) {
+    mountedFamilies.push("asr");
+  }
+  mountedFamilies.push("search");
+
   providerHost?.dispose();
   providerHost = createProviderSettingsHost({
     host,
-    mountedFamilies: supportsLiveCompanion() ? ["ai", "live", "asr", "search"] : ["ai", "asr", "search"],
+    mountedFamilies,
     onStatus: (message, isError) => setStatus(elements, message, isError),
     canRestoreConsumerEditor: () => !activeById(ids.readingSettingsPanel)?.hidden,
     onAiChanged: (providers, { settings: known }) => {
@@ -245,10 +308,15 @@ export function renderReaderSettingsPanel(): Promise<void> {
     renderSettingsPromise = promise;
     return promise;
   }
-  return loadPanelSettings(collectElements(host));
+  const existingElements = collectElements(host);
+  applySiteSettingsGating(host, existingElements);
+  return loadPanelSettings(existingElements);
 }
 
 export function openLiveSettings(target: LiveSettingsTarget): Promise<void> {
+  if (!supportsLiveCompanion() || !getPanelSiteCapabilities().supportsLiveCompanion) {
+    return Promise.resolve();
+  }
   return navigator.openSettingsTarget(target);
 }
 
@@ -271,6 +339,9 @@ export function openReaderAiSetup(
 }
 
 export function openReaderAsrSetup(): Promise<void> {
+  if (!getPanelSiteCapabilities().supportsAsr) {
+    return Promise.resolve();
+  }
   return setupFlows.openReaderAsrSetup();
 }
 

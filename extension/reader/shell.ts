@@ -49,9 +49,11 @@ import {
   getDetachedWindowHost,
   openDetachedWindowHost,
   switchDetachedWindowHostMode,
+  syncDetachedWindowHostTitle,
   type DetachedWindowMode
 } from "./detached-window.js";
 import { closeScriptHost, openScriptHost } from "./script-host.js";
+import { cleanYoutubeWatchUrl, detectActiveSite } from "../shared/site.js";
 
 export { isReaderShellIntact };
 
@@ -64,7 +66,23 @@ export interface EnterReaderShellOptions {
   settingsTarget?: LiveSettingsTarget;
 }
 
+function isYoutubeSiteActive(): boolean {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube";
+}
+
+function resolveDetachedWindowTitle(): string {
+  const clipTitle = String(state.clip.title || "").trim();
+  if (clipTitle) {
+    return `${clipTitle} - 文摘`;
+  }
+  const openerTitle = String(getOpenerDocument().title || "").trim();
+  return openerTitle ? `${openerTitle} - 文摘` : "文摘";
+}
+
 function resolveReaderEntryUrl(readerUrl: string): string {
+  if (isYoutubeSiteActive()) {
+    return readerUrl || cleanYoutubeWatchUrl(location.href) || location.href;
+  }
   if (readerUrl || isReaderViewOpen()) {
     return readerUrl;
   }
@@ -110,9 +128,12 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
   if (isReaderViewOpen() && !options.intent) {
     return;
   }
+  const isYoutube = isYoutubeSiteActive();
   const readerUrl = resolveReaderEntryUrl(options.readerUrl);
-  if (readerUrl) {
-    replaceReaderModeUrl(readerUrl);
+  if (isYoutube || readerUrl) {
+    if (!isYoutube && readerUrl) {
+      replaceReaderModeUrl(readerUrl);
+    }
     await ensureReaderStyles();
     applyPrePaintReaderTheme(state.settings);
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
@@ -651,6 +672,7 @@ export function detachReaderShell(): Promise<boolean> {
     activeDetachedDoc = opened.document;
     state.reader.setDetachedMode(opened.actualMode);
     setActiveReaderHost(opened.document, opened.window);
+    syncDetachedWindowHostTitle(resolveDetachedWindowTitle());
     presentation.applyReadingViewPresentation();
     restoreScrollPositions(scrollSnapshot, opened.window);
     focusDetachedWindowHost();
@@ -759,6 +781,7 @@ export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<
         activeDetachedDoc = next.document;
         state.reader.setDetachedMode(next.actualMode);
         setActiveReaderHost(next.document, next.window);
+        syncDetachedWindowHostTitle(resolveDetachedWindowTitle());
         presentation.applyReadingViewPresentation();
         if (previousDoc !== next.document) {
           clearDetachedHostDocumentAttrs(previousDoc);
@@ -820,7 +843,7 @@ export function exitReaderShell(): Promise<void> {
     }
     const preserveFocusRestore = pendingDetachedExitFocusRestore;
     pendingDetachedExitFocusRestore = false;
-    if (isReaderMode()) {
+    if (!isYoutubeSiteActive() && isReaderMode()) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
     }
     const reader = await ensureReaderDomain();

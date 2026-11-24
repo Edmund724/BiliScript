@@ -11,7 +11,7 @@ export function buildSystemPagesHtml(): string {
           <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.readerTheme}">外观主题</label>
             <select id="${ids.readerTheme}" class="biliscript-set-select">
-              <option value="bilibili">跟随 B 站</option>
+              <option value="bilibili">跟随当前站点</option>
               <option value="system">跟随系统</option>
               <option value="light">浅色</option>
               <option value="dark">深色</option>
@@ -99,7 +99,7 @@ export function buildSystemPagesHtml(): string {
             </label>
           </div>
 
-          <div class="biliscript-set-check biliscript-toggle-row">
+          <div class="biliscript-set-check biliscript-toggle-row" data-settings-item="extra-playback-rates">
             <span class="biliscript-toggle-text">在视频控制栏显示 3x / 4x 倍速按钮</span>
             <label class="biliscript-toggle-switch">
               <input id="${ids.enableExtraPlaybackRates}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频控制栏显示 3x / 4x 倍速按钮" />
