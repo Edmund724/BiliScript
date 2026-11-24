@@ -16,7 +16,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
   let onUpdatedReinjectListener: (
     tabId: number,
-    changeInfo: { status?: string },
+    changeInfo: { status?: string; url?: string },
     tab: chrome.tabs.Tab
   ) => Promise<void>;
   const actionOnClickedAddListener = vi.fn();
@@ -120,10 +120,26 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     });
   });
 
-  it("非 B 站页 / 非视频路径 / 无 bvid 活动页 / 缺 tab.url / 缺 tab.id：零派发", async () => {
+  it("YouTube 桌面 watch 页：派发 reader-enter 且 readerUrl 剥离瞬态参数", async () => {
+    onClickedListener({
+      id: 11,
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&si=abc&list=PL123"
+    });
+
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+
+    expect(sendMessageToTab).toHaveBeenCalledWith(11, {
+      type: "reader-enter",
+      readerUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&biliscript_reader=1"
+    });
+  });
+
+  it("非 B 站页 / 非视频路径 / 无 bvid 活动页 / YouTube Shorts / 缺 tab.url / 缺 tab.id：零派发", async () => {
     onClickedListener({ id: 7, url: "https://example.com/video/BV1abc000000/" });
     onClickedListener({ id: 7, url: "https://www.bilibili.com/" });
     onClickedListener({ id: 7, url: "https://www.bilibili.com/festival/27kaoyanshangan" });
+    onClickedListener({ id: 7, url: "https://www.youtube.com/shorts/dQw4w9WgXcQ" });
+    onClickedListener({ id: 7, url: "https://m.youtube.com/watch?v=dQw4w9WgXcQ" });
     onClickedListener({ id: 7 });
     onClickedListener({ url: VIDEO_URL });
 
@@ -207,6 +223,35 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       registerDebugGate(() => false);
       vi.mocked(chrome.scripting.executeScript).mockImplementation(async () => []);
     }
+  });
+
+  it("YouTube 首页 SPA changeInfo.url 切入 /watch 且非 loading 时兜底注入；status=loading 带 url 不提前注入", async () => {
+    const executeScriptMock = vi.mocked(chrome.scripting.executeScript);
+    executeScriptMock.mockClear();
+    executeScriptMock.mockImplementation(async () => []);
+
+    const ytWatchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    await onUpdatedReinjectListener(
+      17,
+      { status: "loading", url: ytWatchUrl },
+      { id: 17, status: "loading", url: ytWatchUrl }
+    );
+    expect(executeScriptMock).not.toHaveBeenCalled();
+
+    await onUpdatedReinjectListener(
+      17,
+      { url: ytWatchUrl },
+      { id: 17, status: "loading", url: ytWatchUrl }
+    );
+    expect(executeScriptMock).not.toHaveBeenCalled();
+
+    await onUpdatedReinjectListener(
+      17,
+      { url: ytWatchUrl },
+      { id: 17, status: "complete", url: "https://www.youtube.com/" }
+    );
+    expect(executeScriptMock).toHaveBeenCalled();
+    expect(executeScriptMock.mock.calls.some((call) => call[0].target.tabId === 17)).toBe(true);
   });
 });
 

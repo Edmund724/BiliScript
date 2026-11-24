@@ -2,7 +2,8 @@ import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
-import { buildReaderModeUrl, isSupportedBilibiliPage } from "../bilibili/video-id-shared.js";
+import { buildReaderModeUrl, isSupportedPage } from "../bilibili/video-id-shared.js";
+import { isYoutubeWatchPage } from "../shared/site.js";
 import { openOnboardingPage, runOnInstalled } from "./on-installed.js";
 import {
   EXPECTED_CONTENT_SCRIPT_VERSION,
@@ -15,7 +16,7 @@ import { isBenignTabUnavailableError } from "../core/background-content-orchestr
 import {
   applyUnsupportedPageFeedback,
   clearUnsupportedPageFeedback,
-  isWwwBilibiliPage,
+  isToastEligibleHostPage,
   showUnsupportedPageToast
 } from "./unsupported-page-feedback.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
@@ -75,7 +76,7 @@ import {
   ensureIndexTranslateSessionRule,
   ensureOffscreenDocument,
   hasOffscreenDocument,
-  hasOpenBilibiliTabs,
+  hasOpenSupportedTabs,
   isOffscreenDocumentSender,
   OFFSCREEN_SENDER_REJECTION_MESSAGE,
   reapAllBiliMediaSessionRules
@@ -95,7 +96,8 @@ import {
   type MessageSender,
   type ProviderListEntry,
   type SearchProviderListEntry,
-  type LiveProviderListEntry
+  type LiveProviderListEntry,
+  type YoutubePageSnapshot
 } from "../shared/messaging-protocol.js";
 
 const saveSettingsWithInvalidate = invalidatingWrite(
@@ -186,16 +188,10 @@ async function triggerReaderChatInTab(
   const prompt = normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt || DEFAULT_PLAYER_AI_QUICK_PROMPT);
   let url = options.readerUrl;
   if (url) {
-    try {
-      const parsed = new URL(url);
-      if (parsed.hostname !== "www.bilibili.com") {
-        throw new Error("当前网页不是 B 站视频页");
-      }
-      parsed.searchParams.set("biliscript_reader", "1");
-      url = parsed.toString();
-    } catch (error) {
-      throw new Error((error as Error).message || "阅读视图地址无效");
+    if (!isSupportedPage(url)) {
+      throw new Error("当前网页不是受支持的视频页");
     }
+    url = buildReaderModeUrl(url);
   }
   const triggered = await triggerReaderModeInTab(tabId, url, { prompt });
   if (!triggered) {
@@ -412,6 +408,414 @@ function handleOpenOnboarding(_message: Msg<"open-onboarding">, _sender: Message
   );
 }
 
+function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
+  type JsonObj = Record<string, unknown>;
+  const asObj = (value: unknown): JsonObj | null =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObj) : null;
+  const readText = (value: unknown): string => {
+    if (typeof value === "string") {
+      return value;
+    }
+    const obj = asObj(value);
+    if (!obj) {
+      return "";
+    }
+    if (typeof obj.simpleText === "string") {
+      return obj.simpleText;
+    }
+    if (Array.isArray(obj.runs)) {
+      return obj.runs
+        .map((run) => {
+          const r = asObj(run);
+          return typeof r?.text === "string" ? r.text : "";
+        })
+        .join("");
+    }
+    return "";
+  };
+
+  let urlVideoId = "";
+  try {
+    const v = new URL(location.href).searchParams.get("v") || "";
+    if (/^[A-Za-z0-9_-]{11}$/.test(v)) {
+      urlVideoId = v;
+    }
+  } catch {
+  }
+
+  const win = window as unknown as JsonObj;
+  const moviePlayer = document.getElementById("movie_player") as
+    | {
+        getPlayerResponse?: () => unknown;
+        getVideoData?: () => JsonObj | null;
+        getDuration?: () => number;
+      }
+    | null;
+  const watchFlexy = document.querySelector("ytd-watch-flexy") as
+    | { playerData?: unknown; data?: unknown }
+    | null;
+
+  const matchesUrlVideoId = (candidateId: unknown): boolean =>
+    !urlVideoId || typeof candidateId !== "string" || !candidateId || candidateId === urlVideoId;
+
+  let livePlayerResponse: unknown = null;
+  try {
+    if (typeof moviePlayer?.getPlayerResponse === "function") {
+      livePlayerResponse = moviePlayer.getPlayerResponse();
+    }
+  } catch {
+  }
+
+  let movieVideoData: JsonObj | null = null;
+  try {
+    if (typeof moviePlayer?.getVideoData === "function") {
+      movieVideoData = asObj(moviePlayer.getVideoData());
+    }
+  } catch {
+  }
+  const rawMovieVideoId = typeof movieVideoData?.video_id === "string" ? movieVideoData.video_id : "";
+  const livePlayerVideoId = asObj(asObj(livePlayerResponse)?.videoDetails)?.videoId;
+  const moviePlayerMismatched =
+    !matchesUrlVideoId(rawMovieVideoId) || !matchesUrlVideoId(livePlayerVideoId);
+  if (!matchesUrlVideoId(rawMovieVideoId)) {
+    movieVideoData = null;
+  }
+
+  const playerCandidates = [
+    asObj(livePlayerResponse),
+    asObj(watchFlexy?.playerData),
+    asObj(win.ytInitialPlayerResponse)
+  ].filter(
+    (item): item is JsonObj =>
+      item !== null && matchesUrlVideoId(asObj(item.videoDetails)?.videoId)
+  );
+
+  let playerResponse: JsonObj | null = null;
+  if (urlVideoId) {
+    playerResponse =
+      playerCandidates.find((cand) => asObj(cand.videoDetails)?.videoId === urlVideoId) ?? null;
+  }
+  if (!playerResponse) {
+    playerResponse = playerCandidates[0] ?? null;
+  }
+
+  const getInitialDataVideoId = (cand: JsonObj): unknown =>
+    asObj(asObj(cand.currentVideoEndpoint)?.watchEndpoint)?.videoId;
+
+  const dataCandidates = [asObj(watchFlexy?.data), asObj(win.ytInitialData)].filter(
+    (item): item is JsonObj => item !== null && matchesUrlVideoId(getInitialDataVideoId(item))
+  );
+  let initialData: JsonObj | null = null;
+  if (urlVideoId) {
+    initialData =
+      dataCandidates.find((cand) => getInitialDataVideoId(cand) === urlVideoId) ?? null;
+  }
+  if (!initialData) {
+    initialData = dataCandidates[0] ?? null;
+  }
+
+  const videoDetails = asObj(playerResponse?.videoDetails);
+  const microformat = asObj(asObj(playerResponse?.microformat)?.playerMicroformatRenderer);
+  const liveBroadcastDetails = asObj(microformat?.liveBroadcastDetails);
+
+  const videoId = String(
+    (typeof videoDetails?.videoId === "string" && videoDetails.videoId) ||
+      (typeof movieVideoData?.video_id === "string" && movieVideoData.video_id) ||
+      urlVideoId ||
+      ""
+  );
+  const title = String(
+    (typeof videoDetails?.title === "string" && videoDetails.title) ||
+      (typeof movieVideoData?.title === "string" && movieVideoData.title) ||
+      ""
+  );
+  const author = String(
+    (typeof videoDetails?.author === "string" && videoDetails.author) ||
+      (typeof movieVideoData?.author === "string" && movieVideoData.author) ||
+      ""
+  );
+  const description = typeof videoDetails?.shortDescription === "string"
+    ? videoDetails.shortDescription
+    : "";
+
+  let playerDuration = 0;
+  if (!moviePlayerMismatched) {
+    try {
+      if (typeof moviePlayer?.getDuration === "function") {
+        playerDuration = Number(moviePlayer.getDuration());
+      }
+    } catch {
+    }
+  }
+  const detailDuration = Number(videoDetails?.lengthSeconds);
+  const safePlayerDuration = Number.isFinite(playerDuration) && playerDuration > 0 ? playerDuration : 0;
+  const duration =
+    Number.isFinite(detailDuration) && detailDuration > 0 ? detailDuration : safePlayerDuration;
+
+  const publishDate = String(
+    (typeof microformat?.publishDate === "string" && microformat.publishDate) ||
+      (typeof microformat?.uploadDate === "string" && microformat.uploadDate) ||
+      ""
+  );
+  const isLiveContent = Boolean(videoDetails?.isLiveContent);
+  const isLiveNow = Boolean(videoDetails?.isLive || liveBroadcastDetails?.isLiveNow);
+
+  const rawCaptionTracks = asObj(
+    asObj(playerResponse?.captions)?.playerCaptionsTracklistRenderer
+  )?.captionTracks;
+  const captionTracks: Array<{
+    baseUrl: string;
+    languageCode: string;
+    name: string;
+    kind?: string;
+    vssId?: string;
+    isTranslatable?: boolean;
+  }> = [];
+  if (Array.isArray(rawCaptionTracks)) {
+    for (const rawTrack of rawCaptionTracks) {
+      const track = asObj(rawTrack);
+      if (!track) continue;
+      const baseUrl = typeof track.baseUrl === "string" ? track.baseUrl : "";
+      const languageCode = typeof track.languageCode === "string" ? track.languageCode : "";
+      if (!baseUrl && !languageCode) continue;
+      const item: {
+        baseUrl: string;
+        languageCode: string;
+        name: string;
+        kind?: string;
+        vssId?: string;
+        isTranslatable?: boolean;
+      } = {
+        baseUrl,
+        languageCode,
+        name: readText(track.name)
+      };
+      if (typeof track.kind === "string" && track.kind) {
+        item.kind = track.kind;
+      }
+      if (typeof track.vssId === "string" && track.vssId) {
+        item.vssId = track.vssId;
+      }
+      if (typeof track.isTranslatable === "boolean") {
+        item.isTranslatable = track.isTranslatable;
+      }
+      captionTracks.push(item);
+    }
+  }
+
+  const chapterMap = new Map<number, { title: string; from: number }>();
+  const addChapter = (rawTitle: unknown, rawStartMs: unknown) => {
+    const chapterTitle = readText(rawTitle).trim();
+    const startMs = Number(rawStartMs);
+    if (!chapterTitle || !Number.isFinite(startMs) || startMs < 0) {
+      return;
+    }
+    const from = Math.floor(startMs / 1000);
+    if (!chapterMap.has(from)) {
+      chapterMap.set(from, { title: chapterTitle, from });
+    }
+  };
+
+  const markersBar = asObj(
+    asObj(
+      asObj(
+        asObj(asObj(initialData?.playerOverlays)?.playerOverlayRenderer)
+          ?.decoratedPlayerBarRenderer
+      )?.decoratedPlayerBarRenderer
+    )?.playerBar
+  );
+  const rawMarkersMap = asObj(markersBar?.multiMarkersPlayerBarRenderer)?.markersMap;
+  if (Array.isArray(rawMarkersMap)) {
+    const prioritized = [...rawMarkersMap].sort((a, b) => {
+      const ka = String(asObj(a)?.key || "");
+      const kb = String(asObj(b)?.key || "");
+      const rank = (k: string) => (k === "DESCRIPTION_CHAPTERS" ? 0 : k === "AUTO_CHAPTERS" ? 1 : 2);
+      return rank(ka) - rank(kb);
+    });
+    for (const markerEntry of prioritized) {
+      const markerChapters = asObj(asObj(markerEntry)?.value)?.chapters;
+      if (Array.isArray(markerChapters) && markerChapters.length > 0) {
+        for (const rawChapter of markerChapters) {
+          const renderer = asObj(asObj(rawChapter)?.chapterRenderer);
+          if (renderer) {
+            addChapter(renderer.title, renderer.timeRangeStartMillis);
+          }
+        }
+        if (chapterMap.size > 0) {
+          break;
+        }
+      }
+    }
+  }
+
+  let transcriptParams = "";
+  const engagementPanels = initialData?.engagementPanels;
+  if (Array.isArray(engagementPanels)) {
+    for (const rawPanel of engagementPanels) {
+      const section = asObj(asObj(rawPanel)?.engagementPanelSectionListRenderer);
+      if (!section) continue;
+      const content = asObj(section.content);
+      const panelParams = asObj(
+        asObj(asObj(content?.continuationItemRenderer)?.continuationEndpoint)?.getTranscriptEndpoint
+      )?.params;
+      if (typeof panelParams === "string" && panelParams && !transcriptParams) {
+        transcriptParams = panelParams;
+      }
+      if (chapterMap.size === 0) {
+        const panelId = typeof section.panelIdentifier === "string" ? section.panelIdentifier : "";
+        if (
+          panelId === "engagement-panel-macro-markers-description-chapters" ||
+          panelId === "engagement-panel-macro-markers-auto-chapters"
+        ) {
+          const macroContents = asObj(content?.macroMarkersListRenderer)?.contents;
+          if (Array.isArray(macroContents)) {
+            for (const rawItem of macroContents) {
+              const itemRenderer = asObj(asObj(rawItem)?.macroMarkersListItemRenderer);
+              if (!itemRenderer) continue;
+              const startSec = Number(
+                asObj(asObj(itemRenderer.onTap)?.watchEndpoint)?.startTimeSeconds
+              );
+              const titleText = readText(itemRenderer.title).trim();
+              if (titleText && Number.isFinite(startSec) && startSec >= 0) {
+                const from = Math.floor(startSec);
+                if (!chapterMap.has(from)) {
+                  chapterMap.set(from, { title: titleText, from });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const sortedChapters = [...chapterMap.values()].sort((a, b) => a.from - b.from);
+  const chapters: Array<{ title: string; from: number; to?: number }> = sortedChapters.map(
+    (item, idx) => {
+      const next = sortedChapters[idx + 1];
+      if (next && next.from > item.from) {
+        return { title: item.title, from: item.from, to: next.from };
+      }
+      if (!next && duration > item.from) {
+        return { title: item.title, from: item.from, to: Math.floor(duration) };
+      }
+      return { title: item.title, from: item.from };
+    }
+  );
+
+  const ytcfg = asObj(win.ytcfg);
+  const readYtcfg = (key: string): unknown => {
+    try {
+      if (typeof ytcfg?.get === "function") {
+        return (ytcfg.get as (k: string) => unknown)(key);
+      }
+    } catch {
+    }
+    return asObj(ytcfg?.data_)?.[key];
+  };
+  const rawApiKey = readYtcfg("INNERTUBE_API_KEY");
+  const innertubeApiKey = typeof rawApiKey === "string" ? rawApiKey : "";
+  let innertubeContext: Record<string, unknown> | null = null;
+  try {
+    const rawContext = readYtcfg("INNERTUBE_CONTEXT");
+    if (rawContext && typeof rawContext === "object") {
+      const parsed = JSON.parse(JSON.stringify(rawContext));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        innertubeContext = parsed as Record<string, unknown>;
+      }
+    }
+  } catch {
+  }
+
+  const observedTimedtextUrls: string[] = [];
+  const seenUrls = new Set<string>();
+  try {
+    const entries = performance.getEntriesByType("resource");
+    for (const entry of entries) {
+      const name = typeof entry?.name === "string" ? entry.name : "";
+      if (!name || !name.includes("/api/timedtext")) {
+        continue;
+      }
+      try {
+        const parsed = new URL(name);
+        if (!parsed.pathname.includes("/api/timedtext")) {
+          continue;
+        }
+        const entryVideoId = parsed.searchParams.get("v");
+        if (urlVideoId && entryVideoId && entryVideoId !== urlVideoId) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (!seenUrls.has(name)) {
+        seenUrls.add(name);
+        observedTimedtextUrls.push(name);
+      }
+    }
+  } catch {
+  }
+
+  if (!playerResponse && !initialData && !ytcfg && !urlVideoId && observedTimedtextUrls.length === 0) {
+    return null;
+  }
+
+  return {
+    videoId,
+    title,
+    author,
+    description,
+    duration,
+    publishDate,
+    isLiveContent,
+    isLiveNow,
+    captionTracks,
+    chapters,
+    innertubeContext,
+    innertubeApiKey,
+    transcriptParams,
+    observedTimedtextUrls
+  };
+}
+
+function handleYoutubePageSnapshot(
+  _message: Msg<"youtube-page-snapshot">,
+  sender: MessageSender,
+  sendResponse: Reply<"youtube-page-snapshot">
+): MessageReplyDecision {
+  const tabId = Number(sender.tab?.id) || 0;
+  if (!tabId) {
+    sendResponse({ ok: false, error: "仅支持标签页内请求 YouTube 页面快照" });
+    return "answered";
+  }
+  if (!isYoutubeWatchPage(sender.tab?.url)) {
+    sendResponse({ ok: false, error: "当前网页不是 YouTube 视频页" });
+    return "answered";
+  }
+  if (typeof chrome.scripting?.executeScript !== "function") {
+    sendResponse({ ok: false, error: "scripting API 不可用" });
+    return "answered";
+  }
+
+  withOkResponse(
+    (async () => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: collectYoutubeMainWorldSnapshot
+      });
+      const snapshot = results?.[0]?.result as YoutubePageSnapshot | null | undefined;
+      if (!snapshot || typeof snapshot !== "object") {
+        return { ok: false, error: "未读取到 YouTube 页面播放器快照" };
+      }
+      return { ok: true, snapshot };
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return "hold";
+}
+
 const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
@@ -455,7 +859,8 @@ const messageHandlerTable = {
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
   "get-debug-log-gate": handleGetDebugLogGate,
   "open-onboarding": handleOpenOnboarding,
-  "permission-grant-result": hostPermissionHandlers.permissionGrantResult
+  "permission-grant-result": hostPermissionHandlers.permissionGrantResult,
+  "youtube-page-snapshot": handleYoutubePageSnapshot
 } satisfies BackgroundMessageHandlers;
 
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -477,9 +882,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete") return;
-  if (!tab.url) return;
-  if (!isSupportedBilibiliPage(tab.url)) return;
+  const isComplete = changeInfo.status === "complete";
+  const isSpaNavigation =
+    Boolean(changeInfo.url) && changeInfo.status !== "loading" && tab.status !== "loading";
+  if (!isComplete && !isSpaNavigation) return;
+  const candidateUrl = changeInfo.url || tab.url;
+  if (!candidateUrl) return;
+  if (!isSupportedPage(candidateUrl)) return;
 
   try {
     const loadedVersion = await probeContentScriptVersion(tabId);
@@ -499,7 +908,7 @@ chrome.action.onClicked.addListener(
     if (!tabId) {
       return;
     }
-    if (isSupportedBilibiliPage(tab.url)) {
+    if (isSupportedPage(tab.url)) {
       let triggered = false;
       let triggerError: unknown = null;
       try {
@@ -526,7 +935,7 @@ chrome.action.onClicked.addListener(
       return;
     }
     await applyUnsupportedPageFeedback(tabId);
-    if (isWwwBilibiliPage(tab.url)) {
+    if (isToastEligibleHostPage(tab.url)) {
       try {
         await showUnsupportedPageToast(tabId);
       } catch (error) {
@@ -551,7 +960,7 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
   if (!tabId) {
     return;
   }
-  if (isSupportedBilibiliPage(targetTab?.url)) {
+  if (isSupportedPage(targetTab?.url)) {
     let triggered = false;
     let triggerError: unknown = null;
     try {
@@ -569,7 +978,7 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
     return;
   }
   await applyUnsupportedPageFeedback(tabId);
-  if (isWwwBilibiliPage(targetTab?.url)) {
+  if (isToastEligibleHostPage(targetTab?.url)) {
     try {
       await showUnsupportedPageToast(tabId);
     } catch (error) {
@@ -579,13 +988,13 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status !== "loading") return;
+  if (changeInfo.status !== "loading" && !changeInfo.url) return;
   void clearUnsupportedPageFeedback(tabId);
 });
 
 chrome.tabs.onRemoved.addListener(() => {
   void (async () => {
-    if (await hasOpenBilibiliTabs()) {
+    if (await hasOpenSupportedTabs()) {
       return;
     }
     if (!(await hasOffscreenDocument())) {

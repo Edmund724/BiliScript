@@ -1,7 +1,15 @@
-import { state } from "../core/state.js";
+import { state, clipState } from "../core/state.js";
 import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
+import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 
-import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible, isLiveRoomPage, isFestivalPage } from "../bilibili/video-id-shared.js";
+import {
+  isReaderMode,
+  isSupportedVideoPage,
+  isAutoOpenEligible,
+  isLiveRoomPage,
+  isFestivalPage,
+  computeCurrentClipSignature
+} from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { logInfo, logWarn } from "../shared/logging.js";
@@ -57,8 +65,11 @@ function isSupportedUrl(): boolean {
 function init(): void {
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
+  const activeSite = detectActiveSite();
+  clipState.setSite(activeSite);
+  const siteCaps = getSiteCapabilities(activeSite);
   if (isLiveRoomPage()) {
-    if (isFirefoxExtensionRuntime()) {
+    if (isFirefoxExtensionRuntime() || !siteCaps.supportsLiveCompanion) {
       return;
     }
     loadLiveRoom()
@@ -71,6 +82,8 @@ function init(): void {
   if (!isSupportedUrl() && !isFestivalPage()) {
     return;
   }
+  clipState.setCurrentUrl(location.href);
+  clipState.setCurrentClipSignature(computeCurrentClipSignature());
 
   installReaderDebugHelpers();
 
@@ -99,32 +112,41 @@ function init(): void {
   if (isSupportedVideoPage()) {
     startSubtitlePrefetch();
   }
-  bindPlayerAiSettingsWatcher();
-  bindPlaybackRateSettingsWatcher();
+  if (siteCaps.supportsPlayerQuickAiButton) {
+    bindPlayerAiSettingsWatcher();
+  }
+  if (siteCaps.supportsExtraPlaybackRates) {
+    bindPlaybackRateSettingsWatcher();
+  }
   loadScriptButton().catch((error) => {
     logWarn("[BILISCRIPT] script-button module load failed", error);
   });
-  (async () => {
-    try {
-      const data = await chrome.storage.sync.get("enablePlayerAiQuickAction");
-      quickActionStartupDecided = true;
-      const raw = (data as { enablePlayerAiQuickAction?: unknown })?.enablePlayerAiQuickAction;
-      const enabled = raw === undefined ? DEFAULT_SETTINGS.enablePlayerAiQuickAction : Boolean(raw);
-      state.patchSettings({ enablePlayerAiQuickAction: enabled });
-      if (enabled) {
-        startPlayerAiQuickActionLazy();
+  if (siteCaps.supportsPlayerQuickAiButton) {
+    (async () => {
+      try {
+        const data = await chrome.storage.sync.get("enablePlayerAiQuickAction");
+        quickActionStartupDecided = true;
+        const raw = (data as { enablePlayerAiQuickAction?: unknown })?.enablePlayerAiQuickAction;
+        const enabled = raw === undefined ? DEFAULT_SETTINGS.enablePlayerAiQuickAction : Boolean(raw);
+        state.patchSettings({ enablePlayerAiQuickAction: enabled });
+        if (enabled && getSiteCapabilities(state.clip.site).supportsPlayerQuickAiButton) {
+          startPlayerAiQuickActionLazy();
+        }
+      } catch {
       }
-    } catch {
-    }
-  })();
+    })();
+  } else {
+    quickActionStartupDecided = true;
+  }
   (async () => {
     try {
       const settings = await getSettings();
       state.setSettings(settings);
-      if (settings.enableExtraPlaybackRates) {
+      const currentCaps = getSiteCapabilities(state.clip.site);
+      if (currentCaps.supportsExtraPlaybackRates && settings.enableExtraPlaybackRates) {
         startPlaybackRateLazy();
       }
-      if (!quickActionStartupDecided) {
+      if (currentCaps.supportsPlayerQuickAiButton && !quickActionStartupDecided) {
         if (settings.enablePlayerAiQuickAction) {
           startPlayerAiQuickActionLazy();
         } else {
@@ -153,6 +175,9 @@ function init(): void {
 }
 
 async function startPlaybackRateLazy(): Promise<void> {
+  if (!getSiteCapabilities(state.clip.site).supportsExtraPlaybackRates) {
+    return;
+  }
   try {
     const domain = await loadPlaybackRate();
     domain.startPlaybackRateButtons();
@@ -185,7 +210,7 @@ function bindPlaybackRateSettingsWatcher(): void {
     }
     const enabled = Boolean(change.newValue);
     state.patchSettings({ enableExtraPlaybackRates: enabled });
-    if (enabled) {
+    if (enabled && getSiteCapabilities(state.clip.site).supportsExtraPlaybackRates) {
       startPlaybackRateLazy();
     } else {
       stopPlaybackRateLazy();
@@ -205,7 +230,7 @@ function bindPlayerAiSettingsWatcher(): void {
     }
     const enabled = Boolean(change.newValue);
     state.patchSettings({ enablePlayerAiQuickAction: enabled });
-    if (enabled) {
+    if (enabled && getSiteCapabilities(state.clip.site).supportsPlayerQuickAiButton) {
       startPlayerAiQuickActionLazy();
     } else {
       stopPlayerAiQuickActionLazy();
@@ -214,6 +239,9 @@ function bindPlayerAiSettingsWatcher(): void {
 }
 
 async function startPlayerAiQuickActionLazy(): Promise<void> {
+  if (!getSiteCapabilities(state.clip.site).supportsPlayerQuickAiButton) {
+    return;
+  }
   try {
     const playerAi = await loadPlayerAi();
     playerAi.startPlayerAiQuickAction();

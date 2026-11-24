@@ -517,6 +517,47 @@ export type PermissionGrantResultMessage = {
 };
 export type PermissionGrantResultResponse = { ok: boolean; error?: string };
 
+export type YoutubeCaptionTrackSnapshot = {
+  baseUrl: string;
+  languageCode: string;
+  name: string;
+  kind?: string;
+  vssId?: string;
+  isTranslatable?: boolean;
+};
+
+export type YoutubeChapterSnapshot = {
+  title: string;
+  from: number;
+  to?: number;
+};
+
+export type YoutubePageSnapshot = {
+  videoId: string;
+  title: string;
+  author: string;
+  description: string;
+  duration: number;
+  publishDate: string;
+  isLiveContent: boolean;
+  isLiveNow: boolean;
+  captionTracks: YoutubeCaptionTrackSnapshot[];
+  chapters: YoutubeChapterSnapshot[];
+  innertubeContext: Record<string, unknown> | null;
+  innertubeApiKey: string;
+  transcriptParams: string;
+  observedTimedtextUrls: string[];
+};
+
+export type YoutubePageSnapshotMessage = {
+  type: "youtube-page-snapshot";
+};
+export type YoutubePageSnapshotResponse = {
+  ok: boolean;
+  snapshot?: YoutubePageSnapshot;
+  error?: string;
+};
+
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
@@ -559,7 +600,8 @@ export type BackgroundMessage =
   | OffscreenRequestCloseMessage
   | GetDebugLogGateMessage
   | OpenOnboardingMessage
-  | PermissionGrantResultMessage;
+  | PermissionGrantResultMessage
+  | YoutubePageSnapshotMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
 
@@ -947,6 +989,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     PermissionGrantResultResponse
   >({
     reply: "sync"
+  }),
+  "youtube-page-snapshot": registerBackgroundMessage<
+    YoutubePageSnapshotMessage,
+    YoutubePageSnapshotResponse
+  >({
+    reply: "branch"
   })
 } satisfies {
   readonly [K in BackgroundMessageType]: BackgroundMessageRegistration<

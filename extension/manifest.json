@@ -17,6 +17,7 @@
   ],
   "host_permissions": [
     "https://www.bilibili.com/*",
+    "https://www.youtube.com/*",
     "ws://127.0.0.1/*",
     "https://api.bilibili.com/*",
     "https://index-translate.bilibili.com/*",
@@ -53,7 +54,8 @@
       "matches": [
         "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/*",
-        "https://www.bilibili.com/festival/*"
+        "https://www.bilibili.com/festival/*",
+        "https://www.youtube.com/watch*"
       ],
       "js": ["entry/content-bootstrap.iife.js"],
       "run_at": "document_idle",
@@ -73,11 +75,11 @@
         "entry/chunks/*",
         "entry/styles/*"
       ],
-      "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*"]
+      "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*", "https://www.youtube.com/*"]
     }
   ],
   "action": {
-    "default_title": "BiliScript｜B站视频文摘",
+    "default_title": "BiliScript｜视频文摘",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"

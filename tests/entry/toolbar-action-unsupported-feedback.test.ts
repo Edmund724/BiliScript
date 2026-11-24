@@ -21,7 +21,9 @@ function flushMicrotasks() {
 
 describe("SW 半边：非支持页 action 点击的可见反馈", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
-  let updatedListeners: Array<(tabId: number, changeInfo: { status?: string }, tab: unknown) => void>;
+  let updatedListeners: Array<
+    (tabId: number, changeInfo: { status?: string; url?: string }, tab: unknown) => void
+  >;
   const actionOnClickedAddListener = vi.fn();
   const tabsOnUpdatedAddListener = vi.fn();
   const setBadgeText = vi.fn<(details: { tabId?: number; text: string }) => Promise<void>>(async () => {});
@@ -65,7 +67,8 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
     await import("../../extension/entry/background.js");
     onClickedListener = actionOnClickedAddListener.mock.calls[0][0] as typeof onClickedListener;
     updatedListeners = tabsOnUpdatedAddListener.mock.calls.map(
-      (call) => call[0] as (tabId: number, changeInfo: { status?: string }, tab: unknown) => void
+      (call) =>
+        call[0] as (tabId: number, changeInfo: { status?: string; url?: string }, tab: unknown) => void
     );
   });
 
@@ -139,15 +142,29 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
     onClickedListener({ id: 8, url: "https://space.bilibili.com/123" });
     onClickedListener({ id: 9, url: "https://bilibili.com/" });
     onClickedListener({ id: 10, url: "https://example.com/" });
+    onClickedListener({ id: 11, url: "https://m.youtube.com/watch?v=dQw4w9WgXcQ" });
 
-    await vi.waitFor(() => expect(setBadgeText).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(setBadgeText).toHaveBeenCalledTimes(5));
     await flushMicrotasks();
 
-    for (const tabId of [7, 8, 9, 10]) {
+    for (const tabId of [7, 8, 9, 10, 11]) {
       expect(setBadgeText).toHaveBeenCalledWith({ tabId, text: "!" });
       expect(setTitle).toHaveBeenCalledWith({ tabId, title: UNSUPPORTED_PAGE_ACTION_TITLE });
     }
     expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("YouTube 桌面非 watch 页（首页 / Shorts）：触发 ! 徽标 + 标题 + 页内提示注入", async () => {
+    onClickedListener({ id: 21, url: "https://www.youtube.com/" });
+    onClickedListener({ id: 22, url: "https://www.youtube.com/shorts/dQw4w9WgXcQ" });
+
+    await vi.waitFor(() => expect(executeScript).toHaveBeenCalledTimes(2));
+    await flushMicrotasks();
+
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 21, text: "!" });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 22, text: "!" });
+    expect(executeScript.mock.calls[0][0].target).toEqual({ tabId: 21 });
+    expect(executeScript.mock.calls[1][0].target).toEqual({ tabId: 22 });
   });
 
   it("缺 tab.url 的非支持页：仍给徽标+标题（所有不支持页都有反馈），不注入", async () => {
@@ -186,6 +203,20 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
 
     expect(setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: "" });
     expect(setTitle).toHaveBeenCalledWith({ tabId: 7, title: "" });
+  });
+
+  it("YouTube 首页 SPA 切入 /watch（仅 changeInfo.url，无 loading）：同样清除旧的 ! 徽标与引导标题", async () => {
+    updatedListeners.forEach((listener) =>
+      listener(
+        21,
+        { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+        { id: 21, status: "complete", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }
+      )
+    );
+    await flushMicrotasks();
+
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 21, text: "" });
+    expect(setTitle).toHaveBeenCalledWith({ tabId: 21, title: "" });
   });
 });
 

@@ -46,7 +46,7 @@ function expectedOfficialHttpsOriginsFromPresets(): string[] {
 }
 
 describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
-  it("实时同步 core/presets.ts 的官方 HTTPS 预设并与既有 15 域合并为 28 个常驻域", () => {
+  it("实时同步 core/presets.ts 的官方 HTTPS 预设并与既有 16 域合并为 29 个常驻域", () => {
     const derived = deriveFirefoxManifest(chromiumManifest, {
       presets: PRESETS,
       asrPresets: ASR_PROVIDER_PRESETS,
@@ -58,8 +58,9 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
       expect(derived.host_permissions).toContain(origin);
     }
 
-    expect(derived.host_permissions).toHaveLength(28);
-    expect(new Set(derived.host_permissions).size).toBe(28);
+    expect(derived.host_permissions).toContain("https://www.youtube.com/*");
+    expect(derived.host_permissions).toHaveLength(29);
+    expect(new Set(derived.host_permissions).size).toBe(29);
     expect(new Set(derived.host_permissions)).toEqual(
       new Set([...chromiumManifest.host_permissions, ...expectedPresetOrigins])
     );
@@ -151,9 +152,13 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     for (const war of derived.web_accessible_resources) {
       expect(war.matches).not.toContain(LIVE_MATCH_PATTERN);
     }
-    expect(derived.web_accessible_resources[0]?.matches).toEqual(["https://www.bilibili.com/*"]);
+    expect(derived.web_accessible_resources[0]?.matches).toEqual([
+      "https://www.bilibili.com/*",
+      "https://www.youtube.com/*",
+    ]);
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/list/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/festival/*");
+    expect(derived.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");
   });
 
   it("显式声明 extension_pages CSP 为 script-src 'self'，解除 Firefox MV3 默认 upgrade-insecure-requests", () => {
