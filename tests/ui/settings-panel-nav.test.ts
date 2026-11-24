@@ -248,4 +248,31 @@ describe("设置抽屉三级总览与子页导航", () => {
     });
     expect(host.querySelector<HTMLElement>("#biliscriptSettingsTitle")?.textContent?.trim()).toBe("实时伴看");
   });
+
+  it("仅在设置面板发生滚动时标记 data-biliscript-settings-scrolled，切页与关闭时同步复位", async () => {
+    const host = await mountPanel();
+    const panelEl = document.getElementById("biliscript-reading-settings-panel")!;
+    const { openReaderSettingsMode, stepBackReaderSettings, closeReaderSettingsMode } = await import(
+      "../../extension/reader/settings-mode.js"
+    );
+
+    openReaderSettingsMode();
+    expect(panelEl.hasAttribute("data-biliscript-settings-scrolled")).toBe(false);
+
+    panelEl.scrollTop = 48;
+    panelEl.dispatchEvent(new Event("scroll"));
+    expect(panelEl.getAttribute("data-biliscript-settings-scrolled")).toBe("1");
+
+    host.querySelector<HTMLButtonElement>("#openAdvancedSettingsBtn")!.click();
+    expect(panelEl.scrollTop).toBe(0);
+    expect(panelEl.hasAttribute("data-biliscript-settings-scrolled")).toBe(false);
+
+    stepBackReaderSettings();
+    expect(panelEl.scrollTop).toBe(48);
+    expect(panelEl.getAttribute("data-biliscript-settings-scrolled")).toBe("1");
+
+    closeReaderSettingsMode();
+    expect(panelEl.scrollTop).toBe(0);
+    expect(panelEl.hasAttribute("data-biliscript-settings-scrolled")).toBe(false);
+  });
 });

@@ -136,6 +136,15 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   let subpageReturnButton: HTMLButtonElement | null = null;
   let unregisterBackInterceptor: (() => void) | null = null;
   let unregisterCloseListener: (() => void) | null = null;
+  let unregisterScrollListener: (() => void) | null = null;
+
+  function syncScrollHeaderState(scrollContainer: HTMLElement): void {
+    if (scrollContainer.scrollTop > 0) {
+      scrollContainer.setAttribute("data-biliscript-settings-scrolled", "1");
+    } else {
+      scrollContainer.removeAttribute("data-biliscript-settings-scrolled");
+    }
+  }
 
   function navigateSettingsView(
     host: HTMLElement,
@@ -219,6 +228,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
         }
       }
     }
+    syncScrollHeaderState(scrollContainer);
 
     if (shouldAnimate && prevEl) {
       const targetEl = getViewElement(elements, targetView);
@@ -295,10 +305,23 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     unregisterCloseListener = registerReaderSettingsCloseListener(() => {
       savedRootScrollTop = 0;
       subpageReturnButton = null;
+      const scrollContainer = getScrollContainer(host);
+      scrollContainer.scrollTop = 0;
+      syncScrollHeaderState(scrollContainer);
       if (activeSettingsView !== "root") {
         navigateSettingsView(host, "root", { focusOnEnter: false, animate: false, elements });
       }
     });
+
+    unregisterScrollListener?.();
+    const scrollContainer = getScrollContainer(host);
+    const onScroll = () => syncScrollHeaderState(scrollContainer);
+    scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    unregisterScrollListener = () => {
+      scrollContainer.removeEventListener("scroll", onScroll);
+      scrollContainer.removeAttribute("data-biliscript-settings-scrolled");
+    };
+    syncScrollHeaderState(scrollContainer);
   }
 
   async function openSettingsTarget(target: SettingsOpenTarget): Promise<void> {
@@ -324,6 +347,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     if (target === "appearance" || target === "note-export") {
       const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup], [data-settings-section]") ?? sectionHeading;
       scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
+      syncScrollHeaderState(getScrollContainer(host));
     }
     if (target === "gemini-key") {
       await deps.openLinkedCredentialEditor?.("gemini-live");
@@ -358,6 +382,8 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     unregisterBackInterceptor = null;
     unregisterCloseListener?.();
     unregisterCloseListener = null;
+    unregisterScrollListener?.();
+    unregisterScrollListener = null;
   }
 
   return {

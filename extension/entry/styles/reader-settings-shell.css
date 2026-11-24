@@ -1,3 +1,4 @@
+#biliscript-reading-view .biliscript-reading-panel.biliscript-reading-settings-panel,
 #biliscript-reading-view .biliscript-reading-settings-panel {
   grid-row: 2 / 4;
   grid-column: 1;
@@ -7,6 +8,7 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   border-radius: 0;
+  corner-shape: round;
   border: 0;
   box-shadow: none;
   margin: 0;
@@ -155,6 +157,14 @@
   min-width: 0;
   gap: var(--biliscript-space-xs);
   z-index: 10;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: 0;
+  border-bottom: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-panel[data-biliscript-settings-scrolled="1"] .biliscript-settings-nav-bar {
   background: var(--biliscript-reader-glass-solid-bg, linear-gradient(
     to bottom,
     var(--biliscript-reader-topbar-bg, rgba(var(--biliscript-primitive-color-blue-mist-top-light-rgb), 0.96)) 0%,
@@ -163,8 +173,6 @@
   ));
   -webkit-backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px));
   backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px));
-  border-radius: 0;
-  border-bottom: none;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-title {
