@@ -1,6 +1,8 @@
 import { logError } from "../shared/logging.js";
+import type { SiteId } from "../shared/site.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { createAiArtifactFamily } from "../subtitle/ai-artifact-cache.js";
+import { createAiArtifactFamily, type AiArtifactTargetMeta } from "../subtitle/ai-artifact-cache.js";
+import { resolveVideoStorageIdentity } from "../subtitle/idb-store.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 import { L1_INDEX_CACHE_PREFIX, isL1VideoIndexCacheRecord } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
@@ -28,6 +30,7 @@ const l1IndexReaderFamily = createAiArtifactFamily<L1VideoIndexCacheRecord>({
 interface SegmentKeyOptions {
   bvid: unknown;
   cid: unknown;
+  site?: SiteId | unknown;
   subtitleId?: unknown;
   subtitleUrl?: unknown;
   lang?: unknown;
@@ -40,14 +43,35 @@ export function budgetScaleSuffix(budgetScale: unknown): string {
   return Number.isFinite(scale) && scale !== 1 ? `_b${Math.round(scale * 100)}` : "";
 }
 
-export function getSegmentSummaryKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "", segmentIndex, budgetScale = 1 }: SegmentKeyOptions): string {
-  return summaryFamily.key({ bvid, cid, subtitleId, subtitleUrl, lang }, `${segmentIndex}${budgetScaleSuffix(budgetScale)}`);
+export function getSegmentSummaryKey({
+  bvid,
+  cid,
+  site,
+  subtitleId = "",
+  subtitleUrl = "",
+  lang = "",
+  segmentIndex,
+  budgetScale = 1
+}: SegmentKeyOptions): string {
+  return summaryFamily.key(
+    { bvid, cid, site, subtitleId, subtitleUrl, lang },
+    `${segmentIndex}${budgetScaleSuffix(budgetScale)}`
+  );
 }
 
 export { segmentCacheKeyFields, segmentCacheKeyStringFields };
 
-export function buildSegmentSummaryCacheKey(context: Record<string, unknown> | undefined, segmentIndex: number | string | unknown, budgetScale: number | string | unknown = 1): string {
-  return getSegmentSummaryKey({ ...segmentCacheKeyFields(context), segmentIndex, budgetScale });
+export function buildSegmentSummaryCacheKey(
+  context: Record<string, unknown> | undefined,
+  segmentIndex: number | string | unknown,
+  budgetScale: number | string | unknown = 1
+): string {
+  return getSegmentSummaryKey({
+    ...segmentCacheKeyStringFields(context),
+    site: context?.site,
+    segmentIndex,
+    budgetScale
+  });
 }
 
 export async function loadSegmentSummary(key: string): Promise<string | null> {
@@ -60,8 +84,12 @@ export async function loadSegmentSummariesByKeys(keys: string[]): Promise<(strin
 
 type SaveResult = EvictionResult | EvictionFailure;
 
-export async function saveSegmentSummary(key: string, summary: string): Promise<SaveResult> {
-  return summaryFamily.save(key, summary);
+export async function saveSegmentSummary(
+  key: string,
+  summary: string,
+  meta?: AiArtifactTargetMeta
+): Promise<SaveResult> {
+  return summaryFamily.save(key, summary, meta);
 }
 
 function parseSummarySegmentIndex(key: string, keyPrefix: string, scaleSuffix: string): number | null {
@@ -90,6 +118,7 @@ function parseSummarySegmentIndex(key: string, keyPrefix: string, scaleSuffix: s
 interface LoadStoredSegmentSummariesInput {
   bvid?: string;
   cid?: string;
+  site?: SiteId | unknown;
   subtitleId?: string;
   subtitleUrl?: string;
   lang?: string;
@@ -99,19 +128,21 @@ interface LoadStoredSegmentSummariesInput {
 export async function loadStoredSegmentSummaries({
   bvid,
   cid,
+  site,
   subtitleId = "",
   subtitleUrl = "",
   lang = "",
   budgetScale = 1
 }: LoadStoredSegmentSummariesInput = {}): Promise<string[]> {
   try {
-    if (!bvid || !cid) {
+    const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+    if (!resolved.bvid || !resolved.cid) {
       return [];
     }
     const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-    const keyPrefix = `${SEGMENT_SUMMARY_PREFIX}${bvid}_${cid}_${sourceKey}_`;
+    const keyPrefix = `${SEGMENT_SUMMARY_PREFIX}${resolved.bvid}_${resolved.cid}_${sourceKey}_`;
     const scaleSuffix = budgetScaleSuffix(budgetScale);
-    const items = await summaryFamily.loadByPrefix(bvid, keyPrefix);
+    const items = await summaryFamily.loadByPrefix(resolved.bvid, keyPrefix, resolved.site);
 
     const entries: Array<{ index: number; summary: string }> = [];
     for (const item of items) {
@@ -136,19 +167,28 @@ export async function loadStoredSegmentSummaries({
 interface LoadStoredL1IndexInput {
   bvid?: string;
   cid?: string;
+  site?: SiteId | unknown;
   subtitleId?: string;
   subtitleUrl?: string;
   lang?: string;
 }
 
-export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredL1IndexInput = {}): Promise<L1VideoIndexCacheRecord | null> {
+export async function loadStoredL1Index({
+  bvid,
+  cid,
+  site,
+  subtitleId = "",
+  subtitleUrl = "",
+  lang = ""
+}: LoadStoredL1IndexInput = {}): Promise<L1VideoIndexCacheRecord | null> {
   try {
-    if (!bvid || !cid) {
+    const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+    if (!resolved.bvid || !resolved.cid) {
       return null;
     }
     const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-    const keyPrefix = `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_`;
-    const items = await l1IndexReaderFamily.loadByPrefix(bvid, keyPrefix);
+    const keyPrefix = `${L1_INDEX_CACHE_PREFIX}${resolved.bvid}_${resolved.cid}_${sourceKey}_`;
+    const items = await l1IndexReaderFamily.loadByPrefix(resolved.bvid, keyPrefix, resolved.site);
     let best: L1VideoIndexCacheRecord | null = null;
     for (const item of items) {
       if (!item.key.startsWith(keyPrefix)) {

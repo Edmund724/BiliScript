@@ -5,6 +5,7 @@ import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active
 import { writeActiveClipboardText } from "../shared/cross-doc.js";
 import { createSecondaryLineResolver } from "../subtitle/alignment.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
+import type { SiteId } from "../shared/site.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
 import { loadVideoHighlights, resolveHighlightVideoKey } from "./highlights-store.js";
@@ -19,6 +20,8 @@ export interface RenderedCurrentNote {
   fileName: string;
   title: string;
   bvid: string;
+  videoId: string;
+  site: SiteId;
   vault: string;
   folder: string;
 }
@@ -41,13 +44,14 @@ export async function renderCurrentVideoNote(): Promise<RenderedCurrentNote> {
   const pageUrl = cleanVideoPageUrl(
     clip.currentUrl || (typeof location !== "undefined" ? location.href : "")
   );
-  const videoKey = resolveHighlightVideoKey(clip.bvid, pageUrl);
+  const videoKey = resolveHighlightVideoKey(clip.bvid, pageUrl, clip.site);
   const highlights = await loadVideoHighlights(videoKey);
   const overviewSnapshot = getReaderOverviewSource();
   const analysis = overviewSnapshot?.analysis ?? null;
 
   const variables = buildNoteTemplateVariables({
     meta: {
+      site: clip.site,
       title: clip.title,
       bvid: clip.bvid,
       author: clip.author,
@@ -71,7 +75,7 @@ export async function renderCurrentVideoNote(): Promise<RenderedCurrentNote> {
   });
 
   const markdown = renderNoteTemplate(settings.noteExportTemplate, variables);
-  const safeTitle = sanitizeFileName(variables.title || variables.bvid || "bilibili-note");
+  const safeTitle = sanitizeFileName(variables.title || variables.videoId || variables.bvid || "video-note");
   const dateRaw = settings.includeDateInFilename ? clip.uploadDate || formatLocalDate() : "";
   const datePrefix = dateRaw ? `${sanitizeFileName(dateRaw)}-` : "";
   const fileName = `${datePrefix}${safeTitle}.md`;
@@ -81,6 +85,8 @@ export async function renderCurrentVideoNote(): Promise<RenderedCurrentNote> {
     fileName,
     title: variables.title,
     bvid: variables.bvid,
+    videoId: variables.videoId,
+    site: variables.site,
     vault: String(settings.obsidianVaultName || "").trim(),
     folder: String(settings.obsidianFolder || "").trim()
   };

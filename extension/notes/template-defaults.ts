@@ -1,8 +1,10 @@
+import { normalizeSiteId, type SiteId } from "../shared/site.js";
+
 export const MAX_NOTE_EXPORT_TEMPLATE_BYTES = 4096;
 export const MAX_OBSIDIAN_FIELD_LENGTH = 120;
 
 export const NOTE_TEMPLATE_VARIABLES_HELP =
-  "{{title}} {{bvid}} {{author}} {{url}} {{date}} {{summary}} {{chapters}} {{quotes}} {{notes}} {{subtitles}}";
+  "{{title}} {{videoId}} {{bvid}} {{site}} {{author}} {{url}} {{date}} {{summary}} {{chapters}} {{quotes}} {{notes}} {{subtitles}}";
 
 export const DEFAULT_NOTE_TEMPLATE = `---
 title: "{{title}}"
@@ -40,3 +42,11 @@ date: "{{date}}"
 
 {{notes}}
 {{/if}}`;
+
+export const DEFAULT_YOUTUBE_NOTE_TEMPLATE = DEFAULT_NOTE_TEMPLATE
+  .replace('bvid: "{{bvid}}"', 'videoId: "{{videoId}}"')
+  .replace("- UP主：{{author}}", "- 作者：{{author}}");
+
+export function getDefaultNoteTemplate(site: SiteId | unknown = "bilibili"): string {
+  return normalizeSiteId(site) === "youtube" ? DEFAULT_YOUTUBE_NOTE_TEMPLATE : DEFAULT_NOTE_TEMPLATE;
+}
