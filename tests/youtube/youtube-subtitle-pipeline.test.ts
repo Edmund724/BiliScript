@@ -42,6 +42,7 @@ let YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE: (typeof import("../../extension/you
 let YoutubeSubtitleError: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["YoutubeSubtitleError"];
 let fetchYoutubeGetTranscript: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeGetTranscript"];
 let fetchYoutubeSubtitleTrackBody: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeSubtitleTrackBody"];
+let hasMatchingYoutubeObservedPot: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["hasMatchingYoutubeObservedPot"];
 let mapYoutubeCaptionTracks: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["mapYoutubeCaptionTracks"];
 let parseYoutubeGetTranscriptSubtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeGetTranscriptSubtitles"];
 let parseYoutubeJson3Subtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeJson3Subtitles"];
@@ -294,6 +295,7 @@ beforeEach(async () => {
     YoutubeSubtitleError,
     fetchYoutubeGetTranscript,
     fetchYoutubeSubtitleTrackBody,
+    hasMatchingYoutubeObservedPot,
     mapYoutubeCaptionTracks,
     parseYoutubeGetTranscriptSubtitles,
     parseYoutubeJson3Subtitles,
@@ -359,6 +361,36 @@ describe("YouTube 主世界桥接与快照规范化（fixtures）", () => {
       { title: "Summary", from: 145, to: 212, source: "youtube-chapters" }
     ]);
     expect(resolved.captionTracks.map((t) => t.kind)).toEqual([undefined, undefined, "asr"]);
+  });
+
+  it("readYoutubePageSnapshot 默认重试 8 次且对同 videoId 未 hydrate 快照继续等待重试", async () => {
+    setLocationUrl("https://www.youtube.com/watch?v=ytDemo01234");
+    const unhydrated: YoutubePageSnapshot = buildSnapshotFromFixtures({
+      captionTracks: [],
+      chapters: [],
+      duration: 0,
+      transcriptParams: ""
+    });
+    const hydrated = buildSnapshotFromFixtures();
+
+    const untilHydratedReader = vi
+      .fn<() => Promise<YoutubePageSnapshot>>()
+      .mockResolvedValueOnce(unhydrated)
+      .mockResolvedValueOnce(hydrated);
+    setYoutubeMainWorldReaderForTests(untilHydratedReader);
+
+    const settled = await readYoutubePageSnapshot({ retryDelayMs: 0 });
+    expect(untilHydratedReader).toHaveBeenCalledTimes(2);
+    expect(settled.duration).toBe(212);
+    expect(settled.captionTracks).toHaveLength(3);
+
+    const alwaysUnhydratedReader = vi.fn<() => Promise<YoutubePageSnapshot>>().mockResolvedValue(unhydrated);
+    setYoutubeMainWorldReaderForTests(alwaysUnhydratedReader);
+
+    const exhausted = await readYoutubePageSnapshot({ retryDelayMs: 0 });
+    expect(alwaysUnhydratedReader).toHaveBeenCalledTimes(8);
+    expect(exhausted.videoId).toBe("ytDemo01234");
+    expect(exhausted.captionTracks).toEqual([]);
   });
 
   it("已结束直播回放（isLiveContent=true && isLiveNow=false）放行，直播中（isLiveNow=true）识别标记", async () => {
@@ -517,6 +549,65 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     ).toContain("fmt=json3");
     expect(parseYoutubeJson3Subtitles({})).toEqual([]);
     expect(parseYoutubeGetTranscriptSubtitles({})).toEqual([]);
+  });
+
+  it("resolveYoutubeTimedtextRequestUrl 复用同源 observedTimedtextUrls 全量参数、跨语言兜底并拒绝非 WEB 客户端", () => {
+    const snapshot = buildSnapshotFromFixtures();
+    const asrTrackUrl = snapshot.captionTracks[2].baseUrl;
+    const zhTrackUrl = snapshot.captionTracks[1].baseUrl;
+    const manualEnTrackUrl = snapshot.captionTracks[0].baseUrl;
+
+    const exactMatchedUrl = new URL(
+      resolveYoutubeTimedtextRequestUrl({
+        baseUrl: asrTrackUrl,
+        videoId: snapshot.videoId,
+        languageCode: "EN",
+        observedTimedtextUrls: [
+          "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr&pot=EXACT_POT&potc=1&c=WEB&cver=2.20261123.00.00&opi=999&fmt=srv3"
+        ]
+      })
+    );
+    expect(exactMatchedUrl.searchParams.get("fmt")).toBe("json3");
+    expect(exactMatchedUrl.searchParams.get("pot")).toBe("EXACT_POT");
+    expect(exactMatchedUrl.searchParams.get("potc")).toBe("1");
+    expect(exactMatchedUrl.searchParams.get("c")).toBe("WEB");
+    expect(exactMatchedUrl.searchParams.get("cver")).toBe("2.20261123.00.00");
+    expect(exactMatchedUrl.searchParams.get("opi")).toBe("999");
+
+    const crossLangFallbackUrl = new URL(
+      resolveYoutubeTimedtextRequestUrl({
+        baseUrl: zhTrackUrl,
+        videoId: snapshot.videoId,
+        languageCode: "zh-Hans",
+        observedTimedtextUrls: [
+          "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr&pot=CROSS_POT&c=WEB&cver=2.20261123.00.00"
+        ]
+      })
+    );
+    expect(crossLangFallbackUrl.searchParams.get("lang")).toBe("zh-Hans");
+    expect(crossLangFallbackUrl.searchParams.get("kind")).toBeNull();
+    expect(crossLangFallbackUrl.searchParams.get("fmt")).toBe("json3");
+    expect(crossLangFallbackUrl.searchParams.get("pot")).toBe("CROSS_POT");
+    expect(crossLangFallbackUrl.searchParams.get("potc")).toBe("1");
+    expect(crossLangFallbackUrl.searchParams.get("c")).toBe("WEB");
+    expect(crossLangFallbackUrl.searchParams.get("cver")).toBe("2.20261123.00.00");
+
+    const nonWebObserved = [
+      "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&pot=ANDROID_POT&potc=1&c=ANDROID&cver=19.01.1"
+    ];
+    expect(hasMatchingYoutubeObservedPot(nonWebObserved, snapshot.videoId, "en")).toBe(false);
+    const rejectedUrl = new URL(
+      resolveYoutubeTimedtextRequestUrl({
+        baseUrl: manualEnTrackUrl,
+        videoId: snapshot.videoId,
+        languageCode: "en",
+        observedTimedtextUrls: nonWebObserved
+      })
+    );
+    expect(rejectedUrl.searchParams.get("fmt")).toBe("json3");
+    expect(rejectedUrl.searchParams.get("pot")).toBeNull();
+    expect(rejectedUrl.searchParams.get("potc")).toBeNull();
+    expect(rejectedUrl.searchParams.get("c")).toBeNull();
   });
 
   it("get_transcript 请求体与请求头同时携带 WEB 上下文及标准请求头，且继续拒绝 ANDROID / IOS / MWEB", async () => {

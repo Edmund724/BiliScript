@@ -122,52 +122,105 @@ function isYoutubeTimedtextUrl(parsed: URL): boolean {
   return (host === "youtube.com" || host.endsWith(".youtube.com")) && parsed.pathname.includes("/api/timedtext");
 }
 
-function findMatchingObservedPot(
+interface ObservedTimedtextMatch {
+  parsed: URL;
+  pot: string;
+  potc: string;
+  c: string;
+  cver: string;
+  lang: string;
+  kind: string;
+}
+
+function parseObservedTimedtextCandidate(
+  rawUrl: unknown,
+  expectedVideoId: string
+): ObservedTimedtextMatch | null {
+  const normalizedObs = normalizeYoutubeTimedtextUrl(rawUrl);
+  if (!normalizedObs) {
+    return null;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(normalizedObs);
+  } catch {
+    return null;
+  }
+  if (!isYoutubeTimedtextUrl(parsed)) {
+    return null;
+  }
+  const obsVideoId = (parsed.searchParams.get("v") || "").trim();
+  if (expectedVideoId && obsVideoId !== expectedVideoId) {
+    return null;
+  }
+  const pot = (parsed.searchParams.get("pot") || "").trim();
+  if (!pot || /\s/.test(pot)) {
+    return null;
+  }
+  const c = (parsed.searchParams.get("c") || "").trim();
+  if (c && c !== "WEB") {
+    return null;
+  }
+  return {
+    parsed,
+    pot,
+    potc: (parsed.searchParams.get("potc") || "").trim(),
+    c,
+    cver: (parsed.searchParams.get("cver") || "").trim(),
+    lang: (parsed.searchParams.get("lang") || "").trim().toLowerCase(),
+    kind: (parsed.searchParams.get("kind") || "").trim().toLowerCase()
+  };
+}
+
+function isSameYoutubeTrackKind(observedKind: string, targetKind: string): boolean {
+  return (observedKind === "asr") === (targetKind === "asr") && observedKind === targetKind;
+}
+
+function selectObservedTimedtextCandidate(
   observedUrls: readonly string[] | null | undefined,
   videoId: string,
-  languageCode: string
-): string {
+  languageCode: string,
+  kind: string
+): { exact: ObservedTimedtextMatch | null; fallback: ObservedTimedtextMatch | null } {
   if (!Array.isArray(observedUrls) || observedUrls.length === 0) {
-    return "";
+    return { exact: null, fallback: null };
   }
   const cleanVideoId = String(videoId || "").trim();
   const cleanLang = String(languageCode || "").trim().toLowerCase();
-  let fallbackPot = "";
+  const cleanKind = String(kind || "").trim().toLowerCase();
+  let sameLangFallback: ObservedTimedtextMatch | null = null;
+  let anyFallback: ObservedTimedtextMatch | null = null;
 
-  for (const rawUrl of observedUrls) {
-    let parsed: URL;
-    try {
-      parsed = new URL(String(rawUrl || ""));
-    } catch {
+  for (let index = observedUrls.length - 1; index >= 0; index -= 1) {
+    const candidate = parseObservedTimedtextCandidate(observedUrls[index], cleanVideoId);
+    if (!candidate) {
       continue;
     }
-    if (!isYoutubeTimedtextUrl(parsed)) {
-      continue;
+    if (cleanLang && candidate.lang === cleanLang) {
+      if (isSameYoutubeTrackKind(candidate.kind, cleanKind)) {
+        return { exact: candidate, fallback: candidate };
+      }
+      sameLangFallback ??= candidate;
     }
-    const obsVideoId = (parsed.searchParams.get("v") || "").trim();
-    if (cleanVideoId && obsVideoId !== cleanVideoId) {
-      continue;
-    }
-    const pot = (parsed.searchParams.get("pot") || "").trim();
-    if (!pot || /\s/.test(pot)) {
-      continue;
-    }
-    const obsLang = (parsed.searchParams.get("lang") || "").trim().toLowerCase();
-    if (cleanLang && obsLang === cleanLang) {
-      return pot;
-    }
-    fallbackPot = pot;
+    anyFallback ??= candidate;
   }
 
-  return fallbackPot;
+  return { exact: null, fallback: sameLangFallback ?? anyFallback };
 }
 
 export function hasMatchingYoutubeObservedPot(
   observedUrls: readonly string[] | null | undefined,
   videoId: string,
-  languageCode = ""
+  languageCode = "",
+  kind = ""
 ): boolean {
-  return findMatchingObservedPot(observedUrls, videoId, languageCode) !== "";
+  const { exact, fallback } = selectObservedTimedtextCandidate(
+    observedUrls,
+    videoId,
+    languageCode,
+    kind
+  );
+  return Boolean(exact || fallback);
 }
 
 export function resolveYoutubeTimedtextRequestUrl({
@@ -186,15 +239,36 @@ export function resolveYoutubeTimedtextRequestUrl({
     throw new YoutubeSubtitleError("YouTube 字幕轨 URL 无效。", YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE);
   }
   const parsed = new URL(normalized);
-  parsed.searchParams.set("fmt", "json3");
-
   const existingPot = (parsed.searchParams.get("pot") || "").trim();
-  if (!existingPot) {
-    const effectiveVideoId = String(videoId || parsed.searchParams.get("v") || "").trim();
-    const effectiveLang = String(languageCode || parsed.searchParams.get("lang") || "").trim();
-    const observedPot = findMatchingObservedPot(observedTimedtextUrls, effectiveVideoId, effectiveLang);
-    if (observedPot) {
-      parsed.searchParams.set("pot", observedPot);
+  if (existingPot) {
+    parsed.searchParams.set("fmt", "json3");
+    return parsed.toString();
+  }
+
+  const effectiveVideoId = String(videoId || parsed.searchParams.get("v") || "").trim();
+  const effectiveLang = String(languageCode || parsed.searchParams.get("lang") || "").trim();
+  const effectiveKind = (parsed.searchParams.get("kind") || "").trim();
+  const { exact, fallback } = selectObservedTimedtextCandidate(
+    observedTimedtextUrls,
+    effectiveVideoId,
+    effectiveLang,
+    effectiveKind
+  );
+  if (exact) {
+    const reused = new URL(exact.parsed.toString());
+    reused.searchParams.set("fmt", "json3");
+    return reused.toString();
+  }
+
+  parsed.searchParams.set("fmt", "json3");
+  if (fallback) {
+    parsed.searchParams.set("pot", fallback.pot);
+    parsed.searchParams.set("potc", fallback.potc || "1");
+    if (fallback.c === "WEB") {
+      parsed.searchParams.set("c", "WEB");
+    }
+    if (fallback.cver) {
+      parsed.searchParams.set("cver", fallback.cver);
     }
   }
 

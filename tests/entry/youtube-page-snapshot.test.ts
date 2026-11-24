@@ -445,4 +445,63 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
 
     perfSpy.mockRestore();
   });
+
+  it("INNERTUBE_CONTEXT.client 缺少 visitorData 时从 ytcfg VISITOR_DATA 浅拷贝补全，且已有 visitorData 不被覆盖", async () => {
+    const watchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    setCrossOriginLocation(watchUrl);
+    const win = window as unknown as { ytcfg?: unknown };
+    const missingVisitorClient = { clientName: "WEB", clientVersion: "2.2026" };
+    win.ytcfg = {
+      get: (key: string) =>
+        key === "INNERTUBE_API_KEY"
+          ? "AIzaTestKey"
+          : key === "VISITOR_DATA"
+            ? "  CgtWaXNpdG9yMTIz  "
+            : key === "INNERTUBE_CONTEXT"
+              ? { client: missingVisitorClient }
+              : undefined
+    };
+    const perfSpy = vi.spyOn(performance, "getEntriesByType").mockReturnValue([]);
+    executeScript.mockImplementation(async (injection: { func: () => unknown }) => [
+      { result: injection.func() }
+    ]);
+
+    const sendMissing = vi.fn();
+    onMessageListener({ type: "youtube-page-snapshot" }, { tab: { id: 31, url: watchUrl } }, sendMissing);
+    await vi.waitFor(() => expect(sendMissing).toHaveBeenCalledTimes(1));
+
+    const filledResp = sendMissing.mock.calls[0][0] as {
+      ok: boolean;
+      snapshot: { innertubeContext: { client: { clientName: string; visitorData?: string } } };
+    };
+    expect(filledResp.ok).toBe(true);
+    expect(filledResp.snapshot.innertubeContext.client).toEqual({
+      clientName: "WEB",
+      clientVersion: "2.2026",
+      visitorData: "CgtWaXNpdG9yMTIz"
+    });
+    expect(missingVisitorClient).toEqual({ clientName: "WEB", clientVersion: "2.2026" });
+
+    win.ytcfg = {
+      get: (key: string) =>
+        key === "VISITOR_DATA"
+          ? "NEW_VISITOR_IGNORED"
+          : key === "INNERTUBE_CONTEXT"
+            ? { client: { clientName: "WEB", clientVersion: "2.2026", visitorData: "EXISTING_VISITOR" } }
+            : undefined
+    };
+    const sendExisting = vi.fn();
+    onMessageListener({ type: "youtube-page-snapshot" }, { tab: { id: 32, url: watchUrl } }, sendExisting);
+    await vi.waitFor(() => expect(sendExisting).toHaveBeenCalledTimes(1));
+
+    const existingResp = sendExisting.mock.calls[0][0] as {
+      ok: boolean;
+      snapshot: { innertubeContext: { client: { visitorData?: string } } };
+    };
+    expect(existingResp.ok).toBe(true);
+    expect(existingResp.snapshot.innertubeContext.client.visitorData).toBe("EXISTING_VISITOR");
+
+    perfSpy.mockRestore();
+    delete win.ytcfg;
+  });
 });

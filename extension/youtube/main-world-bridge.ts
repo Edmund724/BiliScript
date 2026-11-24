@@ -50,8 +50,8 @@ export interface ReadYoutubePageSnapshotOptions {
   retryDelayMs?: number;
 }
 
-const DEFAULT_MAX_SNAPSHOT_ATTEMPTS = 5;
-const DEFAULT_SNAPSHOT_RETRY_DELAY_MS = 150;
+const DEFAULT_MAX_SNAPSHOT_ATTEMPTS = 8;
+const DEFAULT_SNAPSHOT_RETRY_DELAY_MS = 250;
 const TRANSIENT_SNAPSHOT_ERROR = "未读取到 YouTube 页面播放器快照";
 
 let mainWorldReaderForTests: YoutubeMainWorldReader | null = null;
@@ -173,6 +173,15 @@ async function readSnapshotOnce(expectedVideoId: string): Promise<YoutubePageSna
   return resp.snapshot ?? null;
 }
 
+function isYoutubeSnapshotHydrated(raw: YoutubePageSnapshot): boolean {
+  const hasTracks = Array.isArray(raw.captionTracks) && raw.captionTracks.length > 0;
+  const rawDuration = Number(raw.duration);
+  const hasDuration = Number.isFinite(rawDuration) && rawDuration > 0;
+  const hasTranscriptParams =
+    typeof raw.transcriptParams === "string" && raw.transcriptParams.trim().length > 0;
+  return hasTracks || hasDuration || hasTranscriptParams;
+}
+
 export async function readYoutubePageSnapshot(
   options: ReadYoutubePageSnapshotOptions = {}
 ): Promise<YoutubeVideoMetaSnapshot> {
@@ -186,9 +195,11 @@ export async function readYoutubePageSnapshot(
     const snapshotVideoId = String(raw?.videoId || "").trim();
     const videoIdMatches = !expectedVideoId || (Boolean(snapshotVideoId) && snapshotVideoId === expectedVideoId);
     if (raw && videoIdMatches) {
-      return normalizeYoutubePageSnapshot(raw, expectedVideoId);
-    }
-    if (raw) {
+      lastMismatchId = "";
+      if (isYoutubeSnapshotHydrated(raw) || attempt + 1 >= maxAttempts) {
+        return normalizeYoutubePageSnapshot(raw, expectedVideoId);
+      }
+    } else if (raw) {
       lastMismatchId = snapshotVideoId;
     }
     if (attempt + 1 < maxAttempts && retryDelayMs > 0) {

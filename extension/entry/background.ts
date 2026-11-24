@@ -715,13 +715,22 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
   };
   const rawApiKey = readYtcfg("INNERTUBE_API_KEY");
   const innertubeApiKey = typeof rawApiKey === "string" ? rawApiKey : "";
+  const rawVisitorData = readYtcfg("VISITOR_DATA");
+  const visitorData = typeof rawVisitorData === "string" ? rawVisitorData.trim() : "";
   let innertubeContext: Record<string, unknown> | null = null;
   try {
     const rawContext = readYtcfg("INNERTUBE_CONTEXT");
     if (rawContext && typeof rawContext === "object") {
       const parsed = JSON.parse(JSON.stringify(rawContext));
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        innertubeContext = parsed as Record<string, unknown>;
+        const ctx = parsed as Record<string, unknown>;
+        const client = asObj(ctx.client);
+        const existingVisitor =
+          typeof client?.visitorData === "string" ? client.visitorData.trim() : "";
+        if (client && !existingVisitor && visitorData) {
+          ctx.client = { ...client, visitorData };
+        }
+        innertubeContext = ctx;
       }
     }
   } catch {
