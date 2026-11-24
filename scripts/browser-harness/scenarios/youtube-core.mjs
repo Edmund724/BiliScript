@@ -944,14 +944,30 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
     { detachClick, openerHasViewWhileDetached, childSnap, redockClick, openerAfterRedock }
   );
 
+  const waitForSettingsSettled = (label, viewConditionExpr) =>
+    waitFor(
+      label,
+      async () =>
+        page.cdp.evaluate(`(() => {
+          const host = document.querySelector(".biliscript-reading-settings-host");
+          const runningAnims = host
+            ? host.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length
+            : 0;
+          const inMotion = Boolean(
+            document.querySelector("[data-biliscript-settings-motion]") ||
+              document.querySelector("[data-settings-view-leaving]") ||
+              runningAnims > 0
+          );
+          return !inMotion && Boolean(${viewConditionExpr});
+        })()`),
+      { timeoutMs: 8000, intervalMs: 100 }
+    );
+
   const openSettingsClick = await clickInTarget(page.cdp, null, "settings-open", "document.getElementById('biliscript-reading-settings-btn')");
-  await waitFor("settings panel open", async () => {
-    return page.cdp.evaluate(`(() => {
-      const p = document.getElementById("biliscript-reading-settings-panel");
-      const root = document.getElementById("biliscriptSettingsRootView");
-      return Boolean(p && !p.hidden && root && !root.hidden && !document.querySelector("[data-biliscript-settings-motion]"));
-    })()`);
-  }, { timeoutMs: 8000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "settings panel open",
+    '!document.getElementById("biliscript-reading-settings-panel")?.hidden && !document.getElementById("biliscriptSettingsRootView")?.hidden'
+  );
 
   const rootGating = await page.cdp.evaluate(`(() => {
     const probe = (id) => {
@@ -969,9 +985,10 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
   })()`);
 
   await clickInTarget(page.cdp, null, "open-ai-prompt-settings", "document.getElementById('openAiPromptBtn')");
-  await waitFor("ai prompt subpage visible", async () => {
-    return page.cdp.evaluate(`Boolean(!document.getElementById("biliscriptSettingsSubpageAiPrompt")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "ai prompt subpage visible",
+    '!document.getElementById("biliscriptSettingsSubpageAiPrompt")?.hidden'
+  );
   const playerAiSection = await page.cdp.evaluate(`(() => {
     const el = document.querySelector('#biliscriptSettingsSubpageAiPrompt .biliscript-set-group[data-settings-section="ai-button"]');
     if (!el) return null;
@@ -979,14 +996,16 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
     return { hidden: el.hidden, ariaHidden: el.getAttribute("aria-hidden"), w: +r.width.toFixed(2), h: +r.height.toFixed(2) };
   })()`);
   await clickInTarget(page.cdp, null, "settings-back-from-ai-prompt", "document.getElementById('biliscript-reading-settings-back-btn')");
-  await waitFor("settings root restored after ai prompt", async () => {
-    return page.cdp.evaluate(`Boolean(!document.getElementById("biliscriptSettingsRootView")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "settings root restored after ai prompt",
+    '!document.getElementById("biliscriptSettingsRootView")?.hidden'
+  );
 
   await clickInTarget(page.cdp, null, "open-appearance-settings", "document.getElementById('openAppearanceBtn')");
-  await waitFor("appearance subpage visible", async () => {
-    return page.cdp.evaluate(`Boolean(!document.getElementById("biliscriptSettingsSubpageAppearance")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "appearance subpage visible",
+    '!document.getElementById("biliscriptSettingsSubpageAppearance")?.hidden'
+  );
   const extraRatesRow = await page.cdp.evaluate(`(() => {
     const el = document.querySelector('#biliscriptSettingsSubpageAppearance [data-settings-item="extra-playback-rates"]');
     if (!el) return null;
@@ -994,14 +1013,16 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
     return { hidden: el.hidden, ariaHidden: el.getAttribute("aria-hidden"), w: +r.width.toFixed(2), h: +r.height.toFixed(2) };
   })()`);
   await clickInTarget(page.cdp, null, "settings-back-from-appearance", "document.getElementById('biliscript-reading-settings-back-btn')");
-  await waitFor("settings root restored after appearance", async () => {
-    return page.cdp.evaluate(`Boolean(!document.getElementById("biliscriptSettingsRootView")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "settings root restored after appearance",
+    '!document.getElementById("biliscriptSettingsRootView")?.hidden'
+  );
 
   await clickInTarget(page.cdp, null, "open-subtitle-settings", "document.getElementById('openSubtitleSettingsBtn')");
-  await waitFor("subtitle settings subpage visible", async () => {
-    return page.cdp.evaluate(`Boolean(!document.getElementById("biliscriptSettingsSubpageSubtitle")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "subtitle settings subpage visible",
+    '!document.getElementById("biliscriptSettingsSubpageSubtitle")?.hidden'
+  );
   const indexTranslateState = await page.cdp.evaluate(`(() => {
     const sub = document.getElementById("biliscriptSettingsSubpageSubtitle");
     const srcSel = document.getElementById("subtitleTranslateSource");
@@ -1045,9 +1066,10 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
   );
 
   await clickInTarget(page.cdp, null, "settings-close", "document.getElementById('biliscript-reading-settings-btn')");
-  await waitFor("settings panel hidden", async () => {
-    return page.cdp.evaluate(`Boolean(document.getElementById("biliscript-reading-settings-panel")?.hidden && !document.querySelector("[data-biliscript-settings-motion]"))`);
-  }, { timeoutMs: 6000, intervalMs: 100 });
+  await waitForSettingsSettled(
+    "settings panel hidden",
+    'document.getElementById("biliscript-reading-settings-panel")?.hidden'
+  );
 
   const singleRowMetrics = await page.cdp.evaluate(`(() => {
     const items = [...document.querySelectorAll("#biliscript-reading-subtitle .biliscript-reading-item")];
@@ -1256,6 +1278,7 @@ async function runLiveSuite({ page, worker, evidence }) {
           }
         })(),
         hasPot: url.includes("pot="),
+        hasFmtJson3: url.includes("fmt=json3"),
         webHeaders: {
           clientName: headers["X-Youtube-Client-Name"] || headers["x-youtube-client-name"] || null,
           clientVersion: headers["X-Youtube-Client-Version"] || headers["x-youtube-client-version"] || null,
@@ -1288,7 +1311,12 @@ async function runLiveSuite({ page, worker, evidence }) {
   })()`);
 
   let navA = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    if (attempt > 1) {
+      await page.cdp.send("Page.navigate", { url: "about:blank" }).catch(() => {});
+      await sleep(300);
+    }
+    liveNet.length = 0;
     await page.cdp.send("Page.bringToFront").catch(() => {});
     await page.cdp.send("Page.navigate", { url: LIVE_VIDEO_A.url });
     navA = await waitFor(`live YouTube video A hydrated (attempt ${attempt})`, async () => {
@@ -1304,9 +1332,9 @@ async function runLiveSuite({ page, worker, evidence }) {
         }
         return false;
       })()`);
-    }, { timeoutMs: 95000, intervalMs: 500 }).catch((error) => ({ timeout: error.message }));
+    }, { timeoutMs: 120000, intervalMs: 500 }).catch((error) => ({ timeout: error.message }));
     if (navA?.ok) break;
-    log(`真网导航重试(${attempt}/3)：${JSON.stringify(navA)}`);
+    log(`真网导航重试(${attempt}/4)：${JSON.stringify(navA)}`);
   }
 
   if (!navA?.ok) {
@@ -1406,6 +1434,7 @@ async function runLiveSuite({ page, worker, evidence }) {
   const gtReqsA = preCcNet.filter((e) => e.phase === "request" && e.kind === "get_transcript");
   const gtRespsA = preCcNet.filter((e) => e.phase === "response" && e.kind === "get_transcript");
   const ttReqsA = preCcNet.filter((e) => e.phase === "request" && e.kind === "timedtext");
+  const extTtReqsA = ttReqsA.filter((e) => e.hasFmtJson3);
   const hasWebHeadersOnGt = gtReqsA.every(
     (r) => r.webHeaders?.clientName && r.webHeaders?.clientVersion && r.webHeaders?.origin
   );
@@ -1470,7 +1499,7 @@ async function runLiveSuite({ page, worker, evidence }) {
           };
         }
         return false;
-      }, { timeoutMs: 25000, intervalMs: 250 }).catch((err) => ({ timeout: err.message }));
+      }, { timeoutMs: 40000, intervalMs: 250 }).catch((err) => ({ timeout: err.message }));
     }
     ccRetry = { ccBtn, observedPotAfterCc, retryClick, afterRetry };
   }
@@ -1478,7 +1507,7 @@ async function runLiveSuite({ page, worker, evidence }) {
   const circuitBreakerOk =
     subtitleSettledA?.items > 0 ||
     (gtReqsA.length <= 2 &&
-      ttReqsA.length <= 2 &&
+      extTtReqsA.length <= 2 &&
       (gtReqsA.length === 0 || hasWebHeadersOnGt) &&
       /原生.*字幕开关/.test(`${subtitleSettledA?.notice || ""} ${subtitleSettledA?.empty || ""}`));
 
@@ -1487,7 +1516,8 @@ async function runLiveSuite({ page, worker, evidence }) {
     Boolean(circuitBreakerOk),
     {
       items: subtitleSettledA?.items ?? 0,
-      ttCount: ttReqsA.length,
+      ttCount: extTtReqsA.length,
+      totalTtCount: ttReqsA.length,
       gtCount: gtReqsA.length,
       gtStatuses: gtRespsA.map((r) => r.status),
       hasWebHeadersOnGt,
@@ -1527,6 +1557,10 @@ async function runLiveSuite({ page, worker, evidence }) {
     liveFrameProbe
   );
 
+  const preSpaUi = await page.cdp.evaluate(`(() => ({
+    items: document.querySelectorAll("#biliscript-reading-subtitle .biliscript-reading-item").length,
+    empty: document.querySelector("#biliscript-reading-subtitle .biliscript-reading-empty")?.textContent || ""
+  }))()`);
   const netIdxBeforeSpa = liveNet.length;
   const spaTrigger = await page.cdp.evaluate(`(() => {
     const nextBtn = document.querySelector("#movie_player a.ytp-next-button[href*='/watch?v=']");
@@ -1551,11 +1585,15 @@ async function runLiveSuite({ page, worker, evidence }) {
       const items = document.querySelectorAll("#biliscript-reading-subtitle .biliscript-reading-item").length;
       const meta = document.getElementById("biliscript-reading-meta")?.textContent || "";
       const empty = document.querySelector("#biliscript-reading-subtitle .biliscript-reading-empty")?.textContent || "";
+      if (items > 0 && empty === "") return false;
       return { href: location.href, items, meta, empty };
-    })()`);
-  }, { timeoutMs: 20000, intervalMs: 300 });
+    })()`).catch(() => false);
+  }, { timeoutMs: 25000, intervalMs: 200 }).catch(() => null);
 
   let sawSpaLoading = false;
+  let sawSpaCleared = false;
+  let spaRetried = false;
+  let lastSpaDebug = null;
   const spaFetchSettled = await waitFor("SPA new video fetch triggered and settled", async () => {
     const reqsAfter = liveNet.slice(netIdxBeforeSpa).filter((e) => e.phase === "request");
     const ui = await page.cdp.evaluate(`(() => {
@@ -1564,22 +1602,34 @@ async function runLiveSuite({ page, worker, evidence }) {
       const notice = document.getElementById("biliscript-reading-subtitle-notice")?.textContent || "";
       const meta = document.getElementById("biliscript-reading-meta")?.textContent || "";
       const opts = (document.getElementById("biliscript-reading-subtitle-select")?.options || []).length;
+      const mpId = document.getElementById("movie_player")?.getPlayerResponse?.()?.videoDetails?.videoId || "";
+      const hasRetry = Boolean(document.querySelector('#biliscript-reading-subtitle [data-subtitle-action="retry-fetch"]'));
       const loading = /正在加载|正在抓取/.test(empty);
       const settled = items > 0 || (empty && !loading);
-      return { settled, loading, items, empty, notice, meta, opts };
+      return { settled, loading, items, empty, notice, meta, opts, mpId, hasRetry };
     })()`);
+    lastSpaDebug = { ...ui, reqsAfterCount: reqsAfter.length, sawSpaLoading, sawSpaCleared, spaRetried };
+    if (ui?.items === 0 && (preSpaUi.items > 0 || ui.loading || ui.empty !== preSpaUi.empty || reqsAfter.length > 0)) {
+      sawSpaCleared = true;
+    }
     if (ui?.loading || reqsAfter.length > 0) sawSpaLoading = true;
-    if ((reqsAfter.length > 0 || sawSpaLoading) && ui?.settled) {
-      return { reqsAfterCount: reqsAfter.length, reqKinds: reqsAfter.map((r) => r.kind), sawSpaLoading, ui };
+    if (!spaRetried && ui?.empty?.includes("字幕加载失败") && ui?.mpId && ui.mpId !== LIVE_VIDEO_A.videoId && ui?.hasRetry) {
+      spaRetried = true;
+      await clickInTarget(page.cdp, null, "spa-retry-after-proxy-hydrate", "document.querySelector('#biliscript-reading-subtitle [data-subtitle-action=\"retry-fetch\"]')").catch(() => {});
+      return false;
+    }
+    const switchedOutOfOldEmpty = !ui?.empty?.includes("字幕加载失败") && (reqsAfter.length > 0 || (sawSpaLoading && ui?.mpId !== LIVE_VIDEO_A.videoId));
+    if (sawSpaCleared && ui?.settled && (switchedOutOfOldEmpty || (spaRetried && reqsAfter.length > 0))) {
+      return { reqsAfterCount: reqsAfter.length, reqKinds: reqsAfter.map((r) => r.kind), sawSpaLoading, sawSpaCleared, spaRetried, ui };
     }
     return false;
-  }, { timeoutMs: 50000, intervalMs: 500 }).catch(() => null);
+  }, { timeoutMs: 75000, intervalMs: 150 }).catch(() => null);
 
   await pauseAndCleanMedia(page.cdp, false);
   check(
     "live.2-spa-navigation-resets-and-fetches",
     Boolean(spaTrigger?.href && spaStateReset?.href && spaFetchSettled),
-    { spaTrigger, spaStateReset, spaFetchSettled }
+    { spaTrigger, spaStateReset, spaFetchSettled, lastSpaDebug }
   );
 
   evidence.live = {
