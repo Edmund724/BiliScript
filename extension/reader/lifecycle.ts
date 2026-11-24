@@ -462,6 +462,10 @@ export async function enterReaderMode(
   readerPanelScope?.dispose();
   readerPanelScope = createDisposableContext();
   transitionReaderShell("open");
+  if (!isReaderDetached()) {
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+  }
   document.body.setAttribute("data-biliscript-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();

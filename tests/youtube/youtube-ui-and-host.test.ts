@@ -758,4 +758,53 @@ describe("YouTube 视频绑定、PageContext、独立窗口 SPA 换片保持与�
 
     scriptBtnMod.removeScriptButton();
   });
+
+  it("无 biliscript_reader 参数的 YouTube /watch 在 bindNormalPageStateGuard 下打开阅读器异步等待期间保留 data-biliscript-reader-mode=1 且退出后清除", async () => {
+    const { clipState, getReaderShellState, state, transitionReaderShell } = await import(
+      "../../extension/core/state.js"
+    );
+    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    const readerState = await import("../../extension/reader/state.js");
+    const shell = await import("../../extension/reader/shell.js");
+    const scriptBtnMod = await import("../../extension/ui/script-button.js");
+
+    makeYoutubeWatchDom();
+    clipState.setSite("youtube");
+    clipState.setBvid("dQw4w9WgXcQ");
+    clipState.setCid("yt");
+    uiRenderer.ensureUiReady();
+    readerState.bindNormalPageStateGuard();
+
+    expect(transitionReaderShell("entering")).toBe(true);
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    await flushMicrotasks();
+    readerState.enforceNormalPageStateIfNeeded(YOUTUBE_WATCH_A);
+    expect(getReaderShellState()).toBe("entering");
+    expect(state.reader.readingViewOpen).toBe(false);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
+
+    expect(transitionReaderShell("closed")).toBe(true);
+    document.documentElement.removeAttribute("data-biliscript-reader-mode");
+    document.body.removeAttribute("data-biliscript-reader-mode");
+
+    await shell.enterReaderShell({ readerUrl: YOUTUBE_WATCH_A, intent: "open" });
+    await flushMicrotasks();
+
+    expect(location.href).toBe(YOUTUBE_WATCH_A);
+    expect(location.href).not.toContain("biliscript_reader");
+    expect(state.reader.readingViewOpen).toBe(true);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
+
+    await shell.exitReaderShell();
+    await flushMicrotasks();
+
+    expect(state.reader.readingViewOpen).toBe(false);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBeNull();
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBeNull();
+
+    scriptBtnMod.removeScriptButton();
+  });
 });
