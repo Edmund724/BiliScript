@@ -113,7 +113,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       action: "chat",
       providerId: "p1",
       contextKey: CONTEXT_KEY,
-      context: { title: "长视频", subtitleBody: makeBody() },
+      context: { bvid: "BV1bridge", cid: "101", title: "长视频", subtitleBody: makeBody() },
       prompt: "总结"
     });
 
@@ -167,7 +167,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       action: "chat",
       providerId: "p1",
       contextKey: CONTEXT_KEY,
-      context: { title: "长视频", subtitleBody: makeBody() },
+      context: { bvid: "BV1bridge", cid: "101", title: "长视频", subtitleBody: makeBody() },
       prompt: "总结"
     });
 
@@ -223,7 +223,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       action: "chat",
       providerId: "p1",
       contextKey: CONTEXT_KEY,
-      context: { title: "长视频", subtitleBody: makeBody() },
+      context: { bvid: "BV1bridge", cid: "101", title: "长视频", subtitleBody: makeBody() },
       prompt: "总结"
     });
     await vi.waitFor(() => {
@@ -244,7 +244,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       action: "chat",
       providerId: "p1",
       contextKey: CONTEXT_KEY,
-      context: { title: "长视频", subtitleBody: makeBody() },
+      context: { bvid: "BV1bridge", cid: "101", title: "长视频", subtitleBody: makeBody() },
       prompt: "再总结"
     });
     await vi.waitFor(() => {
@@ -284,7 +284,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       action: "chat",
       providerId: "p1",
       contextKey: CONTEXT_KEY,
-      context: { title: "短视频", subtitleBody: makeSmallBody() },
+      context: { bvid: "BV1bridge", cid: "101", title: "短视频", subtitleBody: makeSmallBody() },
       prompt: "总结"
     });
 
