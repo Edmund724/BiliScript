@@ -320,7 +320,9 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
     const option = select.options[select.selectedIndex];
     const rawOrigin = option?.dataset.origin;
     const optionOrigin: SubtitleTrackOrigin | undefined =
-      rawOrigin === "asr" || rawOrigin === "bilibili" ? rawOrigin : undefined;
+      rawOrigin === "asr" || rawOrigin === "bilibili" || rawOrigin === "youtube"
+        ? rawOrigin
+        : undefined;
     const target = resolveTrackTarget(
       {
         id: option?.dataset.id,

@@ -1,4 +1,6 @@
 import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
+import type { SubtitleTrackOrigin } from "../shared/video-dto.js";
+import { classifySubtitleTrack, type SubtitleTrackKind } from "./selection.js";
 import { isNonSpeechSegment, isNoSpaceLanguage, joinSubtitleText } from "./text-classification.js";
 
 export type SubtitleSegmentationStrategy = "auto" | "rule" | "stats" | "off";
@@ -56,6 +58,10 @@ export interface SegmentTrackDecisionInput {
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  trackKind?: SubtitleTrackKind;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   items: readonly CoarseSubtitleInput[];
 }
 
@@ -64,6 +70,10 @@ export interface SegmentSubtitlesOptions {
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  trackKind?: SubtitleTrackKind;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   lang?: string;
   ruleOptions?: MergeRuleOptions;
   statsOptions?: StatsBreakOptions;
@@ -830,6 +840,10 @@ export function shouldSegmentTrack({
   selectedSubtitleId = "",
   selectedSubtitleLang = "",
   trackLan = "",
+  trackKind,
+  origin,
+  kind,
+  source,
   items
 }: SegmentTrackDecisionInput): boolean {
   if (strategy === "off" || !Array.isArray(items) || items.length === 0) {
@@ -839,14 +853,23 @@ export function shouldSegmentTrack({
     return true;
   }
 
-  const idLower = String(selectedSubtitleId || "").trim().toLowerCase();
+  const resolvedKind =
+    trackKind ??
+    classifySubtitleTrack({
+      id: selectedSubtitleId,
+      lan: trackLan || selectedSubtitleLang,
+      subtitleUrl: "",
+      origin,
+      kind,
+      source
+    });
+
+  if (resolvedKind === "asr" || resolvedKind === "bili-ai" || resolvedKind === "youtube-auto") {
+    return true;
+  }
+
   const langLower = String(selectedSubtitleLang || "").trim().toLowerCase();
-  const lanLower = String(trackLan || "").trim().toLowerCase();
-
-  const isAiTrack = lanLower.startsWith("ai-") || langLower.startsWith("ai-");
-  const isAsrTrack = idLower === "asr" || lanLower.startsWith("asr-") || langLower.startsWith("asr-");
-
-  if (isAiTrack || isAsrTrack) {
+  if (langLower.startsWith("ai-") || langLower.startsWith("asr-")) {
     return true;
   }
 
@@ -869,6 +892,10 @@ export function segmentSubtitles(
       selectedSubtitleId: options.selectedSubtitleId,
       selectedSubtitleLang: options.selectedSubtitleLang,
       trackLan: options.trackLan,
+      trackKind: options.trackKind,
+      origin: options.origin,
+      kind: options.kind,
+      source: options.source,
       items
     })
   ) {

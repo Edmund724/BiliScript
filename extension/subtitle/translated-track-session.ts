@@ -22,7 +22,8 @@ import {
   scheduleTranslatedTrackWrite
 } from "./cache.js";
 import { acceptSecondarySubtitle } from "./commit.js";
-import { toCanonicalTargetLangBcp47 } from "./selection.js";
+import { classifySubtitleTrack, toCanonicalTargetLangBcp47 } from "./selection.js";
+import type { SubtitleTrackOrigin } from "../shared/video-dto.js";
 import {
   buildSubtitleSourceKey,
   trackTranslatedSlotId,
@@ -41,6 +42,9 @@ export interface TranslatedTrackSourceSpec {
   selectedSubtitleUrl?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   targetLang: string;
 }
 
@@ -185,9 +189,21 @@ export function chunkIndexForTimeSec(fromSec: unknown): number {
   return Math.floor((Number(fromSec) || 0) / TRANSLATION_CHUNK_SEC);
 }
 
-function inferDefaultProtocolMode(isAsrSource: boolean, trackLan: unknown): TranslationProtocolMode {
-  const lanLower = String(trackLan ?? "").trim().toLowerCase();
-  return isAsrSource || lanLower.startsWith("ai-") ? "boundary-v3" : "cc-json";
+function inferDefaultProtocolMode(source: TranslatedTrackSourceSpec): TranslationProtocolMode {
+  if (source.isAsrSource) {
+    return "boundary-v3";
+  }
+  const trackKind = classifySubtitleTrack({
+    id: source.selectedSubtitleId,
+    lan: source.trackLan || source.selectedSubtitleLang,
+    subtitleUrl: source.selectedSubtitleUrl,
+    origin: source.origin,
+    kind: source.kind,
+    source: source.source
+  });
+  return trackKind === "asr" || trackKind === "bili-ai" || trackKind === "youtube-auto"
+    ? "boundary-v3"
+    : "cc-json";
 }
 
 function computeItemsRange(items: readonly SubtitleBodyItem[]): { from: number; to: number } | undefined {
@@ -292,7 +308,7 @@ export function createTranslatedTrackSession(
         items: itemsForProbe
       });
     }
-    return inferDefaultProtocolMode(source.isAsrSource, trackLan);
+    return inferDefaultProtocolMode(source);
   }
 
   function computeSignature(protocol: TranslationProtocolMode): string {

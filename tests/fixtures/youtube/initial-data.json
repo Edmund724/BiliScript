@@ -1,0 +1,72 @@
+{
+  "currentVideoEndpoint": {
+    "watchEndpoint": {
+      "videoId": "ytDemo01234"
+    }
+  },
+  "playerOverlays": {
+    "playerOverlayRenderer": {
+      "decoratedPlayerBarRenderer": {
+        "decoratedPlayerBarRenderer": {
+          "playerBar": {
+            "multiMarkersPlayerBarRenderer": {
+              "markersMap": [
+                {
+                  "key": "DESCRIPTION_CHAPTERS",
+                  "value": {
+                    "chapters": [
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Intro"
+                          },
+                          "timeRangeStartMillis": 0
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Core Pipeline"
+                              }
+                            ]
+                          },
+                          "timeRangeStartMillis": 65000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Summary"
+                          },
+                          "timeRangeStartMillis": 145000
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "engagementPanels": [
+    {
+      "engagementPanelSectionListRenderer": {
+        "panelIdentifier": "engagement-panel-searchable-transcript",
+        "content": {
+          "continuationItemRenderer": {
+            "continuationEndpoint": {
+              "getTranscriptEndpoint": {
+                "params": "Cgt5dERlbW8wMTIzNF9wYXJhbXM%3D"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
