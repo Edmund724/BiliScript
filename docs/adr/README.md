@@ -26,6 +26,7 @@
 | [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
 | [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
 | [0020](0020-detached-reader-window.md) | 文摘面板独立窗口双模式承载与跨文档 DOM 搬移边界 | 同源跨文档搬移整棵面板；置顶画中画（Document PiP）与普通窗口（`window.open`）双模式；固定 4 键位与系统 `×` 关壳；尺寸记本机 `local`；禁跨进程扩展页与搬移宿主 `<video>` |
+| [0021](0021-multi-site-and-youtube-core.md) | 多站点抽象边界、YouTube 首期能力范围与跨站存储键兼容策略 | 显式 `site` + 编码安全键零迁移兼容；站点适配器懒加载守 40KB 常驻与 256KB 后台上限；YouTube 同源主世界 + `timedtext`/`get_transcript` 三级采集；首期门控收窄核心闭环 |
 
 ## 审查红线
 
@@ -40,6 +41,7 @@
 - **ADR-0015：不得将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script**（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017：不得将 `<all_urls>` 或 `https://*/*` 移入任一端常驻 `host_permissions`；不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`；二期立项前不得在 Firefox 暴露未验收的 `live` 或 `tts` 入口**。
 - **ADR-0020：不得为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像同步）或将 B 站 `<video>` 宿主节点搬入独立窗口；独立窗口像素宽高记忆不得写入 `chrome.storage.sync`**。
+- **ADR-0021：不得将未编码的原始 YouTube 视频 ID（含 `_`）直接拼入以下划线/冒号切分的存储键或将内部转义键泄漏至 UI/导出；不得将 YouTube `kind: "asr"` 平台自动字幕归入本扩展 `asr` 伪轨；不得伪装 `ANDROID` / `IOS` 客户端绕过 YouTube `timedtext` PO Token 校验；二期立项前不得在 YouTube 暴露未验收的 ASR、实时伴看、播放器叠层/快捷 AI/扩展倍速、历史三帧或 Agent 桥接入口**。
 
 红线只覆盖已被否决过的方向，未裁决事项按常规架构评审走。
 

@@ -24,6 +24,7 @@ Architecture review — human or AI — must not re-propose the directions below
 - **ADR-0015**: 将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017**: 将 `<all_urls>` / `https://*/*` 移入常驻 `host_permissions`；在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` 或 `scrollbar-color`；二期立项前在 Firefox 暴露未验收的 `live` 或 `tts` 入口。
 - **ADR-0020**: 为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像）或搬移 B 站 `<video>` 宿主节点；将独立窗口像素宽高记忆写入 `chrome.storage.sync`。
+- **ADR-0021**: 将未编码的原始 YouTube 视频 ID（含 `_`）直接拼入以下划线/冒号切分的存储键或将内部转义键泄漏至 UI/导出；将 YouTube `kind: "asr"` 平台自动字幕归入本扩展 `asr` 伪轨；伪装 `ANDROID` / `IOS` 客户端绕过 `timedtext` PO Token；二期立项前在 YouTube 暴露未验收的 ASR、实时伴看、播放器叠层/快捷 AI/扩展倍速、历史三帧或 Agent 桥接入口。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 

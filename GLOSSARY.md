@@ -1,6 +1,6 @@
 # BiliScript 词表
 
-BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码、讨论、issue 里的命名，避免同义词漂移。
+BiliScript（多站点视频文摘，覆盖 B 站与 YouTube）浏览器扩展的领域词表。统一代码、讨论、issue 里的命名，避免同义词漂移。
 
 ## 术语
 
@@ -36,22 +36,35 @@ _Avoid_: 闪避、音频躲避、自动静音
 
 ### 内容与载体
 
+**站点**:
+扩展支持的视频托管平台，封闭枚举 `bilibili | youtube`（未登记存量数据缺省视为 `bilibili`）。用于隔离视频身份、适配器懒加载、页面锚点、提示词参数化与站点能力门控（如历史截帧、无字幕 ASR、实时伴看等）。ADR-0021。
+代码名：`site` / `SiteId` / `SiteCapabilities`
+_Avoid_: 平台（词表已专指 AI / ASR / 搜索 / 伴看平台）、来源、网站
+
 **视频**:
-B 站上的一条视频，由 `bvid` 与分P `cid` 唯一标识。
-代码名：`state.clip` / `bvid` / `bilibili/video-id-shared.js`
-_Avoid_: 稿件、作品
+某**站点**上的一条视频内容，由「站点 + 原始外部视频 ID + 内容单元 ID」唯一标识：B 站为 `(bilibili, bvid, 分P cid)`，YouTube 为 `(youtube, 11 位 videoId, 单单元)`。对外展示、URL 与模板导出始终使用原始外部视频 ID；内部持久化键经**视频存储键**编码隔离，不得将内部转义键泄漏至界面或导出文件。ADR-0021。
+代码名：`state.clip` / `site` / `bvid` / `videoId` / `bilibili/video-id-shared.ts`
+_Avoid_: 稿件、作品、把 YouTube 视频 ID 称作 `bvid`
+
+**视频存储键**:
+扩展源 IndexedDB 与本地缓存中标识某条视频的持久化键编码：B 站沿用存量 `(bvid, cid)` 字节面实现零迁移兼容；YouTube 采用不含 `_` 与 `:` 分隔符的确定性命名空间编码键并配固定单单元 `cid`（防止 YouTube 11 位 ID 中的 `_` 撞坏既有分隔解析），且写入路径直接传递结构化键字段不再反向切割字符串。ADR-0021。
+_Avoid_: 把内部转义存储键当作原始视频 ID 展示或写入导出模板、直接把含 `_` 的 YouTube ID 塞进未编码的 `bvid` 槽
 
 **分P**:
-一个视频下的多段内容单元，以 `cid` 标识。
+B 站视频特有的多段内容单元，以 `cid` 标识；YouTube 视频无分P，映射为单一内容单元。
 代码名：`pageIndex` / `pageTitle` / `pickPageFromPages`（reader/page-context.js）——自有抽象沿用 B 站 API 的 page 词根，Avoid 只约束中文行文与新增抽象。
 _Avoid_: Part、页、集数
 
 **字幕**:
-视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
-同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
-同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目，上下行语序由 `bilingualDisplayOrder`（`original-first` 主轨/原文在上、`translation-first` 副轨/译文在上）统一控制文摘面板、播放器叠层与 TXT/Markdown/SRT 导出。轨道按性质分为原生人工轨（`manual-cc`）、B 站机器轨（`bili-ai`，混源列表显式标 `（B 站 AI）`，紧凑 trigger 保持裸语言名）与本扩展转写伪轨（`asr`）；语种族经 `getLangFamily` 归一（如繁简及 `ai-zh`/`asr-zh` 同属 `"zh"` 族）。跨语种原生多轨默认零 Token 配对两条原生真轨，并支持手动切至「改用 AI 重新精翻」或混源场景下的「基于原版外语轨 AI 精翻」；单语种视频（单条 CC、纯繁简同族多轨）与 ASR 伪轨视频开启双语时进入 AI 译文副轨模式，目标语言经 `resolveTargetLang` 自动剔除与源轨同语种族的选项（源轨属 `"zh"` 族时默认切为英语）。
+视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时（支持站点）经语音识别（ASR）生成，仍是字幕。
+同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文；YouTube 支持多条原生人工轨及平台自动生成字幕。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。B 站轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与站点轨同列一张表。
+同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目，上下行语序由 `bilingualDisplayOrder`（`original-first` 主轨/原文在上、`translation-first` 副轨/译文在上）统一控制文摘面板、播放器叠层与 TXT/Markdown/SRT 导出。轨道按性质分为原生人工轨（`manual-cc`）、**平台自动字幕**（B 站机器轨 `bili-ai` 标 `（B 站 AI）`，YouTube 自动轨标 `（YouTube 自动）`，紧凑 trigger 保持裸语言名）与本扩展转写伪轨（`asr`）；语种族经 `getLangFamily` 归一（如繁简及 `ai-zh`/`asr-zh` 同属 `"zh"` 族）。跨语种原生多轨默认零 Token 配对两条原生真轨，并支持手动切至「改用 AI 重新精翻」或混源场景下的「基于原版外语轨 AI 精翻」；单语种视频（单条 CC、纯繁简同族多轨）与 ASR 伪轨视频开启双语时进入 AI 译文副轨模式（YouTube 首期复用现有 `Index-Translate` 或自定义 AI 翻译链，不合成 YouTube `tlang` 虚拟轨），目标语言经 `resolveTargetLang` 自动剔除与源轨同语种族的选项（源轨属 `"zh"` 族时默认切为英语）。
 代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitle/signature.ts`（`normalizeSubtitleItems` / `buildSubtitleSignature` / `buildSubtitleCandidates`）/ `subtitleLang` / `subtitleList` / `ReadingSubtitleItem` / `clip.secondarySubtitle` / `bilingualSubtitles` / `secondarySubtitleLang` / `bilingualDisplayOrder` / `getLangFamily` / `classifySubtitleTrack` / `resolveTargetLang` / `findTrackByPreferredLang` / `secondaryContentFor` / `reader/asr-translation.js` / `subtitle/asr-translation.js` / `reader/secondary-subtitle.js` / `subtitle/body.js`
 _Avoid_: 转录、transcript、把同语种族繁简轨配成假双语、同语种族自翻译（如 `zh -> zh`）、把副轨与主轨写成同一份 body 或同一个装载态
+
+**平台自动字幕**:
+视频**站点**自身生成的机器字幕轨（B 站 `ai-*` 机器轨与 YouTube `kind: "asr"` 自动生成字幕），与本扩展自配平台转写伪轨（`asr`）严格隔离：不得写入 `id_asr:` 缓存命名空间或触发扩展 ASR 孤儿清理；无标点断句与双语 AI 精翻统一走无标点断句与 `boundary-v3` 协议，界面按站点标注 `（B 站 AI）` 或 `（YouTube 自动）`。ADR-0021。
+_Avoid_: 把 YouTube 的 `kind: "asr"` 直接归入本扩展的 `asr` 伪轨、在 YouTube 页面把自动字幕标作 `（B 站 AI）`
 
 **章节**:
 视频自带的分段 `{from, to, title}`。
@@ -103,7 +116,7 @@ _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 
 _Avoid_: 浮窗（已属伴看浮窗与居中浮层）、弹窗（避免与扩展 action popup 或权限授权弹窗混淆）、小窗（避免与 B 站视频小窗混淆）
 
 **右栏锚点**:
-文摘面板贴栏定位的参考节点，按优先级串行试探的右栏候选链（新版 `.right-container-inner` 起，旧版 `#reco_list` 止），有效判据 = 存在 + 宽度 ≥ 280 + 未滚出视口。唯一随 B 站改版会坏的面板依赖；坏的表现是降级跑位，不是功能失效。
+文摘面板贴栏定位的参考节点，按站点路由到对应的右栏候选链：B 站从新版 `.right-container-inner` 至旧版 `#reco_list` 串行试探；YouTube 锚定 `#secondary`，剧场模式（`ytd-watch-flexy[theater]` / `[full-bleed-player]`）或 `#secondary` 落至播放器下方时跳过贴栏并降级居中浮层，切换模式时监听重排。有效判据 = 存在 + 宽度 ≥ 280 + 未滚出视口。唯一随站点页面改版会坏的面板依赖；坏的表现是降级跑位，不是功能失效。
 代码名：`ANCHOR_SELECTORS` / `findScriptAnchor`（reader/script-host.ts）
 _Avoid_: 宿主、播放器宿主（那是 video-probe 的概念）
 
@@ -167,8 +180,8 @@ _Avoid_: 把重置做成带框文字键、偏离默认值时不更新禁用与�
 ### 总结流程
 
 **成稿笔记**:
-AI 总结阶梯（ADR-0012）的内部中间产物——素材在预算内一次成稿、超预算经「分段 + 归并」后成稿的完整 Markdown 总结，用于追问时的常驻压缩上下文，不是面向用户的笔记功能。产品已无笔记功能（原 Frontmatter 笔记导出 2026-09 删除）；`notes/` 目录仅承担字幕导出渲染（Markdown/SRT/TXT）。
-代码名：`ai/followup-context.js` 的 `hasFinalNote`（判定已成稿）/ `notes/render.js` 的 `buildMarkdown`（导出渲染）
+AI 总结阶梯（ADR-0012）的内部中间产物——素材在预算内一次成稿、超预算经「分段 + 归并」后成稿的完整 Markdown 总结，用于追问时的常驻压缩上下文，不是面向用户的笔记功能。`notes/` 目录承担字幕导出渲染（Markdown / SRT / TXT）与模板化 Markdown / Obsidian 导出（支持 `{{videoId}}` / `{{site}}`，并保留 `{{bvid}}` 作为兼容别名在 YouTube 填入原始外部视频 ID，严禁输出内部转义存储键）。
+代码名：`ai/followup-context.js` 的 `hasFinalNote`（判定已成稿）/ `notes/render.js` 的 `buildMarkdown`（字幕导出渲染）/ `notes/export-actions.ts`（模板导出）
 _Avoid_: 总结、摘要、回答；也不要再引入「保存笔记 / 笔记库」这类用户功能命名
 
 **音频分片**:
@@ -201,7 +214,7 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：全片简介 + 章节列表 + 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界；时间轴有效章节不超过 9 个时由模型补一句话说明，达到 10 个时只保留标题。
+文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：全片简介 + 章节列表 + 金句。分章来源优先级：视频简介（及 B 站热门评论）里的时间戳目录 > 站点官方/自动章节（B 站 `view_points` / YouTube 官方与自动章节）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界；时间轴有效章节不超过 9 个时由模型补一句话说明，达到 10 个时只保留标题。
 代码名：`ai/analysis.js`（`runOverviewAnalysis`）/ `shared/chapter-outline.js`（`resolveChapterSource`）
 _Avoid_: 总览
 
