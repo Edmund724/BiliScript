@@ -257,8 +257,11 @@ async function startMockBilibiliProxy() {
   const { keyPem, certPem } = createSelfSignedCert([
     "www.bilibili.com",
     "api.bilibili.com",
-    "aisubtitle.hdslb.com"
+    "aisubtitle.hdslb.com",
+    "api.deepseek.com"
   ]);
+
+  let deepseekRequestCount = 0;
 
   const tlsHttpServer = http.createServer((req, res) => {
     const host = String(req.headers.host || "").split(":")[0];
@@ -338,6 +341,26 @@ async function startMockBilibiliProxy() {
       );
       return;
     }
+    if (host === "api.deepseek.com" && /\/chat\/completions$/.test(parsedUrl.pathname)) {
+      deepseekRequestCount += 1;
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" });
+      const payload = JSON.stringify({
+        summary: "Firefox 真机流式概览摘要",
+        chapters: [
+          { title: "开篇", summary: "Firefox 冒烟章节摘要", timestampSeconds: 0 }
+        ],
+        keyQuotes: [
+          { quote: "Firefox 独立窗口冒烟字幕第一句", timestampSeconds: 0 }
+        ]
+      });
+      const mid = Math.floor(payload.length / 2);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: payload.slice(0, mid) } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: payload.slice(mid) } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
     res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
     res.end("{}");
   });
@@ -381,6 +404,7 @@ async function startMockBilibiliProxy() {
 
   return {
     port,
+    getDeepseekRequestCount: () => deepseekRequestCount,
     async close() {
       for (const s of activeSockets) {
         try {
@@ -859,6 +883,34 @@ export async function runDetachedReaderSmoke({
     const extOriginPrefix = `moz-extension://${policyInfo.uuid}/entry/styles/`;
 
     await client.setContext("content");
+    await client.send("WebDriver:Navigate", { url: `moz-extension://${policyInfo.uuid}/onboarding.html` });
+    const seedResult = await client.executeAsync(`
+      const done = arguments[arguments.length - 1];
+      (async () => {
+        const pRes = await browser.runtime.sendMessage({
+          type: "ai-providers-save",
+          providers: [{
+            id: "deepseek",
+            presetId: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+            requiresKey: true,
+            enabled: true,
+            protocol: "openai",
+            apiKey: "sk-fx-smoke-test"
+          }]
+        });
+        const sRes = await browser.runtime.sendMessage({
+          type: "save-settings",
+          settings: { defaultModel: "deepseek", defaultAiModel: "deepseek-chat" }
+        });
+        return { pRes, sRes };
+      })().then(done, (err) => done({ error: String(err?.message || err) }));
+    `);
+    if (!seedResult?.pRes?.ok || !seedResult?.sRes?.ok) {
+      throw new Error(`Failed to seed DeepSeek config for Firefox smoke: ${JSON.stringify(seedResult)}`);
+    }
     await client.send("WebDriver:Navigate", { url: TEST_VIDEO_URL });
 
     await findAndClick(client, "#biliscript-script-button", "F1-script-button");
@@ -875,6 +927,37 @@ export async function runDetachedReaderSmoke({
     handlesBeforeF2List = await client.getWindowHandles();
     const handlesBeforeF2 = new Set(handlesBeforeF2List);
     record("fx-content-script-and-reader-open-on-bilibili-scope", Boolean(f1State?.ready), f1State);
+
+    stepTag = "F1b-stream-overview";
+    await waitFor("F1b subtitles ready", async () =>
+      client.executeSync(`
+        const v = document.getElementById("biliscript-reading-view");
+        return Boolean(v && (v.textContent || "").includes("Firefox 独立窗口冒烟字幕第一句"));
+      `)
+    );
+    await findAndClick(client, "#biliscript-reading-tab-overview", "F1b-overview-tab");
+    const overviewState = await waitFor("F1b overview stream result", async () =>
+      client.executeSync(`
+        const body = document.getElementById("biliscript-reading-overview-body");
+        if (!body) return null;
+        const errStrip = body.querySelector(".biliscript-reading-ov-strip.is-error");
+        if (errStrip) {
+          return { done: true, ok: false, errorText: (errStrip.textContent || "").trim(), summaryText: "" };
+        }
+        const summary = body.querySelector(".biliscript-reading-ov-summary");
+        if (summary && (summary.textContent || "").includes("Firefox 真机流式概览摘要")) {
+          return { done: true, ok: true, errorText: "", summaryText: (summary.textContent || "").trim() };
+        }
+        return null;
+      `)
+    );
+    const deepseekCalls = proxy.getDeepseekRequestCount();
+    record(
+      "fx-content-script-offscreen-stream-overview",
+      Boolean(overviewState?.ok && deepseekCalls >= 1),
+      { overviewState, deepseekCalls }
+    );
+    await findAndClick(client, "#biliscript-reading-tab-subtitle", "F1b-back-to-subtitle-tab");
 
     stepTag = "F2-click-detach";
     await findAndClick(client, "#biliscript-reading-detach-btn", "F2-detach-btn");
@@ -1016,7 +1099,7 @@ export async function runDetachedReaderSmoke({
     });
     record("fx-opener-pagehide-closes-detached-window", Boolean(f5OrphanClosed), { orphanHandle, f5OrphanClosed });
 
-    const allOk = checks.length === 5 && checks.every((c) => c.ok);
+    const allOk = checks.length === 6 && checks.every((c) => c.ok);
     return {
       ok: allOk,
       status: allOk ? "passed" : "failed",
@@ -1096,7 +1179,7 @@ async function runCli() {
         "  FIREFOX_BIN  Override Firefox executable path",
         "",
         "Exit codes:",
-        "  0  All 5 detached-reader checks passed",
+        "  0  All 6 detached-reader checks passed",
         "  1  Missing dist-firefox build, invalid FIREFOX_BIN, or assertion/runtime failure",
         "  2  Firefox executable not found on this machine (skipped)"
       ].join("\n")

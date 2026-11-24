@@ -78,6 +78,157 @@ export const providerFetchViaOffscreen: ProviderTransport = Object.assign(
   { supportsStreaming: true as const }
 );
 
+type StreamReadWaiter = {
+  resolve: (result: ReadableStreamReadResult<Uint8Array>) => void;
+  reject: (error: unknown) => void;
+};
+
+interface PortStreamResponseHandle {
+  enqueue: (chunk: Uint8Array) => void;
+  close: () => void;
+  error: (err: Error) => void;
+  toResponse: (status: unknown) => Response;
+}
+
+function createPortStreamResponse(onCancel: () => void): PortStreamResponseHandle {
+  const chunks: Uint8Array[] = [];
+  const waiters: StreamReadWaiter[] = [];
+  let closed = false;
+  let cancelled = false;
+  let failedError: Error | null = null;
+  let locked = false;
+  let bodyUsed = false;
+
+  const flushWaitersDone = (): void => {
+    while (waiters.length > 0) {
+      waiters.shift()!.resolve({ value: undefined, done: true });
+    }
+  };
+
+  const enqueue = (chunk: Uint8Array): void => {
+    if (closed || cancelled || failedError) {
+      return;
+    }
+    const waiter = waiters.shift();
+    if (waiter) {
+      waiter.resolve({ value: chunk, done: false });
+      return;
+    }
+    chunks.push(chunk);
+  };
+
+  const close = (): void => {
+    if (closed || cancelled || failedError) {
+      return;
+    }
+    closed = true;
+    flushWaitersDone();
+  };
+
+  const error = (err: Error): void => {
+    if (closed || cancelled || failedError) {
+      return;
+    }
+    failedError = err;
+    chunks.length = 0;
+    while (waiters.length > 0) {
+      waiters.shift()!.reject(err);
+    }
+  };
+
+  const cancelStream = (): void => {
+    if (closed || cancelled || failedError) {
+      return;
+    }
+    cancelled = true;
+    chunks.length = 0;
+    flushWaitersDone();
+    onCancel();
+  };
+
+  const body = {
+    get locked(): boolean {
+      return locked;
+    },
+    getReader() {
+      if (locked) {
+        throw new TypeError("ReadableStream is locked");
+      }
+      locked = true;
+      return {
+        read(): Promise<ReadableStreamReadResult<Uint8Array>> {
+          if (failedError) {
+            return Promise.reject(failedError);
+          }
+          if (chunks.length > 0) {
+            return Promise.resolve({ value: chunks.shift()!, done: false });
+          }
+          if (closed || cancelled) {
+            return Promise.resolve({ value: undefined, done: true });
+          }
+          return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+            waiters.push({ resolve, reject });
+          });
+        },
+        cancel(): Promise<void> {
+          cancelStream();
+          return Promise.resolve();
+        },
+        releaseLock(): void {
+          locked = false;
+        }
+      };
+    },
+    cancel(): Promise<void> {
+      if (locked) {
+        return Promise.reject(new TypeError("ReadableStream is locked"));
+      }
+      cancelStream();
+      return Promise.resolve();
+    }
+  };
+
+  const toResponse = (rawStatus: unknown): Response => {
+    const status = normalizeResponseStatus(rawStatus);
+    const ok = status >= 200 && status < 300;
+    const text = async (): Promise<string> => {
+      if (bodyUsed) {
+        throw new TypeError("Body has already been used");
+      }
+      const reader = body.getReader();
+      bodyUsed = true;
+      const decoder = new TextDecoder();
+      let result = "";
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          result += decoder.decode(value, { stream: true });
+        }
+        result += decoder.decode();
+        return result;
+      } finally {
+        reader.releaseLock();
+      }
+    };
+    const json = async (): Promise<unknown> => JSON.parse(await text());
+    return {
+      status,
+      ok,
+      body,
+      get bodyUsed(): boolean {
+        return bodyUsed;
+      },
+      text,
+      json
+    } as unknown as Response;
+  };
+
+  return { enqueue, close, error, toResponse };
+}
+
 function openProviderStream(
   port: chrome.runtime.Port,
   payload: OffscreenProviderHttpPortMessage,
@@ -86,7 +237,6 @@ function openProviderStream(
   const encoder = new TextEncoder();
 
   return new Promise<Response>((resolve, reject) => {
-    let streamController!: ReadableStreamDefaultController<Uint8Array>;
     let settled = false;
     let streamDone = false;
     let ackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -105,13 +255,19 @@ function openProviderStream(
       } catch {
       }
     };
+    const portStream = createPortStreamResponse(() => {
+      if (!streamDone) {
+        streamDone = true;
+        releasePort();
+      }
+    });
     const closeStream = (): void => {
       if (streamDone) {
         return;
       }
       streamDone = true;
       releasePort();
-      streamController.close();
+      portStream.close();
     };
     const failStream = (message: string): void => {
       if (streamDone) {
@@ -119,7 +275,7 @@ function openProviderStream(
       }
       streamDone = true;
       releasePort();
-      streamController.error(new Error(message));
+      portStream.error(new Error(message));
     };
     const onAbort = (): void => {
       if (!settled) {
@@ -130,18 +286,6 @@ function openProviderStream(
       }
       failStream("请求已中止");
     };
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        streamController = controller;
-      },
-      cancel() {
-        if (!streamDone) {
-          streamDone = true;
-          releasePort();
-        }
-      }
-    });
 
     port.onMessage.addListener((raw) => {
       const reply = raw as OffscreenProviderHttpPortReply;
@@ -162,14 +306,14 @@ function openProviderStream(
       }
       if (!settled) {
         settled = true;
-        resolve(new Response(stream, { status: normalizeResponseStatus(reply.status) }));
+        resolve(portStream.toResponse(reply.status));
         return;
       }
       if (streamDone) {
         return;
       }
       if (reply.chunk) {
-        streamController.enqueue(encoder.encode(String(reply.chunk)));
+        portStream.enqueue(encoder.encode(String(reply.chunk)));
         return;
       }
       if (reply.done) {

@@ -564,6 +564,79 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       vi.useRealTimers();
     }
   });
+
+  it("宿主 ReadableStream 构造抛 Firefox Xray 权限错时仍正常流式读取与 text() 消费", async () => {
+    const prevReadableStream = globalThis.ReadableStream;
+    const readableStreamStub = vi.fn(() => {
+      throw new Error('Permission denied to access property "autoAllocateChunkSize"');
+    });
+    vi.stubGlobal("ReadableStream", readableStreamStub);
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pendingStream = providerFetchViaOffscreen("https://api.example.com/v1/chat/completions", { method: "POST" });
+      await vi.waitFor(() => expect(lastPort).toBeTruthy());
+      lastPort!.send({ ok: true, status: 200 });
+      const streamResp = await pendingStream;
+      const reader = streamResp.body!.getReader();
+      const decoder = new TextDecoder();
+
+      lastPort!.send({ ok: true, status: 200, chunk: "data: a\n\n" });
+      expect(decoder.decode((await reader.read()).value)).toBe("data: a\n\n");
+      lastPort!.send({ ok: true, status: 200, done: true });
+      expect((await reader.read()).done).toBe(true);
+
+      const pendingText = providerFetchViaOffscreen("https://api.example.com/v1/chat/completions", { method: "POST" });
+      await vi.waitFor(() => expect(connected).toHaveLength(2));
+      lastPort!.send({ ok: true, status: 200 });
+      const textResp = await pendingText;
+      lastPort!.send({ ok: true, status: 200, chunk: "完整" });
+      lastPort!.send({ ok: true, status: 200, chunk: "摘要" });
+      lastPort!.send({ ok: true, status: 200, done: true });
+      expect(await textResp.text()).toBe("完整摘要");
+
+      expect(readableStreamStub).not.toHaveBeenCalled();
+    } finally {
+      vi.stubGlobal("ReadableStream", prevReadableStream);
+    }
+  });
+
+  it("消费端 reader.cancel() 释放端口并终止后续读取", async () => {
+    const { providerFetchViaOffscreen } = await loadModule();
+
+    const pending = providerFetchViaOffscreen("https://api.example.com/v1/chat/completions", { method: "POST" });
+    await vi.waitFor(() => expect(lastPort).toBeTruthy());
+    lastPort!.send({ ok: true, status: 200 });
+    const resp = await pending;
+    const reader = resp.body!.getReader();
+
+    await reader.cancel();
+
+    expect(lastPort!.disconnectMock).toHaveBeenCalledTimes(1);
+    expect(await reader.read()).toEqual({ value: undefined, done: true });
+  });
+
+  it("支持 json() 解析且流中途报错拒绝未读缓冲而非吐出截断数据", async () => {
+    const { providerFetchViaOffscreen } = await loadModule();
+
+    const pendingJson = providerFetchViaOffscreen("https://api.example.com/v1/chat/completions", { method: "POST" });
+    await vi.waitFor(() => expect(lastPort).toBeTruthy());
+    lastPort!.send({ ok: true, status: 200 });
+    const jsonResp = await pendingJson;
+    lastPort!.send({ ok: true, status: 200, chunk: '{"ok":' });
+    lastPort!.send({ ok: true, status: 200, chunk: "true}" });
+    lastPort!.send({ ok: true, status: 200, done: true });
+    expect(await jsonResp.json()).toEqual({ ok: true });
+
+    const pendingErr = providerFetchViaOffscreen("https://api.example.com/v1/chat/completions", { method: "POST" });
+    await vi.waitFor(() => expect(connected).toHaveLength(2));
+    lastPort!.send({ ok: true, status: 200 });
+    const errResp = await pendingErr;
+    lastPort!.send({ ok: true, status: 200, chunk: "未消费的半截数据" });
+    lastPort!.send({ ok: false, error: "truncated" });
+
+    await expect(errResp.text()).rejects.toThrow("truncated");
+  });
 });
 
 describe("attachProviderHttpPort（offscreen 侧）", () => {

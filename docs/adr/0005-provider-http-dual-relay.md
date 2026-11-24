@@ -11,7 +11,7 @@
 通道选择在各业务链静态装配（能力由 `ProviderTransport.supportsStreaming` 表达），不做运行时切换或失败回落：
 
 - **SW 短请求代发**（`extension/core/provider-http.ts`）：服务连通性探针、划词选区解释、联网搜索、AI / ASR 模型列表拉取等非流式短请求（`supportsStreaming: false`），固定 15s 超时覆盖响应头与正文，受后台生命周期约束。
-- **Offscreen 长流式代发**（`extension/core/provider-http-offscreen.ts`，端口 `provider-http-offscreen`）：服务概览生成、快捷提问生成、AI 字幕翻译、视频伴看后台任务 4 条流式或分钟级长请求链（`supportsStreaming: true`）。一请求一端口、不设硬超时（由取消键或端口断连中止），一律按「响应头 `{ok, status}` → 正文分片 `{ok, chunk}` → `{done: true}`」流式分块回吐并在 Content 侧合成 `ReadableStream` `Response`，避免非流式长请求触发平台网关无字节超时（输出 token 上限治理见 [ADR-0006](0006-output-budget-wide-default-retreat-learned-cap.md)）。
+- **Offscreen 长流式代发**（`extension/core/provider-http-offscreen.ts`，端口 `provider-http-offscreen`）：服务概览生成、快捷提问生成、AI 字幕翻译、视频伴看后台任务 4 条流式或分钟级长请求链（`supportsStreaming: true`）。一请求一端口、不设硬超时（由取消键或端口断连中止），一律按「响应头 `{ok, status}` → 正文分片 `{ok, chunk}` → `{done: true}`」流式分块回吐并在 Content 侧合成同 realm 流式响应对象，避免非流式长请求触发平台网关无字节超时（输出 token 上限治理见 [ADR-0006](0006-output-budget-wide-default-retreat-learned-cap.md)）。
 
 ### 2. Offscreen 代发端口 2s 活性确认（防死通道空挂）
 

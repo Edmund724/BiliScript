@@ -33,6 +33,7 @@
 ### 5. `XrayWrapper`、CSS 滚动条隔离与功能门控边界
 
 - **禁劫持 DOM 属性描述符**：Firefox Content Script 的 `XrayWrapper` 会使覆写原生 DOM 属性描述符（如拦截 `hidden`）失效，组件显隐同步统一使用原生 `MutationObserver`（`attributeFilter: ["hidden"]`）。
+- **Content Script 禁止构造 `new ReadableStream({...})`**：Firefox Content Script 的 `XrayWrapper` 会在构造 WebIDL `ReadableStream` 时跨 compartment 读取沙箱配置对象属性（触发 `Permission denied to access property "autoAllocateChunkSize"`），流式代发在同 realm 用纯 JS 队列合成响应对象。
 - **Firefox 滚动条样式隔离**：`scrollbar-width` 与 `scrollbar-color` 必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写以免覆盖 Chromium 121+ 的 `::-webkit-scrollbar` 定制样式；滑块补齐 `::-moz-range-track` / `::-moz-range-thumb`。
 - **门控隐藏 `tts` 与 `live`**：Firefox 无 `chrome.tts`，且实时伴看涉及媒体捕获前缀与 WSS DNR 差异，当前在 Firefox 下完整门控隐藏对话朗读、视频页伴看入口与设置分区，核心阅读（[ADR-0003](0003-light-dom-script-panel.md)）、双轨翻译、概览、对话、金句导出、Agent 桥接与无字幕 ASR 全量交付。
 
