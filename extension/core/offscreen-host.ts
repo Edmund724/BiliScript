@@ -9,6 +9,11 @@ import { createAsrSessionRuleManager } from "../asr/session-rule-manager.js";
 export const BILI_MEDIA_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
 export const BILI_MEDIA_ORIGIN_PAGE = "https://www.bilibili.com" as const;
 export const BILIBILI_TAB_URL_PATTERN = "*://*.bilibili.com/*" as const;
+export const YOUTUBE_TAB_URL_PATTERN = "https://www.youtube.com/*" as const;
+export const SUPPORTED_TAB_URL_PATTERNS = [
+  BILIBILI_TAB_URL_PATTERN,
+  YOUTUBE_TAB_URL_PATTERN
+] as const;
 
 export const INDEX_TRANSLATE_SESSION_RULE_ID = 9003;
 export const INDEX_TRANSLATE_DOMAIN = "index-translate.bilibili.com" as const;
@@ -116,6 +121,18 @@ export async function hasOpenBilibiliTabs(): Promise<boolean> {
   }
   try {
     const tabs = await chrome.tabs.query({ url: BILIBILI_TAB_URL_PATTERN });
+    return Array.isArray(tabs) && tabs.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+export async function hasOpenSupportedTabs(): Promise<boolean> {
+  if (typeof chrome === "undefined" || typeof chrome.tabs?.query !== "function") {
+    return true;
+  }
+  try {
+    const tabs = await chrome.tabs.query({ url: [...SUPPORTED_TAB_URL_PATTERNS] });
     return Array.isArray(tabs) && tabs.length > 0;
   } catch {
     return true;

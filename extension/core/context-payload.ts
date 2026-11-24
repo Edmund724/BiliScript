@@ -1,3 +1,4 @@
+import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
 import type {
   ClipState,
   ChapterItem,
@@ -10,6 +11,7 @@ import type {
 import type { Settings } from "./defaults.js";
 
 export type ReaderContextPayload = {
+  site: SiteId;
   url: string | undefined;
   title: string;
   author: string;
@@ -34,6 +36,7 @@ export type ReaderContextPayload = {
 };
 
 export const READER_CONTEXT_PAYLOAD_FIELDS: readonly (keyof ReaderContextPayload)[] = Object.freeze([
+  "site",
   "url",
   "title",
   "author",
@@ -67,8 +70,11 @@ export function createReaderContextPayload({
   url?: string;
 } = {}): ReaderContextPayload {
   const c = clip || {};
+  const rawSite = typeof c.site === "string" && c.site.trim() ? c.site : detectSiteFromUrl(url);
+  const site = normalizeSiteId(rawSite);
   const body = c.subtitleBody || [];
   const payload: ReaderContextPayload = {
+    site,
     url,
     title: c.title || "",
     author: c.author || "",
@@ -95,6 +101,7 @@ export function createReaderContextPayload({
 }
 
 export interface FetchedContextFacts {
+  site?: SiteId;
   bvid: string;
   cid: string;
   aid: string;
@@ -116,6 +123,7 @@ export interface FetchedContextFacts {
 }
 
 export function createFetchedContextPayload({
+  site,
   bvid,
   cid,
   aid,
@@ -136,7 +144,11 @@ export function createFetchedContextPayload({
   settings
 }: FetchedContextFacts): ReaderContextPayload {
   const body = Array.isArray(subtitleBody) ? subtitleBody : [];
+  const resolvedSite = normalizeSiteId(
+    typeof site === "string" && site.trim() ? site : detectSiteFromUrl(url)
+  );
   const merged: Partial<ClipState> = {
+    site: resolvedSite,
     title,
     author,
     uploadDate,
@@ -162,6 +174,7 @@ export function createFetchedContextPayload({
 type SignatureProjection = readonly [keyof ReaderContextPayload | "cid", (s: Partial<ReaderContextPayload>) => string | number];
 
 const SIGNATURE_FIELD_PROJECTIONS: readonly SignatureProjection[] = Object.freeze([
+  ["site", (s: Partial<ReaderContextPayload>) => normalizeSiteId(s.site ?? detectSiteFromUrl(s.url))],
   ["bvid", (s: Partial<ReaderContextPayload>) => String(s.bvid || "").trim()],
   ["cid", (s: Partial<ReaderContextPayload>) => String(s.cid || "").trim() || String(s.aid || "").trim()],
   ["pageIndex", (s: Partial<ReaderContextPayload>) => (Number(s.pageIndex) > 0 ? Number(s.pageIndex) : 1)],

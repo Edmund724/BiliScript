@@ -26,6 +26,16 @@ const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: st
     remedyText: "请登录 B 站后重新抓取",
     remedy: "retry-later"
   },
+  "youtube-no-subtitles": {
+    cause: "该 YouTube 视频未提供原生字幕或自动字幕。",
+    remedyText: "",
+    remedy: "none"
+  },
+  "youtube-captions-unavailable": {
+    cause: "未能获取该 YouTube 视频的字幕正文。",
+    remedyText: "请尝试在页面开启视频原生字幕开关后重试",
+    remedy: "retry-later"
+  },
   "no-asr-config": {
     cause: "语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。",
     remedyText: "请到设置页检查语音转写平台",
@@ -86,6 +96,8 @@ const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: st
 const ALL_REASONS: readonly NoSubtitleReason[] = [
   "upower-exclusive",
   "bili-login-required",
+  "youtube-no-subtitles",
+  "youtube-captions-unavailable",
   "no-asr-config",
   "asr-disabled",
   "asr-auth",
@@ -302,12 +314,13 @@ describe("reasonFromFailureKind：kind → reason（8 个失败类）", () => {
 describe("canRetryNoSubtitleOnSend：发送闸重抓策略单表口径", () => {
   const RETRYABLE_ON_SEND: readonly NoSubtitleReason[] = [
     "bili-login-required",
+    "youtube-captions-unavailable",
     "no-asr-config",
     "asr-disabled",
     "asr-auth"
   ];
 
-  it("仅可经配置或登录恢复的四个 reason 允许发送前重抓，其余与 null 一律拒绝", () => {
+  it("仅可经配置、登录或开启原生字幕恢复的五个 reason 允许发送前重抓，其余与 null 一律拒绝", () => {
     const allowed = nullableReasons.filter((reason) => canRetryNoSubtitleOnSend(reason));
     expect(allowed).toEqual(RETRYABLE_ON_SEND);
   });

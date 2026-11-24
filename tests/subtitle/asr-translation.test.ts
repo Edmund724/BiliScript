@@ -4,7 +4,20 @@ import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 const translator = vi.hoisted(() => ({
-  calls: [] as Array<{ count: number; targetLang: string }>,
+  calls: [] as Array<{
+    count: number;
+    targetLang: string;
+    startSec: number;
+    origin?: string;
+    kind?: string;
+    source?: string;
+  }>,
+  protocolInputs: [] as Array<{
+    selectedSubtitleId?: string;
+    origin?: string;
+    kind?: string;
+    source?: string;
+  }>,
   failStarts: new Set<number>(),
   gate: null as null | (() => void)
 }));
@@ -15,15 +28,30 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
+    resolveSubtitleTranslateProtocolMode: (input: Parameters<typeof actual.resolveSubtitleTranslateProtocolMode>[0]) => {
+      translator.protocolInputs.push({
+        selectedSubtitleId: input.selectedSubtitleId,
+        origin: input.origin,
+        kind: input.kind,
+        source: input.source
+      });
+      return actual.resolveSubtitleTranslateProtocolMode(input);
+    },
     translateSubtitleTrack: async ({
       items,
-      targetLang
+      targetLang,
+      origin,
+      kind,
+      source
     }: {
       items: Array<{ from: number; to: number; content: string }>;
       targetLang: string;
+      origin?: string;
+      kind?: string;
+      source?: string;
     }) => {
       const start = Math.floor((items[0]?.from || 0) / 60) * 60;
-      translator.calls.push({ count: items.length, targetLang });
+      translator.calls.push({ count: items.length, targetLang, startSec: start, origin, kind, source });
       if (translator.failStarts.has(start)) {
         throw new Error("平台 429");
       }
@@ -70,6 +98,7 @@ function cacheKeyFor(lang: string): string {
 beforeEach(async () => {
   resetModuleState();
   translator.calls = [];
+  translator.protocolInputs = [];
   translator.failStarts = new Set();
   translator.gate = null;
   module = await import("../../extension/subtitle/asr-translation.js");
@@ -109,7 +138,7 @@ describe("分片与覆盖", () => {
     const result = await module.ensureAsrSecondarySubtitle({ mode: "translate", targetLang: "en" });
 
     expect(translator.calls).toHaveLength(1);
-    expect(translator.calls[0]).toEqual({ count: 1, targetLang: "en" });
+    expect(translator.calls[0]).toMatchObject({ count: 1, targetLang: "en" });
     expect(result).toEqual({ kind: "done", total: 2, done: 2, failed: 0 });
   });
 
@@ -214,5 +243,66 @@ describe("片级容错与终态", () => {
 
     expect(result.kind).toBe("aborted");
     expect(translator.calls).toHaveLength(0);
+  });
+});
+
+describe("YouTube 轨道元数据透传与站点感知调度", () => {
+  it("youtube-auto 轨将 origin/kind/source 透传至协议路由与分块翻译，并按 YouTube readingVideoEl 播放位置优先调度", async () => {
+    clipState.setSite("youtube");
+    clipState.setBvid("ytAutoFix01");
+    clipState.setCid("yt");
+    clipState.setFetchRunId(9);
+    clipState.setSubtitles([
+      {
+        id: "custom-yt-track",
+        lan: "en",
+        lanDoc: "English (auto)",
+        subtitleUrl: "https://www.youtube.com/api/timedtext?v=ytAutoFix01",
+        origin: "youtube",
+        kind: "asr",
+        source: "youtube-auto"
+      }
+    ] as never);
+    clipState.setSelectedSubtitleId("custom-yt-track");
+    clipState.setSelectedSubtitleUrl("https://www.youtube.com/api/timedtext?v=ytAutoFix01");
+    clipState.setSelectedSubtitleLang("English");
+    clipState.setSubtitleBody([
+      { from: 2, to: 5, content: "First sentence." },
+      { from: 125, to: 130, content: "Later sentence." }
+    ] as never);
+    state.reader.readingVideoEl = {
+      isConnected: true,
+      currentTime: 126,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    } as unknown as HTMLVideoElement;
+
+    const result = await module.ensureAsrSecondarySubtitle({
+      mode: "translate",
+      targetLang: "zh",
+      runId: 9
+    });
+
+    expect(result).toEqual({ kind: "done", total: 2, done: 2, failed: 0 });
+    expect(translator.protocolInputs).toEqual([
+      {
+        selectedSubtitleId: "custom-yt-track",
+        origin: "youtube",
+        kind: "asr",
+        source: "youtube-auto"
+      }
+    ]);
+    expect(translator.calls[0]).toMatchObject({
+      startSec: 120,
+      origin: "youtube",
+      kind: "asr",
+      source: "youtube-auto"
+    });
+    expect(translator.calls[1]).toMatchObject({
+      startSec: 0,
+      origin: "youtube",
+      kind: "asr",
+      source: "youtube-auto"
+    });
   });
 });

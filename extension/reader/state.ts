@@ -37,7 +37,7 @@ export function isReadingOverviewBodyVisible(): boolean {
   );
 }
 
-import { uiState } from "../core/state.js";
+import { getReaderShellState, uiState } from "../core/state.js";
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { READER_GUARD_CLEAR_ATTRS, READER_GUARD_FILTER } from "./presentation-fields.js";
 
@@ -51,7 +51,10 @@ export function clearReaderModePageState() {
 }
 
 function shouldForceNormalPageState(url = location.href) {
-  return !isSupportedVideoPage(url) || (!isReaderMode(url) && !state.reader.readingViewOpen);
+  return (
+    !isSupportedVideoPage(url) ||
+    (!isReaderMode(url) && !state.reader.readingViewOpen && getReaderShellState() !== "entering")
+  );
 }
 
 export function enforceNormalPageStateIfNeeded(url = location.href) {

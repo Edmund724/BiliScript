@@ -1,9 +1,11 @@
 import { ids } from "./state.js";
+import { state } from "../core/state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
+import { getSiteCapabilities, type SiteId } from "../shared/site.js";
 
-export function buildChatTabBodyHtml(): string {
-  const liveEnabled = supportsLiveCompanion();
+export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
+  const liveEnabled = supportsLiveCompanion() && getSiteCapabilities(site).supportsLiveCompanion;
   return `
       <div id="${ids.readingChatRoot}" class="biliscript-reading-chat">
         <section id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>

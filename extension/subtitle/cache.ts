@@ -43,6 +43,7 @@ import {
   buildTranslatedTrackMapKey,
   createSubtitleIdbStore,
   mergeTranslatedItems,
+  resolveVideoStorageIdentity,
   sanitizeMonolingualItems,
   sanitizeTranslatedItems,
   type AiArtifactFamily,
@@ -64,6 +65,7 @@ import {
   setSubtitleCacheWriteInterceptorForTests
 } from "./store-client.js";
 import { SUBTITLE_CACHE_KEY_PREFIX, parseSubtitleCacheKey } from "./legacy-key.js";
+import type { SiteId } from "../shared/site.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 
 export {
@@ -112,12 +114,14 @@ export interface SubtitleCacheKeyOptions {
   bvid: string;
   cid: string;
   identity: TrackIdentity;
+  site?: SiteId;
 }
 
 export type SaveSubtitleResult = EvictionResult | EvictionFailure;
 
-export function getSubtitleCacheKey({ bvid, cid, identity }: SubtitleCacheKeyOptions): string {
-  return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${subtitleSourceKey(identity)}`;
+export function getSubtitleCacheKey({ bvid, cid, identity, site }: SubtitleCacheKeyOptions): string {
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  return `${CACHE_KEY_PREFIX}${resolved.bvid}_${resolved.cid}_${subtitleSourceKey(identity)}`;
 }
 
 function stableNumericField(value: unknown): string {
@@ -344,13 +348,19 @@ function clearPendingWriteTimer(pending: PendingTranslatedWrite): void {
 export interface FlushSubtitleCacheFilter {
   bvid?: string;
   cid?: string;
+  site?: SiteId;
 }
 
 export async function flushSubtitleCache(filter?: FlushSubtitleCacheFilter): Promise<void> {
   const registry = getSubtitleCacheLifecycleRegistry();
   const priorFlushes = Array.from(registry.inFlightFlushes);
-  const filterBvid = filter?.bvid ? String(filter.bvid).trim() : "";
-  const filterCid = filter?.cid ? String(filter.cid).trim() : "";
+  const rawFilterBvid = filter?.bvid ? String(filter.bvid).trim() : "";
+  const rawFilterCid = filter?.cid ? String(filter.cid).trim() : "";
+  const resolvedFilter = rawFilterBvid
+    ? resolveVideoStorageIdentity(rawFilterBvid, rawFilterCid, filter?.site)
+    : null;
+  const filterBvid = resolvedFilter ? resolvedFilter.bvid : "";
+  const filterCid = rawFilterCid ? (resolvedFilter ? resolvedFilter.cid : rawFilterCid) : "";
 
   const snapshot: PendingTranslatedWrite[] = [];
   for (const [key, entry] of registry.pendingTranslatedWrites.entries()) {
@@ -427,6 +437,7 @@ export interface LoadRawTrackOptions {
   cid: string;
   trackKey: string;
   legacyCacheKey?: string;
+  site?: SiteId;
 }
 
 export interface SaveRawTrackOptions {
@@ -436,16 +447,19 @@ export interface SaveRawTrackOptions {
   lang?: string;
   kind?: SubtitleTrackStorageKind;
   items: readonly unknown[];
+  site?: SiteId;
 }
 
 export async function loadRawSubtitleTrack({
   bvid,
   cid,
   trackKey,
-  legacyCacheKey
+  legacyCacheKey,
+  site
 }: LoadRawTrackOptions): Promise<SubtitleBodyItem[] | null> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanTrackKey = String(trackKey || "").trim();
   if (!cleanBvid || !cleanCid || !cleanTrackKey) {
     return null;
@@ -473,10 +487,12 @@ export async function saveRawSubtitleTrack({
   trackKey,
   lang,
   kind,
-  items
+  items,
+  site
 }: SaveRawTrackOptions): Promise<SaveSubtitleResult> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanTrackKey = String(trackKey || "").trim();
   const sanitized = sanitizeMonolingualItems(items);
   if (!cleanBvid || !cleanCid || !cleanTrackKey) {
@@ -508,6 +524,7 @@ export interface LoadSegmentedTrackOptions {
   cid: string;
   trackKey: string;
   segmentationSig: string;
+  site?: SiteId;
 }
 
 export interface SaveSegmentedTrackOptions extends LoadSegmentedTrackOptions {
@@ -518,10 +535,12 @@ export async function loadSegmentedSubtitleTrack({
   bvid,
   cid,
   trackKey,
-  segmentationSig
+  segmentationSig,
+  site
 }: LoadSegmentedTrackOptions): Promise<SubtitleBodyItem[] | null> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanTrackKey = String(trackKey || "").trim();
   const cleanSig = String(segmentationSig || "").trim();
   if (!cleanBvid || !cleanCid || !cleanTrackKey || !cleanSig) {
@@ -540,10 +559,12 @@ export async function saveSegmentedSubtitleTrack({
   cid,
   trackKey,
   segmentationSig,
-  items
+  items,
+  site
 }: SaveSegmentedTrackOptions): Promise<SaveSubtitleResult> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanTrackKey = String(trackKey || "").trim();
   const cleanSig = String(segmentationSig || "").trim();
   const sanitized = sanitizeMonolingualItems(items);
@@ -573,6 +594,7 @@ export interface LoadTranslatedTrackOptions {
   targetLang: string;
   translationSig?: string;
   legacyCacheKey?: string;
+  site?: SiteId;
 }
 
 export interface TranslatedTrackWriteOptions {
@@ -585,6 +607,7 @@ export interface TranslatedTrackWriteOptions {
   items: readonly unknown[];
   replaceRange?: { from: number; to: number };
   debounceMs?: number;
+  site?: SiteId;
 }
 
 export async function loadTranslatedSubtitleTrack({
@@ -593,10 +616,12 @@ export async function loadTranslatedSubtitleTrack({
   sourceTrackKey,
   targetLang,
   translationSig,
-  legacyCacheKey
+  legacyCacheKey,
+  site
 }: LoadTranslatedTrackOptions): Promise<SubtitleBodyItem[] | null> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanSource = String(sourceTrackKey || "").trim();
   const cleanLang = toCanonicalTargetLangBcp47(targetLang);
   if (!cleanBvid || !cleanCid || !cleanSource || !cleanLang) {
@@ -641,8 +666,9 @@ const CACHE_FLUSH_BOUNDARY_HOOK: SubtitleSessionBoundaryHook = {
 };
 
 export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOptions): void {
-  const cleanBvid = String(options.bvid || "").trim();
-  const cleanCid = String(options.cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(options.bvid, options.cid, options.site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanSource = String(options.sourceTrackKey || "").trim();
   const cleanLang = toCanonicalTargetLangBcp47(options.targetLang);
   const cleanSig = String(options.translationSig || "").trim() || "legacy";
@@ -709,8 +735,9 @@ export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOption
 export async function saveTranslatedSubtitleTrack(
   options: Omit<TranslatedTrackWriteOptions, "debounceMs">
 ): Promise<SaveSubtitleResult> {
-  const cleanBvid = String(options.bvid || "").trim();
-  const cleanCid = String(options.cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(options.bvid, options.cid, options.site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   const cleanSource = String(options.sourceTrackKey || "").trim();
   const cleanLang = toCanonicalTargetLangBcp47(options.targetLang);
   const cleanSig = String(options.translationSig || "").trim() || "legacy";
@@ -745,14 +772,16 @@ export async function saveTranslatedSubtitleTrack(
 
 export async function getSubtitlePageCacheRecord(
   bvid: string,
-  cid: string
+  cid: string,
+  site?: SiteId
 ): Promise<SubtitlePageRecord | null> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   if (!cleanBvid || !cleanCid) {
     return null;
   }
-  await flushSubtitleCache({ bvid: cleanBvid, cid: cleanCid });
+  await flushSubtitleCache({ bvid: cleanBvid, cid: cleanCid, site: resolved.site });
   return resolveActiveStore().getPageRecord(cleanBvid, cleanCid);
 }
 
@@ -892,16 +921,19 @@ interface AsrCacheCleanupOptions {
   bvid: string;
   cid: string;
   keepKey?: string;
+  site?: SiteId;
 }
 
 export async function clearStaleAsrSubtitleCache({
   bvid,
   cid,
-  keepKey = ""
+  keepKey = "",
+  site
 }: AsrCacheCleanupOptions): Promise<string[]> {
   try {
-    const cleanBvid = String(bvid || "").trim();
-    const cleanCid = String(cid || "").trim();
+    const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+    const cleanBvid = resolved.bvid;
+    const cleanCid = resolved.cid;
     if (!cleanBvid || !cleanCid) {
       return [];
     }
@@ -933,15 +965,18 @@ export async function clearStaleAsrSubtitleCache({
 export async function clearTranslatedSubtitleCache({
   bvid,
   cid,
-  sourceTrackKey
+  sourceTrackKey,
+  site
 }: {
   bvid: string;
   cid: string;
   sourceTrackKey?: string;
+  site?: SiteId;
 }): Promise<string[]> {
   try {
-    const cleanBvid = String(bvid || "").trim();
-    const cleanCid = String(cid || "").trim();
+    const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+    const cleanBvid = resolved.bvid;
+    const cleanCid = resolved.cid;
     if (!cleanBvid || !cleanCid) {
       return [];
     }
@@ -982,6 +1017,7 @@ export interface PersistAsrSubtitleOptions {
   cid: string;
   identity: TrackIdentity;
   body: unknown[];
+  site?: SiteId;
 }
 
 export interface CachedAsrSubtitleTrack {
@@ -1003,14 +1039,17 @@ function extractAsrLangFromTrackKey(trackKey: string): string {
 export async function findCachedAsrSubtitleTrack({
   bvid,
   cid,
-  preferredCacheKey
+  preferredCacheKey,
+  site
 }: {
   bvid: string;
   cid: string;
   preferredCacheKey?: string;
+  site?: SiteId;
 }): Promise<CachedAsrSubtitleTrack | null> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = resolved.cid;
   if (!cleanBvid || !cleanCid) {
     return null;
   }
@@ -1090,13 +1129,16 @@ export async function persistAsrSubtitleToCache({
   bvid,
   cid,
   identity,
-  body
+  body,
+  site
 }: PersistAsrSubtitleOptions): Promise<SaveSubtitleResult> {
-  const cacheKey = getSubtitleCacheKey({ bvid, cid, identity });
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  const cacheKey = getSubtitleCacheKey({ bvid: resolved.bvid, cid: resolved.cid, identity, site: resolved.site });
   const trackKey = subtitleSourceKey(identity);
   const saveResult = await saveRawSubtitleTrack({
-    bvid,
-    cid,
+    bvid: resolved.bvid,
+    cid: resolved.cid,
+    site: resolved.site,
     trackKey,
     lang: identity.kind === "asr" ? String(identity.lang || "") : undefined,
     kind: "asr",
@@ -1105,8 +1147,8 @@ export async function persistAsrSubtitleToCache({
   if (saveResult && saveResult.ok === false) {
     return saveResult;
   }
-  await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
-  await clearTranslatedSubtitleCache({ bvid, cid, sourceTrackKey: "asr" });
+  await clearStaleAsrSubtitleCache({ bvid: resolved.bvid, cid: resolved.cid, site: resolved.site, keepKey: cacheKey });
+  await clearTranslatedSubtitleCache({ bvid: resolved.bvid, cid: resolved.cid, site: resolved.site, sourceTrackKey: "asr" });
   return saveResult;
 }
 
@@ -1141,9 +1183,15 @@ export interface ClearVideoCacheResult extends ClearVideoResult {
   removedLegacyKeys: string[];
 }
 
-export async function clearVideoCache(bvid: string, cid?: string): Promise<ClearVideoCacheResult> {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";
+export async function clearVideoCache(
+  bvid: string,
+  cid?: string,
+  site?: SiteId
+): Promise<ClearVideoCacheResult> {
+  const hasCid = cid !== undefined && cid !== null && String(cid).trim() !== "";
+  const resolved = resolveVideoStorageIdentity(bvid, hasCid ? cid : "", site);
+  const cleanBvid = resolved.bvid;
+  const cleanCid = hasCid ? resolved.cid : "";
   if (!cleanBvid) {
     return { removedPageIds: [], removedArtifactKeys: [], removedLegacyKeys: [] };
   }

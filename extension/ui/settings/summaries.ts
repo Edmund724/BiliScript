@@ -1,5 +1,6 @@
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
+import { state } from "../../core/state.js";
 import {
   normalizeCustomPanelWidth,
   normalizeDownloadFormat,
@@ -13,6 +14,7 @@ import {
   isChatDisplaySliderAvailable
 } from "../../reader/chat-display-settings.js";
 import { parseModelOptionValue } from "../../shared/selected-provider.js";
+import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import type { AgentBridgeSettingsState } from "../agent-bridge-settings.js";
 import type { ProviderRowItem } from "../provider-row.js";
 import type { ProviderSummarySnapshot } from "../provider-settings-host.js";
@@ -47,6 +49,7 @@ export interface SettingsSummariesInput {
   providerSnapshot: ProviderSummarySnapshot | null;
   agentBridgeState: AgentBridgeSettingsState | null;
   speechVolumeAvailable?: boolean;
+  playerQuickAiAvailable?: boolean;
 }
 
 export interface DerivedSettingsSummaries {
@@ -91,7 +94,7 @@ export function collectInitialQuickPrompts(
 }
 
 const THEME_LABELS: Record<string, string> = {
-  bilibili: "跟随 B 站",
+  bilibili: "跟随当前站点",
   system: "跟随系统",
   light: "浅色",
   dark: "深色"
@@ -151,8 +154,14 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     }
   }
 
+  const site =
+    state.clip.site === "youtube" || detectActiveSite() === "youtube"
+      ? "youtube"
+      : state.clip.site;
+  const playerQuickAiAvailable =
+    input.playerQuickAiAvailable ?? getSiteCapabilities(site).supportsPlayerQuickAiButton;
   const promptParts: string[] = [];
-  if (form.enablePlayerAiQuickAction) promptParts.push("播放器快捷开");
+  if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) promptParts.push("播放器快捷开");
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);
   if (speechVolumeAvailable) {
     promptParts.push(`朗读 ${CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(form.speechVoiceVolume)}%`);
@@ -169,7 +178,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   ].filter(Boolean);
   const subtitleSettings = subtitleParts.join(" · ");
 
-  const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随 B 站";
+  const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随当前站点";
   const paletteLabel = normalizeReaderPalette(form.readerPalette) === "editorial" ? "数字刊物" : "蓝雾玻璃";
   const fontScale = normalizeReaderFontSizeScale(form.readerFontSizeScale);
   const panelWidth = normalizeCustomPanelWidth(form.customPanelWidth);

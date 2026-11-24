@@ -1,5 +1,6 @@
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import type { SubtitleTrack, SubtitleTrackOrigin } from "../bilibili/gateway.js";
+import type { SiteId } from "../shared/site.js";
 export type { SubtitleTrackOrigin } from "../bilibili/gateway.js";
 import {
   LIVE_INTERPRET_TARGET_BCP47,
@@ -75,7 +76,7 @@ export function isSameLangFamily(lanA: unknown, lanB: unknown): boolean {
 
 export const ASR_SUBTITLE_TRACK_ID = "asr";
 
-export type SubtitleTrackKind = "manual-cc" | "bili-ai" | "asr";
+export type SubtitleTrackKind = "manual-cc" | "bili-ai" | "youtube-auto" | "asr";
 
 export interface SubtitleTrackOriginLike {
   id?: unknown;
@@ -83,6 +84,8 @@ export interface SubtitleTrackOriginLike {
   subtitleUrl?: unknown;
   source?: unknown;
   origin?: unknown;
+  kind?: unknown;
+  site?: unknown;
 }
 
 export function createAsrPseudoTrack(
@@ -103,17 +106,31 @@ export function resolveSubtitleTrackOrigin(
   track: SubtitleTrackOriginLike | null | undefined
 ): SubtitleTrackOrigin {
   const explicit = String(track?.origin ?? "").trim().toLowerCase();
-  if (explicit === "asr" || explicit === "bilibili") {
+  if (explicit === "asr" || explicit === "bilibili" || explicit === "youtube") {
     return explicit;
+  }
+  const site = String(track?.site ?? "").trim().toLowerCase();
+  if (site === "youtube") {
+    return "youtube";
   }
   const source = String(track?.source ?? "").trim().toLowerCase();
   if (source === "asr") {
     return "asr";
   }
+  if (source === "youtube-auto" || source === "youtube-cc" || source === "youtube") {
+    return "youtube";
+  }
   const id = String(track?.id ?? "").trim();
   const lan = String(track?.lan ?? "").trim().toLowerCase();
   if (id === ASR_SUBTITLE_TRACK_ID || lan === "asr" || lan.startsWith("asr-")) {
     return "asr";
+  }
+  if (id.startsWith("yt-auto-") || id.startsWith("yt-cc-")) {
+    return "youtube";
+  }
+  const url = String(track?.subtitleUrl ?? "").trim().toLowerCase();
+  if (url.startsWith("https://www.youtube.com/") || url.startsWith("https://youtube.com/")) {
+    return "youtube";
   }
   return "bilibili";
 }
@@ -152,6 +169,16 @@ export function classifySubtitleTrack(
   if (isAsrSubtitleTrack(track)) {
     return "asr";
   }
+  const origin = resolveSubtitleTrackOrigin(track);
+  const kind = String(track?.kind ?? "").trim().toLowerCase();
+  const source = String(track?.source ?? "").trim().toLowerCase();
+  const id = String(track?.id ?? "").trim().toLowerCase();
+  if (
+    source === "youtube-auto" ||
+    (origin === "youtube" && (kind === "asr" || id.startsWith("yt-auto-") || id.startsWith("youtube-auto")))
+  ) {
+    return "youtube-auto";
+  }
   const lan = String(track?.lan ?? "").trim().toLowerCase();
   if (lan.startsWith("ai-")) {
     return "bili-ai";
@@ -159,10 +186,21 @@ export function classifySubtitleTrack(
   return "manual-cc";
 }
 
+export function isPlatformAutoTrack(
+  track: SubtitleTrackOriginLike | null | undefined
+): boolean {
+  const kind = classifySubtitleTrack(track);
+  return kind === "bili-ai" || kind === "youtube-auto";
+}
+
 export function isLoadableNativeTrack(
   track: SubtitleTrackOriginLike | null | undefined
 ): boolean {
-  return resolveSubtitleTrackOrigin(track) === "bilibili" && String(track?.subtitleUrl ?? "").trim().length > 0;
+  const origin = resolveSubtitleTrackOrigin(track);
+  return (
+    (origin === "bilibili" || origin === "youtube") &&
+    String(track?.subtitleUrl ?? "").trim().length > 0
+  );
 }
 
 export function isMonolingualNativeTracks(
@@ -203,7 +241,7 @@ export function findManualForeignTrackForAiRefine<
     return null;
   }
   const hasAiZh = nativeTracks.some(
-    (track) => classifySubtitleTrack(track) === "bili-ai" && getLangFamily(track.lan) === "zh"
+    (track) => isPlatformAutoTrack(track) && getLangFamily(track.lan) === "zh"
   );
   if (!hasAiZh) {
     return null;
@@ -294,6 +332,8 @@ export interface SubtitleTrackRef {
   lanDoc?: string;
   source?: string;
   origin?: SubtitleTrackOrigin;
+  kind?: string;
+  site?: SiteId;
 }
 
 export function findTrackByRef<T extends { id?: string; subtitleUrl?: string }>(
@@ -311,7 +351,7 @@ export function findTrackByRef<T extends { id?: string; subtitleUrl?: string }>(
 
 export function resolveTrackTarget(
   trackOrRef: SubtitleTrackRef | null | undefined,
-  tracks?: readonly { id?: string; subtitleUrl?: string; lan?: string; lanDoc?: string; source?: string; origin?: SubtitleTrackOrigin }[] | null
+  tracks?: readonly { id?: string; subtitleUrl?: string; lan?: string; lanDoc?: string; source?: string; origin?: SubtitleTrackOrigin; kind?: string; site?: SiteId }[] | null
 ): SubtitleTrackTarget {
   const resolved = tracks ? (findTrackByRef(tracks, trackOrRef) ?? trackOrRef) : trackOrRef;
   return {
@@ -328,36 +368,40 @@ export interface SubtitleTrackCandidate {
   lanDoc?: string;
   subtitleUrl?: string;
   source?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  site?: SiteId;
 }
 
 function subtitlePriority(item: SubtitleTrackCandidate): number {
   const lan = String(item?.lan || "").toLowerCase();
   const label = String(item?.lanDoc || "").toLowerCase();
+  const autoPenalty = isPlatformAutoTrack(item) ? 0.5 : 0;
 
   if (lan === "zh-cn" || lan === "zh-hans") {
-    return 0;
+    return 0 + autoPenalty;
   }
   if (lan === "zh") {
-    return 1;
+    return 1 + autoPenalty;
   }
   if (lan.includes("zh")) {
-    return 2;
+    return 2 + autoPenalty;
   }
   if (label.includes("中文")) {
-    return 3;
+    return 3 + autoPenalty;
   }
 
   if (lan === "en" || lan === "en-us" || lan === "en-gb") {
-    return 10;
+    return 10 + autoPenalty;
   }
   if (lan.includes("en")) {
-    return 11;
+    return 11 + autoPenalty;
   }
   if (label.includes("英文") || label.includes("英语") || label.includes("english")) {
-    return 12;
+    return 12 + autoPenalty;
   }
 
-  return 50;
+  return 50 + autoPenalty;
 }
 
 export function normalizeSubtitleTracks<TTrack extends SubtitleTrackCandidate = SubtitleTrack>(

@@ -1,6 +1,7 @@
 import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { formatClock } from "../shared/clock-text.js";
 import type { OutlineChapter } from "../shared/chapter-outline.js";
+import { normalizeSiteId, type SiteId } from "../shared/site.js";
 import { DEFAULT_MAX_TOKENS } from "./output-budget.js";
 import {
   renderL0LinesWithNumbers,
@@ -10,14 +11,43 @@ import {
 import type { L1ChapterNode, StateRelayCard } from "./long-video-hybrid-types.js";
 import type { SubtitleBodyItem } from "./types.js";
 
-const ASR_CORRECTION_BLOCK = `金句要挑这几类：
+interface AnalysisSiteLabels {
+  videoLabel: string;
+  ownerLabel: string;
+  asrLead: string;
+  outlineSourceLabel: string;
+  outlineOriginNote: string;
+}
+
+function getAnalysisSiteLabels(site: SiteId | unknown = "bilibili"): AnalysisSiteLabels {
+  if (normalizeSiteId(site) === "youtube") {
+    return {
+      videoLabel: "YouTube 视频",
+      ownerLabel: "频道作者",
+      asrLead: "YouTube 的自动字幕通常有两个特点，会直接影响你的工作：",
+      outlineSourceLabel: "视频章节/简介",
+      outlineOriginNote: "来自视频章节/简介"
+    };
+  }
+  return {
+    videoLabel: "B 站视频",
+    ownerLabel: "UP 主",
+    asrLead: "B 站的 AI 字幕有两个特点，会直接影响你的工作：",
+    outlineSourceLabel: "视频章节/简介/评论",
+    outlineOriginNote: "来自视频章节/简介/评论"
+  };
+}
+
+function buildAsrCorrectionBlock(site: SiteId | unknown = "bilibili"): string {
+  const { asrLead } = getAnalysisSiteLabels(site);
+  return `金句要挑这几类：
 - 反直觉的观点，或者跟常识拧着来的判断
 - 让人「原来如此」的事实、数据、冷知识
 - 能把道理讲透的具体事例或故事
 - 一句话就说清全部要点的表达
 
 ⚠️ 关键：这是自动语音识别（ASR）生成的字幕 ⚠️
-B 站的 AI 字幕有两个特点，会直接影响你的工作：
+${asrLead}
 1. **没有任何标点**，整段是连续的字流，句子边界要靠语义自己判断。
 2. **大量同音错别字**：人名、专有名词、外来词、数字尤其容易错（例如「机器学习」可能写成「机器学系」，品牌名可能整个音译错）。
 
@@ -27,6 +57,7 @@ B 站的 AI 字幕有两个特点，会直接影响你的工作：
 - 删掉口头禅和语气词：「就是」「然后」「那个」「这个」「呃」「啊」「对吧」，以及重复啰嗦的字词
 - 保留说话人本来的意思和用词风格，只做可读性打磨，**不要概括、不要缩写、不要添加他没说过的内容**
 - 如果某段实在识别得太糟、无法还原原意，就别选它当金句`;
+}
 
 const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 字幕的格式严格如下：
@@ -55,15 +86,20 @@ const OVERVIEW_INTRO_BLOCK = `⚠️ 关于顶层 summary ⚠️
 const CHAPTER_SUMMARY_BLOCK = `每章的 summary 用一句话说明本章具体讲了什么，尽量不超过 60 字。
 补充标题没有说清的内容，不要只是换一种说法重复标题。`;
 
-const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
-用户消息里如果给出「视频章节/简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
+function buildChapterOutlineBlock(site: SiteId | unknown = "bilibili"): string {
+  const { outlineSourceLabel } = getAnalysisSiteLabels(site);
+  return `⚠️ 关于「现成章节目录」⚠️
+用户消息里如果给出「${outlineSourceLabel}中的章节目录」（形如「00:00 开场」的时间戳行），
 **章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
 不得增删章节、不得改动任何时间戳——哪怕目录的分章与字幕的话题转折对不上。
 你的职责只是为每一章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
 目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
 前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。`;
+}
 
-export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：简介 + 章节 + 金句。
+function buildAnalysisSystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。我在看一个 ${videoLabel}，请阅读下面的字幕，产出一份结构化概览：简介 + 章节 + 金句。
 
 你需要给出：
 - 顶层 summary：本次字幕的总体简介。
@@ -74,11 +110,11 @@ ${OVERVIEW_INTRO_BLOCK}
 
 ${CHAPTER_SUMMARY_BLOCK}
 
-${ASR_CORRECTION_BLOCK}
+${buildAsrCorrectionBlock(site)}
 
 ${TIMESTAMP_TEACHING_BLOCK}
 
-${CHAPTER_OUTLINE_BLOCK}
+${buildChapterOutlineBlock(site)}
 
 ⚠️ 关于「前情回顾」⚠️
 长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
@@ -112,8 +148,11 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
+}
 
-export const GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
+function buildGivenChaptersSystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。我在看一个 ${videoLabel}，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
 
 你需要给出：
 - 顶层 summary：本次字幕的总体简介。
@@ -124,11 +163,11 @@ ${OVERVIEW_INTRO_BLOCK}
 
 ${CHAPTER_SUMMARY_BLOCK}
 
-${ASR_CORRECTION_BLOCK}
+${buildAsrCorrectionBlock(site)}
 
 ${TIMESTAMP_TEACHING_BLOCK}
 
-${CHAPTER_OUTLINE_BLOCK}
+${buildChapterOutlineBlock(site)}
 
 ⚠️ 关于「前情回顾」⚠️
 长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
@@ -161,8 +200,11 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
+}
 
-export const OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
+function buildOutlineQuotesSystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。我在看一个 ${videoLabel}，请阅读下面的字幕，为给定的章节目录挑选金句。
 
 你需要给出：
 - 顶层 summary：本次字幕的总体简介。
@@ -171,7 +213,7 @@ export const OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在�
 
 ${OVERVIEW_INTRO_BLOCK}
 
-${ASR_CORRECTION_BLOCK}
+${buildAsrCorrectionBlock(site)}
 
 ${TIMESTAMP_TEACHING_BLOCK}
 
@@ -201,6 +243,26 @@ ${TIMESTAMP_TEACHING_BLOCK}
 - 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
+}
+
+export const ANALYSIS_SYSTEM_PROMPT = buildAnalysisSystemPrompt("bilibili");
+export const GIVEN_CHAPTERS_SYSTEM_PROMPT = buildGivenChaptersSystemPrompt("bilibili");
+export const OUTLINE_QUOTES_SYSTEM_PROMPT = buildOutlineQuotesSystemPrompt("bilibili");
+
+export function getOverviewSystemPrompt({
+  site = "bilibili",
+  hasGivenChapters = false,
+  titlesOnly = false
+}: {
+  site?: SiteId;
+  hasGivenChapters?: boolean;
+  titlesOnly?: boolean;
+} = {}): string {
+  if (!hasGivenChapters) {
+    return buildAnalysisSystemPrompt(site);
+  }
+  return titlesOnly ? buildOutlineQuotesSystemPrompt(site) : buildGivenChaptersSystemPrompt(site);
+}
 
 export const ANALYSIS_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请根据各段内容概述，写出整支视频的总体简介。
 
@@ -214,7 +276,7 @@ export const ANALYSIS_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请根
 {"summary": "全片简介（2～3 句，约 80～150 字）"}`;
 
 const ANALYSIS_USER_TEMPLATE = `视频标题：{videoTitle}
-UP 主：{ownerName}
+{ownerLabel}：{ownerName}
 {rangeNote}
 本次字幕从 {startFormatted}（第 {minTimestampSeconds} 秒）到 {durationFormatted}（第 {maxTimestampSeconds} 秒）——时间戳必须落在这个区间内！
 {lateThresholdLine}
@@ -281,15 +343,20 @@ export function estimateOutputTokens(
   );
 }
 
-function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOnly?: boolean): string {
+function buildChapterOutlineNote(
+  outline: OutlineChapter[] | undefined,
+  titlesOnly?: boolean,
+  site?: SiteId
+): string {
   if (!Array.isArray(outline) || outline.length === 0) {
     return "";
   }
+  const { outlineOriginNote } = getAnalysisSiteLabels(site);
   const lines = outline.map(
     (item) => `${formatClock(item.seconds)} ${item.title}`
   );
   return (
-    `\n现成章节目录（来自视频章节/简介/评论，共 ${outline.length} 章）：\n` +
+    `\n现成章节目录（${outlineOriginNote}，共 ${outline.length} 章）：\n` +
     `${lines.join("\n")}\n` +
     (titlesOnly
       ? `按系统提示词的要求：这份目录就是最终章节，边界与标题原样保留；不要为章节写逐章说明，总体简介与金句照常生成。`
@@ -299,6 +366,7 @@ function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOn
 }
 
 interface BuildAnalysisPromptInput {
+  site?: SiteId;
   title?: unknown;
   ownerName?: unknown;
   videoDescription?: unknown;
@@ -354,8 +422,10 @@ function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAna
     : startSeconds;
 
   const transcriptText = renderAnalysisTranscript(items);
+  const { ownerLabel } = getAnalysisSiteLabels(input.site);
   const prompt = fillTemplate(ANALYSIS_USER_TEMPLATE, {
     videoTitle: String(input.title ?? "").trim() || "未知",
+    ownerLabel,
     ownerName: String(input.ownerName ?? "").trim() || "未知",
     rangeNote: buildRangeNote(input.segmentIndex, input.totalSegments, startSeconds, endSeconds),
     startFormatted: formatClock(startSeconds),
@@ -366,7 +436,7 @@ function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAna
       ? "后段门槛：不适用——已采用现成章节目录，最后一章以目录为准。"
       : `后段门槛：最后一个章节的时间戳必须晚于 ${timing.lateThreshold}。`,
     videoDescription: String(input.videoDescription ?? "").trim() || "（无简介）",
-    chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline, input.titlesOnly),
+    chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline, input.titlesOnly, input.site),
     contextNote: buildContextNote(input.contextItems),
     transcriptText
   });
@@ -419,7 +489,9 @@ const STATE_RELAY_CARD_BLOCK = `关于「滑动状态卡（nextStateCard）」�
   - confirmedEntities：本段及此前确认统一的关键术语、人名、简称（最多 8 个）
   - activeTopic：若本段结尾话题仍在延续，记录 { "title": "话题", "timestampSeconds": 起点秒数, "thesisDraft": "一句话草稿" }；已闭合则省略`;
 
-export const STATE_RELAY_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描。
+function buildStateRelaySystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。正在对一个超长 ${videoLabel}执行滑动状态卡接力分段扫描。
 
 请基于本窗口字幕（以及可选的前序状态卡与前情只读字幕）完成：
 1. 本段章节节点（chapters）：在话题真正转折处分章，尽量覆盖本段完整时间线；每章输出 title、timestampSeconds、summary（≤60字一句话核心论点）、keyEntities（2-5个关键实体/术语词）。
@@ -446,8 +518,11 @@ ${STATE_RELAY_CARD_BLOCK}
 }
 
 所有文字用简体中文输出，时间戳与行号必须真实存在于本窗口字幕中。`;
+}
 
-export const STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描，并已提供现成章节目录。
+function buildStateRelayGivenChaptersSystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。正在对一个超长 ${videoLabel}执行滑动状态卡接力分段扫描，并已提供现成章节目录。
 
 请基于本窗口字幕完成：
 1. 仅针对落在当前窗口时间区间内的给定目录章节，照抄其标题与时间戳并补写 summary（≤60字）与 keyEntities（2-5个关键实体词）；不在本窗口的目录章不要输出。
@@ -474,8 +549,11 @@ ${STATE_RELAY_CARD_BLOCK}
 }
 
 所有文字用简体中文输出，行号必须真实存在于本窗口字幕中。`;
+}
 
-export const STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描；用户已提供密集章节目录，边界与标题原样保留，不要生成章节或章节说明。
+function buildStateRelayOutlineQuotesSystemPrompt(site: SiteId | unknown = "bilibili"): string {
+  const { videoLabel } = getAnalysisSiteLabels(site);
+  return `你是我的内容助理。正在对一个超长 ${videoLabel}执行滑动状态卡接力分段扫描；用户已提供密集章节目录，边界与标题原样保留，不要生成章节或章节说明。
 
 请基于本窗口字幕完成：
 1. 本段高光金句行号区间（keyQuotes）：输出 startLine、endLine、timestampSeconds 与可选 hint。
@@ -498,6 +576,28 @@ ${STATE_RELAY_CARD_BLOCK}
 }
 
 所有文字用简体中文输出，行号必须真实存在于本窗口字幕中。`;
+}
+
+export const STATE_RELAY_SYSTEM_PROMPT = buildStateRelaySystemPrompt("bilibili");
+export const STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT = buildStateRelayGivenChaptersSystemPrompt("bilibili");
+export const STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT = buildStateRelayOutlineQuotesSystemPrompt("bilibili");
+
+export function getStateRelaySystemPrompt({
+  site = "bilibili",
+  hasGivenChapters = false,
+  titlesOnly = false
+}: {
+  site?: SiteId;
+  hasGivenChapters?: boolean;
+  titlesOnly?: boolean;
+} = {}): string {
+  if (!hasGivenChapters) {
+    return buildStateRelaySystemPrompt(site);
+  }
+  return titlesOnly
+    ? buildStateRelayOutlineQuotesSystemPrompt(site)
+    : buildStateRelayGivenChaptersSystemPrompt(site);
+}
 
 export const STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请仅根据全片 L1 章节目录节点与最终主线状态卡，提炼全片总体脉络简介。
 
@@ -510,6 +610,7 @@ export const STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理
 {"summary": "全片总体简介（2～3 句，约 80～150 字）"}`;
 
 export interface BuildStateRelayStepPromptInput {
+  site?: SiteId;
   title?: unknown;
   ownerName?: unknown;
   videoDescription?: unknown;
@@ -522,14 +623,15 @@ export interface BuildStateRelayStepPromptInput {
 
 export function buildStateRelayStepPrompt(input: BuildStateRelayStepPromptInput): BuiltAnalysisPrompt {
   const { window, totalWindows } = input;
+  const { ownerLabel } = getAnalysisSiteLabels(input.site);
   const transcriptText = renderL0LinesWithNumbers(window.lines);
   const overlapText = renderL0LinesWithNumbers(window.overlapLines);
   const stateCardText = serializeStateRelayCard(input.previousStateCard);
-  const outlineNote = buildChapterOutlineNote(input.chapterOutline, input.titlesOnly);
+  const outlineNote = buildChapterOutlineNote(input.chapterOutline, input.titlesOnly, input.site);
 
   const sections: string[] = [
     `视频标题：${String(input.title ?? "").trim() || "未知"}`,
-    `UP 主：${String(input.ownerName ?? "").trim() || "未知"}`,
+    `${ownerLabel}：${String(input.ownerName ?? "").trim() || "未知"}`,
     `注意：这是长视频滑动状态接力扫描的第 ${window.windowIndex + 1} / ${totalWindows} 段，覆盖 ${formatClock(window.fromSeconds)}（第 ${window.fromSeconds} 秒，行 #${window.startLineNumber}）到 ${formatClock(window.toSeconds)}（第 ${window.toSeconds} 秒，行 #${window.endLineNumber}）。只为本窗口字幕开章和挑选金句。`,
     `视频简介（用于校正人名、品牌名与术语写法）：\n${String(input.videoDescription ?? "").trim() || "（无简介）"}`
   ];

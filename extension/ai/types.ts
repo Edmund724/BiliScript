@@ -1,5 +1,6 @@
 import type { AiProtocol } from "./protocol-adapter.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import type { SiteId } from "../shared/site.js";
 import type {
   ChapterItem,
   HotComment,
@@ -86,6 +87,7 @@ export interface ProviderRequest {
 }
 
 export interface AiContext {
+  site?: SiteId;
   title?: string;
   url?: string;
   author?: string;

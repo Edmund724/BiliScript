@@ -1,8 +1,64 @@
-import { waitForVideoMetadata } from "../bilibili/video-probe.js";
 import { isStaleRunError } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { ensureSummarizeChain, type SummarizeChain } from "./lazy.js";
 import { isSubtitleInHandOrInFlight } from "./subtitle-in-hand.js";
+
+function hasReadyVideoDuration(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const videos = document.querySelectorAll("video");
+  for (const video of videos) {
+    if (video.closest("[data-biliscript-historical-frame]")) {
+      continue;
+    }
+    const duration = Number(video.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function waitForLightweightVideoMetadata(timeoutMs = 5000, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || typeof document === "undefined") {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const start = Date.now();
+    let timer = 0;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = 0;
+      }
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", finish, { once: true });
+    }
+
+    const check = () => {
+      if (settled) {
+        return;
+      }
+      if (hasReadyVideoDuration() || Date.now() - start >= timeoutMs) {
+        finish();
+        return;
+      }
+      timer = window.setTimeout(check, 150);
+    };
+    check();
+  });
+}
 
 export interface KickSubtitleFetchPolicy {
   skipIfInHandOrInFlight?: boolean;
@@ -71,7 +127,7 @@ export async function kickSubtitleFetch(
     return true;
   }
   if (policy.awaitVideoMetadata) {
-    await waitForVideoMetadata(5000, policy.signal);
+    await waitForLightweightVideoMetadata(5000, policy.signal);
     if (policy.signal?.aborted) {
       return true;
     }

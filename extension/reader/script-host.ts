@@ -3,7 +3,13 @@ import { isFestivalPage } from "../bilibili/video-id-shared.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
 import { activeById, getOpenerDocument, isReaderDetached } from "../shared/active-host.js";
+import { detectActiveSite } from "../shared/site.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
+import {
+  findYoutubePlayerHost,
+  findYoutubeScriptAnchor,
+  getYoutubeWatchFlexy
+} from "../youtube/host-adapter.js";
 import { ids } from "./state.js";
 
 const ANCHOR_SELECTORS = BILI_HOST_SELECTORS.rightColumnAnchors;
@@ -30,6 +36,10 @@ const PINNED_MIN_HEIGHT = 240;
 export const PINNED_VIEWPORT_MIN_WIDTH = 1000;
 const REANCHOR_INTERVAL_MS = 2000;
 
+function isYoutubeSite(): boolean {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube";
+}
+
 function canPinInViewport(viewportWidth = window.innerWidth): boolean {
   return viewportWidth >= PINNED_VIEWPORT_MIN_WIDTH;
 }
@@ -40,10 +50,21 @@ const FLOAT_ATTR = "data-biliscript-script-float";
 const FLOAT_WIDTH_VAR = "--biliscript-script-float-width";
 const SCROLLING_ATTR = "data-biliscript-script-scrolling";
 const SCROLL_IDLE_TIMEOUT_MS = 150;
+const YOUTUBE_FLEXY_OBSERVED_ATTRS = [
+  "theater",
+  "full-bleed-player",
+  "fullscreen",
+  "is-two-columns_",
+  "class",
+  "style"
+];
 
 let hostScope: DisposableContext | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let observedAnchor: Element | null = null;
+let observedYoutubePlayer: Element | null = null;
+let observedYoutubeFlexy: Element | null = null;
+let youtubeFlexyObserver: MutationObserver | null = null;
 let layoutRafId = 0;
 let scrollIdleTimer = 0;
 let lastSnapshot: { floating: boolean; values: string[]; floatWidth?: string } | null = null;
@@ -54,12 +75,21 @@ export function hasScriptAnchor(): boolean {
   if (typeof window === "undefined") {
     return false;
   }
+  if (isYoutubeSite()) {
+    return Boolean(findScriptAnchor());
+  }
   return Boolean(findScriptAnchor() || getPlayerRect());
 }
 
 export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
   if (typeof window === "undefined" || !canPinInViewport()) {
     return Promise.resolve(true);
+  }
+  if (isYoutubeSite()) {
+    const initial = findYoutubeScriptAnchor(document, window.innerWidth);
+    if (initial.reason !== "missing") {
+      return Promise.resolve(initial.reason === "ok");
+    }
   }
   if (hasScriptAnchor()) {
     return Promise.resolve(true);
@@ -70,6 +100,17 @@ export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
       window.clearInterval(anchorWaitTimer);
     }
     anchorWaitTimer = window.setInterval(() => {
+      if (isYoutubeSite()) {
+        const result = findYoutubeScriptAnchor(document, window.innerWidth);
+        if (result.reason !== "missing" || Date.now() - start >= timeoutMs) {
+          if (anchorWaitTimer) {
+            window.clearInterval(anchorWaitTimer);
+            anchorWaitTimer = 0;
+          }
+          resolve(result.reason === "ok");
+        }
+        return;
+      }
       if (hasScriptAnchor() || Date.now() - start >= timeoutMs) {
         if (anchorWaitTimer) {
           window.clearInterval(anchorWaitTimer);
@@ -111,6 +152,9 @@ export function closeScriptHost(): void {
   hostScope = null;
   resizeObserver = null;
   observedAnchor = null;
+  observedYoutubePlayer = null;
+  observedYoutubeFlexy = null;
+  youtubeFlexyObserver = null;
   layoutRafId = 0;
   scrollIdleTimer = 0;
   endScriptScroll();
@@ -126,7 +170,34 @@ export function closeScriptHost(): void {
   readingView.removeAttribute(FLOAT_ATTR);
 }
 
+function bindYoutubeWatchFlexyObserver(scope: DisposableContext): void {
+  if (typeof MutationObserver === "undefined") {
+    return;
+  }
+  const flexy = getYoutubeWatchFlexy(document);
+  if (!flexy) {
+    return;
+  }
+  if (flexy === observedYoutubeFlexy && youtubeFlexyObserver) {
+    return;
+  }
+  if (!youtubeFlexyObserver) {
+    youtubeFlexyObserver = new MutationObserver(() => {
+      scheduleScriptLayout();
+    });
+    scope.track(youtubeFlexyObserver);
+  } else {
+    youtubeFlexyObserver.disconnect();
+  }
+  observedYoutubeFlexy = flexy;
+  youtubeFlexyObserver.observe(flexy, {
+    attributes: true,
+    attributeFilter: YOUTUBE_FLEXY_OBSERVED_ATTRS
+  });
+}
+
 function bindScriptHostListeners(scope: DisposableContext): void {
+  const youtubeSite = isYoutubeSite();
   if (typeof ResizeObserver !== "undefined") {
     const observer = new ResizeObserver(() => {
       if (resizeObserver !== observer) {
@@ -139,6 +210,12 @@ function bindScriptHostListeners(scope: DisposableContext): void {
     if (observedAnchor) {
       resizeObserver.observe(observedAnchor);
     }
+    if (youtubeSite) {
+      syncYoutubePlayerObservation(findYoutubePlayerHost(document));
+    }
+  }
+  if (youtubeSite) {
+    bindYoutubeWatchFlexyObserver(scope);
   }
   scope.addListener(window, "resize", requestScriptLayout);
   scope.addListener(window, "scroll", onScriptScroll, { passive: true });
@@ -195,9 +272,15 @@ function scheduleScriptLayout(finding?: AnchorFinding): void {
   if (layoutRafId) {
     return;
   }
-  layoutRafId = hostScope
-    ? hostScope.requestAnimationFrame(() => runScriptLayout(finding))
-    : window.requestAnimationFrame(() => runScriptLayout(finding));
+  let finished = false;
+  const run = () => {
+    finished = true;
+    runScriptLayout(finding);
+  };
+  const rafId = hostScope
+    ? hostScope.requestAnimationFrame(run)
+    : window.requestAnimationFrame(run);
+  layoutRafId = finished ? 0 : rafId;
 }
 
 function runScriptLayout(finding?: AnchorFinding): void {
@@ -212,12 +295,22 @@ function checkReanchor(): void {
   if (!hostScope || hostScope.isDisposed()) {
     return;
   }
+  if (isYoutubeSite()) {
+    bindYoutubeWatchFlexyObserver(hostScope);
+  }
   scheduleScriptLayout(findScriptAnchor() ?? undefined);
 }
 
 type AnchorFinding = { anchor: Element; rect: DOMRect } | null;
 
 function findScriptAnchor(): AnchorFinding {
+  if (isYoutubeSite()) {
+    const found = findYoutubeScriptAnchor(document, window.innerWidth);
+    if (found.anchor && found.rect) {
+      return { anchor: found.anchor, rect: found.rect };
+    }
+    return null;
+  }
   for (const selector of ANCHOR_SELECTORS) {
     const candidate = document.querySelector(selector);
     if (!candidate) {
@@ -229,6 +322,19 @@ function findScriptAnchor(): AnchorFinding {
     }
   }
   return null;
+}
+
+function syncYoutubePlayerObservation(player: Element | null): void {
+  if (player === observedYoutubePlayer) {
+    return;
+  }
+  if (resizeObserver && observedYoutubePlayer) {
+    resizeObserver.unobserve(observedYoutubePlayer);
+  }
+  observedYoutubePlayer = player;
+  if (resizeObserver && player) {
+    resizeObserver.observe(player);
+  }
 }
 
 function observeScriptAnchor(anchor: Element | null): void {
@@ -250,6 +356,13 @@ function applyScriptRect(finding?: AnchorFinding): void {
     return;
   }
 
+  const youtubeSite = isYoutubeSite();
+  if (youtubeSite) {
+    syncYoutubePlayerObservation(findYoutubePlayerHost(document));
+  } else if (observedYoutubePlayer) {
+    syncYoutubePlayerObservation(null);
+  }
+
   const found = finding ?? findScriptAnchor();
   const anchor = found?.anchor ?? null;
   if (anchor !== observedAnchor) {
@@ -264,7 +377,7 @@ function applyScriptRect(finding?: AnchorFinding): void {
     return;
   }
 
-  if (canPin) {
+  if (canPin && !youtubeSite) {
     const playerRect = getPlayerRect();
     if (playerRect) {
       const right = getViewportRightBound();

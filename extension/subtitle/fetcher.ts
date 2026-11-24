@@ -6,17 +6,24 @@ import {
 } from "../core/state.js";
 import type { SubtitleBodyItem } from "../core/state.js";
 import { extractBvid, computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
+import {
+  YOUTUBE_UNIT_CID,
+  detectActiveSite,
+  extractYoutubeVideoId,
+  getSiteCapabilities,
+  type SiteId
+} from "../shared/site.js";
 import { getSettings } from "../core/runtime.js";
 import {
   ensureRunActive,
   isStaleRunError,
   getErrorMessage,
   toReadableText,
-  isRetryableNetworkError,
   retryAsync
 } from "../shared/error-helpers.js";
 import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 import { isReaderViewOpen } from "../reader/state.js";
+import { resolveNoSubtitleNoticeText } from "../reader/subtitle-notice.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import {
@@ -63,6 +70,16 @@ configureCommitUi({
   setStatus
 });
 
+const YOUTUBE_CAPTIONS_UNAVAILABLE_CODE = "YOUTUBE_CAPTIONS_UNAVAILABLE";
+
+function isYoutubeCaptionsUnavailableError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === YOUTUBE_CAPTIONS_UNAVAILABLE_CODE
+  );
+}
+
 export async function tryLoadSubtitleCandidates(
   candidates: SubtitleTrack[],
   runId: number,
@@ -102,6 +119,9 @@ export async function tryLoadSubtitleCandidates(
         logWarn(`[BILISCRIPT] subtitle track rejected ${JSON.stringify(meta)}`);
       }
       ensureRunActive(runId, state.clip.fetchRunId);
+      if (isYoutubeCaptionsUnavailableError(error)) {
+        throw error;
+      }
       continue;
     }
   }
@@ -116,9 +136,11 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   if (!keepFetchState && (state.clip.bvid || state.clip.cid)) {
     void flushSubtitleCache({
       bvid: state.clip.bvid || undefined,
-      cid: state.clip.cid || undefined
+      cid: state.clip.cid || undefined,
+      site: state.clip.site
     });
   }
+  clipState.setSite(detectActiveSite());
   clipState.setBvid("");
   clipState.setAid("");
   clipState.setCid("");
@@ -203,6 +225,9 @@ async function loadNativeCandidatesWithRetry({
   try {
     return await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
   } catch (error) {
+    if (isYoutubeCaptionsUnavailableError(error)) {
+      throw error;
+    }
     const message = getErrorMessage(error, "");
     if (!message.includes("HTTP") && (error as { code?: string }).code !== "SUBTITLE_DURATION_MISMATCH") {
       throw error;
@@ -243,9 +268,147 @@ async function loadRetainedAsrTrack({
   return false;
 }
 
+function readGenericVideoDuration(site: SiteId): number {
+  if (site !== "youtube") {
+    return readRuntimeVideoDuration();
+  }
+  if (typeof document !== "undefined") {
+    const videos = Array.from(document.querySelectorAll("video"));
+    for (const video of videos) {
+      if (video.closest("[data-biliscript-historical-frame], ytd-miniplayer, [class*='mini-player']")) {
+        continue;
+      }
+      const duration = Number(video.duration);
+      if (Number.isFinite(duration) && duration > 0) {
+        return duration;
+      }
+    }
+  }
+  return readRuntimeVideoDuration();
+}
+
+async function refreshYoutubeClip({
+  runId,
+  prevBvid,
+  prevCid,
+  forceRefresh
+}: {
+  runId: number;
+  prevBvid: string;
+  prevCid: string;
+  forceRefresh: boolean;
+}): Promise<void> {
+  const videoId = extractYoutubeVideoId(location.href);
+  if (!videoId) {
+    throw new Error("当前页面不是标准 YouTube 视频地址，无法抓取字幕。");
+  }
+  clipState.setSite("youtube");
+  clipState.setBvid(videoId);
+  clipState.setAid("");
+
+  const youtubeGateway = await import("../youtube/gateway.js");
+  const ytBundle = await youtubeGateway.fetchYoutubeVideoBundle(videoId);
+  ensureRunActive(runId, state.clip.fetchRunId);
+
+  if (ytBundle.meta.isLiveNow) {
+    throw new youtubeGateway.YoutubeSubtitleError(
+      "暂不支持 YouTube 直播中视频的字幕抓取，请等待直播结束后查看回放。",
+      youtubeGateway.YOUTUBE_LIVE_UNSUPPORTED_ERROR_CODE
+    );
+  }
+
+  const nextCid = YOUTUBE_UNIT_CID;
+  if (prevBvid && prevCid && (prevBvid !== videoId || prevCid !== nextCid)) {
+    await triggerSubtitleSessionBoundary("clip-switch");
+    ensureRunActive(runId, state.clip.fetchRunId);
+  }
+
+  clipState.setCid(nextCid);
+  clipState.setCidSource("youtube-unit");
+  clipState.setPageIndex(1);
+  clipState.setPageCount(1);
+  clipState.setPageTitle("");
+  clipState.setTitle(ytBundle.meta.title || readVideoTitle());
+  clipState.setAuthor(ytBundle.meta.author || readVideoAuthor());
+  clipState.setUploadDate(ytBundle.meta.publishDate || readUploadDate());
+  clipState.setDescription(ytBundle.meta.description || readVideoDescription());
+  clipState.setCurrentClipSignature(computeCurrentClipSignature());
+
+  const snapshotDuration = Number(ytBundle.meta.duration || 0);
+  clipState.setVideoDuration(
+    snapshotDuration > 0 ? snapshotDuration : readGenericVideoDuration("youtube")
+  );
+  if (!(state.clip.videoDuration > 0)) {
+    throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
+  }
+
+  if (isReaderViewOpen()) {
+    notifyReaderPresenter({ kind: "rerender" });
+  }
+
+  setStatus("正在获取可用字幕...");
+  const nativeTracks = normalizeSubtitleTracks(ytBundle.tracks);
+  clipState.setSubtitles(nativeTracks);
+  clipState.setChapters(normalizeChapters(ytBundle.chapters));
+
+  if (nativeTracks.length === 0) {
+    clipState.setNoSubtitleDetail("");
+    await commitNoSubtitle({ noSubtitleReason: "youtube-no-subtitles", runId });
+    return;
+  }
+
+  const preferred = await selectSubtitleTrack(runId, null);
+  if (!preferred) {
+    return;
+  }
+
+  const nativeCandidates = buildSubtitleCandidates(
+    state.clip.subtitles.filter(isLoadableNativeTrack),
+    preferred
+  );
+  if (nativeCandidates.length === 0) {
+    clipState.setNoSubtitleDetail("");
+    await commitNoSubtitle({ noSubtitleReason: "youtube-no-subtitles", runId });
+    return;
+  }
+
+  try {
+    const selected = await tryLoadSubtitleCandidates(nativeCandidates, runId, forceRefresh);
+    ensureRunActive(runId, state.clip.fetchRunId);
+    if (selected) {
+      logInfo("[BILISCRIPT] selected subtitle track", {
+        id: selected.id,
+        lan: selected.lan,
+        lanDoc: selected.lanDoc
+      });
+    }
+  } catch (error) {
+    if (isStaleRunError(error)) {
+      throw error;
+    }
+    const code = (error as { code?: unknown })?.code;
+    if (
+      code === youtubeGateway.YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE ||
+      code === "SUBTITLE_DURATION_MISMATCH" ||
+      getErrorMessage(error, "").includes("字幕文件为空")
+    ) {
+      clipState.setNoSubtitleDetail("");
+      await commitNoSubtitle({ noSubtitleReason: "youtube-captions-unavailable", runId });
+      notifyReaderPresenter({
+        kind: "notice",
+        text: resolveNoSubtitleNoticeText("youtube-captions-unavailable")
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function refreshClip(options?: { forceRefresh?: boolean }): Promise<void> {
   const runId = state.clip.fetchRunId + 1;
   clipState.setFetchRunId(runId);
+  const activeSite = detectActiveSite();
+  clipState.setSite(activeSite);
   const prevBvid = state.clip.bvid;
   const prevCid = state.clip.cid;
   const prevSubtitles = state.clip.subtitles || [];
@@ -274,6 +437,12 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
     state.setSettings(await getSettings());
     ensureRunActive(runId, state.clip.fetchRunId);
 
+    const forceRefresh = options?.forceRefresh === true;
+    if (activeSite === "youtube") {
+      await refreshYoutubeClip({ runId, prevBvid, prevCid, forceRefresh });
+      return;
+    }
+
     const metaResult = await resolveClipMeta(runId);
 
     if (isReaderViewOpen()) {
@@ -292,16 +461,17 @@ export async function refreshClip(options?: { forceRefresh?: boolean }): Promise
     );
     ensureRunActive(runId, state.clip.fetchRunId);
 
-    const forceRefresh = options?.forceRefresh === true;
     const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
     const sameClip = Boolean(prevBvid && prevCid && prevBvid === state.clip.bvid && prevCid === state.clip.cid);
     const nativeTracks = normalizeSubtitleTracks(subtitleBundle.tracks);
-    const retainedAsrTrack = await resolveRetainedAsrTrack({
-      runId,
-      sameClip,
-      prevAsrTrack,
-      accessBlocker
-    });
+    const retainedAsrTrack = getSiteCapabilities(activeSite).supportsAsr
+      ? await resolveRetainedAsrTrack({
+          runId,
+          sameClip,
+          prevAsrTrack,
+          accessBlocker
+        })
+      : null;
     const mergedTracks: SubtitleTrack[] =
       nativeTracks.length > 0
         ? retainedAsrTrack
@@ -480,18 +650,29 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
   if (isStaleRunError(error)) {
     return;
   }
-  const asrFallbackInstance = await loadAsrFallbackOrNull();
-  if (asrFallbackInstance?.hasActiveAsrTranscribe({ bvid: state.clip.bvid, cid: state.clip.cid })) {
-    setStatus(`抓取失败：${getErrorMessage(error)}，继续等待音频转写…`);
-    await asrFallbackInstance.awaitActiveAsrTranscribe({ runId, bvid: state.clip.bvid, cid: state.clip.cid });
-    return;
+  if (getSiteCapabilities(state.clip.site).supportsAsr) {
+    const asrFallbackInstance = await loadAsrFallbackOrNull();
+    if (asrFallbackInstance?.hasActiveAsrTranscribe({ bvid: state.clip.bvid, cid: state.clip.cid })) {
+      setStatus(`抓取失败：${getErrorMessage(error)}，继续等待音频转写…`);
+      await asrFallbackInstance.awaitActiveAsrTranscribe({ runId, bvid: state.clip.bvid, cid: state.clip.cid });
+      return;
+    }
   }
+  const errorCode = (error as { code?: string })?.code;
   resetClipState({ keepFetchState: true });
   clipState.setSubtitleFetchState("error");
   if (isReaderViewOpen()) {
     notifyReaderPresenter({ kind: "rerender" });
   }
-  if ((error as { code?: string }).code === "SUBTITLE_DURATION_MISMATCH") {
+  if (errorCode === "YOUTUBE_LIVE_UNSUPPORTED") {
+    const liveMsg = (error as Error)?.message || "暂不支持 YouTube 直播中视频的字幕抓取。";
+    setStatus(liveMsg);
+    if (isReaderViewOpen()) {
+      notifyReaderPresenter({ kind: "notice", text: liveMsg });
+    }
+    return;
+  }
+  if (errorCode === "SUBTITLE_DURATION_MISMATCH") {
     setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
     return;
   }
@@ -506,6 +687,15 @@ async function finishNoSubtitle(
     clipState.setSubtitles([]);
     clipState.setNoSubtitleDetail("");
     await commitNoSubtitle({ noSubtitleReason: accessBlocker, runId });
+    return;
+  }
+  if (!getSiteCapabilities(state.clip.site).supportsAsr) {
+    clipState.setSubtitles([]);
+    clipState.setNoSubtitleDetail("");
+    await commitNoSubtitle({
+      noSubtitleReason: state.clip.site === "youtube" ? "youtube-no-subtitles" : null,
+      runId
+    });
     return;
   }
   const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
@@ -562,6 +752,23 @@ function notifyCacheSaveFailed(): void {
   logWarn(`[BILISCRIPT] ${CACHE_SAVE_FAILED_MESSAGE}`);
 }
 
+function createTrackBodyLoader(
+  site: SiteId,
+  videoId: string,
+  url: string,
+  lang: string
+): (() => Promise<SubtitleBodyItem[]>) | undefined {
+  if (site !== "youtube") {
+    return undefined;
+  }
+  return async () =>
+    (await import("../youtube/gateway.js")).fetchYoutubeSubtitleBody({
+      videoId,
+      trackUrl: url,
+      lang
+    });
+}
+
 export async function loadSubtitle(
   url: string,
   lang: string,
@@ -586,9 +793,12 @@ export async function loadSubtitle(
       ensureRunActive(runId, state.clip.fetchRunId);
     }
   }
+  const activeSite = state.clip.site;
+  const activeVideoId = state.clip.bvid;
   await loadTrackBody<SubtitleBodyItem>(
     {
-      bvid: state.clip.bvid,
+      site: activeSite,
+      bvid: activeVideoId,
       cid: state.clip.cid,
       videoDuration: state.clip.videoDuration,
       url,
@@ -596,6 +806,7 @@ export async function loadSubtitle(
       subtitleId,
       forceRefresh,
       transport: contentFetchJson,
+      fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
       checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
       onCacheSaveFailed: notifyCacheSaveFailed
     },
@@ -627,6 +838,9 @@ export async function loadAsrSubtitle({
   sourceLabel = "",
   allowTranscribe = true
 }: LoadAsrSubtitleOptions = {}): Promise<void> {
+  if (!getSiteCapabilities(state.clip.site).supportsAsr) {
+    throw new Error("当前站点不支持语音转写字幕。");
+  }
   if (runId !== undefined) {
     ensureRunActive(runId, state.clip.fetchRunId);
   }
@@ -682,9 +896,12 @@ export async function loadSecondarySubtitle(
   }
 
   try {
+    const activeSite = state.clip.site;
+    const activeVideoId = state.clip.bvid;
     await loadTrackBody<SubtitleBodyItem>(
       {
-        bvid: state.clip.bvid,
+        site: activeSite,
+        bvid: activeVideoId,
         cid: state.clip.cid,
         videoDuration: state.clip.videoDuration,
         url,
@@ -692,6 +909,7 @@ export async function loadSecondarySubtitle(
         subtitleId,
         forceRefresh,
         transport: contentFetchJson,
+        fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
         checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
         onCacheSaveFailed: notifyCacheSaveFailed
       },

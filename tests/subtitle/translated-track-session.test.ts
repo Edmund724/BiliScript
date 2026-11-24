@@ -129,6 +129,93 @@ describe("createTranslatedTrackSession seam", () => {
     expect(await session.loadCached()).toEqual([{ from: 0, to: 4, content: "第一句精翻" }]);
   });
 
+  it("youtube-auto 轨在 reconfigure 前后均透传 origin/kind/source 且保持 boundary-v3 一致", async () => {
+    const { resolveSubtitleTranslateProtocolMode } = await import(
+      "../../extension/ai/subtitle-translate.js"
+    );
+    const primary: SubtitleBodyItem[] = [
+      { from: 0, to: 3, content: "Hello world." },
+      { from: 3, to: 6, content: "How are you?" }
+    ];
+    const capturedProtocolInputs: Array<{
+      selectedSubtitleId?: string;
+      origin?: string;
+      kind?: string;
+      source?: string;
+    }> = [];
+    const capturedTranslateInputs: TranslatedTrackTranslateInput[] = [];
+
+    const session = createTranslatedTrackSession(
+      {
+        bvid: "ytAutoId01",
+        cid: "yt",
+        primaryItems: primary,
+        source: {
+          isAsrSource: false,
+          selectedSubtitleId: "custom-yt-track",
+          selectedSubtitleUrl: "https://www.youtube.com/api/timedtext?v=ytAutoId01",
+          selectedSubtitleLang: "English",
+          trackLan: "en",
+          origin: "youtube",
+          kind: "asr",
+          source: "youtube-auto",
+          targetLang: "zh"
+        }
+      },
+      {
+        translateTrack: async (input) => {
+          capturedTranslateInputs.push(input);
+          return asTrackResult(
+            input.items.map((item) => ({ ...item, content: `译:${item.content}` })),
+            input.items
+          );
+        }
+      }
+    );
+
+    expect(session.protocolMode).toBe("boundary-v3");
+    const sigBefore = session.translationSig;
+
+    const changed = session.reconfigure({
+      resolveProtocolMode: (input) => {
+        capturedProtocolInputs.push({
+          selectedSubtitleId: input.selectedSubtitleId,
+          origin: input.origin,
+          kind: input.kind,
+          source: input.source
+        });
+        return resolveSubtitleTranslateProtocolMode(input);
+      },
+      protocolItems: primary
+    });
+
+    expect(changed).toBe(false);
+    expect(session.protocolMode).toBe("boundary-v3");
+    expect(session.translationSig).toBe(sigBefore);
+    expect(capturedProtocolInputs).toEqual([
+      {
+        selectedSubtitleId: "custom-yt-track",
+        origin: "youtube",
+        kind: "asr",
+        source: "youtube-auto"
+      }
+    ]);
+
+    await session.translateChunk({
+      chunkIndex: 0,
+      chunkFromSec: 0,
+      chunkToSec: 60,
+      items: primary
+    });
+    expect(capturedTranslateInputs).toHaveLength(1);
+    expect(capturedTranslateInputs[0]).toMatchObject({
+      selectedSubtitleId: "custom-yt-track",
+      origin: "youtube",
+      kind: "asr",
+      source: "youtube-auto"
+    });
+  });
+
   it("相邻前一片（chunkIndex - 1）缺失时，previousLines 回溯取更早已完成分块的双语前情", async () => {
     const chunk0: SubtitleBodyItem[] = [
       { from: 2, to: 5, content: "First sentence" },

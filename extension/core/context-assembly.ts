@@ -1,7 +1,8 @@
 import { buildAiContextRef } from "../ai/conversation.js";
 import type { AiContext } from "../ai/types.js";
-import { extractBvid } from "../bilibili/video-id-shared.js";
+import { extractVideoId } from "../bilibili/video-id-shared.js";
 import { fetchHotCommentsWithLedger } from "../bilibili/gateway.js";
+import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
 import {
   createReaderContextPayload,
   computeContextStateSignature
@@ -36,12 +37,15 @@ async function defaultFetchHotComments(): Promise<HotComment[]> {
 }
 
 function doesClipMatchPageUrl(clip: Partial<ClipState>, url: string): boolean {
-  const pageBvid = extractBvid(url);
-  if (!pageBvid) {
+  const pageVideoId = extractVideoId(url);
+  if (!pageVideoId) {
     return true;
   }
+  if (normalizeSiteId(clip?.site) !== detectSiteFromUrl(url)) {
+    return false;
+  }
   const clipBvid = String(clip?.bvid || "").trim();
-  return !clipBvid || clipBvid === pageBvid;
+  return !clipBvid || clipBvid === pageVideoId;
 }
 
 export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}): ContextFetch {
@@ -63,7 +67,9 @@ export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}
     if (!forceRefresh && ifSignature && ifSignature === signature) {
       return { kind: "payload", tabUrl, payload: { unchanged: true } };
     }
-    const hotComments = await fetchHotComments();
+    const hotComments = getSiteCapabilities(payload.site).supportsHotComments
+      ? await fetchHotComments()
+      : [];
     return {
       kind: "payload",
       tabUrl,
@@ -77,6 +83,9 @@ function doesContextRefMatchCurrentClip(
   clip: Partial<ClipState> | null | undefined
 ): boolean {
   const ref = buildAiContextRef(contextRef);
+  if (normalizeSiteId(ref.site) !== normalizeSiteId(clip?.site)) {
+    return false;
+  }
   const refBvid = String(ref.bvid || "").trim();
   const refCid = String(ref.cid || "").trim();
   const clipBvid = String(clip?.bvid || "").trim();

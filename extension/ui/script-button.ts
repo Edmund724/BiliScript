@@ -9,6 +9,12 @@ import { contentEventBus } from "../shared/content-event-bus.js";
 import { isReaderDetached, onActiveHostChange } from "../shared/active-host.js";
 import { SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.js";
 import { logInfoAlways } from "../shared/logging.js";
+import { cleanYoutubeWatchUrl, detectActiveSite, isYoutubeWatchPage } from "../shared/site.js";
+import {
+  detectBilibiliHostTheme,
+  detectSystemTheme,
+  watchExternalThemeChanges
+} from "../shared/host-theme.js";
 
 const SCRIPT_BUTTON_ID = "biliscript-script-button";
 
@@ -20,6 +26,71 @@ const BUTTON_BASE_STYLE =
   "height:34px;padding:0 20px;border:none;border-radius:8px;cursor:pointer;" +
   "font-size:14px;font-weight:500;line-height:20px;color:#fff;white-space:nowrap;";
 
+const YOUTUBE_BUTTON_BASE_STYLE =
+  "display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;" +
+  "height:36px;padding:0 16px;border-radius:18px;cursor:pointer;flex-shrink:0;" +
+  "font-size:14px;font-weight:500;line-height:36px;white-space:nowrap;";
+
+type YoutubeHostAdapterModule = typeof import("../youtube/host-adapter.js");
+let youtubeHostAdapter: YoutubeHostAdapterModule | null = null;
+let youtubeHostAdapterLoading: Promise<void> | null = null;
+let youtubeThemeUnwatch: (() => void) | null = null;
+
+function isYoutubeSiteActive(): boolean {
+  return detectActiveSite() === "youtube";
+}
+
+function resolveActionReaderUrl(): string {
+  if (isYoutubeSiteActive()) {
+    return cleanYoutubeWatchUrl(location.href) || location.href;
+  }
+  return buildReaderModeUrl(location.href);
+}
+
+function ensureYoutubeHostAdapter(): YoutubeHostAdapterModule | null {
+  if (youtubeHostAdapter) {
+    return youtubeHostAdapter;
+  }
+  if (!youtubeHostAdapterLoading) {
+    youtubeHostAdapterLoading = import("../youtube/host-adapter.js")
+      .then((mod) => {
+        youtubeHostAdapter = mod;
+        syncScriptButton();
+      })
+      .catch(() => {})
+      .finally(() => {
+        youtubeHostAdapterLoading = null;
+      });
+  }
+  return null;
+}
+
+function unwatchYoutubeTheme(): void {
+  if (youtubeThemeUnwatch) {
+    youtubeThemeUnwatch();
+    youtubeThemeUnwatch = null;
+  }
+}
+
+function ensureYoutubeThemeWatcher(): void {
+  if (youtubeThemeUnwatch) {
+    return;
+  }
+  youtubeThemeUnwatch = watchExternalThemeChanges(() => {
+    const existing = document.getElementById(SCRIPT_BUTTON_ID);
+    if (existing?.isConnected && isYoutubeSiteActive()) {
+      styleYoutubeScriptButton(existing);
+    }
+  }, { doc: document });
+}
+
+function isSupportedActiveSitePage(): boolean {
+  if (isYoutubeSiteActive()) {
+    return isYoutubeWatchPage(location.href);
+  }
+  return isSupportedVideoPage();
+}
+
 const MODULE_BOOT_AT = Date.now();
 let mountTimingLogged = false;
 
@@ -30,6 +101,10 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 contentEventBus.on("reader:closed", () => {
+  setTickInterval(REINJECT_INTERVAL_MS);
+  syncScriptButton();
+});
+contentEventBus.on("host:url-change", () => {
   setTickInterval(REINJECT_INTERVAL_MS);
   syncScriptButton();
 });
@@ -58,7 +133,7 @@ let brokenTicks = 0;
 let lastRestoreAt = 0;
 
 function syncScriptButton(): void {
-  if (!isSupportedVideoPage()) {
+  if (!isSupportedActiveSitePage()) {
     brokenTicks = 0;
     anchorPhase = "init";
     anchorGraceBeats = 0;
@@ -66,8 +141,11 @@ function syncScriptButton(): void {
     removeScriptButton();
     return;
   }
+  if (!isYoutubeSiteActive()) {
+    unwatchYoutubeTheme();
+  }
   const viewOpen = isReaderViewOpen();
-  const readerUrlMode = isReaderMode();
+  const readerUrlMode = !isYoutubeSiteActive() && isReaderMode();
   if (viewOpen && isReaderShellIntact()) {
     brokenTicks = 0;
     setTickInterval(PAUSED_INTERVAL_MS);
@@ -86,7 +164,7 @@ function syncScriptButton(): void {
         brokenTicks = 0;
         lastRestoreAt = now;
         dispatchContentScriptMessage(
-          { type: "reader-restore", readerUrl: buildReaderModeUrl(location.href) },
+          { type: "reader-restore", readerUrl: resolveActionReaderUrl() },
           () => {}
         );
       }
@@ -119,6 +197,10 @@ function logMountTiming(target: string): void {
 let anchorSeat: HTMLElement | null = null;
 
 export function injectScriptButton(): void {
+  if (isYoutubeSiteActive()) {
+    injectYoutubeScriptButton();
+    return;
+  }
   const existing = document.getElementById(SCRIPT_BUTTON_ID);
   if (existing?.isConnected && anchorSeat && existing.nextElementSibling === anchorSeat) {
     anchorPhase = "anchor";
@@ -214,6 +296,7 @@ function createScriptButton(): HTMLButtonElement {
 }
 
 export function removeScriptButton(): void {
+  unwatchYoutubeTheme();
   unbindToolbarObserver();
   document.getElementById(SCRIPT_BUTTON_ID)?.remove();
 }
@@ -221,9 +304,82 @@ export function removeScriptButton(): void {
 let toolbarObserver: MutationObserver | null = null;
 let toolbarObserverTargets: Element[] = [];
 let toolbarObserverExpectsHost = false;
+let toolbarObserverSite: "bilibili" | "youtube" | null = null;
 
 function onToolbarMutation(): void {
   syncScriptButton();
+}
+
+function bindYoutubeObserver(host: HTMLElement | null): void {
+  if (typeof MutationObserver === "undefined") {
+    return;
+  }
+  if (!toolbarObserver) {
+    toolbarObserver = new MutationObserver(onToolbarMutation);
+  }
+  const expectedHost = Boolean(host);
+  if (
+    toolbarObserverSite === "youtube" &&
+    toolbarObserverExpectsHost === expectedHost &&
+    isToolbarObserverActive() &&
+    (!host || toolbarObserverTargets.includes(host))
+  ) {
+    return;
+  }
+  toolbarObserver.disconnect();
+  toolbarObserverTargets = [];
+  toolbarObserverSite = "youtube";
+  toolbarObserverExpectsHost = expectedHost;
+  if (!host) {
+    if (document.body) {
+      toolbarObserver.observe(document.body, { childList: true, subtree: true });
+      toolbarObserverTargets = [document.body];
+    }
+    return;
+  }
+  toolbarObserver.observe(host, { childList: true, subtree: true });
+  toolbarObserverTargets.push(host);
+  if (host.parentElement) {
+    toolbarObserver.observe(host.parentElement, { childList: true });
+    toolbarObserverTargets.push(host.parentElement);
+  }
+  const flexy = youtubeHostAdapter?.getYoutubeWatchFlexy(document);
+  if (flexy && flexy !== host && flexy !== host.parentElement) {
+    toolbarObserver.observe(flexy, { childList: true });
+    toolbarObserverTargets.push(flexy);
+  }
+}
+
+function injectYoutubeScriptButton(): void {
+  anchorSeat = null;
+  if (!isYoutubeWatchPage(location.href)) {
+    removeScriptButton();
+    return;
+  }
+  ensureYoutubeThemeWatcher();
+  const adapter = ensureYoutubeHostAdapter();
+  if (!adapter) {
+    return;
+  }
+  const host = adapter.findYoutubeActionHost(document);
+  bindYoutubeObserver(host);
+  const existing = document.getElementById(SCRIPT_BUTTON_ID);
+  if (!host) {
+    if (existing?.isConnected) {
+      existing.remove();
+    }
+    return;
+  }
+  if (existing?.isConnected && existing.parentElement === host) {
+    styleYoutubeScriptButton(existing);
+    return;
+  }
+  const button = existing?.isConnected ? existing : createScriptButton();
+  styleYoutubeScriptButton(button);
+  host.appendChild(button);
+  bindPanelPreloadOnButton(button);
+  schedulePanelPreloadOnIdle();
+  logMountTiming("YouTube #actions");
 }
 
 function bindToolbarObserver(): void {
@@ -235,6 +391,7 @@ function bindToolbarObserver(): void {
   }
   toolbarObserver.disconnect();
   toolbarObserverTargets = [];
+  toolbarObserverSite = "bilibili";
   const hosts = document.querySelectorAll(TOOLBAR_HOST_SELECTOR);
   toolbarObserverExpectsHost = hosts.length > 0;
   if (!toolbarObserverExpectsHost) {
@@ -256,6 +413,7 @@ function unbindToolbarObserver(): void {
   toolbarObserver?.disconnect();
   toolbarObserver = null;
   toolbarObserverTargets = [];
+  toolbarObserverSite = null;
 }
 
 const COMPLAINT_CLASS_SIGNAL = /complaint/i;
@@ -313,10 +471,32 @@ function findToolbarLeftWithoutRight(): HTMLElement | null {
   return null;
 }
 
+function styleYoutubeScriptButton(button: HTMLElement): void {
+  const hostTheme = detectBilibiliHostTheme(document) ?? detectSystemTheme();
+  if (
+    button.dataset.biliscriptSite === "youtube" &&
+    button.dataset.biliscriptHostTheme === hostTheme
+  ) {
+    return;
+  }
+  const isDark = hostTheme === "dark";
+  const background = isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)";
+  const color = isDark ? "#f1f1f1" : "#0f0f0f";
+  const border = isDark
+    ? "1px solid rgba(255, 255, 255, 0.14)"
+    : "1px solid rgba(0, 0, 0, 0.08)";
+  button.dataset.biliscriptSite = "youtube";
+  button.dataset.biliscriptHostTheme = hostTheme;
+  button.style.cssText =
+    `${YOUTUBE_BUTTON_BASE_STYLE}background:${background};color:${color};border:${border};margin-left:8px;`;
+}
+
 function styleScriptButton(
   button: HTMLElement,
   { position }: { position: "before-complaint" | "toolbar-end" }
 ): void {
+  delete button.dataset.biliscriptSite;
+  delete button.dataset.biliscriptHostTheme;
   button.style.cssText =
     position === "toolbar-end"
       ? `${BUTTON_BASE_STYLE}background:#fb7299;margin-left:auto;`
@@ -326,7 +506,7 @@ function styleScriptButton(
 function handleScriptButtonClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
-  if (!isReaderDetached() && (isReaderViewOpen() || isReaderMode())) {
+  if (!isReaderDetached() && (isReaderViewOpen() || (!isYoutubeSiteActive() && isReaderMode()))) {
     return;
   }
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
@@ -339,7 +519,7 @@ function handleScriptButtonClick(event: MouseEvent): void {
     button.setAttribute("aria-label", message);
   };
   const dispatched = dispatchContentScriptMessage(
-    { type: "reader-enter", readerUrl: buildReaderModeUrl(location.href) },
+    { type: "reader-enter", readerUrl: resolveActionReaderUrl() },
     (response) => {
       if (!response?.ok) {
         showFailure(response?.error);

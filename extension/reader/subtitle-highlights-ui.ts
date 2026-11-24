@@ -18,7 +18,7 @@ let cachedSubtitleIndexes = new Set<number>();
 
 export function currentHighlightVideoKey(): string {
   const url = state.clip.currentUrl || (typeof location !== "undefined" ? location.href : "");
-  return resolveHighlightVideoKey(state.clip.bvid, url);
+  return resolveHighlightVideoKey(state.clip.bvid, url, state.clip.site);
 }
 
 function collectHighlightedSubtitleIndexes(items: readonly NoteHighlightItem[]): Set<number> {

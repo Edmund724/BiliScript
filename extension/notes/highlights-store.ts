@@ -1,3 +1,12 @@
+import {
+  detectSiteFromUrl,
+  encodeVideoStorageBvid,
+  extractYoutubeVideoId,
+  isEncodedYoutubeStorageBvid,
+  normalizeSiteId,
+  type SiteId
+} from "../shared/site.js";
+
 export type NoteHighlightSource = "subtitle" | "overview";
 
 export interface NoteHighlightItem {
@@ -33,12 +42,30 @@ function hasLocalStorage(): boolean {
   return typeof chrome !== "undefined" && Boolean(chrome?.storage?.local);
 }
 
-export function resolveHighlightVideoKey(bvid?: unknown, url?: unknown): string {
+export function resolveHighlightVideoKey(
+  bvid?: unknown,
+  url?: unknown,
+  site?: SiteId | unknown
+): string {
   const cleanBvid = String(bvid || "").trim();
+  const rawUrl = String(url || "").trim();
+  const ytIdFromUrl = rawUrl ? extractYoutubeVideoId(rawUrl) : "";
+  const hasExplicitSite = site !== undefined && site !== null && String(site).trim() !== "";
+  const effectiveSite: SiteId = hasExplicitSite
+    ? normalizeSiteId(site)
+    : isEncodedYoutubeStorageBvid(cleanBvid) ||
+        Boolean(ytIdFromUrl) ||
+        (Boolean(rawUrl) && detectSiteFromUrl(rawUrl) === "youtube")
+      ? "youtube"
+      : "bilibili";
+
+  if (effectiveSite === "youtube") {
+    const targetId = cleanBvid || ytIdFromUrl;
+    return targetId ? encodeVideoStorageBvid("youtube", targetId) : "";
+  }
   if (cleanBvid) {
     return cleanBvid;
   }
-  const rawUrl = String(url || "").trim();
   if (!rawUrl) {
     return "";
   }

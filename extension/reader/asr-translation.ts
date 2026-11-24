@@ -91,11 +91,11 @@ let contextKey = "";
 let aiRefineVideoKey = "";
 
 function currentVideoKey(): string {
-  return `${state.clip.bvid}|${state.clip.cid}`;
+  return `${state.clip.site}|${state.clip.bvid}|${state.clip.cid}`;
 }
 
 function currentContextKey(): string {
-  return `${state.clip.bvid}|${state.clip.cid}|${clipState.fetchRunId}|${state.clip.selectedSubtitleId}`;
+  return `${state.clip.site}|${state.clip.bvid}|${state.clip.cid}|${clipState.fetchRunId}|${state.clip.selectedSubtitleId}`;
 }
 
 function syncContext(): void {

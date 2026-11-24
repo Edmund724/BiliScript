@@ -1,4 +1,5 @@
 import type { LiveSettingsTarget } from "../../live/fullscreen-live-overlay.js";
+import { state } from "../../core/state.js";
 import {
   registerReaderSettingsBackInterceptor,
   registerReaderSettingsCloseListener
@@ -6,6 +7,7 @@ import {
 import { ids } from "../../reader/state.js";
 import { activeById } from "../../shared/active-host.js";
 import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
+import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import type { AiCredentialLinkTarget } from "../ai-credential-link.js";
 import {
   cancelNavTransition,
@@ -105,6 +107,28 @@ export function getEntryButtonForSubpage(elements: SettingsElements, view: Setti
   }
 }
 
+function resolveSettingsSiteCapabilities() {
+  const site =
+    state.clip.site === "youtube" || detectActiveSite() === "youtube"
+      ? "youtube"
+      : state.clip.site;
+  return getSiteCapabilities(site);
+}
+
+export function isSettingsViewAllowed(view: SettingsViewId): boolean {
+  const siteCaps = resolveSettingsSiteCapabilities();
+  if (view === "live") {
+    return supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+  }
+  if (view === "asr") {
+    return siteCaps.supportsAsr;
+  }
+  if (view === "agent" || view === "agent-address") {
+    return siteCaps.supportsAgentBridge;
+  }
+  return true;
+}
+
 export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNavigator {
   let pendingSettingsTarget: SettingsOpenTarget | null = null;
   let activeSettingsView: SettingsViewId = "root";
@@ -118,7 +142,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     view: SettingsViewId,
     options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean; elements?: SettingsElements } = {}
   ): void {
-    const targetView: SettingsViewId = view === "live" && !supportsLiveCompanion() ? "root" : view;
+    const targetView: SettingsViewId = isSettingsViewAllowed(view) ? view : "root";
     const elements = options.elements ?? collectElements(host);
     const previousView = activeSettingsView;
     const scrollContainer = getScrollContainer(host);
@@ -251,6 +275,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
 
     for (const [button, view] of entries) {
       button.addEventListener("click", () => {
+        if (!isSettingsViewAllowed(view)) return;
         navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true, elements });
       });
     }
@@ -277,7 +302,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   }
 
   async function openSettingsTarget(target: SettingsOpenTarget): Promise<void> {
-    if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
+    if ((target === "live" || target === "gemini-key") && !isSettingsViewAllowed("live")) {
       return;
     }
     const host = deps.getHost() ?? activeById(ids.readingSettingsHost);
@@ -309,6 +334,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   }
 
   function focusSettingsView(view: SettingsSubpageId): void {
+    if (!isSettingsViewAllowed(view)) return;
     const host = deps.getHost();
     if (!host || !host.dataset.biliscriptSettingsRendered) return;
     navigateSettingsView(host, view, { focusOnEnter: false, animate: false });

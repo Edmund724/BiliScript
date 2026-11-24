@@ -5,8 +5,22 @@ import {
   type CacheFamilyKeyFields,
   type CacheSaveResult
 } from "../core/cache-lru.js";
-import { parseAiArtifactKey, type AiArtifactFamily, type SubtitleIdbStore } from "./idb-store.js";
-import { resolveActiveSubtitleStore, resolveDirectSubtitleStore } from "./store-client.js";
+import {
+  YOUTUBE_UNIT_CID,
+  isEncodedYoutubeStorageBvid,
+  type SiteId
+} from "../shared/site.js";
+import {
+  parseAiArtifactKey,
+  resolveVideoStorageIdentity,
+  type AiArtifactFamily,
+  type SubtitleIdbStore
+} from "./idb-store.js";
+import {
+  registerSubtitleStoreResetHookForTests,
+  resolveActiveSubtitleStore,
+  resolveDirectSubtitleStore
+} from "./store-client.js";
 
 export interface AiArtifactFamilyOptions<TValue> {
   family: AiArtifactFamily;
@@ -17,6 +31,16 @@ export interface AiArtifactFamilyOptions<TValue> {
   directStore?: boolean;
 }
 
+export interface AiArtifactKeyFields extends CacheFamilyKeyFields {
+  site?: SiteId | unknown;
+}
+
+export interface AiArtifactTargetMeta {
+  bvid?: unknown;
+  cid?: unknown;
+  site?: SiteId | unknown;
+}
+
 export interface AiArtifactPrefixEntry<TValue> {
   key: string;
   payload: TValue;
@@ -25,19 +49,71 @@ export interface AiArtifactPrefixEntry<TValue> {
 
 export interface AiArtifactFamilyClient<TValue> {
   readonly prefix: AiArtifactFamily;
-  key(fields: CacheFamilyKeyFields, tail: unknown): string;
+  key(fields: AiArtifactKeyFields, tail: unknown): string;
   load(key: string): Promise<TValue | null>;
   loadMany(keys: string[]): Promise<Array<TValue | null>>;
-  loadByPrefix(bvid: string, keyPrefix: string): Promise<Array<AiArtifactPrefixEntry<TValue>>>;
-  save(key: string, value: TValue): Promise<CacheSaveResult>;
-  remove(key: string): Promise<void>;
+  loadByPrefix(
+    bvid: string,
+    keyPrefix: string,
+    site?: SiteId | unknown
+  ): Promise<Array<AiArtifactPrefixEntry<TValue>>>;
+  save(key: string, value: TValue, meta?: AiArtifactTargetMeta): Promise<CacheSaveResult>;
+  remove(key: string, meta?: AiArtifactTargetMeta): Promise<void>;
 }
 
 export interface AiArtifactBatchSpec<TValue = unknown> {
   key: string;
   family: AiArtifactFamily;
   payloadField: string;
+  bvid?: string;
+  cid?: string;
+  site?: SiteId | unknown;
   validate?: (value: unknown) => boolean;
+}
+
+const MAX_REMEMBERED_KEY_META = 256;
+const generatedKeyMeta = new Map<string, { bvid: string; cid: string }>();
+
+registerSubtitleStoreResetHookForTests(() => {
+  generatedKeyMeta.clear();
+});
+
+function rememberGeneratedKeyMeta(key: string, meta: { bvid: string; cid: string }): void {
+  if (!key || !meta.bvid) {
+    return;
+  }
+  if (generatedKeyMeta.has(key)) {
+    generatedKeyMeta.delete(key);
+  }
+  generatedKeyMeta.set(key, meta);
+  while (generatedKeyMeta.size > MAX_REMEMBERED_KEY_META) {
+    const oldest = generatedKeyMeta.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    generatedKeyMeta.delete(oldest);
+  }
+}
+
+function resolveArtifactWriteTarget(
+  key: string,
+  meta?: AiArtifactTargetMeta
+): { bvid: string; cid: string } {
+  const rawMetaBvid = String(meta?.bvid ?? "").trim();
+  if (rawMetaBvid) {
+    const resolved = resolveVideoStorageIdentity(rawMetaBvid, meta?.cid, meta?.site);
+    return { bvid: resolved.bvid, cid: resolved.cid };
+  }
+  const remembered = generatedKeyMeta.get(key);
+  if (remembered) {
+    return remembered;
+  }
+  const parsed = parseAiArtifactKey(key);
+  if (!parsed?.bvid) {
+    return { bvid: "", cid: "" };
+  }
+  const resolved = resolveVideoStorageIdentity(parsed.bvid, parsed.cid, meta?.site);
+  return { bvid: resolved.bvid, cid: resolved.cid };
 }
 
 function readLegacyEnvelope<TValue>(
@@ -69,11 +145,10 @@ async function tryWriteArtifactToIdb(
   family: AiArtifactFamily,
   key: string,
   payload: unknown,
-  timestamp?: number
+  timestamp?: number,
+  meta?: AiArtifactTargetMeta
 ): Promise<{ ok: boolean; bvid: string }> {
-  const parsed = parseAiArtifactKey(key);
-  const bvid = parsed?.bvid ?? "";
-  const cid = parsed?.cid ?? "";
+  const { bvid, cid } = resolveArtifactWriteTarget(key, meta);
   if (!bvid) {
     return { ok: false, bvid: "" };
   }
@@ -156,7 +231,8 @@ export async function loadAiArtifactsBatch(
         spec.family,
         spec.key,
         extracted.value,
-        extracted.timestamp
+        extracted.timestamp,
+        { bvid: spec.bvid, cid: spec.cid, site: spec.site }
       );
       if (migrated.ok) {
         keysToRemove.push(...legacyCleanupKeys(spec.family, spec.key, migrated.bvid));
@@ -193,8 +269,11 @@ export function createAiArtifactFamily<TValue>(
     prefix: family,
 
     key(fields, tail) {
+      const resolved = resolveVideoStorageIdentity(fields.bvid, fields.cid, fields.site);
       const sourceKey = toSourceKey(fields.subtitleId, fields.subtitleUrl, fields.lang);
-      return `${family}${fields.bvid}_${fields.cid}_${sourceKey}_${String(tail)}`;
+      const builtKey = `${family}${resolved.bvid}_${resolved.cid}_${sourceKey}_${String(tail)}`;
+      rememberGeneratedKeyMeta(builtKey, { bvid: resolved.bvid, cid: resolved.cid });
+      return builtKey;
     },
 
     async load(key) {
@@ -255,12 +334,21 @@ export function createAiArtifactFamily<TValue>(
       return batch as Array<TValue | null>;
     },
 
-    async loadByPrefix(bvid, keyPrefix) {
-      const cleanBvid = String(bvid || "").trim();
+    async loadByPrefix(bvid, keyPrefix, site) {
+      const rawBvid = String(bvid || "").trim();
       const prefix = String(keyPrefix || "");
-      if (!cleanBvid || !prefix) {
+      if (!rawBvid || !prefix) {
         return [];
       }
+      const parsedPrefix = parseAiArtifactKey(prefix);
+      const effectiveSite =
+        site !== undefined && site !== null && String(site).trim() !== ""
+          ? site
+          : parsedPrefix?.cid === YOUTUBE_UNIT_CID || isEncodedYoutubeStorageBvid(parsedPrefix?.bvid)
+            ? "youtube"
+            : undefined;
+      const resolved = resolveVideoStorageIdentity(rawBvid, undefined, effectiveSite);
+      const cleanBvid = resolved.bvid;
 
       const store = getStore();
       const byKey = new Map<string, AiArtifactPrefixEntry<TValue>>();
@@ -305,7 +393,12 @@ export function createAiArtifactFamily<TValue>(
                 family,
                 legacyKey,
                 extracted.value,
-                extracted.timestamp
+                extracted.timestamp,
+                {
+                  bvid: cleanBvid,
+                  cid: parsedPrefix?.cid || (resolved.site === "youtube" ? YOUTUBE_UNIT_CID : ""),
+                  site: resolved.site
+                }
               );
               if (migrated.ok) {
                 keysToRemove.push(...legacyCleanupKeys(family, legacyKey, migrated.bvid || cleanBvid));
@@ -327,11 +420,9 @@ export function createAiArtifactFamily<TValue>(
       return Array.from(byKey.values());
     },
 
-    async save(key, value) {
+    async save(key, value, meta) {
       const cleanKey = String(key || "").trim();
-      const parsed = parseAiArtifactKey(cleanKey);
-      const bvid = parsed?.bvid ?? "";
-      const cid = parsed?.cid ?? "";
+      const { bvid, cid } = resolveArtifactWriteTarget(cleanKey, meta);
       try {
         const res = await getStore().putAiArtifact({
           key: cleanKey,
@@ -353,7 +444,7 @@ export function createAiArtifactFamily<TValue>(
       }
     },
 
-    async remove(key) {
+    async remove(key, meta) {
       const cleanKey = String(key || "").trim();
       if (!cleanKey) {
         return;
@@ -362,8 +453,8 @@ export function createAiArtifactFamily<TValue>(
         await getStore().deleteAiArtifact(cleanKey);
       } catch {
       }
-      const parsed = parseAiArtifactKey(cleanKey);
-      await removeLegacyKeysSafe(legacyCleanupKeys(family, cleanKey, parsed?.bvid ?? ""));
+      const { bvid } = resolveArtifactWriteTarget(cleanKey, meta);
+      await removeLegacyKeysSafe(legacyCleanupKeys(family, cleanKey, bvid));
     }
   };
 }

@@ -13,8 +13,16 @@ export {
   ANALYSIS_SUMMARY_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
   OUTLINE_QUOTES_SYSTEM_PROMPT,
+  STATE_RELAY_SYSTEM_PROMPT,
+  STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT,
+  STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT,
+  STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
+  getOverviewSystemPrompt,
+  getStateRelaySystemPrompt,
   buildAnalysisPrompt,
   buildAnalysisSummaryPrompt,
+  buildStateRelayStepPrompt,
+  buildStateRelayFinalSummaryPrompt,
 } from "./analysis-prompts.js";
 export { parseChapterOutline, resolveChapterSource } from "../shared/chapter-outline.js";
 export {

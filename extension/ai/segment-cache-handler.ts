@@ -24,8 +24,13 @@ export function createSegmentCacheHandler(): (
         return { ok: true, summary: await loadSegmentSummary(key) };
       },
       "save-summary": async (message) => {
+        const fields = segmentCacheKeyStringFields(message.context);
         const key = buildSegmentSummaryCacheKey(message.context, message.segmentIndex, message.budgetScale);
-        const result = await saveSegmentSummary(key, String(message.summary ?? ""));
+        const result = await saveSegmentSummary(key, String(message.summary ?? ""), {
+          bvid: fields.bvid,
+          cid: fields.cid,
+          site: message.context?.site
+        });
         return result.ok ? { ok: true } : { ok: false, error: String(result.error || "段缓存小结写入失败") };
       },
       "load-summaries": async (message) => {
@@ -38,12 +43,16 @@ export function createSegmentCacheHandler(): (
       "load-stored-summaries": async (message) => {
         const summaries = await loadStoredSegmentSummaries({
           ...segmentCacheKeyStringFields(message.context),
+          site: message.context?.site,
           budgetScale: message.budgetScale
         });
         return { ok: true, summaries };
       },
       "load-l1-index": async (message) => {
-        const l1Index = await loadStoredL1Index(segmentCacheKeyStringFields(message.context));
+        const l1Index = await loadStoredL1Index({
+          ...segmentCacheKeyStringFields(message.context),
+          site: message.context?.site
+        });
         return { ok: true, l1Index };
       }
     }

@@ -1,4 +1,12 @@
 import type { SubtitleBodyItem, SubtitleWord } from "../shared/video-dto.js";
+import {
+  YOUTUBE_UNIT_CID,
+  isEncodedYoutubeStorageBvid,
+  normalizeSiteId,
+  resolveVideoStorageKey,
+  type SiteId,
+  type VideoStorageKey
+} from "../shared/site.js";
 import { isAsrVariantSourceKey } from "./source-key.js";
 
 export const SUBTITLE_IDB_NAME = "biliscript-subtitle-store";
@@ -47,6 +55,32 @@ export function isAiArtifactFamily(value: unknown): value is AiArtifactFamily {
   return typeof value === "string" && (AI_ARTIFACT_FAMILIES as readonly string[]).includes(value);
 }
 
+export function inferStorageSite(
+  bvid: unknown,
+  cid?: unknown,
+  site?: unknown
+): SiteId {
+  if (site !== undefined && site !== null && String(site).trim() !== "") {
+    return normalizeSiteId(site);
+  }
+  const cleanCid = String(cid ?? "").trim();
+  const cleanBvid = String(bvid ?? "").trim();
+  if (cleanCid === YOUTUBE_UNIT_CID || isEncodedYoutubeStorageBvid(cleanBvid)) {
+    return "youtube";
+  }
+  return "bilibili";
+}
+
+export function resolveVideoStorageIdentity(
+  bvid: unknown,
+  cid?: unknown,
+  site?: unknown
+): VideoStorageKey {
+  const cleanBvid = String(bvid ?? "").trim();
+  const cleanCid = String(cid ?? "").trim();
+  return resolveVideoStorageKey(inferStorageSite(cleanBvid, cleanCid, site), cleanBvid, cleanCid);
+}
+
 export function parseAiArtifactKey(
   key: unknown
 ): { family: AiArtifactFamily; bvid: string; cid: string } | null {
@@ -64,7 +98,11 @@ export function parseAiArtifactKey(
   }
   const firstSep = rest.indexOf("_");
   if (firstSep === -1) {
-    return { family, bvid: rest, cid: "" };
+    return {
+      family,
+      bvid: rest,
+      cid: isEncodedYoutubeStorageBvid(rest) ? YOUTUBE_UNIT_CID : ""
+    };
   }
   const bvid = rest.slice(0, firstSep);
   if (!bvid) {
@@ -72,10 +110,14 @@ export function parseAiArtifactKey(
   }
   const secondSep = rest.indexOf("_", firstSep + 1);
   const cid = secondSep === -1 ? rest.slice(firstSep + 1) : rest.slice(firstSep + 1, secondSep);
-  return { family, bvid, cid };
+  return {
+    family,
+    bvid,
+    cid: cid || (isEncodedYoutubeStorageBvid(bvid) ? YOUTUBE_UNIT_CID : "")
+  };
 }
 
-export type SubtitleTrackStorageKind = "manual-cc" | "bili-ai" | "asr";
+export type SubtitleTrackStorageKind = "manual-cc" | "bili-ai" | "youtube-auto" | "asr";
 
 export interface RawSubtitleTrackRecord {
   trackKey: string;
@@ -144,6 +186,8 @@ export interface PutChatImageInput {
   id: string;
   conversationId: string;
   bvid?: string;
+  cid?: string;
+  site?: SiteId;
   mime: string;
   data: string;
   createdAt?: number;
@@ -166,6 +210,7 @@ export interface PruneChatImagesInput {
 export interface PutRawTrackInput {
   bvid: string;
   cid: string;
+  site?: SiteId;
   trackKey: string;
   lang?: string;
   kind?: SubtitleTrackStorageKind;
@@ -175,6 +220,7 @@ export interface PutRawTrackInput {
 export interface PutSegmentedTrackInput {
   bvid: string;
   cid: string;
+  site?: SiteId;
   trackKey: string;
   segmentationSig: string;
   items: readonly SubtitleBodyItem[];
@@ -183,6 +229,7 @@ export interface PutSegmentedTrackInput {
 export interface UpsertTranslatedTrackInput {
   bvid: string;
   cid: string;
+  site?: SiteId;
   sourceTrackKey: string;
   targetLang: string;
   translationSig: string;
@@ -194,6 +241,7 @@ export interface UpsertTranslatedTrackInput {
 export interface DeleteTrackEntryInput {
   bvid: string;
   cid: string;
+  site?: SiteId;
   tier: "rawTracks" | "segmentedTracks" | "translatedTracks";
   key: string;
 }
@@ -203,6 +251,7 @@ export interface PutAiArtifactInput<TPayload = unknown> {
   family?: AiArtifactFamily;
   bvid?: string;
   cid?: string;
+  site?: SiteId;
   payload: TPayload;
   createdAt?: number;
   updatedAt?: number;
@@ -256,15 +305,16 @@ export interface SubtitleIdbStoreOptions {
 }
 
 export interface SubtitleIdbStore {
-  getPageRecord(bvid: string, cid: string): Promise<SubtitlePageRecord | null>;
+  getPageRecord(bvid: string, cid: string, site?: SiteId): Promise<SubtitlePageRecord | null>;
   listPageRecords(): Promise<SubtitlePageRecord[]>;
-  getRawTrack(bvid: string, cid: string, trackKey: string): Promise<SubtitleBodyItem[] | null>;
+  getRawTrack(bvid: string, cid: string, trackKey: string, site?: SiteId): Promise<SubtitleBodyItem[] | null>;
   putRawTrack(input: PutRawTrackInput): Promise<SubtitleStoreWriteResult>;
   getSegmentedTrack(
     bvid: string,
     cid: string,
     trackKey: string,
-    segmentationSig: string
+    segmentationSig: string,
+    site?: SiteId
   ): Promise<SubtitleBodyItem[] | null>;
   putSegmentedTrack(input: PutSegmentedTrackInput): Promise<SubtitleStoreWriteResult>;
   getTranslatedTrack(
@@ -272,15 +322,17 @@ export interface SubtitleIdbStore {
     cid: string,
     sourceTrackKey: string,
     targetLang: string,
-    translationSig?: string
+    translationSig?: string,
+    site?: SiteId
   ): Promise<SubtitleBodyItem[] | null>;
   upsertTranslatedTrack(input: UpsertTranslatedTrackInput): Promise<SubtitleStoreWriteResult>;
   deleteTrackEntry(input: DeleteTrackEntryInput): Promise<boolean>;
-  pruneAsrVariants(args: { bvid: string; cid: string; keepTrackKey?: string }): Promise<string[]>;
+  pruneAsrVariants(args: { bvid: string; cid: string; keepTrackKey?: string; site?: SiteId }): Promise<string[]>;
   clearTranslatedTracksForPage(args: {
     bvid: string;
     cid: string;
     sourceTrackKey?: string;
+    site?: SiteId;
   }): Promise<string[]>;
 
   getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null>;
@@ -292,11 +344,12 @@ export interface SubtitleIdbStore {
   listAiArtifactsByFamilyBvid(
     family: AiArtifactFamily,
     bvid: string,
-    keyPrefix?: string
+    keyPrefix?: string,
+    site?: SiteId
   ): Promise<AiArtifactRecord[]>;
-  listAiArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]>;
+  listAiArtifactsByBvid(bvid: string, site?: SiteId): Promise<AiArtifactRecord[]>;
   listAllAiArtifacts(): Promise<AiArtifactRecord[]>;
-  clearVideo(bvid: string, cid?: string): Promise<ClearVideoResult>;
+  clearVideo(bvid: string, cid?: string, site?: SiteId): Promise<ClearVideoResult>;
 
   getChatImage(id: string): Promise<ChatImageRecord | null>;
   getChatImagesMany(ids: string[]): Promise<Array<ChatImageRecord | null>>;
@@ -318,13 +371,12 @@ const DEFAULT_MEMORY_BACKING_SYMBOL: typeof DEFAULT_MEMORY_BACKING_KEY = Symbol.
   "biliscript.defaultSubtitleIdbMemoryBacking"
 ) as typeof DEFAULT_MEMORY_BACKING_KEY;
 
-export function buildSubtitlePageId(bvid: string, cid: string): string {
-  const cleanBvid = String(bvid || "").trim();
-  const cleanCid = String(cid || "").trim();
-  if (!cleanBvid || !cleanCid) {
+export function buildSubtitlePageId(bvid: string, cid: string, site?: SiteId): string {
+  const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+  if (!resolved.bvid || !resolved.cid) {
     return "";
   }
-  return `${cleanBvid}:${cleanCid}`;
+  return `${resolved.bvid}:${resolved.cid}`;
 }
 
 export function buildSegmentedTrackMapKey(trackKey: string, segmentationSig: string): string {
@@ -1534,9 +1586,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
   }
 
   return {
-    async getPageRecord(bvid, cid) {
+    async getPageRecord(bvid, cid, site) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         if (!pageId) {
           return null;
         }
@@ -1548,9 +1601,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       return enqueue(() => backend.getAllPages());
     },
 
-    async getRawTrack(bvid, cid, trackKey) {
+    async getRawTrack(bvid, cid, trackKey, site) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         const key = String(trackKey || "").trim();
         if (!pageId || !key) {
           return null;
@@ -1565,14 +1619,21 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       });
     },
 
-    async putRawTrack({ bvid, cid, trackKey, lang, kind, items }) {
+    async putRawTrack({ bvid, cid, site, trackKey, lang, kind, items }) {
+      const resolved = resolveVideoStorageIdentity(bvid, cid, site);
       const cleanTrackKey = String(trackKey || "").trim();
       const sanitized = sanitizeMonolingualItems(items);
       if (!cleanTrackKey || sanitized.length === 0) {
         return { ok: true, evictedIds: [] };
       }
       return writePageMutation(
-        { op: "put-raw", pageId: buildSubtitlePageId(bvid, cid), bvid, cid, trackKey: cleanTrackKey },
+        {
+          op: "put-raw",
+          pageId: buildSubtitlePageId(resolved.bvid, resolved.cid),
+          bvid: resolved.bvid,
+          cid: resolved.cid,
+          trackKey: cleanTrackKey
+        },
         (record, ts) => {
           record.rawTracks[cleanTrackKey] = {
             trackKey: cleanTrackKey,
@@ -1586,9 +1647,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       );
     },
 
-    async getSegmentedTrack(bvid, cid, trackKey, segmentationSig) {
+    async getSegmentedTrack(bvid, cid, trackKey, segmentationSig, site) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         const cleanTrackKey = String(trackKey || "").trim();
         const cleanSig = String(segmentationSig || "").trim();
         if (!pageId || !cleanTrackKey || !cleanSig) {
@@ -1605,7 +1667,8 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       });
     },
 
-    async putSegmentedTrack({ bvid, cid, trackKey, segmentationSig, items }) {
+    async putSegmentedTrack({ bvid, cid, site, trackKey, segmentationSig, items }) {
+      const resolved = resolveVideoStorageIdentity(bvid, cid, site);
       const cleanTrackKey = String(trackKey || "").trim();
       const cleanSig = String(segmentationSig || "").trim();
       const sanitized = sanitizeMonolingualItems(items);
@@ -1614,7 +1677,13 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       }
       const mapKey = buildSegmentedTrackMapKey(cleanTrackKey, cleanSig);
       return writePageMutation(
-        { op: "put-segmented", pageId: buildSubtitlePageId(bvid, cid), bvid, cid, trackKey: mapKey },
+        {
+          op: "put-segmented",
+          pageId: buildSubtitlePageId(resolved.bvid, resolved.cid),
+          bvid: resolved.bvid,
+          cid: resolved.cid,
+          trackKey: mapKey
+        },
         (record, ts) => {
           record.segmentedTracks[mapKey] = {
             key: mapKey,
@@ -1628,9 +1697,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       );
     },
 
-    async getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig) {
+    async getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig, site) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         const cleanSource = String(sourceTrackKey || "").trim();
         const cleanLang = String(targetLang || "").trim();
         if (!pageId || !cleanSource || !cleanLang) {
@@ -1682,6 +1752,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     async upsertTranslatedTrack({
       bvid,
       cid,
+      site,
       sourceTrackKey,
       targetLang,
       translationSig,
@@ -1689,6 +1760,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       items,
       replaceRange
     }) {
+      const resolved = resolveVideoStorageIdentity(bvid, cid, site);
       const cleanSource = String(sourceTrackKey || "").trim();
       const cleanLang = String(targetLang || "").trim();
       const cleanSig = String(translationSig || "").trim() || "legacy";
@@ -1703,9 +1775,9 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       return writePageMutation(
         {
           op: "upsert-translated",
-          pageId: buildSubtitlePageId(bvid, cid),
-          bvid,
-          cid,
+          pageId: buildSubtitlePageId(resolved.bvid, resolved.cid),
+          bvid: resolved.bvid,
+          cid: resolved.cid,
           trackKey: mapKey
         },
         (record, ts) => {
@@ -1732,9 +1804,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       );
     },
 
-    async deleteTrackEntry({ bvid, cid, tier, key }) {
+    async deleteTrackEntry({ bvid, cid, site, tier, key }) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         const cleanKey = String(key || "").trim();
         if (!pageId || !cleanKey) {
           return false;
@@ -1777,9 +1850,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       });
     },
 
-    async pruneAsrVariants({ bvid, cid, keepTrackKey = "" }) {
+    async pruneAsrVariants({ bvid, cid, keepTrackKey = "", site }) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         if (!pageId) {
           return [];
         }
@@ -1813,9 +1887,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       });
     },
 
-    async clearTranslatedTracksForPage({ bvid, cid, sourceTrackKey }) {
+    async clearTranslatedTracksForPage({ bvid, cid, sourceTrackKey, site }) {
       return enqueue(async () => {
-        const pageId = buildSubtitlePageId(bvid, cid);
+        const resolved = resolveVideoStorageIdentity(bvid, cid, site);
+        const pageId = buildSubtitlePageId(resolved.bvid, resolved.cid);
         if (!pageId) {
           return [];
         }
@@ -1883,8 +1958,11 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         const cleanKey = String(input?.key || "").trim();
         const parsed = parseAiArtifactKey(cleanKey);
         const family = isAiArtifactFamily(input?.family) ? input.family : parsed?.family;
-        const bvid = String(input?.bvid ?? parsed?.bvid ?? "").trim();
-        const cid = String(input?.cid ?? parsed?.cid ?? "").trim();
+        const rawBvid = String(input?.bvid ?? parsed?.bvid ?? "").trim();
+        const rawCid = String(input?.cid ?? parsed?.cid ?? "").trim();
+        const resolved = resolveVideoStorageIdentity(rawBvid, rawCid, input?.site);
+        const bvid = resolved.bvid;
+        const cid = resolved.cid;
         if (!cleanKey || !family || !bvid || input?.payload === undefined || input?.payload === null) {
           return {
             ok: false,
@@ -1967,14 +2045,22 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     async listAiArtifactsByFamilyBvid(
       family: AiArtifactFamily,
       bvid: string,
-      keyPrefix = ""
+      keyPrefix = "",
+      site?: SiteId
     ): Promise<AiArtifactRecord[]> {
       return enqueue(async () => {
-        const cleanBvid = String(bvid || "").trim();
+        const prefix = String(keyPrefix || "");
+        const parsedPrefix = prefix ? parseAiArtifactKey(prefix) : null;
+        const effectiveSite =
+          site !== undefined
+            ? site
+            : parsedPrefix?.cid === YOUTUBE_UNIT_CID || isEncodedYoutubeStorageBvid(parsedPrefix?.bvid)
+              ? "youtube"
+              : undefined;
+        const cleanBvid = resolveVideoStorageIdentity(bvid, undefined, effectiveSite).bvid;
         if (!isAiArtifactFamily(family) || !cleanBvid) {
           return [];
         }
-        const prefix = String(keyPrefix || "");
         const records = await backend.getArtifactsByFamilyBvid(family, cleanBvid);
         const matched = prefix ? records.filter((rec) => rec.key.startsWith(prefix)) : records;
         if (matched.length > 0) {
@@ -1984,9 +2070,9 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       });
     },
 
-    async listAiArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]> {
+    async listAiArtifactsByBvid(bvid: string, site?: SiteId): Promise<AiArtifactRecord[]> {
       return enqueue(async () => {
-        const cleanBvid = String(bvid || "").trim();
+        const cleanBvid = resolveVideoStorageIdentity(bvid, undefined, site).bvid;
         if (!cleanBvid) {
           return [];
         }
@@ -1998,10 +2084,12 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       return enqueue(() => backend.getAllArtifacts());
     },
 
-    async clearVideo(bvid: string, cid?: string): Promise<ClearVideoResult> {
+    async clearVideo(bvid: string, cid?: string, site?: SiteId): Promise<ClearVideoResult> {
       return enqueue(async () => {
-        const cleanBvid = String(bvid || "").trim();
-        const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";
+        const hasCid = cid !== undefined && cid !== null && String(cid).trim() !== "";
+        const resolved = resolveVideoStorageIdentity(bvid, hasCid ? cid : "", site);
+        const cleanBvid = resolved.bvid;
+        const cleanCid = hasCid ? resolved.cid : "";
         if (!cleanBvid) {
           return { removedPageIds: [], removedArtifactKeys: [] };
         }
@@ -2079,7 +2167,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
       return enqueue(async () => {
         const cleanId = String(input?.id || "").trim();
         const cleanConvId = String(input?.conversationId || "").trim();
-        const cleanBvid = String(input?.bvid ?? "").trim();
+        const rawBvid = String(input?.bvid ?? "").trim();
+        const cleanBvid = rawBvid
+          ? resolveVideoStorageIdentity(rawBvid, input?.cid, input?.site).bvid
+          : "";
         const cleanMime = typeof input?.mime === "string" ? input.mime.trim() : "";
         const cleanData = typeof input?.data === "string" ? input.data : "";
         if (!cleanId || !cleanConvId || !cleanMime || !cleanData) {

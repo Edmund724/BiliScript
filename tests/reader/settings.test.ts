@@ -674,7 +674,7 @@ describe("主题：只剩明暗一轴", () => {
     expect(hasReaderSettingsOverlayOpen()).toBe(false);
   });
 
-  it("设置抽屉：外观主题提供 4 档（跟随 B 站 / 跟随系统 / 浅色 / 深色）并随宿主 .dark 实时生效", async () => {
+  it("设置抽屉：外观主题提供 4 档（跟随当前站点 / 跟随系统 / 浅色 / 深色）并随宿主 .dark 实时生效", async () => {
     transitionReaderShell("open");
 
     let savePayload: Record<string, unknown> | null = null;

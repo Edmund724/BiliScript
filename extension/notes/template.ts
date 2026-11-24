@@ -1,4 +1,12 @@
 import { formatClock } from "../shared/clock-text.js";
+import {
+  decodeVideoStorageBvid,
+  detectSiteFromUrl,
+  extractYoutubeVideoId,
+  isEncodedYoutubeStorageBvid,
+  normalizeSiteId,
+  type SiteId
+} from "../shared/site.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
@@ -10,10 +18,17 @@ import {
   type SecondaryLineResolver,
   type SubtitleBodyItemLike
 } from "./section-lines.js";
-import { DEFAULT_NOTE_TEMPLATE } from "./template-defaults.js";
+import {
+  DEFAULT_NOTE_TEMPLATE,
+  getDefaultNoteTemplate
+} from "./template-defaults.js";
 import type { NoteHighlightItem } from "./highlights-store.js";
 
-export { DEFAULT_NOTE_TEMPLATE } from "./template-defaults.js";
+export {
+  DEFAULT_NOTE_TEMPLATE,
+  DEFAULT_YOUTUBE_NOTE_TEMPLATE,
+  getDefaultNoteTemplate
+} from "./template-defaults.js";
 
 export interface NoteTemplateChapterLike {
   title?: unknown;
@@ -30,6 +45,8 @@ export interface NoteTemplateQuoteLike {
 export interface NoteTemplateVariables {
   title: string;
   bvid: string;
+  videoId: string;
+  site: SiteId;
   author: string;
   url: string;
   date: string;
@@ -44,8 +61,10 @@ export type NoteTemplateVariableKey = keyof NoteTemplateVariables;
 
 export interface BuildNoteTemplateVariablesInput {
   meta: NoteRenderMeta & {
+    site?: SiteId | unknown;
     title?: unknown;
     bvid?: unknown;
+    videoId?: unknown;
     author?: unknown;
     url?: unknown;
     uploadDate?: unknown;
@@ -141,10 +160,20 @@ export function buildNoteTemplateVariables(
   const body = Array.isArray(input.body) ? input.body : [];
   const withHours = shouldShowHoursInNote(meta, body);
 
-  const title = String(meta.title || "").trim() || String(meta.bvid || "").trim() || "未命名视频";
-  const bvid = String(meta.bvid || "").trim();
-  const author = String(meta.author || "").trim();
+  const rawIdInput = String(meta.videoId || meta.bvid || "").trim();
   const url = String(meta.url || "").trim();
+  const hasExplicitSite = meta.site !== undefined && meta.site !== null && String(meta.site).trim() !== "";
+  const site: SiteId = hasExplicitSite
+    ? normalizeSiteId(meta.site)
+    : isEncodedYoutubeStorageBvid(rawIdInput) || (Boolean(url) && detectSiteFromUrl(url) === "youtube")
+      ? "youtube"
+      : "bilibili";
+  const decodedId = decodeVideoStorageBvid(rawIdInput);
+  const externalId = decodedId || (site === "youtube" ? extractYoutubeVideoId(url) : "");
+  const title = String(meta.title || "").trim() || externalId || "未命名视频";
+  const bvid = externalId;
+  const videoId = externalId;
+  const author = String(meta.author || "").trim();
   const date = String(meta.uploadDate || "").trim() || formatLocalDate();
 
   const overviewSummary = String(input.overview?.summary || "").trim();
@@ -177,6 +206,8 @@ export function buildNoteTemplateVariables(
   return {
     title,
     bvid,
+    videoId,
+    site,
     author,
     url,
     date,
@@ -192,7 +223,10 @@ export function renderNoteTemplate(
   template: string | null | undefined,
   variables: NoteTemplateVariables | Partial<Record<string, string>>
 ): string {
-  const source = String(template || "").trim() || DEFAULT_NOTE_TEMPLATE;
+  const trimmed = String(template || "").replace(/\r\n?/g, "\n").trim();
+  const site = normalizeSiteId((variables as Partial<NoteTemplateVariables>).site);
+  const isDefaultTemplate = !trimmed || trimmed === DEFAULT_NOTE_TEMPLATE.trim();
+  const source = isDefaultTemplate ? getDefaultNoteTemplate(site) : trimmed;
   const table = variables as Record<string, string | undefined>;
   const lookup = (key: string): string => {
     const val = table[key];

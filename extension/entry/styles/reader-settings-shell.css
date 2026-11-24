@@ -252,9 +252,12 @@
   gap: var(--biliscript-space-md);
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-group[hidden],
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check[hidden],
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row[hidden],
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row[hidden],
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row[hidden] {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row[hidden],
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-toggle-row[hidden] {
   display: none;
 }
 

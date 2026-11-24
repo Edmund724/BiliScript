@@ -7,43 +7,18 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runDetachedReaderSmoke } from "./detached-reader-smoke.mjs";
+import { runYoutubeSmoke } from "./youtube-smoke.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DIST_FIREFOX = path.join(REPO_ROOT, "dist-firefox");
 const EVIDENCE_FILE = path.join(REPO_ROOT, ".scratch", "firefox-smoke", "evidence.json");
-const EXPECTED_EXTENSION_ID = "biliscript@edmund724.github.io";
-const MIN_FIREFOX_MAJOR = 153;
+export const EXPECTED_EXTENSION_ID = "biliscript@edmund724.github.io";
+export const MIN_FIREFOX_MAJOR = 153;
 
-const EXIT_PASS = 0;
-const EXIT_FAIL = 1;
-const EXIT_SKIPPED_NO_FIREFOX = 2;
-
-const args = new Set(process.argv.slice(2));
-if (args.has("--help") || args.has("-h")) {
-  console.log(
-    [
-      "Usage: node scripts/firefox-smoke/smoke-firefox.mjs [--headed] [--core-only]",
-      "",
-      "Options:",
-      "  --headed     Launch Firefox with a visible window (default: headless)",
-      "  --core-only  Run only the 5 core extension checks (skip detached-reader checks)",
-      "  -h, --help   Show this help message",
-      "",
-      "Environment:",
-      "  FIREFOX_BIN  Override Firefox executable path",
-      "",
-      "Exit codes:",
-      "  0  All core and detached-reader checks passed",
-      "  1  Missing dist-firefox build, invalid FIREFOX_BIN, or assertion/runtime failure",
-      "  2  Firefox executable not found on this machine (skipped)"
-    ].join("\n")
-  );
-  process.exit(EXIT_PASS);
-}
-
-const headed = args.has("--headed");
-const coreOnly = args.has("--core-only");
+export const EXIT_PASS = 0;
+export const EXIT_FAIL = 1;
+export const EXIT_SKIPPED_NO_FIREFOX = 2;
 
 function log(message) {
   console.log(`[smoke:firefox] ${message}`);
@@ -92,7 +67,7 @@ function findFirefoxInPath() {
   return firstLine && fs.existsSync(firstLine) ? firstLine : null;
 }
 
-function resolveFirefoxBinary() {
+export function resolveFirefoxBinary() {
   const envBin = (process.env.FIREFOX_BIN || "").trim();
   if (envBin) {
     if (!fs.existsSync(envBin)) {
@@ -115,7 +90,7 @@ function resolveFirefoxBinary() {
   return { found: false, explicitEnv: null, bin: null };
 }
 
-function allocateFreePort() {
+export function allocateFreePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
@@ -154,7 +129,7 @@ function writeTempProfilePrefs(profileDir, marionettePort) {
   fs.writeFileSync(path.join(profileDir, "user.js"), prefs + "\n", "utf8");
 }
 
-class MarionetteClient {
+export class MarionetteClient {
   constructor() {
     this.socket = null;
     this.buffer = Buffer.alloc(0);
@@ -326,29 +301,34 @@ class MarionetteClient {
     await this.send("Marionette:SetContext", { value: context });
   }
 
-  async executeSync(script, argsList = [], timeoutMs = 20_000) {
-    const res = await this.send(
-      "WebDriver:ExecuteScript",
-      {
-        script,
-        args: argsList
-      },
-      timeoutMs
-    );
+  async executeSync(script, argsList = [], timeoutMs = 20_000, options = {}) {
+    const params = {
+      script,
+      args: argsList
+    };
+    if (typeof options.newSandbox === "boolean") {
+      params.newSandbox = options.newSandbox;
+    }
+    const res = await this.send("WebDriver:ExecuteScript", params, timeoutMs);
     return res?.value;
   }
 
-  async executeAsync(script, argsList = [], timeoutMs = 25_000) {
-    const res = await this.send(
-      "WebDriver:ExecuteAsyncScript",
-      {
-        script,
-        args: argsList,
-        scriptTimeout: timeoutMs
-      },
-      timeoutMs + 5000
-    );
+  async executeAsync(script, argsList = [], timeoutMs = 25_000, options = {}) {
+    const params = {
+      script,
+      args: argsList,
+      scriptTimeout: timeoutMs
+    };
+    if (typeof options.newSandbox === "boolean") {
+      params.newSandbox = options.newSandbox;
+    }
+    const res = await this.send("WebDriver:ExecuteAsyncScript", params, timeoutMs + 5000);
     return res?.value;
+  }
+
+  async getWindowHandle() {
+    const res = await this.send("WebDriver:GetWindowHandle", {});
+    return res?.value ?? res;
   }
 
   async getWindowHandles() {
@@ -367,7 +347,7 @@ class MarionetteClient {
   }
 }
 
-async function waitForChromeExtensionReady(client, extensionId) {
+export async function waitForChromeExtensionReady(client, extensionId) {
   await client.setContext("chrome");
   const result = await client.executeAsync(
     `
@@ -705,7 +685,7 @@ async function runExtensionChecksInContent(client, expectedVersion) {
   return coreSuite;
 }
 
-async function killFirefoxAndCleanup(child, profileDir) {
+export async function killFirefoxAndCleanup(child, profileDir) {
   if (child && child.exitCode === null) {
     try {
       if (process.platform === "win32") {
@@ -735,7 +715,32 @@ function writeEvidence(payload) {
   fs.writeFileSync(EVIDENCE_FILE, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
 
-async function main() {
+async function main(argv = process.argv.slice(2)) {
+  const args = new Set(argv);
+  if (args.has("--help") || args.has("-h")) {
+    console.log(
+      [
+        "Usage: node scripts/firefox-smoke/smoke-firefox.mjs [--headed] [--core-only]",
+        "",
+        "Options:",
+        "  --headed     Launch Firefox with a visible window (default: headless)",
+        "  --core-only  Run only the 5 core extension checks (skip detached-reader and YouTube checks)",
+        "  -h, --help   Show this help message",
+        "",
+        "Environment:",
+        "  FIREFOX_BIN  Override Firefox executable path",
+        "",
+        "Exit codes:",
+        "  0  All core, detached-reader, and YouTube checks passed",
+        "  1  Missing dist-firefox build, invalid FIREFOX_BIN, or assertion/runtime failure",
+        "  2  Firefox executable not found on this machine (skipped)"
+      ].join("\n")
+    );
+    process.exit(EXIT_PASS);
+  }
+
+  const headed = args.has("--headed");
+  const coreOnly = args.has("--core-only");
   const fx = resolveFirefoxBinary();
   if (!fx.found) {
     if (fx.explicitEnv) {
@@ -865,6 +870,21 @@ async function main() {
         error: detached.error || null
       };
       if (!detached.ok) allPassed = false;
+
+      const youtube = await runYoutubeSmoke({
+        firefoxBin: fx.bin,
+        distDir: DIST_FIREFOX,
+        headed,
+        log
+      });
+      evidence.checks = [...evidence.checks, ...youtube.checks];
+      evidence.youtube = {
+        ok: youtube.ok,
+        status: youtube.status,
+        error: youtube.error || null
+      };
+      if (!youtube.ok) allPassed = false;
+
       evidence.status = allPassed ? "passed" : "failed";
       writeEvidence(evidence);
     }
@@ -882,4 +902,6 @@ async function main() {
   }
 }
 
-await main();
+if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || "")) {
+  await main();
+}

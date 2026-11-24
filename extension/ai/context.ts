@@ -1,7 +1,41 @@
-import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
+import {
+  DEFAULT_AI_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6,
+  getDefaultAiSystemPrompt
+} from "../core/default-prompts.js";
+import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import type { AiContext, ChatMessage, ChatToolCall, ImagePart, ThinkingBlock } from "./types.js";
+
+export { getDefaultAiSystemPrompt };
+
+const BUILTIN_DEFAULT_AI_SYSTEM_PROMPTS = new Set<string>([
+  DEFAULT_AI_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6
+]);
+
+function resolveContextSite(ctx: AiContext): SiteId {
+  return normalizeSiteId(ctx.site ?? (ctx.url ? detectSiteFromUrl(ctx.url) : undefined));
+}
+
+function resolveAiSystemPrompt(systemPrompt: unknown, site: SiteId): string {
+  const customSystemPrompt = String(systemPrompt || "").trim();
+  if (!customSystemPrompt || BUILTIN_DEFAULT_AI_SYSTEM_PROMPTS.has(customSystemPrompt)) {
+    return getDefaultAiSystemPrompt(site);
+  }
+  return customSystemPrompt;
+}
 
 interface BuildMessagesInput {
   context?: AiContext | null;
@@ -116,10 +150,10 @@ function replaceEarlierImages(historyMessages: ChatMessage[], hasCurrentImages: 
 
 export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory, images }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
+  const site = resolveContextSite(ctx);
   const sections: string[] = [];
 
-  const customSystemPrompt = String(systemPrompt || "").trim();
-  sections.push(customSystemPrompt || DEFAULT_AI_SYSTEM_PROMPT);
+  sections.push(resolveAiSystemPrompt(systemPrompt, site));
 
   sections.push(
     `当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,

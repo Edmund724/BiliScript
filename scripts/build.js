@@ -292,6 +292,7 @@ const BACKGROUND_FORBIDDEN_STATIC_SOURCES = [
   /(^|\/)ai\/catalog\/models-dev-catalog\.generated\.ts$/,
   /(^|\/)ai\/catalog\/models-dev-thinking\.generated\.ts$/,
   /(^|\/)ai\/model-catalog\.ts$/,
+  /(^|\/)youtube\//,
 ];
 function assertBackgroundStaticGraphSlim() {
   const mapPath = path.join(distDir, "entry", "background.js.map");

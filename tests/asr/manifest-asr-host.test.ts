@@ -16,9 +16,10 @@ describe("manifest：ASR 音频 CDN 的最窄 host 权限（工单 04）", () =>
     expect(manifest.permissions).toContain("declarativeNetRequest");
   });
 
-  it("B 站站内域不在本次改动中放宽（保持既有最窄集合）", () => {
+  it("站内域保持既有最窄集合（仅显式包含 B 站与 YouTube 桌面端）", () => {
     expect(manifest.host_permissions).toEqual([
       "https://www.bilibili.com/*",
+      "https://www.youtube.com/*",
       "ws://127.0.0.1/*",
       "https://api.bilibili.com/*",
       "https://index-translate.bilibili.com/*",

@@ -1,7 +1,9 @@
 import { state } from "../core/state.js";
 import { activeById, getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
 import { safeRemoveListener } from "../shared/cross-doc.js";
-import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
+import { computeCurrentClipSignature, extractVideoId } from "../bilibili/video-id-shared.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
+import { getSiteCapabilities } from "../shared/site.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import {
@@ -56,7 +58,7 @@ import {
   stopLiveCompanion
 } from "../live/live-companion-session.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
-import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
 import { seekReadingTarget } from "./sync.js";
@@ -171,6 +173,12 @@ const inputImages = createChatInputImages({
   focusInput: () => els.input.focus({ preventScroll: true })
 });
 
+function isLiveCompanionAllowed(): boolean {
+  return supportsLiveCompanion() && getSiteCapabilities(state.clip.site).supportsLiveCompanion;
+}
+
+const composerLiveProps = isLiveCompanionAllowed() ? liveBridge.getComposerLiveProps() : {};
+
 const composer = createReaderChatComposer({
   els: {
     input: els.input,
@@ -194,7 +202,19 @@ const composer = createReaderChatComposer({
   prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
   getManualPromptAnchor: () => explainIntentController.getPendingFollowUpAnchor(),
   onManualPromptAccepted: () => explainIntentController.completePendingFollowUp(),
-  ...liveBridge.getComposerLiveProps()
+  ...(composerLiveProps.onStartLive
+    ? {
+        getLiveState: () =>
+          isLiveCompanionAllowed() && composerLiveProps.getLiveState
+            ? composerLiveProps.getLiveState()
+            : "idle",
+        onStartLive: () => {
+          if (isLiveCompanionAllowed()) {
+            composerLiveProps.onStartLive?.();
+          }
+        }
+      }
+    : {})
 });
 
 const explainIntentController = createExplainIntentController({
@@ -323,7 +343,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   isSessionClosed: () => sessionClosed,
   isReaderTranscribing,
   asrNotice: els.asrNotice,
-  pageBvid: () => extractBvid(location.href),
+  pageBvid: () => extractVideoId(location.href),
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
@@ -337,7 +357,10 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
   getPlaybackCursorSeconds: () => {
-    const video = getRuntimeVideoElement() || state.reader.readingVideoEl;
+    const video =
+      state.clip.site === "youtube"
+        ? getSiteRuntimeVideoElement()
+        : getSiteRuntimeVideoElement() || state.reader.readingVideoEl;
     const currentTime = video?.currentTime;
     return typeof currentTime === "number" && Number.isFinite(currentTime) && currentTime >= 0
       ? currentTime
@@ -345,11 +368,14 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
     if (targetTime === undefined) {
-      const frame = await capturePageVideoFrame();
+      const frame = await capturePageVideoFrame({ getVideo: getSiteRuntimeVideoElement });
       return {
         image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
         currentTime: frame.currentTime
       };
+    }
+    if (!getSiteCapabilities(state.clip.site).supportsHistoricalFrameCapture) {
+      throw new Error(`当前站点不支持历史时间点截帧: ${state.clip.site}`);
     }
     const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime }, { signal });
     return frames.map((frame) => ({
@@ -367,7 +393,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
   },
-  isLiveActive: () => liveBridge.isActive()
+  isLiveActive: () => isLiveCompanionAllowed() && liveBridge.isActive()
 });
 
 const { loadContextState } = contextLoad;
@@ -472,7 +498,9 @@ const sessionTriggers = createReaderChatSessionTriggers({
   storageWatcher: () => {
     const unwatchProviders = watchStorageKeys(() => {
       void refreshProvidersAndPrefsAfterExternalChange();
-      void liveBridge.refreshTarget();
+      if (isLiveCompanionAllowed()) {
+        void liveBridge.refreshTarget();
+      }
     }, {
       sync: [
         "aiProviders",
@@ -558,7 +586,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     modelPanel.reload(),
     conversationStore.loadAll(),
     loadContextState(),
-    liveBridge.refreshTarget()
+    isLiveCompanionAllowed() ? liveBridge.refreshTarget() : Promise.resolve()
   ]);
   if (isStale()) {
     sessionTriggers.deactivate();
@@ -580,12 +608,16 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 async function restoreChatSession(): Promise<void> {
   const generation = ++sessionGeneration;
   const isStale = () => sessionClosed || generation !== sessionGeneration;
-  liveBridge.bindHooksIfSupported();
+  if (isLiveCompanionAllowed()) {
+    liveBridge.bindHooksIfSupported();
+  }
   await modelPanel.reload().catch(() => null);
   if (isStale()) {
     return;
   }
-  void liveBridge.refreshTarget();
+  if (isLiveCompanionAllowed()) {
+    void liveBridge.refreshTarget();
+  }
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok || isStale()) {
     return;
@@ -699,7 +731,9 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
 
 function bindEvents(): void {
   if (eventsBound) {
-    liveBridge.bindHooksIfSupported();
+    if (isLiveCompanionAllowed()) {
+      liveBridge.bindHooksIfSupported();
+    }
     return;
   }
   eventsBound = true;
@@ -749,7 +783,9 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  liveBridge.initEvents();
+  if (isLiveCompanionAllowed()) {
+    liveBridge.initEvents();
+  }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.root.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
