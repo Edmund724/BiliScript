@@ -12,8 +12,14 @@ import {
   MAX_SAVED_CONVERSATIONS
 } from "../ai/conversation.js";
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
+import {
+  YOUTUBE_CACHE_EVICTED,
+  YOUTUBE_CACHE_EVICTED_MESSAGE,
+  isYoutubeCacheEvictedError
+} from "../ai/context-resolver.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
+import { detectSiteFromUrl, normalizeSiteId } from "../shared/site.js";
 import {
   HISTORY_STORAGE_KEY,
   readConversationHistory,
@@ -38,6 +44,38 @@ import type {
 } from "./conversation-types.js";
 
 export type Conversation = ChatSessionSavedConversation;
+
+const evictedYoutubeContextKeys = new Set<string>();
+
+export function markPinnedYoutubeCacheEvicted(contextKey: unknown): void {
+  const cleanKey = String(contextKey || "").trim();
+  if (cleanKey) {
+    evictedYoutubeContextKeys.add(cleanKey);
+  }
+}
+
+export function clearPinnedYoutubeCacheEvicted(contextKey?: unknown): void {
+  if (contextKey === undefined) {
+    evictedYoutubeContextKeys.clear();
+    return;
+  }
+  const cleanKey = String(contextKey || "").trim();
+  if (cleanKey) {
+    evictedYoutubeContextKeys.delete(cleanKey);
+  }
+}
+
+export function isPinnedYoutubeCacheEvicted(meta: CurrentConversationMeta | null | undefined): boolean {
+  if (!meta || !meta.pinnedContext || meta.resolvedContext) {
+    return false;
+  }
+  const key = String(meta.contextKey || "").trim();
+  if (!key || !evictedYoutubeContextKeys.has(key)) {
+    return false;
+  }
+  const site = normalizeSiteId(meta.contextRef?.site ?? detectSiteFromUrl(meta.contextRef?.url || meta.contextUrl));
+  return site === "youtube";
+}
 
 function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   const base: ChatSessionMessage = { role: item.role, content: String(item.content || "") };
@@ -136,7 +174,13 @@ export interface ConversationStore {
 }
 
 export function needsConversationPageHydration(conversation: Conversation | null | undefined): boolean {
-  if (!conversation?.isVideoContext) {
+  if (!conversation?.isVideoContext || isLiveTextToolHistoryEntry(conversation)) {
+    return false;
+  }
+  const site = normalizeSiteId(
+    conversation.contextRef?.site ?? detectSiteFromUrl(conversation.contextUrl || conversation.contextRef?.url)
+  );
+  if (site !== "bilibili") {
     return false;
   }
   if (/-P\d+$/i.test(String(conversation.title || "").trim())) {
@@ -317,7 +361,10 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 
   async function hydrateConversationPage(conversation: OrdinaryConversation): Promise<boolean> {
     const contextRef = conversation.contextRef || null;
-    if (!contextRef?.bvid || !contextRef?.cid) {
+    const site = normalizeSiteId(
+      contextRef?.site ?? detectSiteFromUrl(conversation.contextUrl || contextRef?.url)
+    );
+    if (site !== "bilibili" || !contextRef?.bvid || !contextRef?.cid) {
       return false;
     }
     let response: { ok?: boolean; payload?: unknown; error?: string } = { ok: false };
@@ -451,6 +498,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         : []
     });
     if (matchesLive && liveData) {
+      clearPinnedYoutubeCacheEvicted(conversation.contextKey);
       applyContextToMain({ ...liveData }, liveKey);
     } else if (conversation.contextRef) {
       applyContextToMain(buildContextPlaceholder(conversation.contextRef), conversation.contextKey);
@@ -609,6 +657,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const targetKey = String(meta?.contextKey || "").trim();
     const cachedResolvedContext = meta?.resolvedContext;
     if (cachedResolvedContext && typeof cachedResolvedContext === "object") {
+      clearPinnedYoutubeCacheEvicted(targetKey);
       applyContextToMain({ ...cachedResolvedContext }, targetKey);
       emitChange();
       onContextNotice({ kind: "clear" });
@@ -617,8 +666,17 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 
     if (targetKey && chatSessionState.liveContextKey && targetKey === chatSessionState.liveContextKey) {
       const ok = await loadContextState({ forceRefresh: false, silent: true, preserveInput });
-      const context = chatSessionState.contextData;
-      if (ok && context) {
+      const liveContext = chatSessionState.liveContextData;
+      const context =
+        liveContext && Array.isArray(liveContext.subtitleBody) && liveContext.subtitleBody.length > 0
+          ? liveContext
+          : chatSessionState.contextData;
+      const isYoutubeEmptyPlaceholder =
+        normalizeSiteId(meta?.contextRef?.site ?? detectSiteFromUrl(meta?.contextRef?.url || meta?.contextUrl)) === "youtube" &&
+        !(Array.isArray(context?.subtitleBody) && context.subtitleBody.length > 0);
+      if (ok && context && !isYoutubeEmptyPlaceholder) {
+        clearPinnedYoutubeCacheEvicted(targetKey);
+        applyContextToMain({ ...context }, targetKey);
         pinCurrentContextKey(targetKey);
         meta = chatSessionState.currentConversationMeta;
         applyConversationIdentity({
@@ -642,20 +700,32 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       return false;
     }
 
-    const response: { ok?: boolean; payload?: unknown; error?: string } = await resolveContext(
+    const response: { ok?: boolean; payload?: unknown; error?: string; code?: string } = await resolveContext(
       contextRef
     ).catch((error: unknown) => ({
       ok: false,
-      error: (error as Error)?.message || String(error || "")
+      error: (error as Error)?.message || String(error || ""),
+      ...(isYoutubeCacheEvictedError(error) ? { code: YOUTUBE_CACHE_EVICTED } : {})
     }));
     if (!response?.ok || !response.payload) {
       onContextNotice({ kind: "clear" });
+      const isYoutubeEvicted =
+        response?.code === YOUTUBE_CACHE_EVICTED ||
+        isYoutubeCacheEvictedError({ code: response?.code, message: response?.error }) ||
+        response?.error === YOUTUBE_CACHE_EVICTED_MESSAGE;
+      if (isYoutubeEvicted) {
+        if (targetKey) {
+          markPinnedYoutubeCacheEvicted(targetKey);
+        }
+        return false;
+      }
       if (!silent) {
         onContextNotice({ kind: "error", message: `历史视频上下文获取失败：${response?.error || "未知错误"}` });
       }
       return false;
     }
 
+    clearPinnedYoutubeCacheEvicted(targetKey);
     const resolved = response.payload as AiContext;
     applyContextToMain(resolved, targetKey);
     meta = chatSessionState.currentConversationMeta;
@@ -676,12 +746,16 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 
   async function resolveContext(
     contextRef: AiContext
-  ): Promise<{ ok?: boolean; payload?: unknown; error?: string }> {
+  ): Promise<{ ok?: boolean; payload?: unknown; error?: string; code?: string }> {
     try {
       const payload = await resolveAiConversationRef(contextRef, "context");
       return { ok: true, payload };
     } catch (error: unknown) {
-      return { ok: false, error: (error as Error)?.message || String(error || "") };
+      return {
+        ok: false,
+        error: (error as Error)?.message || String(error || ""),
+        ...(isYoutubeCacheEvictedError(error) ? { code: YOUTUBE_CACHE_EVICTED } : {})
+      };
     }
   }
 
