@@ -7,6 +7,12 @@ export const NORMAL_PAGE_URL = "https://www.bilibili.com/video/BV1test000000/";
 const defaultLocalStore = new Map<string, unknown>();
 const defaultSyncStore = new Map<string, unknown>();
 
+type CanvasGetContext = HTMLCanvasElement["getContext"] & { __biliscriptDefaultPatched?: boolean };
+const origCanvasGetContext: CanvasGetContext | undefined =
+  typeof HTMLCanvasElement !== "undefined"
+    ? (HTMLCanvasElement.prototype.getContext as CanvasGetContext)
+    : undefined;
+
 function createChromeEventStub() {
   const listeners = new Set<(...args: unknown[]) => void>();
   return {
@@ -239,10 +245,34 @@ function installWebAnimationsStub() {
   }
 }
 
+export function installCanvasContextStub(
+  canvasCtor?: { prototype?: { getContext?: unknown } }
+) {
+  const targetCtor =
+    canvasCtor ?? (typeof HTMLCanvasElement !== "undefined" ? HTMLCanvasElement : undefined);
+  const proto = targetCtor?.prototype;
+  if (!proto) return;
+  const current = proto.getContext as CanvasGetContext | undefined;
+  if (current?.__biliscriptDefaultPatched) {
+    return;
+  }
+  if (!canvasCtor && origCanvasGetContext && current && current !== origCanvasGetContext) {
+    return;
+  }
+  const patched = (() => null) as unknown as CanvasGetContext;
+  patched.__biliscriptDefaultPatched = true;
+  Object.defineProperty(proto, "getContext", {
+    configurable: true,
+    writable: true,
+    value: patched
+  });
+}
+
 export function setupEnvironment() {
   stubChromeApi();
   installDialogClosePolyfill();
   installWebAnimationsStub();
+  installCanvasContextStub();
   if (typeof Element !== "undefined" && typeof Element.prototype.setPointerCapture !== "function") {
     const capturedPointers = new WeakMap<Element, Set<number>>();
     Element.prototype.setPointerCapture = function setPointerCapture(pointerId: number): void {
@@ -288,6 +318,7 @@ beforeEach(() => {
   defaultSyncStore.clear();
   installDialogClosePolyfill();
   installWebAnimationsStub();
+  installCanvasContextStub();
 });
 
 export function resetModuleState() {

@@ -1,5 +1,6 @@
 import { JSDOM } from "jsdom";
 import { vi } from "vitest";
+import { installCanvasContextStub } from "../setup.js";
 
 export interface DetachedRealm {
   dom: JSDOM;
@@ -106,6 +107,10 @@ export function createDetachedRealm(options: {
       };
     }
   }
+
+  installCanvasContextStub(
+    (dom.window as unknown as { HTMLCanvasElement?: typeof HTMLCanvasElement }).HTMLCanvasElement
+  );
 
   return {
     dom,
