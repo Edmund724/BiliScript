@@ -126,7 +126,7 @@ declare namespace chrome {
 
     interface OnUpdatedEvent {
       addListener(
-        listener: (tabId: number, changeInfo: { status?: string }, tab: Tab) => void
+        listener: (tabId: number, changeInfo: { status?: string; url?: string }, tab: Tab) => void
       ): void;
     }
 

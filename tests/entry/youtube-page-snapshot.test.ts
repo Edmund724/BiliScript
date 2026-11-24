@@ -278,4 +278,171 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
     delete win.ytInitialData;
     delete win.ytcfg;
   });
+
+  it("SPA 切至新视频时，旧视频残留 ytInitialPlayerResponse / ytInitialData / movie_player 数据不得污染新快照", async () => {
+    const newUrl = "https://www.youtube.com/watch?v=NEWVID67890";
+    setCrossOriginLocation(newUrl);
+
+    const playerEl = document.createElement("div");
+    playerEl.id = "movie_player";
+    Object.assign(playerEl, {
+      getPlayerResponse: () => ({
+        videoDetails: {
+          videoId: "OLDVID12345",
+          title: "Old Video Title",
+          author: "Old Author",
+          shortDescription: "Old description",
+          lengthSeconds: "999"
+        },
+        captions: {
+          playerCaptionsTracklistRenderer: {
+            captionTracks: [
+              {
+                baseUrl: "https://www.youtube.com/api/timedtext?v=OLDVID12345&lang=en",
+                languageCode: "en",
+                name: { simpleText: "Old Track" }
+              }
+            ]
+          }
+        }
+      }),
+      getVideoData: () => ({
+        video_id: "OLDVID12345",
+        title: "Old Player Data Title",
+        author: "Old Player Author"
+      }),
+      getDuration: () => 999
+    });
+    document.body.appendChild(playerEl);
+
+    const win = window as unknown as Record<string, unknown>;
+    win.ytInitialPlayerResponse = {
+      videoDetails: {
+        videoId: "OLDVID12345",
+        title: "Old Initial Player Title",
+        author: "Old Initial Author"
+      }
+    };
+    win.ytInitialData = {
+      currentVideoEndpoint: {
+        watchEndpoint: {
+          videoId: "OLDVID12345"
+        }
+      },
+      playerOverlays: {
+        playerOverlayRenderer: {
+          decoratedPlayerBarRenderer: {
+            decoratedPlayerBarRenderer: {
+              playerBar: {
+                multiMarkersPlayerBarRenderer: {
+                  markersMap: [
+                    {
+                      key: "DESCRIPTION_CHAPTERS",
+                      value: {
+                        chapters: [
+                          {
+                            chapterRenderer: {
+                              title: { simpleText: "Old Chapter" },
+                              timeRangeStartMillis: 0
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      engagementPanels: [
+        {
+          engagementPanelSectionListRenderer: {
+            panelIdentifier: "engagement-panel-searchable-transcript",
+            content: {
+              continuationItemRenderer: {
+                continuationEndpoint: {
+                  getTranscriptEndpoint: {
+                    params: "OLD_TRANSCRIPT_PARAMS"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    };
+
+    const perfSpy = vi.spyOn(performance, "getEntriesByType").mockReturnValue([]);
+    executeScript.mockImplementation(async (injection: { func: () => unknown }) => [
+      { result: injection.func() }
+    ]);
+
+    const sendResponse = vi.fn();
+    onMessageListener({ type: "youtube-page-snapshot" }, { tab: { id: 29, url: newUrl } }, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+
+    const response = sendResponse.mock.calls[0][0] as { ok: boolean; snapshot: Record<string, unknown> };
+    expect(response.ok).toBe(true);
+    expect(response.snapshot).toEqual({
+      videoId: "NEWVID67890",
+      title: "",
+      author: "",
+      description: "",
+      duration: 0,
+      publishDate: "",
+      isLiveContent: false,
+      isLiveNow: false,
+      captionTracks: [],
+      chapters: [],
+      innertubeContext: null,
+      innertubeApiKey: "",
+      transcriptParams: "",
+      observedTimedtextUrls: []
+    });
+
+    perfSpy.mockRestore();
+    delete win.ytInitialPlayerResponse;
+    delete win.ytInitialData;
+  });
+
+  it("videoDetails.lengthSeconds 为空串或 0 时，正确回落到匹配视频的 movie_player.getDuration()", async () => {
+    const watchUrl = "https://www.youtube.com/watch?v=NEWVID67890";
+    setCrossOriginLocation(watchUrl);
+
+    const playerEl = document.createElement("div");
+    playerEl.id = "movie_player";
+    Object.assign(playerEl, {
+      getPlayerResponse: () => ({
+        videoDetails: {
+          videoId: "NEWVID67890",
+          title: "New Video",
+          author: "Creator",
+          lengthSeconds: "0"
+        }
+      }),
+      getVideoData: () => ({
+        video_id: "NEWVID67890"
+      }),
+      getDuration: () => 345
+    });
+    document.body.appendChild(playerEl);
+
+    const perfSpy = vi.spyOn(performance, "getEntriesByType").mockReturnValue([]);
+    executeScript.mockImplementation(async (injection: { func: () => unknown }) => [
+      { result: injection.func() }
+    ]);
+
+    const sendResponse = vi.fn();
+    onMessageListener({ type: "youtube-page-snapshot" }, { tab: { id: 30, url: watchUrl } }, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+
+    const response = sendResponse.mock.calls[0][0] as { ok: boolean; snapshot: { duration: number; videoId: string } };
+    expect(response.ok).toBe(true);
+    expect(response.snapshot.videoId).toBe("NEWVID67890");
+    expect(response.snapshot.duration).toBe(345);
+
+    perfSpy.mockRestore();
+  });
 });

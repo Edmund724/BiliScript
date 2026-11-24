@@ -16,7 +16,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
   let onUpdatedReinjectListener: (
     tabId: number,
-    changeInfo: { status?: string },
+    changeInfo: { status?: string; url?: string },
     tab: chrome.tabs.Tab
   ) => Promise<void>;
   const actionOnClickedAddListener = vi.fn();
@@ -223,6 +223,35 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       registerDebugGate(() => false);
       vi.mocked(chrome.scripting.executeScript).mockImplementation(async () => []);
     }
+  });
+
+  it("YouTube 首页 SPA changeInfo.url 切入 /watch 且非 loading 时兜底注入；status=loading 带 url 不提前注入", async () => {
+    const executeScriptMock = vi.mocked(chrome.scripting.executeScript);
+    executeScriptMock.mockClear();
+    executeScriptMock.mockImplementation(async () => []);
+
+    const ytWatchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    await onUpdatedReinjectListener(
+      17,
+      { status: "loading", url: ytWatchUrl },
+      { id: 17, status: "loading", url: ytWatchUrl }
+    );
+    expect(executeScriptMock).not.toHaveBeenCalled();
+
+    await onUpdatedReinjectListener(
+      17,
+      { url: ytWatchUrl },
+      { id: 17, status: "loading", url: ytWatchUrl }
+    );
+    expect(executeScriptMock).not.toHaveBeenCalled();
+
+    await onUpdatedReinjectListener(
+      17,
+      { url: ytWatchUrl },
+      { id: 17, status: "complete", url: "https://www.youtube.com/" }
+    );
+    expect(executeScriptMock).toHaveBeenCalled();
+    expect(executeScriptMock.mock.calls.some((call) => call[0].target.tabId === 17)).toBe(true);
   });
 });
 

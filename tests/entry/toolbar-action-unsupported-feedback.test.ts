@@ -21,7 +21,9 @@ function flushMicrotasks() {
 
 describe("SW 半边：非支持页 action 点击的可见反馈", () => {
   let onClickedListener: (tab: chrome.tabs.Tab) => void;
-  let updatedListeners: Array<(tabId: number, changeInfo: { status?: string }, tab: unknown) => void>;
+  let updatedListeners: Array<
+    (tabId: number, changeInfo: { status?: string; url?: string }, tab: unknown) => void
+  >;
   const actionOnClickedAddListener = vi.fn();
   const tabsOnUpdatedAddListener = vi.fn();
   const setBadgeText = vi.fn<(details: { tabId?: number; text: string }) => Promise<void>>(async () => {});
@@ -65,7 +67,8 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
     await import("../../extension/entry/background.js");
     onClickedListener = actionOnClickedAddListener.mock.calls[0][0] as typeof onClickedListener;
     updatedListeners = tabsOnUpdatedAddListener.mock.calls.map(
-      (call) => call[0] as (tabId: number, changeInfo: { status?: string }, tab: unknown) => void
+      (call) =>
+        call[0] as (tabId: number, changeInfo: { status?: string; url?: string }, tab: unknown) => void
     );
   });
 
@@ -200,6 +203,20 @@ describe("SW 半边：非支持页 action 点击的可见反馈", () => {
 
     expect(setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: "" });
     expect(setTitle).toHaveBeenCalledWith({ tabId: 7, title: "" });
+  });
+
+  it("YouTube 首页 SPA 切入 /watch（仅 changeInfo.url，无 loading）：同样清除旧的 ! 徽标与引导标题", async () => {
+    updatedListeners.forEach((listener) =>
+      listener(
+        21,
+        { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+        { id: 21, status: "complete", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }
+      )
+    );
+    await flushMicrotasks();
+
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 21, text: "" });
+    expect(setTitle).toHaveBeenCalledWith({ tabId: 21, title: "" });
   });
 });
 

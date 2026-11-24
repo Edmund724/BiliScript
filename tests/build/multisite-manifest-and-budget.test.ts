@@ -10,6 +10,82 @@ const ROOT = process.cwd();
 const readJson = <T>(rel: string): T => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8")) as T;
 const readText = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 
+function collectLazyExternals(extensionRoot: string, buildContentText: string): Map<string, string> {
+  const lazyExternals = new Map<string, string>();
+  for (const match of buildContentText.matchAll(
+    /\{\s*name:\s*"([^"]+)",\s*source:\s*"([^"]+)"\s*\}/g
+  )) {
+    lazyExternals.set(resolve(extensionRoot, match[2]), `./chunks/${match[1]}.mjs`);
+  }
+  return lazyExternals;
+}
+
+function resolveLazyExternalTarget(
+  lazyExternals: Map<string, string>,
+  resolveDir: string,
+  importPath: string
+): { path: string; external: boolean } | undefined {
+  const resolved = resolve(resolveDir, importPath);
+  const candidates = resolved.endsWith(".js")
+    ? [resolved, `${resolved.slice(0, -3)}.ts`]
+    : [resolved];
+  for (const candidate of candidates) {
+    const externalPath = lazyExternals.get(candidate);
+    if (externalPath) {
+      return { path: externalPath, external: true };
+    }
+  }
+  return undefined;
+}
+
+async function buildResidentBundleForBudgetTest() {
+  const extensionRoot = resolve(ROOT, "extension");
+  const lazyExternals = collectLazyExternals(extensionRoot, readText("scripts/build-content.js"));
+  const lazyPlugin = {
+    name: "test-lazy-external",
+    setup(buildApi: {
+      onResolve: (
+        opts: { filter: RegExp },
+        cb: (args: { resolveDir: string; path: string }) => { path: string; external: boolean } | undefined
+      ) => void;
+    }) {
+      buildApi.onResolve({ filter: /^\.\.?\// }, (args) =>
+        resolveLazyExternalTarget(lazyExternals, args.resolveDir, args.path)
+      );
+    }
+  };
+
+  const [bootstrapResult, mainResult] = await Promise.all([
+    build({
+      entryPoints: [resolve(extensionRoot, "entry", "content-bootstrap-entry.ts")],
+      bundle: true,
+      write: false,
+      format: "iife",
+      platform: "browser",
+      minify: true,
+      target: "chrome120"
+    }),
+    build({
+      entryPoints: [resolve(extensionRoot, "entry", "content.ts")],
+      bundle: true,
+      splitting: false,
+      write: false,
+      format: "esm",
+      platform: "browser",
+      minify: true,
+      target: "chrome120",
+      plugins: [lazyPlugin]
+    })
+  ]);
+
+  const bootstrapBytes = bootstrapResult.outputFiles[0].contents.byteLength;
+  const mainBytes = mainResult.outputFiles[0].contents.byteLength;
+  return {
+    residentBytes: bootstrapBytes + mainBytes,
+    mainText: mainResult.outputFiles[0].text
+  };
+}
+
 describe("多站点 Manifest 与多语言文案", () => {
   const manifest = readJson<{
     host_permissions: string[];
@@ -67,64 +143,7 @@ describe("常驻内容包瘦身与 40 KB 预算", () => {
   });
 
   it("实包打包：常驻包（bootstrap + main）严格低于 40960 B 且不含 host-selectors / agent-bridge-content 静态代码", async () => {
-    const extensionRoot = resolve(ROOT, "extension");
-    const buildContentText = readText("scripts/build-content.js");
-    const lazyExternals = new Map<string, string>();
-    for (const match of buildContentText.matchAll(
-      /\{\s*name:\s*"([^"]+)",\s*source:\s*"([^"]+)"\s*\}/g
-    )) {
-      lazyExternals.set(resolve(extensionRoot, match[2]), `./chunks/${match[1]}.mjs`);
-    }
-
-    const lazyPlugin = {
-      name: "test-lazy-external",
-      setup(buildApi: {
-        onResolve: (
-          opts: { filter: RegExp },
-          cb: (args: { resolveDir: string; path: string }) => { path: string; external: boolean } | undefined
-        ) => void;
-      }) {
-        buildApi.onResolve({ filter: /^\.\.?\// }, (args) => {
-          const resolved = resolve(args.resolveDir, args.path);
-          const candidates = resolved.endsWith(".js")
-            ? [resolved, resolved.slice(0, -3) + ".ts"]
-            : [resolved];
-          for (const candidate of candidates) {
-            const ext = lazyExternals.get(candidate);
-            if (ext) return { path: ext, external: true };
-          }
-          return undefined;
-        });
-      }
-    };
-
-    const [bootstrapResult, mainResult] = await Promise.all([
-      build({
-        entryPoints: [resolve(extensionRoot, "entry", "content-bootstrap-entry.ts")],
-        bundle: true,
-        write: false,
-        format: "iife",
-        platform: "browser",
-        minify: true,
-        target: "chrome120"
-      }),
-      build({
-        entryPoints: [resolve(extensionRoot, "entry", "content.ts")],
-        bundle: true,
-        splitting: false,
-        write: false,
-        format: "esm",
-        platform: "browser",
-        minify: true,
-        target: "chrome120",
-        plugins: [lazyPlugin]
-      })
-    ]);
-
-    const bootstrapBytes = bootstrapResult.outputFiles[0].contents.byteLength;
-    const mainBytes = mainResult.outputFiles[0].contents.byteLength;
-    const mainText = mainResult.outputFiles[0].text;
-    const residentBytes = bootstrapBytes + mainBytes;
+    const { residentBytes, mainText } = await buildResidentBundleForBudgetTest();
 
     expect(residentBytes).toBeLessThanOrEqual(40960);
     expect(mainText).not.toContain(".bpx-player-container");

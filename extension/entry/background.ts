@@ -455,6 +455,9 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     | { playerData?: unknown; data?: unknown }
     | null;
 
+  const matchesUrlVideoId = (candidateId: unknown): boolean =>
+    !urlVideoId || typeof candidateId !== "string" || !candidateId || candidateId === urlVideoId;
+
   let livePlayerResponse: unknown = null;
   try {
     if (typeof moviePlayer?.getPlayerResponse === "function") {
@@ -470,12 +473,22 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     }
   } catch {
   }
+  const rawMovieVideoId = typeof movieVideoData?.video_id === "string" ? movieVideoData.video_id : "";
+  const livePlayerVideoId = asObj(asObj(livePlayerResponse)?.videoDetails)?.videoId;
+  const moviePlayerMismatched =
+    !matchesUrlVideoId(rawMovieVideoId) || !matchesUrlVideoId(livePlayerVideoId);
+  if (!matchesUrlVideoId(rawMovieVideoId)) {
+    movieVideoData = null;
+  }
 
   const playerCandidates = [
     asObj(livePlayerResponse),
     asObj(watchFlexy?.playerData),
     asObj(win.ytInitialPlayerResponse)
-  ].filter((item): item is JsonObj => item !== null);
+  ].filter(
+    (item): item is JsonObj =>
+      item !== null && matchesUrlVideoId(asObj(item.videoDetails)?.videoId)
+  );
 
   let playerResponse: JsonObj | null = null;
   if (urlVideoId) {
@@ -486,16 +499,16 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     playerResponse = playerCandidates[0] ?? null;
   }
 
+  const getInitialDataVideoId = (cand: JsonObj): unknown =>
+    asObj(asObj(cand.currentVideoEndpoint)?.watchEndpoint)?.videoId;
+
   const dataCandidates = [asObj(watchFlexy?.data), asObj(win.ytInitialData)].filter(
-    (item): item is JsonObj => item !== null
+    (item): item is JsonObj => item !== null && matchesUrlVideoId(getInitialDataVideoId(item))
   );
   let initialData: JsonObj | null = null;
   if (urlVideoId) {
     initialData =
-      dataCandidates.find(
-        (cand) =>
-          asObj(asObj(cand.currentVideoEndpoint)?.watchEndpoint)?.videoId === urlVideoId
-      ) ?? null;
+      dataCandidates.find((cand) => getInitialDataVideoId(cand) === urlVideoId) ?? null;
   }
   if (!initialData) {
     initialData = dataCandidates[0] ?? null;
@@ -526,14 +539,18 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     : "";
 
   let playerDuration = 0;
-  try {
-    if (typeof moviePlayer?.getDuration === "function") {
-      playerDuration = Number(moviePlayer.getDuration());
+  if (!moviePlayerMismatched) {
+    try {
+      if (typeof moviePlayer?.getDuration === "function") {
+        playerDuration = Number(moviePlayer.getDuration());
+      }
+    } catch {
     }
-  } catch {
   }
-  const rawDuration = Number(videoDetails?.lengthSeconds ?? playerDuration);
-  const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
+  const detailDuration = Number(videoDetails?.lengthSeconds);
+  const safePlayerDuration = Number.isFinite(playerDuration) && playerDuration > 0 ? playerDuration : 0;
+  const duration =
+    Number.isFinite(detailDuration) && detailDuration > 0 ? detailDuration : safePlayerDuration;
 
   const publishDate = String(
     (typeof microformat?.publishDate === "string" && microformat.publishDate) ||
@@ -865,9 +882,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete") return;
-  if (!tab.url) return;
-  if (!isSupportedPage(tab.url)) return;
+  const isComplete = changeInfo.status === "complete";
+  const isSpaNavigation =
+    Boolean(changeInfo.url) && changeInfo.status !== "loading" && tab.status !== "loading";
+  if (!isComplete && !isSpaNavigation) return;
+  const candidateUrl = changeInfo.url || tab.url;
+  if (!candidateUrl) return;
+  if (!isSupportedPage(candidateUrl)) return;
 
   try {
     const loadedVersion = await probeContentScriptVersion(tabId);
@@ -967,7 +988,7 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status !== "loading") return;
+  if (changeInfo.status !== "loading" && !changeInfo.url) return;
   void clearUnsupportedPageFeedback(tabId);
 });
 
