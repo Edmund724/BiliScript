@@ -2,6 +2,7 @@ import { chatCompletion } from "./completion.js";
 import { runToolLoop, webSearchTool, type ToolLoopSearchOutcome, type ToolStatusPayload } from "./tool-loop.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
+import { normalizeSiteId, type SiteId } from "../shared/site.js";
 import type { AiProvider, ChatMessage } from "./types.js";
 
 interface ExplainSubtitleItem {
@@ -11,6 +12,7 @@ interface ExplainSubtitleItem {
 
 export interface ExplainSelectionInput {
   provider: AiProvider;
+  site?: SiteId;
   videoTitle?: string;
   selection: string;
   line: string;
@@ -31,7 +33,14 @@ export interface ExplainWebSearch {
 const CONTEXT_WINDOW_SENTENCES = 2;
 const EXPLAIN_MAX_TOKENS = 320;
 
-export function buildExplainSystemPrompt({ webSearch = false }: { webSearch?: boolean } = {}): string {
+export function buildExplainSystemPrompt({
+  webSearch = false,
+  site = "bilibili"
+}: { webSearch?: boolean; site?: SiteId } = {}): string {
+  const intro =
+    normalizeSiteId(site) === "youtube"
+      ? "你在解释 YouTube 视频字幕里被观众选中的内容。"
+      : "你在解释 B 站视频字幕里被观众选中的内容。";
   const rules = [
     "- 不要思考过程、不要前言后语，直接给出解释本身",
     "- 最多 3 句话，尽量短",
@@ -49,7 +58,7 @@ export function buildExplainSystemPrompt({ webSearch = false }: { webSearch?: bo
   if (webSearch) {
     rules.push("- 用与字幕一致的语言回答（中文字幕用中文）");
   }
-  return ["你在解释 B 站视频字幕里被观众选中的内容。", "规则：", ...rules].join("\n");
+  return [intro, "规则：", ...rules].join("\n");
 }
 
 const EXPLAIN_SYSTEM_PROMPT = buildExplainSystemPrompt();
@@ -80,6 +89,7 @@ export function buildExplainContext(
 }
 
 export function buildExplainMessages({
+  site,
   videoTitle,
   selection,
   line,
@@ -90,20 +100,26 @@ export function buildExplainMessages({
 }: Omit<ExplainSelectionInput, "provider" | "signal" | "onSearchStatus" | "onNotice">): ChatMessage[] {
   const stamp = formatClock(Number(from) || 0, { hours: "auto" });
   const context = buildExplainContext(body, index);
+  const normalizedSite = normalizeSiteId(site);
   const sections = [
     `视频标题：${String(videoTitle || "未知").trim() || "未知"}`,
     `选中内容：「${selection}」`,
     `所在字幕句（${stamp}）：「${line}」`,
     context ? `字幕上下文（→ 标记为所在句）：\n${context}` : "（无可用上下文）"
   ];
+  const systemContent =
+    !webSearch && normalizedSite === "bilibili"
+      ? EXPLAIN_SYSTEM_PROMPT
+      : buildExplainSystemPrompt({ webSearch: Boolean(webSearch), site: normalizedSite });
   return [
-    { role: "system", content: webSearch ? buildExplainSystemPrompt({ webSearch: true }) : EXPLAIN_SYSTEM_PROMPT },
+    { role: "system", content: systemContent },
     { role: "user", content: `${sections.join("\n\n")}\n\n请解释选中内容。` }
   ];
 }
 
 export async function explainSelection({
   provider,
+  site,
   videoTitle,
   selection,
   line,
@@ -115,7 +131,7 @@ export async function explainSelection({
   onSearchStatus,
   onNotice
 }: ExplainSelectionInput): Promise<string> {
-  const messages = buildExplainMessages({ videoTitle, selection, line, from, body, index, webSearch });
+  const messages = buildExplainMessages({ site, videoTitle, selection, line, from, body, index, webSearch });
   if (webSearch) {
     const webResult = await runToolLoop({
       requestProfile: {

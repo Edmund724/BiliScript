@@ -121,6 +121,7 @@ export interface ToolLoopRequestProfile
   > {
   toolDefinition?: ChatToolDefinition;
   includeWebSearchTool?: boolean;
+  includeHistoricalFrameTool?: boolean;
 }
 
 export interface RunToolLoopInput {
@@ -178,6 +179,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
     signal,
     toolDefinition = WEB_SEARCH_TOOL,
     includeWebSearchTool = true,
+    includeHistoricalFrameTool = true,
     stream = true
   } = requestProfile;
 
@@ -192,9 +194,14 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
     const searchAvailable = includeWebSearchTool && !retriedWithoutTools && toolCallCount < maxToolCalls;
     const captureAvailable = Boolean(captureCurrentVideoFrame) && !captureUsed && !retriedWithoutTools;
     const hotCommentsAvailable = Boolean(fetchHotComments) && !hotCommentsUsed && !retriedWithoutTools;
+    const frameTools = captureAvailable
+      ? includeHistoricalFrameTool
+        ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL]
+        : [CAPTURE_CURRENT_VIDEO_FRAME_TOOL]
+      : [];
     const tools = [
       ...(searchAvailable ? [toolDefinition] : []),
-      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL] : []),
+      ...frameTools,
       ...(hotCommentsAvailable ? [FETCH_HOT_COMMENTS_TOOL] : [])
     ];
     const withTools = tools.length > 0;
@@ -258,6 +265,14 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
       const isCurrentFrame = call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME;
       const isHistoricalFrame = call.function.name === CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME;
       if (isCurrentFrame || isHistoricalFrame) {
+        if (isHistoricalFrame && !includeHistoricalFrameTool) {
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: "当前站点不支持历史时间点截帧工具，请仅使用 capture_current_video_frame 或基于字幕作答。"
+          });
+          continue;
+        }
         let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
         if (captureCurrentVideoFrame && !captureUsed) {
           captureUsed = true;

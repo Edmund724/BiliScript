@@ -1,5 +1,6 @@
 import { state } from "../core/state.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";
+import { detectSiteFromUrl, normalizeSiteId, YOUTUBE_UNIT_CID, type SiteId } from "../shared/site.js";
 import {
   filterGlossaryForText,
   parseSubtitleGlossary,
@@ -31,6 +32,7 @@ export interface SubtitlePreviousLine {
 }
 
 export interface SubtitleTranslatePromptContext {
+  site?: SiteId;
   title?: string;
   partTitle?: string;
   pageCount?: number;
@@ -44,6 +46,9 @@ export interface SubtitleTranslatePromptContext {
 }
 
 export interface VideoStaticContextInput {
+  site?: SiteId;
+  cid?: unknown;
+  url?: unknown;
   title?: unknown;
   partTitle?: unknown;
   pageTitle?: unknown;
@@ -69,6 +74,7 @@ export interface OverviewSummarySourceInput {
 }
 
 export interface ReadCachedOverviewSummaryInput {
+  site?: SiteId;
   bvid?: unknown;
   cid?: unknown;
   description?: unknown;
@@ -110,8 +116,10 @@ export function formatMultiPartTitle(
   return title;
 }
 
-const URL_WITH_LABEL_PATTERN =
+const BILIBILI_URL_WITH_LABEL_PATTERN =
   /(?:(?:项目|课程|视频|相关|参考|原文)?(?:源码|地址|链接|网址|资料|仓库|官网|传送门)\s*[:：]?\s*)?(?:https?:\/\/|www\.|b23\.tv\/)[^\s<>\]\)）"']+/gi;
+const GENERIC_URL_WITH_LABEL_PATTERN =
+  /(?:(?:项目|课程|视频|相关|参考|原文)?(?:源码|地址|链接|网址|资料|仓库|官网|传送门)\s*[:：]?\s*)?(?:https?:\/\/|www\.)[^\s<>\]\)）"']+/gi;
 const INLINE_LOTTERY_PATTERNS: readonly RegExp[] = [
   /(?:互动抽奖|转发抽奖|关注抽奖|评论区?抽奖|预约抽奖|动态抽奖|抽奖活动)[^。\n]*/gi,
   /(?:关注|点赞|投币|收藏|三连|一键三连)[^。\n]{0,20}(?:转发|抽奖|抽\s*[一二三四五六七八九十百千万\d]+\s*[位名个份])[^。\n]*/gi,
@@ -123,19 +131,36 @@ const DANGLING_LABEL_PREFIX =
   /^(?:项目|课程|视频|相关|参考|原文)?(?:源码|地址|链接|网址|资料|仓库|官网|传送门)\s*[:：]\s*$/i;
 const EMPTY_WRAPPER_PATTERN = /\(\s*\)|\[\s*\]|【\s*】|（\s*）/g;
 
+export function cleanVideoDescription(rawDescription: unknown, maxChars?: number, site?: SiteId): string;
+export function cleanVideoDescription(rawDescription: unknown, site?: SiteId, maxChars?: number): string;
 export function cleanVideoDescription(
   rawDescription: unknown,
-  maxChars = SUBTITLE_CONTEXT_DESCRIPTION_MAX_CHARS
+  siteOrMaxChars: SiteId | number = "bilibili",
+  maybeMaxCharsOrSite: number | SiteId = SUBTITLE_CONTEXT_DESCRIPTION_MAX_CHARS
 ): string {
+  const site: SiteId =
+    typeof siteOrMaxChars === "number"
+      ? normalizeSiteId(typeof maybeMaxCharsOrSite === "string" ? maybeMaxCharsOrSite : "bilibili")
+      : normalizeSiteId(siteOrMaxChars);
+  const maxChars: number =
+    typeof siteOrMaxChars === "number"
+      ? siteOrMaxChars
+      : typeof maybeMaxCharsOrSite === "number"
+        ? maybeMaxCharsOrSite
+        : SUBTITLE_CONTEXT_DESCRIPTION_MAX_CHARS;
+
   const normalized = String(rawDescription ?? "").replace(/\r\n?/g, "\n").trim();
   if (!normalized) {
     return "";
   }
 
+  const urlPattern = site === "youtube" ? GENERIC_URL_WITH_LABEL_PATTERN : BILIBILI_URL_WITH_LABEL_PATTERN;
+  const lotteryPatterns = site === "youtube" ? [] : INLINE_LOTTERY_PATTERNS;
+
   const keptLines: string[] = [];
   for (const rawLine of normalized.split("\n")) {
-    let line = rawLine.replace(URL_WITH_LABEL_PATTERN, " ");
-    for (const pattern of INLINE_LOTTERY_PATTERNS) {
+    let line = rawLine.replace(urlPattern, " ");
+    for (const pattern of lotteryPatterns) {
       line = line.replace(pattern, " ");
     }
     line = line
@@ -157,12 +182,24 @@ export function cleanVideoDescription(
   return truncateTextSafe(cleaned, maxChars);
 }
 
+function resolveStaticContextSite(input: VideoStaticContextInput): SiteId {
+  return normalizeSiteId(
+    input.site ??
+      (String(input.cid ?? "").trim() === YOUTUBE_UNIT_CID
+        ? "youtube"
+        : input.url
+          ? detectSiteFromUrl(input.url)
+          : undefined)
+  );
+}
+
 export function extractVideoStaticContext(
   input: VideoStaticContextInput | null | undefined
 ): VideoStaticContext {
   if (!input) {
     return { title: "", ownerName: "", description: "" };
   }
+  const site = resolveStaticContextSite(input);
   const pageCount =
     input.pageCount !== undefined && input.pageCount !== null && input.pageCount !== ""
       ? input.pageCount
@@ -175,7 +212,7 @@ export function extractVideoStaticContext(
     pageCount
   );
   const ownerName = normalizeSingleLine(input.ownerName ?? input.author);
-  const description = cleanVideoDescription(input.description);
+  const description = cleanVideoDescription(input.description, site);
   return { title, ownerName, description };
 }
 
@@ -572,13 +609,15 @@ export function buildSubtitleContextPromptBlock(
   }
 
   const contextLines: string[] = [];
+  const site = normalizeSiteId(context.site);
+  const ownerLabel = site === "youtube" ? "频道作者" : "UP 主";
   const title = formatMultiPartTitle(
     context.title,
     context.partTitle,
     context.pageCount
   );
   const ownerName = normalizeSingleLine(context.ownerName);
-  const description = cleanVideoDescription(context.description);
+  const description = cleanVideoDescription(context.description, site);
   const summary = String(context.summary ?? "").trim();
   const chapterContext = normalizeSingleLine(context.chapterContext);
   const referenceEntities = normalizeReferenceEntities(
@@ -591,7 +630,7 @@ export function buildSubtitleContextPromptBlock(
     contextLines.push(`视频标题：${title}`);
   }
   if (ownerName) {
-    contextLines.push(`UP 主：${ownerName}`);
+    contextLines.push(`${ownerLabel}：${ownerName}`);
   }
   if (description) {
     contextLines.push(`视频简介：${description}`);
@@ -645,6 +684,7 @@ export function buildChunkSubtitleContext(
   chunkText: string,
   previousLines?: readonly SubtitlePreviousLine[]
 ): SubtitleTranslatePromptContext | undefined {
+  const site = normalizeSiteId(baseContext?.site);
   const effectivePrevious =
     previousLines !== undefined ? normalizePreviousLines(previousLines) : normalizePreviousLines(baseContext?.previousLines);
   const filteredGlossary = filterGlossaryForText(baseContext?.glossary, chunkText);
@@ -659,7 +699,7 @@ export function buildChunkSubtitleContext(
       (normalizeSingleLine(baseContext.title) ||
         normalizeSingleLine(baseContext.partTitle) ||
         normalizeSingleLine(baseContext.ownerName) ||
-        cleanVideoDescription(baseContext.description) ||
+        cleanVideoDescription(baseContext.description, site) ||
         String(baseContext.summary ?? "").trim() ||
         chapterContext ||
         referenceEntities.length > 0)
@@ -670,6 +710,7 @@ export function buildChunkSubtitleContext(
   }
 
   return {
+    ...(baseContext?.site ? { site: baseContext.site } : {}),
     ...(baseContext?.title ? { title: baseContext.title } : {}),
     ...(baseContext?.partTitle ? { partTitle: baseContext.partTitle } : {}),
     ...(baseContext?.pageCount !== undefined ? { pageCount: baseContext.pageCount } : {}),
@@ -695,6 +736,8 @@ export async function resolveRuntimeSubtitleContext(
   input: ResolveRuntimeSubtitleContextInput = {}
 ): Promise<SubtitleTranslatePromptContext | undefined> {
   const base = input.context;
+  const explicitSite = input.site ?? base?.site;
+  const site = normalizeSiteId(explicitSite ?? state.clip.site);
   const clipStatic = extractVideoStaticContext(state.clip);
 
   const explicitTitle = input.title ?? base?.title;
@@ -716,7 +759,7 @@ export async function resolveRuntimeSubtitleContext(
     explicitOwner !== undefined ? normalizeSingleLine(explicitOwner) : clipStatic.ownerName;
   const description =
     explicitDescription !== undefined
-      ? cleanVideoDescription(explicitDescription)
+      ? cleanVideoDescription(explicitDescription, site)
       : clipStatic.description;
   const glossary =
     explicitGlossary !== undefined
@@ -794,6 +837,7 @@ export async function resolveRuntimeSubtitleContext(
   }
 
   return {
+    ...(explicitSite !== undefined || site === "youtube" ? { site } : {}),
     ...(title ? { title } : {}),
     ...(ownerName ? { ownerName } : {}),
     ...(description ? { description } : {}),

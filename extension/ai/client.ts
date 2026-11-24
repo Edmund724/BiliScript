@@ -1,6 +1,7 @@
 import { buildMessages } from "./context.js";
 import { chatCompletion, validateProviderBasics, type ChatCompletionResult } from "./completion.js";
 import { runToolLoop, type FetchHotCommentsFn, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
+import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
 import type { AiContext, AiProvider, CaptureCurrentVideoFrame, ImagePart, StreamChatEvent } from "./types.js";
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
@@ -35,13 +36,18 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     return;
   }
 
+  const site = normalizeSiteId(context?.site ?? (context?.url ? detectSiteFromUrl(context.url) : undefined));
+  const capabilities = getSiteCapabilities(site);
+  const effectiveCaptureFrame = capabilities.supportsCurrentFrameCapture ? captureCurrentVideoFrame : undefined;
+  const effectiveFetchHotComments = capabilities.supportsHotComments ? fetchHotComments : undefined;
+
   const messages = buildMessages({
     context,
     userPrompt,
     history,
     images: userImages,
     systemPrompt: context?.aiSystemPrompt,
-    includeToolHistory: Boolean(webSearch || fetchHotComments)
+    includeToolHistory: Boolean(webSearch || effectiveFetchHotComments)
   });
 
   const tokenBatcher = new TokenBatcher({
@@ -57,7 +63,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
 
   let lastFinishReason: string | null = null;
   let emittedNoText = true;
-  const hasToolLoop = Boolean(webSearch || captureCurrentVideoFrame || fetchHotComments);
+  const hasToolLoop = Boolean(webSearch || effectiveCaptureFrame || effectiveFetchHotComments);
   let toolGeneration = 0;
   const emitStreamReset = () => {
     onActivity?.();
@@ -107,6 +113,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             thinkingLevel,
             maxTokens,
             includeWebSearchTool: Boolean(webSearch),
+            includeHistoricalFrameTool: capabilities.supportsHistoricalFrameCapture,
             ...streamCallbacks
           },
           messages: messages.slice(),
@@ -114,8 +121,8 @@ export async function streamChat({ provider, context, userPrompt, history, userI
           executeSearch: webSearch?.executeSearch ?? (async () => {
             throw new Error("本轮未启用联网搜索");
           }),
-          captureCurrentVideoFrame,
-          fetchHotComments,
+          captureCurrentVideoFrame: effectiveCaptureFrame,
+          fetchHotComments: effectiveFetchHotComments,
           onNotice: (text) => {
             onActivity?.();
             flushTokens();
