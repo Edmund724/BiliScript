@@ -163,7 +163,7 @@ export function buildContentPagesHtml(): string {
               placeholder="${NOTE_TEMPLATE_VARIABLES_HELP}"
             ></textarea>
             <div class="biliscript-note-template-vars" aria-label="可用模板变量">
-              <code>{{title}}</code> <code>{{bvid}}</code> <code>{{author}}</code> <code>{{url}}</code> <code>{{date}}</code> <code>{{summary}}</code> <code>{{chapters}}</code> <code>{{quotes}}</code> <code>{{notes}}</code> <code>{{subtitles}}</code>
+              <code>{{title}}</code> <code>{{videoId}}</code> <code>{{bvid}}</code> <code>{{site}}</code> <code>{{author}}</code> <code>{{url}}</code> <code>{{date}}</code> <code>{{summary}}</code> <code>{{chapters}}</code> <code>{{quotes}}</code> <code>{{notes}}</code> <code>{{subtitles}}</code>
             </div>
           </div>
 

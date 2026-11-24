@@ -452,6 +452,81 @@ describe("字幕翻译序号行协议", () => {
         items: originalItems
       })
     ).toBe("cc-json");
+
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        selectedSubtitleId: "custom-track",
+        trackLan: "en",
+        origin: "youtube",
+        kind: "asr",
+        items: originalItems
+      })
+    ).toBe("boundary-v3");
+
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        selectedSubtitleId: "custom-track",
+        trackLan: "en",
+        source: "youtube-auto",
+        items: originalItems
+      })
+    ).toBe("boundary-v3");
+
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        selectedSubtitleId: "custom-track",
+        trackLan: "en",
+        origin: "youtube",
+        source: "youtube-cc",
+        items: originalItems
+      })
+    ).toBe("cc-json");
+  });
+
+  it("translateSubtitleTrack 透传 youtube-auto 的 origin/kind/source 至协议分流并命中 boundary-v3", async () => {
+    const mockChatCompletion = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        groups: [
+          { ids: ["0"], translation: "你好。" },
+          { ids: ["1"], translation: "今天怎么样？" },
+          { ids: ["2"], translation: "让我们学习新东西。" }
+        ]
+      })
+    );
+
+    const result = await translateSubtitleTrack({
+      items: originalItems,
+      targetLang: "zh",
+      selectedSubtitleId: "custom-yt-auto",
+      trackLan: "en",
+      origin: "youtube",
+      kind: "asr",
+      source: "youtube-auto",
+      providerResolution: {
+        provider: {
+          id: "p1",
+          name: "P1",
+          baseUrl: "https://api.test",
+          models: ["m1"],
+          enabled: true,
+          hasSavedKey: true
+        },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(result.mode).toBe("boundary-v3");
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    expect(result.translations.map((item) => item.content)).toEqual([
+      "你好。",
+      "今天怎么样？",
+      "让我们学习新东西。"
+    ]);
   });
 
   it("目标语言展示名从 LIVE_INTERPRET_TARGET_LANG_OPTIONS 派生并覆盖全部 14 种语言", () => {

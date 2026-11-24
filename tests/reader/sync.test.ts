@@ -432,3 +432,34 @@ describe("播放同步与高亮", () => {
     expect(video.currentTime).toBe(10);
   });
 });
+
+describe("站点感知运行时视频探针 (getSiteRuntimeVideoElement)", () => {
+  it("YouTube 站点优先使用已连接的 readingVideoEl，否则回退主播放器并忽略悬浮预览与迷你播放器", async () => {
+    const { getSiteRuntimeVideoElement } = await import("../../extension/core/site-video-probe.js");
+    state.clip.site = "youtube";
+    state.reader.readingVideoEl = null;
+
+    document.body.innerHTML = `
+      <ytd-video-preview><video id="preview-v"></video></ytd-video-preview>
+      <ytd-miniplayer><video id="mini-v"></video></ytd-miniplayer>
+      <div id="movie_player"><video id="main-v" class="html5-main-video"></video></div>
+    `;
+    const previewVideo = document.getElementById("preview-v") as HTMLVideoElement;
+    const miniVideo = document.getElementById("mini-v") as HTMLVideoElement;
+    const mainVideo = document.getElementById("main-v") as HTMLVideoElement;
+    previewVideo.getBoundingClientRect = () => ({ width: 800, height: 450 } as DOMRect);
+    miniVideo.getBoundingClientRect = () => ({ width: 400, height: 225 } as DOMRect);
+    mainVideo.getBoundingClientRect = () => ({ width: 640, height: 360 } as DOMRect);
+
+    expect(getSiteRuntimeVideoElement(document)).toBe(mainVideo);
+
+    const disconnectedVideo = document.createElement("video");
+    state.reader.readingVideoEl = disconnectedVideo;
+    expect(getSiteRuntimeVideoElement(document)).toBe(mainVideo);
+
+    const boundVideo = document.createElement("video");
+    document.body.appendChild(boundVideo);
+    state.reader.readingVideoEl = boundVideo;
+    expect(getSiteRuntimeVideoElement(document)).toBe(boundVideo);
+  });
+});

@@ -5,6 +5,7 @@ import {
   buildSettingsHtml,
   SETTINGS_PANEL_DOM_IDS
 } from "../../extension/ui/settings-panel-html.js";
+import { NOTE_TEMPLATE_VARIABLES_HELP } from "../../extension/notes/template-defaults.js";
 
 const QUICK_PROMPT_CLASS_SELECTOR = ".ai-initial-quick-prompt";
 
@@ -75,6 +76,18 @@ describe("设置抽屉 DOM 词汇表：声明表 ↔ 模板", () => {
     targets.forEach((target) => {
       expect(declared.has(target), `for="${target}" 不在 id 词汇表里`).toBe(true);
     });
+  });
+
+  it("笔记导出模板可用变量列表与 NOTE_TEMPLATE_VARIABLES_HELP 保持一致并包含 {{videoId}} 与 {{site}}", () => {
+    const host = document.createElement("div");
+    host.innerHTML = buildSettingsHtml();
+    const renderedVars = Array.from(
+      host.querySelectorAll(".biliscript-note-template-vars code")
+    ).map((el) => el.textContent?.trim());
+
+    expect(renderedVars).toContain("{{videoId}}");
+    expect(renderedVars).toContain("{{site}}");
+    expect(renderedVars).toEqual(NOTE_TEMPLATE_VARIABLES_HELP.split(" "));
   });
 });
 

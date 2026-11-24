@@ -35,6 +35,7 @@ import {
   type IndexTranslateRateLimiter,
   type IndexTranslateRetryOptions
 } from "./index-translate.js";
+import type { SubtitleTrackOrigin } from "../shared/video-dto.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ChatMessage, SubtitleBodyItem } from "./types.js";
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
@@ -254,6 +255,9 @@ export interface SubtitleProtocolRouteInput {
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   items?: readonly CoarseSubtitleInput[];
   events?: readonly AtomicSubtitleEvent[];
 }
@@ -263,6 +267,9 @@ export function resolveSubtitleTranslateProtocolMode({
   selectedSubtitleId = "",
   selectedSubtitleLang = "",
   trackLan = "",
+  origin,
+  kind,
+  source,
   items = [],
   events
 }: SubtitleProtocolRouteInput): SubtitleTranslateProtocolMode {
@@ -283,6 +290,9 @@ export function resolveSubtitleTranslateProtocolMode({
     selectedSubtitleId,
     selectedSubtitleLang,
     trackLan,
+    origin,
+    kind,
+    source,
     items
   });
 
@@ -298,6 +308,9 @@ export interface TranslateSubtitleItemsInput extends SubtitleTranslatePromptCont
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   context?: SubtitleTranslatePromptContext;
   l1Index?: L1VideoIndexCacheRecord | null;
   chunkFromSec?: number;
@@ -965,6 +978,9 @@ export async function translateSubtitleTrack(
     selectedSubtitleId,
     selectedSubtitleLang,
     trackLan,
+    origin,
+    kind,
+    source,
     maxChunkChars = DEFAULT_MAX_CHUNK_CHARS,
     providerResolution,
     stream,
@@ -984,6 +1000,9 @@ export async function translateSubtitleTrack(
     selectedSubtitleId,
     selectedSubtitleLang,
     trackLan,
+    origin,
+    kind,
+    source,
     items,
     events: explicitEvents
   });

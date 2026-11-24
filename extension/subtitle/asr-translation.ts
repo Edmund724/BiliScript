@@ -1,6 +1,6 @@
 import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
-import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
 import { logWarn } from "../shared/logging.js";
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { classifySubtitleTrack, findTrackByRef } from "./selection.js";
@@ -87,6 +87,9 @@ export async function ensureAsrSecondarySubtitle(
       selectedSubtitleUrl: selectedUrl,
       selectedSubtitleLang: selectedLang,
       trackLan: matchedTrack?.lan,
+      origin: matchedTrack?.origin,
+      kind: matchedTrack?.kind,
+      source: matchedTrack?.source,
       targetLang
     },
     isStale
@@ -161,7 +164,7 @@ export async function ensureAsrSecondarySubtitle(
 
   await session.acceptCurrentSecondary();
 
-  const runtimeVideo = getRuntimeVideoElement();
+  const runtimeVideo = getSiteRuntimeVideoElement();
   const scheduler = createSubtitleChunkScheduler<TranslatedTrackPrimaryChunk>({
     chunks: pending.map((chunk) => ({
       index: chunk.index,
@@ -170,7 +173,7 @@ export async function ensureAsrSecondarySubtitle(
       payload: chunk
     })),
     video: runtimeVideo,
-    getCurrentTimeSec: () => getRuntimeVideoElement()?.currentTime ?? 0,
+    getCurrentTimeSec: () => getSiteRuntimeVideoElement()?.currentTime ?? 0,
     preloadWindowSec: 90,
     maxConcurrency: 2,
     firstScreenSolo: true,
