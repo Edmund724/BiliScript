@@ -37,6 +37,7 @@ SOURCE_INCLUDED_FILES = {
     "scripts/vendor-marked-stub.mjs",
     "scripts/vendor-d3-slim.mjs",
     "scripts/vendor-iconify-stub.mjs",
+    "scripts/vendor-lodash-root-stub.mjs",
 }
 SOURCE_EXCLUDED_PREFIXES = ("extension/entry/chunks/",)
 SOURCE_EXCLUDED_FILES = {

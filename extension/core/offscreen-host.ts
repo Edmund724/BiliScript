@@ -47,10 +47,16 @@ let ensureGeneration = 0;
 const lifecycleQueue: QueuedLifecycleOp[] = [];
 
 function hasNativeOffscreenCreate(): boolean {
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
+    return false;
+  }
   return typeof chrome !== "undefined" && typeof chrome.offscreen?.createDocument === "function";
 }
 
 function hasNativeOffscreenClose(): boolean {
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
+    return false;
+  }
   return typeof chrome !== "undefined" && typeof chrome.offscreen?.closeDocument === "function";
 }
 
@@ -95,7 +101,10 @@ export async function hasOffscreenDocument(): Promise<boolean> {
   if (typeof chrome === "undefined" || typeof chrome.runtime?.getURL !== "function") {
     return false;
   }
-  if (!hasNativeOffscreenCreate() && !hasNativeOffscreenClose()) {
+  if (
+    (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") ||
+    (!hasNativeOffscreenCreate() && !hasNativeOffscreenClose())
+  ) {
     return isLiveOffscreenIframe(getExistingOffscreenIframe());
   }
   return hasExistingOffscreenDocument(chrome.runtime.getURL(OFFSCREEN_URL));
@@ -189,7 +198,10 @@ function ensureOffscreenIframe(url: string): Promise<boolean> {
 
 async function performEnsureOffscreenDocument(): Promise<boolean> {
   const url = chrome.runtime.getURL(OFFSCREEN_URL);
-  if (!hasNativeOffscreenCreate()) {
+  if (
+    (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") ||
+    !hasNativeOffscreenCreate()
+  ) {
     if (hasDomBody()) {
       return ensureOffscreenIframe(url);
     }
@@ -217,7 +229,10 @@ async function performEnsureOffscreenDocument(): Promise<boolean> {
 }
 
 async function performCloseOffscreenDocument(): Promise<void> {
-  if (hasNativeOffscreenClose()) {
+  if (
+    !(typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") &&
+    hasNativeOffscreenClose()
+  ) {
     await chrome.offscreen.closeDocument();
     return;
   }

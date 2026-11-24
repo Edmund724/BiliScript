@@ -4,8 +4,11 @@ interface LiveRoomDomain {
   startLiveRoomCompanion(): Promise<void>;
 }
 
-const loader = createLazyLoader<LiveRoomDomain>(() => import("./live-room-entry.js"));
+let loader: ReturnType<typeof createLazyLoader<LiveRoomDomain>> | null = null;
 
 export function loadLiveRoom(): Promise<LiveRoomDomain> {
+  if (!loader) {
+    loader = createLazyLoader<LiveRoomDomain>(() => import("./live-room-entry.js"));
+  }
   return loader.load();
 }

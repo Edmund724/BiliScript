@@ -40,7 +40,14 @@ ensurePlayerAiStyles();
 const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
-const liveCompanionSessionLoader = createLazyLoader(() => import("../live/live-companion-session.js"));
+type LiveCompanionSessionModule = typeof import("../live/live-companion-session.js");
+let liveCompanionSessionLoader: ReturnType<typeof createLazyLoader<LiveCompanionSessionModule>> | null = null;
+function getLiveCompanionSessionLoader() {
+  if (!liveCompanionSessionLoader) {
+    liveCompanionSessionLoader = createLazyLoader(() => import("../live/live-companion-session.js"));
+  }
+  return liveCompanionSessionLoader;
+}
 const playerInterpretLoader = createLazyLoader(() => import("../live/player-interpret.js"));
 type PlayerInterpretModule = Awaited<ReturnType<typeof playerInterpretLoader.load>>;
 let loadedPlayerInterpret: PlayerInterpretModule | null = null;
@@ -99,37 +106,43 @@ function closePlayerInterpretMenuLazy(): void {
 }
 
 let liveQuickActionTargetButton: HTMLButtonElement | null = null;
-const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () => {
-  if (!supportsLiveCompanion()) {
-    return;
-  }
-  const liveButton = liveQuickActionTargetButton;
-  let session: Awaited<ReturnType<typeof liveCompanionSessionLoader.load>> | null = null;
-  try {
-    session = await liveCompanionSessionLoader.load();
-    const isCurrentlyActive = Boolean(
-      liveButton?.classList.contains("is-active") ||
-        document.body.hasAttribute("data-biliscript-live-active") ||
-        session.isLiveCompanionActive() ||
-        session.getLiveController()?.getState() === "connected" ||
-        session.getLiveController()?.getState() === "connecting"
-    );
+let liveQuickActionToggleHandler: ReturnType<typeof createThrottledLiveToggleHandler> | null = null;
+function getLiveQuickActionToggleHandler() {
+  if (!liveQuickActionToggleHandler) {
+    liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () => {
+      if (!supportsLiveCompanion()) {
+        return;
+      }
+      const liveButton = liveQuickActionTargetButton;
+      let session: LiveCompanionSessionModule | null = null;
+      try {
+        session = await getLiveCompanionSessionLoader().load();
+        const isCurrentlyActive = Boolean(
+          liveButton?.classList.contains("is-active") ||
+            document.body.hasAttribute("data-biliscript-live-active") ||
+            session.isLiveCompanionActive() ||
+            session.getLiveController()?.getState() === "connected" ||
+            session.getLiveController()?.getState() === "connecting"
+        );
 
-    if (isCurrentlyActive) {
-      session.stopLiveCompanion();
-    } else {
-      await session.startLiveCompanion();
-    }
-  } catch {
-    const errorMessage = "实时伴看启动失败，请重试";
-    try {
-      const targetSession = session ?? (await liveCompanionSessionLoader.load());
-      const overlay = targetSession.ensureFullscreenOverlay();
-      overlay.show({ forceExpand: true });
-      overlay.syncState("failure", false, errorMessage, "unknown");
-    } catch {}
+        if (isCurrentlyActive) {
+          session.stopLiveCompanion();
+        } else {
+          await session.startLiveCompanion();
+        }
+      } catch {
+        const errorMessage = "实时伴看启动失败，请重试";
+        try {
+          const targetSession = session ?? (await getLiveCompanionSessionLoader().load());
+          const overlay = targetSession.ensureFullscreenOverlay();
+          overlay.show({ forceExpand: true });
+          overlay.syncState("failure", false, errorMessage, "unknown");
+        } catch {}
+      }
+    });
   }
-});
+  return liveQuickActionToggleHandler;
+}
 
 const MODULE_BOOT_AT = Date.now();
 let mountTimingLogged = false;
@@ -153,15 +166,19 @@ const PLAYER_AI_ICON_SIZE_PX = 26;
 const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 
 function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
-  if (!supportsLiveCompanion()) {
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     return true;
+  } else {
+    if (!supportsLiveCompanion()) {
+      return true;
+    }
+    const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+    const liveButton = document.getElementById("biliscript-player-live-quick-action");
+    if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
+      return false;
+    }
+    return isControlBarLiveToggleMounted(liveWrap, playerHost, { fallbackToHost: true });
   }
-  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
-  const liveButton = document.getElementById("biliscript-player-live-quick-action");
-  if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
-    return false;
-  }
-  return isControlBarLiveToggleMounted(liveWrap, playerHost, { fallbackToHost: true });
 }
 
 function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
@@ -252,8 +269,10 @@ export function stopPlayerAiQuickAction(): void {
   resetPlayerAiQuickActionRetryCount();
   removePlayerAiQuickActionButton();
   playerAiSubtitleControlCalibrated = false;
-  liveQuickActionToggleHandler.reset();
-  liveQuickActionTargetButton = null;
+  if (!(typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox")) {
+    liveQuickActionToggleHandler?.reset();
+    liveQuickActionTargetButton = null;
+  }
 }
 
 export function startPlayerAiQuickActionObserver(): void {
@@ -352,51 +371,57 @@ function schedulePlayerAiQuickActionRetry(): void {
 }
 
 function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
-  if (!supportsLiveCompanion()) {
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
     document.getElementById("biliscript-player-live-quick-action")?.remove();
     return;
+  } else {
+    if (!supportsLiveCompanion()) {
+      document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
+      document.getElementById("biliscript-player-live-quick-action")?.remove();
+      return;
+    }
+    const existingLive = document.getElementById("biliscript-player-live-quick-action");
+    let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
+    const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+    let liveWrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+    const isActive = Boolean(
+      document.body.hasAttribute("data-biliscript-live-active") ||
+        existingLive?.classList.contains("is-active") ||
+        existingWrap?.classList.contains("is-active")
+    );
+
+    if (!liveWrap) {
+      liveWrap = document.createElement("div");
+      liveWrap.id = "biliscript-player-live-quick-action-wrap";
+      liveWrap.className = "bpx-player-ctrl-btn biliscript-player-live-quick-action-wrap";
+      liveWrap.setAttribute("data-biliscript-extension-node", "live-quick-action");
+    }
+
+    let iconWrap = liveWrap.querySelector(".bpx-player-ctrl-btn-icon");
+    if (!iconWrap) {
+      iconWrap = document.createElement("div");
+      iconWrap.className = "bpx-player-ctrl-btn-icon";
+      liveWrap.appendChild(iconWrap);
+    }
+
+    if (!liveButton) {
+      liveButton = document.createElement("button");
+      liveButton.id = "biliscript-player-live-quick-action";
+      liveButton.type = "button";
+      liveButton.className = "biliscript-player-live-quick-action";
+      liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
+      liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
+    }
+
+    syncPlayerLiveToggleButton({ button: liveButton, wrap: liveWrap, active: isActive });
+
+    if (liveButton.parentElement !== iconWrap) {
+      iconWrap.replaceChildren(liveButton);
+    }
+
+    mountControlBarLiveToggle(liveWrap, playerHost, { fallbackToHost: true });
   }
-  const existingLive = document.getElementById("biliscript-player-live-quick-action");
-  let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
-  const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
-  let liveWrap = existingWrap instanceof HTMLElement ? existingWrap : null;
-  const isActive = Boolean(
-    document.body.hasAttribute("data-biliscript-live-active") ||
-      existingLive?.classList.contains("is-active") ||
-      existingWrap?.classList.contains("is-active")
-  );
-
-  if (!liveWrap) {
-    liveWrap = document.createElement("div");
-    liveWrap.id = "biliscript-player-live-quick-action-wrap";
-    liveWrap.className = "bpx-player-ctrl-btn biliscript-player-live-quick-action-wrap";
-    liveWrap.setAttribute("data-biliscript-extension-node", "live-quick-action");
-  }
-
-  let iconWrap = liveWrap.querySelector(".bpx-player-ctrl-btn-icon");
-  if (!iconWrap) {
-    iconWrap = document.createElement("div");
-    iconWrap.className = "bpx-player-ctrl-btn-icon";
-    liveWrap.appendChild(iconWrap);
-  }
-
-  if (!liveButton) {
-    liveButton = document.createElement("button");
-    liveButton.id = "biliscript-player-live-quick-action";
-    liveButton.type = "button";
-    liveButton.className = "biliscript-player-live-quick-action";
-    liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
-    liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
-  }
-
-  syncPlayerLiveToggleButton({ button: liveButton, wrap: liveWrap, active: isActive });
-
-  if (liveButton.parentElement !== iconWrap) {
-    iconWrap.replaceChildren(liveButton);
-  }
-
-  mountControlBarLiveToggle(liveWrap, playerHost, { fallbackToHost: true });
 }
 
 function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
@@ -746,10 +771,14 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
   event.preventDefault();
   event.stopPropagation();
-  if (!supportsLiveCompanion()) {
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     return;
+  } else {
+    if (!supportsLiveCompanion()) {
+      return;
+    }
+    liveQuickActionTargetButton =
+      event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+    await getLiveQuickActionToggleHandler().handleClick();
   }
-  liveQuickActionTargetButton =
-    event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
-  await liveQuickActionToggleHandler.handleClick();
 }

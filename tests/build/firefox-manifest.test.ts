@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ASR_PROVIDER_PRESETS, PRESETS } from "../../extension/core/presets.js";
 import {
   getEsbuildTarget,
+  getTargetDefine,
   resolveTargetPlatform,
 } from "../../scripts/build-guards.js";
 import {
@@ -176,6 +177,9 @@ describe("构建目标解析（scripts/build-guards.js）", () => {
     expect(resolveTargetPlatform(["node", "scripts/build.js", "--target=firefox"])).toBe("firefox");
     expect(getEsbuildTarget("chromium")).toBe("chrome120");
     expect(getEsbuildTarget("firefox")).toBe("firefox153");
+    expect(getTargetDefine("chromium")).toEqual({ __BILISCRIPT_TARGET__: '"chromium"' });
+    expect(getTargetDefine("firefox")).toEqual({ __BILISCRIPT_TARGET__: '"firefox"' });
     expect(() => resolveTargetPlatform(["node", "scripts/build.js", "--target=safari"])).toThrow();
+    expect(() => getTargetDefine("safari")).toThrow();
   });
 });

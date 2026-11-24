@@ -8,11 +8,13 @@ const {
   findForbiddenInputs,
   resolveTargetPlatform,
   getEsbuildTarget,
+  getTargetDefine,
 } = require("./build-guards.js");
 const { deriveFirefoxManifest, loadExtensionPresets } = require("./firefox-manifest.js");
 
 const targetPlatform = resolveTargetPlatform(process.argv);
 const esbuildTarget = getEsbuildTarget(targetPlatform);
+const targetDefine = getTargetDefine(targetPlatform);
 const distDirName = targetPlatform === "firefox" ? "dist-firefox" : "dist";
 
 const watchMode = process.argv.includes("--watch");
@@ -151,6 +153,7 @@ function restJsOptions() {
     minify: true,
     sourcemap: true,
     target: esbuildTarget,
+    define: targetDefine,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],
@@ -170,6 +173,7 @@ function offscreenOptions() {
     minify: true,
     sourcemap: true,
     target: esbuildTarget,
+    define: targetDefine,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],
@@ -304,6 +308,15 @@ function assertBackgroundStaticGraphSlim() {
       "build.js: SW 静态图包含禁止的模块（协议栈须留在词表叶后 / 模型目录只能懒加载）：\n" +
         leaked.map((source) => `  - ${source}`).join("\n")
     );
+    process.exit(1);
+  }
+}
+
+function assertFirefoxBackgroundNoOffscreenApi() {
+  if (targetPlatform !== "firefox") return;
+  const backgroundText = fs.readFileSync(path.join(distDir, "entry", "background.js"), "utf8");
+  if (/\.offscreen\b/.test(backgroundText)) {
+    console.error("build.js: dist-firefox/entry/background.js 仍包含 chrome.offscreen 引用");
     process.exit(1);
   }
 }
@@ -482,6 +495,7 @@ async function main() {
   assertHtmlReferences();
   assertBackgroundBundleSize();
   assertBackgroundStaticGraphSlim();
+  assertFirefoxBackgroundNoOffscreenApi();
   assertLadderChunkSlim(offscreenResult.metafile);
 
   const offscreenDist = fs.readFileSync(path.join(distDir, "entry", "offscreen.js"), "utf8");

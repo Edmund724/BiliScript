@@ -9,10 +9,12 @@ const {
   diffDualInstanceAllowlist,
   resolveTargetPlatform,
   getEsbuildTarget,
+  getTargetDefine,
 } = require("./build-guards.js");
 
 const targetPlatform = resolveTargetPlatform(process.argv);
 const esbuildTarget = getEsbuildTarget(targetPlatform);
+const targetDefine = getTargetDefine(targetPlatform);
 
 const watchMode = process.argv.includes("--watch");
 
@@ -64,6 +66,11 @@ const lazyTargets = [
   { name: "math-render", source: "ui/math-render.ts" },
   { name: "onboarding-entry", source: "entry/onboarding-entry.ts" },
 ];
+const FIREFOX_EXCLUDED_LAZY_TARGETS = new Set(["live-room"]);
+const activeLazyTargets =
+  targetPlatform === "firefox"
+    ? lazyTargets.filter(({ name }) => !FIREFOX_EXCLUDED_LAZY_TARGETS.has(name))
+    : lazyTargets;
 const lazyTargetExternals = new Map(
   lazyTargets.map(({ name, source }) => [
     path.join(extensionRoot, source),
@@ -105,6 +112,7 @@ const MAIN_MODULE_BASENAME = "content-main.mjs";
 const localImportGuard = createLocalImportGuard(extensionRoot);
 
 const mermaidPackageFile = /(?:[\\/]node_modules[\\/]mermaid[\\/]|[\\/]mermaid@[^\\/]+[\\/]node_modules[\\/]mermaid[\\/])/;
+const lodashEsPackageFile = /(?:[\\/]node_modules[\\/]lodash-es[\\/]|[\\/]lodash-es@[^\\/]+[\\/]node_modules[\\/]lodash-es[\\/])/;
 const mermaidSlimAlias = {
   name: "mermaid-slim-round-b-only",
   setup(buildApi) {
@@ -131,6 +139,37 @@ const mermaidSlimAlias = {
     buildApi.onResolve({ filter: /^@iconify\/utils$/ }, () => ({
       path: path.join(__dirname, "..", "scripts", "vendor-iconify-stub.mjs"),
     }));
+    buildApi.onResolve({ filter: /^\.\/_root\.js$/ }, (args) => {
+      if (!lodashEsPackageFile.test(args.importer)) {
+        return undefined;
+      }
+      return { path: path.join(__dirname, "..", "scripts", "vendor-lodash-root-stub.mjs") };
+    });
+  },
+};
+
+const liveCompanionSessionSource = path.join(extensionRoot, "live", "live-companion-session.ts");
+const liveCompanionFirefoxStubSource = path.join(
+  extensionRoot,
+  "live",
+  "live-companion-firefox-stub.ts"
+);
+const firefoxLiveCompanionStubPlugin = {
+  name: "firefox-live-companion-stub",
+  setup(buildApi) {
+    buildApi.onResolve({ filter: /live-companion-session/ }, (args) => {
+      const resolved = path.resolve(args.resolveDir, args.path);
+      const candidates = [resolved];
+      if (resolved.endsWith(".js")) {
+        candidates.push(resolved.slice(0, -3) + ".ts");
+      } else if (!resolved.endsWith(".ts")) {
+        candidates.push(resolved + ".ts");
+      }
+      if (candidates.includes(liveCompanionSessionSource)) {
+        return { path: liveCompanionFirefoxStubSource };
+      }
+      return undefined;
+    });
   },
 };
 
@@ -169,7 +208,7 @@ function sizeInBytes(file) {
 
 const lazyChunkOptions = {
   entryPoints: Object.fromEntries(
-    lazyTargets.map(({ name, source }) => [name, path.join(extensionRoot, source)])
+    activeLazyTargets.map(({ name, source }) => [name, path.join(extensionRoot, source)])
   ),
   outdir: chunksDir,
   entryNames: "[name]",
@@ -183,7 +222,11 @@ const lazyChunkOptions = {
   sourcemap: true,
   metafile: true,
   target: esbuildTarget,
-  plugins: [localImportGuard, mermaidSlimAlias],
+  define: targetDefine,
+  plugins:
+    targetPlatform === "firefox"
+      ? [localImportGuard, mermaidSlimAlias, firefoxLiveCompanionStubPlugin]
+      : [localImportGuard, mermaidSlimAlias],
 };
 
 const mainPackageOptions = {
@@ -198,6 +241,7 @@ const mainPackageOptions = {
   minify: true,
   sourcemap: true,
   target: esbuildTarget,
+  define: targetDefine,
   plugins: [localImportGuard, lazyTargetExternal],
 };
 
@@ -210,6 +254,7 @@ const bootstrapOptions = {
   minify: true,
   sourcemap: true,
   target: esbuildTarget,
+  define: targetDefine,
   plugins: [localImportGuard],
 };
 
@@ -223,6 +268,7 @@ const workletOptions = {
   minify: true,
   sourcemap: true,
   target: esbuildTarget,
+  define: targetDefine,
   plugins: [localImportGuard],
 };
 
@@ -246,7 +292,9 @@ async function main() {
   cleanPreviousOutput();
   if (!watchMode) {
     const lazyResult = await build(lazyChunkOptions);
-    await build(workletOptions);
+    if (targetPlatform !== "firefox") {
+      await build(workletOptions);
+    }
     await build(mainPackageOptions);
     await build(bootstrapOptions);
     if (!selfCheck()) {
@@ -259,10 +307,13 @@ async function main() {
     ...lazyChunkOptions,
     plugins: [...lazyChunkOptions.plugins, watchRebuildLog],
   });
-  const workletCtx = await context({
-    ...workletOptions,
-    plugins: [...workletOptions.plugins, watchRebuildLog],
-  });
+  const workletCtx =
+    targetPlatform !== "firefox"
+      ? await context({
+          ...workletOptions,
+          plugins: [...workletOptions.plugins, watchRebuildLog],
+        })
+      : null;
   const mainCtx = await context({
     ...mainPackageOptions,
     plugins: [...mainPackageOptions.plugins, watchRebuildLog],
@@ -272,14 +323,20 @@ async function main() {
     plugins: [...bootstrapOptions.plugins, watchRebuildLog],
   });
   const lazyRebuild = await lazyCtx.rebuild();
-  await workletCtx.rebuild();
+  if (workletCtx) {
+    await workletCtx.rebuild();
+  }
   await mainCtx.rebuild();
   await bootstrapCtx.rebuild();
   if (!selfCheck()) {
     process.exit(1);
   }
   report(lazyRebuild.metafile);
-  await Promise.all([lazyCtx.watch(), workletCtx.watch(), mainCtx.watch(), bootstrapCtx.watch()]);
+  const watchList = [lazyCtx.watch(), mainCtx.watch(), bootstrapCtx.watch()];
+  if (workletCtx) {
+    watchList.push(workletCtx.watch());
+  }
+  await Promise.all(watchList);
   console.log("[watch] build-content watching for changes...");
 }
 
@@ -310,18 +367,20 @@ function selfCheck() {
     }
   }
 
-  if (!fs.existsSync(workletOutfile)) {
-    console.error(`Self-check failed: missing AudioWorklet output ${workletOutfile}`);
-    process.exitCode = 1;
-    return false;
-  }
-  const workletText = fs.readFileSync(workletOutfile, "utf8");
-  if (!workletText.includes("registerProcessor") || /\b(?:window|document)\b/.test(workletText)) {
-    console.error(
-      `Self-check failed: ${workletOutfile} 缺少 registerProcessor 或包含主线程 DOM 全局符号`
-    );
-    process.exitCode = 1;
-    return false;
+  if (targetPlatform !== "firefox") {
+    if (!fs.existsSync(workletOutfile)) {
+      console.error(`Self-check failed: missing AudioWorklet output ${workletOutfile}`);
+      process.exitCode = 1;
+      return false;
+    }
+    const workletText = fs.readFileSync(workletOutfile, "utf8");
+    if (!workletText.includes("registerProcessor") || /\b(?:window|document)\b/.test(workletText)) {
+      console.error(
+        `Self-check failed: ${workletOutfile} 缺少 registerProcessor 或包含主线程 DOM 全局符号`
+      );
+      process.exitCode = 1;
+      return false;
+    }
   }
 
   const mainText = fs.readFileSync(mainOutfile, "utf8");
@@ -342,6 +401,9 @@ function selfCheck() {
         `单文件（2 请求），懒加载目标只能经动态 import() 按需装载`
     );
     process.exitCode = 1;
+    return false;
+  }
+  if (!assertLodashRootStubApplied() || !assertFirefoxLivePruned()) {
     return false;
   }
   return (
@@ -399,6 +461,83 @@ function assertMermaidStubsApplied() {
       console.error(
         `Self-check failed: mermaid 闭包 sourcemap 含 umbrella 依赖 ${source}——` +
           "marked/d3 体积替身被绕过"
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+  return true;
+}
+
+function assertLodashRootStubApplied() {
+  const chunkMaps = fs.existsSync(chunksDir)
+    ? fs.readdirSync(chunksDir).filter((file) => file.endsWith(".mjs.map")).sort()
+    : [];
+  const basename = (source) => source.split(/[\\/]/).pop() ?? source;
+  let foundStub = false;
+  for (const mapFile of chunkMaps) {
+    const mapJson = JSON.parse(fs.readFileSync(path.join(chunksDir, mapFile), "utf8"));
+    for (const source of mapJson.sources ?? []) {
+      if (basename(source) === "vendor-lodash-root-stub.mjs") {
+        foundStub = true;
+      }
+      if (/[\\/]lodash-es[\\/]_root\.js$/.test(source)) {
+        console.error(
+          `Self-check failed: ${mapFile} sourcemap 含 ${source}——lodash-es _root.js alias 失效`
+        );
+        process.exitCode = 1;
+        return false;
+      }
+    }
+  }
+  if (!foundStub) {
+    console.error(
+      "Self-check failed: chunks/ sourcemap 未包含 vendor-lodash-root-stub.mjs——lodash-es _root.js alias 未生效"
+    );
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
+
+const FIREFOX_FORBIDDEN_LIVE_SOURCES = new Set([
+  "live/live-room-entry.ts",
+  "live/live-room-settings.ts",
+  "live/fullscreen-live-overlay.ts",
+  "live/liquid-glass-lens.ts",
+  "live/live-companion-session.ts",
+]);
+
+function assertFirefoxLivePruned() {
+  if (targetPlatform !== "firefox") {
+    return true;
+  }
+  for (const excludedFile of ["live-room.mjs", "pcm-capture-worklet.mjs"]) {
+    if (fs.existsSync(path.join(chunksDir, excludedFile))) {
+      console.error(
+        `Self-check failed: Firefox 构建产物不应包含 ${excludedFile}`
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+  const mainText = fs.readFileSync(mainOutfile, "utf8");
+  if (mainText.includes("live-room.mjs")) {
+    console.error(
+      `Self-check failed: ${MAIN_MODULE_BASENAME} 仍引用 live-room.mjs`
+    );
+    process.exitCode = 1;
+    return false;
+  }
+  const chunkMaps = fs.existsSync(chunksDir)
+    ? fs.readdirSync(chunksDir).filter((file) => file.endsWith(".mjs.map")).sort()
+    : [];
+  for (const mapFile of chunkMaps) {
+    const sources = readMapExtensionSources(path.join(chunksDir, mapFile));
+    const leaked = sources.filter((source) => FIREFOX_FORBIDDEN_LIVE_SOURCES.has(source));
+    if (leaked.length > 0) {
+      console.error(
+        `Self-check failed: Firefox chunk ${mapFile} 仍包含已门控的 live 模块：${leaked.join(", ")}`
       );
       process.exitCode = 1;
       return false;
@@ -629,7 +768,7 @@ function report(lazyMeta) {
   const chunkFiles = fs.existsSync(chunksDir)
     ? fs.readdirSync(chunksDir).filter((f) => f.endsWith(".mjs")).sort()
     : [];
-  const lazyNames = new Set(lazyTargets.map(({ name }) => name));
+  const lazyNames = new Set(activeLazyTargets.map(({ name }) => name));
   const lazyChunkFiles = chunkFiles.filter((f) =>
     lazyNames.has(f.replace(/\.mjs$/, ""))
   );

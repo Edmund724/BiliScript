@@ -22,6 +22,13 @@ function getEsbuildTarget(platform = "chromium") {
   return target;
 }
 
+function getTargetDefine(platform = "chromium") {
+  getEsbuildTarget(platform);
+  return {
+    __BILISCRIPT_TARGET__: JSON.stringify(platform),
+  };
+}
+
 function createLocalImportGuard(extensionRoot) {
   const extensionRootAbs = path.resolve(extensionRoot) + path.sep;
   return {
@@ -115,4 +122,5 @@ module.exports = {
   BUILD_TARGETS,
   resolveTargetPlatform,
   getEsbuildTarget,
+  getTargetDefine,
 };

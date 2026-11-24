@@ -38,109 +38,130 @@ export interface ChatLiveBridge {
 }
 
 export function createChatLiveBridge(deps: CreateChatLiveBridgeDeps): ChatLiveBridge {
-  const liveStatus = createChatLiveStatus({
-    root: deps.liveStatusRoot,
-    getState: () => getLiveController()?.getState() ?? "idle",
-    isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
-    getLastError: () => getLiveController()?.getLastError(),
-    getLastFailureKind: () => getLiveController()?.getLastFailureKind(),
-    getTimestampNavDeps: deps.getTimestampNavDeps,
-    getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
-    subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
-    onRetryTextToolRecord: (callId) => {
-      getLiveController()?.retryTextToolRecord?.(callId);
-    },
-    onContinueTextToolRecord: (callId) => {
-      getLiveController()?.dismissTextToolRecord?.(callId);
-    },
-    onRetry: () => {
-      void retryLiveCompanion();
-    },
-    onStop: stopLiveCompanion,
-    onRestore: restoreLiveCompanionOverlay,
-    onOpenSettings: (target) => {
-      deps.hideHistoryPopover();
-      void openLiveCompanionSettings(target);
-    }
-  });
-
-  function openChatSettings(target?: "asr" | "appearance"): void {
-    deps.stopSpeech();
-    deps.hideHistoryPopover();
-    deps.hideMoreMenu();
-    requestUiCommand("open-settings", target ? { target } : undefined);
-  }
-
-  function bindLiveConsumerHooks(): void {
-    setLiveSessionHooks({
-      showNotice: (message, autoHideMs) => deps.showNotice(message, autoHideMs || 4000),
-      onBeforeStart: () => {
-        deps.stopSpeech();
-        if (deps.isTurnActive()) {
-          deps.stopActiveStream();
-        }
-      },
-      onStateChange: (liveState, error, failureKind) => {
-        liveStatus.sync(liveState, error, failureKind);
-        deps.updateSendBtnState();
-      },
-      onReconnecting: () => {
-        liveStatus.sync();
-        deps.updateSendBtnState();
-      }
-    });
-    liveStatus.setOpen(true);
-    deps.updateSendBtnState();
-  }
-
-  function getComposerLiveProps(): Pick<ReaderChatComposerDeps, "getLiveState" | "onStartLive"> {
-    if (!supportsLiveCompanion()) {
-      return {};
-    }
+  if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
     return {
-      getLiveState: () => getLiveController()?.getState() ?? "idle",
-      onStartLive: () => {
-        void startLiveCompanion();
+      openChatSettings: (target?: "asr" | "appearance") => {
+        deps.stopSpeech();
+        deps.hideHistoryPopover();
+        deps.hideMoreMenu();
+        requestUiCommand("open-settings", target ? { target } : undefined);
+      },
+      getComposerLiveProps: () => ({}),
+      isActive: () => false,
+      refreshTarget: () => Promise.resolve(),
+      bindHooksIfSupported: () => {},
+      initEvents: () => {},
+      closeSession: () => {
+        if (deps.liveStatusRoot) {
+          deps.liveStatusRoot.hidden = true;
+        }
       }
     };
-  }
+  } else {
+    const liveStatus = createChatLiveStatus({
+      root: deps.liveStatusRoot,
+      getState: () => getLiveController()?.getState() ?? "idle",
+      isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
+      getLastError: () => getLiveController()?.getLastError(),
+      getLastFailureKind: () => getLiveController()?.getLastFailureKind(),
+      getTimestampNavDeps: deps.getTimestampNavDeps,
+      getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
+      subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
+      onRetryTextToolRecord: (callId) => {
+        getLiveController()?.retryTextToolRecord?.(callId);
+      },
+      onContinueTextToolRecord: (callId) => {
+        getLiveController()?.dismissTextToolRecord?.(callId);
+      },
+      onRetry: () => {
+        void retryLiveCompanion();
+      },
+      onStop: stopLiveCompanion,
+      onRestore: restoreLiveCompanionOverlay,
+      onOpenSettings: (target) => {
+        deps.hideHistoryPopover();
+        void openLiveCompanionSettings(target);
+      }
+    });
 
-  function isActive(): boolean {
-    return supportsLiveCompanion() && isLiveCompanionActive();
-  }
-
-  function refreshTarget(): Promise<void> {
-    if (!supportsLiveCompanion()) {
-      return Promise.resolve();
+    function openChatSettings(target?: "asr" | "appearance"): void {
+      deps.stopSpeech();
+      deps.hideHistoryPopover();
+      deps.hideMoreMenu();
+      requestUiCommand("open-settings", target ? { target } : undefined);
     }
-    return getLiveController()?.refreshTarget() ?? Promise.resolve();
-  }
 
-  function bindHooksIfSupported(): void {
-    if (supportsLiveCompanion()) {
-      bindLiveConsumerHooks();
+    function bindLiveConsumerHooks(): void {
+      setLiveSessionHooks({
+        showNotice: (message, autoHideMs) => deps.showNotice(message, autoHideMs || 4000),
+        onBeforeStart: () => {
+          deps.stopSpeech();
+          if (deps.isTurnActive()) {
+            deps.stopActiveStream();
+          }
+        },
+        onStateChange: (liveState, error, failureKind) => {
+          liveStatus.sync(liveState, error, failureKind);
+          deps.updateSendBtnState();
+        },
+        onReconnecting: () => {
+          liveStatus.sync();
+          deps.updateSendBtnState();
+        }
+      });
+      liveStatus.setOpen(true);
+      deps.updateSendBtnState();
     }
-  }
 
-  function initEvents(): void {
-    if (supportsLiveCompanion()) {
-      ensureLiveController();
-      bindLiveConsumerHooks();
+    function getComposerLiveProps(): Pick<ReaderChatComposerDeps, "getLiveState" | "onStartLive"> {
+      if (!supportsLiveCompanion()) {
+        return {};
+      }
+      return {
+        getLiveState: () => getLiveController()?.getState() ?? "idle",
+        onStartLive: () => {
+          void startLiveCompanion();
+        }
+      };
     }
-  }
 
-  function closeSession(): void {
-    liveStatus.setOpen(false);
-    setLiveSessionHooks(null);
-  }
+    function isActive(): boolean {
+      return supportsLiveCompanion() && isLiveCompanionActive();
+    }
 
-  return {
-    openChatSettings,
-    getComposerLiveProps,
-    isActive,
-    refreshTarget,
-    bindHooksIfSupported,
-    initEvents,
-    closeSession
-  };
+    function refreshTarget(): Promise<void> {
+      if (!supportsLiveCompanion()) {
+        return Promise.resolve();
+      }
+      return getLiveController()?.refreshTarget() ?? Promise.resolve();
+    }
+
+    function bindHooksIfSupported(): void {
+      if (supportsLiveCompanion()) {
+        bindLiveConsumerHooks();
+      }
+    }
+
+    function initEvents(): void {
+      if (supportsLiveCompanion()) {
+        ensureLiveController();
+        bindLiveConsumerHooks();
+      }
+    }
+
+    function closeSession(): void {
+      liveStatus.setOpen(false);
+      setLiveSessionHooks(null);
+    }
+
+    return {
+      openChatSettings,
+      getComposerLiveProps,
+      isActive,
+      refreshTarget,
+      bindHooksIfSupported,
+      initEvents,
+      closeSession
+    };
+  }
 }

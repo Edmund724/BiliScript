@@ -58,15 +58,19 @@ function init(): void {
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
   if (isLiveRoomPage()) {
-    if (isFirefoxExtensionRuntime()) {
+    if (typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") {
+      return;
+    } else {
+      if (isFirefoxExtensionRuntime()) {
+        return;
+      }
+      loadLiveRoom()
+        .then((domain) => domain.startLiveRoomCompanion())
+        .catch((error) => {
+          logWarn("[BILISCRIPT] live room companion load failed", error);
+        });
       return;
     }
-    loadLiveRoom()
-      .then((domain) => domain.startLiveRoomCompanion())
-      .catch((error) => {
-        logWarn("[BILISCRIPT] live room companion load failed", error);
-      });
-    return;
   }
   if (!isSupportedUrl() && !isFestivalPage()) {
     return;
