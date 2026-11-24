@@ -118,7 +118,7 @@ async function waitFor(predicate: () => boolean, { timeoutMs = 1000 } = {}): Pro
     if (Date.now() - start > timeoutMs) {
       throw new Error("waitFor: condition not met within timeout");
     }
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -594,18 +594,25 @@ describe("subtitle-wait kick 总线接线", () => {
     explainIntent.setPendingExplainIntent({ from: 20, content: "抓取中句", createdAt: Date.now() });
 
     const chat = await lazyChat.ensureReaderChatTab();
-    const activation = chat.ensureChatTabActivated();
+    vi.useFakeTimers();
+    try {
+      const activation = chat.ensureChatTabActivated();
 
-    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
-    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
-    expect((document.getElementById(ids.readingChatAsrNotice) as HTMLElement).hidden).toBe(true);
+      const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+      await vi.advanceTimersByTimeAsync(50);
+      expect(document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden).toBe(false);
+      expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
+      expect((document.getElementById(ids.readingChatAsrNotice) as HTMLElement).hidden).toBe(true);
 
-    state.clip.subtitleFetchState = "ready";
-    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
-    await waitFor(() => ports.length === 1, { timeoutMs: 6000 });
-    expect(messages.querySelector(".chat-context-notice")).toBeNull();
-    await activation;
+      state.clip.subtitleFetchState = "ready";
+      state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(ports).toHaveLength(1);
+      expect(messages.querySelector(".chat-context-notice")).toBeNull();
+      await activation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

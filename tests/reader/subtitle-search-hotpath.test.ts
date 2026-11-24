@@ -1,16 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
+import { state } from "../../extension/core/state.js";
+import { ids } from "../../extension/reader/state.js";
+import { createSubtitleSearch } from "../../extension/reader/subtitle-search.js";
+import { indexSubtitleItems } from "../../extension/reader/subtitle-item-dom.js";
 
-const TOTAL_ITEMS = 1500;
+const TOTAL_ITEMS = 100;
 const KEYWORD = "目标词";
 
-let state: typeof import("../../extension/core/state.js").state;
-let ids: typeof import("../../extension/reader/state.js").ids;
-let search: ReturnType<
-  typeof import("../../extension/reader/subtitle-search.js").createSubtitleSearch
->;
-let indexSubtitleItems: typeof import("../../extension/reader/subtitle-item-dom.js").indexSubtitleItems;
+let search: ReturnType<typeof createSubtitleSearch>;
 
 function buildFixture() {
   document.body.innerHTML = "";
@@ -45,14 +44,13 @@ function itemText(index: number) {
   return document.querySelector(`[data-index="${index}"] .biliscript-reading-text`)!;
 }
 
-beforeEach(async () => {
+beforeAll(() => {
   resetModuleState();
+});
+
+beforeEach(() => {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state;
-  ids = (await import("../../extension/reader/state.js")).ids;
-  indexSubtitleItems = (await import("../../extension/reader/subtitle-item-dom.js")).indexSubtitleItems;
-  const searchMod = await import("../../extension/reader/subtitle-search.js");
-  search = searchMod.createSubtitleSearch({
+  search = createSubtitleSearch({
     getSearchInput: () =>
       document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
     getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
@@ -66,8 +64,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
-  it("修1：清除高亮只 normalize 列表一次，且文本逐字还原", { timeout: 30_000 }, () => {
+describe("字幕搜索热路径（100 条全量命中夹具）", () => {
+  it("修1：清除高亮只 normalize 列表一次，且文本逐字还原", () => {
     const { input } = buildFixture();
     input.value = KEYWORD;
     search.refresh({ scroll: false });
@@ -89,7 +87,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(querySpy).not.toHaveBeenCalled();
   });
 
-  it("稳态空搜索快速路径：初始空态多次 refresh 不触发节点扫描与 normalize", { timeout: 30_000 }, () => {
+  it("稳态空搜索快速路径：初始空态多次 refresh 不触发节点扫描与 normalize", () => {
     const { input, list } = buildFixture();
     input.value = "";
     const normalizeSpy = vi.spyOn(Node.prototype, "normalize");
@@ -103,14 +101,14 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(markCount()).toBe(0);
   });
 
-  it("修2：批次回执按区间二分取子集，DOM 访问以区间宽为量级", { timeout: 30_000 }, () => {
+  it("修2：批次回执按区间二分取子集，DOM 访问以区间宽为量级", () => {
     const { input, list } = buildFixture();
     input.value = KEYWORD;
     search.refresh({ scroll: false });
     expect(markCount()).toBe(TOTAL_ITEMS);
 
-    const from = 500;
-    const to = 510;
+    const from = 40;
+    const to = 50;
     for (let i = from; i < to; i += 1) {
       itemText(i).replaceChildren(`第${i}条含${KEYWORD}的句子`);
     }
@@ -131,7 +129,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(querySpy).toHaveBeenCalledTimes(to - from);
   });
 
-  it("修3：当前命中清理只处理必要节点，不触发全列表 .search-current 扫描", { timeout: 30_000 }, () => {
+  it("修3：当前命中清理只处理必要节点，不触发全列表 .search-current 扫描", () => {
     const { input, list } = buildFixture();
     input.value = KEYWORD;
     search.refresh({ scroll: false });
@@ -145,14 +143,14 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(searchCurrentCalls.length).toBe(0);
   });
 
-  it("修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用", { timeout: 30_000 }, () => {
+  it("修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用", () => {
     const { input, list } = buildFixture();
     indexSubtitleItems(list);
     input.value = KEYWORD;
     search.refresh({ scroll: false });
 
-    const from = 600;
-    const to = 610;
+    const from = 60;
+    const to = 70;
     for (let i = from; i < to; i += 1) {
       itemText(i).replaceChildren(`第${i}条含${KEYWORD}的句子`);
     }

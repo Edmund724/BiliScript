@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   SUBTITLE_INLINE_MAX_BYTES,
   applySubtitleSpillover,
@@ -20,7 +20,7 @@ const env = {
   ...process.env,
   BILISCRIPT_BRIDGE_PORT: String(port),
   BILISCRIPT_BRIDGE_TOKEN_PATH: join(scratch, "token"),
-  BILISCRIPT_BRIDGE_IDLE_MS: "2500"
+  BILISCRIPT_BRIDGE_IDLE_MS: "10000"
 };
 let daemonPid = 0;
 let extension: Awaited<ReturnType<typeof connectWebSocket>> | null = null;
@@ -28,10 +28,11 @@ const extensionRequests: Array<{ command?: string; options?: unknown }> = [];
 
 function runCli(
   command: "status" | "tabs" | "fetch" | "subtitles" | "comments" | "frame",
-  args: string[] = []
+  args: string[] = [],
+  customEnv = env
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [script, command, ...args], { env }, (error, stdout, stderr) => {
+    execFile(process.execPath, [script, command, ...args], { env: customEnv }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`${error.message}\n${stdout}\n${stderr}`));
         return;
@@ -470,8 +471,27 @@ describe("桌面 Agent CLI 端到端", () => {
   it("空闲超时后自动退出", async () => {
     extension?.close();
     extension = null;
-    await new Promise((resolve) => setTimeout(resolve, 4200));
-    expect(() => process.kill(daemonPid, 0)).toThrow();
-    daemonPid = 0;
+    const idlePort = 28000 + Math.floor(Math.random() * 1000);
+    const idleEnv = {
+      ...process.env,
+      BILISCRIPT_BRIDGE_PORT: String(idlePort),
+      BILISCRIPT_BRIDGE_TOKEN_PATH: join(scratch, "idle-token"),
+      BILISCRIPT_BRIDGE_IDLE_MS: "200"
+    };
+    const status = await runCli("status", [], idleEnv);
+    const idleDaemonPid = Number(status.daemonPid);
+    expect(idleDaemonPid).toBeGreaterThan(0);
+    try {
+      await vi.waitFor(
+        () => {
+          expect(() => process.kill(idleDaemonPid, 0)).toThrow();
+        },
+        { timeout: 3000, interval: 25 }
+      );
+    } finally {
+      try {
+        process.kill(idleDaemonPid);
+      } catch {}
+    }
   });
 });

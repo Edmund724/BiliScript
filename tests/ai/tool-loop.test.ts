@@ -112,6 +112,7 @@ function makeInput(overrides: MakeInputOptions = {}): RunToolLoopInput {
     ...overrides,
     requestProfile: {
       provider: PROVIDER,
+      retryDelayMs: 0,
       ...overrides.requestProfile
     }
   };

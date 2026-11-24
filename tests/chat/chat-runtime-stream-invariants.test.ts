@@ -1,11 +1,23 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { ChatPort, ChatPortMessage } from "../../extension/chat/chat-runtime.js";
 
-let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
-let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
-let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
+vi.mock("../../extension/ui/lazy-mermaid.js", () => ({
+  hydrateMermaid: vi.fn()
+}));
+
+import { createChatRuntime as rawCreateChatRuntime } from "../../extension/chat/chat-runtime.js";
+import { chatSessionState, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
+import * as md from "../../extension/ui/markdown.js";
+
+const createChatRuntime: typeof rawCreateChatRuntime = ((deps) => {
+  const runtime = rawCreateChatRuntime(deps);
+  if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
+    runtimePorts.set(runtime, (deps as unknown as { ports: PortSession[] }).ports);
+  }
+  return runtime;
+}) as typeof rawCreateChatRuntime;
 
 interface FakePort {
   name: string;
@@ -143,18 +155,8 @@ function frameSnapshot(node: Element) {
   };
 }
 
-beforeEach(async () => {
-  resetModuleState();
+beforeEach(() => {
   document.body.innerHTML = "";
-  const rawCreateChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
-  createChatRuntime = ((deps) => {
-    const runtime = rawCreateChatRuntime(deps);
-    if ("ports" in deps && Array.isArray((deps as { ports?: unknown }).ports)) {
-      runtimePorts.set(runtime, (deps as unknown as { ports: PortSession[] }).ports);
-    }
-    return runtime;
-  }) as typeof rawCreateChatRuntime;
-  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   resetChatSessionStateForTests();
 });
 
@@ -227,7 +229,6 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
 
   for (const [name, tokens] of Object.entries(CORPORA)) {
     it(`逐帧等价：${name}`, async () => {
-      const md = await import("../../extension/ui/markdown.js");
       const { deps, runtime } = await makeRuntime();
       const { frames, node } = runStream(runtime, deps, tokens);
 
@@ -267,7 +268,6 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
   });
 
   it("旧帧挂起在让出点期间新 token 到达：放行后逐帧等价、内容不重复", async () => {
-    const md = await import("../../extension/ui/markdown.js");
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -313,7 +313,6 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
 
 describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 调用计数）", () => {
   it("stable 未增长帧恰好 1 次（tail），stable 增长帧 2 次（stable + tail）", async () => {
-    const md = await import("../../extension/ui/markdown.js");
     const renderSpy = vi.spyOn(md, "renderMarkdownStripped");
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
@@ -479,7 +478,6 @@ describe("工单 07：稳定提交游标增量维护，已提交节点保持身�
   });
 
   it("性能证据：稳定区解析量随新增内容增长，不随每次提交时的完整前缀重复增长", async () => {
-    const md = await import("../../extension/ui/markdown.js");
     const renderSpy = vi.spyOn(md, "renderMarkdownStripped");
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();

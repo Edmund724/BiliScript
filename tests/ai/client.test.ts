@@ -1,15 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { streamChat, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
+import { resetLearnedBudgetsForTests } from "../../extension/ai/learned-budget.js";
 
 beforeEach(() => {
   resetModuleState();
+  resetLearnedBudgetsForTests();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+async function runStreamChatWithFakeTimers(input: Parameters<typeof streamChat>[0]) {
+  vi.useFakeTimers();
+  try {
+    const pending = streamChat(input);
+    await vi.runAllTimersAsync();
+    return await pending;
+  } finally {
+    vi.useRealTimers();
+  }
+}
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
@@ -113,7 +127,7 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("Unauthorized", false, 401)));
     const port = makePort();
 
-    const result = await streamChat({
+    const result = await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [] },
       userPrompt: "总结",
@@ -137,7 +151,7 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
     }));
     const port = makePort();
 
-    await streamChat({
+    await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [] },
       userPrompt: "总结",
@@ -274,7 +288,7 @@ describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐�
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
 
-    const result = await streamChat({
+    const result = await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [] },
       userPrompt: "总结",
@@ -315,7 +329,7 @@ describe("streamChat 溢出语义（catch 查标记）", () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("Unauthorized", false, 401)));
     const port = makePort();
 
-    const result = await streamChat({
+    const result = await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [] },
       userPrompt: "总结",
@@ -349,7 +363,7 @@ describe("streamChat 读流中断重试：stream-reset 代际重置信号", () =
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
 
-    const result = await streamChat({
+    const result = await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
       userPrompt: "总结",
@@ -374,7 +388,7 @@ describe("streamChat 读流中断重试：stream-reset 代际重置信号", () =
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
 
-    await streamChat({
+    await runStreamChatWithFakeTimers({
       provider: PROVIDER,
       context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
       userPrompt: "总结",

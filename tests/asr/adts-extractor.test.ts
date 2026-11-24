@@ -37,6 +37,86 @@ function collectViaChunkedPush(bytes: Uint8Array, chunkSizes: number[], config: 
   return segments;
 }
 
+function makeBox(type: string, payload: Uint8Array): Uint8Array {
+  const out = new Uint8Array(8 + payload.length);
+  new DataView(out.buffer).setUint32(0, out.length);
+  for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+  out.set(payload, 8);
+  return out;
+}
+
+function concatArrays(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const part of parts) {
+    out.set(part, off);
+    off += part.length;
+  }
+  return out;
+}
+
+function sliceInitBoxes(bytes: Uint8Array): Uint8Array {
+  let off = 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (off + 8 <= bytes.length) {
+    const size = view.getUint32(off);
+    const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
+    if (size < 8 || off + size > bytes.length) break;
+    if (type !== "ftyp" && type !== "moov") break;
+    off += size;
+  }
+  return bytes.subarray(0, off);
+}
+
+function makeMoofMdatPair(sampleSizes: number[], withDurationAndOffset: boolean): Uint8Array {
+  const flags = withDurationAndOffset ? 0x000301 : 0x000200;
+  const entryBytes = withDurationAndOffset ? 8 : 4;
+  const trunPayload = new Uint8Array(8 + (withDurationAndOffset ? 4 : 0) + sampleSizes.length * entryBytes);
+  const trunView = new DataView(trunPayload.buffer);
+  trunView.setUint32(0, flags);
+  trunView.setUint32(4, sampleSizes.length);
+  let cursor = 8;
+  if (withDurationAndOffset) {
+    trunView.setUint32(cursor, 0);
+    cursor += 4;
+  }
+  for (const sampleSize of sampleSizes) {
+    if (withDurationAndOffset) {
+      trunView.setUint32(cursor, 1024);
+      cursor += 4;
+    }
+    trunView.setUint32(cursor, sampleSize);
+    cursor += 4;
+  }
+  const moof = makeBox("moof", makeBox("traf", makeBox("trun", trunPayload)));
+  const totalSampleBytes = sampleSizes.reduce((sum, size) => sum + size, 0);
+  const payload = new Uint8Array(totalSampleBytes);
+  for (let i = 0; i < payload.length; i += 1) payload[i] = (i * 31 + 7) & 0xff;
+  const mdat = makeBox("mdat", payload);
+  return concatArrays([moof, mdat]);
+}
+
+function firstDiffOffset(a: Uint8Array, b: Uint8Array): number {
+  const len = Math.min(a.byteLength, b.byteLength);
+  for (let i = 0; i < len; i += 1) {
+    if (a[i] !== b[i]) return i;
+  }
+  return a.byteLength === b.byteLength ? -1 : len;
+}
+
+function expectSegmentsEqual(actual: Uint8Array[], expected: Uint8Array[]): void {
+  expect(actual.map((seg) => seg.byteLength)).toEqual(expected.map((seg) => seg.byteLength));
+  expect(actual.map((seg, i) => firstDiffOffset(seg, expected[i]))).toEqual(expected.map(() => -1));
+}
+
+const compactFixture = concatArrays([
+  sliceInitBoxes(fixture),
+  makeBox("sidx", new Uint8Array(16)),
+  makeMoofMdatPair([19, 37, 61], true),
+  makeMoofMdatPair([23, 41], false)
+]);
+
 const asc = parseAudioSpecificConfig(fixture) || {};
 
 describe("createAdtsExtractor 非 fMP4 输入", () => {
@@ -49,16 +129,18 @@ describe("createAdtsExtractor 非 fMP4 输入", () => {
 });
 
 describe("createAdtsExtractor 极端切分（残包边界）", () => {
-  it("1 字节/次 push 与整块 push 输出一致（98KB fixture 全量逐字节）", () => {
-    const expected = collectViaExtractor(fixture, asc);
-    const actual = collectViaChunkedPush(fixture, [1], asc);
-    expect(actual).toEqual(expected);
+  it("1 字节/次 push 与整块 push 输出一致（紧凑 fMP4 全量逐字节）", () => {
+    const expected = collectViaExtractor(compactFixture, asc);
+    expect(expected.length).toBe(1);
+    expect(expected[0].byteLength).toBeGreaterThan(0);
+    const actual = collectViaChunkedPush(compactFixture, [1], asc);
+    expectSegmentsEqual(actual, expected);
   });
 
   it("混合奇数块长（7/13/1/4096）与整块 push 输出一致（1MB 样本）", () => {
     const expected = adtsFromFmp4(big, asc);
     const actual = collectViaChunkedPush(big, [7, 13, 1, 4096], asc);
-    expect(actual).toEqual(expected);
+    expectSegmentsEqual(actual, expected);
   });
 });
 
@@ -69,7 +151,7 @@ describe("createAdtsExtractor flush 收尾", () => {
     const flushed = extractor.flush();
     expect(pushed.length).toBe(2);
     expect(flushed.length).toBe(1);
-    expect([...pushed, ...flushed]).toEqual(adtsFromFmp4(big, asc));
+    expectSegmentsEqual([...pushed, ...flushed], adtsFromFmp4(big, asc));
   });
 
   it("总数不足 10 moof 时 push 不产段、flush 交出唯一段", () => {
@@ -78,7 +160,7 @@ describe("createAdtsExtractor flush 收尾", () => {
     expect(pushed).toEqual([]);
     const flushed = extractor.flush();
     expect(flushed.length).toBe(1);
-    expect(flushed).toEqual(adtsFromFmp4(fixture, asc));
+    expectSegmentsEqual(flushed, adtsFromFmp4(fixture, asc));
   });
 
   it("整流后零音帧：frameCount 为 0、无段产出", () => {

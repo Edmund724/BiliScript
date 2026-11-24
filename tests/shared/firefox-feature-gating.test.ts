@@ -1,6 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
-import { resetModuleState } from "../setup.js";
+import { resetModuleState, setupEnvironment } from "../setup.js";
+
+beforeAll(() => {
+  resetModuleState();
+});
 
 function stubRuntimeScheme(scheme: "moz-extension" | "chrome-extension"): void {
   const currentChrome = globalThis.chrome as unknown as Record<string, unknown>;
@@ -37,20 +42,19 @@ async function mountSettingsPanelInScheme(
   const panel = await import("../../extension/ui/settings-panel.js");
   await panel.renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
-  await vi.waitFor(() => {
-    expect(host.dataset.biliscriptSettingsRendered).toBe("1");
-  });
+  expect(host.dataset.biliscriptSettingsRendered).toBe("1");
   return host;
 }
 
 describe("平台能力判据纯函数（shared/runtime-capabilities）", () => {
   beforeEach(() => {
-    resetModuleState();
+    setupEnvironment();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    setupEnvironment();
   });
 
   it("moz-extension:// 判定为 Firefox 且按 speechSynthesis 决定 TTS 可用性、Live 禁用；chrome-extension:// 保持全量可用", async () => {
@@ -104,13 +108,14 @@ describe("平台能力判据纯函数（shared/runtime-capabilities）", () => {
 
 describe("TTS 后台防御判空与界面门控", () => {
   beforeEach(() => {
-    resetModuleState();
+    setupEnvironment();
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    setupEnvironment();
   });
 
   it("chat-speech-bg 在 chrome.tts 缺失时返回 TTS_UNSUPPORTED 且 stop 不抛错", async () => {
@@ -146,15 +151,16 @@ describe("TTS 后台防御判空与界面门控", () => {
   });
 
   it("Firefox 缺少 speechSynthesis 时不挂载朗读按钮，具备 speechSynthesis 时与 Chromium 一样正常挂载", async () => {
-    const createRenderer = async (scheme: "moz-extension" | "chrome-extension", withWebSpeech = false) => {
-      resetModuleState();
+    const { createChatStreamRenderer } = await import("../../extension/chat/chat-stream-render.js");
+    const createRenderer = (scheme: "moz-extension" | "chrome-extension", withWebSpeech = false) => {
+      vi.unstubAllGlobals();
+      setupEnvironment();
       stubRuntimeScheme(scheme);
       if (withWebSpeech) {
         vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });
       }
       const messages = document.createElement("div");
       document.body.replaceChildren(messages);
-      const { createChatStreamRenderer } = await import("../../extension/chat/chat-stream-render.js");
       const renderer = createChatStreamRenderer({
         messages,
         getTimestampNavDeps: () => ({}),
@@ -168,20 +174,20 @@ describe("TTS 后台防御判空与界面门控", () => {
       return messages;
     };
 
-    const firefoxMessages = await createRenderer("moz-extension", false);
+    const firefoxMessages = createRenderer("moz-extension", false);
     expect(firefoxMessages.querySelector(".chat-msg-speak-btn")).toBeNull();
     expect(firefoxMessages.querySelector(".chat-msg-regenerate-btn")).not.toBeNull();
 
-    const firefoxWebSpeechMessages = await createRenderer("moz-extension", true);
+    const firefoxWebSpeechMessages = createRenderer("moz-extension", true);
     expect(firefoxWebSpeechMessages.querySelector(".chat-msg-speak-btn")).not.toBeNull();
 
-    const chromeMessages = await createRenderer("chrome-extension", false);
+    const chromeMessages = createRenderer("chrome-extension", false);
     expect(chromeMessages.querySelector(".chat-msg-speak-btn")).not.toBeNull();
   });
 
   it("Firefox 缺少 speechSynthesis 时隐藏朗读音量控件，具备 speechSynthesis 时与 Chromium 一样展示", async () => {
-    stubRuntimeScheme("moz-extension");
     const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    stubRuntimeScheme("moz-extension");
     document.body.innerHTML = uiRenderer.buildUiHtml();
     expect(document.getElementById("biliscript-reading-chat-speech-volume")?.hidden).toBe(true);
 
@@ -190,18 +196,23 @@ describe("TTS 后台防御判空与界面门控", () => {
     expect(ffSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("对话阅读");
     expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).not.toContain("朗读");
 
-    resetModuleState();
-    const ffMinimalHost = await mountSettingsPanelInScheme("moz-extension", [], {
-      enablePlayerAiQuickAction: false,
-      aiInitialQuickPrompts: []
+    installSettingsPanelBus({
+      "get-settings": () => ({
+        ok: true,
+        settings: {
+          enablePlayerAiQuickAction: false,
+          aiInitialQuickPrompts: []
+        }
+      }),
+      "live-providers-list": () => ({ ok: true, providers: [] })
     });
-    expect(ffMinimalHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
+    const panel = await import("../../extension/ui/settings-panel.js");
+    await panel.renderReaderSettingsPanel();
+    expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
 
-    resetModuleState();
     vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });
     stubRuntimeScheme("moz-extension");
-    const uiRendererFfSpeech = await import("../../extension/ui/ui-renderer.js");
-    document.body.innerHTML = uiRendererFfSpeech.buildUiHtml();
+    document.body.innerHTML = uiRenderer.buildUiHtml();
     expect(document.getElementById("biliscript-reading-chat-speech-volume")?.hidden).toBe(false);
 
     const ffSpeechSettingsHost = await mountSettingsPanelInScheme("moz-extension");
@@ -209,11 +220,9 @@ describe("TTS 后台防御判空与界面门控", () => {
     expect(ffSpeechSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("阅读与朗读");
     expect(ffSpeechSettingsHost.querySelector("#aiPromptSummary")?.textContent).toContain("朗读 100%");
 
-    resetModuleState();
     vi.stubGlobal("speechSynthesis", undefined);
     stubRuntimeScheme("chrome-extension");
-    const uiRendererChrome = await import("../../extension/ui/ui-renderer.js");
-    document.body.innerHTML = uiRendererChrome.buildUiHtml();
+    document.body.innerHTML = uiRenderer.buildUiHtml();
     expect(document.getElementById("biliscript-reading-chat-speech-volume")?.hidden).toBe(false);
 
     const chromeSettingsHost = await mountSettingsPanelInScheme("chrome-extension");
@@ -225,7 +234,7 @@ describe("TTS 后台防御判空与界面门控", () => {
 
 describe("Live 实时伴看门控隐藏与直播间短路", () => {
   beforeEach(() => {
-    resetModuleState();
+    setupEnvironment();
   });
 
   afterEach(() => {
@@ -234,13 +243,22 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
     vi.doUnmock("../../extension/live/lazy-live-room.js");
     vi.doUnmock("../../extension/core/runtime.js");
     vi.doUnmock("../../extension/live/player-interpret.js");
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    setupEnvironment();
   });
 
   it("Firefox 下播放器挂载 AI 与字幕按钮但隐藏实时伴看触发按钮，Chromium 正常挂载", async () => {
+    vi.doMock("../../extension/live/player-interpret.js", () => ({
+      closePlayerInterpretMenu: vi.fn(),
+      syncPlayerInterpretQuickAction: vi.fn(),
+      togglePlayerInterpretMenu: vi.fn()
+    }));
+    const { state } = await import("../../extension/core/state.js");
+    const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
+
     const setupPlayer = async (scheme: "moz-extension" | "chrome-extension") => {
-      resetModuleState();
       vi.useFakeTimers();
       stubRuntimeScheme(scheme);
       document.body.innerHTML = `
@@ -253,14 +271,7 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
           </div>
         </div>
       `;
-      vi.doMock("../../extension/live/player-interpret.js", () => ({
-        closePlayerInterpretMenu: vi.fn(),
-        syncPlayerInterpretQuickAction: vi.fn(),
-        togglePlayerInterpretMenu: vi.fn()
-      }));
-      const { state } = await import("../../extension/core/state.js");
       state.setSettings({ enablePlayerAiQuickAction: true } as any);
-      const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
       schedulePlayerAiQuickActionSync(0);
       await vi.advanceTimersByTimeAsync(20);
       const snapshot = {
@@ -288,18 +299,16 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
   });
 
   it("Firefox 下对话模板与激活态不显示实时伴看按钮，Chromium 正常显示", async () => {
+    const template = await import("../../extension/reader/chat-template.js");
     stubRuntimeScheme("moz-extension");
-    const ffTemplate = await import("../../extension/reader/chat-template.js");
-    document.body.innerHTML = ffTemplate.buildChatTabBodyHtml();
+    document.body.innerHTML = template.buildChatTabBodyHtml();
     const ffBtn = document.getElementById("biliscript-reading-chat-send-btn") as HTMLButtonElement;
     expect(ffBtn.classList.contains("is-live")).toBe(false);
     expect(ffBtn.getAttribute("aria-label")).toBe("发送");
     expect(ffBtn.disabled).toBe(true);
 
-    resetModuleState();
     stubRuntimeScheme("chrome-extension");
-    const chTemplate = await import("../../extension/reader/chat-template.js");
-    document.body.innerHTML = chTemplate.buildChatTabBodyHtml();
+    document.body.innerHTML = template.buildChatTabBodyHtml();
     const chBtn = document.getElementById("biliscript-reading-chat-send-btn") as HTMLButtonElement;
     expect(chBtn.classList.contains("is-live")).toBe(true);
     expect(chBtn.getAttribute("aria-label")).toBe("开启实时伴看");
@@ -307,9 +316,9 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
   });
 
   it("Firefox 下设置面板隐藏实时伴看入口与子页、不拉取 MOSS-LIVE 平台，Chromium 正常可进", async () => {
+    const panel = await import("../../extension/ui/settings-panel.js");
     const ffSent: unknown[] = [];
     const ffHost = await mountSettingsPanelInScheme("moz-extension", ffSent);
-    const ffPanel = await import("../../extension/ui/settings-panel.js");
     const ffLiveEntry = ffHost.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!;
     const ffLivePage = ffHost.querySelector<HTMLElement>("#biliscriptSettingsSubpageLive")!;
 
@@ -318,20 +327,18 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
     expect(ffLivePage.hidden).toBe(true);
     expect(ffSent).toEqual([]);
 
-    await ffPanel.openLiveSettings("live");
+    await panel.openLiveSettings("live");
     expect(ffLivePage.hidden).toBe(true);
     expect(ffHost.querySelector<HTMLElement>("#biliscriptSettingsRootView")?.hidden).toBe(false);
 
-    resetModuleState();
     const chSent: unknown[] = [];
     const chHost = await mountSettingsPanelInScheme("chrome-extension", chSent);
-    const chPanel = await import("../../extension/ui/settings-panel.js");
     const chLiveEntry = chHost.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!;
     const chLivePage = chHost.querySelector<HTMLElement>("#biliscriptSettingsSubpageLive")!;
 
     expect(chLiveEntry.hidden).toBe(false);
     expect(chSent).toHaveLength(1);
-    await chPanel.openLiveSettings("live");
+    await panel.openLiveSettings("live");
     expect(chLivePage.hidden).toBe(false);
   });
 
@@ -358,24 +365,29 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
       return { loadLiveRoom, startLiveRoomCompanion };
     };
 
-    const ff = await runContentOnLiveRoom("moz-extension");
-    expect(ff.loadLiveRoom).not.toHaveBeenCalled();
-    expect(ff.startLiveRoomCompanion).not.toHaveBeenCalled();
+    try {
+      const ff = await runContentOnLiveRoom("moz-extension");
+      expect(ff.loadLiveRoom).not.toHaveBeenCalled();
+      expect(ff.startLiveRoomCompanion).not.toHaveBeenCalled();
 
-    const ch = await runContentOnLiveRoom("chrome-extension");
-    expect(ch.loadLiveRoom).toHaveBeenCalledTimes(1);
-    expect(ch.startLiveRoomCompanion).toHaveBeenCalledTimes(1);
+      const ch = await runContentOnLiveRoom("chrome-extension");
+      expect(ch.loadLiveRoom).toHaveBeenCalledTimes(1);
+      expect(ch.startLiveRoomCompanion).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock("../../extension/bilibili/video-id-shared.js");
+      vi.doUnmock("../../extension/live/lazy-live-room.js");
+      resetModuleState();
+    }
   });
 
   it("Firefox 下清空历史确认弹窗仅在存在伴看记录时提及伴看，Chromium 保持完整文案", async () => {
+    const { createConversationStore } = await import("../../extension/chat/conversation-store.js");
+    const { setSavedConversations } = await import("../../extension/chat/chat-state.js");
     const runClearAllPrompt = async (
       scheme: "moz-extension" | "chrome-extension",
       history: Array<Record<string, unknown>>
     ): Promise<string> => {
-      resetModuleState();
       stubRuntimeScheme(scheme);
-      const { createConversationStore } = await import("../../extension/chat/conversation-store.js");
-      const { setSavedConversations } = await import("../../extension/chat/chat-state.js");
       setSavedConversations(history as any);
       let seenMessage = "";
       const store = createConversationStore({

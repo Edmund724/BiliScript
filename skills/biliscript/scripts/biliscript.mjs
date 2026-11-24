@@ -795,6 +795,9 @@ export async function startDaemon({
   const heartbeat = setInterval(() => {
     for (const session of extensions) session.peer.ping();
   }, 20000);
+  const idleCheckMs = Number.isFinite(idleMs) && idleMs > 0
+    ? Math.max(50, Math.min(1000, Math.floor(idleMs / 2)))
+    : 1000;
   const idleTimer = setInterval(() => {
     if (activeRequests > 0 || waitingRequests.length > 0 || Date.now() - lastActivity < idleMs) return;
     clearInterval(heartbeat);
@@ -807,7 +810,7 @@ export async function startDaemon({
     for (const session of extensions) session.peer.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 500).unref();
-  }, 1000);
+  }, idleCheckMs);
   heartbeat.unref();
   idleTimer.unref();
 
