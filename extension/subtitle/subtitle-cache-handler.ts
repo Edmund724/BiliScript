@@ -191,6 +191,8 @@ export function createSubtitleCacheHandler(
           id: String(input.id || ""),
           conversationId: String(input.conversationId || ""),
           ...(input.bvid !== undefined ? { bvid: String(input.bvid) } : {}),
+          ...(input.cid !== undefined ? { cid: String(input.cid) } : {}),
+          ...(input.site !== undefined ? { site: input.site } : {}),
           mime: typeof input.mime === "string" ? input.mime : "",
           data: typeof input.data === "string" ? input.data : "",
           ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),

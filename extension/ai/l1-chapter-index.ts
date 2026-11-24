@@ -1,7 +1,13 @@
 import { type CacheSaveResult } from "../core/cache-lru.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import { logError } from "../shared/logging.js";
-import { createAiArtifactFamily, loadAiArtifactsBatch } from "../subtitle/ai-artifact-cache.js";
+import type { SiteId } from "../shared/site.js";
+import {
+  createAiArtifactFamily,
+  loadAiArtifactsBatch,
+  type AiArtifactTargetMeta
+} from "../subtitle/ai-artifact-cache.js";
+import { resolveVideoStorageIdentity } from "../subtitle/idb-store.js";
 import {
   registerSubtitleStoreResetHookForTests,
   registerVideoCacheClearHook
@@ -77,16 +83,23 @@ const l1IndexFamily = createAiArtifactFamily<L1VideoIndexCacheRecord>({
 });
 
 export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | undefined | null, signature: unknown): string {
-  return analysisFinalFamily.key(segmentCacheKeyStringFields(context), String(signature ?? ""));
+  return analysisFinalFamily.key(
+    { ...segmentCacheKeyStringFields(context), site: context?.site },
+    String(signature ?? "")
+  );
 }
 
 export const loadAnalysisFinal = (key: string): Promise<OverviewAnalysis | null> => analysisFinalFamily.load(key);
-export const saveAnalysisFinal = (key: string, analysis: OverviewAnalysis): Promise<CacheSaveResult> =>
-  analysisFinalFamily.save(key, analysis);
+export const saveAnalysisFinal = (
+  key: string,
+  analysis: OverviewAnalysis,
+  meta?: AiArtifactTargetMeta
+): Promise<CacheSaveResult> => analysisFinalFamily.save(key, analysis, meta);
 
 export interface L1IndexKeyInput {
   bvid: string;
   cid: string;
+  site?: SiteId | unknown;
   subtitleId?: unknown;
   subtitleUrl?: unknown;
   subtitleLang?: unknown;
@@ -94,10 +107,12 @@ export interface L1IndexKeyInput {
 }
 
 export function buildL1IndexCacheKey(input: L1IndexKeyInput): string {
+  const resolved = resolveVideoStorageIdentity(input.bvid, input.cid, input.site);
   return l1IndexFamily.key(
     {
-      bvid: String(input.bvid || "").trim(),
-      cid: String(input.cid || "").trim(),
+      bvid: resolved.bvid,
+      cid: resolved.cid,
+      site: resolved.site,
       subtitleId: input.subtitleId,
       subtitleUrl: input.subtitleUrl,
       lang: input.subtitleLang
@@ -109,6 +124,7 @@ export function buildL1IndexCacheKey(input: L1IndexKeyInput): string {
 export interface ClipOverviewIdentityInput {
   bvid?: unknown;
   cid?: unknown;
+  site?: SiteId | unknown;
   description?: unknown;
   videoDescription?: unknown;
   hotComments?: unknown;
@@ -121,6 +137,7 @@ export interface ClipOverviewIdentityInput {
 }
 
 export interface ClipOverviewIdentity {
+  site: SiteId;
   bvid: string;
   cid: string;
   subtitleId: unknown;
@@ -137,8 +154,10 @@ export interface ClipOverviewIdentity {
 export function buildClipOverviewIdentity(
   input: ClipOverviewIdentityInput | null | undefined
 ): ClipOverviewIdentity {
-  const bvid = String(input?.bvid ?? "").trim();
-  const cid = String(input?.cid ?? "").trim();
+  const resolved = resolveVideoStorageIdentity(input?.bvid, input?.cid, input?.site);
+  const bvid = resolved.bvid;
+  const cid = resolved.cid;
+  const site = resolved.site;
   const subtitleId = input?.selectedSubtitleId;
   const subtitleUrl = input?.selectedSubtitleUrl;
   const subtitleLang =
@@ -163,6 +182,7 @@ export function buildClipOverviewIdentity(
     {
       bvid,
       cid,
+      site,
       selectedSubtitleId: subtitleId,
       selectedSubtitleUrl: subtitleUrl,
       subtitleLang
@@ -172,6 +192,7 @@ export function buildClipOverviewIdentity(
   const l1Key = buildL1IndexCacheKey({
     bvid,
     cid,
+    site,
     subtitleId,
     subtitleUrl,
     subtitleLang,
@@ -179,6 +200,7 @@ export function buildClipOverviewIdentity(
   });
 
   return {
+    site,
     bvid,
     cid,
     subtitleId,
@@ -197,7 +219,7 @@ export interface L1IndexCacheStore {
   getMemory(key: string): L1VideoIndexCacheRecord | null;
   setMemory(key: string, record: L1VideoIndexCacheRecord): void;
   clearMemory(): void;
-  clearMemoryByVideo(bvid: string, cid?: string): void;
+  clearMemoryByVideo(bvid: string, cid?: string, site?: SiteId): void;
   load(key: string): Promise<L1VideoIndexCacheRecord | null>;
   save(key: string, record: L1VideoIndexCacheRecord): Promise<CacheSaveResult>;
   remove(key: string): Promise<void>;
@@ -216,7 +238,10 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
     Math.floor(Number(options.maxMemoryEntries ?? DEFAULT_L1_MEMORY_MAX_ENTRIES) || DEFAULT_L1_MEMORY_MAX_ENTRIES)
   );
   const persistLoad = options.persistLoad ?? ((key: string) => l1IndexFamily.load(key));
-  const persistSave = options.persistSave ?? ((key: string, record: L1VideoIndexCacheRecord) => l1IndexFamily.save(key, record));
+  const persistSave =
+    options.persistSave ??
+    ((key: string, record: L1VideoIndexCacheRecord) =>
+      l1IndexFamily.save(key, record, { bvid: record.bvid, cid: record.cid }));
   const persistRemove = options.persistRemove ?? ((key: string) => l1IndexFamily.remove(key));
 
   const memoryCache = new Map<string, L1VideoIndexCacheRecord>();
@@ -248,9 +273,12 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
     }
   }
 
-  function clearMemoryByVideo(bvid: string, cid?: string): void {
-    const cleanBvid = String(bvid || "").trim();
-    const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";
+  function clearMemoryByVideo(bvid: string, cid?: string, site?: SiteId): void {
+    const rawBvid = String(bvid || "").trim();
+    const hasCid = cid !== undefined && cid !== null && String(cid).trim() !== "";
+    const resolved = resolveVideoStorageIdentity(rawBvid, hasCid ? cid : "", site);
+    const cleanBvid = resolved.bvid;
+    const cleanCid = hasCid ? resolved.cid : "";
     if (!cleanBvid) {
       return;
     }
@@ -258,8 +286,8 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
       ? `${L1_INDEX_CACHE_PREFIX}${cleanBvid}_${cleanCid}_`
       : `${L1_INDEX_CACHE_PREFIX}${cleanBvid}_`;
     for (const [key, record] of memoryCache.entries()) {
-      const matchesRecord =
-        record.bvid === cleanBvid && (!cleanCid || record.cid === cleanCid);
+      const matchesBvid = record.bvid === cleanBvid || record.bvid === rawBvid;
+      const matchesRecord = matchesBvid && (!cleanCid || record.cid === cleanCid);
       if (matchesRecord || key.startsWith(keyPrefix)) {
         memoryCache.delete(key);
       }
@@ -320,8 +348,8 @@ export const loadL1Index = (key: string) => defaultL1Store.load(key);
 export const saveL1Index = (key: string, record: L1VideoIndexCacheRecord) => defaultL1Store.save(key, record);
 export const removeL1Index = (key: string) => defaultL1Store.remove(key);
 export const clearL1IndexMemoryCache = () => defaultL1Store.clearMemory();
-export const clearL1IndexMemoryForVideo = (bvid: string, cid?: string) =>
-  defaultL1Store.clearMemoryByVideo(bvid, cid);
+export const clearL1IndexMemoryForVideo = (bvid: string, cid?: string, site?: SiteId) =>
+  defaultL1Store.clearMemoryByVideo(bvid, cid, site);
 
 export async function readCachedClipL1Index(
   input: ClipOverviewIdentityInput | null | undefined
@@ -356,12 +384,18 @@ export async function readCachedClipOverviewArtifacts(
         key: identity.finalKey,
         family: ANALYSIS_FINAL_PREFIX,
         payloadField: "analysis",
+        bvid: identity.bvid,
+        cid: identity.cid,
+        site: identity.site,
         validate: isOverviewShape
       },
       {
         key: identity.l1Key,
         family: L1_INDEX_CACHE_PREFIX,
         payloadField: "index",
+        bvid: identity.bvid,
+        cid: identity.cid,
+        site: identity.site,
         validate: isL1VideoIndexCacheRecord
       }
     ]);
