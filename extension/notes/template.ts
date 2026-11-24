@@ -20,7 +20,6 @@ import {
 } from "./section-lines.js";
 import {
   DEFAULT_NOTE_TEMPLATE,
-  DEFAULT_YOUTUBE_NOTE_TEMPLATE,
   getDefaultNoteTemplate
 } from "./template-defaults.js";
 import type { NoteHighlightItem } from "./highlights-store.js";

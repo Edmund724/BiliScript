@@ -19,7 +19,6 @@ import {
   isStaleRunError,
   getErrorMessage,
   toReadableText,
-  isRetryableNetworkError,
   retryAsync
 } from "../shared/error-helpers.js";
 import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
@@ -124,7 +123,8 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   if (!keepFetchState && (state.clip.bvid || state.clip.cid)) {
     void flushSubtitleCache({
       bvid: state.clip.bvid || undefined,
-      cid: state.clip.cid || undefined
+      cid: state.clip.cid || undefined,
+      site: state.clip.site
     });
   }
   clipState.setSite(detectActiveSite());
@@ -736,6 +736,23 @@ function notifyCacheSaveFailed(): void {
   logWarn(`[BILISCRIPT] ${CACHE_SAVE_FAILED_MESSAGE}`);
 }
 
+function createTrackBodyLoader(
+  site: SiteId,
+  videoId: string,
+  url: string,
+  lang: string
+): (() => Promise<SubtitleBodyItem[]>) | undefined {
+  if (site !== "youtube") {
+    return undefined;
+  }
+  return async () =>
+    (await import("../youtube/gateway.js")).fetchYoutubeSubtitleBody({
+      videoId,
+      trackUrl: url,
+      lang
+    });
+}
+
 export async function loadSubtitle(
   url: string,
   lang: string,
@@ -760,10 +777,12 @@ export async function loadSubtitle(
       ensureRunActive(runId, state.clip.fetchRunId);
     }
   }
+  const activeSite = state.clip.site;
+  const activeVideoId = state.clip.bvid;
   await loadTrackBody<SubtitleBodyItem>(
     {
-      site: state.clip.site,
-      bvid: state.clip.bvid,
+      site: activeSite,
+      bvid: activeVideoId,
       cid: state.clip.cid,
       videoDuration: state.clip.videoDuration,
       url,
@@ -771,6 +790,7 @@ export async function loadSubtitle(
       subtitleId,
       forceRefresh,
       transport: contentFetchJson,
+      fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
       checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
       onCacheSaveFailed: notifyCacheSaveFailed
     },
@@ -860,10 +880,12 @@ export async function loadSecondarySubtitle(
   }
 
   try {
+    const activeSite = state.clip.site;
+    const activeVideoId = state.clip.bvid;
     await loadTrackBody<SubtitleBodyItem>(
       {
-        site: state.clip.site,
-        bvid: state.clip.bvid,
+        site: activeSite,
+        bvid: activeVideoId,
         cid: state.clip.cid,
         videoDuration: state.clip.videoDuration,
         url,
@@ -871,6 +893,7 @@ export async function loadSecondarySubtitle(
         subtitleId,
         forceRefresh,
         transport: contentFetchJson,
+        fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
         checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
         onCacheSaveFailed: notifyCacheSaveFailed
       },

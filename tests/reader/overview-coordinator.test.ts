@@ -175,6 +175,25 @@ describe("相位迁移", () => {
     expect(args.context?.bvid).toBe("BV1test000000");
   });
 
+  it("YouTube 片段触发概览时透传 site=\"youtube\" 并剥离 hotComments", async () => {
+    const h = makeHarness();
+    Object.assign(h.clip, {
+      site: "youtube",
+      bvid: "_a_b-C12_34",
+      cid: "yt",
+      hotComments: [{ uname: "u", like: 5, message: "should be dropped" }]
+    });
+    h.runOverviewAnalysis.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    await h.coordinator.trigger();
+
+    const args = h.runOverviewAnalysis.mock.calls[0][0] as RunArgs;
+    expect(args.context?.site).toBe("youtube");
+    expect(args.context?.bvid).toBe("_a_b-C12_34");
+    expect(args.context?.cid).toBe("yt");
+    expect(args.context?.hotComments).toEqual([]);
+  });
+
   it("failedRanges 非空 → partial", async () => {
     const h = makeHarness();
     h.runOverviewAnalysis.mockResolvedValue({ ...SAMPLE_ANALYSIS, failedRanges: [{ from: 120, to: 300 }] });

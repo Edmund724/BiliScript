@@ -88,8 +88,7 @@ import { state } from "../../extension/core/state.js";
 import {
   HISTORY_STORAGE_KEY,
   readConversationHistory,
-  updateConversationHistory,
-  type StoredConversation
+  updateConversationHistory
 } from "../../extension/chat/conversation-storage.js";
 import {
   clearPinnedYoutubeCacheEvicted,

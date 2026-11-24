@@ -30,7 +30,7 @@ interface SubtitleDurationMismatchError extends Error {
   details: DurationValidationResult;
 }
 
-export interface SubtitleBodyRequest {
+export interface SubtitleBodyRequest<T = unknown> {
   site?: SiteId;
   bvid: string;
   cid: string;
@@ -40,6 +40,7 @@ export interface SubtitleBodyRequest {
   subtitleId?: string;
   forceRefresh?: boolean;
   transport: JsonTransport;
+  fetchBody?: () => Promise<T[]>;
   checkActive?: () => void;
   onCacheSaveFailed?: () => void;
 }
@@ -82,9 +83,10 @@ export async function loadTrackBody<T = unknown>(
     subtitleId = "",
     forceRefresh = false,
     transport,
+    fetchBody,
     checkActive,
     onCacheSaveFailed
-  }: SubtitleBodyRequest,
+  }: SubtitleBodyRequest<T>,
   { onBody, log = DEFAULT_BODY_LOG }: SubtitleBodyHooks<T> = {}
 ): Promise<T[]> {
   if (!url) {
@@ -92,6 +94,7 @@ export async function loadTrackBody<T = unknown>(
   }
   const activeSite = resolveBodySite(site, cid, url);
   const cacheKey = getSubtitleCacheKey({
+    site: activeSite,
     bvid,
     cid,
     identity: trackIdentity(subtitleId, url, lang)
@@ -113,17 +116,8 @@ export async function loadTrackBody<T = unknown>(
     }
   }
 
-  let body: T[];
-  if (activeSite === "youtube") {
-    const youtubeGateway = await import("../youtube/gateway.js");
-    body = (await youtubeGateway.fetchYoutubeSubtitleBody({
-      videoId: bvid,
-      trackUrl: url,
-      lang
-    })) as T[];
-  } else {
-    body = await fetchSubtitleBodyJson<T>(transport, url);
-  }
+  const loadBody = fetchBody ?? (() => fetchSubtitleBodyJson<T>(transport, url));
+  const body = await loadBody();
   checkActive?.();
   if (!Array.isArray(body) || body.length === 0) {
     throw new Error("字幕文件为空。");

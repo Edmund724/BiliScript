@@ -99,6 +99,7 @@ export async function acceptSubtitle({
         lang: trackLan || selectedSubtitleLang
       });
       const saveResult = await saveSegmentedSubtitleTrack({
+        site: state.clip.site,
         bvid: state.clip.bvid,
         cid: state.clip.cid,
         trackKey,

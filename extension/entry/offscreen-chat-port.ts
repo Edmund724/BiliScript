@@ -2,6 +2,7 @@ import { bgFetchJson } from "../bilibili/gateway-core.js";
 import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, shouldDebugLog } from "../shared/logging.js";
 import { consumeRuntimeLastError, safePostMessage } from "../shared/messaging.js";
+import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
 import {
   checkHostPermissionFromOffscreen,
   HOST_INVALID_ORIGIN_HINT,
@@ -271,6 +272,12 @@ export function attachOffscreenChatPort(
         logInfo("[BILISCRIPT] AI chat material chars:", materialChars);
       }
 
+      const chatContext = (msg as ChatMsg).context;
+      const chatSite = normalizeSiteId(
+        chatContext?.site ?? (chatContext?.url ? detectSiteFromUrl(chatContext.url) : undefined)
+      );
+      const chatCaps = getSiteCapabilities(chatSite);
+
       await runLadderChat(
         {
           msg: msg as ChatMsg,
@@ -283,11 +290,11 @@ export function attachOffscreenChatPort(
           port: ackedPort,
           signal: requestController.signal,
           ...(searchRuntime ? { webSearch: searchRuntime } : {}),
-          ...(msg.videoFrameToolEnabled === true
+          ...(msg.videoFrameToolEnabled === true && chatCaps.supportsCurrentFrameCapture
             ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
             : {}),
-          ...(String((msg as ChatMsg).context?.aid || "").trim()
-            ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String((msg as ChatMsg).context?.aid), 20) }
+          ...(chatCaps.supportsHotComments && String(chatContext?.aid || "").trim()
+            ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String(chatContext?.aid), 20) }
             : {})
         },
         {
