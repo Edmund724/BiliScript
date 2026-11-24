@@ -1,7 +1,12 @@
-import { chatSessionState, setAsrTranscribingActive } from "./chat-state.js";
+import {
+  chatSessionState,
+  setAsrTranscribingActive,
+  type CurrentConversationMeta
+} from "./chat-state.js";
 import { createSubtitleWaiter } from "./subtitle-wait.js";
 import { buildNoSubtitleNotice, type NoSubtitleReason } from "./no-subtitle.js";
 import { canRetryNoSubtitleOnSend } from "../core/asr-failure-notice.js";
+import { buildCanonicalVideoUrl } from "../bilibili/video-id-shared.js";
 import {
   isNoSubtitleEmpty,
   isPending,
@@ -10,6 +15,7 @@ import {
   readinessFromSnapshot
 } from "./subtitle-readiness.js";
 import { isPinnedContextStrict } from "./context-policy.js";
+import { isPinnedYoutubeCacheEvicted } from "./conversation-store.js";
 import type { ClipState } from "../core/state.js";
 
 export type GateOutcome =
@@ -20,6 +26,8 @@ export const ASR_TRANSCRIBING_NOTICE = "当前视频无字幕，正在进行语�
 export const ASR_WAITING_NOTICE = "当前视频无字幕，正在进行语音转写，完成后自动开始总结…";
 export const SUBTITLE_FETCH_FAILED_NOTICE = "字幕抓取失败，请稍后重试。";
 export const SUBTITLE_READ_FAILED_NOTICE = "字幕读取失败，请重试。";
+export const YOUTUBE_CACHE_EVICTED_SEND_NOTICE =
+  "该 YouTube 视频的本地字幕缓存已清理，当前仅可只读查看历史；请重新打开原 YouTube 视频页重载字幕后再继续提问。";
 
 const SUBTITLE_WAIT_POLL_MS = 4000;
 
@@ -181,6 +189,34 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     })();
   }
 
+  function resolveYoutubeWatchUrl(meta: CurrentConversationMeta | null | undefined): string {
+    const bvid = String(meta?.contextRef?.bvid || "").trim();
+    if (bvid) {
+      return buildCanonicalVideoUrl(bvid, 1, "youtube");
+    }
+    const rawUrl = String(meta?.contextRef?.url || meta?.contextUrl || "").trim();
+    return /^https?:\/\//i.test(rawUrl) ? rawUrl : "";
+  }
+
+  function showYoutubeCacheEvictedNotice(): void {
+    const targetUrl = resolveYoutubeWatchUrl(chatSessionState.currentConversationMeta);
+    deps.showContextNotice(YOUTUBE_CACHE_EVICTED_SEND_NOTICE, 0, {
+      placement: "input",
+      ...(targetUrl
+        ? {
+            action: {
+              label: "打开原视频",
+              onClick: () => {
+                if (typeof globalThis.open === "function") {
+                  globalThis.open(targetUrl, "_blank", "noopener");
+                }
+              }
+            }
+          }
+        : {})
+    });
+  }
+
   function showReadFailedNotice(): void {
     deps.showContextNotice(SUBTITLE_READ_FAILED_NOTICE, 0, {
       placement: "input",
@@ -200,7 +236,11 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
       await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => null);
       if (!(await deps.hydratePinned({ preserveInput: true }))) {
-        showReadFailedNotice();
+        if (isPinnedYoutubeCacheEvicted(chatSessionState.currentConversationMeta)) {
+          showYoutubeCacheEvictedNotice();
+        } else {
+          showReadFailedNotice();
+        }
         return { pass: false, kind: "read-failed" };
       }
       await deps.replayInFlight();

@@ -185,6 +185,7 @@ describe("computeContextStateSignature 纯函数", () => {
 });
 
 const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
+  "site",
   "url",
   "title",
   "author",
@@ -209,6 +210,7 @@ const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
 ];
 
 const FULL_CLIP = {
+  site: "bilibili",
   title: "映射测试视频",
   author: "某位UP主",
   uploadDate: "2026-01-02",
@@ -235,6 +237,7 @@ const FULL_SETTINGS = { includeTimestampInBody: true };
 const FULL_URL = "https://www.bilibili.com/video/BV1map/?p=3";
 
 const EXPECTED_FULL_PAYLOAD: Record<string, unknown> = {
+  site: "bilibili",
   url: FULL_URL,
   title: "映射测试视频",
   author: "某位UP主",
@@ -339,6 +342,7 @@ describe("context-payload 形状快照与签名三分类对账", () => {
     const full = makeFullPayload();
     const base = computeContextStateSignature(full);
     const mutations: Record<string, unknown> = {
+      site: "youtube",
       bvid: "BV1other",
       cid: "202",
       pageIndex: 4,
@@ -391,6 +395,7 @@ describe("createReaderContextPayload 组装映射", () => {
   it("无参/空 clip：全字段落到缺省口径", () => {
     const payload = createReaderContextPayload();
     const expected: Record<string, unknown> = {
+      site: "bilibili",
       url: undefined,
       title: "",
       author: "",

@@ -2,6 +2,13 @@ import { normalizeConversations } from "../ai/conversation.js";
 import type { ImagePart } from "../ai/types.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { logWarn } from "../shared/logging.js";
+import {
+  YOUTUBE_UNIT_CID,
+  detectSiteFromUrl,
+  extractYoutubeVideoId,
+  normalizeSiteId,
+  resolveVideoStorageKey
+} from "../shared/site.js";
 import { fnv1a32 } from "../shared/text-primitives.js";
 import type { ChatImageRecord, SubtitleIdbStore } from "../subtitle/idb-store.js";
 import { resolveActiveSubtitleStore } from "../subtitle/store-client.js";
@@ -105,16 +112,39 @@ export function hasExternalizedChatImages(rawValue: unknown): boolean {
   return false;
 }
 
-function extractConversationBvid(item: unknown): string {
+function extractConversationStorageBvid(item: unknown): string {
   if (!item || typeof item !== "object") {
     return "";
   }
   const obj = item as {
+    site?: unknown;
     bvid?: unknown;
-    contextRef?: { bvid?: unknown } | null;
-    contextSnapshot?: { bvid?: unknown } | null;
+    cid?: unknown;
+    url?: unknown;
+    contextUrl?: unknown;
+    contextRef?: { site?: unknown; bvid?: unknown; cid?: unknown; url?: unknown } | null;
+    contextSnapshot?: { site?: unknown; bvid?: unknown; cid?: unknown; url?: unknown } | null;
   };
-  return String(obj.contextRef?.bvid || obj.contextSnapshot?.bvid || obj.bvid || "").trim();
+  const url = String(
+    obj.contextRef?.url || obj.contextSnapshot?.url || obj.contextUrl || obj.url || ""
+  ).trim();
+  const rawBvid = String(
+    obj.contextRef?.bvid || obj.contextSnapshot?.bvid || obj.bvid || ""
+  ).trim();
+  const rawCid = String(
+    obj.contextRef?.cid || obj.contextSnapshot?.cid || obj.cid || ""
+  ).trim();
+  const rawSite =
+    obj.contextRef?.site ||
+    obj.contextSnapshot?.site ||
+    obj.site ||
+    (rawCid === YOUTUBE_UNIT_CID ? "youtube" : detectSiteFromUrl(url));
+  const site = normalizeSiteId(rawSite);
+  const videoId = rawBvid || (site === "youtube" ? extractYoutubeVideoId(url) : "");
+  if (!videoId) {
+    return "";
+  }
+  return resolveVideoStorageKey(site, videoId, rawCid).bvid;
 }
 
 interface VerifiedChatImage {
@@ -392,7 +422,7 @@ async function lazyMigrateLegacyInlineImages(
       continue;
     }
 
-    const bvid = extractConversationBvid(obj);
+    const bvid = extractConversationStorageBvid(obj);
     const createdAt = Number(obj.createdAt) || now;
     const updatedAt = Number(obj.updatedAt) || createdAt;
     let convChanged = false;
@@ -494,7 +524,7 @@ async function externalizeConversationsForStorage(
       continue;
     }
 
-    const bvid = extractConversationBvid(conv);
+    const bvid = extractConversationStorageBvid(conv);
     let convChanged = false;
     const nextMessages: unknown[] = [];
 

@@ -10,13 +10,14 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { resolveInitialQuickPrompts } from "../chat/quick-prompts.js";
 import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
 import { chatSessionState } from "../chat/chat-state.js";
-import { extractBvid } from "../bilibili/video-id-shared.js";
+import { extractVideoId } from "../bilibili/video-id-shared.js";
+import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
 import { state } from "../core/state.js";
 import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { renderLiveTextToolRecordHtml } from "./chat-live-text-records.js";
 import { hydrateMarkdownContent } from "../ui/markdown.js";
-import type { ConversationDeletion } from "../chat/conversation-store.js";
+import type { Conversation, ConversationDeletion } from "../chat/conversation-store.js";
 
 export interface CreateReaderChatListsDeps {
   historyList: HTMLElement;
@@ -49,10 +50,28 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return "";
     }
     const bvid = String(clip.bvid || "").trim();
-    if (!bvid || bvid !== extractBvid(location.href)) {
+    if (!bvid || bvid !== extractVideoId(location.href)) {
       return "";
     }
-    return buildContextKey({ bvid, cid: clip.cid, aid: clip.aid });
+    return buildContextKey({ site: clip.site, bvid, cid: clip.cid, aid: clip.aid, url: location.href });
+  }
+
+  function resolveConversationSite(conversation: Conversation): SiteId {
+    if (!isLiveTextToolHistoryEntry(conversation) && conversation.contextRef?.site) {
+      return normalizeSiteId(conversation.contextRef.site);
+    }
+    const contextKey = String(conversation.contextKey || "").trim();
+    if (contextKey.startsWith("video:youtube:")) {
+      return "youtube";
+    }
+    const rawUrl =
+      (!isLiveTextToolHistoryEntry(conversation) ? conversation.contextRef?.url : "") ||
+      conversation.contextUrl;
+    return normalizeSiteId(detectSiteFromUrl(rawUrl));
+  }
+
+  function formatSiteBadgeLabel(site: SiteId): string {
+    return site === "youtube" ? "YouTube" : "B 站";
   }
 
   function renderSuggestions(): void {
@@ -365,6 +384,8 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
         const isSwitching = conversation.id === pendingSwitchId;
         const timestamp = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
         const metaText = isSwitching ? "正在保存当前回答…" : liveEntry ? `${timestamp} · ${liveEntry.records.length} 条记录` : timestamp;
+        const site = resolveConversationSite(conversation);
+        const siteLabel = formatSiteBadgeLabel(site);
         const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
         return `
           <div class="chat-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""} ${isSwitching ? "is-switching" : ""}" data-id="${escapeHtml(conversation.id)}" ${isSwitching ? 'aria-busy="true"' : ""}>
@@ -375,7 +396,10 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
                 <span class="chat-history-title-main">${escapeHtml(titleDisplay.main)}</span>
                 ${titleDisplay.suffix ? `<span class="chat-history-title-suffix">${escapeHtml(titleDisplay.suffix)}</span>` : ""}
               </span>
-              <span class="chat-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
+              <span class="chat-history-meta-row">
+                <span class="chat-history-site" data-site="${escapeHtml(site)}">${escapeHtml(siteLabel)}</span>
+                <span class="chat-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
+              </span>
             </button>
             <button type="button" class="chat-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="${liveEntry ? "删除伴看记录" : "删除历史对话"}" ${pendingSwitchId ? 'aria-disabled="true"' : ""}>×</button>
           </div>

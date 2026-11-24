@@ -1,4 +1,12 @@
-import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
+import { extractBvid, extractPageIndexFromUrl, extractVideoId } from "../bilibili/video-id-shared.js";
+import {
+  YOUTUBE_UNIT_CID,
+  decodeVideoStorageBvid,
+  detectSiteFromUrl,
+  extractYoutubeVideoId,
+  normalizeSiteId,
+  type SiteId
+} from "../shared/site.js";
 import type { AiContext } from "./types.js";
 export type { AiContext };
 import type { ChapterItem, HotComment, ImagePart } from "./types.js";
@@ -12,15 +20,43 @@ import {
 export const MAX_SAVED_CONVERSATIONS = 60;
 
 interface BuildContextKeyPayload {
+  site?: unknown;
   bvid?: unknown;
   cid?: unknown;
   aid?: unknown;
   url?: unknown;
 }
 
+function resolveContextKeySite(payload: BuildContextKeyPayload): SiteId {
+  const explicitSite = typeof payload.site === "string" ? payload.site.trim() : "";
+  if (explicitSite) {
+    return normalizeSiteId(explicitSite);
+  }
+  if (payload.url) {
+    const fromUrl = detectSiteFromUrl(payload.url);
+    if (fromUrl === "youtube") {
+      return "youtube";
+    }
+  }
+  if (String(payload.cid || "").trim() === YOUTUBE_UNIT_CID) {
+    return "youtube";
+  }
+  return "bilibili";
+}
+
 export function buildContextKey(payload: BuildContextKeyPayload | null | undefined): string {
   if (!payload) {
     return "";
+  }
+  const site = resolveContextKeySite(payload);
+  if (site === "youtube") {
+    const rawBvid = decodeVideoStorageBvid(String(payload.bvid || "").trim());
+    const videoId = rawBvid || extractYoutubeVideoId(payload.url);
+    if (videoId) {
+      return `video:youtube:${videoId}`;
+    }
+    const normalizedUrl = normalizeContextUrlForKey(payload.url);
+    return normalizedUrl ? `url:${normalizedUrl}` : "";
   }
   const bvid = String(payload.bvid || "").trim();
   const cid = String(payload.cid || "").trim();
@@ -160,17 +196,25 @@ export function resolveConversationStorageKey(rawKey: unknown, contextRef: AiCon
 export function buildAiContextRef(context: unknown): AiContext {
   const value = context && typeof context === "object" ? (context as Record<string, unknown>) : {};
   const url = String(value.url || "").trim();
+  const rawSite = typeof value.site === "string" && value.site.trim() ? value.site : detectSiteFromUrl(url);
+  const site = normalizeSiteId(rawSite);
+  const rawBvidInput = String(value.bvid || "").trim();
+  const decodedBvid = site === "youtube" ? decodeVideoStorageBvid(rawBvidInput) : rawBvidInput;
+  const bvid = String(decodedBvid || extractVideoId(url) || "").trim();
+  const rawCid = String(value.cid || "").trim();
+  const cid = site === "youtube" ? (rawCid || YOUTUBE_UNIT_CID) : rawCid;
   return {
+    site,
     title: String(value.title || "").trim(),
     url,
     author: String(value.author || "").trim(),
     uploadDate: String(value.uploadDate || "").trim(),
-    bvid: String(value.bvid || extractBvid(url) || "").trim(),
-    cid: String(value.cid || "").trim(),
-    aid: String(value.aid || "").trim(),
-    pageIndex: Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1,
+    bvid,
+    cid,
+    aid: site === "youtube" ? "" : String(value.aid || "").trim(),
+    pageIndex: site === "youtube" ? 1 : (Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1),
     pageCount: Number(value.pageCount) > 0 ? Number(value.pageCount) : 0,
-    pageTitle: String(value.pageTitle || "").trim(),
+    pageTitle: site === "youtube" ? "" : String(value.pageTitle || "").trim(),
     subtitleLang: String(value.subtitleLang || "").trim(),
     selectedSubtitleId: String(value.selectedSubtitleId || "").trim(),
     selectedSubtitleUrl: String(value.selectedSubtitleUrl || "").trim(),
@@ -247,7 +291,13 @@ function appendConversationPageSuffix(title: string, context: AiContext | { url?
   return pageSuffix ? `${cleanTitle}${pageSuffix}` : cleanTitle;
 }
 
-function extractConversationPageSuffix(context: AiContext | { url?: string; pageIndex?: unknown; page?: unknown }): string {
+function extractConversationPageSuffix(
+  context: AiContext | { site?: unknown; url?: string; pageIndex?: unknown; page?: unknown }
+): string {
+  const site = normalizeSiteId((context as { site?: unknown })?.site ?? detectSiteFromUrl(context?.url));
+  if (site === "youtube") {
+    return "";
+  }
   const pageIndex = Number(context?.pageIndex || context?.page || 0) || extractPageIndexFromUrl(context?.url || "");
   return pageIndex > 1 ? `-P${pageIndex}` : "";
 }
@@ -298,11 +348,19 @@ export function doesTabMatchContextUrl(tabUrl: unknown, targetUrl: unknown): boo
   if (!current.bvid || !target.bvid) {
     return String(tabUrl || "").trim() === String(targetUrl || "").trim();
   }
-  return current.bvid === target.bvid && current.page === target.page;
+  return current.site === target.site && current.bvid === target.bvid && current.page === target.page;
 }
 
-function extractVideoIdentity(url: unknown): { bvid: string; page: number } {
+function extractVideoIdentity(url: unknown): { site: SiteId; bvid: string; page: number } {
   const text = String(url || "").trim();
+  const site = detectSiteFromUrl(text);
+  if (site === "youtube") {
+    return {
+      site: "youtube",
+      bvid: extractYoutubeVideoId(text),
+      page: 1
+    };
+  }
   const bvid = extractBvid(text);
   let page = 1;
   try {
@@ -314,6 +372,7 @@ function extractVideoIdentity(url: unknown): { bvid: string; page: number } {
     page = 1;
   }
   return {
+    site: "bilibili",
     bvid: String(bvid || "").trim(),
     page
   };

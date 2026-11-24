@@ -139,7 +139,7 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
     restartForContextFollow = false;
     deps.updateLayout();
     if (!chatSessionState.contextData) {
-      resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
+      resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
       return;
     }
     if (!chatSessionState.providers.length || !deps.hasSelectableModels()) {

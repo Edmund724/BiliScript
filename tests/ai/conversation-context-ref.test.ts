@@ -5,6 +5,7 @@ import {
 } from "../../extension/ai/conversation.js";
 
 const FULL_INPUT = {
+  site: "bilibili",
   title: "  测试视频  ",
   url: "https://www.bilibili.com/video/BV1full/?p=2",
   author: " UP主 ",
@@ -25,6 +26,7 @@ const FULL_INPUT = {
 };
 
 const EXPECTED_FIELDS = [
+  "site",
   "title",
   "url",
   "author",
@@ -42,11 +44,12 @@ const EXPECTED_FIELDS = [
   "isVideoContext"
 ];
 
-describe("buildAiContextRef 字段表（15 字段单一事实来源）", () => {
+describe("buildAiContextRef 字段表（16 字段单一事实来源）", () => {
   it("全字段输入：逐字段归一化（trim/数值），挑选清单外负载不保留", () => {
     const ref = buildAiContextRef(FULL_INPUT);
     expect(Object.keys(ref)).toEqual(EXPECTED_FIELDS);
     expect(ref).toEqual({
+      site: "bilibili",
       title: "测试视频",
       url: "https://www.bilibili.com/video/BV1full/?p=2",
       author: "UP主",
@@ -63,6 +66,16 @@ describe("buildAiContextRef 字段表（15 字段单一事实来源）", () => {
       chapters: [{ title: "开场", from: 0, to: 60 }],
       isVideoContext: true
     });
+  });
+
+  it("YouTube URL：保留 site=\"youtube\"、提取原始 videoId 且缺省 cid 归一为 yt", () => {
+    const ref = buildAiContextRef({
+      title: "YT Demo",
+      url: "https://www.youtube.com/watch?v=dQw4w_9Wg-Q&t=42"
+    });
+    expect(ref.site).toBe("youtube");
+    expect(ref.bvid).toBe("dQw4w_9Wg-Q");
+    expect(ref.cid).toBe("yt");
   });
 
   it("chapters 为数组时原样透传（同引用），消费方可直接用于章节对齐/检索", () => {
@@ -126,7 +139,7 @@ describe("buildAiContextRef 输入兜底", () => {
 });
 
 describe("buildContextPlaceholder 在统一构造器结果上补占位字段", () => {
-  it("15 字段齐 + hotComments 空数组（协议不再有 subtitleMarkdown）", () => {
+  it("16 字段齐 + hotComments 空数组（协议不再有 subtitleMarkdown）", () => {
     const placeholder = buildContextPlaceholder(FULL_INPUT)!;
     expect(Object.keys(placeholder)).toEqual([...EXPECTED_FIELDS, "hotComments"]);
     expect(placeholder.title).toBe("测试视频");
