@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachChatSpeechPort, TTS_UNSUPPORTED_ERROR } from "../../extension/chat/chat-speech-bg.js";
 import { CHAT_SPEECH_PORT_NAME, type ChatSpeechPortMessage } from "../../extension/chat/protocol.js";

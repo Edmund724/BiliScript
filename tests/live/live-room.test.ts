@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { isLiveRoomPage, parseLiveRoomId } from "../../extension/bilibili/video-id-shared.js";
 import {

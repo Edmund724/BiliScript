@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, setupEnvironment } from "../setup.js";
 import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";

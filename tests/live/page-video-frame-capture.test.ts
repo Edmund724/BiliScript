@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_VIDEO_SEEK_CAPTURE_DEBOUNCE_MS,

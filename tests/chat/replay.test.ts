@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { appendChatHistory, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFullscreenLiveOverlay } from "../../extension/live/fullscreen-live-overlay.js";
 import { createLiveOverlayTranscriptMerger } from "../../extension/live/live-transcript-merger.js";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl, setupEnvironment } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";

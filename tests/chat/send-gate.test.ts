@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import {
   createSendGate,

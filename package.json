@@ -28,6 +28,8 @@
     "lint:comments": "node scripts/check-no-comments.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --project unit-node --project unit-dom",
+    "test:e2e": "vitest run --project e2e",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:installer": "vitest run tests/agent-bridge/install-agent-sh.test.ts",

@@ -16,6 +16,22 @@ DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 �
 - **Offscreen 宿主**：Chromium 走 `chrome.offscreen`；Firefox 走后台 Event Page 动态挂载隐藏 `iframe`（方案 A，收口于 `extension/core/offscreen-host.ts`），保持跨帧 `runtime.Port` / `runtime.onMessage` 与 256 KB 后台体积守卫不变。
 - **首期范围与样式红线**：Firefox 首期交付核心文摘阅读、双轨翻译、概览、对话、金句导出、Agent 桥接与无字幕 ASR 转写，门控隐藏 `tts` 朗读与 `live` 实时伴看入口；Firefox 滚动条样式必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写 `scrollbar-width` / `scrollbar-color` 破坏 Chrome 121+ 的 `::-webkit-scrollbar`。
 
+## 测试分层与防回退
+
+Vitest 分为三个 project：`unit-node`（默认 `node` 环境，覆盖 `tests/ui/**`、`tests/reader/**`、`tests/e2e/**` 之外的单测）、`unit-dom`（`jsdom`，覆盖 `tests/ui/**` 与 `tests/reader/**`）、`e2e`（`jsdom`，覆盖 `tests/e2e/**`）。
+
+### 分层验证节奏
+
+- **高频迭代**：`pnpm typecheck` + 指定测试路径（`pnpm exec vitest run <path>`，跨 project 透明路由）。不要对核心模块运行 `vitest related`——模块依赖图高度耦合，会拉起接近全量的测试集。
+- **里程碑门禁**：`pnpm test:unit`（跑 `unit-node` + `unit-dom`，跳过 `tests/e2e/**`）。
+- **合入前门禁**：全量 `pnpm test`（或单独补跑 `pnpm test:e2e`）+ `pnpm build` + 真机验证。
+
+### 防回退约束
+
+- 新增非 UI/Reader/E2E 单测默认运行在 `node` 环境；仅当用例真实依赖 DOM / `window` / `history` / `location` 时，在文件第 1 行显式添加 `// @vitest-environment jsdom`。
+- 同模块相关用例用 `describe` 分组收拢到同一文件，不拆成 1–3 个用例的碎片微文件。
+- 大规模组合矩阵与端到端多状态流程统一放入 `tests/e2e/`，不混入单测目录拖慢 `test:unit`。
+
 ## 真机验证
 
 jsdom 够不着的（真实 DOM 几何 / B 站真实接口 / MV3 SW 与 Firefox Event Page 生命周期 / offscreen / CSP）走真机：Chromium 自检跑 `pnpm harness:browser`，写场景见 `scripts/browser-harness/README.md`；Firefox 静态校验跑 `pnpm dlx web-ext lint -s dist-firefox`，真机分叉点冒烟跑 `pnpm smoke:firefox`。其余验证留在 `tests/`。

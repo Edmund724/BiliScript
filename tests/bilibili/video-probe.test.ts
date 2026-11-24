@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { getRuntimeVideoElement } from "../../extension/bilibili/video-probe.js";
 import { state } from "../../extension/core/state.js";

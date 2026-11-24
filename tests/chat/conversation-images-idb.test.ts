@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { MAX_SAVED_CONVERSATIONS, normalizeConversations } from "../../extension/ai/conversation.js";

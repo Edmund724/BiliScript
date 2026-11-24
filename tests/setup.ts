@@ -325,7 +325,9 @@ export function resetModuleState() {
   vi.resetModules();
   vi.useRealTimers();
   setupEnvironment();
-  history.replaceState({}, "", NORMAL_PAGE_URL);
+  if (typeof history !== "undefined" && typeof history.replaceState === "function") {
+    history.replaceState({}, "", NORMAL_PAGE_URL);
+  }
   clearSharedSlots();
 
   if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
