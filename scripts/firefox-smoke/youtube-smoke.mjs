@@ -537,19 +537,35 @@ async function findAndClick(client, selector, label) {
       const box = await client.executeSync(
         `const el = document.querySelector(arguments[0]);
          if (!el) return null;
-         const r = el.getBoundingClientRect();
          const cs = getComputedStyle(el);
          const v = el.closest("#biliscript-reading-view");
          const vcs = v ? getComputedStyle(v) : null;
          const vr = v ? v.getBoundingClientRect() : null;
+         const vAnimating = v && typeof v.getAnimations === "function"
+           ? v.getAnimations().some((anim) => anim.playState === "running")
+           : false;
          const viewReady = !v || (
            vcs.display !== "none" &&
            vcs.visibility !== "hidden" &&
            Number(vcs.opacity) >= 0.99 &&
+           !vAnimating &&
+           (vcs.translate === "none" || vcs.translate === "0px" || vcs.translate === "0px 0px") &&
            vr.left >= -2 &&
            vr.right <= window.innerWidth + 2
          );
-         if (el.closest("[hidden]") || r.width <= 0 || r.height <= 0 || cs.visibility === "hidden" || Number(cs.opacity) === 0 || !viewReady) return null;
+         if (el.closest("[hidden]") || cs.visibility === "hidden" || Number(cs.opacity) === 0 || !viewReady) return null;
+         el.scrollIntoView({ block: "center", inline: "nearest" });
+         const r = el.getBoundingClientRect();
+         if (
+           r.width <= 0 ||
+           r.height <= 0 ||
+           r.left < 0 ||
+           r.right > window.innerWidth ||
+           r.top < 0 ||
+           r.bottom > window.innerHeight
+         ) {
+           return null;
+         }
          return { w: r.width, h: r.height };`,
         [selector],
         15_000,
@@ -559,14 +575,14 @@ async function findAndClick(client, selector, label) {
     },
     { timeoutMs: 12000, intervalMs: 150 }
   );
-  await client.executeSync(
-    "document.querySelector(arguments[0])?.scrollIntoView({ block: 'center', inline: 'nearest' });",
-    [selector],
-    15_000,
-    { newSandbox: false }
-  );
   let lastClickErr = null;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await client.executeSync(
+      "document.querySelector(arguments[0])?.scrollIntoView({ block: 'center', inline: 'nearest' });",
+      [selector],
+      15_000,
+      { newSandbox: false }
+    );
     const res = await client.send("WebDriver:FindElement", {
       using: "css selector",
       value: selector
@@ -583,7 +599,11 @@ async function findAndClick(client, selector, label) {
     } catch (err) {
       lastClickErr = err;
       const errStr = String(err?.message || err);
-      if (!errStr.includes("not known in the current browsing context") || attempt === 3) {
+      const retryable =
+        errStr.includes("not known in the current browsing context") ||
+        errStr.includes("not interactable") ||
+        errStr.includes("could not be scrolled into view");
+      if (!retryable || attempt === 4) {
         throw new Error(`${err.message} (${label})`);
       }
       await new Promise((r) => setTimeout(r, 150));
@@ -992,7 +1012,15 @@ export async function runYoutubeSmoke({
     );
     const theaterFloatOk = await waitFor("Y2 theater degrades to float", async () =>
       client.executeSync(
-        'return document.getElementById("biliscript-reading-view")?.getAttribute("data-biliscript-script-float") === "1" ? true : null;',
+        `
+        const v = document.getElementById("biliscript-reading-view");
+        if (!v || v.getAttribute("data-biliscript-script-float") !== "1") return null;
+        const animating = typeof v.getAnimations === "function"
+          ? v.getAnimations().some((anim) => anim.playState === "running")
+          : false;
+        if (animating) return null;
+        return true;
+        `,
         [],
         15_000,
         { newSandbox: false }
@@ -1006,7 +1034,25 @@ export async function runYoutubeSmoke({
     );
     const redockOk = await waitFor("Y2 theater removal redocks to secondary", async () =>
       client.executeSync(
-        'return document.getElementById("biliscript-reading-view")?.getAttribute("data-biliscript-script-float") !== "1" ? true : null;',
+        `
+        const v = document.getElementById("biliscript-reading-view");
+        if (!v || v.getAttribute("data-biliscript-script-float") === "1") return null;
+        if (document.body.getAttribute("data-biliscript-reader-mode") !== "1") return null;
+        const vcs = getComputedStyle(v);
+        const vr = v.getBoundingClientRect();
+        const clientWidth = document.documentElement.clientWidth;
+        const animating = typeof v.getAnimations === "function"
+          ? v.getAnimations().some((anim) => anim.playState === "running")
+          : false;
+        const settledTranslate = vcs.translate === "none" || vcs.translate === "0px" || vcs.translate === "0px 0px";
+        const redockedBox =
+          vr.left >= 700 &&
+          vr.width >= 360 &&
+          vr.width <= 600 &&
+          Math.abs(vr.right - clientWidth) <= 2;
+        if (animating || !settledTranslate || !redockedBox || Number(vcs.opacity) < 0.99) return null;
+        return true;
+        `,
         [],
         15_000,
         { newSandbox: false }
