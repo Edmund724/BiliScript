@@ -2715,9 +2715,9 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 }
 
 .biliscript-reading-chat .chat-history-site[data-site="youtube"] {
-  border-color: rgba(220, 38, 38, 0.28);
-  background: rgba(220, 38, 38, 0.08);
-  color: #dc2626;
+  border-color: color-mix(in srgb, var(--biliscript-reader-danger) 35%, var(--biliscript-reader-border));
+  background: var(--biliscript-reader-danger-soft);
+  color: var(--biliscript-reader-danger);
 }
 
 .biliscript-reading-chat .chat-history-meta {
