@@ -30,10 +30,12 @@ const {
     })
   },
   frameCaptureMock: {
-    capturePageVideoFrame: vi.fn(async () => ({
-      jpegBytes: new Uint8Array([1, 2, 3]),
-      currentTime: 42.5
-    })),
+    capturePageVideoFrame: vi.fn(
+      async (_options?: { getVideo?: () => HTMLVideoElement | null }) => ({
+        jpegBytes: new Uint8Array([1, 2, 3]),
+        currentTime: 42.5
+      })
+    ),
     captureHistoricalVideoFrame: vi.fn(async () => [
       { jpegBytes: new Uint8Array([4, 5, 6]), currentTime: 10 }
     ])
@@ -745,5 +747,43 @@ describe("context-assembly 跨站装配与 chat-tab 运行时门控", () => {
 
     await expect(typedDeps.captureCurrentVideoFrame!(12)).rejects.toThrow("当前站点不支持历史时间点截帧");
     expect(frameCaptureMock.captureHistoricalVideoFrame).not.toHaveBeenCalled();
+  });
+
+  it("chat-tab 在 YouTube 下读取主播放器播放游标并向 capturePageVideoFrame 透传站点感知 getVideo", async () => {
+    const rawVideoId = "ab_cd-12_ef";
+    const { capturedDeps } = await captureChatTabDomainDepsOnYoutube(rawVideoId);
+    const { state: activeState } = await import("../../extension/core/state.js");
+    const typedDeps = capturedDeps!;
+
+    const ytHost = document.createElement("div");
+    ytHost.innerHTML = `
+      <ytd-video-preview><video id="yt-preview-video"></video></ytd-video-preview>
+      <div id="movie_player"><video id="yt-main-video" class="html5-main-video"></video></div>
+    `;
+    document.body.appendChild(ytHost);
+    const previewVideo = document.getElementById("yt-preview-video") as HTMLVideoElement;
+    const mainVideo = document.getElementById("yt-main-video") as HTMLVideoElement;
+    previewVideo.getBoundingClientRect = () => ({ width: 900, height: 500 } as DOMRect);
+    mainVideo.getBoundingClientRect = () => ({ width: 640, height: 360 } as DOMRect);
+    Object.defineProperty(previewVideo, "currentTime", { value: 999, configurable: true });
+    Object.defineProperty(mainVideo, "currentTime", { value: 37.5, configurable: true });
+
+    activeState.reader.readingVideoEl = null;
+    expect(typedDeps.getPlaybackCursorSeconds?.()).toBe(37.5);
+
+    await typedDeps.captureCurrentVideoFrame!(undefined);
+    const captureOptions = frameCaptureMock.capturePageVideoFrame.mock.calls.at(-1)?.[0] as
+      | { getVideo?: () => HTMLVideoElement | null }
+      | undefined;
+    expect(typeof captureOptions?.getVideo).toBe("function");
+    expect(captureOptions?.getVideo?.()).toBe(mainVideo);
+
+    const connectedBoundVideo = document.createElement("video");
+    Object.defineProperty(connectedBoundVideo, "currentTime", { value: 88.25, configurable: true });
+    document.body.appendChild(connectedBoundVideo);
+    activeState.reader.readingVideoEl = connectedBoundVideo;
+
+    expect(typedDeps.getPlaybackCursorSeconds?.()).toBe(88.25);
+    expect(captureOptions?.getVideo?.()).toBe(connectedBoundVideo);
   });
 });

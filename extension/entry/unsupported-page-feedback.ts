@@ -41,14 +41,6 @@ export async function clearUnsupportedPageFeedback(tabId: number): Promise<void>
   }
 }
 
-export function isWwwBilibiliPage(url: unknown): boolean {
-  try {
-    return new URL(String(url || "")).hostname === "www.bilibili.com";
-  } catch {
-    return false;
-  }
-}
-
 export async function showUnsupportedPageToast(tabId: number): Promise<void> {
   await chrome.scripting.executeScript({
     target: { tabId },

@@ -58,7 +58,7 @@ import {
   stopLiveCompanion
 } from "../live/live-companion-session.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
-import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
 import { seekReadingTarget } from "./sync.js";
@@ -357,7 +357,10 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
   getPlaybackCursorSeconds: () => {
-    const video = getRuntimeVideoElement() || state.reader.readingVideoEl;
+    const video =
+      state.clip.site === "youtube"
+        ? getSiteRuntimeVideoElement()
+        : getSiteRuntimeVideoElement() || state.reader.readingVideoEl;
     const currentTime = video?.currentTime;
     return typeof currentTime === "number" && Number.isFinite(currentTime) && currentTime >= 0
       ? currentTime
@@ -365,7 +368,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
     if (targetTime === undefined) {
-      const frame = await capturePageVideoFrame();
+      const frame = await capturePageVideoFrame({ getVideo: getSiteRuntimeVideoElement });
       return {
         image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
         currentTime: frame.currentTime

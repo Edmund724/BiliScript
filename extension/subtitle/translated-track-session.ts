@@ -61,6 +61,9 @@ export interface TranslatedTrackTranslateInput {
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   providerResolution?: SubtitleTranslateProviderResolution;
   chunkFromSec?: number;
   chunkToSec?: number;
@@ -78,6 +81,9 @@ export type ResolveTranslationProtocolFn = (input: {
   selectedSubtitleId?: string;
   selectedSubtitleLang?: string;
   trackLan?: string;
+  origin?: SubtitleTrackOrigin;
+  kind?: string;
+  source?: string;
   items?: readonly SubtitleBodyItem[];
 }) => TranslationProtocolMode;
 
@@ -305,6 +311,13 @@ export function createTranslatedTrackSession(
         selectedSubtitleId: source.isAsrSource ? "asr" : selectedId,
         selectedSubtitleLang: source.isAsrSource ? undefined : selectedLang,
         trackLan,
+        ...(source.isAsrSource
+          ? {}
+          : {
+              ...(source.origin !== undefined ? { origin: source.origin } : {}),
+              ...(source.kind !== undefined ? { kind: source.kind } : {}),
+              ...(source.source !== undefined ? { source: source.source } : {})
+            }),
         items: itemsForProbe
       });
     }
@@ -590,6 +603,13 @@ export function createTranslatedTrackSession(
           selectedSubtitleId: source.isAsrSource ? "asr" : selectedId,
           selectedSubtitleLang: source.isAsrSource ? undefined : selectedLang,
           trackLan,
+          ...(source.isAsrSource
+            ? {}
+            : {
+                ...(source.origin !== undefined ? { origin: source.origin } : {}),
+                ...(source.kind !== undefined ? { kind: source.kind } : {}),
+                ...(source.source !== undefined ? { source: source.source } : {})
+              }),
           ...(providerResolution ? { providerResolution } : {}),
           fallbackToOriginal: false,
           chunkFromSec,
