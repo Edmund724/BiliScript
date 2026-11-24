@@ -13,7 +13,7 @@ export function themeButtonView(theme: string, mode?: string): { icon: string; t
   const resolvedLabel = THEME_TITLES[dark ? "dark" : "light"];
   let title = resolvedLabel;
   if (mode === "bilibili") {
-    title = `跟随 B 站（${resolvedLabel}）`;
+    title = `跟随当前站点（${resolvedLabel}）`;
   } else if (mode === "system") {
     title = `跟随系统（${resolvedLabel}）`;
   }

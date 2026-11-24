@@ -6,6 +6,8 @@ import { getRuntimeVideoElement as defaultGetVideo } from "../bilibili/video-pro
 import { extractPageIndex } from "../bilibili/video-id-shared.js";
 import { resolveVideoPageFromMeta } from "../bilibili/video-api.js";
 import { isDomExceptionNamed } from "../shared/dom-utils.js";
+import { detectSiteFromUrl, YOUTUBE_UNIT_CID } from "../shared/site.js";
+import { getYoutubeVideoElement } from "../youtube/host-adapter.js";
 
 interface PageItem {
   cid?: string | number;
@@ -233,6 +235,31 @@ export function resolvePageContext(
   options: PageContextOptions = {}
 ) {
   const safePages = Array.isArray(meta.pages) ? meta.pages : [];
+  if (detectSiteFromUrl(url || options.ctx?.href) === "youtube") {
+    const firstPage = safePages[0];
+    const videoDuration = readCrossOriginSafely(() => {
+      const video = (options.getVideo ?? (() => getYoutubeVideoElement(document)))();
+      const raw = Number(video?.duration);
+      return Number.isFinite(raw) && raw > 0 ? raw : 0;
+    });
+    const duration =
+      Number(meta.defaultDuration || 0) ||
+      Number(firstPage?.duration || 0) ||
+      videoDuration ||
+      0;
+    const cid =
+      String(meta.defaultCid || options.defaultCid || YOUTUBE_UNIT_CID).trim() ||
+      YOUTUBE_UNIT_CID;
+    const pageTitle = String(firstPage?.part || "").trim();
+    return {
+      pageIndex: 1,
+      cid,
+      cidSource: "youtube-unit",
+      duration,
+      pageTitle
+    };
+  }
+
   const defaultPageIndex = extractPageIndex(url);
   const oid = extractOid(url);
   const hasPageParam = hasExplicitPageParam(url);

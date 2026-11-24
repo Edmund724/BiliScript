@@ -451,3 +451,20 @@ export function getDetachedWindowHost(): DetachedWindowHostSnapshot | null {
     actualMode: instance.actualMode
   };
 }
+
+export function syncDetachedWindowHostTitle(title: string): void {
+  const instance = activeInstance;
+  if (!instance || isWindowClosed(instance.window)) {
+    return;
+  }
+  const normalized = String(title || "").trim();
+  if (!normalized) {
+    return;
+  }
+  try {
+    if (instance.document && instance.document.title !== normalized) {
+      instance.document.title = normalized;
+    }
+  } catch {
+  }
+}

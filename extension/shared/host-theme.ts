@@ -28,6 +28,7 @@ const LIGHT_CLASS_TOKENS = new Set([
 
 const HOST_THEME_OBSERVED_ATTRS = [
   "class",
+  "dark",
   "data-theme",
   "data-dark",
   "data-bili-theme",
@@ -59,8 +60,20 @@ function normalizeSignalValue(raw: string | null | undefined): ResolvedReaderThe
   return null;
 }
 
+function detectBooleanDarkAttribute(el: Element): ResolvedReaderTheme | null {
+  if (!el.hasAttribute("dark")) return null;
+  const raw = String(el.getAttribute("dark") ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "light") {
+    return "light";
+  }
+  return "dark";
+}
+
 function detectFromElementAttributes(el: Element | null): ResolvedReaderTheme | null {
   if (!el) return null;
+
+  const boolDark = detectBooleanDarkAttribute(el);
+  if (boolDark) return boolDark;
 
   const attrNames = [
     "data-dark",
@@ -217,6 +230,8 @@ export function detectBilibiliHostTheme(doc: Document = document): ResolvedReade
 
   return detectFromComputedSurface(doc);
 }
+
+export const detectHostTheme = detectBilibiliHostTheme;
 
 export function resolveReaderThemeMode(
   settings?: Pick<Partial<Settings>, "readerTheme" | "readerThemeUserSet"> | null

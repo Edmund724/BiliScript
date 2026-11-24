@@ -25,6 +25,7 @@ import { applyReadingViewTypography } from "../../reader/presentation.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { sendRuntimeMessage } from "../../shared/messaging.js";
 import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
+import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import { watchStorageKeys } from "../../shared/watch-storage-keys.js";
 import { confirmDialog } from "../confirm-dialog.js";
 import { initCustomSelect, setCustomSelectValue } from "../custom-select.js";
@@ -105,7 +106,11 @@ export function hydrateScalarField(
 }
 
 export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
-  if (!supportsLiveCompanion()) {
+  const site =
+    state.clip.site === "youtube" || detectActiveSite() === "youtube"
+      ? "youtube"
+      : state.clip.site;
+  if (!supportsLiveCompanion() || !getSiteCapabilities(site).supportsLiveCompanion) {
     return;
   }
   const notice = await takeLiveVoiceFallbackNotice();
