@@ -29,6 +29,7 @@ SOURCE_INCLUDED_ROOT_FILES = {
 }
 SOURCE_INCLUDED_DIRS = ("extension",)
 SOURCE_INCLUDED_FILES = {
+    "scripts/b2-shared-closure.js",
     "scripts/build.js",
     "scripts/build-content.js",
     "scripts/build-guards.js",
@@ -41,10 +42,8 @@ SOURCE_INCLUDED_FILES = {
 }
 SOURCE_EXCLUDED_PREFIXES = ("extension/entry/chunks/",)
 SOURCE_EXCLUDED_FILES = {
-    "extension/entry/content-bootstrap.iife.js",
-    "extension/entry/content-bootstrap.iife.js.map",
-    "extension/entry/content-main.mjs",
-    "extension/entry/content-main.mjs.map",
+    "extension/entry/content-resident.iife.js",
+    "extension/entry/content-resident.iife.js.map",
 }
 
 def load_manifest():

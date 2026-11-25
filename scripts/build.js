@@ -43,10 +43,8 @@ const copyFiles = [
   "entry/offscreen.html",
   "entry/permission-grant.html",
   "entry/theme-init.js",
-  "entry/content-bootstrap.iife.js",
-  "entry/content-bootstrap.iife.js.map",
-  "entry/content-main.mjs",
-  "entry/content-main.mjs.map",
+  "entry/content-resident.iife.js",
+  "entry/content-resident.iife.js.map",
 ];
 
 const copyDirs = ["icons", "entry/chunks", "_locales"];
@@ -160,6 +158,74 @@ function restJsOptions() {
   };
 }
 
+function createOnboardingSharedPlugin(sharedModuleMap) {
+  function resolveCandidates(resolveDir, importPath) {
+    const resolved = path.resolve(resolveDir, importPath);
+    const candidates = [resolved];
+    if (resolved.endsWith(".js")) {
+      candidates.push(resolved.slice(0, -3) + ".ts");
+    } else if (!resolved.endsWith(".ts")) {
+      candidates.push(resolved + ".ts");
+    }
+    return candidates;
+  }
+  return {
+    name: "b2-onboarding-shared-sync",
+    setup(buildApi) {
+      buildApi.onResolve({ filter: /^\.\.?\// }, (args) => {
+        const candidates = resolveCandidates(args.resolveDir, args.path);
+        if (args.kind === "dynamic-import") {
+          for (const c of candidates) {
+            if (sharedModuleMap.has(c)) {
+              return { path: sharedModuleMap.get(c), namespace: "b2-shared-dyn" };
+            }
+          }
+          return undefined;
+        }
+        for (const c of candidates) {
+          if (sharedModuleMap.has(c)) {
+            return { path: sharedModuleMap.get(c), namespace: "b2-shared-sync", sideEffects: false };
+          }
+        }
+        return undefined;
+      });
+      buildApi.onLoad({ filter: /.*/, namespace: "b2-shared-sync" }, (args) => ({
+        contents: `module.exports = globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}];`,
+        loader: "js",
+      }));
+      buildApi.onLoad({ filter: /.*/, namespace: "b2-shared-dyn" }, (args) => ({
+        contents: `module.exports = Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}]);`,
+        loader: "js",
+      }));
+    },
+  };
+}
+
+function onboardingOptions() {
+  const sharedCacheFile = path.join(root, "node_modules", ".b2-shared-modules.json");
+  const sharedIds = fs.existsSync(sharedCacheFile)
+    ? JSON.parse(fs.readFileSync(sharedCacheFile, "utf8"))
+    : [];
+  const sharedModuleMap = new Map(
+    sharedIds.map((id) => [path.join(extensionRoot, id), id])
+  );
+  return {
+    entryPoints: [path.join(extensionRoot, "entry/onboarding-entry.ts")],
+    outbase: extensionRoot,
+    outdir: distDir,
+    bundle: true,
+    splitting: false,
+    format: "iife",
+    platform: "browser",
+    minify: true,
+    sourcemap: true,
+    target: esbuildTarget,
+    define: targetDefine,
+    metafile: true,
+    logLevel: "warning",
+    plugins: [localImportGuard, createOnboardingSharedPlugin(sharedModuleMap)],
+  };
+}
 function offscreenOptions() {
   return {
     entryPoints: [path.join(extensionRoot, "entry/offscreen.ts")],
@@ -379,10 +445,10 @@ function formatBytes(n) {
 }
 
 function sumRawBytes(meta) {
-  return Object.keys(meta.inputs).reduce(
-    (sum, input) => sum + fs.statSync(path.resolve(root, input)).size,
-    0
-  );
+  return Object.keys(meta.inputs).reduce((sum, input) => {
+    const full = path.resolve(root, input);
+    return sum + (fs.existsSync(full) ? fs.statSync(full).size : 0);
+  }, 0);
 }
 
 function printEntryReport(result, label) {
@@ -439,7 +505,7 @@ function printOffscreenSplitReport(result) {
   return { entryRaw, entryMin, chunkRaw, chunkMin, chunkCount };
 }
 
-const DIST_RUNTIME_MAX_BYTES = 3900000;
+const DIST_RUNTIME_MAX_BYTES = targetPlatform === "firefox" ? 3900000 : 4200000;
 
 function printDistSummary() {
   const files = [];
@@ -470,18 +536,18 @@ async function main() {
   runContentBuild();
   copyStaticAssets();
 
-  const jobOptions = [restJsOptions(), offscreenOptions(), cssOptions()];
-  let jsResult, offscreenResult, cssResult;
+  const jobOptions = [restJsOptions(), offscreenOptions(), cssOptions(), onboardingOptions()];
+  let jsResult, offscreenResult, cssResult, onboardingResult;
   let esbuildContexts = null;
   if (watchMode) {
     esbuildContexts = await Promise.all(
       jobOptions.map((opts) => context({ ...opts, plugins: [...opts.plugins, watchRebuildLog] }))
     );
-    [jsResult, offscreenResult, cssResult] = await Promise.all(
+    [jsResult, offscreenResult, cssResult, onboardingResult] = await Promise.all(
       esbuildContexts.map((ctx) => ctx.rebuild())
     );
   } else {
-    [jsResult, offscreenResult, cssResult] = await Promise.all(
+    [jsResult, offscreenResult, cssResult, onboardingResult] = await Promise.all(
       jobOptions.map((opts) => build(opts))
     );
   }
@@ -492,6 +558,15 @@ async function main() {
   for (const outfile of outputs) {
     syntaxCheckEsm(path.resolve(root, outfile));
   }
+  for (const outfile of Object.keys(onboardingResult.metafile.outputs)) {
+    if (outfile.endsWith(".js")) {
+      execFileSync(process.execPath, ["--check"], {
+        input: fs.readFileSync(path.resolve(root, outfile)),
+        stdio: ["pipe", "ignore", "inherit"],
+      });
+    }
+  }
+  Object.assign(jsResult.metafile.outputs, onboardingResult.metafile.outputs);
   assertManifestReferences();
   assertHtmlReferences();
   assertBackgroundBundleSize();

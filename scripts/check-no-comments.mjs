@@ -20,8 +20,7 @@ export const EXCLUDED_PREFIXES = [
 ];
 
 export const EXCLUDED_FILES = new Set([
-  "extension/entry/content-bootstrap.iife.js",
-  "extension/entry/content-main.mjs",
+  "extension/entry/content-resident.iife.js",
   "eval/run.mjs",
   "eval/sweep.mjs"
 ]);
