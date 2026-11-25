@@ -47,7 +47,7 @@ describe("Agent Bridge 视频帧编码", () => {
   it("历史帧逐张保留目标秒数与实际截图秒数", async () => {
     const result = await captureAgentBridgeFrames({ bvid: "BV1test000000", cid: "100", targetTime: 10 });
 
-    expect(createHistorical).toHaveBeenCalledWith({ bvid: "BV1test000000", cid: "100" });
+    expect(createHistorical).toHaveBeenCalledWith({ site: "bilibili", bvid: "BV1test000000", cid: "100" });
     expect(captureHistorical).toHaveBeenCalledWith(10, { signal: expect.any(AbortSignal) });
     expect(captureCurrent).not.toHaveBeenCalled();
     expect(result.frames.map((frame) => frame.targetTime)).toEqual([8, 10, 12]);
@@ -109,7 +109,7 @@ describe("Agent Bridge 视频帧编码", () => {
     }
   });
 
-  it("YouTube 站点支持当前帧截帧并拒绝历史时间点截帧", async () => {
+  it("YouTube 站点同时支持当前帧与历史时间点截帧", async () => {
     const { clipState } = await import("../../extension/core/state.js");
     clipState.setSite("youtube");
     try {
@@ -120,8 +120,14 @@ describe("Agent Bridge 视频帧编码", () => {
         cid: "yt",
         frames: [{ targetTime: 12.5, currentTime: 12.5 }]
       });
-      await expect(captureAgentBridgeFrames({ bvid: "dQw4w9WgXcQ", cid: "yt", targetTime: 10 }))
-        .rejects.toThrow("YouTube 暂不支持指定时间点截帧");
+      const historical = await captureAgentBridgeFrames({ bvid: "dQw4w9WgXcQ", cid: "yt", targetTime: 10 });
+      expect(historical).toMatchObject({
+        site: "youtube",
+        bvid: "dQw4w9WgXcQ",
+        cid: "yt",
+        frames: [{ targetTime: 8 }, { targetTime: 10 }, { targetTime: 12 }]
+      });
+      expect(createHistorical).toHaveBeenCalledWith({ site: "youtube", bvid: "dQw4w9WgXcQ", cid: "yt" });
     } finally {
       clipState.setSite("bilibili");
     }

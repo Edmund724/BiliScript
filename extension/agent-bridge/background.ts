@@ -321,13 +321,21 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       return result;
     }
 
-    if (target.site === "youtube") {
-      throw new Error("YouTube 暂不支持指定时间点截帧，请省略 --time 截取当前播放画面");
-    }
-
     const targetTime = Number(target.targetTime);
     if (!Number.isFinite(targetTime) || targetTime < 0) {
       throw new Error("--time 必须是大于或等于 0 的有限秒数");
+    }
+    if (target.site === "youtube") {
+      if (!target.tabId) {
+        throw new Error("未在浏览器标签页中找到该 YouTube 视频，请先打开视频页后重试");
+      }
+      const result = await requestTabResult(
+        target.tabId,
+        { type: "agent-bridge-frame", bvid: target.bvid, cid: target.cid || "yt", targetTime },
+        "页内视频截帧失败"
+      );
+      if (!result) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试历史截帧");
+      return result;
     }
     const cid = target.cid || (await videoService.resolveVideoInfo(target)).cid;
     const input = { bvid: target.bvid, cid, targetTime };

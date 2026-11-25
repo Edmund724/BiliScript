@@ -44,6 +44,9 @@ export interface YoutubeAdaptiveFormatLike {
   itag?: unknown;
   mimeType?: unknown;
   bitrate?: unknown;
+  width?: unknown;
+  height?: unknown;
+  fps?: unknown;
   lastModified?: unknown;
   approxDurationMs?: unknown;
   xtags?: unknown;
@@ -60,6 +63,18 @@ export interface SelectedYoutubeAudioFormat {
   xtags: string;
   audioTrackId: string;
   mimeType: string;
+  bitrate: number;
+  approxDurationMs: number;
+}
+
+export interface SelectedYoutubeVideoFormat {
+  itag: number;
+  lastModified: bigint;
+  xtags: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  fps: number;
   bitrate: number;
   approxDurationMs: number;
 }
@@ -131,6 +146,7 @@ export interface RewriteSabrRequestOptions {
   templateBody: Uint8Array;
   targetFormat: SabrFormatId;
   positionMs: number;
+  mediaType?: 1 | 2;
   playbackCookie?: Uint8Array | null;
   bufferedRange?: SabrBufferedRangeSpec | null;
   sabrContexts?: readonly Uint8Array[];
@@ -143,6 +159,7 @@ export interface SynthesizeSabrTemplateOptions {
   ustreamerConfig: Uint8Array;
   poToken?: Uint8Array | null;
   targetFormat: SabrFormatId;
+  mediaType?: 1 | 2;
 }
 
 export function isValidGooglevideoUrl(rawUrl: string): boolean {
@@ -394,12 +411,13 @@ export function rewriteSabrAbrRequest(options: RewriteSabrRequestOptions): Uint8
   const existingStreamerCtx =
     topFields.find((f) => f.fieldNumber === 19 && f.bytes)?.bytes ?? new Uint8Array(0);
 
+  const mediaType = options.mediaType === 2 ? 2 : 1;
   const nextAbrState = replaceProtoFields(
     existingAbrState,
     new Map<number, Uint8Array[] | null>([
       [28, [encodeVarintField(28, Math.max(0, Math.round(options.positionMs)))]],
       [35, [encodeFixed32Field(35, FLOAT32_ONE_BYTES)]],
-      [40, [encodeVarintField(40, 1)]]
+      [40, [encodeVarintField(40, mediaType)]]
     ])
   );
 
@@ -435,8 +453,8 @@ export function rewriteSabrAbrRequest(options: RewriteSabrRequestOptions): Uint8
         ? [encodeBytesField(3, encodeBufferedRange(options.bufferedRange))]
         : null
     ],
-    [16, [encodeBytesField(16, formatIdBytes)]],
-    [17, null],
+    [16, mediaType === 1 ? [encodeBytesField(16, formatIdBytes)] : null],
+    [17, mediaType === 2 ? [encodeBytesField(17, formatIdBytes)] : null],
     [18, null],
     [19, [encodeBytesField(19, nextStreamerCtx)]]
   ]);
@@ -445,6 +463,7 @@ export function rewriteSabrAbrRequest(options: RewriteSabrRequestOptions): Uint8
 }
 
 export function synthesizeSabrTemplateBody(options: SynthesizeSabrTemplateOptions): Uint8Array {
+  const mediaType = options.mediaType === 2 ? 2 : 1;
   const clientInfo = concatByteArrays([
     encodeVarintField(16, options.clientName || 1),
     ...(options.clientVersion ? [encodeStringField(17, options.clientVersion)] : [])
@@ -458,7 +477,7 @@ export function synthesizeSabrTemplateBody(options: SynthesizeSabrTemplateOption
   const clientAbrState = concatByteArrays([
     encodeVarintField(28, 0),
     encodeFixed32Field(35, FLOAT32_ONE_BYTES),
-    encodeVarintField(40, 1)
+    encodeVarintField(40, mediaType)
   ]);
 
   const formatIdBytes = encodeFormatId(options.targetFormat);
@@ -468,7 +487,7 @@ export function synthesizeSabrTemplateBody(options: SynthesizeSabrTemplateOption
     ...(options.ustreamerConfig.length > 0
       ? [encodeBytesField(5, options.ustreamerConfig)]
       : []),
-    encodeBytesField(16, formatIdBytes),
+    encodeBytesField(mediaType === 2 ? 17 : 16, formatIdBytes),
     encodeBytesField(19, concatByteArrays(streamerCtxParts))
   ]);
 }
@@ -991,4 +1010,87 @@ export function sanitizeAudioTrackIdForCacheKey(rawTrackId: unknown): string {
   const text = String(rawTrackId ?? "").trim();
   if (!text) return "";
   return text.replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function classifyYoutubeVideoCodecTier(mimeType: string): number {
+  const lower = mimeType.toLowerCase();
+  if (lower.startsWith("video/mp4") && lower.includes("avc1")) return 0;
+  if (lower.startsWith("video/webm") && (lower.includes("vp9") || lower.includes("vp09"))) return 1;
+  if (lower.startsWith("video/mp4") || lower.startsWith("video/webm")) return 2;
+  return 99;
+}
+
+export function selectTargetYoutubeVideoFormat(
+  adaptiveFormats: readonly YoutubeAdaptiveFormatLike[] | null | undefined,
+  options: {
+    preferredHeight?: number;
+    isTypeSupported?: (mimeType: string) => boolean;
+  } = {}
+): SelectedYoutubeVideoFormat | null {
+  if (!Array.isArray(adaptiveFormats) || adaptiveFormats.length === 0) {
+    return null;
+  }
+  const preferredHeight =
+    typeof options.preferredHeight === "number" &&
+    Number.isFinite(options.preferredHeight) &&
+    options.preferredHeight > 0
+      ? options.preferredHeight
+      : 720;
+  const isSupported = options.isTypeSupported;
+
+  const candidates: SelectedYoutubeVideoFormat[] = [];
+  for (const raw of adaptiveFormats) {
+    if (!raw || typeof raw !== "object") continue;
+    const itag = Number(raw.itag);
+    const mimeType = String(raw.mimeType ?? "").trim();
+    if (!Number.isFinite(itag) || itag <= 0 || !mimeType.toLowerCase().startsWith("video/")) {
+      continue;
+    }
+    if (classifyYoutubeVideoCodecTier(mimeType) >= 99) {
+      continue;
+    }
+    if (isSupported && !isSupported(mimeType)) {
+      continue;
+    }
+    candidates.push({
+      itag,
+      lastModified: parseLastModifiedBigInt(raw.lastModified),
+      xtags: String(raw.xtags ?? "").trim(),
+      mimeType,
+      width: Number(raw.width) || 0,
+      height: Number(raw.height) || 0,
+      fps: Number(raw.fps) || 0,
+      bitrate: Number(raw.bitrate) || 0,
+      approxDurationMs: Number(raw.approxDurationMs) || 0
+    });
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    const tierDiff = classifyYoutubeVideoCodecTier(a.mimeType) - classifyYoutubeVideoCodecTier(b.mimeType);
+    if (tierDiff !== 0) return tierDiff;
+
+    const aWithin = a.height > 0 && a.height <= preferredHeight;
+    const bWithin = b.height > 0 && b.height <= preferredHeight;
+    if (aWithin !== bWithin) return aWithin ? -1 : 1;
+
+    if (aWithin && bWithin) {
+      const distDiff = (preferredHeight - a.height) - (preferredHeight - b.height);
+      if (distDiff !== 0) return distDiff;
+    } else if (a.height > 0 && b.height > 0 && a.height !== b.height) {
+      return a.height - b.height;
+    }
+
+    const aLowFps = a.fps > 0 && a.fps <= 32 ? 0 : 1;
+    const bLowFps = b.fps > 0 && b.fps <= 32 ? 0 : 1;
+    if (aLowFps !== bLowFps) return aLowFps - bLowFps;
+    if (a.fps !== b.fps) return a.fps - b.fps;
+
+    return a.bitrate - b.bitrate;
+  });
+
+  return candidates[0] ?? null;
 }

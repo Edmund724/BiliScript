@@ -317,8 +317,8 @@ describe("Agent Bridge background fetch 路由", () => {
 
     const historicalResp = await sendReq("yt-frame-hist", "frame", { tabId: 12, targetTime: 30 });
     expect(historicalResp).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("暂不支持指定时间点截帧")
+      ok: true,
+      result: { site: "youtube", bvid: ytId, cid: "yt", frames: [{ targetTime: 18, currentTime: 18 }] }
     });
   });
 });

@@ -32,8 +32,12 @@ let draining = false;
 let historicalSession: HistoricalVideoFrameSession | null = null;
 let historicalSessionKey = "";
 
-function inputKey(input: AgentBridgeFrameInput): string {
-  return JSON.stringify([input.bvid, input.cid]);
+function resolveSite(): SiteId {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube" ? "youtube" : "bilibili";
+}
+
+function inputKey(site: SiteId, input: AgentBridgeFrameInput): string {
+  return JSON.stringify([site, input.bvid, input.cid]);
 }
 
 function closeHistoricalSession(): void {
@@ -46,7 +50,7 @@ async function captureQueued(
   { input }: QueuedFrameRequest,
   signal: AbortSignal
 ): Promise<AgentBridgeFramesResult> {
-  const site: SiteId = state.clip.site === "youtube" || detectActiveSite() === "youtube" ? "youtube" : "bilibili";
+  const site = resolveSite();
   let frames: AgentBridgeFrame[];
   if (input.targetTime === undefined) {
     const frame = await capturePageVideoFrame({ getVideo: () => getSiteRuntimeVideoElement() });
@@ -56,12 +60,12 @@ async function captureQueued(
       currentTime: frame.currentTime
     }];
   } else {
-    if (site === "youtube") {
-      throw new Error("YouTube 暂不支持指定时间点截帧，请省略 --time 截取当前播放画面");
+    const key = inputKey(site, input);
+    if (historicalSession && historicalSessionKey !== key) {
+      closeHistoricalSession();
     }
-    const key = inputKey(input);
     if (!historicalSession) {
-      historicalSession = createHistoricalVideoFrameSession({ bvid: input.bvid, cid: input.cid });
+      historicalSession = createHistoricalVideoFrameSession({ site, bvid: input.bvid, cid: input.cid });
       historicalSessionKey = key;
     }
     const snapshots = await historicalSession.capture(input.targetTime, { signal });
@@ -98,7 +102,7 @@ async function drain(): Promise<void> {
     while (queue.length) {
       const request = queue.shift()!;
       if (request.input.targetTime === undefined
-        || (historicalSession && historicalSessionKey !== inputKey(request.input))) {
+        || (historicalSession && historicalSessionKey !== inputKey(resolveSite(), request.input))) {
         closeHistoricalSession();
       }
       try {

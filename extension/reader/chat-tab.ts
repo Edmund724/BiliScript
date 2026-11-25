@@ -377,7 +377,10 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     if (!getSiteCapabilities(state.clip.site).supportsHistoricalFrameCapture) {
       throw new Error(`当前站点不支持历史时间点截帧: ${state.clip.site}`);
     }
-    const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime }, { signal });
+    const frames = await captureHistoricalVideoFrame(
+      { site: state.clip.site, bvid: state.clip.bvid, cid: state.clip.cid, targetTime },
+      { signal }
+    );
     return frames.map((frame) => ({
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
       currentTime: frame.currentTime

@@ -797,6 +797,7 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
     expect(requests[0].tools?.map((t) => t.function.name)).toEqual([
       "web_search",
       "capture_current_video_frame",
+      "capture_video_frame_at_time",
       "fetch_hot_comments"
     ]);
     expect(fetchHotComments).not.toHaveBeenCalled();
@@ -834,7 +835,7 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
     ]);
   });
 
-  it("runLadderChat 在 YouTube 混合长视频与常规路径均跳过历史三帧自动探测与热评，保留 captureCurrentVideoFrame", async () => {
+  it("runLadderChat 在 YouTube 混合长视频与常规路径启用历史三帧自动探测与当前帧工具", async () => {
     const body = [
       { from: 0, to: 10, content: "开场讲架构图" },
       { from: 120, to: 130, content: "这里的公式和黑板推导很关键" }
@@ -894,13 +895,12 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       }
     );
 
-    expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
-    expect(ytPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(false);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(120, undefined);
+    expect(ytPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(true);
     expect(streamCalls).toHaveLength(1);
-    expect(streamCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
+    expect(streamCalls[0].captureCurrentVideoFrame).toBeUndefined();
+    expect(streamCalls[0].userImages).toHaveLength(1);
     expect(streamCalls[0].fetchHotComments).toBe(fetchHotComments);
-    expect(streamCalls[0].context?.frameContextNote).toBeUndefined();
-    expect(streamCalls[0].userImages).toBeUndefined();
 
     const directCalls: StreamChatArgs[] = [];
     await runLadderChat(
@@ -1067,6 +1067,20 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       onDisconnect: { addListener: vi.fn() },
       postMessage: vi.fn((m: Record<string, unknown>) => {
         postedMessages.push(m);
+        if (m.type === "video-frame-request") {
+          queueMicrotask(() => {
+            messageListeners[0]({
+              action: "video-frame-result",
+              requestId: m.requestId,
+              ok: true,
+              frames: [
+                { image: { mime: "image/jpeg", data: "Q1VSUg==" }, currentTime: 118 },
+                { image: { mime: "image/jpeg", data: "Q1VSUg==" }, currentTime: 120 },
+                { image: { mime: "image/jpeg", data: "Q1VSUg==" }, currentTime: 122 }
+              ]
+            });
+          });
+        }
       })
     } as unknown as chrome.runtime.Port;
 
@@ -1091,10 +1105,9 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       expect(postedMessages.some((m) => m.type === "done")).toBe(true)
     );
 
-    expect(postedMessages.some((m) => m.type === "video-frame-request")).toBe(false);
+    expect(postedMessages.some((m) => m.type === "video-frame-request")).toBe(true);
     expect(requests).toHaveLength(1);
     expect(requests[0].tools?.map((t) => t.function.name)).toEqual([
-      "capture_current_video_frame",
       "fetch_hot_comments"
     ]);
   });

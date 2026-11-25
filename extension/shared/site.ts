@@ -41,7 +41,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
     supportsPlayerQuickAiButton: true,
     supportsExtraPlaybackRates: false,
     supportsCurrentFrameCapture: true,
-    supportsHistoricalFrameCapture: false,
+    supportsHistoricalFrameCapture: true,
     supportsHotComments: true,
     supportsAgentBridge: true,
     supportsMultiPage: false

@@ -1,10 +1,16 @@
 import { contentFetchJson, type JsonTransport } from "../bilibili/gateway.js";
 import { getOpenerDocument } from "../shared/active-host.js";
+import { decodeVideoStorageBvid, normalizeSiteId, type SiteId } from "../shared/site.js";
 import {
   capturePageVideoFrame,
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameSnapshot
 } from "../live/page-video-frame-capture.js";
+import {
+  fetchYoutubeVideoWindow,
+  type FetchYoutubeVideoWindowOptions,
+  type YoutubeVideoWindowPayload
+} from "../youtube/video-frame-source.js";
 
 function buildHistoricalPlayurlUrl(bvid: string, cid: string): string {
   return (
@@ -28,6 +34,7 @@ interface PlayurlResponse {
 }
 
 export interface HistoricalVideoFrameInput {
+  site?: SiteId;
   bvid: string;
   cid: string;
   targetTime: number;
@@ -37,6 +44,8 @@ export interface HistoricalVideoFrameOptions {
   transport?: JsonTransport;
   createVideo?: () => HTMLVideoElement;
   createCanvas?: PageVideoFrameCaptureOptions["createCanvas"];
+  fetchYoutubeWindow?: (options: FetchYoutubeVideoWindowOptions) => Promise<YoutubeVideoWindowPayload>;
+  createMediaSource?: () => MediaSource;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -99,23 +108,193 @@ export interface HistoricalVideoFrameSession {
   close(): void;
 }
 
+function appendBufferAsync(
+  sourceBuffer: SourceBuffer,
+  data: ArrayBuffer,
+  signal?: AbortSignal
+): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      sourceBuffer.removeEventListener("updateend", onDone);
+      sourceBuffer.removeEventListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onDone = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("写入视频解码缓冲区失败"));
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(abortError());
+    };
+    sourceBuffer.addEventListener("updateend", onDone, { once: true });
+    sourceBuffer.addEventListener("error", onError, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    sourceBuffer.appendBuffer(data);
+  });
+}
+
+function clampToBufferedRange(video: HTMLVideoElement, timeSec: number): number {
+  const ranges = video.buffered;
+  if (!ranges || ranges.length === 0) return timeSec;
+  let best = timeSec;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < ranges.length; i += 1) {
+    const start = ranges.start(i);
+    const end = ranges.end(i);
+    if (timeSec >= start && timeSec <= end) return timeSec;
+    const clamped = timeSec < start ? start : end;
+    const dist = Math.abs(clamped - timeSec);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = clamped;
+    }
+  }
+  return best;
+}
+
 export function createHistoricalVideoFrameSession(
-  { bvid, cid }: Omit<HistoricalVideoFrameInput, "targetTime">,
+  { site, bvid, cid }: Omit<HistoricalVideoFrameInput, "targetTime">,
   options: HistoricalVideoFrameOptions = {}
 ): HistoricalVideoFrameSession {
+  const resolvedSite = normalizeSiteId(site);
   let video: HTMLVideoElement | null = null;
   let closed = false;
   let activeController: AbortController | null = null;
 
+  const disposeVideo = (target: HTMLVideoElement | null, objectUrl?: string): void => {
+    if (target) {
+      target.pause();
+      target.removeAttribute("src");
+      target.load();
+      target.remove();
+    }
+    if (objectUrl) {
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+      }
+    }
+  };
+
   const close = (): void => {
     closed = true;
     activeController?.abort();
-    if (!video) return;
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    video.remove();
+    disposeVideo(video);
     video = null;
+  };
+
+  const captureYoutubeFrames = async (
+    targetTime: number,
+    timeoutMs: number,
+    signal: AbortSignal
+  ): Promise<HistoricalVideoFrameSnapshot[]> => {
+    const fetchWindow = options.fetchYoutubeWindow ?? fetchYoutubeVideoWindow;
+    const videoId = decodeVideoStorageBvid(bvid);
+    const wantStartMs = Math.max(0, Math.floor((targetTime - 2) * 1000));
+    const wantEndMs = Math.ceil((targetTime + 2) * 1000);
+    const payload = await fetchWindow({
+      videoId,
+      startMs: wantStartMs,
+      endMs: wantEndMs,
+      timeoutMs,
+      signal
+    });
+    if (signal.aborted) throw abortError();
+    if (payload.durationMs > 0 && targetTime > payload.durationMs / 1000) {
+      throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${(payload.durationMs / 1000).toFixed(1)} 秒`);
+    }
+
+    const mediaSource = options.createMediaSource
+      ? options.createMediaSource()
+      : new MediaSource();
+    const openerDoc = getOpenerDocument();
+    const media = (options.createVideo ?? (() => openerDoc.createElement("video")))();
+    media.muted = true;
+    media.defaultMuted = true;
+    media.preload = "auto";
+    media.playsInline = true;
+    media.dataset.biliscriptHistoricalFrame = "";
+    media.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
+    const objectUrl = URL.createObjectURL(mediaSource);
+
+    try {
+      const sourceOpen = new Promise<void>((resolve, reject) => {
+        if (mediaSource.readyState === "open") {
+          resolve();
+          return;
+        }
+        const onOpen = () => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const onAbort = () => {
+          mediaSource.removeEventListener("sourceopen", onOpen);
+          reject(abortError());
+        };
+        mediaSource.addEventListener("sourceopen", onOpen, { once: true });
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+
+      media.src = objectUrl;
+      openerDoc.body.appendChild(media);
+      await sourceOpen;
+      if (signal.aborted) throw abortError();
+
+      const sourceBuffer = mediaSource.addSourceBuffer(payload.mimeType);
+      await appendBufferAsync(sourceBuffer, payload.initSegment, signal);
+      for (const seg of payload.mediaSegments) {
+        await appendBufferAsync(sourceBuffer, seg, signal);
+      }
+      if (mediaSource.readyState === "open" && !sourceBuffer.updating) {
+        try {
+          mediaSource.endOfStream();
+        } catch {
+        }
+      }
+
+      const duration =
+        Number.isFinite(media.duration) && media.duration > 0
+          ? media.duration
+          : payload.durationMs > 0
+            ? payload.durationMs / 1000
+            : Number.POSITIVE_INFINITY;
+      const frameTimes = [targetTime - 2, targetTime, targetTime + 2].map((time) =>
+        clampToBufferedRange(media, Math.min(duration, Math.max(0, time)))
+      );
+
+      const frames: HistoricalVideoFrameSnapshot[] = [];
+      for (const frameTime of frameTimes) {
+        try {
+          const seeked = waitForVideo(
+            media,
+            "seeked",
+            () => Math.abs(media.currentTime - frameTime) <= SEEK_TOLERANCE_SECONDS && media.readyState >= 2,
+            timeoutMs,
+            signal
+          );
+          media.currentTime = frameTime;
+          await seeked;
+          frames.push({
+            ...(await capturePageVideoFrame({
+              getVideo: () => media,
+              createCanvas: options.createCanvas
+            })),
+            targetTime: frameTime
+          });
+        } catch {
+          if (signal.aborted) throw abortError();
+        }
+      }
+      return frames;
+    } finally {
+      disposeVideo(media, objectUrl);
+    }
   };
 
   const capture = async (
@@ -143,6 +322,9 @@ export function createHistoricalVideoFrameSession(
       }, timeoutMs);
     });
     const run = async (): Promise<HistoricalVideoFrameSnapshot[]> => {
+      if (resolvedSite === "youtube") {
+        return captureYoutubeFrames(targetTime, timeoutMs, controller.signal);
+      }
       if (!video) {
         const transport = options.transport ?? contentFetchJson;
         const payload = await transport(buildHistoricalPlayurlUrl(bvid, cid)) as PlayurlResponse | null;
@@ -213,10 +395,10 @@ export function createHistoricalVideoFrameSession(
 }
 
 export async function captureHistoricalVideoFrame(
-  { bvid, cid, targetTime }: HistoricalVideoFrameInput,
+  { site, bvid, cid, targetTime }: HistoricalVideoFrameInput,
   options: HistoricalVideoFrameOptions = {}
 ): Promise<HistoricalVideoFrameSnapshot[]> {
-  const session = createHistoricalVideoFrameSession({ bvid, cid }, options);
+  const session = createHistoricalVideoFrameSession({ site, bvid, cid }, options);
   try {
     return await session.capture(targetTime, options);
   } finally {

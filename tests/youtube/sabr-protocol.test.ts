@@ -27,6 +27,7 @@ import {
   rewriteSabrAbrRequest,
   sanitizeAudioTrackIdForCacheKey,
   selectTargetYoutubeAudioFormat,
+  selectTargetYoutubeVideoFormat,
   synthesizeSabrTemplateBody,
   writeUmpVarint
 } from "../../extension/youtube/sabr-protocol.js";
@@ -257,5 +258,45 @@ describe("YouTube 音轨选择与 URL 校验", () => {
     expect(parsed.searchParams.get("rn")).toBe("3");
 
     expect(sanitizeAudioTrackIdForCacheKey("en.4:dub_1")).toBe("en.4-dub-1");
+  });
+
+  it("视频单轨改写写 field 17、清空 field 16 且 mediaType = 2", () => {
+    const template = synthesizeSabrTemplateBody({
+      clientName: 1,
+      clientVersion: "2.20260401.00.00",
+      ustreamerConfig: new Uint8Array([9, 8, 7]),
+      targetFormat: { itag: 140, lastModified: 100n, xtags: "" }
+    });
+    const rewritten = rewriteSabrAbrRequest({
+      templateBody: template,
+      targetFormat: { itag: 136, lastModified: 999n, xtags: "" },
+      positionMs: 120_000,
+      mediaType: 2
+    });
+    const top = readProtoFields(rewritten);
+    expect(top.find((f) => f.fieldNumber === 16)).toBeUndefined();
+    const videoFmtField = top.find((f) => f.fieldNumber === 17);
+    expect(videoFmtField?.bytes).toBeDefined();
+    expect(parseFormatId(videoFmtField!.bytes!)).toEqual({ itag: 136, lastModified: 999n, xtags: "" });
+    const abrFields = readProtoFields(top.find((f) => f.fieldNumber === 1)!.bytes!);
+    expect(Number(abrFields.find((f) => f.fieldNumber === 28)?.varint)).toBe(120_000);
+    expect(Number(abrFields.find((f) => f.fieldNumber === 40)?.varint)).toBe(2);
+  });
+
+  it("视频选轨默认优先 720p 低帧率 avc1，缺失时回退 480p 或 vp9", () => {
+    const formats = [
+      { itag: 135, mimeType: 'video/mp4; codecs="avc1.4d401f"', width: 854, height: 480, fps: 30, bitrate: 700_000 },
+      { itag: 298, mimeType: 'video/mp4; codecs="avc1.4d4020"', width: 1280, height: 720, fps: 60, bitrate: 2_500_000 },
+      { itag: 136, mimeType: 'video/mp4; codecs="avc1.4d401f"', width: 1280, height: 720, fps: 30, bitrate: 1_500_000 },
+      { itag: 137, mimeType: 'video/mp4; codecs="avc1.640028"', width: 1920, height: 1080, fps: 30, bitrate: 4_000_000 },
+      { itag: 247, mimeType: 'video/webm; codecs="vp9"', width: 1280, height: 720, fps: 30, bitrate: 1_200_000 }
+    ];
+    expect(selectTargetYoutubeVideoFormat(formats)?.itag).toBe(136);
+    expect(selectTargetYoutubeVideoFormat(formats, { preferredHeight: 480 })?.itag).toBe(135);
+    expect(
+      selectTargetYoutubeVideoFormat(formats, {
+        isTypeSupported: (mime) => mime.includes("vp9")
+      })?.itag
+    ).toBe(247);
   });
 });

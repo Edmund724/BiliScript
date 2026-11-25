@@ -12,9 +12,11 @@ import {
   parseUmpResponse,
   rewriteSabrAbrRequest,
   selectTargetYoutubeAudioFormat,
+  selectTargetYoutubeVideoFormat,
   synthesizeSabrTemplateBody,
   type SabrFormatId,
   type SelectedYoutubeAudioFormat,
+  type UmpMediaSegment,
   type YoutubeAdaptiveFormatLike
 } from "./sabr-protocol.js";
 import type { SabrSnifferSlot, SniffedSabrTemplate } from "./sabr-sniffer.main.js";
@@ -35,6 +37,8 @@ const MAX_CONSECUTIVE_EMPTY_ROUNDS = 5;
 const MAX_BACKOFF_MS = 15_000;
 const SABR_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_CUMULATIVE_BYTES = 200 * 1024 * 1024;
+const MAX_VIDEO_WINDOW_ROUNDS = 5;
+const MAX_VIDEO_WINDOW_BYTES = 24 * 1024 * 1024;
 
 function asObj(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -127,7 +131,8 @@ function getSniffedTemplate(expectedVideoId: string): SniffedSabrTemplate | null
 
 function extractParameterCandidate(
   playerResponse: Record<string, unknown>,
-  targetFormat: SelectedYoutubeAudioFormat
+  targetFormat: Pick<SelectedYoutubeAudioFormat, "itag" | "lastModified" | "xtags">,
+  mediaType: 1 | 2 = 1
 ): { url: string; body: Uint8Array } | null {
   const streamingData = asObj(playerResponse.streamingData);
   const serverAbrStreamingUrl = String(streamingData?.serverAbrStreamingUrl || "").trim();
@@ -172,6 +177,7 @@ function extractParameterCandidate(
     clientVersion,
     ustreamerConfig,
     poToken,
+    mediaType,
     targetFormat: {
       itag: targetFormat.itag,
       lastModified: targetFormat.lastModified,
@@ -546,6 +552,262 @@ async function runSabrSession(
   throw new Error("YouTube 音频流采集超过最大轮次上限。");
 }
 
+function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function runSabrVideoWindowSession(
+  sessionId: string,
+  expectedVideoId: string,
+  wantStartMs: number,
+  wantEndMs: number,
+  signal: AbortSignal
+): Promise<void> {
+  const player = getMoviePlayer();
+  if (isAdActive(player)) {
+    throw Object.assign(new Error("当前正在播放广告，请待正片开始后重试历史截帧。"), {
+      code: "AD_PLAYING"
+    });
+  }
+  const playerResponse = readPlayerResponse(player);
+  if (!playerResponse) {
+    throw new Error("未读取到 YouTube 播放器数据，请刷新视频页后重试。");
+  }
+  if (isLiveStreamingNow(playerResponse)) {
+    throw Object.assign(new Error("暂不支持 YouTube 直播中视频的历史时间点截帧。"), {
+      code: "UNSUPPORTED_LIVE"
+    });
+  }
+  const currentVideoId = readPlayerVideoId(player, playerResponse);
+  if (expectedVideoId && currentVideoId && currentVideoId !== expectedVideoId) {
+    throw new Error("视频已切换，已取消当前历史截帧。");
+  }
+  const videoId = expectedVideoId || currentVideoId;
+  if (!videoId) {
+    throw new Error("未识别到当前 YouTube 视频 ID。");
+  }
+
+  const streamingData = asObj(playerResponse.streamingData);
+  const adaptiveFormats = Array.isArray(streamingData?.adaptiveFormats)
+    ? (streamingData.adaptiveFormats as YoutubeAdaptiveFormatLike[])
+    : [];
+  const selectedFormat = selectTargetYoutubeVideoFormat(adaptiveFormats, {
+    preferredHeight: 720,
+    isTypeSupported: (mime) =>
+      typeof MediaSource !== "undefined" && typeof MediaSource.isTypeSupported === "function"
+        ? MediaSource.isTypeSupported(mime)
+        : true
+  });
+  if (!selectedFormat) {
+    throw new Error("未找到可用的浏览器可解码视频轨，无法截取历史画面。");
+  }
+
+  let sniffed = getSniffedTemplate(videoId);
+  if (!sniffed) {
+    for (let waitIdx = 0; waitIdx < 10 && !sniffed && !signal.aborted; waitIdx += 1) {
+      await sleepAbortable(150, signal);
+      sniffed = getSniffedTemplate(videoId);
+    }
+  }
+
+  let baseUrl = "";
+  let templateBody: Uint8Array | null = null;
+  if (sniffed) {
+    baseUrl = sniffed.url;
+    templateBody = sniffed.body;
+  } else {
+    const candidate = extractParameterCandidate(playerResponse, selectedFormat, 2);
+    if (!candidate) {
+      throw Object.assign(
+        new Error("尚未捕获到播放器视频流令牌，请先播放或拖动一下视频后再重试。"),
+        { code: "NO_SABR_TEMPLATE" }
+      );
+    }
+    baseUrl = candidate.url;
+    templateBody = candidate.body;
+  }
+
+  const targetFormatId: SabrFormatId = {
+    itag: selectedFormat.itag,
+    lastModified: selectedFormat.lastModified,
+    xtags: selectedFormat.xtags
+  };
+
+  const cpn = generateCpn(16);
+  let rn = 0;
+  let playbackCookie: Uint8Array | null = null;
+  const sabrContextMap = new Map<number, Uint8Array>();
+  const activeContextTypes = new Set<number>();
+  let initSeg: UmpMediaSegment | null = null;
+  const mediaBySeq = new Map<number, UmpMediaSegment>();
+  let knownEndTimeMs = selectedFormat.approxDurationMs;
+  let knownEndSeq = 0;
+  let cumulativeBytes = 0;
+  let consecutiveEmptyRounds = 0;
+
+  const normalizedStartMs = Math.max(0, Math.floor(wantStartMs));
+  const normalizedEndMs = Math.max(normalizedStartMs, Math.ceil(wantEndMs));
+
+  const hasWindowCoverage = (): boolean => {
+    if (!initSeg || mediaBySeq.size === 0) return false;
+    const sorted = [...mediaBySeq.values()].sort((a, b) => a.header.startMs - b.header.startMs);
+    const firstStart = sorted[0].header.startMs;
+    const lastSeg = sorted[sorted.length - 1];
+    const lastEnd = lastSeg.header.startMs + lastSeg.header.durationMs;
+    const effectiveTargetEnd =
+      knownEndTimeMs > 0 ? Math.min(normalizedEndMs, Math.max(0, knownEndTimeMs - 200)) : normalizedEndMs;
+    const reachedStreamEnd =
+      (knownEndSeq > 0 && lastSeg.header.sequenceNumber >= knownEndSeq) ||
+      (knownEndTimeMs > 0 && lastEnd >= knownEndTimeMs - 250);
+    return firstStart <= normalizedStartMs + 500 && (lastEnd >= effectiveTargetEnd || reachedStreamEnd);
+  };
+
+  for (let round = 0; round < MAX_VIDEO_WINDOW_ROUNDS && !hasWindowCoverage(); round += 1) {
+    if (signal.aborted) {
+      throw new Error("历史截帧已中止");
+    }
+    const sortedSeqs = [...mediaBySeq.values()].sort((a, b) => a.header.sequenceNumber - b.header.sequenceNumber);
+    const bufferedRange = sortedSeqs.length > 0
+      ? {
+          formatId: targetFormatId,
+          startTimeMs: sortedSeqs[0].header.startMs,
+          durationMs: Math.max(
+            0,
+            sortedSeqs[sortedSeqs.length - 1].header.startMs +
+              sortedSeqs[sortedSeqs.length - 1].header.durationMs -
+              sortedSeqs[0].header.startMs
+          ),
+          startSegmentIndex: sortedSeqs[0].header.sequenceNumber,
+          endSegmentIndex: sortedSeqs[sortedSeqs.length - 1].header.sequenceNumber
+        }
+      : null;
+
+    const sentContexts: Uint8Array[] = [];
+    const unsentTypes: number[] = [];
+    for (const [ctxType, raw] of sabrContextMap.entries()) {
+      if (activeContextTypes.has(ctxType)) {
+        sentContexts.push(raw);
+      } else {
+        unsentTypes.push(ctxType);
+      }
+    }
+
+    const requestBody = rewriteSabrAbrRequest({
+      templateBody,
+      targetFormat: targetFormatId,
+      positionMs: normalizedStartMs,
+      mediaType: 2,
+      playbackCookie,
+      bufferedRange,
+      sabrContexts: sentContexts,
+      unsentContextTypes: unsentTypes
+    });
+    const requestUrl = buildSabrRequestUrl(baseUrl, cpn, rn);
+    rn += 1;
+
+    const rawBytes = await fetchSabrRound(requestUrl, requestBody, signal);
+    cumulativeBytes += rawBytes.byteLength;
+    if (cumulativeBytes > MAX_VIDEO_WINDOW_BYTES) {
+      break;
+    }
+
+    const parsed = parseUmpResponse(rawBytes);
+    if (parsed.redirectUrl && isValidGooglevideoUrl(parsed.redirectUrl)) {
+      baseUrl = parsed.redirectUrl;
+    }
+    if (parsed.nextRequestPolicy?.playbackCookie) {
+      playbackCookie = parsed.nextRequestPolicy.playbackCookie;
+    }
+    for (const update of parsed.contextUpdates) {
+      sabrContextMap.set(update.type, update.raw);
+      if (update.sendByDefault) {
+        activeContextTypes.add(update.type);
+      }
+    }
+    for (const policy of parsed.contextSendingPolicies) {
+      for (const t of policy.startPolicy) activeContextTypes.add(t);
+      for (const t of policy.stopPolicy) activeContextTypes.delete(t);
+      for (const t of policy.discardPolicy) {
+        activeContextTypes.delete(t);
+        sabrContextMap.delete(t);
+      }
+    }
+    for (const meta of parsed.initMetadatas) {
+      if (meta.formatId && meta.formatId.itag === selectedFormat.itag) {
+        if (meta.endTimeMs > 0) knownEndTimeMs = meta.endTimeMs;
+        if (meta.endSegmentNumber > 0) knownEndSeq = meta.endSegmentNumber;
+      }
+    }
+
+    if (parsed.streamProtectionStatus === STREAM_PROTECTION_REJECTED) {
+      throw Object.assign(
+        new Error("YouTube 拒绝了本次视频流请求（风控校验未通过），请先播放视频片刻后重试。"),
+        { code: "STREAM_PROTECTION_REJECTED" }
+      );
+    }
+    if (parsed.sabrError) {
+      throw Object.assign(
+        new Error(`YouTube 视频流返回错误：${parsed.sabrError.type || parsed.sabrError.code}`),
+        { code: "SABR_SERVER_ERROR" }
+      );
+    }
+
+    let gotNewSegment = false;
+    for (const seg of parsed.mediaSegments) {
+      if (seg.header.itag > 0 && seg.header.itag !== selectedFormat.itag) {
+        continue;
+      }
+      if (seg.header.isInitSeg) {
+        initSeg = seg;
+        gotNewSegment = true;
+      } else if (seg.header.sequenceNumber > 0 && !mediaBySeq.has(seg.header.sequenceNumber)) {
+        mediaBySeq.set(seg.header.sequenceNumber, seg);
+        gotNewSegment = true;
+      }
+    }
+
+    if (!gotNewSegment) {
+      if (parsed.redirectUrl) {
+        continue;
+      }
+      consecutiveEmptyRounds += 1;
+      if (consecutiveEmptyRounds >= 2) {
+        break;
+      }
+    } else {
+      consecutiveEmptyRounds = 0;
+    }
+
+    const backoffMs = Math.min(MAX_BACKOFF_MS, parsed.nextRequestPolicy?.backoffTimeMs || 0);
+    if (backoffMs > 0 && !hasWindowCoverage()) {
+      await sleepAbortable(backoffMs, signal);
+    }
+  }
+
+  const orderedMedia = [...mediaBySeq.values()].sort((a, b) => a.header.startMs - b.header.startMs);
+  if (!initSeg || orderedMedia.length === 0) {
+    throw new Error("未获取到目标时间点附近的 YouTube 视频分片，请稍后重试。");
+  }
+
+  const initBuf = toOwnedArrayBuffer(initSeg.data);
+  const mediaBufs = orderedMedia.map((seg) => toOwnedArrayBuffer(seg.data));
+  const transfer: Transferable[] = [initBuf, ...mediaBufs];
+
+  postToIsolated(
+    {
+      sessionId,
+      type: "video-window-result",
+      mimeType: selectedFormat.mimeType,
+      durationMs: knownEndTimeMs,
+      initSegment: initBuf,
+      mediaSegments: mediaBufs
+    },
+    transfer
+  );
+}
+
 (function installYoutubeSabrWorker(): void {
   const slotSym = Symbol.for(YOUTUBE_SABR_WORKER_SLOT_KEY);
   const g = globalThis as Record<symbol, { installed: boolean } | undefined>;
@@ -604,12 +866,41 @@ async function runSabrSession(
       return;
     }
 
-    if (reqType === "abort-stream") {
+    if (reqType === "abort-stream" || reqType === "abort-video-window") {
       const controller = activeSessions.get(sessionId);
       if (controller) {
         controller.abort();
         activeSessions.delete(sessionId);
       }
+      return;
+    }
+
+    if (reqType === "capture-video-window") {
+      if (activeSessions.has(sessionId)) {
+        return;
+      }
+      const controller = new AbortController();
+      activeSessions.set(sessionId, controller);
+      const expectedVideoId = String(msg.expectedVideoId || "").trim();
+      const startMs = Math.max(0, Number(msg.startMs) || 0);
+      const endMs = Math.max(startMs, Number(msg.endMs) || startMs);
+
+      void runSabrVideoWindowSession(sessionId, expectedVideoId, startMs, endMs, controller.signal)
+        .catch((err) => {
+          if (controller.signal.aborted) return;
+          const code = typeof (err as { code?: unknown })?.code === "string"
+            ? (err as { code: string }).code
+            : undefined;
+          postToIsolated({
+            sessionId,
+            type: "video-window-error",
+            error: (err as Error)?.message || String(err),
+            ...(code ? { code } : {})
+          });
+        })
+        .finally(() => {
+          activeSessions.delete(sessionId);
+        });
       return;
     }
 

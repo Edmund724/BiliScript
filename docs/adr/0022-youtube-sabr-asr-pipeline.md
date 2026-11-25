@@ -9,7 +9,7 @@
 ### 1. 主世界双段式注入（薄静态嗅探器 + 按需 SABR 拉流器）与零新增域名权限
 
 - **极薄静态 `MAIN` 嗅探器**：在 [extension/manifest.json](../../extension/manifest.json)（及 `scripts/firefox-manifest.js` 派生清单）对 `https://www.youtube.com/*` 静态注册 `world: "MAIN"`、`run_at: "document_start"` 的独立脚本 `entry/youtube-sabr-sniffer.main.js`（约 2–3 KB，独立构建，不计入 [ADR-0004](0004-content-two-round-build-and-reader-gate.md) 的 40 KB 常驻内容脚本预算）。该脚本仅旁路观察非广告 `POST https://*.googlevideo.com/videoplayback` 请求（请求体上限 `64 KB`、响应 `application/vnd.yt-ump`），在 `Symbol.for` 内存槽中保留最近 1 条未过期模板，异常严格 `try/catch` 隔离、绝不阻塞宿主请求。
-- **按需加载 SABR 拉流引擎**：仅当真正触发 ASR 时，由后台通过 `chrome.scripting.executeScript({ world: "MAIN", files: ["entry/youtube-sabr-worker.main.js"] })` 按需注入完整 SABR/UMP 状态机；若页面打开即暂停尚未捕获 `fetch` 模板，再退回从活动播放器实例与 `ytcfg` 合成初始请求（`parameterCandidate`）。
+- **按需加载 SABR 拉流引擎**：仅当真正触发 ASR 或历史时间点截帧时，由后台通过 `chrome.scripting.executeScript({ world: "MAIN", files: ["entry/youtube-sabr-worker.main.js"] })` 按需注入完整 SABR/UMP 状态机；若页面打开即暂停尚未捕获 `fetch` 模板，再退回从活动播放器实例与 `ytcfg` 合成初始请求（`parameterCandidate`）。
 - **零新增 `host_permissions`**：SABR `POST` 请求在 YouTube 页面主世界同源发起，复用页面原生 CORS 放行与真实 `WEB` BotGuard 凭证，不在清单中新增 `https://*.googlevideo.com/*`，避免升级权限弹窗，且严禁伪装 `ANDROID` / `IOS` 客户端。
 
 ### 2. SABR/UMP 音频采集、编解码选择与广告三重门禁
@@ -17,7 +17,7 @@
 - **线格式最小改写**：`extension/youtube/sabr-protocol.ts` 采用零依赖 wire-level Protobuf 字节改写（原样保留未知防伪字段），强制仅请求音频（`clientAbrState.mediaType = 1`、固定 `playbackRate = 1.0`、剔除视频字段 `2/3/17`），循环维护 `PlaybackCookie`（Part `35`）、`SabrContextUpdate`（Part `57/59`）与 `backoffTimeMs` 退避；收到 Part `58`（`status === 3`）立即以 `ATTESTATION_REJECTED` 中止。
 - **音轨与容器选择**：不劫持 MSE；从播放器 `adaptiveFormats` 严格按当前播放音轨的 `audioTrack.id` 与 `xtags` 映射对应 `audio/mp4`（`mp4a.40.*`），**优先选择 `itag 140`（AAC-LC）而非 `itag 139`（HE-AAC/SBR）**，规避双端 `AudioContext.decodeAudioData` 对隐式 SBR 的采样率解析差异。
 - **广告与切视频隔离**：执行三重门禁（排除 `.ad-showing` / `.ad-interrupting`、核对 `player.getVideoData().video_id`、校验 UMP `MediaHeader.videoId`）；视频切换、音轨切换或任务取消时立即中止 SABR 会话。
-- **线性流式调度（首期）**：从 `0s` 顺序拉取并复用现有 `200 MB` 下载上限（`itag 140` 覆盖约 3.4 小时）与渐进渲染，不在首期引入播放头抢占与乱序区间拼装，保持 `stream-chunker.ts` 与整片 IDB 缓存模型简洁确定。
+- **线性流式调度（音频）与短窗按需采集（历史三帧）**：音频转写从 `0s` 顺序拉取并复用现有 `200 MB` 下载上限（`itag 140` 覆盖约 3.4 小时）与渐进渲染，保持 `stream-chunker.ts` 与整片 IDB 缓存模型简洁确定。历史三帧截帧复用同一 SABR/UMP Worker（`capture-video-window` 指令），将请求改写为视频单轨（`clientAbrState.mediaType = 2`，写 field `17`、清空 field `16`），优先选择 `MediaSource` 可解码且最接近 720p 的低帧率 `video/mp4 (avc1)` 轨（无 `avc1` 时回退 `vp9`），定位至 `targetTime - 2s` 最多拉取 5 轮 / 24 MB 覆盖 `[t-2, t+2]` 即停，经 `Transferable ArrayBuffer` 回传内容脚本后在离屏 `MediaSource + <video>` 中截取三帧并立即销毁，不干扰主播放器。
 
 ### 3. 离屏推流解码、ADTS 加固与双端兼容
 

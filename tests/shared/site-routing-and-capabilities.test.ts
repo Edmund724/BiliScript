@@ -82,7 +82,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
       supportsPlayerQuickAiButton: true,
       supportsExtraPlaybackRates: false,
       supportsCurrentFrameCapture: true,
-      supportsHistoricalFrameCapture: false,
+      supportsHistoricalFrameCapture: true,
       supportsHotComments: true,
       supportsAgentBridge: true,
       supportsMultiPage: false

@@ -11,11 +11,10 @@ BiliScript 从 B 站单站扩展演进为多站点视频文摘扩展（`bilibili
 - **显式常驻域名与注入兜底**：在 [extension/manifest.json](../../extension/manifest.json) 直接声明 `https://www.youtube.com/*`（`content_scripts` 匹配 `https://www.youtube.com/watch*`，配合后台 `tabs.onUpdated` 兜底从首页、搜索或频道页经 SPA 导航切入 `/watch`；`host_permissions` 与 `web_accessible_resources` 显式加入 `https://www.youtube.com/*`，严禁通配符）。桌面端 Firefox（153+）构建通过 `scripts/firefox-manifest.js` 同步派生，守卫继续遵循 [ADR-0017](0017-firefox-desktop-compatibility.md)。
 - **YouTube 首期页面范围**：仅覆盖桌面端 `https://www.youtube.com/watch*` 非直播视频（含播放列表 `&list=` 与已结束直播回放），排除 `/shorts/*`、直播中页面、`/embed/*` 与 `m.youtube.com`。
 - **核心功能与站点门控**：
-  - **已支持**：文摘面板三标签（字幕 / 概览 / AI 对话）、面板双语字幕（YouTube 站点禁用原生双轨配对，统一复用 `Index-Translate` 免 Key 或自定义 AI 翻译链，不合成 YouTube `tlang` 虚拟轨）、播放器内实时字幕翻译叠层（挂载于 `#movie_player` 与 `.ytp-right-controls`，YouTube 站点直接走扩展翻译并隐藏原生双轨配对入口，开启时接管并隐藏原生 `.ytp-caption-window-container`）、无字幕 ASR 语音转写（双端通过页面主世界 SABR/UMP 采集 + 离屏推流解码复用既有 WAV 转写引擎，详见 [ADR-0022](0022-youtube-sabr-asr-pipeline.md)）、热门评论抓取（读取主世界 `ytInitialData` 评论区 continuation token 并通过同源真实 `WEB` `youtubei/v1/next` 拉取热门评论，接入概览评论目录、上下文装配与 AI 对话 `fetch_hot_comments` 工具）、本地 Agent 桥接（覆盖已打开 YouTube 标签页的 `tabs` / `fetch` / `subtitles`（含无字幕 ASR）/ `comments` 与当前帧 `frame`，拒绝未打开 URL 后台直拉与历史时间点截帧）、独立窗口（[ADR-0020](0020-detached-reader-window.md)）、播放器右侧快捷 AI 按钮（挂载于 `#movie_player`，点击一键触发 AI 总结并自动退出原生全屏）、当前帧截帧、字幕搜索/高亮/导出、联网搜索、快捷提问、选区解释卡与 Chromium 对话朗读 TTS。
+  - **已支持**：文摘面板三标签（字幕 / 概览 / AI 对话）、面板双语字幕（YouTube 站点禁用原生双轨配对，统一复用 `Index-Translate` 免 Key 或自定义 AI 翻译链，不合成 YouTube `tlang` 虚拟轨）、播放器内实时字幕翻译叠层（挂载于 `#movie_player` 与 `.ytp-right-controls`，YouTube 站点直接走扩展翻译并隐藏原生双轨配对入口，开启时接管并隐藏原生 `.ytp-caption-window-container`）、无字幕 ASR 语音转写（双端通过页面主世界 SABR/UMP 采集 + 离屏推流解码复用既有 WAV 转写引擎，详见 [ADR-0022](0022-youtube-sabr-asr-pipeline.md)）、历史三帧截帧（复用 [ADR-0022](0022-youtube-sabr-asr-pipeline.md) 主世界 SABR/UMP 引擎按需拉取目标时间点 `[t-2, t+2]` 720p 优先视频窗口，在内容脚本离屏 `MediaSource` 解码截帧，不扰动主播放器，同时覆盖 AI 对话 `capture_video_frame_at_time` 与本地 Agent `frame --time`）、热门评论抓取（读取主世界 `ytInitialData` 评论区 continuation token 并通过同源真实 `WEB` `youtubei/v1/next` 拉取热门评论，接入概览评论目录、上下文装配与 AI 对话 `fetch_hot_comments` 工具）、本地 Agent 桥接（覆盖已打开 YouTube 标签页的 `tabs` / `fetch` / `subtitles`（含无字幕 ASR）/ `comments` 与当前帧/历史时间点 `frame`，拒绝未打开 URL 后台直拉）、独立窗口（[ADR-0020](0020-detached-reader-window.md)）、播放器右侧快捷 AI 按钮（挂载于 `#movie_player`，点击一键触发 AI 总结并自动退出原生全屏）、当前帧截帧、字幕搜索/高亮/导出、联网搜索、快捷提问、选区解释卡与 Chromium 对话朗读 TTS。
   - **显式门控与后续排期**：通过站点能力表（`SiteCapabilities`）在 YouTube 页及设置抽屉隐藏未移植能力入口——
     - **暂缓排期**：实时伴看（视频页浮窗与直播间）。
     - **不做**：
-      - 历史三帧截帧：YouTube Web 端自适应流已切换为 SABR 二进制协议（`application/vnd.yt-ump`），渐进式 MP4 覆盖不全且受反爬门控；在不做协议逆向与不扰动主播放器进度的前提下无稳定高清历史帧来源，而 `storyboards` 雪碧图最高档仅 `320×180` 且中长视频帧间隔达 10 秒，不足以支撑 AI 对话识别细节画面。YouTube 统一使用当前帧高清截帧。
       - 3x/4x 扩展倍速：YouTube 原生 3x 属于 Premium 会员权益，避免侵权及服务条款风险。
 - **懒加载与包体预算**：常驻内容包仅保留轻量站点判据与路由分派，各站点适配器（页面探测、字幕抓取、按钮锚点与提示词规则）按活跃站点动态 `import()` 懒加载，继续守住 [ADR-0004](0004-content-two-round-build-and-reader-gate.md) 首帧 2 请求 / 40 KB 常驻预算与 [ADR-0001](0001-background-no-runtime-lazy.md) 后台 256 KB 上限。
 
@@ -38,7 +37,7 @@ BiliScript 从 B 站单站扩展演进为多站点视频文摘扩展（`bilibili
 
 - **Light DOM 锚点与页内按钮**：沿用 [ADR-0003](0003-light-dom-script-panel.md) Light DOM 面板。YouTube 默认布局贴靠 `#secondary` 右栏；窄屏、剧场模式（`ytd-watch-flexy[theater]` / `[full-bleed-player]`）或 `#secondary` 顶边落于播放器下方时跳过贴栏并降级居中浮层，监听布局切换自动重排。页内「文摘」按钮挂载于视频下方 `#actions` 操作栏，采用适配 YouTube 亮/暗外观的胶囊样式（不沿用 B 站粉）；`autoOpenReader` 对普通 `/watch?v=...` 生效、对含 `&list=` 播放列表页排除。
 - **主题检测泛化**：`extension/shared/host-theme.ts` 补齐对 YouTube `<html dark>` 布尔属性的检测与变更观察；设置界面「跟随 B 站」文案泛化为「跟随当前站点」，底层存储值保持向后兼容。
-- **提示词、分章与截帧门控**：内置 AI 系统提示词、概览/解释提示词、描述清洗与未自定义导出默认模板按站点参数化（用户自定义 `aiSystemPrompt` 与自定义导出模板保持原样）；概览分章维持 `extension/shared/chapter-outline.ts` 优先级（简介时间戳目录 > 站点官方/自动章节 > AI 自由分章）；对话工具循环（`extension/ai/tool-loop.ts`）与阶梯探测（`extension/ai/ladder.ts`）依据站点能力门控在 YouTube 仅注册 `capture_current_video_frame` 并关闭历史三帧自动探测。
+- **提示词、分章与截帧门控**：内置 AI 系统提示词、概览/解释提示词、描述清洗与未自定义导出默认模板按站点参数化（用户自定义 `aiSystemPrompt` 与自定义导出模板保持原样）；概览分章维持 `extension/shared/chapter-outline.ts` 优先级（简介时间戳目录 > 站点官方/自动章节 > AI 自由分章）；对话工具循环（`extension/ai/tool-loop.ts`）与阶梯探测（`extension/ai/ladder.ts`）依据站点能力门控在 YouTube 启用 `capture_current_video_frame` 与 `capture_video_frame_at_time`。
 
 ## 考虑过的方案
 

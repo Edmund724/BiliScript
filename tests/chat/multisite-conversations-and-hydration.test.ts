@@ -748,8 +748,12 @@ describe("context-assembly 跨站装配与 chat-tab 运行时门控", () => {
       currentTime: 42.5
     });
 
-    await expect(typedDeps.captureCurrentVideoFrame!(12)).rejects.toThrow("当前站点不支持历史时间点截帧");
-    expect(frameCaptureMock.captureHistoricalVideoFrame).not.toHaveBeenCalled();
+    const histFrames = await typedDeps.captureCurrentVideoFrame!(12);
+    expect(frameCaptureMock.captureHistoricalVideoFrame).toHaveBeenCalledWith(
+      { site: "youtube", bvid: rawVideoId, cid: "yt", targetTime: 12 },
+      { signal: undefined }
+    );
+    expect(histFrames).toEqual([{ image: { mime: "image/jpeg", data: "BAUG" }, currentTime: 10 }]);
   });
 
   it("chat-tab 在 YouTube 下读取主播放器播放游标并向 capturePageVideoFrame 透传站点感知 getVideo", async () => {
