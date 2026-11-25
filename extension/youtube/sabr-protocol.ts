@@ -196,6 +196,8 @@ export function generateCpn(length = 16): string {
 
 export function buildSabrRequestUrl(baseUrl: string, cpn: string, rn: number): string {
   const parsed = new URL(baseUrl);
+  parsed.searchParams.delete("rbuf");
+  parsed.searchParams.delete("range");
   parsed.searchParams.set("cpn", cpn);
   parsed.searchParams.set("alr", "no");
   parsed.searchParams.set("rn", String(Math.max(0, Math.floor(rn))));
@@ -401,32 +403,32 @@ export function rewriteSabrAbrRequest(options: RewriteSabrRequestOptions): Uint8
     ])
   );
 
-  const streamerCtxReplacements = new Map<number, Uint8Array[] | null>();
-  if (options.playbackCookie && options.playbackCookie.length > 0) {
-    streamerCtxReplacements.set(3, [encodeBytesField(3, options.playbackCookie)]);
-  }
-  if (options.sabrContexts && options.sabrContexts.length > 0) {
-    streamerCtxReplacements.set(
+  const streamerCtxReplacements = new Map<number, Uint8Array[] | null>([
+    [
+      3,
+      options.playbackCookie && options.playbackCookie.length > 0
+        ? [encodeBytesField(3, options.playbackCookie)]
+        : null
+    ],
+    [
       5,
-      options.sabrContexts.map((ctx) => encodeBytesField(5, ctx))
-    );
-  } else {
-    streamerCtxReplacements.set(5, null);
-  }
-  if (options.unsentContextTypes && options.unsentContextTypes.length > 0) {
-    streamerCtxReplacements.set(
+      options.sabrContexts && options.sabrContexts.length > 0
+        ? options.sabrContexts.map((ctx) => encodeBytesField(5, ctx))
+        : null
+    ],
+    [
       6,
-      options.unsentContextTypes.map((t) => encodeVarintField(6, t))
-    );
-  } else {
-    streamerCtxReplacements.set(6, null);
-  }
+      options.unsentContextTypes && options.unsentContextTypes.length > 0
+        ? options.unsentContextTypes.map((t) => encodeVarintField(6, t))
+        : null
+    ]
+  ]);
   const nextStreamerCtx = replaceProtoFields(existingStreamerCtx, streamerCtxReplacements);
 
   const formatIdBytes = encodeFormatId(options.targetFormat);
   const topReplacements = new Map<number, Uint8Array[] | null>([
     [1, [encodeBytesField(1, nextAbrState)]],
-    [2, [encodeBytesField(2, formatIdBytes)]],
+    [2, options.bufferedRange ? [encodeBytesField(2, formatIdBytes)] : null],
     [
       3,
       options.bufferedRange
@@ -452,9 +454,6 @@ export function synthesizeSabrTemplateBody(options: SynthesizeSabrTemplateOption
   if (options.poToken && options.poToken.length > 0) {
     streamerCtxParts.push(encodeBytesField(2, options.poToken));
   }
-  if (options.ustreamerConfig.length > 0) {
-    streamerCtxParts.push(encodeBytesField(4, options.ustreamerConfig));
-  }
 
   const clientAbrState = concatByteArrays([
     encodeVarintField(28, 0),
@@ -466,7 +465,9 @@ export function synthesizeSabrTemplateBody(options: SynthesizeSabrTemplateOption
 
   return concatByteArrays([
     encodeBytesField(1, clientAbrState),
-    encodeBytesField(2, formatIdBytes),
+    ...(options.ustreamerConfig.length > 0
+      ? [encodeBytesField(5, options.ustreamerConfig)]
+      : []),
     encodeBytesField(16, formatIdBytes),
     encodeBytesField(19, concatByteArrays(streamerCtxParts))
   ]);

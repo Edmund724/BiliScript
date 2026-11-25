@@ -271,7 +271,13 @@ async function runSabrSession(
     ? (streamingData.adaptiveFormats as YoutubeAdaptiveFormatLike[])
     : [];
   const activeAudioTrackId = readActiveAudioTrackId(player);
-  const sniffed = getSniffedTemplate(videoId);
+  let sniffed = getSniffedTemplate(videoId);
+  if (!sniffed) {
+    for (let waitIdx = 0; waitIdx < 10 && !sniffed && !signal.aborted; waitIdx += 1) {
+      await sleepAbortable(150, signal);
+      sniffed = getSniffedTemplate(videoId);
+    }
+  }
 
   const selectedFormat = selectTargetYoutubeAudioFormat(adaptiveFormats, {
     activeAudioTrackId,
@@ -284,9 +290,11 @@ async function runSabrSession(
 
   let baseUrl = "";
   let templateBody: Uint8Array | null = null;
+  let usedSniffedTemplate = false;
   if (sniffed) {
     baseUrl = sniffed.url;
     templateBody = sniffed.body;
+    usedSniffedTemplate = true;
   } else {
     const candidate = extractParameterCandidate(playerResponse, selectedFormat);
     if (!candidate) {
@@ -387,7 +395,18 @@ async function runSabrSession(
     const reqUrl = buildSabrRequestUrl(baseUrl, cpn, rn);
     rn += 1;
 
-    const rawResp = await fetchSabrRound(reqUrl, reqBody, signal);
+    let rawResp: Uint8Array;
+    try {
+      rawResp = await fetchSabrRound(reqUrl, reqBody, signal);
+    } catch (err) {
+      if (!usedSniffedTemplate && (err as { status?: number })?.status === 403) {
+        throw Object.assign(
+          new Error("尚未捕获到已签名播放器音频流（HTTP 403），请播放视频 1–2 秒后再重试语音转写。"),
+          { code: "NO_SIGNED_SABR_URL", status: 403 }
+        );
+      }
+      throw err;
+    }
     if (signal.aborted) return;
 
     const parsed = parseUmpResponse(rawResp);

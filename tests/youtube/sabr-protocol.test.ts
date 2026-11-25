@@ -128,10 +128,10 @@ describe("SABR Protobuf 模板改写与合成", () => {
     });
     const top = readProtoFields(body);
     expect(top.some((f) => f.fieldNumber === 1)).toBe(true);
+    expect(Array.from(top.find((f) => f.fieldNumber === 5)!.bytes!)).toEqual([7, 8, 9]);
     expect(top.some((f) => f.fieldNumber === 16)).toBe(true);
     const ctxFields = readProtoFields(top.find((f) => f.fieldNumber === 19)!.bytes!);
     expect(Array.from(ctxFields.find((f) => f.fieldNumber === 2)!.bytes!)).toEqual([1, 2]);
-    expect(Array.from(ctxFields.find((f) => f.fieldNumber === 4)!.bytes!)).toEqual([7, 8, 9]);
   });
 });
 
