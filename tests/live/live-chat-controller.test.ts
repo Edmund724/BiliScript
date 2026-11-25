@@ -291,6 +291,57 @@ describe("LiveChatController", () => {
     await controller.stop();
   });
 
+  it("配置缺失失败态在凭证就绪后经 refreshTarget 转为可重试；仍缺 Key 时保持原失败态", async () => {
+    let providers: Array<Record<string, unknown>> = [
+      { id: "moss-1", presetId: "moss-live", name: "MOSS", type: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-live-1.0", enabled: true, hasSavedKey: false }
+    ];
+    let aiProviders: Array<Record<string, unknown>> = [];
+    let aiKeys: Record<string, string> = {};
+    let failureResponse = { ok: false, failureKind: "key-missing", error: "未配置密钥" };
+
+    const { controller } = setupTest({
+      sendRuntimeMessage: vi.fn(async (msg: any) => {
+        const table: Record<string, () => unknown> = {
+          "live-providers-list": () => ({ ok: true, providers }),
+          "get-settings": () => ({ ok: true, settings: { activeLiveProviderId: String(providers[0]?.id || "") } }),
+          "live-session-prepare": () => failureResponse,
+          "ai-providers-list": () => ({ ok: true, providers: aiProviders }),
+          "get-ai-provider-key": () => ({ ok: true, apiKey: aiKeys[String(msg.providerId || "")] || "" })
+        };
+        return (table[msg.type] ?? (() => ({ ok: true })))();
+      })
+    });
+
+    await controller.start();
+    expect(controller.getState()).toBe("failure");
+    expect(controller.getLastFailureKind()).toBe("key-missing");
+
+    await controller.refreshTarget();
+    expect(controller.getLastFailureKind()).toBe("key-missing");
+
+    providers = [{ ...providers[0], hasSavedKey: true }];
+    await controller.refreshTarget();
+    expect(controller.getState()).toBe("failure");
+    expect(controller.getLastFailureKind()).toBe("unknown");
+
+    providers = [
+      { id: "gemini-1", presetId: "gemini-live", name: "Gemini", type: "gemini-live", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-3.8-live", enabled: true, hasSavedKey: false }
+    ];
+    failureResponse = { ok: false, failureKind: "gemini-credential", error: "缺少 Gemini Key" };
+    await controller.stop();
+    await controller.start();
+    expect(controller.getLastFailureKind()).toBe("gemini-credential");
+
+    aiProviders = [
+      { id: "ai-gem", presetId: "gemini", baseUrl: "https://generativelanguage.googleapis.com", enabled: true, hasSavedKey: true }
+    ];
+    aiKeys = { "ai-gem": "gem-secret" };
+    await controller.refreshTarget();
+    expect(controller.getState()).toBe("failure");
+    expect(controller.getLastFailureKind()).toBe("unknown");
+    await controller.stop();
+  });
+
   it("initiates permission request synchronously from start before any await tick", () => {
     let permCalled = false;
     const requestOrigins = vi.fn(async () => {

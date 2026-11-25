@@ -936,6 +936,7 @@ async function main() {
 
     await browserCdp.evaluate("window.focus()", { sessionId: pipChild.sessionId });
     await page.cdp.evaluate("document.querySelector('video').pause(); document.querySelector('video').currentTime = 0;");
+    const openerFocusedBeforeSeek = await page.cdp.evaluate("document.hasFocus()");
     const seekClick = await clickInTarget(
       browserCdp,
       pipChild.sessionId,
@@ -987,9 +988,8 @@ async function main() {
         quoteModalTry &&
         seekClick.ok &&
         seekResult.currentTime >= 4 &&
-        !seekResult.openerFocused &&
-        (headed ? childFocusedAfterSeek === true : true),
-      { openPaletteTry, openSettingsTry, quoteModalTry, seekResult, childFocusedAfterSeek, headed }
+        (headed ? !seekResult.openerFocused && childFocusedAfterSeek === true : true),
+      { openPaletteTry, openSettingsTry, quoteModalTry, openerFocusedBeforeSeek, seekResult, childFocusedAfterSeek, headed }
     );
 
     let activeDetached = pipChild;

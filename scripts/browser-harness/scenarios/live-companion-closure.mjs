@@ -458,7 +458,7 @@ async function socketSummary(offscreen) {
 
 async function readClipIdentity(page) {
   return evaluateInContentScript(page, `(() => {
-    const stateObj = globalThis.__BILISCRIPT_STATE__ || globalThis.__BILISCRIPT_RT__?.["core/state.ts"]?.state;
+    const stateObj = globalThis.__BILISCRIPT_STATE__?.state || globalThis.__BILISCRIPT_RT__?.["core/state.ts"]?.state;
     if (!stateObj?.clip) return null;
     return {
       __biliscriptContentScriptLoaded: true,
@@ -1028,6 +1028,10 @@ try {
     const sockets = await socketSummary(offscreen);
     return sockets.length === socketsBeforeTakeover.length + 1 && sockets[oldSocketIndex]?.closed === true && sockets.at(-1)?.closed === false;
   });
+  await waitFor("旧标签浮窗隐藏", () => page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById("biliscript-fullscreen-live-overlay");
+    return !overlay || overlay.hidden;
+  })()`));
   results.crossTabTakeover = {
     tabA: await page.cdp.evaluate(`(() => ({
       pressed: document.getElementById("biliscript-player-live-quick-action")?.getAttribute("aria-pressed"),

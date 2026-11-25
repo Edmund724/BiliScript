@@ -246,12 +246,26 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
   function bindWatchers(): void {
     if (!unsubscribeStorageWatcher) {
       unsubscribeStorageWatcher = watchStorageKeys(
-        () => {
+        (changes, areaName) => {
+          const isAiCredentialChange = areaName === "sync"
+            ? Object.prototype.hasOwnProperty.call(changes, "aiProviders")
+            : Object.prototype.hasOwnProperty.call(changes, "aiProviderKeys");
+          const isLiveChange = areaName === "sync"
+            ? Object.prototype.hasOwnProperty.call(changes, "liveProviders") ||
+              Object.prototype.hasOwnProperty.call(changes, "activeLiveProviderId")
+            : Object.prototype.hasOwnProperty.call(changes, "liveProviderKeys");
+          if (
+            !isLiveChange &&
+            isAiCredentialChange &&
+            controller?.getLastFailureKind?.() !== "gemini-credential"
+          ) {
+            return;
+          }
           void controller?.refreshTarget();
         },
         {
-          sync: ["liveProviders", "activeLiveProviderId"],
-          local: ["liveProviderKeys"]
+          sync: ["liveProviders", "activeLiveProviderId", "aiProviders"],
+          local: ["liveProviderKeys", "aiProviderKeys"]
         }
       );
     }

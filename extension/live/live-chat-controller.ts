@@ -19,6 +19,11 @@ import {
   type LiveProvider
 } from "./live-provider-store.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
+import {
+  isOfficialAiCredentialEndpoint,
+  queryAiCredentialKey,
+  type AiCredentialMessageSender
+} from "../core/ai-credential-reference.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
@@ -59,6 +64,12 @@ import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messa
 
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export const DEFAULT_LIVE_DUCK_RATIO = 0.2;
+
+const CONFIG_FAILURE_KINDS = new Set<LiveFailureKind>([
+  "provider-unconfigured",
+  "key-missing",
+  "gemini-credential"
+]);
 
 function classifyConnectionFailure(
   providerType: LiveProviderType,
@@ -347,7 +358,31 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       : [];
   }
 
+  async function isActiveTargetCredentialReady(
+    active: (LiveProvider & { hasSavedKey?: boolean }) | undefined,
+    providerType: LiveProviderType
+  ): Promise<boolean> {
+    if (!active) return false;
+    if (providerType === "gemini-live") {
+      if (!isOfficialAiCredentialEndpoint("gemini-live", active.baseUrl)) {
+        return false;
+      }
+      const cred = await queryAiCredentialKey(
+        "gemini-live",
+        sendRuntimeMessage as unknown as AiCredentialMessageSender
+      );
+      return cred.status === "ok" && Boolean(cred.key);
+    }
+    return active.hasSavedKey === true;
+  }
+
   async function refreshTarget(): Promise<void> {
+    const generationAtStart = currentGeneration;
+    const failureKindAtStart = lastFailureKind;
+    const shouldRecheckFailure =
+      state === "failure" &&
+      failureKindAtStart !== undefined &&
+      CONFIG_FAILURE_KINDS.has(failureKindAtStart);
     try {
       const [providers, settingsResp] = await Promise.all([
         loadLiveProvidersList(),
@@ -395,6 +430,17 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         try {
           activePort.postMessage({ action: "change_voice", voiceId: nextVoiceId });
         } catch {}
+      }
+      if (shouldRecheckFailure) {
+        const ready = await isActiveTargetCredentialReady(active, activeTargetProviderType);
+        if (
+          ready &&
+          generationAtStart === currentGeneration &&
+          state === "failure" &&
+          lastFailureKind === failureKindAtStart
+        ) {
+          updateUi("failure", "", "unknown");
+        }
       }
     } catch {
     }

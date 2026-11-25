@@ -9,6 +9,7 @@ import {
   syncPlayerLiveToggleButton
 } from "../../extension/live/live-overlay-binding.js";
 import type { LiveChatControllerDeps, LiveChatState } from "../../extension/live/live-chat-controller.js";
+import { createChatLiveStatus } from "../../extension/reader/chat-live-status.js";
 import { state } from "../../extension/core/state.js";
 
 function createFakeControllerHarness(initialState: LiveChatState = "idle") {
@@ -442,5 +443,158 @@ describe("live/live-overlay-binding 共用浮窗挂载、控制器生命周期�
     mountControlBarLiveToggle(wrap, host, { fallbackToHost: true });
     expect(host.contains(wrap)).toBe(true);
     vi.useRealTimers();
+  });
+
+  it("处于 key-missing 时保存 Key 后浮窗与状态条显示重试，点击即发起重连", async () => {
+    let storageListener: (changes: Record<string, unknown>, area: string) => void = () => {};
+    const addListener = vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((fn: any) => {
+      storageListener = fn;
+    });
+
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+
+    const statusRoot = document.createElement("section");
+    statusRoot.className = "chat-live-status";
+    statusRoot.innerHTML = `
+      <span class="chat-live-status-text"></span>
+      <div class="chat-live-status-actions">
+        <button type="button" data-live-status-action="cancel" hidden>取消</button>
+        <button type="button" data-live-status-action="restore" hidden>显示浮窗</button>
+        <button type="button" data-live-status-action="retry" hidden>重试</button>
+        <button type="button" data-live-status-action="settings" hidden>伴看设置</button>
+        <button type="button" data-live-status-action="stop" hidden>结束</button>
+      </div>
+      <div class="chat-live-tool-records" hidden></div>
+    `;
+    document.body.appendChild(statusRoot);
+
+    let hasSavedKey = false;
+    const ports: Array<{
+      postMessage: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+      onMessage: { addListener: (fn: (msg: unknown) => void) => void };
+      onDisconnect: { addListener: (fn: () => void) => void };
+      emit: (msg: unknown) => void;
+    }> = [];
+    const sendRuntimeMessage = vi.fn(async (msg: { type: string }) => {
+      const table: Record<string, () => unknown> = {
+        "live-providers-list": () => ({
+          ok: true,
+          providers: [
+            {
+              id: "moss-1",
+              presetId: "moss-live",
+              name: "MOSS",
+              type: "moss-live",
+              baseUrl: "https://api.mosi.cn",
+              model: "moss-live-1.0",
+              enabled: true,
+              hasSavedKey
+            }
+          ]
+        }),
+        "get-settings": () => ({ ok: true, settings: { activeLiveProviderId: "moss-1" } }),
+        "live-session-prepare": () =>
+          hasSavedKey
+            ? {
+                ok: true,
+                provider: {
+                  id: "moss-1",
+                  presetId: "moss-live",
+                  name: "MOSS",
+                  type: "moss-live",
+                  baseUrl: "https://api.mosi.cn",
+                  model: "moss-live-1.0",
+                  enabled: true,
+                  hasSavedKey: true
+                }
+              }
+            : { ok: false, failureKind: "key-missing", error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" }
+      };
+      return (table[msg.type] ?? (() => ({ ok: true })))();
+    });
+
+    const connectPort = vi.fn(() => {
+      const listeners: Array<(msg: unknown) => void> = [];
+      const port = {
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onMessage: { addListener: (fn: (msg: unknown) => void) => { listeners.push(fn); } },
+        onDisconnect: { addListener: vi.fn() },
+        emit: (msg: unknown) => listeners.forEach((fn) => fn(msg))
+      };
+      ports.push(port);
+      return port as unknown as chrome.runtime.Port;
+    });
+
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      createControllerDeps: () => ({
+        sendRuntimeMessage: sendRuntimeMessage as any,
+        requestOrigins: vi.fn(async () => ({ ok: true })),
+        startAudioCapture: vi.fn(async () => ({
+          isMuted: () => false,
+          setMuted: vi.fn(),
+          setAiSpeaking: vi.fn(),
+          setShareVideoAudio: vi.fn(),
+          isSharingVideoAudio: () => false,
+          getVideoAudioStatus: () => "未开启" as const,
+          isMicVadActive: () => false,
+          isVoiceRecentlyActive: () => true,
+          stop: vi.fn()
+        })),
+        connectPort
+      })
+    });
+
+    const chatLiveStatus = createChatLiveStatus({
+      root: statusRoot,
+      getState: () => binding.getController()?.getState() ?? "idle",
+      isReconnecting: () => false,
+      getLastError: () => binding.getController()?.getLastError(),
+      getLastFailureKind: () => binding.getController()?.getLastFailureKind(),
+      onRetry: () => {
+        void binding.retry();
+      },
+      onStop: () => {
+        void binding.stop();
+      },
+      onRestore: () => binding.restoreOverlay(),
+      onOpenSettings: vi.fn()
+    });
+    binding.setConsumerHooks({
+      onStateChange: (liveState, error, failureKind) => {
+        chatLiveStatus.sync(liveState, error, failureKind);
+      }
+    });
+    chatLiveStatus.setOpen(true);
+
+    expect(await binding.start()).toBe(false);
+    expect(binding.getController()?.getLastFailureKind()).toBe("key-missing");
+    const statusRetryBtn = statusRoot.querySelector<HTMLButtonElement>('[data-live-status-action="retry"]')!;
+    const overlayRetryBtn = binding.getOverlay()?.getElement()?.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")!;
+    expect(statusRetryBtn.hidden).toBe(true);
+    expect(overlayRetryBtn.hidden).toBe(true);
+    expect(connectPort).not.toHaveBeenCalled();
+
+    hasSavedKey = true;
+    storageListener({ liveProviderKeys: { newValue: { "moss-1": "sk-moss-new" } } }, "local");
+
+    await vi.waitFor(() => {
+      expect(statusRetryBtn.hidden).toBe(false);
+      expect(overlayRetryBtn.hidden).toBe(false);
+    });
+    expect(statusRoot.querySelector<HTMLButtonElement>('[data-live-status-action="settings"]')?.hidden).toBe(true);
+
+    statusRetryBtn.click();
+    await vi.waitFor(() => expect(connectPort).toHaveBeenCalledTimes(1));
+    ports[0].emit({ type: "connected" });
+
+    expect(binding.isActive()).toBe(true);
+    expect(statusRoot.dataset.state).toBe("connected");
+    binding.dispose();
+    addListener.mockRestore();
   });
 });
