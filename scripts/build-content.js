@@ -866,11 +866,28 @@ function getResidentOptions(sharedGroupActive) {
     RESIDENT_RT_EXPORTS.map(
       (item) => `rt[${JSON.stringify(item.id)}] = { ${item.names.join(", ")} };`
     ).join("\n");
-  const mergedCode = `
-import "./entry/content.ts";
+  const preludeCode = `
 ${rtImports}
 ${rtAssignments}
 ${buildLoadChunkRuntimeSnippet()}
+`;
+  const preludePlugin = {
+    name: "b2-resident-prelude",
+    setup(buildApi) {
+      buildApi.onResolve({ filter: /^b2-resident-prelude$/ }, () => ({
+        path: "b2-resident-prelude",
+        namespace: "b2-resident-prelude",
+      }));
+      buildApi.onLoad({ filter: /.*/, namespace: "b2-resident-prelude" }, () => ({
+        contents: preludeCode,
+        resolveDir: extensionRoot,
+        loader: "ts",
+      }));
+    },
+  };
+  const mergedCode = `
+import "b2-resident-prelude";
+import "./entry/content.ts";
 `;
   return {
     stdin: { contents: mergedCode, resolveDir: extensionRoot, loader: "ts", sourcefile: "content-resident-entry.ts" },
@@ -885,6 +902,7 @@ ${buildLoadChunkRuntimeSnippet()}
     define: targetDefine,
     plugins: [
       localImportGuard,
+      preludePlugin,
       createDynamicGroupBridgePlugin("__resident__", {
         shimResidentRt: false,
         sharedGroupActive,
