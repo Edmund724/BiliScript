@@ -16,8 +16,8 @@
 `extension/manifest.json` 保持为 Chromium 单一事实源；`pnpm build:firefox`（`--target=firefox`）纯函数派生 `dist-firefox/manifest.json`：
 
 - 将 `background.service_worker` 转为 Event Page `{ "scripts": ["entry/background.js"], "type": "module" }`；
-- 移除 `"offscreen"`、`"tts"`、顶层 `"minimum_chrome_version"` 及 `https://live.bilibili.com/*` 内容脚本与资源匹配项；
-- 从 `extension/core/presets.ts` 的 `PRESETS`（含 `protocolBaseUrls`）与 `ASR_PROVIDER_PRESETS` 自动提取全部官方 HTTPS 域名并入常驻 `host_permissions`（共 **28 个常驻域**，不含 `localhost` 与空 `custom`）；
+- 移除 `"offscreen"`、`"tts"`、顶层 `"minimum_chrome_version"`、`https://live.bilibili.com/*`（含 `host_permissions` 与内容脚本）以及 `entry/chunks/pcm-capture-worklet.mjs` 后清空 `web_accessible_resources`；
+- 从 `extension/core/presets.ts` 的 `PRESETS`（含 `protocolBaseUrls`）与 `ASR_PROVIDER_PRESETS` 自动提取全部官方 HTTPS 域名并入常驻 `host_permissions`（剔除 `live.bilibili.com/*` 后共 **29 个常驻域**，不含 `localhost` 与空 `custom`）；
 - **显式声明 `content_security_policy: { extension_pages: "script-src 'self'" }`**：Firefox MV3 默认 `extension_pages` CSP 隐含 `upgrade-insecure-requests`，若不显式覆盖，会把后台 Event Page 连往本机 Agent Bridge（`ws://127.0.0.1`）与本地推理服务（`http://localhost` Ollama / Whisper）的明文连接强升为 `wss://` / `https://` 导致握手失败。
 
 ### 3. Event Page 隐藏 `iframe` 承载 Offscreen 与 DNR 源适配（`extension/core/offscreen-host.ts`）
@@ -28,7 +28,7 @@
 ### 4. 无端口 Match Pattern 与自定义域独立弹窗授权
 
 - Firefox Match Pattern 禁止携带显式端口（如 `http://localhost:11434/*` 非法），`core/host-permissions.ts` 通过 `toPermissionMatchPattern` 统一剥离端口为 `${protocol}//${hostname}/*`。
-- Firefox 不将网页 Content Script 转发的消息视为合法扩展用户手势。`core/host-permission-handlers.ts` 保持入口零 `await` 同步调 `chrome.permissions.request`（兼容 Chromium 手势链）；当 Firefox 因手势缺失抛错时，先经 `permissions.contains` 复核（命中 28 个常驻预设域直接放行），确属未授权自定义反代或本地地址时打开 `entry/permission-grant.html` 弹窗（配 `permission-grant-keepalive` 端口防等待期 Event Page 休眠）由用户单击完成原生授权。
+- Firefox 不将网页 Content Script 转发的消息视为合法扩展用户手势。`core/host-permission-handlers.ts` 保持入口零 `await` 同步调 `chrome.permissions.request`（兼容 Chromium 手势链）；当 Firefox 因手势缺失抛错时，先经 `permissions.contains` 复核（命中 29 个常驻预设域直接放行），确属未授权自定义反代或本地地址时打开 `entry/permission-grant.html` 弹窗（配 `permission-grant-keepalive` 端口防等待期 Event Page 休眠）由用户单击完成原生授权。
 
 ### 5. `XrayWrapper`、CSS 滚动条隔离与功能门控边界
 

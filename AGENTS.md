@@ -12,7 +12,7 @@ DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 �
 
 目标平台为 **Chromium（最低 Chrome 120）** 与 **桌面端 Firefox（最低 Firefox 153，不适配 Android）**，架构边界与功能门控以 `docs/adr/0017-firefox-desktop-compatibility.md` 为准：
 
-- **构建与清单**：`extension/manifest.json` 保持为 Chromium 单一事实源（`dist/`）；Firefox 构建通过 `--target=firefox`（`pnpm build:firefox`）派生 `dist-firefox/manifest.json`（Event Page `background.scripts`、28 个常驻 `host_permissions`、`gecko` 与 `data_collection_permissions`）。
+- **构建与清单**：`extension/manifest.json` 保持为 Chromium 单一事实源（`dist/`）；Firefox 构建通过 `--target=firefox`（`pnpm build:firefox`）派生 `dist-firefox/manifest.json`（Event Page `background.scripts`、剔除 `live.bilibili.com/*` 后的 29 个常驻 `host_permissions`、清空 `web_accessible_resources`、`gecko` 与 `data_collection_permissions`）。
 - **Offscreen 宿主**：Chromium 走 `chrome.offscreen`；Firefox 走后台 Event Page 动态挂载隐藏 `iframe`（方案 A，收口于 `extension/core/offscreen-host.ts`），保持跨帧 `runtime.Port` / `runtime.onMessage` 与 256 KB 后台体积守卫不变。
 - **首期范围与样式红线**：Firefox 首期交付核心文摘阅读、双轨翻译、概览、对话、金句导出、Agent 桥接与无字幕 ASR 转写，门控隐藏 `tts` 朗读与 `live` 实时伴看入口；Firefox 滚动条样式必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写 `scrollbar-width` / `scrollbar-color` 破坏 Chrome 121+ 的 `::-webkit-scrollbar`。
 

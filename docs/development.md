@@ -62,7 +62,7 @@ extension/
 └── icons/                 # 扩展图标资源
 ```
 
-- **构建产物边界**：`extension/entry/content-bootstrap.iife.js`、`extension/entry/content-main.mjs` 与 `extension/entry/chunks/` 由构建脚本自动生成，请勿手动编辑。
+- **构建产物边界**：`extension/entry/content-resident.iife.js` 与 `extension/entry/chunks/` 由构建脚本自动生成，请勿手动编辑。
 - **运行时依赖**：生产依赖仅包含 `katex`（LaTeX 公式排版）与按需懒加载的 `mermaid`（流程图与时序图渲染），不影响常驻包体积。
 
 ## 评测基准与架构文档
