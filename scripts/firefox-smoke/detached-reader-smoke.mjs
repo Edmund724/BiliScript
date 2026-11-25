@@ -718,7 +718,7 @@ async function findAndClick(client, selector, label) {
           `if (location.href !== "about:blank") return false;
            const el = document.querySelector(arguments[0]);
            if (!el) return false;
-           el.click();
+           setTimeout(() => el.click(), 0);
            return true;`,
           [selector]
         );
