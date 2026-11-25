@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { rm } from "node:fs/promises";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
   CDP,
   DEFAULT_DIST,
@@ -39,8 +39,6 @@ const fixtureRoot = path.join(REPO_ROOT, "tests/fixtures/bilibili/bilingual-walk
 const bundles = JSON.parse(readFileSync(path.join(fixtureRoot, "bundles.json"), "utf8"));
 const bodies = JSON.parse(readFileSync(path.join(fixtureRoot, "bodies.json"), "utf8"));
 const subtitleBody = bodies[`${BVID}-zh`];
-const stateChunkFile = readdirSync(path.join(DEFAULT_DIST, "entry", "chunks")).find((file) => /^state-.*\.mjs$/.test(file));
-if (!stateChunkFile) throw new Error("找不到内容脚本 state chunk");
 
 const READER_STYLE_PATHS = [
   "entry/styles/tokens-primitive.css",
@@ -409,18 +407,19 @@ async function evaluateInContentScript(page, expression) {
 }
 
 async function readM1ClipSnapshot(page) {
-  return evaluateInContentScript(page, `(async () => {
-    const module = await import(chrome.runtime.getURL("entry/chunks/${stateChunkFile}"));
-    const subtitles = module.state.clip.subtitleBody;
+  return evaluateInContentScript(page, `(() => {
+    const stateObj = globalThis.__BILISCRIPT_STATE__ || globalThis.__BILISCRIPT_RT__?.["core/state.ts"]?.state;
+    if (!stateObj?.clip) return null;
+    const subtitles = stateObj.clip.subtitleBody;
     const previous = subtitles.length > 0 ? globalThis.__m1SubtitleRef || null : null;
     if (!previous && subtitles.length > 0) globalThis.__m1SubtitleRef = subtitles;
     return {
       __biliscriptContentScriptLoaded: true,
       href: location.href,
-      currentUrl: module.state.clip.currentUrl,
-      signature: module.state.clip.currentClipSignature,
-      fetchRunId: module.state.clip.fetchRunId,
-      title: module.state.clip.title,
+      currentUrl: stateObj.clip.currentUrl,
+      signature: stateObj.clip.currentClipSignature,
+      fetchRunId: stateObj.clip.fetchRunId,
+      title: stateObj.clip.title,
       subtitleCount: subtitles.length,
       firstSubtitle: subtitles[0]?.content || "",
       subtitleSameRef: previous ? previous === subtitles : null

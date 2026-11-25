@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import os from "node:os";
-import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import {
   CDP,
@@ -35,9 +35,22 @@ const cdps = [];
 const fixtureRoot = path.join(REPO_ROOT, "tests", "fixtures", "bilibili", "bilingual-walkthrough");
 const bundles = JSON.parse(readFileSync(path.join(fixtureRoot, "bundles.json"), "utf8"));
 const bodies = JSON.parse(readFileSync(path.join(fixtureRoot, "bodies.json"), "utf8"));
+function parseCliArgs(argv) {
+  let baseDistDir = DEFAULT_DIST;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg.startsWith("--dist=")) {
+      baseDistDir = path.resolve(arg.slice("--dist=".length));
+    } else if (arg === "--dist" && i + 1 < argv.length) {
+      baseDistDir = path.resolve(argv[i + 1]);
+      i += 1;
+    }
+  }
+  return { baseDistDir };
+}
+
+const { baseDistDir } = parseCliArgs(process.argv.slice(2));
 const subtitleBody = bodies[`${VIDEO_BVID}-zh`];
-const stateChunkFile = (await readdir(path.join(DEFAULT_DIST, "entry", "chunks"))).find((file) => /^state-.*\.mjs$/.test(file));
-if (!stateChunkFile) throw new Error("找不到内容脚本 state chunk");
 
 function check(name, ok, detail = null) {
   const entry = { name, ok: Boolean(ok), detail };
@@ -62,7 +75,7 @@ video{width:100%;height:100%;background:#050505}.controls{position:absolute;righ
 
 async function createHarnessDist() {
   const distDir = await mkdtemp(path.join(os.tmpdir(), "biliscript-live-closure-dist-"));
-  await cp(DEFAULT_DIST, distDir, { recursive: true });
+  await cp(baseDistDir, distDir, { recursive: true });
   const manifestPath = path.join(distDir, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   manifest.host_permissions = [...new Set([
@@ -434,17 +447,18 @@ async function socketSummary(offscreen) {
 }
 
 async function readClipIdentity(page) {
-  return evaluateInContentScript(page, `(async () => {
-    const module = await import(chrome.runtime.getURL("entry/chunks/${stateChunkFile}"));
+  return evaluateInContentScript(page, `(() => {
+    const stateObj = globalThis.__BILISCRIPT_STATE__ || globalThis.__BILISCRIPT_RT__?.["core/state.ts"]?.state;
+    if (!stateObj?.clip) return null;
     return {
       __biliscriptContentScriptLoaded: true,
       href: location.href,
-      currentUrl: module.state.clip.currentUrl,
-      currentClipSignature: module.state.clip.currentClipSignature,
-      bvid: module.state.clip.bvid,
-      cid: module.state.clip.cid,
-      pageIndex: module.state.clip.pageIndex,
-      subtitleFetchState: module.state.clip.subtitleFetchState
+      currentUrl: stateObj.clip.currentUrl,
+      currentClipSignature: stateObj.clip.currentClipSignature,
+      bvid: stateObj.clip.bvid,
+      cid: stateObj.clip.cid,
+      pageIndex: stateObj.clip.pageIndex,
+      subtitleFetchState: stateObj.clip.subtitleFetchState
     };
   })()`);
 }
