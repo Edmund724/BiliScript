@@ -849,7 +849,7 @@ describe("YouTube 平台自动字幕分类、标签与自动断句", () => {
 });
 
 describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
-  it("正常抓取写入 raw 11 位 videoId + cid=yt、跳过热评与 ASR、生成作者元行与导出文件名", async () => {
+  it("正常抓取写入 raw 11 位 videoId + cid=yt、不触发 B 站热评与 ASR、生成作者元行与导出文件名", async () => {
     const rawUnderscoreId = "_a_b-C12_34";
     setLocationUrl(`https://www.youtube.com/watch?v=${rawUnderscoreId}`);
     const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");

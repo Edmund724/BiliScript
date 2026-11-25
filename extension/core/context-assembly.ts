@@ -2,7 +2,7 @@ import { buildAiContextRef } from "../ai/conversation.js";
 import type { AiContext } from "../ai/types.js";
 import { extractVideoId } from "../bilibili/video-id-shared.js";
 import { fetchHotCommentsWithLedger } from "../bilibili/gateway.js";
-import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
+import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId, type SiteId } from "../shared/site.js";
 import {
   createReaderContextPayload,
   computeContextStateSignature
@@ -32,7 +32,11 @@ export interface InProcessContextFetchDeps {
   verifyPageIdentity?: boolean;
 }
 
-async function defaultFetchHotComments(): Promise<HotComment[]> {
+async function defaultFetchHotComments(site: SiteId, bvid: string): Promise<HotComment[]> {
+  if (site === "youtube") {
+    const ytGateway = await import("../youtube/gateway.js");
+    return (await ytGateway.fetchYoutubeHotCommentsWithLedger(bvid)).comments;
+  }
   return (await fetchHotCommentsWithLedger()).comments;
 }
 
@@ -52,7 +56,7 @@ export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}
   const getClip = deps.clip || (() => ({}));
   const getSettings = deps.settings || (() => DEFAULT_SETTINGS);
   const getUrl = deps.url || (() => (typeof location !== "undefined" ? location.href : ""));
-  const fetchHotComments = deps.fetchHotComments || defaultFetchHotComments;
+  const customFetchHotComments = deps.fetchHotComments;
   const verifyPageIdentity = deps.verifyPageIdentity !== false;
 
   return async function fetchContext({ forceRefresh, ifSignature }: ContextFetchOptions): Promise<ContextFetchOutcome> {
@@ -68,7 +72,9 @@ export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}
       return { kind: "payload", tabUrl, payload: { unchanged: true } };
     }
     const hotComments = getSiteCapabilities(payload.site).supportsHotComments
-      ? await fetchHotComments()
+      ? customFetchHotComments
+        ? await customFetchHotComments()
+        : await defaultFetchHotComments(payload.site, payload.bvid)
       : [];
     return {
       kind: "payload",

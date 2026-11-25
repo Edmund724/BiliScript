@@ -707,7 +707,7 @@ describe("YouTube IDB 水合、分P守卫与缓存淘汰只读守卫", () => {
 });
 
 describe("context-assembly 跨站装配与 chat-tab 运行时门控", () => {
-  it("createInProcessContextFetch 在 YouTube 页跳过热评并透传 site=\"youtube\"", async () => {
+  it("createInProcessContextFetch 在 YouTube 页拉取热评并透传 site=\"youtube\"", async () => {
     const fetchHotComments = vi.fn(async () => [{ uname: "u", like: 1, message: "m" }]);
     const fetchContext = createInProcessContextFetch({
       url: () => "https://www.youtube.com/watch?v=ab_cd-12_ef",
@@ -722,9 +722,11 @@ describe("context-assembly 跨站装配与 chat-tab 运行时门控", () => {
     });
 
     const outcome = await fetchContext({ forceRefresh: true, ifSignature: "" });
-    expect(fetchHotComments).not.toHaveBeenCalled();
+    expect(fetchHotComments).toHaveBeenCalledTimes(1);
     expect(outcome.kind).toBe("payload");
-    expect((outcome as { payload: { site?: string } }).payload.site).toBe("youtube");
+    const payload = (outcome as { payload: { site?: string; hotComments?: unknown[] } }).payload;
+    expect(payload.site).toBe("youtube");
+    expect(payload.hotComments).toEqual([{ uname: "u", like: 1, message: "m" }]);
   });
 
   it("chat-tab 在 YouTube 下隐藏伴看按钮状态、使用 extractVideoId 识别 pageBvid，并仅拒绝历史时间点截帧", async () => {

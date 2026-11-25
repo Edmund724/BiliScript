@@ -664,6 +664,42 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
   }
 
   let transcriptParams = "";
+  let commentsContinuation = "";
+  let hasCommentsDisabledMessage = false;
+
+  const extractCommentsFromItemSections = (rawSections: unknown) => {
+    if (!Array.isArray(rawSections)) return;
+    for (const rawSection of rawSections) {
+      const section = asObj(asObj(rawSection)?.itemSectionRenderer);
+      if (!section) continue;
+      const sectionId = typeof section.sectionIdentifier === "string" ? section.sectionIdentifier : "";
+      const targetId = typeof section.targetId === "string" ? section.targetId : "";
+      if (sectionId !== "comment-item-section" && targetId !== "comments-section") {
+        continue;
+      }
+      const sectionContents = section.contents;
+      if (!Array.isArray(sectionContents)) continue;
+      for (const rawItem of sectionContents) {
+        const item = asObj(rawItem);
+        const token = asObj(
+          asObj(asObj(item?.continuationItemRenderer)?.continuationEndpoint)?.continuationCommand
+        )?.token;
+        if (typeof token === "string" && token.trim() && !commentsContinuation) {
+          commentsContinuation = token.trim();
+        }
+        if (asObj(item?.messageRenderer)) {
+          hasCommentsDisabledMessage = true;
+        }
+      }
+    }
+  };
+
+  extractCommentsFromItemSections(
+    asObj(
+      asObj(asObj(asObj(initialData?.contents)?.twoColumnWatchNextResults)?.results)?.results
+    )?.contents
+  );
+
   const engagementPanels = initialData?.engagementPanels;
   if (Array.isArray(engagementPanels)) {
     for (const rawPanel of engagementPanels) {
@@ -676,8 +712,11 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
       if (typeof panelParams === "string" && panelParams && !transcriptParams) {
         transcriptParams = panelParams;
       }
+      const panelId = typeof section.panelIdentifier === "string" ? section.panelIdentifier : "";
+      if (!commentsContinuation && panelId === "engagement-panel-comments-section") {
+        extractCommentsFromItemSections(asObj(content?.sectionListRenderer)?.contents);
+      }
       if (chapterMap.size === 0) {
-        const panelId = typeof section.panelIdentifier === "string" ? section.panelIdentifier : "";
         if (
           panelId === "engagement-panel-macro-markers-description-chapters" ||
           panelId === "engagement-panel-macro-markers-auto-chapters"
@@ -798,6 +837,8 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     innertubeContext,
     innertubeApiKey,
     transcriptParams,
+    commentsContinuation,
+    commentsDisabled: !commentsContinuation && hasCommentsDisabledMessage,
     observedTimedtextUrls
   };
 }

@@ -546,6 +546,8 @@ export type YoutubePageSnapshot = {
   innertubeContext: Record<string, unknown> | null;
   innertubeApiKey: string;
   transcriptParams: string;
+  commentsContinuation?: string;
+  commentsDisabled?: boolean;
   observedTimedtextUrls: string[];
 };
 

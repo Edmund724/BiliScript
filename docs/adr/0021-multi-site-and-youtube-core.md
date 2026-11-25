@@ -11,9 +11,9 @@ BiliScript 从 B 站单站扩展演进为多站点视频文摘扩展（`bilibili
 - **显式常驻域名与注入兜底**：在 [extension/manifest.json](../../extension/manifest.json) 直接声明 `https://www.youtube.com/*`（`content_scripts` 匹配 `https://www.youtube.com/watch*`，配合后台 `tabs.onUpdated` 兜底从首页、搜索或频道页经 SPA 导航切入 `/watch`；`host_permissions` 与 `web_accessible_resources` 显式加入 `https://www.youtube.com/*`，严禁通配符）。桌面端 Firefox（153+）构建通过 `scripts/firefox-manifest.js` 同步派生，守卫继续遵循 [ADR-0017](0017-firefox-desktop-compatibility.md)。
 - **YouTube 首期页面范围**：仅覆盖桌面端 `https://www.youtube.com/watch*` 非直播视频（含播放列表 `&list=` 与已结束直播回放），排除 `/shorts/*`、直播中页面、`/embed/*` 与 `m.youtube.com`。
 - **核心功能与站点门控**：
-  - **已支持**：文摘面板三标签（字幕 / 概览 / AI 对话）、面板双语字幕（跨语种原生配对 + 复用 `Index-Translate` 免 Key 或自定义 AI 的 `boundary-v3` 翻译链，不合成 YouTube `tlang` 虚拟轨）、播放器内实时字幕翻译叠层（挂载于 `#movie_player` 与 `.ytp-right-controls`，开启时接管并隐藏原生 `.ytp-caption-window-container`）、独立窗口（[ADR-0020](0020-detached-reader-window.md)）、播放器右侧快捷 AI 按钮（挂载于 `#movie_player`，点击一键触发 AI 总结并自动退出原生全屏）、当前帧截帧、字幕搜索/高亮/导出、联网搜索、快捷提问、选区解释卡与 Chromium 对话朗读 TTS。
+  - **已支持**：文摘面板三标签（字幕 / 概览 / AI 对话）、面板双语字幕（跨语种原生配对 + 复用 `Index-Translate` 免 Key 或自定义 AI 的 `boundary-v3` 翻译链，不合成 YouTube `tlang` 虚拟轨）、播放器内实时字幕翻译叠层（挂载于 `#movie_player` 与 `.ytp-right-controls`，开启时接管并隐藏原生 `.ytp-caption-window-container`）、热门评论抓取（读取主世界 `ytInitialData` 评论区 continuation token 并通过同源真实 `WEB` `youtubei/v1/next` 拉取热门评论，接入概览评论目录、上下文装配与 AI 对话 `fetch_hot_comments` 工具）、独立窗口（[ADR-0020](0020-detached-reader-window.md)）、播放器右侧快捷 AI 按钮（挂载于 `#movie_player`，点击一键触发 AI 总结并自动退出原生全屏）、当前帧截帧、字幕搜索/高亮/导出、联网搜索、快捷提问、选区解释卡与 Chromium 对话朗读 TTS。
   - **显式门控与后续排期**：通过站点能力表（`SiteCapabilities`）在 YouTube 页及设置抽屉隐藏未移植能力入口——
-    - **后续移植顺位**：① 热门评论抓取（复用同源 `WEB` `youtubei/v1/next`） → ② 本地 Agent 桥接（优先落地已打开标签页桥接） → ③ 历史三帧截帧（待评估 `storyboards` 雪碧图清晰度） → ④ 无字幕 ASR 语音转写（低优/待评估，YouTube 原生自动字幕覆盖率高且音频流受反爬与条款约束）。
+    - **后续移植顺位**：① 本地 Agent 桥接（优先落地已打开标签页桥接） → ② 历史三帧截帧（待评估 `storyboards` 雪碧图清晰度） → ③ 无字幕 ASR 语音转写（低优/待评估，YouTube 原生自动字幕覆盖率高且音频流受反爬与条款约束）。
     - **暂缓排期**：实时伴看（视频页浮窗与直播间）。
     - **永久不做**：3x/4x 扩展倍速（YouTube 原生 3x 属于 Premium 会员权益，避免侵权及服务条款风险）。
 - **懒加载与包体预算**：常驻内容包仅保留轻量站点判据与路由分派，各站点适配器（页面探测、字幕抓取、按钮锚点与提示词规则）按活跃站点动态 `import()` 懒加载，继续守住 [ADR-0004](0004-content-two-round-build-and-reader-gate.md) 首帧 2 请求 / 40 KB 常驻预算与 [ADR-0001](0001-background-no-runtime-lazy.md) 后台 256 KB 上限。
@@ -53,4 +53,4 @@ BiliScript 从 B 站单站扩展演进为多站点视频文摘扩展（`bilibili
   - 不得将未编码的原始 YouTube 视频 ID（含 `_`）直接拼入以下划线/冒号切分的存储键，也不得将内部转义存储键泄漏至用户界面、URL 或导出模板。
   - 不得将 YouTube `kind: "asr"` 平台自动字幕归入本扩展转写伪轨 `asr` 类别或写入 `id_asr:` 缓存命名空间。
   - 不得采用伪装 `ANDROID` / `IOS` 客户端的方式绕过 YouTube `timedtext` PO Token 校验。
-  - 不得在 YouTube 页面暴露未验收的 ASR 转写、实时伴看、扩展倍速、历史三帧截帧、热门评论抓取或本地 Agent 桥接入口。
+  - 不得在 YouTube 页面暴露未验收的 ASR 转写、实时伴看、扩展倍速、历史三帧截帧或本地 Agent 桥接入口。

@@ -338,7 +338,13 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
     refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
   if (shouldFetchComments) {
     try {
-      clipState.setHotComments(await fetchHotComments(20));
+      const comments =
+        state.clip.site === "youtube"
+          ? await (
+              await import("../youtube/gateway.js")
+            ).fetchYoutubeHotComments(20, { videoId: state.clip.bvid })
+          : await fetchHotComments(20);
+      clipState.setHotComments(comments);
       clipState.setHotCommentsNotice("");
       notifyReaderPresenter({ kind: "rerender" });
     } catch (error) {

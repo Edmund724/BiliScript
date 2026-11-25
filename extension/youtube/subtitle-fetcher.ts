@@ -571,7 +571,9 @@ export function parseYoutubeGetTranscriptSubtitles(payload: unknown): SubtitleBo
   });
 }
 
-function assertWebInnertubeContext(context: Record<string, unknown> | null | undefined): Record<string, unknown> {
+export function assertWebInnertubeContext(
+  context: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
   if (!context || typeof context !== "object" || Array.isArray(context)) {
     throw new YoutubeSubtitleError(
       "缺少真实 WEB INNERTUBE_CONTEXT。",
@@ -597,7 +599,7 @@ function readContextClientString(client: Record<string, unknown> | null, key: st
   return typeof raw === "string" ? raw.trim() : "";
 }
 
-function buildWebInnertubeHeaders(context: Record<string, unknown>): Record<string, string> {
+export function buildWebInnertubeHeaders(context: Record<string, unknown>): Record<string, string> {
   const rawClient = (context as { client?: unknown }).client;
   const client =
     rawClient && typeof rawClient === "object" && !Array.isArray(rawClient)
@@ -619,7 +621,9 @@ function buildWebInnertubeHeaders(context: Record<string, unknown>): Record<stri
   return headers;
 }
 
-async function readResponseJsonSafely(response: Awaited<ReturnType<YoutubeSameOriginFetch>>): Promise<{
+export async function readResponseJsonSafely(
+  response: Awaited<ReturnType<YoutubeSameOriginFetch>>
+): Promise<{
   ok: boolean;
   status: number;
   empty: boolean;

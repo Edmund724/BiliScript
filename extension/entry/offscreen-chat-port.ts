@@ -293,9 +293,11 @@ export function attachOffscreenChatPort(
           ...(msg.videoFrameToolEnabled === true && chatCaps.supportsCurrentFrameCapture
             ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
             : {}),
-          ...(chatCaps.supportsHotComments && String(chatContext?.aid || "").trim()
+          ...(chatCaps.supportsHotComments && chatSite === "bilibili" && String(chatContext?.aid || "").trim()
             ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String(chatContext?.aid), 20) }
-            : {})
+            : chatCaps.supportsHotComments && chatSite === "youtube" && Array.isArray(chatContext?.hotComments)
+              ? { fetchHotComments: async () => chatContext.hotComments ?? [] }
+              : {})
         },
         {
           askCostGuard: (costPort, message) => askCostGuard(costPort, message, generation),

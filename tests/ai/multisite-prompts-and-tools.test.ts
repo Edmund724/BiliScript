@@ -315,7 +315,7 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
     expect(ytRelayStep.prompt).not.toContain("UP 主");
   });
 
-  it("runOverviewAnalysis 在 YouTube 跳过热评注入并维持分章优先级（简介目录 > 官方/自动章节 > 自由分章）", async () => {
+  it("runOverviewAnalysis 在 YouTube 支持热评目录并维持分章优先级（简介/热评目录 > 官方/自动章节 > 自由分章）", async () => {
     const calls: ChatCompletionInput[] = [];
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       calls.push(input);
@@ -356,7 +356,7 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
           title: "YT Priority 1",
           author: "Channel A",
           videoDescription: "00:00 简介第一章\n01:30 简介第二章",
-          hotComments: hotCommentsWithOutline,
+          hotComments: [],
           chapters: officialChapters,
           subtitleBody: body,
           videoDuration: 300
@@ -370,6 +370,28 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
     expect(calls[0].messages[1].content).toContain("频道作者：Channel A");
 
     calls.length = 0;
+    const fromHotComment = await runOverviewAnalysis(
+      {
+        provider: PROVIDER,
+        forceRefresh: true,
+        context: {
+          site: "youtube",
+          bvid: "dQw4w9WgXcH",
+          cid: "yt",
+          title: "YT Priority HotComment",
+          author: "Channel H",
+          videoDescription: "普通简介，无时间轴",
+          hotComments: hotCommentsWithOutline,
+          chapters: officialChapters,
+          subtitleBody: body,
+          videoDuration: 300
+        }
+      },
+      { chatCompletion }
+    );
+    expect(fromHotComment.chapters.map((c) => c.title)).toEqual(["热评第一章", "热评第二章"]);
+
+    calls.length = 0;
     const fromOfficial = await runOverviewAnalysis(
       {
         provider: PROVIDER,
@@ -381,7 +403,7 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
           title: "YT Priority 2",
           author: "Channel B",
           videoDescription: "普通简介，无时间轴",
-          hotComments: hotCommentsWithOutline,
+          hotComments: [],
           chapters: officialChapters,
           subtitleBody: body,
           videoDuration: 300
@@ -390,7 +412,6 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
       { chatCompletion }
     );
     expect(fromOfficial.chapters.map((c) => c.title)).toEqual(["官方第一章", "官方第二章"]);
-    expect(calls[0].messages[1].content).not.toContain("热评第一章");
 
     calls.length = 0;
     const fromAiFree = await runOverviewAnalysis(
@@ -404,7 +425,7 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
           title: "YT Priority 3",
           author: "Channel C",
           videoDescription: "普通简介，无时间轴",
-          hotComments: hotCommentsWithOutline,
+          hotComments: [],
           chapters: [],
           subtitleBody: body,
           videoDuration: 300
@@ -413,7 +434,6 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
       { chatCompletion }
     );
     expect(fromAiFree.chapters.map((c) => c.title)).toEqual(["模型自拟章", "官方章节二"]);
-    expect(calls[0].messages[1].content).not.toContain("热评第一章");
     expect(calls[0].messages[0].content).toContain("YouTube 的自动字幕");
   });
 
@@ -446,10 +466,10 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
     expect(stepCalls[0].messages[1].content).not.toContain("UP 主");
   });
 
-  it("createOverviewCoordinator 在 YouTube 传递 site 并跳过热评", async () => {
+  it("createOverviewCoordinator 在 YouTube 传递 site 与热评", async () => {
     const runOverviewAnalysisMock = vi.fn(async (_input: { context: Record<string, unknown> }) => ({
       summary: "OK",
-      chapters: [{ from: 0, to: 60, title: "官方章", summary: "说明" }],
+      chapters: [{ from: 0, to: 60, title: "热评一", summary: "说明" }],
       quotes: []
     }));
     const clip = {
@@ -485,8 +505,8 @@ describe("概览提示词、状态卡、作者标签与分章/热评策略", () 
     expect(runOverviewAnalysisMock).toHaveBeenCalledTimes(1);
     const args = runOverviewAnalysisMock.mock.calls[0][0];
     expect(args.context.site).toBe("youtube");
-    expect(args.context.hotComments).toEqual([]);
-    expect(coordinator.getSnapshot().aiChapters).toBe(true);
+    expect(args.context.hotComments).toEqual(clip.hotComments);
+    expect(coordinator.getSnapshot().aiChapters).toBe(false);
   });
 });
 
@@ -776,7 +796,8 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
 
     expect(requests[0].tools?.map((t) => t.function.name)).toEqual([
       "web_search",
-      "capture_current_video_frame"
+      "capture_current_video_frame",
+      "fetch_hot_comments"
     ]);
     expect(fetchHotComments).not.toHaveBeenCalled();
 
@@ -789,7 +810,7 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       port: makePort(),
       fetchHotComments
     });
-    expect(requests[0].tools).toBeUndefined();
+    expect(requests[0].tools?.map((t) => t.function.name)).toEqual(["fetch_hot_comments"]);
 
     requests.length = 0;
     await streamChat({
@@ -877,7 +898,7 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
     expect(ytPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(false);
     expect(streamCalls).toHaveLength(1);
     expect(streamCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
-    expect(streamCalls[0].fetchHotComments).toBeUndefined();
+    expect(streamCalls[0].fetchHotComments).toBe(fetchHotComments);
     expect(streamCalls[0].context?.frameContextNote).toBeUndefined();
     expect(streamCalls[0].userImages).toBeUndefined();
 
@@ -915,7 +936,7 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
 
     expect(directCalls).toHaveLength(1);
     expect(directCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
-    expect(directCalls[0].fetchHotComments).toBeUndefined();
+    expect(directCalls[0].fetchHotComments).toBe(fetchHotComments);
 
     const biliPort = makePort();
     const biliCalls: StreamChatArgs[] = [];
@@ -1032,10 +1053,11 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       fetchHotComments
     });
     const outcome = await fetchContext({ forceRefresh: true, ifSignature: "" });
-    expect(fetchHotComments).not.toHaveBeenCalled();
+    expect(fetchHotComments).toHaveBeenCalledTimes(1);
     expect(outcome.kind).toBe("payload");
     const payload = (outcome as { payload: Record<string, unknown> }).payload;
     expect(payload.site).toBe("youtube");
+    expect(payload.hotComments).toEqual([{ uname: "u", like: 10, message: "hot" }]);
 
     const messageListeners: Array<(msg: unknown) => void> = [];
     const postedMessages: Array<Record<string, unknown>> = [];
@@ -1071,6 +1093,9 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
 
     expect(postedMessages.some((m) => m.type === "video-frame-request")).toBe(false);
     expect(requests).toHaveLength(1);
-    expect(requests[0].tools?.map((t) => t.function.name)).toEqual(["capture_current_video_frame"]);
+    expect(requests[0].tools?.map((t) => t.function.name)).toEqual([
+      "capture_current_video_frame",
+      "fetch_hot_comments"
+    ]);
   });
 });

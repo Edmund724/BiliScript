@@ -1,4 +1,8 @@
-import type { Chapter, SubtitleBodyItem, SubtitleTrack } from "../shared/video-dto.js";
+import { clipState } from "../core/state.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
+import { extractYoutubeVideoId } from "../shared/site.js";
+import type { Chapter, HotComment, SubtitleBodyItem, SubtitleTrack } from "../shared/video-dto.js";
+import { fetchYoutubeHotCommentsFromNext } from "./hot-comments.js";
 import {
   readYoutubePageSnapshot,
   type ReadYoutubePageSnapshotOptions,
@@ -127,5 +131,65 @@ export async function fetchYoutubeSubtitleBody({
       snapshotCacheByVideoId.delete(cleanVideoId);
     }
     throw error;
+  }
+}
+
+export async function fetchYoutubeHotComments(
+  count = 20,
+  options: { videoId?: string; snapshot?: YoutubeVideoMetaSnapshot | null } = {}
+): Promise<HotComment[]> {
+  const safeCount = Math.max(0, Math.floor(Number(count) || 0));
+  if (!safeCount) {
+    return [];
+  }
+
+  const cleanVideoId = String(options.videoId || "").trim() || extractYoutubeVideoId();
+  let resolvedSnapshot: YoutubeVideoMetaSnapshot | null = options.snapshot ?? null;
+  if (!resolvedSnapshot) {
+    const cached = getCachedYoutubeSnapshot(cleanVideoId);
+    if (cached && (cached.commentsContinuation || cached.commentsDisabled)) {
+      resolvedSnapshot = cached;
+    } else if (cleanVideoId) {
+      try {
+        const fresh = await readYoutubePageSnapshot({ expectedVideoId: cleanVideoId });
+        if (fresh.videoId) {
+          snapshotCacheByVideoId.set(fresh.videoId, fresh);
+        }
+        resolvedSnapshot = fresh;
+      } catch {
+        resolvedSnapshot = cached;
+      }
+    } else {
+      resolvedSnapshot = cached;
+    }
+  }
+
+  if (
+    !resolvedSnapshot ||
+    resolvedSnapshot.commentsDisabled ||
+    !resolvedSnapshot.commentsContinuation ||
+    !resolvedSnapshot.innertubeContext
+  ) {
+    return [];
+  }
+
+  return fetchYoutubeHotCommentsFromNext({
+    innertubeContext: resolvedSnapshot.innertubeContext,
+    innertubeApiKey: resolvedSnapshot.innertubeApiKey,
+    commentsContinuation: resolvedSnapshot.commentsContinuation,
+    limit: safeCount
+  });
+}
+
+export async function fetchYoutubeHotCommentsWithLedger(
+  videoId = ""
+): Promise<{ comments: HotComment[]; note?: string }> {
+  try {
+    const comments = await fetchYoutubeHotComments(20, { videoId });
+    clipState.setHotComments(comments);
+    return { comments };
+  } catch (error) {
+    clipState.setHotComments([]);
+    return { comments: [], note: getErrorMessage(error) };
   }
 }

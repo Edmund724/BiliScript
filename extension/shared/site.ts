@@ -39,7 +39,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
     supportsExtraPlaybackRates: false,
     supportsCurrentFrameCapture: true,
     supportsHistoricalFrameCapture: false,
-    supportsHotComments: false,
+    supportsHotComments: true,
     supportsAgentBridge: false,
     supportsMultiPage: false
   })

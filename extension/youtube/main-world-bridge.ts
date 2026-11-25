@@ -30,6 +30,8 @@ export interface YoutubeVideoMetaSnapshot {
   innertubeContext: Record<string, unknown> | null;
   innertubeApiKey: string;
   transcriptParams: string;
+  commentsContinuation: string;
+  commentsDisabled: boolean;
   observedTimedtextUrls: string[];
 }
 
@@ -154,6 +156,8 @@ export function normalizeYoutubePageSnapshot(
     innertubeContext: normalizePlainObject(raw.innertubeContext),
     innertubeApiKey: String(raw.innertubeApiKey || "").trim(),
     transcriptParams: String(raw.transcriptParams || "").trim(),
+    commentsContinuation: String(raw.commentsContinuation || "").trim(),
+    commentsDisabled: Boolean(raw.commentsDisabled),
     observedTimedtextUrls
   };
 }
