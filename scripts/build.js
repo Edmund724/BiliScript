@@ -177,7 +177,7 @@ function createOnboardingSharedPlugin(sharedModuleMap) {
         if (args.kind === "dynamic-import") {
           for (const c of candidates) {
             if (sharedModuleMap.has(c)) {
-              return { path: sharedModuleMap.get(c), namespace: "b2-shared-dyn" };
+              return { path: `__B2_SHARED__/${sharedModuleMap.get(c)}`, external: true };
             }
           }
           return undefined;
@@ -193,10 +193,23 @@ function createOnboardingSharedPlugin(sharedModuleMap) {
         contents: `module.exports = globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}];`,
         loader: "js",
       }));
-      buildApi.onLoad({ filter: /.*/, namespace: "b2-shared-dyn" }, (args) => ({
-        contents: `module.exports = Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}]);`,
-        loader: "js",
-      }));
+      buildApi.onEnd((result) => {
+        for (const outfile of Object.keys(result.metafile?.outputs || {})) {
+          if (!outfile.endsWith(".js")) continue;
+          const full = path.resolve(root, outfile);
+          if (!fs.existsSync(full)) continue;
+          const text = fs.readFileSync(full, "utf8");
+          if (text.includes("__B2_SHARED__/")) {
+            fs.writeFileSync(
+              full,
+              text.replace(/import\("__B2_SHARED__\/([^"]+)"\)/g, (_, id) =>
+                `Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(id)}])`
+              ),
+              "utf8"
+            );
+          }
+        }
+      });
     },
   };
 }

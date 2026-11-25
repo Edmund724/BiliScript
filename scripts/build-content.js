@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { build, context } = require("esbuild");
+const { build, buildSync, context } = require("esbuild");
 const {
   createLocalImportGuard,
   sourcesFromMap,
@@ -57,7 +57,15 @@ const RESIDENT_RT_EXPORTS = [
   },
   {
     id: "shared/logging.ts",
-    names: ["logInfo", "logWarn", "logWarnAlways"],
+    names: [
+      "logError",
+      "logInfo",
+      "logInfoAlways",
+      "logWarn",
+      "logWarnAlways",
+      "registerDebugGate",
+      "shouldDebugLog",
+    ],
   },
   {
     id: "shared/messaging.ts",
@@ -73,7 +81,14 @@ const RESIDENT_RT_EXPORTS = [
   },
   {
     id: "shared/content-event-bus.ts",
-    names: ["contentEventBus", "getCurrentClipScope"],
+    names: [
+      "contentEventBus",
+      "getContentEventBus",
+      "getCurrentClipScope",
+      "getLastSubtitleStatusPhase",
+      "resetClipScope",
+      "setLastSubtitleStatusPhase",
+    ],
   },
   {
     id: "shared/lazy-import.ts",
@@ -332,17 +347,23 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
         if (args.kind === "dynamic-import") {
           for (const c of candidates) {
             if (shimSharedDyn && sharedModuleMap && sharedModuleMap.has(c)) {
-              return { path: sharedModuleMap.get(c), namespace: "b2-shared-dyn" };
+              return { path: `__B2_SHARED__/${sharedModuleMap.get(c)}`, external: true };
             }
             if (targetToGroup.has(c)) {
               const info = targetToGroup.get(c);
               if (info.group === currentGroupName) {
-                return { path: info.id, namespace: "b2-same-group" };
+                return { path: `__B2_SAME__/${info.id}`, external: true };
               }
-              return { path: `${info.group}::${info.id}`, namespace: "b2-remote-group" };
+              const needsShared = Boolean(
+                sharedGroupActive && (info.group === "g-app" || info.group === "g-live-room")
+              );
+              return {
+                path: `__B2_REMOTE__/${info.group}/${needsShared ? "1" : "0"}/${info.id}`,
+                external: true,
+              };
             }
             if (shimResidentRt && residentRtMap.has(c)) {
-              return { path: residentRtMap.get(c), namespace: "b2-rt-dyn" };
+              return { path: `__B2_RT__/${residentRtMap.get(c)}`, external: true };
             }
           }
           return undefined;
@@ -367,32 +388,52 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
         contents: `module.exports = globalThis.__BILISCRIPT_RT__[${JSON.stringify(args.path)}];`,
         loader: "js",
       }));
-      buildApi.onLoad({ filter: /.*/, namespace: "b2-rt-dyn" }, (args) => ({
-        contents: `module.exports = Promise.resolve(globalThis.__BILISCRIPT_RT__[${JSON.stringify(args.path)}]);`,
-        loader: "js",
-      }));
       buildApi.onLoad({ filter: /.*/, namespace: "b2-shared-sync" }, (args) => ({
         contents: `module.exports = globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}];`,
         loader: "js",
       }));
-      buildApi.onLoad({ filter: /.*/, namespace: "b2-shared-dyn" }, (args) => ({
-        contents: `module.exports = Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}]);`,
-        loader: "js",
-      }));
-      buildApi.onLoad({ filter: /.*/, namespace: "b2-same-group" }, (args) => ({
-        contents: `module.exports = Promise.resolve(globalThis.__BILISCRIPT_CHUNKS__[${JSON.stringify(args.path)}]);`,
-        loader: "js",
-      }));
-      buildApi.onLoad({ filter: /.*/, namespace: "b2-remote-group" }, (args) => {
-        const [g, id] = args.path.split("::");
-        const needsShared = Boolean(sharedGroupActive && (g === "g-app" || g === "g-live-room"));
-        return {
-          contents: `module.exports = globalThis.__BILISCRIPT_LOAD_CHUNK__(${JSON.stringify(g)}, ${JSON.stringify(id)}, ${needsShared});`,
-          loader: "js",
-        };
-      });
     },
   };
+}
+
+function rewriteDynamicImportsInJs(code) {
+  return code.replace(/import\("(__B2_[^"]+)"\)/g, (_, token) => {
+    if (token.startsWith("__B2_SHARED__/")) {
+      const id = token.slice("__B2_SHARED__/".length);
+      return `Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(id)}])`;
+    }
+    if (token.startsWith("__B2_SAME__/")) {
+      const id = token.slice("__B2_SAME__/".length);
+      return `Promise.resolve(globalThis.__BILISCRIPT_CHUNKS__[${JSON.stringify(id)}])`;
+    }
+    if (token.startsWith("__B2_RT__/")) {
+      const id = token.slice("__B2_RT__/".length);
+      return `Promise.resolve(globalThis.__BILISCRIPT_RT__[${JSON.stringify(id)}])`;
+    }
+    if (token.startsWith("__B2_REMOTE__/")) {
+      const rest = token.slice("__B2_REMOTE__/".length);
+      const slash1 = rest.indexOf("/");
+      const slash2 = rest.indexOf("/", slash1 + 1);
+      const groupId = rest.slice(0, slash1);
+      const needsShared = rest.slice(slash1 + 1, slash2) === "1";
+      const moduleId = rest.slice(slash2 + 1);
+      return `globalThis.__BILISCRIPT_LOAD_CHUNK__(${JSON.stringify(groupId)},${JSON.stringify(moduleId)},${needsShared ? "!0" : "!1"})`;
+    }
+    throw new Error(`Unknown dynamic import token: ${token}`);
+  });
+}
+
+async function buildClassicWithDynamicRewrite(buildOptions) {
+  const result = await build({ ...buildOptions, write: false });
+  for (const out of result.outputFiles) {
+    fs.mkdirSync(path.dirname(out.path), { recursive: true });
+    if (out.path.endsWith(".js")) {
+      fs.writeFileSync(out.path, rewriteDynamicImportsInJs(out.text), "utf8");
+    } else {
+      fs.writeFileSync(out.path, out.contents);
+    }
+  }
+  return result;
 }
 
 function cleanPreviousOutput() {
@@ -727,7 +768,34 @@ async function assertStaticSeedGuards(groupResults) {
   }
 }
 
+function assertResidentRtExportsComplete() {
+  for (const item of RESIDENT_RT_EXPORTS) {
+    const res = buildSync({
+      entryPoints: [path.join(extensionRoot, item.id)],
+      bundle: false,
+      write: false,
+      format: "esm",
+      metafile: true,
+    });
+    const out = Object.values(res.metafile.outputs)[0];
+    const actualExports = (out && out.exports) || [];
+    const declared = new Set(item.names);
+    const missing = actualExports.filter((name) => !declared.has(name));
+    if (missing.length > 0) {
+      console.error(
+        `Self-check failed: RESIDENT_RT_EXPORTS["${item.id}"] 漏列导出：${missing.join(", ")}`
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+  return true;
+}
+
 function selfCheck(groupResults) {
+  if (!assertResidentRtExportsComplete()) {
+    return false;
+  }
   syntaxCheck(residentOutfile);
   for (const gInfo of Object.values(groupResults)) {
     syntaxCheck(gInfo.outfile);
@@ -952,16 +1020,16 @@ async function runOnce(sharedModules) {
       ? new Map(sharedModules.map((id) => [path.join(extensionRoot, id), id]))
       : null;
 
-  await build(getResidentOptions(Boolean(sharedModuleMap)));
+  await buildClassicWithDynamicRewrite(getResidentOptions(Boolean(sharedModuleMap)));
   const groupSpecs = getGroupBuildEntries(sharedModuleMap);
   const groupResults = {};
   for (const spec of groupSpecs) {
-    await build(spec.options);
+    await buildClassicWithDynamicRewrite(spec.options);
     groupResults[spec.groupName] = { outfile: spec.outfile, bytes: sizeInBytes(spec.outfile) };
   }
   if (sharedModules.length > 0) {
     const sharedSpec = getSharedGroupOptions(sharedModules, sharedModuleMap);
-    await build(sharedSpec.options);
+    await buildClassicWithDynamicRewrite(sharedSpec.options);
     groupResults["g-shared"] = { outfile: sharedSpec.outfile, bytes: sizeInBytes(sharedSpec.outfile) };
   }
   if (targetPlatform !== "firefox") {
