@@ -215,11 +215,12 @@ async function fetchSabrRound(
   signal.addEventListener("abort", onOuterAbort, { once: true });
   const timer = setTimeout(() => roundController.abort(), SABR_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    const slotSym = Symbol.for(YOUTUBE_SABR_SNIFFER_SLOT_KEY);
+    const slot = (globalThis as Record<symbol, SabrSnifferSlot | undefined>)[slotSym];
+    const nativeFetch = typeof slot?.origFetch === "function" ? slot.origFetch : window.fetch;
+    const res = await nativeFetch.call(window, url, {
       method: "POST",
-      headers: {
-        "content-type": "application/x-protobuf"
-      },
+      credentials: "omit",
       body: body.slice(),
       signal: roundController.signal
     });

@@ -10,6 +10,7 @@ export interface SniffedSabrTemplate {
 
 export interface SabrSnifferSlot {
   installed: boolean;
+  origFetch: typeof window.fetch;
   latest: SniffedSabrTemplate | null;
   byVideoId: Map<string, SniffedSabrTemplate>;
 }
@@ -238,11 +239,10 @@ async function readHead(res: Response): Promise<Uint8Array | null> {
   const sym = Symbol.for(SNIFFER_SLOT_KEY);
   const g = globalThis as Record<symbol, SabrSnifferSlot | undefined>;
   if (g[sym]?.installed) return;
-  const slot: SabrSnifferSlot = { installed: true, latest: null, byVideoId: new Map() };
-  g[sym] = slot;
-
   const origFetch = window.fetch;
   if (typeof origFetch !== "function") return;
+  const slot: SabrSnifferSlot = { installed: true, origFetch, latest: null, byVideoId: new Map() };
+  g[sym] = slot;
   let active = 0;
 
   window.fetch = function biliscriptYtSabrFetch(
