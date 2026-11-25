@@ -8,23 +8,40 @@ import {
   ASR_MSG_DONE,
   ASR_MSG_ERROR,
   ASR_MSG_PROBE_RESULT,
+  ASR_MSG_STREAM_READY,
+  ASR_MSG_STREAM_ACK,
+  ASR_STREAM_INIT_ACTION,
+  ASR_STREAM_CHUNK_ACTION,
+  ASR_STREAM_END_ACTION,
+  ASR_STREAM_ERROR_ACTION,
   projectAsrFailureSummary
 } from "../asr/protocol.js";
-import type { AsrProbeTask, AsrProbeResultMessage, AsrFailureSummary } from "../asr/protocol.js";
+import type {
+  AsrDecodeSourceMode,
+  AsrTriggerMode,
+  AsrProbeTask,
+  AsrProbeResultMessage,
+  AsrFailureSummary
+} from "../asr/protocol.js";
 import { buildChunkPlan, encodeWav } from "../asr/chunker.js";
 import { classifyAsrFailure } from "../asr/failure-kind.js";
 import type { AsrFailureProviderLike } from "../asr/failure-kind.js";
 import { streamWavChunks } from "../asr/stream-chunker.js";
 import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
-import { isFragmentedMp4, createAdtsExtractor, parseAudioSpecificConfig } from "../asr/adts.js";
+import {
+  isFragmentedMp4,
+  createAdtsExtractor,
+  parseAudioSpecificConfig,
+  parseTrexDefaultSampleSize
+} from "../asr/adts.js";
 import {
   checkHostPermissionFromOffscreen,
   HOST_INVALID_ORIGIN_HINT,
   HOST_PERMISSION_HINT
 } from "../core/host-permissions.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
-import { concatBytes } from "../shared/bytes.js";
+import { base64ToBytes, concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, isRetryableNetworkError, withTimeout } from "../shared/error-helpers.js";
 import { consumeRuntimeLastError, safePostMessage } from "../shared/messaging.js";
 import { logWarn } from "../shared/logging.js";
@@ -82,8 +99,11 @@ export function makeAsrSkipError(cause: unknown, reason = ""): Error & { code: s
   return error as Error & { code: string; reason?: string };
 }
 
-export function resolveAsrProvider(config: AsrRuntimeConfig): AsrProvider {
-  if (config.asrAutoFallback === false) {
+export function resolveAsrProvider(
+  config: AsrRuntimeConfig,
+  options: { manual?: boolean } = {}
+): AsrProvider {
+  if (!options.manual && config.asrAutoFallback === false) {
     throw makeAsrSkipError("ASR 自动回退未开启", "asr-disabled");
   }
   const providers = config.providers || [];
@@ -98,6 +118,8 @@ export function resolveAsrProvider(config: AsrRuntimeConfig): AsrProvider {
 }
 
 export interface AsrTask {
+  sourceMode?: AsrDecodeSourceMode;
+  trigger?: AsrTriggerMode;
   audioUrl?: string;
   backupUrls?: string[];
 }
@@ -204,14 +226,16 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       onTaskTerminal(port);
     });
     try {
+      const sourceMode: AsrDecodeSourceMode = task?.sourceMode === "stream" ? "stream" : "url";
+      const manual = task?.trigger === "manual";
       const audioUrl = String(task?.audioUrl || "").trim();
-      if (!audioUrl) {
+      if (sourceMode === "url" && !audioUrl) {
         throw new Error("asr-decode 任务参数不完整");
       }
 
       let provider: AsrProvider;
       try {
-        provider = resolveAsrProvider(await requestAsrRuntimeConfig());
+        provider = resolveAsrProvider(await requestAsrRuntimeConfig(), { manual });
         providerRef = provider;
       } catch (error) {
         if ((error as { code?: string }).code === "asr-skip") {
@@ -272,7 +296,10 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
         }
       });
 
-      const source = streamAudioSegments([audioUrl, ...(task?.backupUrls || [])], () => aborted);
+      const source =
+        sourceMode === "stream"
+          ? streamPushedAudioSegments(port, () => aborted || abortState.fatal)
+          : streamAudioSegments([audioUrl, ...(task?.backupUrls || [])], () => aborted);
       const first = await source.next();
       if (first.done) {
         return;
@@ -366,6 +393,175 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
 
 interface StreamAudioYield {
   segment?: Uint8Array;
+}
+
+type PushedStreamQueueItem =
+  | { kind: "init"; bytes: Uint8Array }
+  | { kind: "chunk"; seq: number; bytes: Uint8Array }
+  | { kind: "end" }
+  | { kind: "error"; error: string; failureKind?: string };
+
+const STREAM_MOOFS_PER_SEGMENT = 2;
+
+export async function* streamPushedAudioSegments(
+  port: AsrDecodePort,
+  isAborted: () => boolean,
+  { downloadCapBytes = ASR_MAX_CUMULATIVE_DOWNLOAD_BYTES }: { downloadCapBytes?: number } = {}
+): AsyncGenerator<StreamAudioYield, void, unknown> {
+  const queue: PushedStreamQueueItem[] = [];
+  let notify: (() => void) | null = null;
+  let closed = false;
+
+  const wake = () => {
+    const fn = notify;
+    notify = null;
+    fn?.();
+  };
+
+  const enqueue = (item: PushedStreamQueueItem) => {
+    if (closed) return;
+    queue.push(item);
+    wake();
+  };
+
+  const onMessage = (rawMsg: unknown) => {
+    const msg = rawMsg as {
+      action?: unknown;
+      dataBase64?: unknown;
+      seq?: unknown;
+      error?: unknown;
+      kind?: unknown;
+    } | null;
+    if (!msg || typeof msg !== "object") return;
+    if (msg.action === ASR_STREAM_INIT_ACTION) {
+      try {
+        enqueue({ kind: "init", bytes: base64ToBytes(String(msg.dataBase64 || "")) });
+      } catch (err) {
+        enqueue({ kind: "error", error: `音频初始化段解码失败：${getErrorMessage(err)}` });
+      }
+      return;
+    }
+    if (msg.action === ASR_STREAM_CHUNK_ACTION) {
+      try {
+        enqueue({
+          kind: "chunk",
+          seq: Number(msg.seq) || 0,
+          bytes: base64ToBytes(String(msg.dataBase64 || ""))
+        });
+      } catch (err) {
+        enqueue({ kind: "error", error: `音频分片解码失败：${getErrorMessage(err)}` });
+      }
+      return;
+    }
+    if (msg.action === ASR_STREAM_END_ACTION) {
+      enqueue({ kind: "end" });
+      return;
+    }
+    if (msg.action === ASR_STREAM_ERROR_ACTION) {
+      enqueue({
+        kind: "error",
+        error: String(msg.error || "音频流采集失败"),
+        ...(typeof msg.kind === "string" && msg.kind ? { failureKind: msg.kind } : {})
+      });
+    }
+  };
+
+  const onDisconnect = () => {
+    closed = true;
+    wake();
+  };
+
+  port.onMessage.addListener(onMessage);
+  port.onDisconnect.addListener(onDisconnect);
+  safePostMessage(port, { type: ASR_MSG_STREAM_READY });
+
+  let totalBytes = 0;
+  let extractor: ReturnType<typeof createAdtsExtractor> | null = null;
+
+  try {
+    while (true) {
+      if (isAborted() || closed) return;
+      if (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+        continue;
+      }
+      const item = queue.shift()!;
+      if (item.kind === "error") {
+        const err = new Error(item.error);
+        if (item.failureKind) {
+          (err as Error & { kind?: string }).kind = item.failureKind;
+        }
+        throw err;
+      }
+      if (item.kind === "end") {
+        if (!extractor) {
+          throw new Error("音频解码失败：未收到有效的 fMP4 音轨数据");
+        }
+        for (const seg of extractor.flush()) {
+          if (isAborted()) return;
+          yield { segment: seg };
+        }
+        if (extractor.frameCount === 0) {
+          throw new Error("音频解码失败：无法从 fMP4 提取音帧");
+        }
+        return;
+      }
+
+      if (item.bytes.length === 0) {
+        if (item.kind === "chunk") {
+          safePostMessage(port, { type: ASR_MSG_STREAM_ACK, seq: item.seq });
+        }
+        continue;
+      }
+
+      totalBytes += item.bytes.length;
+      if (totalBytes > downloadCapBytes) {
+        throw new Error(ASR_DOWNLOAD_LIMIT_MESSAGE);
+      }
+
+      if (item.kind === "init") {
+        const asc = parseAudioSpecificConfig(item.bytes) || {};
+        const defaultSampleSize = parseTrexDefaultSampleSize(item.bytes);
+        extractor = createAdtsExtractor({
+          ...asc,
+          defaultSampleSize,
+          moofsPerSegment: STREAM_MOOFS_PER_SEGMENT
+        });
+        for (const seg of extractor.push(item.bytes)) {
+          if (isAborted()) return;
+          yield { segment: seg };
+        }
+        continue;
+      }
+
+      if (!extractor) {
+        const asc = parseAudioSpecificConfig(item.bytes) || {};
+        const defaultSampleSize = parseTrexDefaultSampleSize(item.bytes);
+        extractor = createAdtsExtractor({
+          ...asc,
+          defaultSampleSize,
+          moofsPerSegment: STREAM_MOOFS_PER_SEGMENT
+        });
+      }
+      for (const seg of extractor.push(item.bytes)) {
+        if (isAborted()) return;
+        yield { segment: seg };
+      }
+      safePostMessage(port, { type: ASR_MSG_STREAM_ACK, seq: item.seq });
+    }
+  } finally {
+    closed = true;
+    try {
+      port.onMessage.removeListener(onMessage);
+    } catch {
+    }
+    try {
+      port.onDisconnect.removeListener(onDisconnect);
+    } catch {
+    }
+  }
 }
 
 export async function* streamAudioSegments(

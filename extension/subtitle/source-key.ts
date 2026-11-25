@@ -4,12 +4,13 @@ export type TrackIdentity =
   | { kind: "track"; trackId: unknown }
   | { kind: "url"; url: unknown }
   | { kind: "lang"; lang: unknown }
-  | { kind: "asr"; providerId: unknown; model: unknown; lang: unknown }
+  | { kind: "asr"; providerId: unknown; model: unknown; lang: unknown; audioTrackId?: unknown }
   | { kind: "translated"; targetLang: unknown }
   | { kind: "track-translated"; sourceKey: unknown; targetLang: unknown };
 
 const ASR_VARIANT_ROOT = "asr";
 export const ASR_SOURCE_KEY_PREFIX = `id_${ASR_VARIANT_ROOT}:`;
+export const ASR_AUDIO_TRACK_SUFFIX_PREFIX = ":track~" as const;
 
 const TRANSLATED_VARIANT_ROOT = "translate-";
 export const TRANSLATED_SOURCE_KEY_PREFIX = `id_${TRANSLATED_VARIANT_ROOT}`;
@@ -30,6 +31,12 @@ function asrSegmentText(value: unknown): string {
   return String(value || "");
 }
 
+function normalizeAsrAudioTrackSegment(value: unknown): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 export function trackIdentity(subtitleId: unknown, subtitleUrl: unknown, lang: unknown): TrackIdentity {
   if (String(subtitleId || "").trim()) {
     return { kind: "track", trackId: subtitleId };
@@ -48,10 +55,13 @@ export function subtitleSourceKey(identity: TrackIdentity): string {
       return `url_${normalizeSubtitleUrlForCache(identity.url)}`;
     case "lang":
       return `lang_${String(identity.lang || "").trim().toLowerCase() || "unknown"}`;
-    case "asr":
+    case "asr": {
+      const audioTrackSeg = normalizeAsrAudioTrackSegment(identity.audioTrackId);
+      const trackSuffix = audioTrackSeg ? `${ASR_AUDIO_TRACK_SUFFIX_PREFIX}${audioTrackSeg}` : "";
       return trackIdComponent(
-        `${ASR_VARIANT_ROOT}:${asrSegmentText(identity.providerId)}:${asrSegmentText(identity.model)}:${asrSegmentText(identity.lang)}`
+        `${ASR_VARIANT_ROOT}:${asrSegmentText(identity.providerId)}:${asrSegmentText(identity.model)}:${asrSegmentText(identity.lang)}${trackSuffix}`
       );
+    }
     case "translated":
       return trackIdComponent(translatedTrackId(identity.targetLang));
     case "track-translated":

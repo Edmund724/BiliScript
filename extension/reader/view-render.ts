@@ -1,4 +1,5 @@
-import { state } from "../core/state.js";
+import { state, type NoSubtitleReason } from "../core/state.js";
+import { getSiteCapabilities } from "../shared/site.js";
 import { requireActiveById } from "../shared/cross-doc.js";
 import {
   getReadingSubtitleItems,
@@ -6,6 +7,7 @@ import {
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
+import { isReaderTranscribing } from "./transcribe-banner.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import {
   SUBTITLE_FIRST_BATCH,
@@ -56,6 +58,17 @@ function buildReadingMetaLine() {
   return head.join("\n");
 }
 
+function canOfferManualAsrTrigger(reason: NoSubtitleReason): boolean {
+  if (!getSiteCapabilities(state.clip.site).supportsAsr || isReaderTranscribing()) {
+    return false;
+  }
+  return (
+    reason === "youtube-no-subtitles" ||
+    reason === "youtube-captions-unavailable" ||
+    reason === "asr-disabled"
+  );
+}
+
 function projectReadingSubtitleList(): void {
   cancelReadingSubtitleAppend();
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
@@ -72,15 +85,19 @@ function projectReadingSubtitleList(): void {
       isEmpty && state.clip.noSubtitleDetail
         ? `<div class="biliscript-reading-empty-detail">${escapeHtml(state.clip.noSubtitleDetail)}</div>`
         : "";
+    const manualAsrAction =
+      isEmpty && canOfferManualAsrTrigger(state.clip.noSubtitleReason)
+        ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-subtitle-action="manual-asr">使用语音转写</button>`
+        : "";
     const setupAction =
       isEmpty && requiresAsrSetup(state.clip.noSubtitleReason)
-        ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-subtitle-action="asr-setup">前往设置</button>`
+        ? `<button type="button" class="biliscript-reading-mini-btn${manualAsrAction ? "" : " is-primary"}" data-subtitle-action="asr-setup">前往设置</button>`
         : "";
     const retryAction =
       isError || (isEmpty && getAsrFailureNotice(state.clip.noSubtitleReason)?.remedy === "retry-later")
         ? `<button type="button" class="biliscript-reading-mini-btn" data-subtitle-action="retry-fetch">重新抓取</button>`
         : "";
-    const actionsHtml = `${setupAction}${retryAction}`;
+    const actionsHtml = `${manualAsrAction}${setupAction}${retryAction}`;
     const actionsWrap = actionsHtml
       ? `<div class="biliscript-reading-empty-actions">${actionsHtml}</div>`
       : "";

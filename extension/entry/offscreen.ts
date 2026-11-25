@@ -70,15 +70,21 @@ const asrHandlerLoader = createLazyLoader(async () => {
   };
 });
 
-const mossLiveLoader = createLazyLoader(async () => {
-  const { OffscreenMossLiveClient } = await import("../live/offscreen-moss-client.js");
-  return OffscreenMossLiveClient;
-});
+const mossLiveLoader =
+  typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox"
+    ? null
+    : createLazyLoader(async () => {
+        const { OffscreenMossLiveClient } = await import("../live/offscreen-moss-client.js");
+        return OffscreenMossLiveClient;
+      });
 
-const geminiLiveLoader = createLazyLoader(async () => {
-  const { OffscreenGeminiLiveClient } = await import("../live/offscreen-gemini-live-client.js");
-  return OffscreenGeminiLiveClient;
-});
+const geminiLiveLoader =
+  typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox"
+    ? null
+    : createLazyLoader(async () => {
+        const { OffscreenGeminiLiveClient } = await import("../live/offscreen-gemini-live-client.js");
+        return OffscreenGeminiLiveClient;
+      });
 
 const ladderLoader = createLazyLoader(async () => {
   const { runLadderChat } = await import("../ai/ladder.js");
@@ -105,15 +111,19 @@ chrome.runtime.onConnect.addListener((port) => {
     attachProviderHttpPort(port);
     return;
   }
-  if (port && port.name === MOSS_LIVE_PORT_NAME) {
+  if (
+    !(typeof __BILISCRIPT_TARGET__ === "string" && __BILISCRIPT_TARGET__ === "firefox") &&
+    port &&
+    port.name === MOSS_LIVE_PORT_NAME
+  ) {
     lifetime.trackMediaPort(port);
     attachMossLivePort(port, {
       loadClient: async (providerType) => {
         if (providerType === "gemini-live") {
-          const GeminiClientClass = await geminiLiveLoader.load();
+          const GeminiClientClass = await geminiLiveLoader!.load();
           return (opts) => new GeminiClientClass(opts);
         }
-        const MossClientClass = await mossLiveLoader.load();
+        const MossClientClass = await mossLiveLoader!.load();
         return (opts) => new MossClientClass(opts);
       },
       postMessage: safePostMessage

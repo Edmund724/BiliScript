@@ -17,6 +17,7 @@ import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget, syncReadingOverviewActiveChapter } from "./sync.js";
 import { withReader } from "../ui/reader-gate.js";
+import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { openQuoteShareModal } from "./quote-share-modal.js";
 import type { AnalysisChapter, AnalysisQuote } from "../ai/analysis.js";
 import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
@@ -151,21 +152,34 @@ function buildEmptyStateHtml(): string {
   }
   let title = "该视频没有可用字幕";
   let copy = "视频概览需基于字幕生成。";
+  let manualAsrAction = "";
   let settingsAction = "";
   if (state.clip.noSubtitleReason) {
-    const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
+    const reason = state.clip.noSubtitleReason;
+    const notice = getAsrFailureNotice(reason);
     title = notice.cause || title;
     copy = notice.remedyText || copy;
-    if (requiresAsrSetup(state.clip.noSubtitleReason)) {
+    if (
+      reason === "youtube-no-subtitles" ||
+      reason === "youtube-captions-unavailable" ||
+      reason === "asr-disabled"
+    ) {
+      manualAsrAction = `
+        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="manual-asr">使用语音转写</button>`;
+    }
+    if (requiresAsrSetup(reason)) {
       settingsAction = `
-        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="open-transcribe-settings">前往设置</button>`;
+        <button type="button" class="biliscript-reading-mini-btn${manualAsrAction ? "" : " is-primary"}" data-overview-action="open-transcribe-settings">前往设置</button>`;
     }
   }
+  const actionsHtml = manualAsrAction || settingsAction
+    ? `<div class="biliscript-reading-empty-actions">${manualAsrAction}${settingsAction}</div>`
+    : "";
   return `
     <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
       <div class="biliscript-reading-placeholder-title">${escapeHtml(title)}</div>
       <p class="biliscript-reading-placeholder-copy">${escapeHtml(copy)}</p>
-      ${settingsAction}
+      ${actionsHtml}
     </div>
   `;
 }
@@ -353,6 +367,22 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
       ) {
         currentActions?.setup(errorClass);
       }
+      return;
+    }
+    if (action === "manual-asr") {
+      void ensureSummarizeChain()
+        .then((chain) =>
+          chain.loadAsrSubtitle({
+            runId: state.clip.fetchRunId,
+            allowTranscribe: true
+          })
+        )
+        .catch((error) => {
+          const msg = String((error as Error)?.message || error || "");
+          if (msg.includes("未配置语音转写服务")) {
+            currentActions?.openTranscribeSettings();
+          }
+        });
       return;
     }
     if (action === "open-transcribe-settings") {

@@ -60,6 +60,14 @@ export interface AsrAttemptOutcome extends AsrFailureFields {
 export const ASR_DECODE_PORT_NAME = "asr-decode" as const;
 export const ASR_DECODE_ACTION = "asr-decode" as const;
 
+export const ASR_STREAM_INIT_ACTION = "asr-stream-init" as const;
+export const ASR_STREAM_CHUNK_ACTION = "asr-stream-chunk" as const;
+export const ASR_STREAM_END_ACTION = "asr-stream-end" as const;
+export const ASR_STREAM_ERROR_ACTION = "asr-stream-error" as const;
+
+export type AsrDecodeSourceMode = "url" | "stream";
+export type AsrTriggerMode = "auto" | "manual";
+
 export const ASR_TASK_PREPARE = "asr-decode-prepare" as const;
 export const ASR_TASK_CLEANUP = "asr-decode-cleanup" as const;
 
@@ -69,14 +77,20 @@ export const ASR_MSG_PROGRESS = "progress" as const;
 export const ASR_MSG_CHUNK_RESULT = "chunk-result" as const;
 export const ASR_MSG_DONE = "done" as const;
 export const ASR_MSG_ERROR = "error" as const;
+export const ASR_MSG_STREAM_READY = "stream-ready" as const;
+export const ASR_MSG_STREAM_ACK = "stream-ack" as const;
 
 export type AsrPortMessageType =
   | typeof ASR_MSG_PROGRESS
   | typeof ASR_MSG_CHUNK_RESULT
   | typeof ASR_MSG_DONE
-  | typeof ASR_MSG_ERROR;
+  | typeof ASR_MSG_ERROR
+  | typeof ASR_MSG_STREAM_READY
+  | typeof ASR_MSG_STREAM_ACK;
 
 export type AsrProgressMessage = { type: typeof ASR_MSG_PROGRESS; text: string };
+export type AsrStreamReadyMessage = { type: typeof ASR_MSG_STREAM_READY };
+export type AsrStreamAckMessage = { type: typeof ASR_MSG_STREAM_ACK; seq: number };
 export type AsrChunkResultMessage = {
   type: typeof ASR_MSG_CHUNK_RESULT;
   index: number;
@@ -101,6 +115,8 @@ export type AsrErrorMessage = {
 
 export type AsrPortMessage =
   | AsrProgressMessage
+  | AsrStreamReadyMessage
+  | AsrStreamAckMessage
   | AsrChunkResultMessage
   | AsrDoneMessage
   | AsrErrorMessage;

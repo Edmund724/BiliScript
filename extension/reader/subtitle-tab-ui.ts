@@ -73,6 +73,7 @@ import { playTrackSwitchAnimation } from "./track-switch-animation.js";
 import { TRANSCRIBE_BANNER_COPY, isReaderTranscribing } from "./transcribe-banner.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { removeSubtitleItemHighlight } from "./subtitle-highlights-ui.js";
+import { showSubtitleNotice } from "./subtitle-notice.js";
 
 ensureBilingualSubtitleStyles();
 
@@ -1098,12 +1099,42 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   };
 
   let retryFetchInFlight = false;
+  let manualAsrInFlight = false;
   subtitleList.addEventListener("click", (event) => {
     const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
     if (isHtmlElement(actionNode)) {
       const action = actionNode.dataset.subtitleAction;
       if (action === "asr-setup") {
         void beginReaderAsrSetupFlow();
+        return;
+      }
+      if (action === "manual-asr") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (manualAsrInFlight) {
+          return;
+        }
+        manualAsrInFlight = true;
+        const expectedRunId = state.clip.fetchRunId;
+        void ensureSummarizeChain()
+          .then((chain) =>
+            chain.loadAsrSubtitle({
+              runId: expectedRunId,
+              allowTranscribe: true
+            })
+          )
+          .catch((error) => {
+            const msg = getErrorMessage(error);
+            if (msg.includes("未配置语音转写服务")) {
+              void beginReaderAsrSetupFlow();
+              return;
+            }
+            showSubtitleNotice(msg);
+            logWarn("[BILISCRIPT] manual asr trigger failed", error);
+          })
+          .finally(() => {
+            manualAsrInFlight = false;
+          });
         return;
       }
       if (action === "remove-highlight") {

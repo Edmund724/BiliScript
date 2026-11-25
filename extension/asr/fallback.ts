@@ -5,7 +5,9 @@ import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { getAsrFailureNotice, reasonFromFailureKind, buildAsrNoSubtitleMessage } from "../core/asr-failure-notice.js";
 import { resolveActiveAsrProviderId } from "./asr-provider-normalize.js";
 import { readAsrFailureSummary } from "./protocol.js";
-import type { AsrAttemptOutcome } from "./protocol.js";
+import type { AsrAttemptOutcome, AsrTriggerMode } from "./protocol.js";
+import type { AudioStreamSource } from "./offscreen-bridge.page.js";
+import type { SiteId } from "../shared/site.js";
 import {
   getSubtitleCacheKey,
   loadSubtitleFromCache,
@@ -84,6 +86,9 @@ export interface CommitNoSubtitleArgs {
 export interface AsrPipelineArgs {
   bvid: string;
   cid: string;
+  site?: SiteId;
+  trigger?: AsrTriggerMode;
+  streamSource?: AudioStreamSource;
   onProgress?: (message: string) => void;
   onEmptyDiagnostic?: (diagText: string) => void;
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
@@ -102,6 +107,11 @@ export interface CreateAsrFallbackDeps {
   commitNoSubtitle: (args: CommitNoSubtitleArgs) => Promise<unknown>;
   runAsrPipeline: (args: AsrPipelineArgs) => Promise<SubtitleItem[]>;
   broadcastSubtitleStatus: (status: string) => void;
+  probeYoutubeAudioTrack?: (videoId: string) => Promise<{ audioTrackId: string } | null>;
+  createYoutubeAudioStreamSource?: (options: {
+    videoId: string;
+    onProgress?: (message: string) => void;
+  }) => AudioStreamSource;
   sleepFor?: (ms: number) => Promise<void>;
 }
 
@@ -136,15 +146,31 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     commitNoSubtitle,
     runAsrPipeline,
     broadcastSubtitleStatus,
+    probeYoutubeAudioTrack,
+    createYoutubeAudioStreamSource,
     sleepFor = sleep
   } = deps;
 
   const activeAsrTranscribes = new Map<string, ActiveAsrTranscribe>();
 
+  async function resolveYoutubeAudioTrackId(site: SiteId, videoId: string): Promise<string> {
+    if (site !== "youtube" || typeof probeYoutubeAudioTrack !== "function" || !videoId) {
+      return "";
+    }
+    try {
+      const probed = await probeYoutubeAudioTrack(videoId);
+      return String(probed?.audioTrackId || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
   async function runOrJoinAsrTranscribe({
     runId,
     bvid,
     cid,
+    site,
+    trigger,
     videoKey,
     cacheKey,
     identity,
@@ -156,6 +182,8 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     runId: number;
     bvid: string;
     cid: string;
+    site: SiteId;
+    trigger: AsrTriggerMode;
     videoKey: string;
     cacheKey: string;
     identity: TrackIdentity;
@@ -188,14 +216,22 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     const runAttempt = async (): Promise<{ body: SubtitleItem[]; outcome: AsrAttemptOutcome }> => {
       emptyDiag = "";
       let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
+      const onProgress = (msg: string) => {
+        if (!isStale()) {
+          setStatus(msg);
+        }
+      };
+      const streamSource =
+        site === "youtube" && typeof createYoutubeAudioStreamSource === "function"
+          ? createYoutubeAudioStreamSource({ videoId: bvid, onProgress })
+          : undefined;
       const rawBody = await runAsrPipeline({
         bvid,
         cid,
-        onProgress: (msg) => {
-          if (!isStale()) {
-            setStatus(msg);
-          }
-        },
+        site,
+        trigger,
+        ...(streamSource ? { streamSource } : {}),
+        onProgress,
         onEmptyDiagnostic: (diagText) => {
           emptyDiag = diagText;
         },
@@ -205,7 +241,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       });
       const body = Array.isArray(rawBody) ? rawBody : [];
       if (body.length > 0) {
-        const saveResult = await persistAsrSubtitleToCache({ bvid, cid, identity, body });
+        const saveResult = await persistAsrSubtitleToCache({ bvid, cid, site, identity, body });
         if (saveResult && saveResult.ok === false) {
           logWarn("[BILISCRIPT] 语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
         }
@@ -298,14 +334,24 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const language = String(settings.asrLanguage || "").trim() || "auto";
       const sourceLabel = buildAsrSubtitleLabel(language);
       const model = String(activeProvider.model || "").trim();
+      const site = state.clip.site;
       bvid = state.clip.bvid;
       cid = state.clip.cid;
       const videoKey = `${bvid}|${cid}`;
       isStale = () => `${state.clip.bvid}|${state.clip.cid}` !== videoKey;
-      const identity: TrackIdentity = { kind: "asr", providerId: activeId, model, lang: language };
+      const audioTrackId = await resolveYoutubeAudioTrackId(site, bvid);
+      ensureRunActive(runId, state.clip.fetchRunId);
+      const identity: TrackIdentity = {
+        kind: "asr",
+        providerId: activeId,
+        model,
+        lang: language,
+        ...(audioTrackId ? { audioTrackId } : {})
+      };
       const cacheKey = getSubtitleCacheKey({
         bvid,
         cid,
+        site,
         identity
       });
 
@@ -336,6 +382,8 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         runId,
         bvid,
         cid,
+        site,
+        trigger: "auto",
         videoKey,
         cacheKey,
         identity,
@@ -404,22 +452,33 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const language = String(settings.asrLanguage || "").trim() || "auto";
       const defaultLabel = String(requestedLabel || "").trim() || buildAsrSubtitleLabel(language);
       const model = String(activeProvider?.model || "").trim();
+      const site = state.clip.site;
       bvid = state.clip.bvid;
       cid = state.clip.cid;
       const videoKey = `${bvid}|${cid}`;
       isStale = () => `${state.clip.bvid}|${state.clip.cid}` !== videoKey;
+      const audioTrackId = await resolveYoutubeAudioTrackId(site, bvid);
+      ensureRunActive(runId, state.clip.fetchRunId);
 
       const preferredIdentity: TrackIdentity | null = activeProvider
-        ? { kind: "asr", providerId: activeId, model, lang: language }
+        ? {
+            kind: "asr",
+            providerId: activeId,
+            model,
+            lang: language,
+            ...(audioTrackId ? { audioTrackId } : {})
+          }
         : null;
       const preferredCacheKey = preferredIdentity
-        ? getSubtitleCacheKey({ bvid, cid, identity: preferredIdentity })
+        ? getSubtitleCacheKey({ bvid, cid, site, identity: preferredIdentity })
         : undefined;
 
       const cachedRecord = await findCachedAsrSubtitleTrack({
         bvid,
         cid,
-        preferredCacheKey
+        site,
+        preferredCacheKey,
+        ...(audioTrackId ? { audioTrackId } : {})
       });
       ensureRunActive(runId, state.clip.fetchRunId);
       if (cachedRecord && cachedRecord.body.length > 0) {
@@ -468,6 +527,8 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         runId,
         bvid,
         cid,
+        site,
+        trigger: "manual",
         videoKey,
         cacheKey: preferredCacheKey,
         identity: preferredIdentity,

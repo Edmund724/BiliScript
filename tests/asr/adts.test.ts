@@ -95,6 +95,20 @@ describe("parseAudioSpecificConfig", () => {
     const bare = new Uint8Array(100);
     expect(parseAudioSpecificConfig(bare)).toBeNull();
   });
+
+  it("解析短长度 MPEG-4 Descriptor esds（44.1kHz AAC-LC 双声道，不回退 48kHz）", () => {
+    const esdsPayload = new Uint8Array([
+      0, 0, 0, 0,
+      0x03, 0x19, 0x00, 0x01, 0x00,
+      0x04, 0x11, 0x40, 0x15, 0x00, 0x00, 0x00, 0x00, 0x01, 0xf4, 0x00, 0x00, 0x01, 0xf4, 0x00,
+      0x05, 0x02, 0x12, 0x10
+    ]);
+    const esds = new Uint8Array(8 + esdsPayload.length);
+    writeU32(esds, 0, esds.length);
+    esds.set([0x65, 0x73, 0x64, 0x73], 4);
+    esds.set(esdsPayload, 8);
+    expect(parseAudioSpecificConfig(esds)).toEqual({ profile: 1, freqIdx: 4, chCfg: 2 });
+  });
 });
 
 describe("adtsFromFmp4", () => {
@@ -127,6 +141,63 @@ describe("adtsFromFmp4", () => {
   it("非 fMP4 输入返回空数组", () => {
     const wav = new Uint8Array(100);
     expect(adtsFromFmp4(wav)).toEqual([]);
+  });
+
+  it("支持 trun 含 first_sample_flags/sample_flags/cto 及 tfhd default_sample_size 回退", () => {
+    const box = (type: string, payload: Uint8Array): Uint8Array => {
+      const out = new Uint8Array(8 + payload.length);
+      writeU32(out, 0, out.length);
+      for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+      out.set(payload, 8);
+      return out;
+    };
+    const trunA = new Uint8Array(8 + 8 + 16 * 2);
+    const dvA = new DataView(trunA.buffer);
+    dvA.setUint32(0, 0x000f05);
+    dvA.setUint32(4, 2);
+    dvA.setUint32(8, 0);
+    dvA.setUint32(12, 0);
+    dvA.setUint32(16, 1024);
+    dvA.setUint32(20, 12);
+    dvA.setUint32(24, 0);
+    dvA.setUint32(28, 0);
+    dvA.setUint32(32, 1024);
+    dvA.setUint32(36, 18);
+    dvA.setUint32(40, 0);
+    dvA.setUint32(44, 0);
+    const moofA = box("moof", box("traf", box("trun", trunA)));
+    const mdatA = box("mdat", new Uint8Array(30).fill(0x55));
+    const pairA = new Uint8Array(moofA.length + mdatA.length);
+    pairA.set(moofA, 0);
+    pairA.set(mdatA, moofA.length);
+    const segsA = adtsFromFmp4(pairA, { profile: 1, freqIdx: 4, chCfg: 2 });
+    expect(segsA).toHaveLength(1);
+    expect(segsA[0].byteLength).toBe((12 + 7) + (18 + 7));
+
+    const tfhdB = new Uint8Array(12);
+    const dvTfhd = new DataView(tfhdB.buffer);
+    dvTfhd.setUint32(0, 0x000010);
+    dvTfhd.setUint32(4, 1);
+    dvTfhd.setUint32(8, 15);
+    const trunB = new Uint8Array(8 + 8);
+    const dvB = new DataView(trunB.buffer);
+    dvB.setUint32(0, 0x000100);
+    dvB.setUint32(4, 2);
+    dvB.setUint32(8, 1024);
+    dvB.setUint32(12, 1024);
+    const trafPayloadB = new Uint8Array(8 + tfhdB.length + 8 + trunB.length);
+    const tfhdBoxB = box("tfhd", tfhdB);
+    const trunBoxB = box("trun", trunB);
+    trafPayloadB.set(tfhdBoxB, 0);
+    trafPayloadB.set(trunBoxB, tfhdBoxB.length);
+    const moofB = box("moof", box("traf", trafPayloadB));
+    const mdatB = box("mdat", new Uint8Array(30).fill(0x33));
+    const pairB = new Uint8Array(moofB.length + mdatB.length);
+    pairB.set(moofB, 0);
+    pairB.set(mdatB, moofB.length);
+    const segsB = adtsFromFmp4(pairB, { profile: 1, freqIdx: 4, chCfg: 2 });
+    expect(segsB).toHaveLength(1);
+    expect(segsB[0].byteLength).toBe((15 + 7) * 2);
   });
 });
 

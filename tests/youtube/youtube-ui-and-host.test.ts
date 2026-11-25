@@ -451,7 +451,7 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
 
     const host = document.getElementById("biliscript-reading-settings-host")!;
     expect(document.getElementById("openLiveSettingsBtn")!.hidden).toBe(true);
-    expect(document.getElementById("openAsrSettingsBtn")!.hidden).toBe(true);
+    expect(document.getElementById("openAsrSettingsBtn")!.hidden).toBe(false);
     expect(document.getElementById("openAgentSettingsBtn")!.hidden).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-settings-section="ai-button"]')!.hidden).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-settings-item="extra-playback-rates"]')!.hidden).toBe(true);
@@ -465,28 +465,26 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     expect(document.getElementById("aiPromptSummary")!.textContent).toContain("播放器快捷开");
 
     expect(isSettingsViewAllowed("live")).toBe(false);
-    expect(isSettingsViewAllowed("asr")).toBe(false);
+    expect(isSettingsViewAllowed("asr")).toBe(true);
     expect(isSettingsViewAllowed("agent")).toBe(true);
     expect(isSettingsViewAllowed("agent-address")).toBe(true);
     expect(isSettingsViewAllowed("subtitle")).toBe(true);
 
-    document.getElementById("openAsrSettingsBtn")!.click();
-    expect(document.getElementById("biliscriptSettingsSubpageAsr")!.hidden).toBe(true);
-    expect(document.getElementById("biliscriptSettingsRootView")!.hidden).toBe(false);
-
     const settingsPanelEl = document.getElementById("biliscript-reading-settings-panel")!;
     expect(settingsPanelEl.hidden).toBe(true);
 
-    requestUiCommand("open-settings", { target: "asr" });
     requestUiCommand("open-settings", { target: "live" });
     requestUiCommand("open-settings", { target: "gemini-key" });
-    await settingsPanel.openReaderAsrSetup();
     await settingsPanel.openLiveSettings("live");
     await flushMicrotasks();
 
     expect(settingsPanelEl.hidden).toBe(true);
-    expect(document.getElementById("biliscriptSettingsSubpageAsr")!.hidden).toBe(true);
     expect(document.getElementById("biliscriptSettingsSubpageLive")!.hidden).toBe(true);
+
+    document.getElementById("openAsrSettingsBtn")!.click();
+    await vi.waitFor(() => {
+      expect(document.getElementById("biliscriptSettingsSubpageAsr")!.hidden).toBe(false);
+    });
 
     document.getElementById("openAgentSettingsBtn")!.click();
     await vi.waitFor(() => {

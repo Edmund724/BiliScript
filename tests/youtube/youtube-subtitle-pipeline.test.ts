@@ -981,7 +981,7 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     expect(state.clip.cid).toBe(YOUTUBE_UNIT_CID);
   });
 
-  it("无轨道映射 youtube-no-subtitles；双路抓取失败映射 youtube-captions-unavailable 且提供 CC 开关提示", async () => {
+  it("无轨道进入 ASR 回退判定（未配置报 no-asr-config）；双路抓取失败映射 youtube-captions-unavailable 且不自动回退 ASR", async () => {
     setLocationUrl("https://www.youtube.com/watch?v=ytDemo01234");
     setYoutubeMainWorldReaderForTests(async () =>
       buildSnapshotFromFixtures({ captionTracks: [] })
@@ -990,8 +990,8 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     await fetcher.refreshClip();
 
     expect(state.clip.subtitleFetchState).toBe("empty");
-    expect(state.clip.noSubtitleReason).toBe("youtube-no-subtitles");
-    expect(getReadingSubtitlePlaceholderText()).toContain("未提供原生字幕或自动字幕");
+    expect(state.clip.noSubtitleReason).toBe("no-asr-config");
+    expect(getReadingSubtitlePlaceholderText()).toContain("语音识别平台不可用");
 
     setYoutubeMainWorldReaderForTests(async () =>
       buildSnapshotFromFixtures({

@@ -139,6 +139,27 @@ function copyDirRecursive(src, dest) {
   }
 }
 
+function youtubeMainScriptsOptions() {
+  return {
+    entryPoints: {
+      "entry/youtube-sabr-sniffer.main": path.join(extensionRoot, "youtube/sabr-sniffer.main.ts"),
+      "entry/youtube-sabr-worker.main": path.join(extensionRoot, "youtube/sabr-worker.main.ts"),
+    },
+    outdir: distDir,
+    bundle: true,
+    splitting: false,
+    format: "iife",
+    platform: "browser",
+    minify: true,
+    sourcemap: true,
+    target: esbuildTarget,
+    define: targetDefine,
+    metafile: true,
+    logLevel: "warning",
+    plugins: [localImportGuard],
+  };
+}
+
 function restJsOptions() {
   return {
     entryPoints: jsEntries.map((rel) => path.join(extensionRoot, rel)),
@@ -549,18 +570,24 @@ async function main() {
   runContentBuild();
   copyStaticAssets();
 
-  const jobOptions = [restJsOptions(), offscreenOptions(), cssOptions(), onboardingOptions()];
-  let jsResult, offscreenResult, cssResult, onboardingResult;
+  const jobOptions = [
+    restJsOptions(),
+    offscreenOptions(),
+    cssOptions(),
+    onboardingOptions(),
+    youtubeMainScriptsOptions(),
+  ];
+  let jsResult, offscreenResult, cssResult, onboardingResult, youtubeMainResult;
   let esbuildContexts = null;
   if (watchMode) {
     esbuildContexts = await Promise.all(
       jobOptions.map((opts) => context({ ...opts, plugins: [...opts.plugins, watchRebuildLog] }))
     );
-    [jsResult, offscreenResult, cssResult, onboardingResult] = await Promise.all(
+    [jsResult, offscreenResult, cssResult, onboardingResult, youtubeMainResult] = await Promise.all(
       esbuildContexts.map((ctx) => ctx.rebuild())
     );
   } else {
-    [jsResult, offscreenResult, cssResult, onboardingResult] = await Promise.all(
+    [jsResult, offscreenResult, cssResult, onboardingResult, youtubeMainResult] = await Promise.all(
       jobOptions.map((opts) => build(opts))
     );
   }
@@ -571,7 +598,10 @@ async function main() {
   for (const outfile of outputs) {
     syntaxCheckEsm(path.resolve(root, outfile));
   }
-  for (const outfile of Object.keys(onboardingResult.metafile.outputs)) {
+  for (const outfile of [
+    ...Object.keys(onboardingResult.metafile.outputs),
+    ...Object.keys(youtubeMainResult.metafile.outputs),
+  ]) {
     if (outfile.endsWith(".js")) {
       execFileSync(process.execPath, ["--check"], {
         input: fs.readFileSync(path.resolve(root, outfile)),
@@ -579,7 +609,11 @@ async function main() {
       });
     }
   }
-  Object.assign(jsResult.metafile.outputs, onboardingResult.metafile.outputs);
+  Object.assign(
+    jsResult.metafile.outputs,
+    onboardingResult.metafile.outputs,
+    youtubeMainResult.metafile.outputs
+  );
   assertManifestReferences();
   assertHtmlReferences();
   assertBackgroundBundleSize();

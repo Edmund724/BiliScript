@@ -90,8 +90,9 @@ function buildMinimalFmp4() {
   writeU32(moof, trunStart, 8 + 4 + 4 + 4 + 8);
   moof.set([0x74, 0x72, 0x75, 0x6e], trunStart + 4);
   moof[trunStart + 8] = 0;
-  moof[trunStart + 9] = 0x03;
-  moof[trunStart + 10] = 0x01;
+  moof[trunStart + 9] = 0;
+  moof[trunStart + 10] = 0x03;
+  moof[trunStart + 11] = 0x01;
   writeU32(moof, trunStart + 12, 1);
   writeU32(moof, trunStart + 16, 8);
   writeU32(moof, trunStart + 20, 1024);

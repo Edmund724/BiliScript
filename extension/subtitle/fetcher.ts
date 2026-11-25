@@ -352,8 +352,7 @@ async function refreshYoutubeClip({
   clipState.setChapters(normalizeChapters(ytBundle.chapters));
 
   if (nativeTracks.length === 0) {
-    clipState.setNoSubtitleDetail("");
-    await commitNoSubtitle({ noSubtitleReason: "youtube-no-subtitles", runId });
+    await finishNoSubtitle(runId, null);
     return;
   }
 
@@ -367,8 +366,7 @@ async function refreshYoutubeClip({
     preferred
   );
   if (nativeCandidates.length === 0) {
-    clipState.setNoSubtitleDetail("");
-    await commitNoSubtitle({ noSubtitleReason: "youtube-no-subtitles", runId });
+    await finishNoSubtitle(runId, null);
     return;
   }
 

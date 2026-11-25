@@ -18,9 +18,14 @@ function broadcastSubtitleStatus(phase: string): void {
 }
 
 const asrFallbackLoader = createLazyLoader(async () => {
-  const [{ runAsrPipeline }, { createAsrFallback }] = await Promise.all([
+  const [
+    { runAsrPipeline },
+    { createAsrFallback },
+    { probeYoutubeAudioTrack, createYoutubeAudioStreamSource }
+  ] = await Promise.all([
     import("./pipeline.js"),
-    import("./fallback.js")
+    import("./fallback.js"),
+    import("../youtube/audio-source.js")
   ]);
   return createAsrFallback({
     getSettings,
@@ -29,7 +34,9 @@ const asrFallbackLoader = createLazyLoader(async () => {
     acceptSubtitle,
     commitNoSubtitle,
     runAsrPipeline,
-    broadcastSubtitleStatus
+    broadcastSubtitleStatus,
+    probeYoutubeAudioTrack,
+    createYoutubeAudioStreamSource
   });
 });
 

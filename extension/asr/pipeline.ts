@@ -1,10 +1,16 @@
 import { getSourceAudioUrl } from "./audio-source.js";
 import type { JsonTransport } from "../bilibili/gateway-core.js";
 import { createOffscreenChunkHost } from "./offscreen-bridge.page.js";
-import type { OffscreenChunkHost, AsrChunkRecord, AsrChunkResult } from "./offscreen-bridge.page.js";
+import type {
+  AudioStreamSource,
+  OffscreenChunkHost,
+  AsrChunkRecord,
+  AsrChunkResult
+} from "./offscreen-bridge.page.js";
 import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
-import type { AsrAttemptOutcome } from "./protocol.js";
+import type { AsrAttemptOutcome, AsrTriggerMode } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
+import type { SiteId } from "../shared/site.js";
 import { isNonSpeechSegment, joinSubtitleText } from "../subtitle/text-classification.js";
 import { logWarn } from "../shared/logging.js";
 
@@ -937,6 +943,9 @@ export interface RunAsrPipelineArgs {
   bvid: string;
   cid: string;
   onProgress?: (message: string) => void;
+  site?: SiteId;
+  trigger?: AsrTriggerMode;
+  streamSource?: AudioStreamSource;
   chunkHost?: OffscreenChunkHost;
   sourceTransport?: JsonTransport;
   onEmptyDiagnostic?: (diagText: string) => void;
@@ -952,6 +961,9 @@ export interface RunAsrPipelineArgs {
 export async function runAsrPipeline({
   bvid,
   cid,
+  site,
+  trigger,
+  streamSource,
   onProgress,
   chunkHost,
   sourceTransport,
@@ -962,32 +974,51 @@ export async function runAsrPipeline({
 }: RunAsrPipelineArgs): Promise<RichSubtitleItem[]> {
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
+  const isYoutube = site === "youtube";
 
-  onProgress?.("无字幕轨，正在获取音频流…");
-  const source = await getSourceAudioUrl({ bvid, cid }, sourceTransport);
-
-  onProgress?.("音频下载与解码中…");
   const progressiveMerger = createProgressiveChunkMerger();
-  const hostResult = await host({
-    audioUrl: source.url,
-    backupUrls: source.backupUrls || [],
-    onProgress,
-    signal,
-    onChunkResult: (record) => {
-      if (onChunkResult) {
-        const snapshot = progressiveMerger.push(record);
-        const items = snapshot.chunkItems.get(Number(record.index) || 0) ?? [];
-        try {
-          onChunkResult(record, items, snapshot);
-        } catch (error) {
-          logWarn("[BILISCRIPT] asr onChunkResult callback failed", {
-            chunkIndex: record.index,
-            error
-          });
-        }
+  const handleChunkResult = (record: AsrChunkRecord) => {
+    if (onChunkResult) {
+      const snapshot = progressiveMerger.push(record);
+      const items = snapshot.chunkItems.get(Number(record.index) || 0) ?? [];
+      try {
+        onChunkResult(record, items, snapshot);
+      } catch (error) {
+        logWarn("[BILISCRIPT] asr onChunkResult callback failed", {
+          chunkIndex: record.index,
+          error
+        });
       }
     }
-  });
+  };
+
+  let hostResult;
+  if (isYoutube || typeof streamSource === "function") {
+    if (typeof streamSource !== "function") {
+      throw new Error("YouTube 语音转写需要页内音频流采集源");
+    }
+    onProgress?.("无字幕轨，正在采集音频流…");
+    hostResult = await host({
+      streamSource,
+      trigger,
+      onProgress,
+      signal,
+      onChunkResult: handleChunkResult
+    });
+  } else {
+    onProgress?.("无字幕轨，正在获取音频流…");
+    const source = await getSourceAudioUrl({ bvid, cid }, sourceTransport);
+
+    onProgress?.("音频下载与解码中…");
+    hostResult = await host({
+      audioUrl: source.url,
+      backupUrls: source.backupUrls || [],
+      trigger,
+      onProgress,
+      signal,
+      onChunkResult: handleChunkResult
+    });
+  }
   const { results, totalChunks, skippedSegments, failedChunks } = hostResult;
 
   const merged = mergeChunkResults(results);

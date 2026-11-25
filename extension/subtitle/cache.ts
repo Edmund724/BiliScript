@@ -13,6 +13,7 @@ import {
   type EvictionFailure
 } from "../core/cache-lru.js";
 import {
+  ASR_AUDIO_TRACK_SUFFIX_PREFIX,
   ASR_SOURCE_KEY_PREFIX,
   TRANSLATED_SOURCE_KEY_PREFIX,
   isAsrVariantSourceKey,
@@ -1031,25 +1032,43 @@ function extractAsrLangFromTrackKey(trackKey: string): string {
   if (!isAsrVariantSourceKey(trackKey)) {
     return "";
   }
-  const rest = trackKey.slice(ASR_SOURCE_KEY_PREFIX.length);
+  let rest = trackKey.slice(ASR_SOURCE_KEY_PREFIX.length);
+  const trackIdx = rest.lastIndexOf(ASR_AUDIO_TRACK_SUFFIX_PREFIX);
+  if (trackIdx !== -1) {
+    rest = rest.slice(0, trackIdx);
+  }
   const lastColon = rest.lastIndexOf(":");
   return lastColon === -1 ? "" : rest.slice(lastColon + 1).trim();
+}
+
+function matchesRequestedAsrAudioTrack(trackKey: string, requestedAudioTrackId: string): boolean {
+  if (!requestedAudioTrackId) {
+    return true;
+  }
+  const safeId = requestedAudioTrackId.replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!safeId) {
+    return true;
+  }
+  return trackKey.endsWith(`${ASR_AUDIO_TRACK_SUFFIX_PREFIX}${safeId}`);
 }
 
 export async function findCachedAsrSubtitleTrack({
   bvid,
   cid,
   preferredCacheKey,
-  site
+  site,
+  audioTrackId
 }: {
   bvid: string;
   cid: string;
   preferredCacheKey?: string;
   site?: SiteId;
+  audioTrackId?: string;
 }): Promise<CachedAsrSubtitleTrack | null> {
   const resolved = resolveVideoStorageIdentity(bvid, cid, site);
   const cleanBvid = resolved.bvid;
   const cleanCid = resolved.cid;
+  const cleanAudioTrackId = String(audioTrackId || "").trim();
   if (!cleanBvid || !cleanCid) {
     return null;
   }
@@ -1078,6 +1097,9 @@ export async function findCachedAsrSubtitleTrack({
           continue;
         }
         if (record.kind !== "asr" && !isAsrVariantSourceKey(record.trackKey)) {
+          continue;
+        }
+        if (!matchesRequestedAsrAudioTrack(record.trackKey, cleanAudioTrackId)) {
           continue;
         }
         if (!best || (Number(record.updatedAt) || 0) >= (Number(best.updatedAt) || 0)) {

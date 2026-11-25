@@ -153,11 +153,17 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
         cs.matches.includes(LIVE_MATCH_PATTERN)
       )
     ).toBe(false);
-    expect(derived.content_scripts).toHaveLength(1);
+    expect(derived.content_scripts).toHaveLength(2);
     expect(derived.web_accessible_resources).toBeUndefined();
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/list/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/festival/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");
+    expect(derived.content_scripts[1]).toMatchObject({
+      matches: ["https://www.youtube.com/*"],
+      js: ["entry/youtube-sabr-sniffer.main.js"],
+      run_at: "document_start",
+      world: "MAIN"
+    });
   });
 
   it("显式声明 extension_pages CSP 为 script-src 'self'，解除 Firefox MV3 默认 upgrade-insecure-requests", () => {

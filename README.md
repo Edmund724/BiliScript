@@ -88,7 +88,7 @@ pnpm build:firefox    # 构建桌面端 Firefox 153+ 产物到 dist-firefox/
 
 ## 致谢与许可
 
-基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 二次修改，UI 参考 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)，YouTube 播放器字幕叠层方案参考 [kiss-translator](https://github.com/fishjar/kiss-translator)，思考档位词表参考 [hana-model-catalog](https://github.com/liliMozi/hana-model-catalog) 与 models.dev。
+基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 二次修改，UI 参考 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)，YouTube 播放器字幕叠层与无字幕音频采集（SABR/UMP）方案参考 [kiss-translator](https://github.com/fishjar/kiss-translator)，思考档位词表参考 [hana-model-catalog](https://github.com/liliMozi/hana-model-catalog) 与 models.dev。
 
 遵循 [MIT License](LICENSE)。
 

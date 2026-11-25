@@ -572,6 +572,14 @@ export type YoutubePageSnapshotResponse = {
   error?: string;
 };
 
+export type YoutubeEnsureSabrWorkerMessage = {
+  type: "youtube-ensure-sabr-worker";
+};
+export type YoutubeEnsureSabrWorkerResponse = {
+  ok: boolean;
+  error?: string;
+};
+
 export type ContentStyleInsertMessage = {
   type: "content-style-insert";
   files: string[];
@@ -654,6 +662,7 @@ export type BackgroundMessage =
   | OpenOnboardingMessage
   | PermissionGrantResultMessage
   | YoutubePageSnapshotMessage
+  | YoutubeEnsureSabrWorkerMessage
   | ContentStyleInsertMessage
   | ContentStyleRemoveMessage
   | ContentStyleReadMessage
@@ -711,10 +720,29 @@ export type OffscreenAsrPortMessage =
   | {
       action: "asr-decode";
       task: {
+        sourceMode?: "url" | "stream";
+        trigger?: "auto" | "manual";
         audioUrl?: string;
         backupUrls?: string[];
         [key: string]: unknown;
       };
+    }
+  | {
+      action: "asr-stream-init";
+      dataBase64: string;
+    }
+  | {
+      action: "asr-stream-chunk";
+      seq: number;
+      dataBase64: string;
+    }
+  | {
+      action: "asr-stream-end";
+    }
+  | {
+      action: "asr-stream-error";
+      error: string;
+      kind?: string;
     }
   | {
       action: "asr-probe";
@@ -1054,6 +1082,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "youtube-page-snapshot": registerBackgroundMessage<
     YoutubePageSnapshotMessage,
     YoutubePageSnapshotResponse
+  >({
+    reply: "branch"
+  }),
+  "youtube-ensure-sabr-worker": registerBackgroundMessage<
+    YoutubeEnsureSabrWorkerMessage,
+    YoutubeEnsureSabrWorkerResponse
   >({
     reply: "branch"
   }),

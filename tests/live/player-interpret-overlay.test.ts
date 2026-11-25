@@ -587,7 +587,10 @@ describe("播放器双语字幕叠层升级验收", () => {
         }) as never
     });
     const availability = await controller.refreshAvailability();
-    expect(availability).toEqual({ ok: false, error: "当前视频暂无可用字幕" });
+    expect(availability).toEqual({
+      ok: false,
+      error: "未配置语音识别 (ASR) 平台，请先在设置中添加平台并填写 API Key"
+    });
 
     controller.dispose();
     overlay.dispose();

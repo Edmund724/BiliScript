@@ -36,9 +36,15 @@ describe("字幕轨身份 → source key：四态真值表（字节 = 既有缓�
     expect(buildSubtitleSourceKey("", "", " ZH-CN ")).toBe("lang_zh-cn");
   });
 
-  it("asr：provider / model / lang 用 : 原样拼接，空 model 段不剔", () => {
+  it("asr：provider / model / lang 用 : 原样拼接，空 model 段不剔，可选 audioTrackId 追加 :track~ 后缀且缺省字节不变", () => {
     expect(subtitleSourceKey({ kind: "asr", providerId: "p1", model: "whisper-large-v3", lang: "auto" })).toBe(
       "id_asr:p1:whisper-large-v3:auto"
+    );
+    expect(subtitleSourceKey({ kind: "asr", providerId: "p1", model: "whisper-large-v3", lang: "auto", audioTrackId: "" })).toBe(
+      "id_asr:p1:whisper-large-v3:auto"
+    );
+    expect(subtitleSourceKey({ kind: "asr", providerId: "p1", model: "whisper-large-v3", lang: "auto", audioTrackId: "en.4" })).toBe(
+      "id_asr:p1:whisper-large-v3:auto:track~en.4"
     );
     expect(subtitleSourceKey({ kind: "asr", providerId: "p1", model: "", lang: "auto" })).toBe("id_asr:p1::auto");
     expect(subtitleSourceKey({ kind: "asr", providerId: "", model: "", lang: "" })).toBe("id_asr:::");

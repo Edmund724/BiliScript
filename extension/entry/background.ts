@@ -881,6 +881,40 @@ function handleYoutubePageSnapshot(
   return "hold";
 }
 
+function handleYoutubeEnsureSabrWorker(
+  _message: Msg<"youtube-ensure-sabr-worker">,
+  sender: MessageSender,
+  sendResponse: Reply<"youtube-ensure-sabr-worker">
+): MessageReplyDecision {
+  const tabId = Number(sender.tab?.id) || 0;
+  if (!tabId) {
+    sendResponse({ ok: false, error: "仅支持标签页内注入 YouTube 音频采集模块" });
+    return "answered";
+  }
+  if (!isYoutubeWatchPage(sender.tab?.url)) {
+    sendResponse({ ok: false, error: "当前网页不是 YouTube 视频页" });
+    return "answered";
+  }
+  if (typeof chrome.scripting?.executeScript !== "function") {
+    sendResponse({ ok: false, error: "scripting API 不可用" });
+    return "answered";
+  }
+
+  withOkResponse(
+    (async () => {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        files: ["entry/youtube-sabr-worker.main.js"]
+      });
+      return { ok: true };
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return "hold";
+}
+
 const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
@@ -926,6 +960,7 @@ const messageHandlerTable = {
   "open-onboarding": handleOpenOnboarding,
   "permission-grant-result": hostPermissionHandlers.permissionGrantResult,
   "youtube-page-snapshot": handleYoutubePageSnapshot,
+  "youtube-ensure-sabr-worker": handleYoutubeEnsureSabrWorker,
   "content-style-insert": contentStyleHandlers.insert,
   "content-style-remove": contentStyleHandlers.remove,
   "content-style-read": contentStyleHandlers.read,

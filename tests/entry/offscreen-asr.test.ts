@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "../../extension/asr/protocol.js";
+import { bytesToBase64 } from "../../extension/shared/bytes.js";
 import { formatAsrFailureDetail } from "../../extension/core/asr-failure-notice.js";
 import { HOST_INVALID_ORIGIN_HINT, HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 import { resolveAsrProvider, type AsrRuntimeConfig } from "../../extension/entry/offscreen-asr.js";
@@ -56,13 +57,18 @@ function connectAsrPort(host: MinimalChromeHost) {
     postMessage: vi.fn(),
     onMessage: {
       addListener: (fn: (message: unknown) => void) => listeners.add(fn),
-      removeListener: vi.fn()
+      removeListener: (fn: (message: unknown) => void) => listeners.delete(fn)
     },
     onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() },
     disconnect: vi.fn()
   };
   listener(port as unknown as chrome.runtime.Port);
-  return { port, taskListener: [...listeners][0] };
+  const emitPortMessage = (msg: unknown) => {
+    for (const fn of [...listeners]) {
+      fn(msg);
+    }
+  };
+  return { port, taskListener: [...listeners][0], emitPortMessage };
 }
 
 afterEach(() => {
@@ -123,8 +129,9 @@ describe("票 08 C5：首片确定性失败即中止整轮（真 offscreen 链�
       writeU32(moof, trunStart, 8 + 4 + 4 + 4 + 8);
       moof.set([0x74, 0x72, 0x75, 0x6e], trunStart + 4);
       moof[trunStart + 8] = 0;
-      moof[trunStart + 9] = 0x03;
-      moof[trunStart + 10] = 0x01;
+      moof[trunStart + 9] = 0;
+      moof[trunStart + 10] = 0x03;
+      moof[trunStart + 11] = 0x01;
       writeU32(moof, trunStart + 12, 1);
       writeU32(moof, trunStart + 16, 8);
       writeU32(moof, trunStart + 20, 1024);
@@ -758,5 +765,118 @@ describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）"
     expect(payload.type).toBe("error");
     expect(payload.error).toBe("音频下载失败");
     expect(payload.kind).toBe("asr-media");
+  });
+});
+
+describe("YouTube 推流解码模式（sourceMode=stream）与手动触发（trigger=manual）", () => {
+  let ctx: ReturnType<typeof createSkipHostContext>;
+
+  beforeEach(() => {
+    ctx = createSkipHostContext();
+  });
+
+  function writeU32(arr: Uint8Array, p: number, value: number): void {
+    arr[p] = (value >>> 24) & 0xff;
+    arr[p + 1] = (value >>> 16) & 0xff;
+    arr[p + 2] = (value >>> 8) & 0xff;
+    arr[p + 3] = value & 0xff;
+  }
+
+  function makeBox(type: string, payload: Uint8Array): Uint8Array {
+    const out = new Uint8Array(8 + payload.length);
+    writeU32(out, 0, out.length);
+    for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+    out.set(payload, 8);
+    return out;
+  }
+
+  function buildStreamFixtures(): { init: Uint8Array; seg: Uint8Array } {
+    const ftyp = makeBox("ftyp", new Uint8Array(12));
+    const trun = new Uint8Array(8 + 8);
+    const dv = new DataView(trun.buffer);
+    dv.setUint32(0, 0x000200);
+    dv.setUint32(4, 2);
+    dv.setUint32(8, 16);
+    dv.setUint32(12, 16);
+    const moof = makeBox("moof", makeBox("traf", makeBox("trun", trun)));
+    const mdat = makeBox("mdat", new Uint8Array(32).fill(0x2a));
+    const seg = new Uint8Array(moof.length + mdat.length);
+    seg.set(moof, 0);
+    seg.set(mdat, moof.length);
+    return { init: ftyp, seg };
+  }
+
+  it("resolveAsrProvider：manual=true 时绕过 asrAutoFallback=false 门禁", () => {
+    const cfg: AsrRuntimeConfig = { ...RUNTIME_CONFIG_BASE, asrAutoFallback: false };
+    expect(() => resolveAsrProvider(cfg)).toThrow(/未开启/);
+    expect(resolveAsrProvider(cfg, { manual: true }).id).toBe("p1");
+  });
+
+  it("stream 模式完整握手：stream-ready → init/chunk + stream-ack → end → done", async () => {
+    await loadOffscreen();
+    ctx.swapHost({
+      replies: {
+        "get-asr-runtime-config": { ...RUNTIME_CONFIG_RESPONSE, asrAutoFallback: false },
+        "check-provider-origin": { granted: true },
+        "offscreen-request-close": { ok: true }
+      }
+    });
+
+    const mono = () => {
+      const data = new Float32Array(16_000 * 5);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.sin(i / 50) * 0.4;
+      return data;
+    };
+    class FakeAudioContext {
+      async decodeAudioData() {
+        return { duration: 5, getChannelData: mono };
+      }
+      close() {}
+    }
+    class FakeOfflineAudioContext {
+      destination = {};
+      createBufferSource() {
+        return { buffer: null, connect() {}, start() {} };
+      }
+      async startRendering() {
+        return { getChannelData: mono };
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    vi.stubGlobal("OfflineAudioContext", FakeOfflineAudioContext);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ text: "hello youtube", segments: [{ start: 0, end: 2, text: "hello youtube" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    );
+
+    const { port, emitPortMessage } = connectAsrPort(ctx.getHost());
+    emitPortMessage({
+      action: "asr-decode",
+      task: { sourceMode: "stream", trigger: "manual" }
+    });
+
+    await vi.waitFor(() =>
+      expect(port.postMessage.mock.calls.some(([m]) => m?.type === "stream-ready")).toBe(true)
+    );
+
+    const { init, seg } = buildStreamFixtures();
+    emitPortMessage({ action: "asr-stream-init", dataBase64: bytesToBase64(init) });
+    emitPortMessage({ action: "asr-stream-chunk", seq: 1, dataBase64: bytesToBase64(seg) });
+    await vi.waitFor(() =>
+      expect(port.postMessage.mock.calls.some(([m]) => m?.type === "stream-ack" && m?.seq === 1)).toBe(true)
+    );
+    emitPortMessage({ action: "asr-stream-end" });
+
+    await vi.waitFor(() =>
+      expect(port.postMessage.mock.calls.some(([m]) => m?.type === "done")).toBe(true)
+    );
+    const doneMsg = port.postMessage.mock.calls.find(([m]) => m?.type === "done")![0];
+    expect(doneMsg.totalChunks).toBe(1);
+    expect(doneMsg.failedChunks).toBe(0);
   });
 });

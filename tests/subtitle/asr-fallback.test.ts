@@ -58,6 +58,8 @@ function buildDeps(overrides: Partial<Deps> = {}): Deps {
     commitNoSubtitle: vi.fn<DepsFns["commitNoSubtitle"]>(realCommitNoSubtitle),
     runAsrPipeline: vi.fn<DepsFns["runAsrPipeline"]>(async () => []),
     broadcastSubtitleStatus: vi.fn<DepsFns["broadcastSubtitleStatus"]>(),
+    probeYoutubeAudioTrack: vi.fn<DepsFns["probeYoutubeAudioTrack"]>(async () => null),
+    createYoutubeAudioStreamSource: vi.fn<DepsFns["createYoutubeAudioStreamSource"]>(() => async function* () {}),
     sleepFor: vi.fn<DepsFns["sleepFor"]>(async () => {}),
     ...overrides
   };

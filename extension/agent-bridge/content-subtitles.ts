@@ -87,7 +87,7 @@ function readReadySubtitles(): AgentBridgeContentSubtitlesResult | null {
       source: isYoutube ? "youtube" : "bilibili"
     })),
     subtitle: {
-      source: isYoutube ? "youtube" : (state.clip.selectedSubtitleId === "asr" ? "asr" : "bilibili"),
+      source: state.clip.selectedSubtitleId === "asr" ? "asr" : (isYoutube ? "youtube" : "bilibili"),
       trackId: state.clip.selectedSubtitleId,
       language: state.clip.selectedSubtitleLang || "unknown",
       items

@@ -67,6 +67,13 @@
       "js": ["entry/content-resident.iife.js"],
       "run_at": "document_idle",
       "all_frames": true
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["entry/youtube-sabr-sniffer.main.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
     }
   ],
   "web_accessible_resources": [

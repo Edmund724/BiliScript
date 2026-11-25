@@ -76,7 +76,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
       supportsMultiPage: true
     });
     expect(getSiteCapabilities("youtube")).toMatchObject({
-      supportsAsr: false,
+      supportsAsr: true,
       supportsLiveCompanion: false,
       supportsPlayerInterpretOverlay: true,
       supportsPlayerQuickAiButton: true,
