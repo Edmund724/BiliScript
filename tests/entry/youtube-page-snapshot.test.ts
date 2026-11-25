@@ -70,6 +70,10 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
   beforeEach(() => {
     executeScript.mockReset();
     document.body.innerHTML = "";
+    const win = window as unknown as Record<string, unknown>;
+    delete win.ytInitialPlayerResponse;
+    delete win.ytInitialData;
+    delete win.ytcfg;
   });
 
   it("缺失 sender.tab.id 时同步拒绝且不调用 executeScript", () => {
@@ -269,6 +273,8 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
       innertubeContext: { client: { clientName: "WEB", clientVersion: "2.2026" } },
       innertubeApiKey: "AIzaTestKey",
       transcriptParams: "CgtBU1JfcGFyYW1z",
+      commentsContinuation: "",
+      commentsDisabled: false,
       observedTimedtextUrls: [
         "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&pot=abc"
       ]
@@ -400,6 +406,8 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
       innertubeContext: null,
       innertubeApiKey: "",
       transcriptParams: "",
+      commentsContinuation: "",
+      commentsDisabled: false,
       observedTimedtextUrls: []
     });
 

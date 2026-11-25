@@ -363,9 +363,9 @@
 
 #biliscript-player-interpret-quick-action.biliscript-player-interpret-quick-action--youtube {
   align-items: center;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.9);
   display: inline-flex;
-  font-size: 13px;
+  font-size: var(--biliscript-font-size-sm, 13px);
   font-weight: 500;
   height: 100%;
   justify-content: center;
@@ -376,13 +376,13 @@
 }
 
 #biliscript-player-interpret-quick-action.biliscript-player-interpret-quick-action--youtube:hover {
-  color: #fff;
+  color: var(--biliscript-primitive-color-white, rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255)));
   opacity: 1;
 }
 
 #biliscript-player-interpret-quick-action.biliscript-player-interpret-quick-action--youtube.is-active,
 #biliscript-player-interpret-quick-action.biliscript-player-interpret-quick-action--youtube.is-connecting {
-  color: #3ea6ff;
+  color: var(--biliscript-primitive-color-blue-400, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)));
   opacity: 1;
 }
 

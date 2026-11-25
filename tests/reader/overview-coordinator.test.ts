@@ -175,13 +175,14 @@ describe("相位迁移", () => {
     expect(args.context?.bvid).toBe("BV1test000000");
   });
 
-  it("YouTube 片段触发概览时透传 site=\"youtube\" 并剥离 hotComments", async () => {
+  it("YouTube 片段触发概览时透传 site=\"youtube\" 与 hotComments", async () => {
     const h = makeHarness();
+    const ytHotComments = [{ uname: "u", like: 5, message: "youtube top comment" }];
     Object.assign(h.clip, {
       site: "youtube",
       bvid: "_a_b-C12_34",
       cid: "yt",
-      hotComments: [{ uname: "u", like: 5, message: "should be dropped" }]
+      hotComments: ytHotComments
     });
     h.runOverviewAnalysis.mockResolvedValue(SAMPLE_ANALYSIS);
 
@@ -191,7 +192,7 @@ describe("相位迁移", () => {
     expect(args.context?.site).toBe("youtube");
     expect(args.context?.bvid).toBe("_a_b-C12_34");
     expect(args.context?.cid).toBe("yt");
-    expect(args.context?.hotComments).toEqual([]);
+    expect(args.context?.hotComments).toEqual(ytHotComments);
   });
 
   it("failedRanges 非空 → partial", async () => {
