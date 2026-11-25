@@ -18,6 +18,7 @@ import {
 import { buildSecondaryAlignment } from "../subtitle/alignment.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import {
+  canUseNativeBilingualPair,
   createAsrPseudoTrack,
   findManualForeignTrackForAiRefine,
   findSecondaryTrackByPreferredLang,
@@ -25,11 +26,11 @@ import {
   getLangFamily,
   isAsrSubtitleTrack,
   isLoadableNativeTrack,
-  isMonolingualNativeTracks,
   isSameLangFamily,
   resolveTargetLang,
   resolveTrackTarget,
-  upsertAsrPseudoTrack
+  upsertAsrPseudoTrack,
+  type SubtitleTrackOrigin
 } from "../subtitle/selection.js";
 import {
   TRANSLATION_CHUNK_SEC,
@@ -218,11 +219,7 @@ export function createInterpretSessionController(
 
   function isZeroTokenNativePairScenario(): boolean {
     const nativeTracks = currentNativeTracks();
-    return (
-      nativeTracks.length >= 2 &&
-      !isMonolingualNativeTracks(nativeTracks) &&
-      getAiRefineMode() === "off"
-    );
+    return canUseNativeBilingualPair(nativeTracks, state.clip.site) && getAiRefineMode() === "off";
   }
 
   function hasPrimaryReadyInMemoryOrCache(): boolean {
@@ -473,6 +470,9 @@ export function createInterpretSessionController(
     selectedSubtitleUrl?: string;
     selectedSubtitleLang?: string;
     trackLan?: string;
+    origin?: SubtitleTrackOrigin;
+    kind?: string;
+    source?: string;
     targetLang: string;
     primaryItems?: readonly SubtitleBodyItem[];
     protocolProbeItems?: readonly SubtitleBodyItem[];
@@ -491,6 +491,9 @@ export function createInterpretSessionController(
           selectedSubtitleUrl: params.selectedSubtitleUrl,
           selectedSubtitleLang: params.selectedSubtitleLang,
           trackLan: params.trackLan,
+          ...(params.origin !== undefined ? { origin: params.origin } : {}),
+          ...(params.kind !== undefined ? { kind: params.kind } : {}),
+          ...(params.source !== undefined ? { source: params.source } : {}),
           targetLang: params.targetLang
         },
         isStale: () =>
@@ -743,7 +746,7 @@ export function createInterpretSessionController(
       const nativeTracks = currentNativeTracks();
       const refineMode = getAiRefineMode();
 
-      if (nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks) && refineMode === "off") {
+      if (canUseNativeBilingualPair(nativeTracks, state.clip.site) && refineMode === "off") {
         activeSessionKind = "native-pair";
         const mainRef =
           findTrackByRef(nativeTracks, {
@@ -837,6 +840,9 @@ export function createInterpretSessionController(
           selectedSubtitleUrl: state.clip.selectedSubtitleUrl || sourceTarget.url,
           selectedSubtitleLang: sourceTrackLang,
           trackLan: sourceTrackLan,
+          origin: sourceTrack.origin,
+          kind: sourceTrack.kind,
+          source: sourceTrack.source,
           targetLang,
           primaryItems
         });

@@ -27,7 +27,6 @@ import {
 } from "../../extension/subtitle/labels.js";
 import { shouldSegmentTrack } from "../../extension/subtitle/segmentation.js";
 import { trackIdentity } from "../../extension/subtitle/source-key.js";
-import type { SecondaryEnsureOutcome } from "../../extension/reader/secondary-subtitle.js";
 
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let state: (typeof import("../../extension/core/state.js"))["state"];
@@ -214,15 +213,6 @@ function makeTextFetchResponse(body: string, status = 200) {
 function makeJsonFetchResponse(payload: unknown, status = 200) {
   const serialized = JSON.stringify(payload);
   return makeTextFetchResponse(serialized, status);
-}
-
-function assertStartedOutcome(
-  outcome: SecondaryEnsureOutcome
-): Extract<SecondaryEnsureOutcome, { kind: "started" }> {
-  if (outcome.kind !== "started") {
-    throw new Error(`Expected started secondary load outcome, got ${outcome.kind}`);
-  }
-  return outcome;
 }
 
 function setLocationUrl(url: string): void {
@@ -1101,9 +1091,8 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     expect(fallbackFetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("跨语种原生多轨零 Token 配对（排除同语种族），单语种自动轨走 boundary-v3 与 90s 游标调度", async () => {
+  it("YouTube 多语种原生轨禁用原生配对并统一走扩展翻译；自动轨走 boundary-v3 与 90s 游标调度", async () => {
     setLocationUrl("https://www.youtube.com/watch?v=ytDemo01234");
-    const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");
     const snapshot = buildSnapshotFromFixtures();
     const mapped = mapYoutubeCaptionTracks(snapshot.captionTracks);
     const manualEn = mapped[0];
@@ -1120,26 +1109,9 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     clipState.setSelectedSubtitleUrl(manualEn.subtitleUrl);
     clipState.setSelectedSubtitleLang(manualEn.lanDoc || "English");
 
-    setYoutubeMainWorldReaderForTests(async () => snapshot);
-    const fetchMock = vi.fn(async () => makeJsonFetchResponse(json3Fixture));
-    setYoutubeSameOriginFetchForTests(fetchMock);
-
-    const targetRes = resolveSecondaryTarget();
-    expect(targetRes).toEqual({
-      kind: "target",
-      target: {
-        id: manualZh.id,
-        url: manualZh.subtitleUrl,
-        lang: manualZh.lanDoc || "中文（简体）",
-        origin: "youtube"
-      }
-    });
-    const outcome = ensureSecondarySubtitleLoaded();
-    expect(outcome.kind).toBe("started");
-    const started = assertStartedOutcome(outcome);
-    await expect(started.settled).resolves.toEqual({ error: null });
-    expect(state.clip.secondarySubtitle.state).toBe("ready");
-    expect(state.clip.secondarySubtitle.body).toHaveLength(4);
+    expect(isTranslationSecondaryScenario([manualEn, manualZh])).toBe(true);
+    expect(resolveSecondaryTarget()).toEqual({ kind: "none", reason: "no-track" });
+    expect(ensureSecondarySubtitleLoaded()).toEqual({ kind: "skipped", reason: "no-track" });
 
     const zhHant = { ...manualZh, id: "yt-cc-.zh-Hant", lan: "zh-Hant", lanDoc: "中文（繁體）" };
     clipState.setSubtitles([manualZh, zhHant]);

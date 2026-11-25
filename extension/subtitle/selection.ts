@@ -1,6 +1,6 @@
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import type { SubtitleTrack, SubtitleTrackOrigin } from "../bilibili/gateway.js";
-import type { SiteId } from "../shared/site.js";
+import { getSiteCapabilities, type SiteId } from "../shared/site.js";
 export type { SubtitleTrackOrigin } from "../bilibili/gateway.js";
 import {
   LIVE_INTERPRET_TARGET_BCP47,
@@ -218,6 +218,23 @@ export function isMonolingualNativeTracks(
     }
   }
   return families.size <= 1;
+}
+
+export function canUseNativeBilingualPair(
+  tracks: readonly SubtitleTrackOriginLike[] | null | undefined,
+  site?: SiteId
+): boolean {
+  if (site && !getSiteCapabilities(site).supportsNativeBilingualPair) {
+    return false;
+  }
+  const nativeTracks = (tracks || []).filter(isLoadableNativeTrack);
+  if (nativeTracks.length < 2) {
+    return false;
+  }
+  if (!site && nativeTracks.every((track) => resolveSubtitleTrackOrigin(track) === "youtube")) {
+    return false;
+  }
+  return !isMonolingualNativeTracks(nativeTracks);
 }
 
 export function hasCrossLangManualTracks(

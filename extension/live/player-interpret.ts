@@ -36,12 +36,12 @@ import {
   saveInterpretPositionRatio
 } from "./interpret-position-persistence.js";
 import {
+  canUseNativeBilingualPair,
   classifySubtitleTrack,
   findManualForeignTrackForAiRefine,
   findTrackByRef,
   getAvailableTargetLangOptions,
   isLoadableNativeTrack,
-  isMonolingualNativeTracks,
   resolveTargetLang
 } from "../subtitle/selection.js";
 import {
@@ -1616,8 +1616,7 @@ export async function togglePlayerInterpretMenu(anchor: HTMLElement): Promise<vo
       const settings = await getSettings();
       const tracks = state.clip.subtitles || [];
       const nativeTracks = tracks.filter((track) => isLoadableNativeTrack(track));
-      const nativePairAvailable =
-        nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks);
+      const nativePairAvailable = canUseNativeBilingualPair(nativeTracks, state.clip.site);
       return {
         targetLang: String(settings.liveInterpretTargetLang || "zh"),
         displayMode: String(settings.liveInterpretDisplayMode || "auto"),

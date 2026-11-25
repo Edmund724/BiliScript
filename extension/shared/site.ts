@@ -8,6 +8,7 @@ const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 export interface SiteCapabilities {
   readonly supportsAsr: boolean;
   readonly supportsLiveCompanion: boolean;
+  readonly supportsNativeBilingualPair: boolean;
   readonly supportsPlayerInterpretOverlay: boolean;
   readonly supportsPlayerQuickAiButton: boolean;
   readonly supportsExtraPlaybackRates: boolean;
@@ -22,6 +23,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
   bilibili: Object.freeze({
     supportsAsr: true,
     supportsLiveCompanion: true,
+    supportsNativeBilingualPair: true,
     supportsPlayerInterpretOverlay: true,
     supportsPlayerQuickAiButton: true,
     supportsExtraPlaybackRates: true,
@@ -34,6 +36,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
   youtube: Object.freeze({
     supportsAsr: false,
     supportsLiveCompanion: false,
+    supportsNativeBilingualPair: false,
     supportsPlayerInterpretOverlay: true,
     supportsPlayerQuickAiButton: true,
     supportsExtraPlaybackRates: false,

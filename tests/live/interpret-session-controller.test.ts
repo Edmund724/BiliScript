@@ -623,5 +623,53 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(setSubtitle).not.toHaveBeenCalled();
       expect(state.clip.secondarySubtitle.state).toBe("idle");
     });
+
+    it("YouTube 多语种原生轨跳过 native-pair，直接走扩展翻译链路", async () => {
+      clipState.setSite("youtube");
+      clipState.setBvid("ytDemo01234");
+      clipState.setCid("yt");
+      clipState.setSubtitles([
+        {
+          id: "yt-auto-a.en",
+          lan: "en",
+          lanDoc: "English",
+          subtitleUrl: "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr",
+          origin: "youtube",
+          kind: "asr",
+          source: "youtube-auto",
+          site: "youtube"
+        },
+        {
+          id: "yt-cc-.ja",
+          lan: "ja",
+          lanDoc: "日本語",
+          subtitleUrl: "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=ja",
+          origin: "youtube",
+          source: "youtube-cc",
+          site: "youtube"
+        }
+      ]);
+      clipState.setSelectedSubtitleId("yt-auto-a.en");
+      clipState.setSelectedSubtitleUrl("https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr");
+      clipState.setSelectedSubtitleLang("English");
+      clipState.setSubtitleBody([{ from: 0, to: 10, content: "Hello YouTube" }]);
+      clipState.setSubtitleFetchState("ready");
+
+      const { controller, translateItems, setSubtitle } = setupTest({
+        currentTime: 2,
+        targetLang: "zh"
+      });
+
+      const started = await controller.start();
+      expect(started).toBe(true);
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalled());
+      expect(translateItems.mock.calls[0]?.[0]).toMatchObject({
+        targetLang: "zh",
+        origin: "youtube",
+        kind: "asr",
+        source: "youtube-auto"
+      });
+      await vi.waitFor(() => expect(setSubtitle).toHaveBeenCalledWith("Hello YouTube", "译: Hello YouTube"));
+    });
   });
 });

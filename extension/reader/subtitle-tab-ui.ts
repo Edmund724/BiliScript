@@ -19,9 +19,9 @@ import {
   shouldMarkAiSubtitleTracks
 } from "../subtitle/labels.js";
 import {
+  canUseNativeBilingualPair,
   findManualForeignTrackForAiRefine,
   isLoadableNativeTrack,
-  isMonolingualNativeTracks,
   resolveSubtitleTrackOrigin,
   resolveTrackTarget,
   type SubtitleTrackOrigin
@@ -187,8 +187,7 @@ export interface SubtitleToolbarFacts {
 }
 
 function resolveAiRefineToolbarAction(tracks: SubtitleTrack[]): AiRefineToolbarAction | null {
-  const nativeTracks = loadableSecondaryTracks(tracks);
-  if (nativeTracks.length < 2 || isMonolingualNativeTracks(tracks) || isCurrentMainTrackAsr(tracks)) {
+  if (!canUseNativeBilingualPair(tracks, state.clip.site) || isCurrentMainTrackAsr(tracks)) {
     return null;
   }
   if (isAiRefineOverrideActive()) {

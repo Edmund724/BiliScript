@@ -9,13 +9,13 @@ import {
   type LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
 import {
+  canUseNativeBilingualPair,
   classifySubtitleTrack,
   findManualForeignTrackForAiRefine,
   findTrackByRef,
   getAvailableTargetLangOptions,
   isAsrSubtitleTrack,
   isLoadableNativeTrack,
-  isMonolingualNativeTracks,
   resolveTargetLang,
   resolveTargetLangBcp47,
   resolveTrackTarget,
@@ -125,20 +125,21 @@ export function setAiRefineOverride(enabled: boolean): void {
 }
 
 export function isTranslationSecondaryScenario(
-  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string; source?: string; origin?: string }> | null | undefined = state.clip.subtitles
+  tracks: ReadonlyArray<{ id?: string; lan?: string; subtitleUrl?: string; source?: string; origin?: string; kind?: string; site?: string }> | null | undefined = state.clip.subtitles
 ): boolean {
   const list = tracks || [];
   const loadableNative = list.filter(isLoadableNativeTrack);
+  const canPairNative = canUseNativeBilingualPair(list, state.clip.site);
   if (isAiRefineOverrideActive() && (loadableNative.length > 0 || hasAsrPseudoTrack(list))) {
     return true;
   }
   if (
     hasAsrPseudoTrack(list) &&
-    (loadableNative.length === 0 || isMonolingualNativeTracks(list) || isCurrentMainTrackAsr(list))
+    (loadableNative.length === 0 || !canPairNative || isCurrentMainTrackAsr(list))
   ) {
     return true;
   }
-  return isMonolingualNativeTracks(list);
+  return loadableNative.length > 0 && !canPairNative;
 }
 
 export interface AsrTranslationView {

@@ -5,12 +5,12 @@ import { logWarn } from "../shared/logging.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { resolveSubtitleLangLabel } from "../subtitle/labels.js";
 import {
+  canUseNativeBilingualPair,
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
   findTrackByRef,
   getLangFamily,
   isMainSubtitleTrack,
-  isMonolingualNativeTracks,
   isSameLangFamily,
   resolveTrackTarget,
   type SubtitleTrackRef,
@@ -79,7 +79,7 @@ export function resolveSecondaryTarget(ref?: SecondaryTrackRef): SecondaryTarget
     return { kind: "target", target: resolveTrackTarget(track ?? ref) };
   }
 
-  if (isMonolingualNativeTracks(tracks)) {
+  if (!canUseNativeBilingualPair(tracks, state.clip.site)) {
     return { kind: "none", reason: "no-track" };
   }
 
