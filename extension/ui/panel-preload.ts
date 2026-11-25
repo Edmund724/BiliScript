@@ -1,12 +1,13 @@
 import { isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 
-export const PANEL_PRELOAD_GROUP_IDS = ["g-shared", "g-app"] as const;
+export const PANEL_PRELOAD_GROUP_IDS = ["g-shared", "g-subtitle", "g-app"] as const;
 
 const boundButtons = new WeakSet<HTMLElement>();
 
 type PreloadHostGlobals = {
   __BILISCRIPT_SHARED_READY__?: boolean;
+  __BILISCRIPT_SUBTITLE_READY__?: boolean;
   __BILISCRIPT_CHUNKS__?: Record<string, unknown>;
   __BILISCRIPT_CHUNK_FACTORIES__?: Record<string, unknown>;
   __BILISCRIPT_CHUNK_INFLIGHT__?: Record<string, Promise<unknown>>;
@@ -58,12 +59,20 @@ export function preloadReaderPanelChunks(): void {
     "g-app",
     () => Boolean(chunks["ui/ui-renderer.ts"] || factories["ui/ui-renderer.ts"]),
     async () => {
-      await ensureGroupPreloaded(
-        inflight,
-        "g-shared",
-        () => Boolean(host.__BILISCRIPT_SHARED_READY__),
-        () => requestChunkGroupLoad("g-shared")
-      );
+      await Promise.all([
+        ensureGroupPreloaded(
+          inflight,
+          "g-shared",
+          () => Boolean(host.__BILISCRIPT_SHARED_READY__),
+          () => requestChunkGroupLoad("g-shared")
+        ),
+        ensureGroupPreloaded(
+          inflight,
+          "g-subtitle",
+          () => Boolean(host.__BILISCRIPT_SUBTITLE_READY__),
+          () => requestChunkGroupLoad("g-subtitle")
+        )
+      ]);
       await requestChunkGroupLoad("g-app");
     }
   ).catch(() => {});

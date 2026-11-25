@@ -320,6 +320,7 @@ export function clearSharedSlots() {
   delete slots.__BILISCRIPT_CONTENT_SCRIPT_DISPATCHER__;
   delete slots.__BILISCRIPT_LOG_GATE__;
   delete slots.__BILISCRIPT_READER_BUS__;
+  delete slots.__BILISCRIPT_READER_OVERVIEW_SOURCE__;
   delete slots.__BILISCRIPT_STATE__;
   delete slots.__BILISCRIPT_STYLE_INJECTOR__;
   delete slots.__BILISCRIPT_EVENT_BUS__;

@@ -10,7 +10,11 @@ const {
   getEsbuildTarget,
   getTargetDefine,
 } = require("./build-guards.js");
-const { collectStaticInputs, computeSharedModules } = require("./b2-shared-closure.js");
+const {
+  collectStaticInputs,
+  computeSharedModules,
+  collectNamedImportsForTargets,
+} = require("./b2-shared-closure.js");
 
 const targetPlatform = resolveTargetPlatform(process.argv);
 const esbuildTarget = getEsbuildTarget(targetPlatform);
@@ -129,6 +133,14 @@ const ALL_GROUPS = {
       "bilibili/playback-rate.ts",
     ],
   },
+  "g-subtitle": {
+    entries: [
+      "subtitle/fetcher.ts",
+      "subtitle/ui.ts",
+      "subtitle/asr-translation.ts",
+      "youtube/gateway.ts",
+    ],
+  },
   "g-app": {
     entries: [
       "ui/ui-renderer.ts",
@@ -137,10 +149,6 @@ const ALL_GROUPS = {
       "reader/index.ts",
       "reader/overview-coordinator.ts",
       "ui/confirm-dialog.ts",
-      "subtitle/fetcher.ts",
-      "subtitle/ui.ts",
-      "subtitle/asr-translation.ts",
-      "youtube/gateway.ts",
       "bilibili/gateway.ts",
       "asr/active-fallback.ts",
       "asr/pipeline.ts",
@@ -319,13 +327,16 @@ function __bsEnsurePrereq(flagKey, chunkId) {
   }
   return __bsInflight[chunkId];
 }
-globalThis.__BILISCRIPT_LOAD_CHUNK__ = function(groupId, moduleId, needsShared) {
+globalThis.__BILISCRIPT_LOAD_CHUNK__ = function(groupId, moduleId, needsShared, needsSubtitle) {
   const existing = globalThis.__BILISCRIPT_RESOLVE_CHUNK__(moduleId);
   if (existing) return Promise.resolve(existing);
   const key = groupId;
   if (!__bsInflight[key]) {
     __bsInflight[key] = (async () => {
-      if (needsShared) await __bsEnsurePrereq("__BILISCRIPT_SHARED_READY__", "g-shared");
+      const prereqs = [];
+      if (needsShared) prereqs.push(__bsEnsurePrereq("__BILISCRIPT_SHARED_READY__", "g-shared"));
+      if (needsSubtitle) prereqs.push(__bsEnsurePrereq("__BILISCRIPT_SUBTITLE_READY__", "g-subtitle"));
+      if (prereqs.length > 0) await Promise.all(prereqs);
       await __bsSendChunkLoad(groupId);
     })().catch((err) => {
       delete __bsInflight[key];
@@ -348,6 +359,10 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
     shimSharedSync = Boolean(sharedModuleMap),
     shimSharedDyn = Boolean(sharedModuleMap),
     sharedGroupActive = Boolean(sharedModuleMap),
+    subtitleModuleMap = null,
+    shimSubtitleSync = Boolean(subtitleModuleMap),
+    shimSubtitleDyn = Boolean(subtitleModuleMap),
+    subtitleGroupActive = false,
   } = options;
   return {
     name: `b2-bridge-${currentGroupName}`,
@@ -356,6 +371,9 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
         const candidates = resolveCandidates(args.resolveDir, args.path);
         if (args.kind === "dynamic-import") {
           for (const c of candidates) {
+            if (shimSubtitleDyn && subtitleModuleMap && subtitleModuleMap.has(c)) {
+              return { path: `__B2_SUBTITLE__/${subtitleModuleMap.get(c)}`, external: true };
+            }
             if (shimSharedDyn && sharedModuleMap && sharedModuleMap.has(c)) {
               return { path: `__B2_SHARED__/${sharedModuleMap.get(c)}`, external: true };
             }
@@ -367,8 +385,9 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
               const needsShared = Boolean(
                 sharedGroupActive && (info.group === "g-app" || info.group === "g-live-room")
               );
+              const needsSubtitle = Boolean(subtitleGroupActive && info.group === "g-app");
               return {
-                path: `__B2_REMOTE__/${info.group}/${needsShared ? "1" : "0"}/${info.id}`,
+                path: `__B2_REMOTE__/${info.group}/${needsShared ? "1" : "0"}/${needsSubtitle ? "1" : "0"}/${info.id}`,
                 external: true,
               };
             }
@@ -377,6 +396,13 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
             }
           }
           return undefined;
+        }
+        if (shimSubtitleSync && subtitleModuleMap) {
+          for (const c of candidates) {
+            if (subtitleModuleMap.has(c)) {
+              return { path: subtitleModuleMap.get(c), namespace: "b2-subtitle-sync", sideEffects: false };
+            }
+          }
         }
         if (shimSharedSync && sharedModuleMap) {
           for (const c of candidates) {
@@ -402,12 +428,20 @@ function createDynamicGroupBridgePlugin(currentGroupName, options = {}) {
         contents: `module.exports = globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(args.path)}];`,
         loader: "js",
       }));
+      buildApi.onLoad({ filter: /.*/, namespace: "b2-subtitle-sync" }, (args) => ({
+        contents: `module.exports = globalThis.__BILISCRIPT_SUBTITLE__[${JSON.stringify(args.path)}];`,
+        loader: "js",
+      }));
     },
   };
 }
 
 function rewriteDynamicImportsInJs(code) {
   return code.replace(/import\("(__B2_[^"]+)"\)/g, (_, token) => {
+    if (token.startsWith("__B2_SUBTITLE__/")) {
+      const id = token.slice("__B2_SUBTITLE__/".length);
+      return `Promise.resolve(globalThis.__BILISCRIPT_SUBTITLE__[${JSON.stringify(id)}])`;
+    }
     if (token.startsWith("__B2_SHARED__/")) {
       const id = token.slice("__B2_SHARED__/".length);
       return `Promise.resolve(globalThis.__BILISCRIPT_SHARED__[${JSON.stringify(id)}])`;
@@ -424,10 +458,12 @@ function rewriteDynamicImportsInJs(code) {
       const rest = token.slice("__B2_REMOTE__/".length);
       const slash1 = rest.indexOf("/");
       const slash2 = rest.indexOf("/", slash1 + 1);
+      const slash3 = rest.indexOf("/", slash2 + 1);
       const groupId = rest.slice(0, slash1);
       const needsShared = rest.slice(slash1 + 1, slash2) === "1";
-      const moduleId = rest.slice(slash2 + 1);
-      return `globalThis.__BILISCRIPT_LOAD_CHUNK__(${JSON.stringify(groupId)},${JSON.stringify(moduleId)},${needsShared ? "!0" : "!1"})`;
+      const needsSubtitle = rest.slice(slash2 + 1, slash3) === "1";
+      const moduleId = rest.slice(slash3 + 1);
+      return `globalThis.__BILISCRIPT_LOAD_CHUNK__(${JSON.stringify(groupId)},${JSON.stringify(moduleId)},${needsShared ? "!0" : "!1"},${needsSubtitle ? "!0" : "!1"})`;
     }
     throw new Error(`Unknown dynamic import token: ${token}`);
   });
@@ -833,8 +869,18 @@ function selfCheck(groupResults) {
       process.exitCode = 1;
       return false;
     }
-    if (gName === "g-shared" && text.includes('"g-live-room"')) {
+    if ((gName === "g-shared" || gName === "g-subtitle") && text.includes('"g-live-room"')) {
       console.error(`Self-check failed: ${gInfo.outfile} 不应包含 g-live-room 远端加载`);
+      process.exitCode = 1;
+      return false;
+    }
+    if (gName === "g-subtitle" && !text.includes("__BILISCRIPT_SUBTITLE_READY__")) {
+      console.error(`Self-check failed: ${gInfo.outfile} 未写入 __BILISCRIPT_SUBTITLE_READY__`);
+      process.exitCode = 1;
+      return false;
+    }
+    if (gName === "g-subtitle" && (text.includes("__BILISCRIPT_SHARED__") || text.includes('"g-shared"'))) {
+      console.error(`Self-check failed: ${gInfo.outfile} 不得静态/前置引用 g-shared`);
       process.exitCode = 1;
       return false;
     }
@@ -867,7 +913,54 @@ async function computeCurrentSharedModules() {
   });
 }
 
-function getResidentOptions(sharedGroupActive) {
+const SUBTITLE_SKIP_REGISTRY_MODULES = new Set([
+  "bilibili/host-selectors.ts",
+  "bilibili/video-probe.ts",
+  "live/interpret-subtitle-preferences.ts",
+  "reader/live-overview-source.ts",
+  "reader/subtitle-notice.ts",
+  "youtube/host-adapter.ts",
+]);
+
+async function computeSubtitleOverlapExports(sharedModules) {
+  const excludeSet = new Set([
+    ...RESIDENT_RT_EXPORTS.map((item) => item.id),
+    ...DUAL_INSTANCE_ALLOWLIST.map((item) => item.source),
+    ...sharedModules,
+    ...SUBTITLE_SKIP_REGISTRY_MODULES,
+  ]);
+  const probePlugins = [
+    localImportGuard,
+    ...(targetPlatform === "firefox" ? [firefoxLiveCompanionStubPlugin] : []),
+  ];
+  const [subSet, appSet] = await Promise.all([
+    collectStaticInputs({
+      entries: ACTIVE_GROUPS["g-subtitle"].entries,
+      extensionRoot,
+      targetPlatform,
+      esbuildTarget,
+      targetDefine,
+      plugins: probePlugins,
+    }),
+    collectStaticInputs({
+      entries: ACTIVE_GROUPS["g-app"].entries,
+      extensionRoot,
+      targetPlatform,
+      esbuildTarget,
+      targetDefine,
+      plugins: probePlugins,
+    }),
+  ]);
+  const candidateTargets = new Set([...subSet].filter((m) => appSet.has(m) && !excludeSet.has(m)));
+  const appConsumers = [...appSet].filter((m) => !subSet.has(m));
+  return collectNamedImportsForTargets({
+    consumerFiles: appConsumers,
+    targetSet: candidateTargets,
+    extensionRoot,
+  });
+}
+
+function getResidentOptions(sharedGroupActive, subtitleGroupActive) {
   const rtImports = RESIDENT_RT_EXPORTS.map(
     (item) => `import { ${item.names.join(", ")} } from "./${item.id}";`
   ).join("\n");
@@ -916,6 +1009,7 @@ import "./entry/content.ts";
       createDynamicGroupBridgePlugin("__resident__", {
         shimResidentRt: false,
         sharedGroupActive,
+        subtitleGroupActive,
       }),
     ],
   };
@@ -953,24 +1047,59 @@ if (!globalThis.__BILISCRIPT_SHARED_READY__) {
           shimSharedSync: false,
           shimSharedDyn: true,
           sharedGroupActive: true,
+          subtitleGroupActive: false,
         }),
       ],
     },
   };
 }
 
-function getGroupBuildEntries(sharedModuleMap) {
+function buildSubtitleExportsSnippet(subtitleExportsMap) {
+  if (!subtitleExportsMap || subtitleExportsMap.size === 0) {
+    return "";
+  }
+  const importLines = [];
+  const assignLines = [];
+  let idx = 0;
+  for (const [rel, syms] of [...subtitleExportsMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (syms.has("*")) {
+      importLines.push(`import * as _subMod${idx} from "./${rel}";`);
+      assignLines.push(`sub[${JSON.stringify(rel)}] = _subMod${idx};`);
+    } else {
+      const list = [...syms].sort();
+      const aliases = list.map((s, j) => `${s} as _subSym${idx}_${j}`).join(", ");
+      const props = list.map((s, j) => `${JSON.stringify(s)}: _subSym${idx}_${j}`).join(", ");
+      importLines.push(`import { ${aliases} } from "./${rel}";`);
+      assignLines.push(`sub[${JSON.stringify(rel)}] = { ${props} };`);
+    }
+    idx += 1;
+  }
+  return `
+${importLines.join("\n")}
+if (!globalThis.__BILISCRIPT_SUBTITLE_READY__) {
+  globalThis.__BILISCRIPT_SUBTITLE_READY__ = true;
+  const sub = (globalThis.__BILISCRIPT_SUBTITLE__ = globalThis.__BILISCRIPT_SUBTITLE__ || {});
+  ${assignLines.join("\n  ")}
+}
+`;
+}
+
+function getGroupBuildEntries(sharedModuleMap, subtitleExportsMap, subtitleModuleMap) {
   const sharedGroupActive = Boolean(sharedModuleMap);
+  const subtitleGroupActive = Boolean(subtitleModuleMap);
   const specs = [];
   for (const [groupName, cfg] of Object.entries(ACTIVE_GROUPS)) {
     const outfile = path.join(chunksDir, `${groupName}.iife.js`);
+    const subtitleExportsSnippet =
+      groupName === "g-subtitle" ? buildSubtitleExportsSnippet(subtitleExportsMap) : "";
     const entryCode = `
 const fac = (globalThis.__BILISCRIPT_CHUNK_FACTORIES__ = globalThis.__BILISCRIPT_CHUNK_FACTORIES__ || {});
 ${cfg.entries
   .map((rel) => `if (!fac[${JSON.stringify(rel)}]) fac[${JSON.stringify(rel)}] = () => require(${JSON.stringify("./" + rel)});`)
   .join("\n")}
-`;
+${subtitleExportsSnippet}`;
     const useShared = Boolean(sharedModuleMap && (groupName === "g-app" || groupName === "g-live-room"));
+    const useSubtitle = Boolean(subtitleModuleMap && groupName === "g-app");
     specs.push({
       groupName,
       outfile,
@@ -995,6 +1124,10 @@ ${cfg.entries
             shimSharedSync: useShared,
             shimSharedDyn: useShared,
             sharedGroupActive,
+            subtitleModuleMap: useSubtitle ? subtitleModuleMap : null,
+            shimSubtitleSync: useSubtitle,
+            shimSubtitleDyn: useSubtitle,
+            subtitleGroupActive,
           }),
         ],
       },
@@ -1042,14 +1175,20 @@ function printReport(groupResults) {
   }
 }
 
-async function runOnce(sharedModules) {
+async function runOnce(sharedModules, subtitleExportsMap) {
   const sharedModuleMap =
     sharedModules.length > 0
       ? new Map(sharedModules.map((id) => [path.join(extensionRoot, id), id]))
       : null;
+  const subtitleModuleMap =
+    subtitleExportsMap.size > 0
+      ? new Map([...subtitleExportsMap.keys()].map((id) => [path.join(extensionRoot, id), id]))
+      : null;
 
-  await buildClassicWithDynamicRewrite(getResidentOptions(Boolean(sharedModuleMap)));
-  const groupSpecs = getGroupBuildEntries(sharedModuleMap);
+  await buildClassicWithDynamicRewrite(
+    getResidentOptions(Boolean(sharedModuleMap), Boolean(subtitleModuleMap))
+  );
+  const groupSpecs = getGroupBuildEntries(sharedModuleMap, subtitleExportsMap, subtitleModuleMap);
   const groupResults = {};
   for (const spec of groupSpecs) {
     await buildClassicWithDynamicRewrite(spec.options);
@@ -1075,12 +1214,13 @@ async function main() {
   cleanPreviousOutput();
 
   const sharedModules = await computeCurrentSharedModules();
+  const subtitleExportsMap = await computeSubtitleOverlapExports(sharedModules);
   const sharedCacheFile = path.join(__dirname, "..", "node_modules", ".b2-shared-modules.json");
   fs.mkdirSync(path.dirname(sharedCacheFile), { recursive: true });
   fs.writeFileSync(sharedCacheFile, JSON.stringify(sharedModules), "utf8");
 
   if (!watchMode) {
-    await runOnce(sharedModules);
+    await runOnce(sharedModules, subtitleExportsMap);
     return;
   }
 
@@ -1088,9 +1228,19 @@ async function main() {
     sharedModules.length > 0
       ? new Map(sharedModules.map((id) => [path.join(extensionRoot, id), id]))
       : null;
+  const subtitleModuleMap =
+    subtitleExportsMap.size > 0
+      ? new Map([...subtitleExportsMap.keys()].map((id) => [path.join(extensionRoot, id), id]))
+      : null;
   const watchSpecs = [
-    { name: "resident", options: getResidentOptions(Boolean(sharedModuleMap)) },
-    ...getGroupBuildEntries(sharedModuleMap).map((s) => ({ name: s.groupName, options: s.options })),
+    {
+      name: "resident",
+      options: getResidentOptions(Boolean(sharedModuleMap), Boolean(subtitleModuleMap)),
+    },
+    ...getGroupBuildEntries(sharedModuleMap, subtitleExportsMap, subtitleModuleMap).map((s) => ({
+      name: s.groupName,
+      options: s.options,
+    })),
     ...(sharedModules.length > 0
       ? [{ name: "g-shared", options: getSharedGroupOptions(sharedModules, sharedModuleMap).options }]
       : []),
@@ -1098,7 +1248,7 @@ async function main() {
   ];
   const ctxs = await Promise.all(watchSpecs.map((item) => context(item.options)));
   await Promise.all(ctxs.map((ctx) => ctx.rebuild()));
-  await runOnce(sharedModules);
+  await runOnce(sharedModules, subtitleExportsMap);
   await Promise.all(ctxs.map((ctx) => ctx.watch()));
 }
 

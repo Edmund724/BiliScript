@@ -192,4 +192,16 @@ describe("常驻内容包瘦身与 45 KB 预算", () => {
     expect(bodyText).not.toContain("youtube/gateway");
     expect(forbiddenBlock).toContain("youtube\\/");
   });
+
+  it("g-subtitle 独立分组就绪且双端 ZIP/运行时/常驻预算配置一致", () => {
+    const buildContentText = readText("scripts/build-content.js");
+    const buildJsText = readText("scripts/build.js");
+    const buildReleaseText = readText("scripts/build_release.py");
+
+    expect(buildContentText).toContain('"g-subtitle"');
+    expect(buildContentText).toContain("MAX_RESIDENT_BYTES = 46080");
+    expect(buildJsText).toContain('targetPlatform === "firefox" ? 3900000 : 4200000');
+    expect(buildReleaseText).toContain("MAX_CHROMIUM_ZIP_BYTES = 1_200_000");
+    expect(buildReleaseText).toContain("MAX_FIREFOX_ZIP_BYTES = 1_200_000");
+  });
 });

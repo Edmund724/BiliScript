@@ -10,6 +10,7 @@ import type {
 
 export const ALLOWED_CONTENT_CHUNK_FILES = {
   "g-shared": ["entry/chunks/g-shared.iife.js"],
+  "g-subtitle": ["entry/chunks/g-subtitle.iife.js"],
   "g-buttons": ["entry/chunks/g-buttons.iife.js"],
   "g-app": ["entry/chunks/g-app.iife.js"],
   "g-mermaid": ["entry/chunks/g-mermaid.iife.js"],

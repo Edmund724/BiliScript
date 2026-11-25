@@ -31,7 +31,7 @@ describe("content-chunk-handlers 静态白名单与发起方锁定", () => {
     });
   });
 
-  it("未指定 frameId 时默认锁定主帧 [0]，且支持 g-shared 与 g-live-room", async () => {
+  it("未指定 frameId 时默认锁定主帧 [0]，且支持 g-shared、g-subtitle 与 g-live-room", async () => {
     const executeScript = vi.fn(async () => []);
     const handlers = createContentChunkHandlers({
       scripting: { executeScript }
@@ -50,12 +50,22 @@ describe("content-chunk-handlers 静态白名单与发起方锁定", () => {
       files: [...ALLOWED_CONTENT_CHUNK_FILES["g-shared"]]
     });
 
+    const replySubtitle = vi.fn();
+    expect(
+      handlers.load({ type: "content-chunk-load", chunkId: "g-subtitle" }, sender, replySubtitle)
+    ).toBe("hold");
+    await vi.waitFor(() => expect(replySubtitle).toHaveBeenCalledWith({ ok: true }));
+    expect(executeScript).toHaveBeenNthCalledWith(2, {
+      target: { tabId: 31, frameIds: [0] },
+      files: [...ALLOWED_CONTENT_CHUNK_FILES["g-subtitle"]]
+    });
+
     const replyLive = vi.fn();
     expect(
       handlers.load({ type: "content-chunk-load", chunkId: "g-live-room" }, sender, replyLive)
     ).toBe("hold");
     await vi.waitFor(() => expect(replyLive).toHaveBeenCalledWith({ ok: true }));
-    expect(executeScript).toHaveBeenNthCalledWith(2, {
+    expect(executeScript).toHaveBeenNthCalledWith(3, {
       target: { tabId: 31, frameIds: [0] },
       files: [...ALLOWED_CONTENT_CHUNK_FILES["g-live-room"]]
     });

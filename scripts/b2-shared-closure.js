@@ -1,5 +1,6 @@
+const fs = require("fs");
 const path = require("path");
-const { build } = require("esbuild");
+const { build, transformSync } = require("esbuild");
 
 async function collectStaticInputs({ entries, extensionRoot, targetPlatform, esbuildTarget, targetDefine, plugins = [] }) {
   const code =
@@ -93,7 +94,56 @@ async function computeSharedModules({
   return [...shared].sort();
 }
 
+function resolveExtensionRelative(extensionRoot, fromRel, specifier) {
+  const resolved = path.resolve(path.dirname(path.join(extensionRoot, fromRel)), specifier);
+  const tsPath = resolved.endsWith(".js") ? resolved.slice(0, -3) + ".ts" : resolved + ".ts";
+  return path.relative(extensionRoot, tsPath).split(path.sep).join("/");
+}
+
+function collectNamedImportsForTargets({ consumerFiles, targetSet, extensionRoot }) {
+  const used = new Map();
+  const addSymbol = (target, sym) => {
+    if (!targetSet.has(target)) return;
+    let set = used.get(target);
+    if (!set) {
+      set = new Set();
+      used.set(target, set);
+    }
+    set.add(sym);
+  };
+  const reStatic = /(?:import|export)\s+(?:(\*\s+as\s+\w+|\*)|(?:\{([^}]+)\})|(\w+)(?:\s*,\s*\{([^}]+)\})?)\s+from\s+["'](\.\.?\/[^"']+)["']/g;
+  const reDynamic = /import\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
+
+  for (const rel of consumerFiles) {
+    const src = fs.readFileSync(path.join(extensionRoot, rel), "utf8");
+    const js = transformSync(src, { loader: "ts" }).code;
+    for (const match of js.matchAll(reStatic)) {
+      const target = resolveExtensionRelative(extensionRoot, rel, match[5]);
+      if (!targetSet.has(target)) continue;
+      if (match[1]) {
+        addSymbol(target, "*");
+      }
+      if (match[3]) {
+        addSymbol(target, "default");
+      }
+      const braceList = match[2] || match[4];
+      if (braceList) {
+        for (const item of braceList.split(",")) {
+          const name = item.trim().split(/\s+as\s+/)[0].trim();
+          if (name) addSymbol(target, name);
+        }
+      }
+    }
+    for (const match of js.matchAll(reDynamic)) {
+      const target = resolveExtensionRelative(extensionRoot, rel, match[1]);
+      addSymbol(target, "*");
+    }
+  }
+  return used;
+}
+
 module.exports = {
   collectStaticInputs,
   computeSharedModules,
+  collectNamedImportsForTargets,
 };

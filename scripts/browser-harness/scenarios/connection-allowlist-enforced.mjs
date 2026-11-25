@@ -856,6 +856,7 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
 
   const execBeforePreinject = await readExecuteScriptSpy(worker);
   const hadAppBeforePreinject = execBeforePreinject.some((entry) => entry.files.some((f) => /g-app/i.test(f)));
+  const hadSharedBeforePreinject = execBeforePreinject.some((entry) => entry.files.some((f) => /g-shared/i.test(f)));
   const modulePreloadBefore = await page.cdp.evaluate(`document.querySelectorAll('link[rel="modulepreload"]').length`);
 
   if (preinjectMode === "hover") {
@@ -884,8 +885,8 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
   const modulePreloadAfter = await page.cdp.evaluate(`document.querySelectorAll('link[rel="modulepreload"]').length`);
   check(
     `${site}.preinject-${preinjectMode}-effective`,
-    Boolean(preinjectObserved && modulePreloadBefore === 0 && modulePreloadAfter === 0),
-    { hadAppBeforePreinject, preinjectObserved, modulePreloadBefore, modulePreloadAfter }
+    Boolean(!hadAppBeforePreinject && !hadSharedBeforePreinject && preinjectObserved && modulePreloadBefore === 0 && modulePreloadAfter === 0),
+    { hadAppBeforePreinject, hadSharedBeforePreinject, preinjectObserved, modulePreloadBefore, modulePreloadAfter }
   );
 
   await hitAndClick(page.cdp, null, `${site}-script-button`, "#biliscript-script-button");

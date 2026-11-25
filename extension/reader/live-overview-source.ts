@@ -1,3 +1,4 @@
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL
 import type { LiveOverviewSource } from "../live/live-overview-context.js";
 
 export interface ReaderOverviewSource {
@@ -7,13 +8,37 @@ export interface ReaderOverviewSource {
   cancel?(): void;
 }
 
-let currentSource: ReaderOverviewSource | null = null;
-let currentSourceUnsubscribe: (() => void) | null = null;
-let defaultSourcePromise: Promise<ReaderOverviewSource> | null = null;
-const subscribers = new Set<() => void>();
+interface OverviewSourceSlots {
+  currentSource: ReaderOverviewSource | null;
+  currentSourceUnsubscribe: (() => void) | null;
+  defaultSourcePromise: Promise<ReaderOverviewSource> | null;
+  subscribers: Set<() => void>;
+}
+
+const OVERVIEW_SOURCE_SLOT_KEY = "__BILISCRIPT_READER_OVERVIEW_SOURCE__";
+
+declare global {
+  var __BILISCRIPT_READER_OVERVIEW_SOURCE__: OverviewSourceSlots | undefined;
+}
+
+function overviewSourceSlots(): OverviewSourceSlots {
+  let slots = globalThis[OVERVIEW_SOURCE_SLOT_KEY];
+  if (!slots) {
+    slots = {
+      currentSource: null,
+      currentSourceUnsubscribe: null,
+      defaultSourcePromise: null,
+      subscribers: new Set<() => void>()
+    };
+    globalThis[OVERVIEW_SOURCE_SLOT_KEY] = slots;
+  } else if (!(slots.subscribers instanceof Set)) {
+    slots.subscribers = new Set<() => void>();
+  }
+  return slots;
+}
 
 function notifySubscribers(): void {
-  for (const listener of [...subscribers]) {
+  for (const listener of [...overviewSourceSlots().subscribers]) {
     try {
       listener();
     } catch {
@@ -22,16 +47,18 @@ function notifySubscribers(): void {
 }
 
 export function registerReaderOverviewSource(source: ReaderOverviewSource): void {
-  currentSourceUnsubscribe?.();
-  currentSource = source;
-  currentSourceUnsubscribe = source.subscribe(notifySubscribers);
+  const slots = overviewSourceSlots();
+  slots.currentSourceUnsubscribe?.();
+  slots.currentSource = source;
+  slots.currentSourceUnsubscribe = source.subscribe(notifySubscribers);
 }
 
 async function ensureDefaultOverviewSource(): Promise<ReaderOverviewSource> {
-  if (currentSource) return currentSource;
-  if (defaultSourcePromise) return defaultSourcePromise;
+  const slots = overviewSourceSlots();
+  if (slots.currentSource) return slots.currentSource;
+  if (slots.defaultSourcePromise) return slots.defaultSourcePromise;
 
-  defaultSourcePromise = (async () => {
+  slots.defaultSourcePromise = (async () => {
     const [
       { createOverviewCoordinator },
       { resolveActiveProvider },
@@ -43,7 +70,7 @@ async function ensureDefaultOverviewSource(): Promise<ReaderOverviewSource> {
       import("../ui/confirm-dialog.js"),
       import("../core/state.js")
     ]);
-    if (currentSource) return currentSource;
+    if (slots.currentSource) return slots.currentSource;
 
     const coordinator = createOverviewCoordinator({
       getClip: () => state.clip,
@@ -74,20 +101,22 @@ async function ensureDefaultOverviewSource(): Promise<ReaderOverviewSource> {
   })();
 
   try {
-    return await defaultSourcePromise;
+    return await slots.defaultSourcePromise;
   } finally {
-    defaultSourcePromise = null;
+    slots.defaultSourcePromise = null;
   }
 }
 
 export function getReaderOverviewSource(): LiveOverviewSource | null {
+  const { currentSource } = overviewSourceSlots();
   return currentSource ? currentSource.getSnapshot() : null;
 }
 
 export async function ensureReaderOverviewSource(
   options?: { forceRefresh?: boolean }
 ): Promise<LiveOverviewSource | null> {
-  const source = currentSource ?? (await ensureDefaultOverviewSource());
+  const slots = overviewSourceSlots();
+  const source = slots.currentSource ?? (await ensureDefaultOverviewSource());
   if (typeof source.ensureOverview === "function") {
     return await source.ensureOverview(options);
   }
@@ -98,6 +127,7 @@ export function subscribeReaderOverviewSource(listener: () => void): () => void 
   if (typeof listener !== "function") {
     return () => {};
   }
+  const { subscribers } = overviewSourceSlots();
   subscribers.add(listener);
   return () => {
     subscribers.delete(listener);
@@ -105,5 +135,5 @@ export function subscribeReaderOverviewSource(listener: () => void): () => void 
 }
 
 export function cancelReaderOverviewSource(): void {
-  currentSource?.cancel?.();
+  overviewSourceSlots().currentSource?.cancel?.();
 }

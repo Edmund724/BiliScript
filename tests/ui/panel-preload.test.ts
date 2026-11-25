@@ -4,11 +4,12 @@ import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 function clearPreloadGlobals(): void {
   const host = globalThis as Record<string, unknown>;
   delete host.__BILISCRIPT_SHARED_READY__;
+  delete host.__BILISCRIPT_SUBTITLE_READY__;
   delete host.__BILISCRIPT_CHUNKS__;
   delete host.__BILISCRIPT_CHUNK_INFLIGHT__;
 }
 
-describe("ui/panel-preload: 按钮交互预注入 g-shared + g-app", () => {
+describe("ui/panel-preload: 按钮交互预注入 g-shared + g-subtitle + g-app", () => {
   beforeEach(() => {
     resetModuleState();
     clearPreloadGlobals();
@@ -22,7 +23,8 @@ describe("ui/panel-preload: 按钮交互预注入 g-shared + g-app", () => {
     vi.restoreAllMocks();
   });
 
-  it("pointerenter 与 focus 触发后按序预注入 g-shared 与 g-app 并复用 inflight 去重", async () => {
+  it("g-subtitle 已就绪时，pointerenter 与 focus 仅预注入 g-shared 与 g-app 并复用 inflight 去重", async () => {
+    (globalThis as Record<string, unknown>).__BILISCRIPT_SUBTITLE_READY__ = true;
     const sentChunkIds: string[] = [];
     vi.mocked(chrome.runtime.sendMessage).mockImplementation(((
       message: { type?: string; chunkId?: string },
@@ -51,7 +53,7 @@ describe("ui/panel-preload: 按钮交互预注入 g-shared + g-app", () => {
     expect(document.head.querySelectorAll('link[rel="modulepreload"]')).toHaveLength(0);
   });
 
-  it("非支持视频页或 g-app 已就绪时不发起预注入；预注入失败清理 inflight 允许后续重试", async () => {
+  it("g-subtitle 未就绪时确保先补齐 g-shared 与 g-subtitle 再注入 g-app；非支持页不触发，失败清理 inflight 允许重试", async () => {
     const sentChunkIds: string[] = [];
     vi.mocked(chrome.runtime.sendMessage).mockImplementation(((
       message: { type?: string; chunkId?: string },
@@ -74,7 +76,7 @@ describe("ui/panel-preload: 按钮交互预注入 g-shared + g-app", () => {
 
     setLocationUrl(NORMAL_PAGE_URL);
     mod.preloadReaderPanelChunks();
-    await vi.waitFor(() => expect(sentChunkIds).toEqual(["g-shared"]));
+    await vi.waitFor(() => expect(sentChunkIds).toEqual(["g-shared", "g-subtitle"]));
 
     const host = globalThis as Record<string, unknown>;
     await vi.waitFor(() => {
@@ -84,11 +86,13 @@ describe("ui/panel-preload: 按钮交互预注入 g-shared + g-app", () => {
     });
 
     mod.preloadReaderPanelChunks();
-    await vi.waitFor(() => expect(sentChunkIds).toEqual(["g-shared", "g-shared", "g-app"]));
+    await vi.waitFor(() =>
+      expect(sentChunkIds).toEqual(["g-shared", "g-subtitle", "g-shared", "g-app"])
+    );
 
     (host.__BILISCRIPT_CHUNKS__ as Record<string, unknown>)["ui/ui-renderer.ts"] = {};
     mod.preloadReaderPanelChunks();
     await Promise.resolve();
-    expect(sentChunkIds).toEqual(["g-shared", "g-shared", "g-app"]);
+    expect(sentChunkIds).toEqual(["g-shared", "g-subtitle", "g-shared", "g-app"]);
   });
 });
