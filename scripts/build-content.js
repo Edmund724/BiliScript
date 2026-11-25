@@ -290,7 +290,16 @@ for (const [groupName, cfg] of Object.entries(ACTIVE_GROUPS)) {
 function buildLoadChunkRuntimeSnippet() {
   return `
 const __bsChunks = (globalThis.__BILISCRIPT_CHUNKS__ = globalThis.__BILISCRIPT_CHUNKS__ || {});
+const __bsFactories = (globalThis.__BILISCRIPT_CHUNK_FACTORIES__ = globalThis.__BILISCRIPT_CHUNK_FACTORIES__ || {});
 const __bsInflight = (globalThis.__BILISCRIPT_CHUNK_INFLIGHT__ = globalThis.__BILISCRIPT_CHUNK_INFLIGHT__ || {});
+globalThis.__BILISCRIPT_RESOLVE_CHUNK__ = function(moduleId) {
+  if (__bsChunks[moduleId]) return __bsChunks[moduleId];
+  const factory = __bsFactories[moduleId];
+  if (!factory) return undefined;
+  const mod = factory();
+  __bsChunks[moduleId] = mod;
+  return mod;
+};
 function __bsSendChunkLoad(id) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ type: "content-chunk-load", chunkId: id }, (resp) => {
@@ -311,7 +320,8 @@ function __bsEnsurePrereq(flagKey, chunkId) {
   return __bsInflight[chunkId];
 }
 globalThis.__BILISCRIPT_LOAD_CHUNK__ = function(groupId, moduleId, needsShared) {
-  if (__bsChunks[moduleId]) return Promise.resolve(__bsChunks[moduleId]);
+  const existing = globalThis.__BILISCRIPT_RESOLVE_CHUNK__(moduleId);
+  if (existing) return Promise.resolve(existing);
   const key = groupId;
   if (!__bsInflight[key]) {
     __bsInflight[key] = (async () => {
@@ -323,7 +333,7 @@ globalThis.__BILISCRIPT_LOAD_CHUNK__ = function(groupId, moduleId, needsShared) 
     });
   }
   return __bsInflight[key].then(() => {
-    const mod = __bsChunks[moduleId];
+    const mod = globalThis.__BILISCRIPT_RESOLVE_CHUNK__(moduleId);
     if (!mod) throw new Error("Chunk loaded but module missing: " + moduleId);
     return mod;
   });
@@ -404,7 +414,7 @@ function rewriteDynamicImportsInJs(code) {
     }
     if (token.startsWith("__B2_SAME__/")) {
       const id = token.slice("__B2_SAME__/".length);
-      return `Promise.resolve(globalThis.__BILISCRIPT_CHUNKS__[${JSON.stringify(id)}])`;
+      return `Promise.resolve().then(()=>globalThis.__BILISCRIPT_RESOLVE_CHUNK__(${JSON.stringify(id)}))`;
     }
     if (token.startsWith("__B2_RT__/")) {
       const id = token.slice("__B2_RT__/".length);
@@ -955,9 +965,9 @@ function getGroupBuildEntries(sharedModuleMap) {
   for (const [groupName, cfg] of Object.entries(ACTIVE_GROUPS)) {
     const outfile = path.join(chunksDir, `${groupName}.iife.js`);
     const entryCode = `
-const reg = (globalThis.__BILISCRIPT_CHUNKS__ = globalThis.__BILISCRIPT_CHUNKS__ || {});
+const fac = (globalThis.__BILISCRIPT_CHUNK_FACTORIES__ = globalThis.__BILISCRIPT_CHUNK_FACTORIES__ || {});
 ${cfg.entries
-  .map((rel, i) => `import * as m_${i} from "./${rel}";\nif (!reg[${JSON.stringify(rel)}]) reg[${JSON.stringify(rel)}] = m_${i};`)
+  .map((rel) => `if (!fac[${JSON.stringify(rel)}]) fac[${JSON.stringify(rel)}] = () => require(${JSON.stringify("./" + rel)});`)
   .join("\n")}
 `;
     const useShared = Boolean(sharedModuleMap && (groupName === "g-app" || groupName === "g-live-room"));

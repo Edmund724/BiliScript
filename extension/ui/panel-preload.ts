@@ -8,6 +8,7 @@ const boundButtons = new WeakSet<HTMLElement>();
 type PreloadHostGlobals = {
   __BILISCRIPT_SHARED_READY__?: boolean;
   __BILISCRIPT_CHUNKS__?: Record<string, unknown>;
+  __BILISCRIPT_CHUNK_FACTORIES__?: Record<string, unknown>;
   __BILISCRIPT_CHUNK_INFLIGHT__?: Record<string, Promise<unknown>>;
 };
 
@@ -47,14 +48,15 @@ export function preloadReaderPanelChunks(): void {
   }
   const host = getHostGlobals();
   const chunks = (host.__BILISCRIPT_CHUNKS__ ??= {});
-  if (chunks["ui/ui-renderer.ts"]) {
+  const factories = (host.__BILISCRIPT_CHUNK_FACTORIES__ ??= {});
+  if (chunks["ui/ui-renderer.ts"] || factories["ui/ui-renderer.ts"]) {
     return;
   }
   const inflight = (host.__BILISCRIPT_CHUNK_INFLIGHT__ ??= {});
   void ensureGroupPreloaded(
     inflight,
     "g-app",
-    () => Boolean(chunks["ui/ui-renderer.ts"]),
+    () => Boolean(chunks["ui/ui-renderer.ts"] || factories["ui/ui-renderer.ts"]),
     async () => {
       await ensureGroupPreloaded(
         inflight,
