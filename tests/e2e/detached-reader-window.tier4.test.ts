@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { READER_MODE_URL } from "../setup.js";
 import {
-  assertAllLinkHrefsHavePrefix,
+  assertMirroredStylesWithoutExtensionLinks,
   assertStyleLinksPresent,
   assertZeroUnwrappedScrollbars,
   clearWinSelection,
@@ -114,7 +114,7 @@ describe("Tier 4: Real-World Application Scenarios", () => {
     });
     await h.openReaderInPage();
     const childWin = await h.detachReader();
-    assertAllLinkHrefsHavePrefix(childWin.document, "moz-extension://fx-profile-153/");
+    assertMirroredStylesWithoutExtensionLinks(childWin.document);
     assertZeroUnwrappedScrollbars(["extension/entry/styles/reader.css"]);
     childWin.simulateUserClose();
     await h.flushTimersAndMicrotasks(450);

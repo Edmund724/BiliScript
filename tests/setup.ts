@@ -32,7 +32,22 @@ function stubChromeApi() {
       lastError: null,
       getURL: vi.fn((path) => `chrome-extension://test/${path}`),
       getManifest: vi.fn(() => ({ version: "0.0.0" })),
-      sendMessage: vi.fn((_message, callback) => {
+      sendMessage: vi.fn((message, callback) => {
+        if (
+          message &&
+          typeof message === "object" &&
+          (message as { type?: unknown }).type === "content-style-read" &&
+          Array.isArray((message as { files?: unknown }).files)
+        ) {
+          const styles: Record<string, string> = {};
+          for (const file of (message as { files: unknown[] }).files) {
+            if (typeof file === "string") {
+              styles[file] = `/* ${file} */`;
+            }
+          }
+          callback?.({ ok: true, styles });
+          return undefined;
+        }
         callback?.({ ok: true });
         return undefined;
       }),

@@ -730,19 +730,23 @@ describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () =>
 });
 
 describe("组件表随组件挂载（extension/entry/styles/custom-select.css）", () => {
-  it("导入组件模块即挂组件表 link，不依赖设置抽屉的装载时机", async () => {
+  it("导入组件模块即请求注入组件表，不依赖设置抽屉的装载时机且不挂 link", async () => {
     resetModuleState();
     document.head.innerHTML = "";
 
     await import("../../extension/ui/custom-select.js");
 
-    const link = document.head.querySelector<HTMLLinkElement>(
-      'link[rel="stylesheet"][href$="entry/styles/custom-select.css"]'
-    );
-    expect(link, "组件表 link 未挂").not.toBeNull();
-    expect(document.head.querySelector('link[href$="reader-settings-rows.css"]')).toBeNull();
-    expect(document.head.querySelector('link[href$="reader-settings-shell.css"]')).toBeNull();
-    expect(document.head.querySelector('link[href$="reader-settings-providers.css"]')).toBeNull();
+    const insertedFiles = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.flatMap(([msg]) => {
+        const payload = msg as { type?: string; files?: string[] };
+        return payload?.type === "content-style-insert" && Array.isArray(payload.files) ? payload.files : [];
+      });
+    expect(insertedFiles).toContain("entry/styles/custom-select.css");
+    expect(insertedFiles).not.toContain("entry/styles/reader-settings-rows.css");
+    expect(insertedFiles).not.toContain("entry/styles/reader-settings-shell.css");
+    expect(insertedFiles).not.toContain("entry/styles/reader-settings-providers.css");
+    expect(document.head.querySelectorAll("link")).toHaveLength(0);
   });
 });
 

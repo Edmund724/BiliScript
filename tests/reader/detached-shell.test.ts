@@ -212,7 +212,8 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(pipWin.document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(pipWin.document.documentElement.getAttribute("data-biliscript-detached")).toBe("1");
     expect(pipWin.document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
-    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBeGreaterThan(0);
+    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
+    expect(pipWin.document.head.querySelectorAll('style[data-biliscript-style="1"]').length).toBeGreaterThan(0);
     expect(pipWin.document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(184);
     expect(pipWin.focus).toHaveBeenCalled();
     expect(pipWin.document.getElementById(uiRenderer.DETACH_BTN_ID)!.getAttribute("aria-pressed")).toBe("true");
@@ -262,7 +263,7 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(readerState.isReaderViewOpen()).toBe(true);
     expect(shell.isReaderShellIntact()).toBe(true);
     expect(pipWin.closed).toBe(true);
-    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
+    expect(pipWin.document.head.querySelectorAll('style[data-biliscript-style="1"]').length).toBe(0);
 
     const openerView = document.getElementById(readerState.ids.readingView)!;
     expect(document.getElementById(readerState.ids.root)!.contains(openerView)).toBe(true);
@@ -309,7 +310,7 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect(document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(275);
     expect((document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
     expect((document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(false);
-    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
+    expect(pipWin.document.head.querySelectorAll('style[data-biliscript-style="1"]').length).toBe(0);
   });
 
   it("原位模式切换迁移 DOM/样式并在被拦截时保留原窗口且显示非阻塞提示", async () => {
@@ -333,8 +334,9 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     expect((popupWin.document.getElementById(uiRenderer.DETACH_BTN_ID) as HTMLButtonElement).hidden).toBe(false);
     expect((popupWin.document.getElementById(readerState.ids.readingCloseBtn) as HTMLButtonElement).hidden).toBe(true);
     expect(popupWin.document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(220);
-    expect(pipWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
-    expect(popupWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBeGreaterThan(0);
+    expect(pipWin.document.head.querySelectorAll('style[data-biliscript-style="1"]').length).toBe(0);
+    expect(popupWin.document.head.querySelectorAll('link[data-biliscript-style="1"]').length).toBe(0);
+    expect(popupWin.document.head.querySelectorAll('style[data-biliscript-style="1"]').length).toBeGreaterThan(0);
 
     requestWindow.mockRejectedValueOnce(new Error("blocked"));
     const switchedBackBlocked = await shell.switchDetachedWindowMode("pip");

@@ -10,6 +10,7 @@ declare namespace chrome {
 
     interface MessageSender {
       tab?: { id?: number; url?: string };
+      frameId?: number;
       origin?: string;
       id?: string;
       url?: string;
@@ -196,6 +197,8 @@ declare namespace chrome {
 
     interface InjectionTarget {
       tabId: number;
+      frameIds?: number[];
+      allFrames?: boolean;
     }
 
     interface InjectionResult {
@@ -219,6 +222,7 @@ declare namespace chrome {
       world?: ExecutionWorld;
     }): Promise<InjectionResult[]>;
     function insertCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
+    function removeCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
   }
 
   namespace offscreen {

@@ -22,15 +22,16 @@ export function assertHeaderButtonOrder(doc: Document): HTMLButtonElement[] {
 }
 
 export function getMirroredStyleHrefs(doc: Document): string[] {
-  return Array.from(doc.head.querySelectorAll<HTMLLinkElement>('link[data-biliscript-style="1"]')).map(
-    (link) => link.getAttribute("href") ?? link.href
+  return Array.from(doc.head.querySelectorAll<HTMLStyleElement>('style[data-biliscript-style="1"]')).map(
+    (style) => style.dataset.biliscriptStylePath ?? ""
   );
 }
 
 export function assertStyleLinksPresent(doc: Document, suffixes: string[]): void {
-  const hrefs = getMirroredStyleHrefs(doc);
+  expect(doc.querySelectorAll('link[data-biliscript-style="1"]')).toHaveLength(0);
+  const paths = getMirroredStyleHrefs(doc);
   for (const suffix of suffixes) {
-    expect(hrefs.some((href) => href.endsWith(suffix)), `missing stylesheet ${suffix}`).toBe(true);
+    expect(paths.some((path) => path.endsWith(suffix)), `missing stylesheet ${suffix}`).toBe(true);
   }
 }
 
@@ -197,10 +198,12 @@ export function assertZeroUnwrappedScrollbars(paths: string[]): void {
   expect(violations).toEqual([]);
 }
 
-export function assertAllLinkHrefsHavePrefix(doc: Document, prefix: string): void {
-  const hrefs = getMirroredStyleHrefs(doc);
-  expect(hrefs.length).toBeGreaterThan(0);
-  expect(hrefs.every((href) => href.startsWith(prefix))).toBe(true);
+export function assertMirroredStylesWithoutExtensionLinks(doc: Document): void {
+  expect(doc.querySelectorAll('link[data-biliscript-style="1"]')).toHaveLength(0);
+  expect(doc.querySelectorAll('link[href^="chrome-extension://"], link[href^="moz-extension://"]')).toHaveLength(0);
+  const styles = Array.from(doc.head.querySelectorAll<HTMLStyleElement>('style[data-biliscript-style="1"]'));
+  expect(styles.length).toBeGreaterThan(0);
+  expect(styles.every((style) => (style.dataset.biliscriptStylePath ?? "").startsWith("entry/styles/"))).toBe(true);
 }
 
 export async function openExplainCardFromSelection(

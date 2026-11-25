@@ -880,7 +880,6 @@ export async function runDetachedReaderSmoke({
     }
 
     const policyInfo = await waitForChromeExtensionReady(client, EXPECTED_EXTENSION_ID);
-    const extOriginPrefix = `moz-extension://${policyInfo.uuid}/entry/styles/`;
 
     await client.setContext("content");
     await client.send("WebDriver:Navigate", { url: `moz-extension://${policyInfo.uuid}/onboarding.html` });
@@ -918,9 +917,16 @@ export async function runDetachedReaderSmoke({
       client.executeSync(`
         const v = document.getElementById("biliscript-reading-view");
         const detach = document.getElementById("biliscript-reading-detach-btn");
-        const links = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        if (!v || !v.classList.contains("open") || v.getAttribute("data-biliscript-reader-ready") !== "1" || links.length < 3) return null;
-        return { ready: true, linkCount: links.length, hasDetachBtn: Boolean(detach) };
+        const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]'));
+        if (!v || !v.classList.contains("open") || v.getAttribute("data-biliscript-reader-ready") !== "1") return null;
+        const probe = document.createElement("div");
+        probe.style.display = "none";
+        probe.style.backgroundColor = "var(--biliscript-reader-surface)";
+        v.appendChild(probe);
+        const surface = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        if (!surface || surface === "rgba(0, 0, 0, 0)") return null;
+        return { ready: extLinks.length === 0, extLinkCount: extLinks.length, surface, hasDetachBtn: Boolean(detach) };
       `)
     );
     const openerHandle = await client.getWindowHandle();
@@ -967,11 +973,12 @@ export async function runDetachedReaderSmoke({
     stepTag = "F2-initial";
     const f2Initial = await waitFor("F2 detached view & stylesheets", async () =>
       client.executeSync(`
-        const extPrefix = arguments[0];
         const v = document.getElementById("biliscript-reading-view");
         if (!v || !v.classList.contains("open") || v.hidden) return null;
-        const linkHrefs = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        const sheetHrefs = Array.from(document.styleSheets).map((s) => s.href || "");
+        const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]'));
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+        const stylePaths = styleEls.map((s) => s.getAttribute("data-biliscript-style-path") || "");
+        const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
         const cs = getComputedStyle(v);
         const probe = document.createElement("div");
         probe.style.display = "none";
@@ -982,33 +989,54 @@ export async function runDetachedReaderSmoke({
         const docEl = document.documentElement;
         const detachBtn = document.getElementById("biliscript-reading-detach-btn");
         const closeBtn = document.getElementById("biliscript-reading-close-btn");
+        const stylesLoaded =
+          extLinks.length === 0 &&
+          (adoptedCount >= 3 || (styleEls.length >= 3 && styleEls.every((s) => Boolean(s.sheet))));
+        if (!stylesLoaded) return null;
         return {
           open: true,
-          linkHrefs,
-          sheetHrefs,
+          extLinkCount: extLinks.length,
+          stylePaths,
+          adoptedCount,
           headerButtonsOk: Boolean(detachBtn && !detachBtn.hidden && closeBtn && closeBtn.hidden),
-          allLinksInSheets: linkHrefs.length >= 3 && linkHrefs.every((h) => h.startsWith(extPrefix) && sheetHrefs.includes(h)),
+          allLinksInSheets: stylesLoaded,
           display: cs.display,
           surface,
           overflowX: docEl.scrollWidth > window.innerWidth + 1
         };
-      `, [extOriginPrefix])
+      `)
     );
 
     await findAndClick(client, "#biliscript-reading-tab-chat", "F2-chat-tab");
     const lazyChatCss = await waitFor("F2 lazy chat css mirrored", async () =>
       client.executeSync(`
-        const sheetHrefs = Array.from(document.styleSheets).map((s) => s.href || "");
-        const linkHrefs = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        return linkHrefs.some((h) => h.includes("reader-chat.css")) && sheetHrefs.some((h) => h.includes("reader-chat.css"));
+        const extLinks = document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]');
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+        const hasStyleEl = styleEls.some((s) => (s.getAttribute("data-biliscript-style-path") || "").includes("reader-chat.css") && Boolean(s.sheet));
+        const hasAdopted = Array.isArray(document.adoptedStyleSheets) && document.adoptedStyleSheets.some((sheet) => {
+          try {
+            return Array.from(sheet.cssRules).some((r) => (r.cssText || "").includes(".chat-hero"));
+          } catch {
+            return false;
+          }
+        });
+        return extLinks.length === 0 && (hasStyleEl || hasAdopted);
       `)
     );
     await findAndClick(client, "#biliscript-reading-settings-btn", "F2-settings-btn");
     const lazySettingsCss = await waitFor("F2 lazy settings css mirrored", async () =>
       client.executeSync(`
-        const sheetHrefs = Array.from(document.styleSheets).map((s) => s.href || "");
-        const linkHrefs = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        return linkHrefs.some((h) => h.includes("reader-settings-shell.css")) && sheetHrefs.some((h) => h.includes("reader-settings-shell.css"));
+        const extLinks = document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]');
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+        const hasStyleEl = styleEls.some((s) => (s.getAttribute("data-biliscript-style-path") || "").includes("reader-settings-shell.css") && Boolean(s.sheet));
+        const hasAdopted = Array.isArray(document.adoptedStyleSheets) && document.adoptedStyleSheets.some((sheet) => {
+          try {
+            return Array.from(sheet.cssRules).some((r) => (r.cssText || "").includes("biliscript-reading-settings-host"));
+          } catch {
+            return false;
+          }
+        });
+        return extLinks.length === 0 && (hasStyleEl || hasAdopted);
       `)
     );
 
@@ -1075,12 +1103,17 @@ export async function runDetachedReaderSmoke({
     const popupHandle = await switchToSettledNewWindow(client, handlesBeforeF4, "F4 popup window handle", true);
     const f4PopupLoaded = await waitFor("F4 popup stylesheets loaded", async () =>
       client.executeSync(`
-        const extPrefix = arguments[0];
         const v = document.getElementById("biliscript-reading-view");
-        const links = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        const sheets = Array.from(document.styleSheets).map((s) => s.href || "");
-        return Boolean(v && v.classList.contains("open") && links.length >= 3 && links.every((h) => h.startsWith(extPrefix) && sheets.includes(h)));
-      `, [extOriginPrefix])
+        const extLinks = document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]');
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+        const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
+        return Boolean(
+          v &&
+            v.classList.contains("open") &&
+            extLinks.length === 0 &&
+            (adoptedCount >= 3 || (styleEls.length >= 3 && styleEls.every((s) => Boolean(s.sheet))))
+        );
+      `)
     );
 
     await client.send("WebDriver:CloseWindow", {});

@@ -349,6 +349,25 @@ describe("直播间伴看设置", () => {
     const showModalSpy = HTMLDialogElement.prototype.showModal as unknown as ReturnType<typeof vi.fn>;
     showModalSpy.mockClear();
 
+    const requestedFiles: string[] = [];
+    const pendingInserts: Array<() => void> = [];
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (rawMessage: unknown, callback?: (response: unknown) => void) => {
+        const message = rawMessage as { type?: string; files?: string[] } | undefined;
+        if (message?.type === "content-style-insert" && Array.isArray(message.files)) {
+          requestedFiles.push(...message.files);
+          pendingInserts.push(() => callback?.({ ok: true }));
+          return undefined;
+        }
+        if (message?.type === "live-providers-list") {
+          callback?.({ ok: true, providers: liveProviders });
+          return undefined;
+        }
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+    );
+
     const opening = openLiveRoomSettings("live", () => host, createDeps());
 
     const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings")!;
@@ -357,21 +376,23 @@ describe("直播间伴看设置", () => {
     expect(dialog.querySelector<HTMLElement>("#liveProvidersEmpty")?.hidden).toBe(true);
     expect(showModalSpy).not.toHaveBeenCalled();
 
-    const expectedStyles = [
+    expect(pendingInserts).toHaveLength(1);
+    pendingInserts.shift()?.();
+    await vi.waitFor(() => expect(pendingInserts).toHaveLength(1));
+    expect(showModalSpy).not.toHaveBeenCalled();
+
+    pendingInserts.shift()?.();
+    await opening;
+
+    expect(requestedFiles).toEqual([
       "entry/styles/tokens-primitive.css",
       "entry/styles/reader.css",
       "entry/styles/reader-gate.css",
       "entry/styles/reader-settings-shell.css",
       "entry/styles/reader-settings-rows.css",
       "entry/styles/reader-settings-providers.css"
-    ];
-    for (const path of expectedStyles) {
-      const link = document.head.querySelector(`link[href$="${path}"]`);
-      expect(link, `${path} 未挂载`).not.toBeNull();
-      link?.dispatchEvent(new Event("load"));
-    }
-
-    await opening;
+    ]);
+    expect(document.head.querySelectorAll("link")).toHaveLength(0);
     expect(showModalSpy).toHaveBeenCalledTimes(1);
     expect(dialog.open).toBe(true);
     expect(dialog.querySelector<HTMLElement>("#liveProvidersEmpty")?.hidden).toBe(true);
@@ -384,13 +405,27 @@ describe("直播间伴看设置", () => {
     const showModalSpy = HTMLDialogElement.prototype.showModal as unknown as ReturnType<typeof vi.fn>;
     showModalSpy.mockClear();
 
+    const pendingInserts: Array<() => void> = [];
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (rawMessage: unknown, callback?: (response: unknown) => void) => {
+        const message = rawMessage as { type?: string } | undefined;
+        if (message?.type === "content-style-insert") {
+          pendingInserts.push(() => callback?.({ ok: true }));
+          return undefined;
+        }
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+    );
+
     const opening = openLiveRoomSettings("live", () => host, createDeps());
     expect(showModalSpy).not.toHaveBeenCalled();
     closeLiveRoomSettings();
 
-    for (const link of document.head.querySelectorAll("link[data-biliscript-style='1']")) {
-      link.dispatchEvent(new Event("load"));
-    }
+    expect(pendingInserts).toHaveLength(1);
+    pendingInserts.shift()?.();
+    await vi.waitFor(() => expect(pendingInserts).toHaveLength(1));
+    pendingInserts.shift()?.();
     await opening;
 
     expect(showModalSpy).not.toHaveBeenCalled();

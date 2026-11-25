@@ -27,7 +27,8 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
   }))
 }));
 
-function stubChrome(settings?: { autoOpenReader?: boolean }) {
+function stubChrome(settings?: { autoOpenReader?: boolean }, holdStyleInsert = false) {
+  const pendingStyleInserts: Array<{ files: string[]; resolve: () => void }> = [];
   vi.stubGlobal("chrome", {
     runtime: {
       getURL: vi.fn((path) => `chrome-extension://test/${path}`),
@@ -36,6 +37,15 @@ function stubChrome(settings?: { autoOpenReader?: boolean }) {
         if (_message?.type === "get-settings") {
           if (settings) {
             callback?.({ ok: true, settings });
+          }
+        } else if (_message?.type === "content-style-insert") {
+          if (holdStyleInsert) {
+            pendingStyleInserts.push({
+              files: [...(_message.files ?? [])],
+              resolve: () => callback?.({ ok: true })
+            });
+          } else {
+            callback?.({ ok: true });
           }
         } else {
           callback?.({ ok: true });
@@ -58,6 +68,7 @@ function stubChrome(settings?: { autoOpenReader?: boolean }) {
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
     }
   });
+  return { pendingStyleInserts };
 }
 
 async function flushMicrotasks(times = 20) {
@@ -93,7 +104,7 @@ describe("script-button 快路径（不等 getSettings 水合）", () => {
 describe("阅读模式首屏样式门控", () => {
   async function expectGateAfterStyleLoad(url: string, settings?: { autoOpenReader?: boolean }) {
     setLocationUrl(url);
-    stubChrome(settings);
+    const { pendingStyleInserts } = stubChrome(settings, true);
     const htmlSetAttribute = vi.spyOn(document.documentElement, "setAttribute");
     const bodySetAttribute = vi.spyOn(document.body, "setAttribute");
 
@@ -104,21 +115,26 @@ describe("阅读模式首屏样式门控", () => {
     expect(document.body.getAttribute("data-biliscript-reader-mode")).toBeNull();
     expect(htmlSetAttribute).not.toHaveBeenCalledWith("data-biliscript-reader-mode", "1");
     expect(bodySetAttribute).not.toHaveBeenCalledWith("data-biliscript-reader-mode", "1");
+    expect(document.head.querySelectorAll('link[data-biliscript-style="1"]')).toHaveLength(0);
 
-    const links = document.head.querySelectorAll('link[data-biliscript-style="1"]');
-    expect(links).toHaveLength(3);
-    links.forEach((link) => link.dispatchEvent(new Event("load")));
+    expect(pendingStyleInserts).toHaveLength(1);
+    expect(pendingStyleInserts[0].files).toEqual([
+      "entry/styles/tokens-primitive.css",
+      "entry/styles/reader.css",
+      "entry/styles/reader-gate.css"
+    ]);
+    pendingStyleInserts[0].resolve();
     await flushMicrotasks();
 
     expect(htmlSetAttribute).toHaveBeenCalledWith("data-biliscript-reader-mode", "1");
     expect(bodySetAttribute).toHaveBeenCalledWith("data-biliscript-reader-mode", "1");
   }
 
-  it("直达阅读 URL：link.load 前不设置门控属性", async () => {
+  it("直达阅读 URL：insertCSS 完成前不设置门控属性", async () => {
     await expectGateAfterStyleLoad(READER_MODE_URL);
   });
 
-  it("autoOpenReader：link.load 前不设置门控属性", async () => {
+  it("autoOpenReader：insertCSS 完成前不设置门控属性", async () => {
     await expectGateAfterStyleLoad(NORMAL_PAGE_URL, { autoOpenReader: true });
   });
 });

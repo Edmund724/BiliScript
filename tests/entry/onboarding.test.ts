@@ -25,7 +25,10 @@ describe("onboarding 模块与入口包装边界", () => {
     const mod = await import("../../extension/entry/onboarding.js");
 
     expect(typeof mod.mountOnboardingPage).toBe("function");
-    expect(sendMessage).not.toHaveBeenCalled();
+    const nonStyleCalls = sendMessage.mock.calls.filter(
+      ([msg]) => (msg as { type?: string } | undefined)?.type !== "content-style-insert"
+    );
+    expect(nonStyleCalls).toEqual([]);
     expect(document.documentElement.getAttribute("data-biliscript-onboarding")).toBeNull();
   });
 

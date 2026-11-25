@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL } from "../setup.js";
 import {
-  assertAllLinkHrefsHavePrefix,
+  assertMirroredStylesWithoutExtensionLinks,
   assertHeaderButtonOrder,
   assertStyleLinksPresent,
   assertZeroUnwrappedScrollbars,
@@ -533,14 +533,14 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       ]);
     });
 
-    it("T1-F09-02: syncStylesToDocument is idempotent without creating duplicate link nodes", async () => {
+    it("T1-F09-02: syncStylesToDocument is idempotent without creating duplicate style nodes", async () => {
       const h = await bootHarness();
       const styleInjector = await loadStyleInjectorContract();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       const beforeCount = getMirroredStyleHrefs(childWin.document).length;
-      styleInjector.syncStylesToDocument(childWin.document);
-      styleInjector.syncStylesToDocument(childWin.document);
+      await styleInjector.syncStylesToDocument(childWin.document);
+      await styleInjector.syncStylesToDocument(childWin.document);
       expect(getMirroredStyleHrefs(childWin.document)).toHaveLength(beforeCount);
     });
 
@@ -1528,14 +1528,14 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
   });
 
   describe("Feature #26: Cross-Browser & Real-Browser Contract Invariants", () => {
-    it("T1-F26-01: moz-extension:// style URLs mirror cleanly into detached child head", async () => {
+    it("T1-F26-01: Firefox detached child mirrors styles cleanly without moz-extension:// link tags", async () => {
       const h = await bootHarness({
         extensionBaseUrl: "moz-extension://firefox-test-uuid/",
         pipMode: "unsupported"
       });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
-      assertAllLinkHrefsHavePrefix(childWin.document, "moz-extension://firefox-test-uuid/");
+      assertMirroredStylesWithoutExtensionLinks(childWin.document);
     });
 
     it("T1-F26-02: Firefox-like environment without documentPictureInPicture completes full detach->redock->close lifecycle", async () => {
@@ -1564,7 +1564,7 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(hostB.getActiveReaderDocument()).toBe(childWin.document);
     });
 
-    it("T1-F26-04: deriveFirefoxManifest exposes entry/styles/* for bilibili, sets strict_min_version >= 153.0, and strips tts/offscreen", async () => {
+    it("T1-F26-04: deriveFirefoxManifest omits entry/styles/* from web_accessible_resources, sets strict_min_version >= 153.0, and strips tts/offscreen", async () => {
       const { deriveFirefoxManifest } = await import("../../scripts/firefox-manifest.js");
       const { ASR_PROVIDER_PRESETS, PRESETS } = await import("../../extension/core/presets.js");
       const chromiumManifest = JSON.parse(readFileSync("extension/manifest.json", "utf8")) as {
@@ -1583,7 +1583,9 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(derived.permissions).not.toContain("offscreen");
       const resources = derived.web_accessible_resources.flatMap((entry: { resources: string[] }) => entry.resources);
       const matches = derived.web_accessible_resources.flatMap((entry: { matches: string[] }) => entry.matches);
-      expect(resources).toContain("entry/styles/*");
+      expect(resources).not.toContain("entry/styles/*");
+      expect(resources).toContain("entry/content-main.mjs");
+      expect(resources).toContain("entry/chunks/*");
       expect(matches).toContain("https://www.bilibili.com/*");
       expect(matches).not.toContain("https://live.bilibili.com/*");
     });

@@ -72,8 +72,7 @@
     {
       "resources": [
         "entry/content-main.mjs",
-        "entry/chunks/*",
-        "entry/styles/*"
+        "entry/chunks/*"
       ],
       "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*", "https://www.youtube.com/*"]
     }

@@ -716,10 +716,12 @@ async function main() {
         const closeHidden = Boolean(closeBtn?.hidden) && getComputedStyle(closeBtn).display === "none";
         const themeHidden = Boolean(themeBtn?.hidden) || getComputedStyle(themeBtn).display === "none";
         const settingsHidden = Boolean(settingsBtn?.hidden) || getComputedStyle(settingsBtn).display === "none";
-        const links = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => ({
-          href: l.getAttribute("href"),
-          loaded: Boolean(l.sheet)
+        const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="chrome-extension://"]'));
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]')).map((s) => ({
+          path: s.getAttribute("data-biliscript-style-path"),
+          loaded: Boolean(s.sheet)
         }));
+        const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
         const docEl = document.documentElement;
         return {
           open: Boolean(view && view.classList.contains("open") && !view.hidden),
@@ -728,8 +730,12 @@ async function main() {
           closeHidden,
           themeHidden,
           settingsHidden,
-          links,
-          allLinksLoaded: links.length >= 3 && links.every((l) => l.loaded),
+          extLinkCount: extLinks.length,
+          adoptedCount,
+          styleEls,
+          allLinksLoaded:
+            extLinks.length === 0 &&
+            (adoptedCount >= 3 || (styleEls.length >= 3 && styleEls.every((s) => s.loaded))),
           scrollWidth: docEl.scrollWidth,
           clientWidth: docEl.clientWidth,
           overflowX: docEl.scrollWidth > docEl.clientWidth + 1,

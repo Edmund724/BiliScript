@@ -123,19 +123,51 @@ const READER_STYLE_PATHS = [
   "entry/styles/reader-gate.css"
 ];
 
-function expectReaderStylesMounted(mounted: boolean): void {
-  for (const path of READER_STYLE_PATHS) {
-    const link = document.head.querySelector(`link[href$="${path}"]`);
-    if (mounted) {
-      expect(link, `${path} 未挂上`).not.toBeNull();
-    } else {
-      expect(link, `${path} 仍挂在 DOM`).toBeNull();
+const mountedMainStyles = new Set<string>();
+let pendingStyleInsertResolvers: Array<() => void> = [];
+let holdStyleInsert = false;
+
+function installStyleIpcMock(): void {
+  mountedMainStyles.clear();
+  pendingStyleInsertResolvers = [];
+  holdStyleInsert = false;
+  vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+    (raw: unknown, callback?: (resp?: unknown) => void) => {
+      const msg = raw as { type?: string; files?: string[] };
+      if (msg?.type === "content-style-insert" && Array.isArray(msg.files)) {
+        const files = [...msg.files];
+        const done = () => {
+          files.forEach((f) => mountedMainStyles.add(f));
+          callback?.({ ok: true });
+        };
+        if (holdStyleInsert) {
+          pendingStyleInsertResolvers.push(done);
+        } else {
+          done();
+        }
+        return undefined;
+      }
+      if (msg?.type === "content-style-remove" && Array.isArray(msg.files)) {
+        msg.files.forEach((f) => mountedMainStyles.delete(f));
+        callback?.({ ok: true });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
     }
+  );
+}
+
+function expectReaderStylesMounted(mounted: boolean): void {
+  expect(document.head.querySelectorAll('link[data-biliscript-style="1"]')).toHaveLength(0);
+  for (const path of READER_STYLE_PATHS) {
+    expect(mountedMainStyles.has(path), `${path} ${mounted ? "未注入" : "未移除"}`).toBe(mounted);
   }
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  installStyleIpcMock();
   setLocationUrl(NORMAL_PAGE_URL);
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("data-biliscript-reader-mode");
@@ -194,20 +226,15 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
   it("阅读样式表全部加载完成后才进入 reader 域", async () => {
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
+    holdStyleInsert = true;
 
     const entry = enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
-    await vi.waitFor(() => expectReaderStylesMounted(true));
+    await vi.waitFor(() => expect(pendingStyleInsertResolvers).toHaveLength(1));
     expect(reader.enterReaderMode).not.toHaveBeenCalled();
 
-    const links = READER_STYLE_PATHS.map((path) => document.head.querySelector(`link[href$="${path}"]`));
-    for (const link of links.slice(0, 2)) {
-      link?.dispatchEvent(new Event("load"));
-    }
-    await Promise.resolve();
-    expect(reader.enterReaderMode).not.toHaveBeenCalled();
-
-    links[2]?.dispatchEvent(new Event("load"));
+    pendingStyleInsertResolvers.shift()?.();
     await entry;
+    expectReaderStylesMounted(true);
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
   });
 

@@ -558,6 +558,35 @@ export type YoutubePageSnapshotResponse = {
   error?: string;
 };
 
+export type ContentStyleInsertMessage = {
+  type: "content-style-insert";
+  files: string[];
+};
+export type ContentStyleInsertResponse = {
+  ok: boolean;
+  styles?: Record<string, string>;
+  error?: string;
+};
+
+export type ContentStyleRemoveMessage = {
+  type: "content-style-remove";
+  files: string[];
+};
+export type ContentStyleRemoveResponse = {
+  ok: boolean;
+  error?: string;
+};
+
+export type ContentStyleReadMessage = {
+  type: "content-style-read";
+  files: string[];
+};
+export type ContentStyleReadResponse = {
+  ok: boolean;
+  styles?: Record<string, string>;
+  error?: string;
+};
+
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
@@ -601,7 +630,10 @@ export type BackgroundMessage =
   | GetDebugLogGateMessage
   | OpenOnboardingMessage
   | PermissionGrantResultMessage
-  | YoutubePageSnapshotMessage;
+  | YoutubePageSnapshotMessage
+  | ContentStyleInsertMessage
+  | ContentStyleRemoveMessage
+  | ContentStyleReadMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
 
@@ -699,6 +731,7 @@ export type SendResponse = (response?: MessageResponse) => void;
 
 export type MessageSender = {
   tab?: { id?: number; url?: string };
+  frameId?: number;
   url?: string;
   id?: string;
 };
@@ -778,6 +811,10 @@ function isProvidersArrayOrAbsent(message: {
   providers?: unknown;
 }): boolean {
   return message.providers === undefined || Array.isArray(message.providers);
+}
+
+function isNonEmptyStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string");
 }
 
 export const BACKGROUND_MESSAGE_REGISTRY = {
@@ -995,6 +1032,27 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     YoutubePageSnapshotResponse
   >({
     reply: "branch"
+  }),
+  "content-style-insert": registerBackgroundMessage<
+    ContentStyleInsertMessage,
+    ContentStyleInsertResponse
+  >({
+    reply: "branch",
+    shape: (message) => isNonEmptyStringArray(message.files)
+  }),
+  "content-style-remove": registerBackgroundMessage<
+    ContentStyleRemoveMessage,
+    ContentStyleRemoveResponse
+  >({
+    reply: "branch",
+    shape: (message) => isNonEmptyStringArray(message.files)
+  }),
+  "content-style-read": registerBackgroundMessage<
+    ContentStyleReadMessage,
+    ContentStyleReadResponse
+  >({
+    reply: "branch",
+    shape: (message) => isNonEmptyStringArray(message.files)
   })
 } satisfies {
   readonly [K in BackgroundMessageType]: BackgroundMessageRegistration<

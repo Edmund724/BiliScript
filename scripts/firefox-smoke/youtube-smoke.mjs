@@ -704,7 +704,6 @@ export async function runYoutubeSmoke({
     }
 
     const policyInfo = await waitForChromeExtensionReady(client, EXPECTED_EXTENSION_ID);
-    const extOriginPrefix = `moz-extension://${policyInfo.uuid}/entry/styles/`;
     const onboardingUrl = `moz-extension://${policyInfo.uuid}/onboarding.html`;
 
     await client.setContext("content");
@@ -956,16 +955,12 @@ export async function runYoutubeSmoke({
     const styleAndLayoutState = await waitFor("Y2 stylesheets and docked Light DOM layout", async () =>
       client.executeSync(
         `
-        const extPrefix = arguments[0];
         const v = document.getElementById("biliscript-reading-view");
         const sec = document.getElementById("secondary");
         const subList = document.getElementById("biliscript-reading-subtitle");
         const ovBody = document.getElementById("biliscript-reading-overview-body");
         if (!v || !sec || !subList || !ovBody) return null;
-        const linkHrefs = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        const sheetHrefs = Array.from(document.styleSheets).map((s) => s.href || "");
-        const allLinksInSheets = linkHrefs.length >= 3 && linkHrefs.every((h) => h.startsWith(extPrefix) && sheetHrefs.includes(h));
-        if (!allLinksInSheets) return null;
+        const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]'));
         const vr = v.getBoundingClientRect();
         const sr = sec.getBoundingClientRect();
         const vcs = getComputedStyle(v);
@@ -977,6 +972,8 @@ export async function runYoutubeSmoke({
         v.appendChild(probe);
         const surface = getComputedStyle(probe).backgroundColor;
         probe.remove();
+        const allLinksInSheets = extLinks.length === 0 && Boolean(surface && surface !== "rgba(0, 0, 0, 0)");
+        if (!allLinksInSheets) return null;
         return {
           isLightDom: !v.shadowRoot && document.body.contains(v),
           dockedFloatAttr: v.getAttribute("data-biliscript-script-float"),
@@ -988,8 +985,7 @@ export async function runYoutubeSmoke({
           computedBox: { left: vcs.left, right: vcs.right, width: vcs.width, translate: vcs.translate, position: vcs.position },
           dockRightDiff: Math.abs(vr.right - document.documentElement.clientWidth),
           viewWidth: vr.width,
-          linkCount: linkHrefs.length,
-          linkHrefs,
+          extLinkCount: extLinks.length,
           allLinksInSheets,
           surface,
           supportsMozAppearance: typeof CSS?.supports === "function" ? CSS.supports("-moz-appearance", "none") : false,
@@ -998,7 +994,7 @@ export async function runYoutubeSmoke({
           ovScrollbarWidth: ovCs.scrollbarWidth || ""
         };
         `,
-        [extOriginPrefix],
+        [],
         15_000,
         { newSandbox: false }
       )
@@ -1160,23 +1156,30 @@ export async function runYoutubeSmoke({
     const detachedState = await waitFor("Y4 YouTube detached popup ready", async () =>
       client.executeSync(
         `
-        const extPrefix = arguments[0];
         const v = document.getElementById("biliscript-reading-view");
         const subList = document.getElementById("biliscript-reading-subtitle");
         if (!v || !v.classList.contains("open") || v.hidden || !subList) return null;
-        const linkHrefs = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]')).map((l) => l.getAttribute("href") || "");
-        const sheetHrefs = Array.from(document.styleSheets).map((s) => s.href || "");
+        const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="moz-extension://"]'));
+        const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+        const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
         const subCs = getComputedStyle(subList);
+        const allLinksInSheets =
+          extLinks.length === 0 &&
+          (adoptedCount >= 3 || (styleEls.length >= 3 && styleEls.every((s) => Boolean(s.sheet))));
+        if (!allLinksInSheets) return null;
         return {
           docTitle: document.title || "",
           metaText: document.getElementById("biliscript-reading-meta")?.textContent?.trim() || "",
           hasSwitchedCue: (subList.textContent || "").includes("Firefox YouTube switched English track cue one"),
-          allLinksInSheets: linkHrefs.length >= 3 && linkHrefs.every((h) => h.startsWith(extPrefix) && sheetHrefs.includes(h)),
+          extLinkCount: extLinks.length,
+          adoptedCount,
+          styleElCount: styleEls.length,
+          allLinksInSheets,
           subScrollbarWidth: subCs.scrollbarWidth || "",
           overflowX: document.documentElement.scrollWidth > window.innerWidth + 1
         };
         `,
-        [extOriginPrefix],
+        [],
         15_000,
         { newSandbox: false }
       )

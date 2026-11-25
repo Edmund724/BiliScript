@@ -50,12 +50,18 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "fetch-json": "branch",
   "get-ai-provider-key": "branch",
   "offload-task": "branch",
-  "youtube-page-snapshot": "branch"
+  "youtube-page-snapshot": "branch",
+  "content-style-insert": "branch",
+  "content-style-remove": "branch",
+  "content-style-read": "branch"
 };
 
 const SHAPE_REGISTERED_TYPES = [
   "ai-providers-save",
   "asr-providers-save",
+  "content-style-insert",
+  "content-style-read",
+  "content-style-remove",
   "live-providers-save",
   "player-ai-quick-action",
   "save-settings",
@@ -139,5 +145,15 @@ describe("SW 消息注册表：payload 最小 schema 判据", () => {
     expect(shape({ type: "player-ai-quick-action", tabId: 7 })).toBe(true);
     expect(shape({ type: "player-ai-quick-action" })).toBe(true);
     expect(shape({ type: "player-ai-quick-action", tabId: "7" })).toBe(false);
+  });
+
+  it("content-style-*：files 须为非空字符串数组", () => {
+    for (const type of ["content-style-insert", "content-style-remove", "content-style-read"] as const) {
+      const shape = shapeOf(type);
+      expect(shape({ type, files: ["entry/styles/reader.css"] }), type).toBe(true);
+      expect(shape({ type, files: [] }), type).toBe(false);
+      expect(shape({ type, files: [123] }), type).toBe(false);
+      expect(shape({ type }), type).toBe(false);
+    }
   });
 });

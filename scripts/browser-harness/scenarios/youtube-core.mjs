@@ -938,12 +938,17 @@ async function runOfflineSuite({ page, browserCdp, tracker, worker, evidence }) 
     `(() => {
       const view = document.getElementById("biliscript-reading-view");
       const detachBtn = document.getElementById("biliscript-reading-detach-btn");
-      const links = Array.from(document.head.querySelectorAll('link[data-biliscript-style="1"]'));
+      const extLinks = Array.from(document.querySelectorAll('link[data-biliscript-style="1"], link[rel="stylesheet"][href^="chrome-extension://"]'));
+      const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]'));
+      const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
       return {
         open: Boolean(view && view.classList.contains("open") && !view.hidden),
         theme: view?.getAttribute("data-theme") || null,
         detachHidden: Boolean(detachBtn?.hidden),
-        linksLoaded: links.length >= 3 && links.every((l) => Boolean(l.sheet)),
+        extLinkCount: extLinks.length,
+        adoptedCount,
+        styleElCount: styleEls.length,
+        linksLoaded: extLinks.length === 0 && (adoptedCount >= 3 || (styleEls.length >= 3 && styleEls.every((s) => Boolean(s.sheet)))),
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight
       };

@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL } from "../setup.js";
 import {
-  assertAllLinkHrefsHavePrefix,
+  assertMirroredStylesWithoutExtensionLinks,
   assertHeaderButtonOrder,
   assertStyleLinksPresent,
   assertZeroUnwrappedScrollbars,
@@ -511,18 +511,19 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       expect(getMirroredStyleHrefs(childWin.document).some((href) => href.endsWith("reader.css"))).toBe(false);
     });
 
-    it("T2-F09-02: repeated ensureCustomSelectStyles calls while detached mount only one custom-select.css link", async () => {
+    it("T2-F09-02: repeated ensureCustomSelectStyles calls while detached mount only one custom-select.css style", async () => {
       const h = await bootHarness();
       const styleInjector = await loadStyleInjectorContract();
       await h.openReaderInPage();
       const childWin = await h.detachReader();
       styleInjector.ensureCustomSelectStyles();
       styleInjector.ensureCustomSelectStyles();
+      await h.flushTimersAndMicrotasks(20);
       const matches = getMirroredStyleHrefs(childWin.document).filter((href) => href.endsWith("custom-select.css"));
       expect(matches).toHaveLength(1);
     });
 
-    it("T2-F09-03: clearMirroredStyles on clean document with zero mirrored links is a safe no-op", async () => {
+    it("T2-F09-03: clearMirroredStyles on clean document with zero mirrored styles is a safe no-op", async () => {
       await bootHarness();
       const styleInjector = await loadStyleInjectorContract();
       const emptyDoc = document.implementation.createHTMLDocument("Empty");
@@ -530,11 +531,11 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       expect(getMirroredStyleHrefs(emptyDoc)).toHaveLength(0);
     });
 
-    it("T2-F09-04: mirrored link hrefs preserve chrome-extension:// or moz-extension:// origin", async () => {
+    it("T2-F09-04: mirrored styles never create chrome-extension:// or moz-extension:// link nodes", async () => {
       const h = await bootHarness({ extensionBaseUrl: "chrome-extension://abcdef123456/" });
       await h.openReaderInPage();
       const childWin = await h.detachReader();
-      assertAllLinkHrefsHavePrefix(childWin.document, "chrome-extension://abcdef123456/");
+      assertMirroredStylesWithoutExtensionLinks(childWin.document);
     });
 
     it("T2-F09-05: whenReaderSettingsStylesReady resolves deterministically after opening settings while detached", async () => {
@@ -1493,7 +1494,7 @@ describe("Tier 2: Boundary, Corner & Negative-Error Paths", () => {
       const childWin = await h.detachReader();
       expect(h.fakePlatform.pipRequests).toHaveLength(0);
       expect(h.fakePlatform.openCalls).toHaveLength(1);
-      assertAllLinkHrefsHavePrefix(childWin.document, "moz-extension://fx-xray/");
+      assertMirroredStylesWithoutExtensionLinks(childWin.document);
       assertStyleLinksPresent(childWin.document, ["reader.css", "reader-gate.css"]);
       const after = getWindowPrototypeDescriptorSnapshot();
       expect(after.hasDocumentGetter).toBe(before.hasDocumentGetter);

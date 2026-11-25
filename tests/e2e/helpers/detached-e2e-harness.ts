@@ -749,6 +749,19 @@ function installStorageAndRuntimeBridge(options: {
     if (type === "agent-bridge-status") {
       return { ok: true, connected: false };
     }
+    if (type === "content-style-insert" || type === "content-style-remove") {
+      return { ok: true };
+    }
+    if (type === "content-style-read") {
+      const files = Array.isArray(message.files) ? message.files : [];
+      const styles: Record<string, string> = {};
+      for (const file of files) {
+        if (typeof file === "string") {
+          styles[file] = `/* ${file} */`;
+        }
+      }
+      return { ok: true, styles };
+    }
     return { ok: true };
   };
 

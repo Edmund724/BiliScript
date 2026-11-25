@@ -661,8 +661,13 @@ export function detachReaderShell(): Promise<boolean> {
     }
     clearDetachedNotice(readingView);
     const scrollSnapshot = captureScrollPositions(readingView);
+    await syncStylesToDocument(opened.document);
+    if (pendingDetachedExternalClose || !isReaderViewOpen() || isWindowClosed(opened.window)) {
+      clearMirroredStyles(opened.document);
+      closeDetachedWindowHost(true);
+      return false;
+    }
     closeScriptHost();
-    syncStylesToDocument(opened.document);
     applyDetachedHostDocumentAttrs(opened.document);
     readingView.removeAttribute("data-biliscript-script-float");
     readingView.style.removeProperty("--biliscript-float-origin");
@@ -763,7 +768,7 @@ export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<
       onResizeBounds: (nextBounds) => {
         void saveDetachedWindowBounds(nextBounds);
       },
-      beforeClosePrevious: (next) => {
+      beforeClosePrevious: async (next) => {
         if (
           pendingDetachedExternalClose ||
           !isReaderViewOpen() ||
@@ -772,8 +777,17 @@ export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<
         ) {
           throw new Error("Detached host closed");
         }
+        await syncStylesToDocument(next.document);
+        if (
+          pendingDetachedExternalClose ||
+          !isReaderViewOpen() ||
+          isWindowClosed(previousWin) ||
+          isWindowClosed(next.window)
+        ) {
+          clearMirroredStyles(next.document);
+          throw new Error("Detached host closed");
+        }
         scrollSnapshot = captureScrollPositions(readingView);
-        syncStylesToDocument(next.document);
         applyDetachedHostDocumentAttrs(next.document);
         readingView.setAttribute("data-biliscript-detached", "1");
         migratedView = safeAdoptNode(next.document, readingView);
@@ -801,7 +815,7 @@ export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<
         return false;
       }
       if (migratedView.ownerDocument !== previousDoc) {
-        syncStylesToDocument(previousDoc);
+        await syncStylesToDocument(previousDoc);
         applyDetachedHostDocumentAttrs(previousDoc);
         migratedView.setAttribute("data-biliscript-detached", "1");
         const restoredView = safeAdoptNode(previousDoc, migratedView);

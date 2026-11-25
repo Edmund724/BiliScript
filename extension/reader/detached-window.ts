@@ -23,7 +23,7 @@ export type DetachedWindowOpenResult =
   | { ok: false; reason: "blocked" | "unsupported" };
 
 export interface DetachedWindowSwitchOptions extends DetachedWindowOpenOptions {
-  beforeClosePrevious?: (next: DetachedWindowHostOpenSuccess) => void;
+  beforeClosePrevious?: (next: DetachedWindowHostOpenSuccess) => void | Promise<void>;
 }
 
 export type DetachedWindowSwitchResult =
@@ -421,7 +421,7 @@ export async function switchDetachedWindowHostMode(
     actualMode: candidate.actualMode
   };
   try {
-    opts.beforeClosePrevious?.(success);
+    await opts.beforeClosePrevious?.(success);
   } catch {
     safeCloseWindow(candidate.window);
     return { ok: false, reason: "blocked" };
