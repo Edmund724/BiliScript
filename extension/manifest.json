@@ -18,6 +18,7 @@
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://www.youtube.com/*",
+    "https://live.bilibili.com/*",
     "ws://127.0.0.1/*",
     "https://api.bilibili.com/*",
     "https://index-translate.bilibili.com/*",
@@ -57,13 +58,13 @@
         "https://www.bilibili.com/festival/*",
         "https://www.youtube.com/watch*"
       ],
-      "js": ["entry/content-bootstrap.iife.js"],
+      "js": ["entry/content-resident.iife.js"],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
       "matches": ["https://live.bilibili.com/*"],
-      "js": ["entry/content-bootstrap.iife.js"],
+      "js": ["entry/content-resident.iife.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
@@ -71,10 +72,9 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "entry/content-main.mjs",
-        "entry/chunks/*"
+        "entry/chunks/pcm-capture-worklet.mjs"
       ],
-      "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*", "https://www.youtube.com/*"]
+      "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*"]
     }
   ],
   "action": {

@@ -84,7 +84,9 @@ function deriveFirefoxManifest(chromiumManifest, { presets, asrPresets } = {}) {
   );
 
   const officialHosts = extractOfficialHttpsHostPermissions(presets, asrPresets);
-  derived.host_permissions = [...new Set([...(derived.host_permissions ?? []), ...officialHosts])];
+  derived.host_permissions = [
+    ...new Set([...(derived.host_permissions ?? []), ...officialHosts]),
+  ].filter((pattern) => pattern !== LIVE_MATCH_PATTERN);
 
   const bgScript = derived.background?.service_worker ?? "entry/background.js";
   const bgType = derived.background?.type ?? "module";
@@ -100,9 +102,13 @@ function deriveFirefoxManifest(chromiumManifest, { presets, asrPresets } = {}) {
   derived.web_accessible_resources = (derived.web_accessible_resources ?? [])
     .map((entry) => ({
       ...entry,
+      resources: (entry.resources ?? []).filter((res) => res !== "entry/chunks/pcm-capture-worklet.mjs"),
       matches: (entry.matches ?? []).filter((pattern) => pattern !== LIVE_MATCH_PATTERN),
     }))
-    .filter((entry) => entry.matches.length > 0);
+    .filter((entry) => entry.matches.length > 0 && entry.resources.length > 0);
+  if (derived.web_accessible_resources.length === 0) {
+    delete derived.web_accessible_resources;
+  }
 
   const existingGecko = derived.browser_specific_settings?.gecko ?? {};
   const nextSettings = {
