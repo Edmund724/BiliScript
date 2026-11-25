@@ -254,8 +254,14 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     const detachedSub = pipWin.document.getElementById(readerState.ids.readingSubtitleList)!;
     detachedSub.scrollTop = 312;
     vi.mocked(scriptHost.openScriptHost).mockClear();
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
 
     const ok = await shell.redockReaderShell();
+    rafSpy.mockRestore();
 
     expect(ok).toBe(true);
     expect(activeHost.isReaderDetached()).toBe(false);
@@ -268,6 +274,9 @@ describe("M2 独立窗口 Shell 生命周期与路由", () => {
     const openerView = document.getElementById(readerState.ids.readingView)!;
     expect(document.getElementById(readerState.ids.root)!.contains(openerView)).toBe(true);
     expect(openerView.getAttribute("data-biliscript-detached")).toBeNull();
+    expect(openerView.getAttribute("data-biliscript-reader-restore")).toBe("1");
+    rafCallbacks.forEach((cb) => cb(0));
+    expect(openerView.getAttribute("data-biliscript-reader-restore")).toBeNull();
     expect(document.getElementById(readerState.ids.readingSubtitleList)!.scrollTop).toBe(312);
     expect(scriptHost.openScriptHost).toHaveBeenCalledTimes(1);
     expect(document.getElementById(uiRenderer.DETACH_BTN_ID)!.getAttribute("aria-pressed")).toBe("false");

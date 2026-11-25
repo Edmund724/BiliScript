@@ -397,10 +397,20 @@ function restoreOpenerInPageReadingView(readingView: HTMLElement | null): void {
   openerDoc.body.setAttribute("data-biliscript-reader-mode", "1");
   openerDoc.body.setAttribute("data-biliscript-reading-active", "1");
   if (readingView) {
+    readingView.setAttribute("data-biliscript-reader-restore", "1");
     readingView.hidden = false;
     readingView.classList.remove("closing");
     readingView.classList.add("open", "reader-page");
     readingView.setAttribute("aria-hidden", "false");
+    void readingView.getBoundingClientRect();
+    const openerWin = getOpenerWindow();
+    if (typeof openerWin?.requestAnimationFrame === "function") {
+      openerWin.requestAnimationFrame(() => {
+        readingView.removeAttribute("data-biliscript-reader-restore");
+      });
+    } else {
+      readingView.removeAttribute("data-biliscript-reader-restore");
+    }
   }
   openScriptHost();
 }
