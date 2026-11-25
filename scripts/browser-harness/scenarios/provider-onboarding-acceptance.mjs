@@ -42,8 +42,11 @@ const subtitleBody = bodies[`${BVID}-zh`];
 const stateChunkFile = readdirSync(path.join(DEFAULT_DIST, "entry", "chunks")).find((file) => /^state-.*\.mjs$/.test(file));
 if (!stateChunkFile) throw new Error("找不到内容脚本 state chunk");
 
-const READER_STYLE_FILES = ["tokens-primitive.css", "reader.css", "reader-gate.css"];
-const readerStyleGate = { armed: false, pending: new Map(), seen: [] };
+const READER_STYLE_PATHS = [
+  "entry/styles/tokens-primitive.css",
+  "entry/styles/reader.css",
+  "entry/styles/reader-gate.css"
+];
 
 const checks = [];
 const results = {};
@@ -295,12 +298,6 @@ function installDocumentFixture(pageCdp) {
     patterns: [{ urlPattern: "*", requestStage: "Request" }]
   }).then(() => {
     pageCdp.on("Fetch.requestPaused", async (params) => {
-      const url = params.request?.url || "";
-      if (readerStyleGate.armed && READER_STYLE_FILES.some((file) => url.endsWith(`/entry/styles/${file}`))) {
-        readerStyleGate.pending.set(params.requestId, url);
-        readerStyleGate.seen.push(url);
-        return;
-      }
       try {
         if (params.resourceType === "Document") {
           await pageCdp.send("Fetch.fulfillRequest", {
@@ -317,20 +314,60 @@ function installDocumentFixture(pageCdp) {
   });
 }
 
-function armReaderStyleGate() {
-  readerStyleGate.armed = true;
-  readerStyleGate.pending.clear();
-  readerStyleGate.seen = [];
+async function installSwReaderStyleGate(workerSession) {
+  await workerSession.evaluate(`(() => {
+    if (globalThis.__m1StyleGate?.installed) return true;
+    const orig = chrome.scripting.insertCSS.bind(chrome.scripting);
+    const gate = { installed: true, orig, armed: false, heldFiles: [], resolvers: [] };
+    chrome.scripting.insertCSS = async (injection) => {
+      const files = Array.isArray(injection?.files) ? injection.files : [];
+      if (gate.armed && ${JSON.stringify(READER_STYLE_PATHS)}.every((p) => files.includes(p))) {
+        gate.heldFiles.push(...files);
+        await new Promise((resolve) => gate.resolvers.push(resolve));
+      }
+      return orig(injection);
+    };
+    globalThis.__m1StyleGate = gate;
+    return true;
+  })()`);
 }
 
-async function releaseReaderStyleGate(pageCdp) {
-  readerStyleGate.armed = false;
-  const pending = [...readerStyleGate.pending.keys()];
-  readerStyleGate.pending.clear();
-  for (const requestId of pending) {
-    await pageCdp.send("Fetch.continueRequest", { requestId });
-  }
-  return pending.length;
+async function armReaderStyleGate(workerSession) {
+  await installSwReaderStyleGate(workerSession);
+  await workerSession.evaluate(`(() => {
+    const gate = globalThis.__m1StyleGate;
+    gate.armed = true;
+    gate.heldFiles = [];
+    gate.resolvers = [];
+    return true;
+  })()`);
+}
+
+async function readHeldReaderStyles(workerSession) {
+  return workerSession.evaluate(`globalThis.__m1StyleGate?.heldFiles || []`);
+}
+
+async function releaseReaderStyleGate(workerSession) {
+  return workerSession.evaluate(`(() => {
+    const gate = globalThis.__m1StyleGate;
+    if (!gate) return 0;
+    gate.armed = false;
+    const resolvers = gate.resolvers.splice(0);
+    for (const resolve of resolvers) resolve();
+    return resolvers.length;
+  })()`);
+}
+
+async function uninstallSwReaderStyleGate(workerSession) {
+  await workerSession.evaluate(`(() => {
+    const gate = globalThis.__m1StyleGate;
+    if (!gate?.installed) return false;
+    gate.armed = false;
+    for (const resolve of gate.resolvers.splice(0)) resolve();
+    chrome.scripting.insertCSS = gate.orig;
+    delete globalThis.__m1StyleGate;
+    return true;
+  })()`);
 }
 
 async function attachOffscreen(browserInstance) {
@@ -647,18 +684,25 @@ try {
     { id: "auto-open", checkName: "M1-A2-autoOpen", url: VIDEO_URL, autoOpen: true }
   ]) {
     await worker.evaluate(`chrome.storage.sync.set({ autoOpenReader: ${entry.autoOpen} })`);
-    armReaderStyleGate();
+    await armReaderStyleGate(worker);
     await page.cdp.send("Page.navigate", { url: entry.url });
-    await waitFor(`${entry.id} 三张阅读 CSS 均已扣住`, () => readerStyleGate.pending.size === 3, { timeoutMs: 15000, intervalMs: 50 });
+    const heldFiles = await waitFor(
+      `${entry.id} 三张阅读 CSS insertCSS 均已扣住`,
+      async () => {
+        const files = await readHeldReaderStyles(worker);
+        return READER_STYLE_PATHS.every((file) => files.includes(file)) ? files : null;
+      },
+      { timeoutMs: 15000, intervalMs: 50 }
+    );
     const before = await page.cdp.evaluate(`(() => ({
       htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
       bodyGate: document.body?.getAttribute("data-biliscript-reader-mode") || null,
       readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true,
-      links: Array.from(document.querySelectorAll("link[data-biliscript-style]")).filter((link) => ${JSON.stringify(READER_STYLE_FILES)}.some((file) => link.href.endsWith("/entry/styles/" + file))).map((link) => ({ href: link.href, loaded: Boolean(link.sheet) }))
+      extLinkCount: document.querySelectorAll('link[data-biliscript-style], link[rel="stylesheet"][href^="chrome-extension://"]').length
     }))()`);
-    const beforeOk = before.htmlGate === null && before.bodyGate === null && !before.readerOpen && before.links.length === 3 && before.links.every((link) => !link.loaded);
-    check(`${entry.checkName}-三张CSS加载前不提前门控`, beforeOk, { before, held: [...readerStyleGate.pending.values()] });
-    const released = await releaseReaderStyleGate(page.cdp);
+    const beforeOk = before.htmlGate === null && before.bodyGate === null && !before.readerOpen && before.extLinkCount === 0;
+    check(`${entry.checkName}-三张CSS加载前不提前门控`, beforeOk, { before, heldFiles });
+    const released = await releaseReaderStyleGate(worker);
     await waitFor(`${entry.id} 阅读视图打开`, () => page.cdp.evaluate(`(() => {
       const view = document.getElementById("biliscript-reading-view");
       return view?.classList.contains("open") && document.documentElement.getAttribute("data-biliscript-reader-mode") === "1" && document.body.getAttribute("data-biliscript-reader-mode") === "1";
@@ -666,20 +710,33 @@ try {
     const after = await page.cdp.evaluate(`(() => {
       const view = document.getElementById("biliscript-reading-view");
       const rect = view.getBoundingClientRect();
+      const cs = getComputedStyle(view);
       return {
         htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
         bodyGate: document.body.getAttribute("data-biliscript-reader-mode"),
         readerOpen: view.classList.contains("open"),
-        display: getComputedStyle(view).display,
+        display: cs.display,
+        position: cs.position,
+        surfaceBg: cs.backgroundColor,
         rect: { width: rect.width, height: rect.height, left: rect.left, top: rect.top },
-        links: Array.from(document.querySelectorAll("link[data-biliscript-style]")).filter((link) => ${JSON.stringify(READER_STYLE_FILES)}.some((file) => link.href.endsWith("/entry/styles/" + file))).map((link) => ({ href: link.href, loaded: Boolean(link.sheet) }))
+        extLinkCount: document.querySelectorAll('link[data-biliscript-style], link[rel="stylesheet"][href^="chrome-extension://"]').length
       };
     })()`);
-    const afterOk = after.htmlGate === "1" && after.bodyGate === "1" && after.readerOpen && after.display === "block" && after.rect.width > 0 && after.rect.height > 0 && after.links.length === 3 && after.links.every((link) => link.loaded);
+    const afterOk =
+      after.htmlGate === "1" &&
+      after.bodyGate === "1" &&
+      after.readerOpen &&
+      after.display === "block" &&
+      after.position === "fixed" &&
+      Boolean(after.surfaceBg && after.surfaceBg !== "rgba(0, 0, 0, 0)") &&
+      after.rect.width > 0 &&
+      after.rect.height > 0 &&
+      after.extLinkCount === 0;
     check(`${entry.checkName}-三张CSS加载后正常进入`, afterOk, { released, after });
-    results.m1StyleEntries.push({ id: entry.id, cacheDisabled: true, before, released, after });
+    results.m1StyleEntries.push({ id: entry.id, cacheDisabled: true, before, heldFiles, released, after });
     await screenshot(page.cdp, path.join(OUT_DIR, `15-m1-${entry.id}-ready.png`));
   }
+  await uninstallSwReaderStyleGate(worker);
   await page.cdp.send("Network.setCacheDisabled", { cacheDisabled: false });
   await worker.evaluate(`chrome.storage.sync.set({ autoOpenReader: false })`);
 
