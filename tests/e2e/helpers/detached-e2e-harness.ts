@@ -101,6 +101,12 @@ interface EventBusSlotSnapshot {
   clipScope: { dispose: () => void; isDisposed: () => boolean };
 }
 
+interface WatchStorageKeysSlotSnapshot {
+  subscriptions: Set<unknown>;
+  registeredHost: unknown;
+  dispatchListener: unknown;
+}
+
 interface WarmedModules {
   defaults: typeof import("../../../extension/core/defaults.js");
   coreState: typeof import("../../../extension/core/state.js");
@@ -149,6 +155,8 @@ interface WarmedRuntime {
   baselineModeSwitchHandler: unknown;
   baselineReaderBusReaders: unknown[];
   baselineReaderBusHandlers: Record<string, unknown>;
+  watchStorageKeysSlot: WatchStorageKeysSlotSnapshot | undefined;
+  baselineWatchSubscriptions: unknown[];
   baselineEventBus: TypedEventBus<ContentEventMap>;
   wrappedEventBus: TypedEventBus<ContentEventMap>;
   warmListenerTracker: ListenerTracker;
@@ -423,6 +431,7 @@ export async function warmDetachedE2eRuntime(): Promise<WarmedRuntime> {
   const stateBundle = slots.__BILISCRIPT_STATE__ as StateBundleSlotSnapshot;
   const activeHostSlot = slots.__BILISCRIPT_ACTIVE_HOST__ as ActiveHostSlotSnapshot | undefined;
   const readerBusSlot = slots.__BILISCRIPT_READER_BUS__ as ReaderBusSlotSnapshot | undefined;
+  const watchStorageKeysSlot = slots.__BILISCRIPT_WATCH_STORAGE_KEYS__ as WatchStorageKeysSlotSnapshot | undefined;
   const eventBusSlot = slots.__BILISCRIPT_EVENT_BUS__ as EventBusSlotSnapshot | undefined;
   const baselineEventBus = eventBusSlot?.bus ?? typedEventBus.createTypedEventBus<ContentEventMap>();
 
@@ -467,6 +476,8 @@ export async function warmDetachedE2eRuntime(): Promise<WarmedRuntime> {
     baselineModeSwitchHandler: activeHostSlot?.modeSwitchHandler ?? null,
     baselineReaderBusReaders: [...(readerBusSlot?.readers ?? [])],
     baselineReaderBusHandlers: { ...(readerBusSlot?.handlers ?? {}) },
+    watchStorageKeysSlot,
+    baselineWatchSubscriptions: Array.from(watchStorageKeysSlot?.subscriptions ?? []),
     baselineEventBus,
     wrappedEventBus: wrapBaselineEventBus(baselineEventBus),
     warmListenerTracker,
@@ -501,6 +512,14 @@ function resetWarmedStateBeforeTest(runtime: WarmedRuntime, targetUrl: string): 
     handlers: { ...runtime.baselineReaderBusHandlers },
     warnedMissing: new Set()
   };
+  if (runtime.watchStorageKeysSlot) {
+    runtime.watchStorageKeysSlot.subscriptions.clear();
+    for (const sub of runtime.baselineWatchSubscriptions) {
+      runtime.watchStorageKeysSlot.subscriptions.add(sub);
+    }
+    runtime.watchStorageKeysSlot.registeredHost = null;
+    slots.__BILISCRIPT_WATCH_STORAGE_KEYS__ = runtime.watchStorageKeysSlot;
+  }
 
   runtime.stateBundle.sessionBoundaryHooks.clear();
   for (const hook of runtime.baselineSessionBoundaryHooks) {

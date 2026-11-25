@@ -10,12 +10,11 @@ node_modules/
 /coverage/
 /.pages-dist/
 
-# Generated extension files（候选4 分包：classic bootstrap + ESM 主包 + 动态 chunk）
-/extension/entry/content-bootstrap.iife.js
-/extension/entry/content-bootstrap.iife.js.map
-/extension/entry/content-main.mjs
-/extension/entry/content-main.mjs.map
+# Generated extension files（经典 IIFE 常驻壳 + 分组 chunk）
+/extension/entry/content-resident.iife.js
+/extension/entry/content-resident.iife.js.map
 /extension/entry/chunks/
+__pycache__/
 
 # Local / agent / IDE（例外：release skill 入库）
 .agents/*
