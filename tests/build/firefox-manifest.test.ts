@@ -63,8 +63,13 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     expect(derived.host_permissions).toHaveLength(29);
     expect(new Set(derived.host_permissions).size).toBe(29);
     expect(new Set(derived.host_permissions)).toEqual(
-      new Set([...chromiumManifest.host_permissions, ...expectedPresetOrigins])
+      new Set(
+        [...chromiumManifest.host_permissions, ...expectedPresetOrigins].filter(
+          (pattern) => pattern !== LIVE_MATCH_PATTERN
+        )
+      )
     );
+    expect(derived.host_permissions).not.toContain(LIVE_MATCH_PATTERN);
   });
 
   it("presets.ts 加载器与 Vitest 直接导入的官方预设完全一致", () => {
@@ -137,7 +142,7 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     expect("gecko_android" in derived.browser_specific_settings).toBe(false);
   });
 
-  it("首期移除 live.bilibili.com 内容脚本与 web_accessible_resources 匹配项", () => {
+  it("首期移除 live.bilibili.com 内容脚本并清空 web_accessible_resources", () => {
     const derived = deriveFirefoxManifest(chromiumManifest, {
       presets: PRESETS,
       asrPresets: ASR_PROVIDER_PRESETS,
@@ -149,14 +154,7 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
       )
     ).toBe(false);
     expect(derived.content_scripts).toHaveLength(1);
-
-    for (const war of derived.web_accessible_resources) {
-      expect(war.matches).not.toContain(LIVE_MATCH_PATTERN);
-    }
-    expect(derived.web_accessible_resources[0]?.matches).toEqual([
-      "https://www.bilibili.com/*",
-      "https://www.youtube.com/*",
-    ]);
+    expect(derived.web_accessible_resources).toBeUndefined();
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/list/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.bilibili.com/festival/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");

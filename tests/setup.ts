@@ -324,6 +324,8 @@ export function clearSharedSlots() {
   delete slots.__BILISCRIPT_STYLE_INJECTOR__;
   delete slots.__BILISCRIPT_EVENT_BUS__;
   delete slots.__BILISCRIPT_ACTIVE_HOST__;
+  delete slots.__BILISCRIPT_WATCH_STORAGE_KEYS__;
+  delete slots.__BILISCRIPT_CONTENT_SCRIPT_LOADED__;
   (slots[Symbol.for("biliscript.subtitleStoreReset")] as (() => void) | undefined)?.();
 }
 

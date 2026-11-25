@@ -7,7 +7,7 @@ const EXTENSION_ROOT = join(process.cwd(), "extension");
 const LAYERS = ["shared", "core", "agent-bridge", "ai", "asr", "bilibili", "chat", "live", "notes", "reader", "search", "subtitle", "ui", "youtube", "entry"];
 
 const GENERATED_DIRS = new Set(["chunks", "icons"]);
-const GENERATED_FILES = new Set(["content-main.mjs", "content-bootstrap.iife.js"]);
+const GENERATED_FILES = new Set(["content-resident.iife.js"]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

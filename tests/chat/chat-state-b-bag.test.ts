@@ -145,6 +145,9 @@ describe("可写把手不外流（源码守卫）", () => {
     walk(join(ROOT, "extension"), (file) => {
       const rel = file.slice(ROOT.length + 1).replace(/\\/g, "/");
       if (rel === "extension/chat/chat-state.ts") return;
+      if (rel.startsWith("extension/entry/chunks/") || rel === "extension/entry/content-resident.iife.js") {
+        return;
+      }
       if (!/\.(ts|js)$/.test(rel)) return;
       if (readFileSync(file, "utf8").includes("chatSessionStateForTests")) {
         offenders.push(rel);

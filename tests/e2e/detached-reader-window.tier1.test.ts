@@ -1564,7 +1564,7 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(hostB.getActiveReaderDocument()).toBe(childWin.document);
     });
 
-    it("T1-F26-04: deriveFirefoxManifest omits entry/styles/* from web_accessible_resources, sets strict_min_version >= 153.0, and strips tts/offscreen", async () => {
+    it("T1-F26-04: deriveFirefoxManifest omits web_accessible_resources, sets strict_min_version >= 153.0, and strips tts/offscreen/live", async () => {
       const { deriveFirefoxManifest } = await import("../../scripts/firefox-manifest.js");
       const { ASR_PROVIDER_PRESETS, PRESETS } = await import("../../extension/core/presets.js");
       const chromiumManifest = JSON.parse(readFileSync("extension/manifest.json", "utf8")) as {
@@ -1581,13 +1581,8 @@ describe("Tier 1: Category-Partition Equivalence Coverage", () => {
       expect(Number.parseFloat(derived.browser_specific_settings.gecko.strict_min_version)).toBeGreaterThanOrEqual(153);
       expect(derived.permissions).not.toContain("tts");
       expect(derived.permissions).not.toContain("offscreen");
-      const resources = derived.web_accessible_resources.flatMap((entry: { resources: string[] }) => entry.resources);
-      const matches = derived.web_accessible_resources.flatMap((entry: { matches: string[] }) => entry.matches);
-      expect(resources).not.toContain("entry/styles/*");
-      expect(resources).toContain("entry/content-main.mjs");
-      expect(resources).toContain("entry/chunks/*");
-      expect(matches).toContain("https://www.bilibili.com/*");
-      expect(matches).not.toContain("https://live.bilibili.com/*");
+      expect(derived.host_permissions).not.toContain("https://live.bilibili.com/*");
+      expect(derived.web_accessible_resources).toBeUndefined();
     });
 
     it("T1-F26-05: cross-document transfer keeps opener Window/Document descriptors intact for XrayWrapper safety", async () => {

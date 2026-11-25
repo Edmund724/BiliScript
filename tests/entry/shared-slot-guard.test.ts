@@ -15,7 +15,8 @@ const SLOT_MODULES = [
   "extension/core/state.ts",
   "extension/shared/style-injector.ts",
   "extension/shared/content-event-bus.ts",
-  "extension/shared/active-host.ts"
+  "extension/shared/active-host.ts",
+  "extension/shared/watch-storage-keys.ts"
 ];
 
 describe("跨实例共享槽守卫（构建期接线）", () => {

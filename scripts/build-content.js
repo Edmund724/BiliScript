@@ -761,9 +761,10 @@ function selfCheck(groupResults) {
       return false;
     }
   }
+  if (!assertLodashRootStubApplied() || !assertFirefoxLivePruned()) {
+    return false;
+  }
   return (
-    assertLodashRootStubApplied() &&
-    assertFirefoxLivePruned() &&
     assertSharedSlotsInBothRegions() &&
     assertMermaidStubsApplied() &&
     assertDualInstanceAllowlist()

@@ -15,7 +15,7 @@ const MARKER = "BILISCRIPT_DUAL_INSTANCE_STATEFUL";
 function parseAllowlist() {
   const entries = [];
   for (const match of read(BUILD_CONTENT).matchAll(
-    /\{ source: "([^"]+)", mutable: (true|false) \}/g
+    /\{ source: "([^"]+)", mutable: (true|false)(?:, chromiumOnly: true)? \}/g
   )) {
     entries.push({ source: match[1], mutable: match[2] === "true" });
   }
@@ -69,7 +69,7 @@ describe("双实例纪律守卫（构建期接线）", () => {
         "../core/state.ts",
         "../core/types.d.ts",
         "../../node_modules/dep/index.ts",
-        "../entry/content-main.mjs",
+        "../entry/content-resident.iife.js",
       ],
     };
     expect(sourcesFromMap(mainMap, entryDir, extensionRoot)).toEqual(["core/state.ts"]);

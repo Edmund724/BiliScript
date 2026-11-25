@@ -10,81 +10,74 @@ const ROOT = process.cwd();
 const readJson = <T>(rel: string): T => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8")) as T;
 const readText = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 
-function collectLazyExternals(extensionRoot: string, buildContentText: string): Map<string, string> {
-  const lazyExternals = new Map<string, string>();
-  for (const match of buildContentText.matchAll(
-    /\{\s*name:\s*"([^"]+)",\s*source:\s*"([^"]+)"\s*\}/g
-  )) {
-    lazyExternals.set(resolve(extensionRoot, match[2]), `./chunks/${match[1]}.mjs`);
+function collectGroupTargetSources(extensionRoot: string, buildContentText: string): Set<string> {
+  const targets = new Set<string>();
+  const start = buildContentText.indexOf("const ALL_GROUPS =");
+  const end = buildContentText.indexOf("const ACTIVE_GROUPS =");
+  const block = buildContentText.slice(start, end);
+  for (const match of block.matchAll(/"([a-z0-9-]+\/[a-z0-9-]+\.ts)"/g)) {
+    targets.add(resolve(extensionRoot, match[1]));
   }
-  return lazyExternals;
-}
-
-function resolveLazyExternalTarget(
-  lazyExternals: Map<string, string>,
-  resolveDir: string,
-  importPath: string
-): { path: string; external: boolean } | undefined {
-  const resolved = resolve(resolveDir, importPath);
-  const candidates = resolved.endsWith(".js")
-    ? [resolved, `${resolved.slice(0, -3)}.ts`]
-    : [resolved];
-  for (const candidate of candidates) {
-    const externalPath = lazyExternals.get(candidate);
-    if (externalPath) {
-      return { path: externalPath, external: true };
-    }
-  }
-  return undefined;
+  return targets;
 }
 
 async function buildResidentBundleForBudgetTest() {
   const extensionRoot = resolve(ROOT, "extension");
-  const lazyExternals = collectLazyExternals(extensionRoot, readText("scripts/build-content.js"));
-  const lazyPlugin = {
-    name: "test-lazy-external",
+  const buildContentText = readText("scripts/build-content.js");
+  const targetSources = collectGroupTargetSources(extensionRoot, buildContentText);
+  const bridgePlugin = {
+    name: "test-b2-dynamic-bridge",
     setup(buildApi: {
       onResolve: (
         opts: { filter: RegExp },
-        cb: (args: { resolveDir: string; path: string }) => { path: string; external: boolean } | undefined
+        cb: (args: { kind: string; resolveDir: string; path: string }) =>
+          | { path: string; namespace: string }
+          | undefined
+      ) => void;
+      onLoad: (
+        opts: { filter: RegExp; namespace: string },
+        cb: (args: { path: string }) => { contents: string; loader: "js" }
       ) => void;
     }) {
-      buildApi.onResolve({ filter: /^\.\.?\// }, (args) =>
-        resolveLazyExternalTarget(lazyExternals, args.resolveDir, args.path)
-      );
-    }
+      buildApi.onResolve({ filter: /^\.\.?\// }, (args) => {
+        if (args.kind !== "dynamic-import") return undefined;
+        const resolved = resolve(args.resolveDir, args.path);
+        const candidates = resolved.endsWith(".js")
+          ? [resolved, `${resolved.slice(0, -3)}.ts`]
+          : [resolved];
+        const hit = candidates.find((c) => targetSources.has(c));
+        return hit ? { path: hit, namespace: "test-b2-remote" } : undefined;
+      });
+      buildApi.onLoad({ filter: /.*/, namespace: "test-b2-remote" }, (args) => ({
+        contents: `module.exports = globalThis.__BILISCRIPT_LOAD_CHUNK__("g-test", ${JSON.stringify(args.path)}, false);`,
+        loader: "js",
+      }));
+    },
   };
 
-  const [bootstrapResult, mainResult] = await Promise.all([
-    build({
-      entryPoints: [resolve(extensionRoot, "entry", "content-bootstrap-entry.ts")],
-      bundle: true,
-      write: false,
-      format: "iife",
-      platform: "browser",
-      minify: true,
-      target: "chrome120"
-    }),
-    build({
-      entryPoints: [resolve(extensionRoot, "entry", "content.ts")],
-      bundle: true,
-      splitting: false,
-      write: false,
-      format: "esm",
-      platform: "browser",
-      minify: true,
-      target: "chrome120",
-      metafile: true,
-      plugins: [lazyPlugin]
-    })
-  ]);
+  const result = await build({
+    stdin: {
+      contents: `import "./entry/content.ts";\nglobalThis.__BILISCRIPT_LOAD_CHUNK__ = globalThis.__BILISCRIPT_LOAD_CHUNK__ || (async () => ({}));`,
+      resolveDir: extensionRoot,
+      loader: "ts",
+      sourcefile: "test-resident-entry.ts",
+    },
+    bundle: true,
+    splitting: false,
+    write: false,
+    format: "iife",
+    platform: "browser",
+    minify: true,
+    target: "chrome120",
+    metafile: true,
+    plugins: [bridgePlugin],
+  });
 
-  const bootstrapBytes = bootstrapResult.outputFiles[0].contents.byteLength;
-  const mainBytes = mainResult.outputFiles[0].contents.byteLength;
+  const out = result.outputFiles[0];
   return {
-    residentBytes: bootstrapBytes + mainBytes,
-    mainText: mainResult.outputFiles[0].text,
-    mainInputs: Object.keys(mainResult.metafile.inputs)
+    residentBytes: out.contents.byteLength,
+    residentText: out.text,
+    residentInputs: Object.keys(result.metafile.inputs),
   };
 }
 
@@ -99,32 +92,43 @@ async function buildBackgroundBundleForBudgetTest() {
     platform: "browser",
     minify: true,
     target: "chrome120",
-    metafile: true
+    metafile: true,
   });
 
   return {
     backgroundBytes: result.outputFiles[0].contents.byteLength,
-    backgroundInputs: Object.keys(result.metafile.inputs)
+    backgroundInputs: Object.keys(result.metafile.inputs),
   };
 }
 
 describe("多站点 Manifest 与多语言文案", () => {
   const manifest = readJson<{
     host_permissions: string[];
-    content_scripts: Array<{ matches: string[] }>;
-    web_accessible_resources: Array<{ matches: string[] }>;
+    content_scripts: Array<{ matches: string[]; js: string[]; all_frames?: boolean }>;
+    web_accessible_resources: Array<{ resources: string[]; matches: string[] }>;
     action: { default_title: string };
   }>("extension/manifest.json");
 
-  it("extension/manifest.json 显式声明 YouTube 桌面权限、内容脚本、资源匹配与泛化标题", () => {
+  it("extension/manifest.json 显式声明桌面与直播权限、经典首帧注入与最小 WAR 暴露面", () => {
     expect(manifest.host_permissions).toContain("https://www.bilibili.com/*");
     expect(manifest.host_permissions).toContain("https://www.youtube.com/*");
+    expect(manifest.host_permissions).toContain("https://live.bilibili.com/*");
     expect(manifest.host_permissions).not.toContain("<all_urls>");
     expect(manifest.host_permissions).not.toContain("https://*/*");
     expect(manifest.host_permissions).not.toContain("https://*.youtube.com/*");
 
     expect(manifest.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");
-    expect(manifest.web_accessible_resources[0]?.matches).toContain("https://www.youtube.com/*");
+    expect(manifest.content_scripts[0]?.js).toEqual(["entry/content-resident.iife.js"]);
+    expect(manifest.content_scripts[1]?.matches).toEqual(["https://live.bilibili.com/*"]);
+    expect(manifest.content_scripts[1]?.js).toEqual(["entry/content-resident.iife.js"]);
+    expect(manifest.content_scripts[1]?.all_frames).toBe(true);
+
+    expect(manifest.web_accessible_resources).toEqual([
+      {
+        resources: ["entry/chunks/pcm-capture-worklet.mjs"],
+        matches: ["https://www.bilibili.com/*", "https://live.bilibili.com/*"],
+      },
+    ]);
     expect(manifest.action.default_title).toBe("BiliScript｜视频文摘");
   });
 
@@ -139,21 +143,22 @@ describe("多站点 Manifest 与多语言文案", () => {
     expect(messages.appDesc.message).toContain("YouTube");
   });
 
-  it("Firefox 派生清单同步包含 YouTube 显式声明", () => {
+  it("Firefox 派生清单保留 YouTube 显式声明，剔除 live 权限/脚本并清空 WAR", () => {
     const derived = deriveFirefoxManifest(manifest, {
       presets: PRESETS,
-      asrPresets: ASR_PROVIDER_PRESETS
+      asrPresets: ASR_PROVIDER_PRESETS,
     });
     expect(derived.host_permissions).toContain("https://www.youtube.com/*");
+    expect(derived.host_permissions).not.toContain("https://live.bilibili.com/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");
-    expect(derived.web_accessible_resources[0]?.matches).toContain("https://www.youtube.com/*");
+    expect(derived.web_accessible_resources).toBeUndefined();
   });
 });
 
-describe("常驻内容包瘦身与 40 KB 预算", () => {
+describe("常驻内容包瘦身与 45 KB 预算", () => {
   it("message-handler 懒加载 agent-bridge/content，kick-subtitle-fetch 不导入 video-probe / host-selectors", () => {
     const buildContentText = readText("scripts/build-content.js");
-    expect(buildContentText).toContain('{ name: "agent-bridge-content", source: "agent-bridge/content.ts" }');
+    expect(buildContentText).toContain('"agent-bridge/content.ts"');
 
     const messageHandlerText = readText("extension/entry/message-handler.ts");
     expect(messageHandlerText).toContain('import("../agent-bridge/content.js")');
@@ -164,13 +169,13 @@ describe("常驻内容包瘦身与 40 KB 预算", () => {
     expect(kickText).not.toContain("host-selectors");
   });
 
-  it("实包打包：常驻包（bootstrap + main）严格低于 40960 B 且不含 host-selectors / agent-bridge-content / youtube/ 静态代码", async () => {
-    const { residentBytes, mainText, mainInputs } = await buildResidentBundleForBudgetTest();
+  it("实包打包：经典常驻包严格低于 46080 B 且不含 host-selectors / youtube/ 静态代码", async () => {
+    const { residentBytes, residentText, residentInputs } = await buildResidentBundleForBudgetTest();
 
-    expect(residentBytes).toBeLessThanOrEqual(40960);
-    expect(mainText).not.toContain(".bpx-player-container");
-    expect(mainText).toContain("./chunks/agent-bridge-content.mjs");
-    expect(mainInputs.some((input) => input.replace(/\\/g, "/").includes("extension/youtube/"))).toBe(false);
+    expect(residentBytes).toBeLessThanOrEqual(46080);
+    expect(residentText).not.toContain(".bpx-player-container");
+    expect(residentText).toContain("__BILISCRIPT_LOAD_CHUNK__");
+    expect(residentInputs.some((input) => input.replace(/\\/g, "/").includes("extension/youtube/"))).toBe(false);
   });
 
   it("background 静态打包不含 extension/youtube/，subtitle/body 不直连 youtube/gateway，且 build.js 禁区清单已登记", async () => {

@@ -13,6 +13,7 @@ function storageChangeListener() {
 describe("shared/watch-storage-keys seam", () => {
   beforeEach(() => {
     resetModuleState();
+    delete (globalThis as Record<string, unknown>).__BILISCRIPT_WATCH_STORAGE_KEYS__;
     freshStorageStubs();
   });
 
@@ -79,5 +80,27 @@ describe("shared/watch-storage-keys seam", () => {
     expect(chrome.storage.onChanged.addListener).toHaveBeenCalledTimes(2);
     storageChangeListener()({ a: { newValue: 1 } }, "sync");
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("跨模块重载共享 globalThis 单例槽：仅注册一条真实监听且双方退订后统一摘除", async () => {
+    const modA = await import("../../extension/shared/watch-storage-keys.js");
+    const hA = vi.fn();
+    const unsubA = modA.watchStorageKeys(hA, { sync: ["kA"] });
+
+    vi.resetModules();
+    const modB = await import("../../extension/shared/watch-storage-keys.js");
+    const hB = vi.fn();
+    const unsubB = modB.watchStorageKeys(hB, { sync: ["kB"] });
+
+    expect(chrome.storage.onChanged.addListener).toHaveBeenCalledTimes(1);
+    const listener = storageChangeListener();
+    listener({ kA: { newValue: 1 }, kB: { newValue: 2 } }, "sync");
+    expect(hA).toHaveBeenCalledTimes(1);
+    expect(hB).toHaveBeenCalledTimes(1);
+
+    unsubA();
+    expect(chrome.storage.onChanged.removeListener).not.toHaveBeenCalled();
+    unsubB();
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(listener);
   });
 });

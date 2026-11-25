@@ -53,12 +53,14 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "youtube-page-snapshot": "branch",
   "content-style-insert": "branch",
   "content-style-remove": "branch",
-  "content-style-read": "branch"
+  "content-style-read": "branch",
+  "content-chunk-load": "branch"
 };
 
 const SHAPE_REGISTERED_TYPES = [
   "ai-providers-save",
   "asr-providers-save",
+  "content-chunk-load",
   "content-style-insert",
   "content-style-read",
   "content-style-remove",
@@ -155,5 +157,14 @@ describe("SW 消息注册表：payload 最小 schema 判据", () => {
       expect(shape({ type, files: [123] }), type).toBe(false);
       expect(shape({ type }), type).toBe(false);
     }
+  });
+
+  it("content-chunk-load：chunkId 须为非空字符串", () => {
+    const shape = shapeOf("content-chunk-load");
+    expect(shape({ type: "content-chunk-load", chunkId: "g-app" })).toBe(true);
+    expect(shape({ type: "content-chunk-load", chunkId: "" })).toBe(false);
+    expect(shape({ type: "content-chunk-load", chunkId: "   " })).toBe(false);
+    expect(shape({ type: "content-chunk-load", chunkId: 123 })).toBe(false);
+    expect(shape({ type: "content-chunk-load" })).toBe(false);
   });
 });
