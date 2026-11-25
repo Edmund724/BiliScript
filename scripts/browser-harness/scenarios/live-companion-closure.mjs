@@ -333,6 +333,16 @@ async function clickCenter(page, selector) {
   await sleep(120);
 }
 
+async function ensureForegroundPage(pageCdp, worker) {
+  await worker.evaluate(`(async () => {
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("onboarding.html") });
+    const ids = tabs.map((t) => t.id).filter((id) => typeof id === "number");
+    if (ids.length) await chrome.tabs.remove(ids);
+    return ids.length;
+  })()`).catch(() => {});
+  await pageCdp.send("Page.bringToFront").catch(() => {});
+}
+
 async function failShot(page, name) {
   try {
     await screenshot(page.cdp, path.join(OUT_DIR, `failure-${name}.png`));
@@ -526,8 +536,16 @@ try {
     origin: "https://www.bilibili.com"
   });
 
+  await ensureForegroundPage(page.cdp, worker);
   await page.cdp.send("Page.navigate", { url: VIDEO_URL });
-  await waitFor("视频页扩展按钮", () => page.cdp.evaluate("Boolean(document.getElementById('biliscript-player-live-quick-action') && document.getElementById('biliscript-player-ai-quick-action'))"), { timeoutMs: 45000 });
+  await waitFor("视频页扩展按钮", async () => {
+    const visible = await page.cdp.evaluate("document.visibilityState === 'visible'");
+    if (!visible) {
+      await ensureForegroundPage(page.cdp, worker);
+      return false;
+    }
+    return page.cdp.evaluate("Boolean(document.getElementById('biliscript-player-live-quick-action') && document.getElementById('biliscript-player-ai-quick-action'))");
+  }, { timeoutMs: 45000 });
   results.initialMediaTracking = await installMediaTracking(page);
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
   await evaluateInContentScript(page, `(() => {
