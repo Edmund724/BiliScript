@@ -40,8 +40,6 @@ import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
-globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
-
 let playerAiSettingsWatcherBound = false;
 let playbackRateSettingsWatcherBound = false;
 let quickActionStartupDecided = false;
@@ -63,6 +61,10 @@ function isSupportedUrl(): boolean {
 }
 
 function init(): void {
+  if (globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__) {
+    return;
+  }
+  globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
   const activeSite = detectActiveSite();

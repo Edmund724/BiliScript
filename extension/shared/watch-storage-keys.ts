@@ -12,8 +12,13 @@ interface StorageKeySubscription {
   handler: StorageOnChangeHandler;
 }
 
-const subscriptions = new Set<StorageKeySubscription>();
-let registeredHost: typeof chrome.storage.onChanged | null = null;
+interface WatchStorageKeysSlot {
+  subscriptions: Set<StorageKeySubscription>;
+  registeredHost: typeof chrome.storage.onChanged | null;
+  dispatchListener: StorageOnChangeHandler;
+}
+
+const WATCH_STORAGE_KEYS_SLOT_KEY = "__BILISCRIPT_WATCH_STORAGE_KEYS__";
 
 function subscriptionMatches(subscription: StorageKeySubscription, changes: StorageChangeMap, areaName: string): boolean {
   if (!subscription.watch) {
@@ -26,28 +31,43 @@ function subscriptionMatches(subscription: StorageKeySubscription, changes: Stor
   return keys.some((key) => Object.prototype.hasOwnProperty.call(changes, key));
 }
 
-const dispatchListener = (changes: StorageChangeMap, areaName: string): void => {
-  for (const subscription of [...subscriptions]) {
-    if (!subscriptionMatches(subscription, changes, areaName)) {
-      continue;
-    }
-    subscription.handler(changes, areaName);
+function getWatchStorageKeysSlot(): WatchStorageKeysSlot {
+  const host = globalThis as unknown as Record<string, WatchStorageKeysSlot | undefined>;
+  let slot = host[WATCH_STORAGE_KEYS_SLOT_KEY];
+  if (!slot) {
+    const subscriptions = new Set<StorageKeySubscription>();
+    const dispatchListener: StorageOnChangeHandler = (changes, areaName) => {
+      for (const subscription of [...subscriptions]) {
+        if (!subscriptionMatches(subscription, changes, areaName)) {
+          continue;
+        }
+        subscription.handler(changes, areaName);
+      }
+    };
+    slot = {
+      subscriptions,
+      registeredHost: null,
+      dispatchListener
+    };
+    host[WATCH_STORAGE_KEYS_SLOT_KEY] = slot;
   }
-};
+  return slot;
+}
 
 export function watchStorageKeys(handler: StorageOnChangeHandler, watch?: StorageKeyWatch): () => void {
+  const slot = getWatchStorageKeysSlot();
   const subscription: StorageKeySubscription = { watch, handler };
-  subscriptions.add(subscription);
+  slot.subscriptions.add(subscription);
   const host = typeof chrome === "undefined" ? undefined : chrome.storage?.onChanged;
-  if (host && registeredHost !== host) {
-    host.addListener(dispatchListener);
-    registeredHost = host;
+  if (host && slot.registeredHost !== host) {
+    host.addListener(slot.dispatchListener);
+    slot.registeredHost = host;
   }
   return () => {
-    subscriptions.delete(subscription);
-    if (registeredHost && subscriptions.size === 0) {
-      registeredHost.removeListener(dispatchListener);
-      registeredHost = null;
+    slot.subscriptions.delete(subscription);
+    if (slot.registeredHost && slot.subscriptions.size === 0) {
+      slot.registeredHost.removeListener(slot.dispatchListener);
+      slot.registeredHost = null;
     }
   };
 }

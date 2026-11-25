@@ -587,6 +587,15 @@ export type ContentStyleReadResponse = {
   error?: string;
 };
 
+export type ContentChunkLoadMessage = {
+  type: "content-chunk-load";
+  chunkId: string;
+};
+export type ContentChunkLoadResponse = {
+  ok: boolean;
+  error?: string;
+};
+
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
@@ -633,7 +642,8 @@ export type BackgroundMessage =
   | YoutubePageSnapshotMessage
   | ContentStyleInsertMessage
   | ContentStyleRemoveMessage
-  | ContentStyleReadMessage;
+  | ContentStyleReadMessage
+  | ContentChunkLoadMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
 
@@ -1053,6 +1063,13 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   >({
     reply: "branch",
     shape: (message) => isNonEmptyStringArray(message.files)
+  }),
+  "content-chunk-load": registerBackgroundMessage<
+    ContentChunkLoadMessage,
+    ContentChunkLoadResponse
+  >({
+    reply: "branch",
+    shape: (message) => typeof message.chunkId === "string" && message.chunkId.trim().length > 0
   })
 } satisfies {
   readonly [K in BackgroundMessageType]: BackgroundMessageRegistration<

@@ -73,6 +73,7 @@ import {
   type PermissionGrantWindowsAdapter
 } from "../core/host-permission-handlers.js";
 import { createContentStyleHandlers } from "../core/content-style-handlers.js";
+import { createContentChunkHandlers } from "../core/content-chunk-handlers.js";
 import {
   ensureIndexTranslateSessionRule,
   ensureOffscreenDocument,
@@ -166,6 +167,12 @@ const contentStyleHandlers = createContentStyleHandlers({
     return chrome.scripting;
   },
   getRuntimeUrl: (path) => chrome.runtime.getURL(path)
+});
+
+const contentChunkHandlers = createContentChunkHandlers({
+  get scripting() {
+    return chrome.scripting;
+  }
 });
 
 function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: Reply<"ensure-offscreen-chat">): void {
@@ -880,7 +887,8 @@ const messageHandlerTable = {
   "youtube-page-snapshot": handleYoutubePageSnapshot,
   "content-style-insert": contentStyleHandlers.insert,
   "content-style-remove": contentStyleHandlers.remove,
-  "content-style-read": contentStyleHandlers.read
+  "content-style-read": contentStyleHandlers.read,
+  "content-chunk-load": contentChunkHandlers.load
 } satisfies BackgroundMessageHandlers;
 
 chrome.runtime.onInstalled.addListener(async (details) => {

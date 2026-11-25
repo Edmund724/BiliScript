@@ -14,7 +14,7 @@ async function probeContentScriptVersionOnce(tabId: number) {
 async function injectReaderAssets(tabId: number) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["entry/content-bootstrap.iife.js"]
+    files: ["entry/content-resident.iife.js"]
   });
 }
 

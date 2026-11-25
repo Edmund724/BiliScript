@@ -1,5 +1,5 @@
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
-import { bindPanelPreloadOnButton, schedulePanelPreloadOnIdle } from "../ui/panel-preload.js";
+import { bindPanelPreloadOnButton } from "../ui/panel-preload.js";
 import {
   createThrottledLiveToggleHandler,
   isControlBarLiveToggleMounted,
@@ -517,7 +517,6 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
     playerHost.appendChild(wrap);
   }
   bindPanelPreloadOnButton(button);
-  schedulePanelPreloadOnIdle();
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
 

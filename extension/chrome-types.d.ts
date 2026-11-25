@@ -314,10 +314,8 @@ interface DocumentPictureInPicture {
 
 interface Window {
   __BILISCRIPT_CONTENT_SCRIPT_LOADED__?: string;
-  __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__?: boolean;
   documentPictureInPicture?: DocumentPictureInPicture;
 }
 
 var __BILISCRIPT_CONTENT_SCRIPT_LOADED__: string | undefined;
-var __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__: boolean | undefined;
 declare const __BILISCRIPT_TARGET__: "chromium" | "firefox" | undefined;

@@ -1,97 +1,70 @@
 import { isSupportedVideoPage } from "../bilibili/video-id-shared.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 
-export const PANEL_PRELOAD_MODULE_PATHS = [
-  "entry/chunks/ui-renderer.mjs",
-  "entry/chunks/shell.mjs",
-  "entry/chunks/reader.mjs",
-  "entry/chunks/presentation.mjs"
-] as const;
-
-const PANEL_PRELOAD_IDLE_TIMEOUT_MS = 2500;
-const PANEL_PRELOAD_FALLBACK_DELAY_MS = 1500;
+export const PANEL_PRELOAD_GROUP_IDS = ["g-shared", "g-app"] as const;
 
 const boundButtons = new WeakSet<HTMLElement>();
-let pendingIdleCallbackId: number | null = null;
-let pendingIdleTimerId: number | null = null;
 
-function resolveExtensionModuleUrl(modulePath: string): string | null {
-  try {
-    const getUrl = typeof chrome !== "undefined" ? chrome.runtime?.getURL : undefined;
-    if (typeof getUrl !== "function") {
-      return null;
-    }
-    const url = getUrl.call(chrome.runtime, modulePath);
-    return typeof url === "string" && url.length > 0 ? url : null;
-  } catch {
-    return null;
-  }
+type PreloadHostGlobals = {
+  __BILISCRIPT_SHARED_READY__?: boolean;
+  __BILISCRIPT_CHUNKS__?: Record<string, unknown>;
+  __BILISCRIPT_CHUNK_INFLIGHT__?: Record<string, Promise<unknown>>;
+};
+
+function getHostGlobals(): PreloadHostGlobals {
+  return globalThis as unknown as PreloadHostGlobals;
 }
 
-function hasPreloadLink(href: string): boolean {
-  const head = typeof document !== "undefined" ? document.head : null;
-  if (!head) {
-    return false;
-  }
-  for (const child of Array.from(head.children)) {
-    if (
-      child.tagName === "LINK" &&
-      child.getAttribute("rel") === "modulepreload" &&
-      (child.getAttribute("href") === href || (child as HTMLLinkElement).href === href)
-    ) {
-      return true;
+function requestChunkGroupLoad(chunkId: string): Promise<unknown> {
+  return sendRuntimeMessage({ type: "content-chunk-load", chunkId }).then((resp) => {
+    if (!resp?.ok) {
+      throw new Error(resp?.error || `chunk load failed: ${chunkId}`);
     }
-  }
-  return false;
+  });
 }
 
-function areAllPanelChunksPreloaded(): boolean {
-  for (const modulePath of PANEL_PRELOAD_MODULE_PATHS) {
-    const url = resolveExtensionModuleUrl(modulePath);
-    if (!url || !hasPreloadLink(url)) {
-      return false;
-    }
+function ensureGroupPreloaded(
+  inflight: Record<string, Promise<unknown>>,
+  chunkId: string,
+  isAlreadyReady: () => boolean,
+  loadFn: () => Promise<unknown>
+): Promise<unknown> {
+  if (isAlreadyReady()) {
+    return Promise.resolve();
   }
-  return true;
-}
-
-function cancelScheduledPanelPreload(): void {
-  if (pendingIdleCallbackId !== null) {
-    if (typeof window !== "undefined" && typeof window.cancelIdleCallback === "function") {
-      window.cancelIdleCallback(pendingIdleCallbackId);
-    }
-    pendingIdleCallbackId = null;
+  if (!inflight[chunkId]) {
+    inflight[chunkId] = loadFn().catch((error) => {
+      delete inflight[chunkId];
+      throw error;
+    });
   }
-  if (pendingIdleTimerId !== null) {
-    if (typeof window !== "undefined") {
-      window.clearTimeout(pendingIdleTimerId);
-    }
-    pendingIdleTimerId = null;
-  }
+  return inflight[chunkId];
 }
 
 export function preloadReaderPanelChunks(): void {
   if (!isSupportedVideoPage()) {
     return;
   }
-  const head = typeof document !== "undefined" ? document.head : null;
-  if (!head) {
+  const host = getHostGlobals();
+  const chunks = (host.__BILISCRIPT_CHUNKS__ ??= {});
+  if (chunks["ui/ui-renderer.ts"]) {
     return;
   }
-  cancelScheduledPanelPreload();
-
-  for (const modulePath of PANEL_PRELOAD_MODULE_PATHS) {
-    const url = resolveExtensionModuleUrl(modulePath);
-    if (!url || hasPreloadLink(url)) {
-      continue;
+  const inflight = (host.__BILISCRIPT_CHUNK_INFLIGHT__ ??= {});
+  void ensureGroupPreloaded(
+    inflight,
+    "g-app",
+    () => Boolean(chunks["ui/ui-renderer.ts"]),
+    async () => {
+      await ensureGroupPreloaded(
+        inflight,
+        "g-shared",
+        () => Boolean(host.__BILISCRIPT_SHARED_READY__),
+        () => requestChunkGroupLoad("g-shared")
+      );
+      await requestChunkGroupLoad("g-app");
     }
-    const link = document.createElement("link");
-    link.rel = "modulepreload";
-    link.href = url;
-    link.onerror = () => {
-      link.remove();
-    };
-    head.appendChild(link);
-  }
+  ).catch(() => {});
 }
 
 export function bindPanelPreloadOnButton(button: HTMLElement): void {
@@ -104,33 +77,4 @@ export function bindPanelPreloadOnButton(button: HTMLElement): void {
   };
   button.addEventListener("pointerenter", trigger, { once: true, passive: true });
   button.addEventListener("focus", trigger, { once: true, passive: true });
-}
-
-export function schedulePanelPreloadOnIdle(): void {
-  if (!isSupportedVideoPage()) {
-    return;
-  }
-  if (pendingIdleCallbackId !== null || pendingIdleTimerId !== null) {
-    return;
-  }
-  if (areAllPanelChunksPreloaded()) {
-    return;
-  }
-  if (typeof window === "undefined") {
-    return;
-  }
-  if (typeof window.requestIdleCallback === "function") {
-    pendingIdleCallbackId = window.requestIdleCallback(
-      () => {
-        pendingIdleCallbackId = null;
-        preloadReaderPanelChunks();
-      },
-      { timeout: PANEL_PRELOAD_IDLE_TIMEOUT_MS }
-    );
-    return;
-  }
-  pendingIdleTimerId = window.setTimeout(() => {
-    pendingIdleTimerId = null;
-    preloadReaderPanelChunks();
-  }, PANEL_PRELOAD_FALLBACK_DELAY_MS);
 }
