@@ -197,6 +197,26 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
 }
 
 function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
+  if (isYoutubeSite()) {
+    const rightControls = playerHost.querySelector<HTMLElement>(".ytp-right-controls");
+    if (!rightControls) {
+      return null;
+    }
+    const anchorBtn = rightControls.querySelector<HTMLElement>(
+      ".ytp-subtitles-button, .ytp-settings-button"
+    );
+    if (anchorBtn?.parentElement === rightControls) {
+      return {
+        kind: "before" as const,
+        parent: rightControls,
+        reference: anchorBtn
+      };
+    }
+    return {
+      kind: "prepend" as const,
+      parent: rightControls
+    };
+  }
   const volumeNode = playerHost.querySelector(BILI_HOST_SELECTORS.playerVolumeControl);
   if (volumeNode?.parentElement instanceof HTMLElement) {
     return {
@@ -454,17 +474,27 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
   const existingWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
 
+  const youtubeSite = isYoutubeSite();
+  const wrapClassName = youtubeSite
+    ? "biliscript-player-interpret-quick-action-wrap biliscript-player-interpret-quick-action-wrap--youtube"
+    : "bpx-player-ctrl-btn bpx-player-ctrl-subtitle biliscript-player-interpret-quick-action-wrap";
+  const buttonClassName = youtubeSite
+    ? "ytp-button biliscript-player-interpret-quick-action biliscript-player-interpret-quick-action--youtube"
+    : "bpx-player-ctrl-subtitle-result biliscript-player-interpret-quick-action";
+
   if (!wrap) {
     wrap = document.createElement("div");
     wrap.id = "biliscript-player-interpret-quick-action-wrap";
-    wrap.className = "bpx-player-ctrl-btn bpx-player-ctrl-subtitle biliscript-player-interpret-quick-action-wrap";
+    wrap.className = wrapClassName;
     wrap.setAttribute("data-biliscript-extension-node", "interpret-quick-action");
+  } else if (wrap.className !== wrapClassName) {
+    wrap.className = wrapClassName;
   }
   if (!button) {
     button = document.createElement("button");
     button.id = "biliscript-player-interpret-quick-action";
     button.type = "button";
-    button.className = "bpx-player-ctrl-subtitle-result biliscript-player-interpret-quick-action";
+    button.className = buttonClassName;
     button.textContent = "字幕";
     button.title = "字幕";
     button.setAttribute("aria-label", "字幕");

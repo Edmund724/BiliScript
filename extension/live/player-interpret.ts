@@ -1,6 +1,7 @@
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { getFullscreenHost } from "../bilibili/fullscreen.js";
+import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
   BILI_HOST_SELECTORS,
   PLAYER_CONTROL_BAR_SELECTOR,
@@ -9,6 +10,9 @@ import {
   resolveBpxPlayerContainer,
   type HostObserverHandle
 } from "../bilibili/host-adapter.js";
+import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
+import { ensureSummarizeChain } from "../subtitle/lazy.js";
+import { findYoutubePlayerHost, getYoutubeVideoElement } from "../youtube/host-adapter.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { ensureInterpretSubtitleStyles } from "../shared/style-injector.js";
@@ -203,11 +207,46 @@ export function computeInterpretPositionRatio(
   return clampInterpretPositionRatio(bottomPx / playerClientHeight, null);
 }
 
+const YOUTUBE_CONTROL_BAR_SELECTOR = ".ytp-chrome-bottom";
+
+function isYoutubeActiveSite(): boolean {
+  return state.clip.site === "youtube" || detectActiveSite() === "youtube";
+}
+
+function isYoutubePlayerContainer(element: Element | null): boolean {
+  if (!element) return false;
+  return (
+    element.id === "movie_player" ||
+    element.classList.contains("html5-video-player") ||
+    Boolean(element.querySelector(YOUTUBE_CONTROL_BAR_SELECTOR))
+  );
+}
+
 export function detectPlayerControlBarState(playerContainer: Element | null): {
   visible: boolean;
   height: number;
 } {
   if (!playerContainer) {
+    return { visible: false, height: 0 };
+  }
+  if (isYoutubePlayerContainer(playerContainer)) {
+    const hiddenByYoutube =
+      playerContainer.classList.contains("ytp-autohide") ||
+      playerContainer.classList.contains("ytp-autohide-active") ||
+      playerContainer.classList.contains("ytp-hide-controls");
+    const ytControlEl = playerContainer.querySelector<HTMLElement>(YOUTUBE_CONTROL_BAR_SELECTOR);
+    if (ytControlEl) {
+      if (
+        hiddenByYoutube ||
+        ytControlEl.hidden ||
+        ytControlEl.getAttribute("aria-hidden") === "true"
+      ) {
+        return { visible: false, height: 0 };
+      }
+      const measuredHeight =
+        ytControlEl.getBoundingClientRect?.().height || ytControlEl.clientHeight || 48;
+      return { visible: true, height: measuredHeight };
+    }
     return { visible: false, height: 0 };
   }
   const hiddenByContainer =
@@ -250,6 +289,7 @@ export function syncNativePlayerSubtitleTakeover(
   const hosts = [
     explicitHost ?? null,
     getFullscreenHost(),
+    findVideoPlayerHost(),
     findVideoPlayerContainer()
   ].filter((node): node is HTMLElement => node instanceof HTMLElement);
   for (const host of hosts) {
@@ -315,12 +355,29 @@ export function createInterpretSubtitleOverlay(
 
   function resolvePlayerContainer(): HTMLElement | null {
     const base = getFullscreenHost() || deps.getPlayerHost();
+    if (isYoutubeActiveSite() || isYoutubePlayerContainer(base)) {
+      if (!base) {
+        return findYoutubePlayerHost(document);
+      }
+      if (base.id === "movie_player" || base.classList.contains("html5-video-player")) {
+        return base;
+      }
+      return (
+        base.querySelector<HTMLElement>("#movie_player") ||
+        base.closest<HTMLElement>("#movie_player") ||
+        findYoutubePlayerHost(document) ||
+        base
+      );
+    }
     return resolveBpxPlayerContainer(base, { checkClosest: true });
   }
 
   function getMountHost(): HTMLElement | null {
     const base = getFullscreenHost() || deps.getPlayerHost();
     if (!base) return null;
+    if (isYoutubeActiveSite() || isYoutubePlayerContainer(base)) {
+      return resolvePlayerContainer() || base;
+    }
     if (base.matches?.(BILI_HOST_SELECTORS.playerVideoWrap)) {
       return base;
     }
@@ -525,7 +582,9 @@ export function createInterpretSubtitleOverlay(
             }
           })
         );
-        const controlEl = playerContainer.querySelector<HTMLElement>(PLAYER_CONTROL_BAR_SELECTOR);
+        const controlEl = playerContainer.querySelector<HTMLElement>(
+          `${PLAYER_CONTROL_BAR_SELECTOR}, ${YOUTUBE_CONTROL_BAR_SELECTOR}`
+        );
         if (controlEl) {
           controlObserverHandles.push(
             biliHostAdapter.observeElement(controlEl, {
@@ -1302,6 +1361,12 @@ function resolveCurrentPlayerSourceLan(): string {
 }
 
 function shouldShowInterpret(): boolean {
+  if (!getSiteCapabilities(state.clip.site).supportsAsr) {
+    return (
+      state.clip.subtitleFetchState === "ready" ||
+      (state.clip.subtitles || []).some((track) => isLoadableNativeTrack(track))
+    );
+  }
   return state.clip.subtitleFetchState === "empty" || state.clip.subtitleFetchState === "ready";
 }
 
@@ -1400,6 +1465,8 @@ function bindInterpretLifecycleListeners(): void {
 function ensureInterpretController(): InterpretSessionController {
   if (!interpretController) {
     interpretController = createInterpretSessionController({
+      getVideoElement: () =>
+        isYoutubeActiveSite() ? getYoutubeVideoElement(document) : getRuntimeVideoElement(),
       getTargetLang: () =>
         resolveTargetLang(resolveCurrentPlayerSourceLan(), state.settings?.liveInterpretTargetLang || "zh"),
       getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
@@ -1534,6 +1601,15 @@ export async function applyInterpretMenuChoice(
 }
 
 export async function togglePlayerInterpretMenu(anchor: HTMLElement): Promise<void> {
+  if (
+    isYoutubeActiveSite() &&
+    state.clip.subtitleFetchState === "idle" &&
+    (state.clip.subtitles || []).length === 0
+  ) {
+    await ensureSummarizeChain()
+      .then((chain) => chain.refreshClip())
+      .catch(() => null);
+  }
   await toggleInterpretSubtitleMenu(anchor, {
     getSessionState: getInterpretSessionState,
     getPreferences: async () => {

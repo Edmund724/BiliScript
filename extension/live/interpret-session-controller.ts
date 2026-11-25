@@ -1,6 +1,7 @@
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
+import { getSiteCapabilities } from "../shared/site.js";
 import { createDisposableContext } from "../shared/typed-event-bus.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { state, clipState, registerSubtitleSessionBoundaryHooks } from "../core/state.js";
@@ -252,6 +253,12 @@ export function createInterpretSessionController(
       }
 
       if (!hasPrimaryReadyInMemoryOrCache()) {
+        if (!getSiteCapabilities(state.clip.site).supportsAsr) {
+          return updateAvailability({
+            ok: false,
+            error: "当前视频暂无可用字幕"
+          });
+        }
         const { activeProvider: activeAsr, setupState } = await resolveActiveAsrRuntimeState({
           loadProviders: deps.loadAsrProviders
         });
@@ -866,6 +873,12 @@ export function createInterpretSessionController(
 
         startScheduledTranslation(currentGeneration, session);
         return true;
+      }
+
+      if (!getSiteCapabilities(state.clip.site).supportsAsr) {
+        showNotice("当前视频暂无可用字幕", 5000);
+        await stop();
+        return false;
       }
 
       activeSessionKind = "asr";

@@ -62,7 +62,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
     expect(normalizeSiteId(" YouTube ")).toBe("youtube");
   });
 
-  it("bilibili 全部 10 项能力为 true；youtube 开放 supportsCurrentFrameCapture 与 supportsPlayerQuickAiButton", () => {
+  it("bilibili 全部 10 项能力为 true；youtube 开放 supportsCurrentFrameCapture、supportsPlayerQuickAiButton 与 supportsPlayerInterpretOverlay", () => {
     expect(getSiteCapabilities("bilibili")).toEqual({
       supportsAsr: true,
       supportsLiveCompanion: true,
@@ -78,7 +78,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
     expect(getSiteCapabilities("youtube")).toEqual({
       supportsAsr: false,
       supportsLiveCompanion: false,
-      supportsPlayerInterpretOverlay: false,
+      supportsPlayerInterpretOverlay: true,
       supportsPlayerQuickAiButton: true,
       supportsExtraPlaybackRates: false,
       supportsCurrentFrameCapture: true,

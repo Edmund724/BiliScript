@@ -511,4 +511,86 @@ describe("播放器双语字幕叠层升级验收", () => {
 
     overlay.dispose();
   });
+
+  it("6) YouTube #movie_player 叠层挂载、ytp-autohide 避让、原生字幕接管与无字幕不回落 ASR", async () => {
+    const { state, clipState } = await import("../../extension/core/state.js");
+    const {
+      createInterpretSubtitleOverlay,
+      detectPlayerControlBarState,
+      syncNativePlayerSubtitleTakeover
+    } = await import("../../extension/live/player-interpret.js");
+    const { createInterpretSessionController } = await import(
+      "../../extension/live/interpret-session-controller.js"
+    );
+
+    clipState.setSite("youtube");
+    clipState.setBvid("yt~dQw4w9WgXcQ");
+    clipState.setCid("yt");
+    clipState.setSubtitles([]);
+    clipState.setSubtitleBody([]);
+    clipState.setSubtitleFetchState("empty");
+
+    const player = document.createElement("div");
+    player.id = "movie_player";
+    player.className = "html5-video-player";
+    Object.defineProperty(player, "clientHeight", { value: 540, configurable: true });
+    player.getBoundingClientRect = () =>
+      ({ width: 960, height: 540, top: 0, left: 0, right: 960, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    const chromeBottom = document.createElement("div");
+    chromeBottom.className = "ytp-chrome-bottom";
+    Object.defineProperty(chromeBottom, "clientHeight", { value: 52, configurable: true });
+    chromeBottom.getBoundingClientRect = () =>
+      ({ width: 960, height: 52, top: 488, left: 0, right: 960, bottom: 540, x: 0, y: 488, toJSON: () => ({}) }) as DOMRect;
+
+    const nativeCaptions = document.createElement("div");
+    nativeCaptions.className = "ytp-caption-window-container";
+    player.append(nativeCaptions, chromeBottom);
+    document.body.appendChild(player);
+
+    expect(detectPlayerControlBarState(player)).toEqual({ visible: true, height: 52 });
+
+    const overlay = createInterpretSubtitleOverlay({
+      getPlayerHost: () => player,
+      getTargetLang: () => "zh",
+      getDisplayMode: () => "bilingual",
+      loadPositionRatio: async () => null,
+      savePositionRatio: () => {}
+    });
+
+    overlay.setSubtitle("Hello YouTube", "你好 YouTube");
+    const container = overlay.getContainerElement()!;
+    const root = overlay.getElement()!;
+    expect(container.parentElement).toBe(player);
+    expect(root.style.bottom).toBe("68px");
+
+    player.classList.add("ytp-autohide");
+    expect(detectPlayerControlBarState(player)).toEqual({ visible: false, height: 0 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(root.style.bottom).toBe("40px");
+
+    syncNativePlayerSubtitleTakeover(true, player);
+    expect(player.getAttribute("data-biliscript-subtitle-takeover")).toBe("true");
+    syncNativePlayerSubtitleTakeover(false);
+    expect(player.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
+
+    const controller = createInterpretSessionController({
+      resolveTranslateProvider: async () =>
+        ({
+          provider: { id: "test", name: "Test" },
+          apiKey: "sk-test",
+          baseUrl: "https://example.com",
+          model: "gpt-test",
+          presetId: "openai",
+          isFallback: false
+        }) as never
+    });
+    const availability = await controller.refreshAvailability();
+    expect(availability).toEqual({ ok: false, error: "当前视频暂无可用字幕" });
+
+    controller.dispose();
+    overlay.dispose();
+    expect(state.clip.site).toBe("youtube");
+  });
 });

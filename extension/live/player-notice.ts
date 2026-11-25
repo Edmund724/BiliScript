@@ -3,7 +3,10 @@ import {
   VIDEO_PLAYER_CONTAINER_SELECTOR,
   findVideoPlayerContainer
 } from "../bilibili/host-selectors.js";
+import { state } from "../core/state.js";
+import { detectActiveSite } from "../shared/site.js";
 import { ensureInterpretSubtitleStyles } from "../shared/style-injector.js";
+import { findYoutubePlayerHost } from "../youtube/host-adapter.js";
 
 export const VIDEO_PLAYER_HOST_SELECTOR = VIDEO_PLAYER_CONTAINER_SELECTOR;
 
@@ -15,6 +18,9 @@ export interface PlayerNoticeHost {
 }
 
 export function findVideoPlayerHost(): HTMLElement | null {
+  if (state.clip.site === "youtube" || detectActiveSite() === "youtube") {
+    return findYoutubePlayerHost(document);
+  }
   return findVideoPlayerContainer();
 }
 

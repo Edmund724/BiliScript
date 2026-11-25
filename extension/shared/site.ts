@@ -34,7 +34,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
   youtube: Object.freeze({
     supportsAsr: false,
     supportsLiveCompanion: false,
-    supportsPlayerInterpretOverlay: false,
+    supportsPlayerInterpretOverlay: true,
     supportsPlayerQuickAiButton: true,
     supportsExtraPlaybackRates: false,
     supportsCurrentFrameCapture: true,

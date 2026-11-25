@@ -845,6 +845,16 @@ describe("YouTube player-ai 快捷按钮挂载、隔离、点击总结与 SPA �
       value: exitFullscreenMock
     });
 
+    const chromeBottom = document.createElement("div");
+    chromeBottom.className = "ytp-chrome-bottom";
+    const rightControls = document.createElement("div");
+    rightControls.className = "ytp-right-controls";
+    const nativeSubtitlesBtn = document.createElement("button");
+    nativeSubtitlesBtn.className = "ytp-subtitles-button ytp-button";
+    rightControls.appendChild(nativeSubtitlesBtn);
+    chromeBottom.appendChild(rightControls);
+    player.appendChild(chromeBottom);
+
     try {
       playerAi.startPlayerAiQuickAction();
 
@@ -854,7 +864,11 @@ describe("YouTube player-ai 快捷按钮挂载、隔离、点击总结与 SPA �
       expect(wrap).not.toBeNull();
       expect(wrap?.parentElement).toBe(player);
       expect(document.getElementById("biliscript-player-live-quick-action")).toBeNull();
-      expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();
+      const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+      const interpretBtn = document.getElementById("biliscript-player-interpret-quick-action");
+      expect(interpretWrap?.parentElement).toBe(rightControls);
+      expect(interpretWrap?.nextElementSibling).toBe(nativeSubtitlesBtn);
+      expect(interpretBtn?.classList.contains("biliscript-player-interpret-quick-action--youtube")).toBe(true);
 
       player.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
       expect(wrap?.classList.contains("is-active")).toBe(true);

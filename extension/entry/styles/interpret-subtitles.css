@@ -115,7 +115,9 @@
 
 [data-biliscript-subtitle-takeover="true"] .bpx-player-subtitle-wrap,
 [data-biliscript-subtitle-takeover="true"] .bpx-player-subtitle-panel-wrap,
-[data-biliscript-subtitle-takeover="true"] .bilibili-player-video-subtitle {
+[data-biliscript-subtitle-takeover="true"] .bilibili-player-video-subtitle,
+[data-biliscript-subtitle-takeover="true"] .ytp-caption-window-container,
+[data-biliscript-subtitle-takeover="true"] .caption-window {
   visibility: hidden !important;
   pointer-events: none !important;
 }
