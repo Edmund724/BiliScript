@@ -239,6 +239,9 @@ export async function ensureAsrTranslation(
     });
     return { kind: result.kind === "pending" ? "pending" : "done" };
   } catch (error) {
+    if (abort.signal.aborted) {
+      return { kind: "skipped" };
+    }
     logWarn("[BILISCRIPT] subtitle translation failed", error);
     notifyReaderPresenter({ kind: "notice", text: `译文生成失败：${getErrorMessage(error)}` });
     return { kind: "skipped" };

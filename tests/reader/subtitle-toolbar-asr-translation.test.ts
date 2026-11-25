@@ -175,9 +175,10 @@ describe("副列的说明行与按钮（进度 / 启动 / 补齐）", () => {
     expect(emptyNote()).toBe("");
   });
 
-  it("在飞：说明行出进度，按钮收起，副列整列禁用", () => {
+  it("在飞：说明行出进度，按钮收起，副列与返回原生副字幕保持可点（可随时打断切换）", () => {
     render(
       asrFacts({
+        aiRefineAction: { kind: "exit-refine", label: "返回原生副字幕" },
         asrTranslation: translationView({
           inFlight: true,
           note: "正在生成译文 3/12 片",
@@ -186,9 +187,11 @@ describe("副列的说明行与按钮（进度 / 启动 / 补齐）", () => {
       })
     );
 
+    const refineBtn = card().querySelector<HTMLButtonElement>(".biliscript-bilingual-ai-refine");
     expect(emptyNote()).toBe("正在生成译文 3/12 片");
     expect(retryButton()).toBeNull();
-    expect(secondarySelect().disabled).toBe(true);
+    expect(secondarySelect().disabled).toBe(false);
+    expect(refineBtn?.disabled).toBe(false);
   });
 
   it("部分失败：说明行 +「补齐失败的 2 片」", () => {

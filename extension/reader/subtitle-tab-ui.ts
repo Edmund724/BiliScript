@@ -625,7 +625,7 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   if (refineAction) {
     nodes.aiRefine.textContent = refineAction.label;
     nodes.aiRefine.dataset.action = refineAction.kind;
-    nodes.aiRefine.disabled = translation.inFlight || model.busy;
+    nodes.aiRefine.disabled = model.busy;
   } else {
     delete nodes.aiRefine.dataset.action;
   }
@@ -658,7 +658,7 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
     );
     setCustomSelectValue(nodes.secondarySelect, translation.lang);
     setCustomSelectState(nodes.secondarySelect, {
-      disabled: translation.inFlight,
+      disabled: false,
       busy: translation.inFlight
     });
   } else if (dual) {
@@ -701,6 +701,19 @@ function writeTranslationOptions(
   options: ReadonlyArray<(typeof LIVE_INTERPRET_TARGET_LANG_OPTIONS)[number]> = LIVE_INTERPRET_TARGET_LANG_OPTIONS
 ): void {
   if (!select) {
+    return;
+  }
+  const unchanged =
+    select.options.length === options.length &&
+    options.every((option, index) => {
+      const existing = select.options[index];
+      return (
+        existing.value === option.value &&
+        existing.dataset.id === `translate-${option.value}` &&
+        existing.textContent === option.label
+      );
+    });
+  if (unchanged) {
     return;
   }
   select.innerHTML = options.map((option) => {
