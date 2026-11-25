@@ -710,13 +710,19 @@ try {
       const view = document.getElementById("biliscript-reading-view");
       const rect = view.getBoundingClientRect();
       const cs = getComputedStyle(view);
+      const probe = document.createElement("div");
+      probe.style.display = "none";
+      probe.style.backgroundColor = "var(--biliscript-reader-surface)";
+      view.appendChild(probe);
+      const surfaceBg = getComputedStyle(probe).backgroundColor;
+      probe.remove();
       return {
         htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
         bodyGate: document.body.getAttribute("data-biliscript-reader-mode"),
         readerOpen: view.classList.contains("open"),
         display: cs.display,
         position: cs.position,
-        surfaceBg: cs.backgroundColor,
+        surfaceBg,
         rect: { width: rect.width, height: rect.height, left: rect.left, top: rect.top },
         extLinkCount: document.querySelectorAll('link[data-biliscript-style], link[rel="stylesheet"][href^="chrome-extension://"]').length
       };

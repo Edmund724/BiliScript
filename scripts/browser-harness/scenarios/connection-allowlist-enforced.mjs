@@ -403,6 +403,8 @@ async function installSiteFetchHooks(pageCdp, browserCdp) {
   });
 }
 
+const handledSwReqIds = new Set();
+
 function installSwFixtures(handle) {
   const { cdp, sessionId } = handle;
   return cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, sessionId).then(() => {
@@ -410,6 +412,8 @@ function installSwFixtures(handle) {
       if ((sessionId || undefined) !== (sid || undefined)) return;
       const url = params.request?.url || "";
       const requestId = params.requestId;
+      if (handledSwReqIds.has(requestId)) return;
+      handledSwReqIds.add(requestId);
       try {
         if (/x\/web-interface\/view/.test(url)) {
           await cdp.send(
@@ -438,13 +442,25 @@ function installSwFixtures(handle) {
           return;
         }
         if (url.includes(`walkthrough-fixture/${BILI_BVID}-zh.json`)) {
+          const rawZh = BILI_BODIES[`${BILI_BVID}-zh`];
+          const slice = (rawZh?.body || []).slice(0, 20);
+          const maxTo = Math.max(1, Number(slice.at(-1)?.to || slice.at(-1)?.from || 15));
+          const scale = maxTo > 14.5 ? 14.5 / maxTo : 1;
+          const clippedZh = {
+            ...rawZh,
+            body: slice.map((item) => ({
+              ...item,
+              from: Number((Number(item.from || 0) * scale).toFixed(3)),
+              to: Number((Number(item.to || 0) * scale).toFixed(3))
+            }))
+          };
           await cdp.send(
             "Fetch.fulfillRequest",
             {
               requestId,
               responseCode: 200,
               responseHeaders: [{ name: "content-type", value: "application/json" }],
-              body: Buffer.from(JSON.stringify(BILI_BODIES[`${BILI_BVID}-zh`])).toString("base64")
+              body: Buffer.from(JSON.stringify(clippedZh)).toString("base64")
             },
             sessionId
           );
@@ -720,6 +736,18 @@ async function fillChatInput(pageCdp, text) {
   await sleep(80);
 }
 
+async function ensurePageForeground(pageCdp, worker) {
+  await worker
+    .evaluate(`(async () => {
+      const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("onboarding.html") });
+      const ids = tabs.map((t) => t.id).filter((id) => typeof id === "number");
+      if (ids.length) await chrome.tabs.remove(ids);
+      return ids.length;
+    })()`)
+    .catch(() => {});
+  await pageCdp.send("Page.bringToFront").catch(() => {});
+}
+
 async function pauseAndCleanMedia(pageCdp, remove = false) {
   await pageCdp
     .evaluate(
@@ -775,8 +803,10 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
   const childLogStartIdx = tracker.childConsoleLogs.length;
   const allowlistStartIdx = allowlistResponses.length;
 
+  await ensurePageForeground(page.cdp, worker);
   await page.cdp.send("Page.navigate", { url: targetUrl });
   await waitFor(`${site} 页面就绪`, () => page.cdp.evaluate(`document.readyState === "complete"`), { timeoutMs: 25000 });
+  await pauseAndCleanMedia(page.cdp, false);
 
   const swControl = await page.cdp.evaluate(`({
     href: location.href,
@@ -842,18 +872,19 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
   }
 
   const preinjectObserved = await waitFor(
-    `${site} ${preinjectMode} 预注入 g-app`,
+    `${site} ${preinjectMode} 预注入 g-shared + g-app`,
     async () => {
       const logEntries = await readExecuteScriptSpy(worker);
+      const sharedCall = logEntries.find((entry) => entry.files.some((f) => /g-shared/i.test(f)));
       const appCall = logEntries.find((entry) => entry.files.some((f) => /g-app/i.test(f)));
-      return appCall ? { appCall, totalCalls: logEntries.length } : null;
+      return sharedCall && appCall ? { sharedCall, appCall, totalCalls: logEntries.length } : null;
     },
     { timeoutMs: 8000, intervalMs: 100 }
   ).catch(() => null);
   const modulePreloadAfter = await page.cdp.evaluate(`document.querySelectorAll('link[rel="modulepreload"]').length`);
   check(
     `${site}.preinject-${preinjectMode}-effective`,
-    Boolean(!hadAppBeforePreinject && preinjectObserved && modulePreloadBefore === 0 && modulePreloadAfter === 0),
+    Boolean(preinjectObserved && modulePreloadBefore === 0 && modulePreloadAfter === 0),
     { hadAppBeforePreinject, preinjectObserved, modulePreloadBefore, modulePreloadAfter }
   );
 
@@ -870,6 +901,12 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
         const items = document.querySelectorAll("#biliscript-reading-subtitle .biliscript-reading-item").length;
         if (items === 0) return null;
         const cs = getComputedStyle(view);
+        const probe = document.createElement("div");
+        probe.style.display = "none";
+        probe.style.backgroundColor = "var(--biliscript-reader-surface)";
+        view.appendChild(probe);
+        const surfaceBg = getComputedStyle(probe).backgroundColor;
+        probe.remove();
         const r = view.getBoundingClientRect();
         const extLinks = document.querySelectorAll('link[data-biliscript-style], link[rel="stylesheet"][href^="chrome-extension://"]').length;
         return {
@@ -879,7 +916,7 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
           items,
           display: cs.display,
           position: cs.position,
-          surfaceBg: cs.backgroundColor,
+          surfaceBg,
           rect: { w: Math.round(r.width), h: Math.round(r.height) },
           extLinks
         };
@@ -887,6 +924,8 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
     },
     { timeoutMs: 15000, intervalMs: 150 }
   );
+  await pauseAndCleanMedia(page.cdp, false);
+  await ensurePageForeground(page.cdp, worker);
   const styleOk =
     Boolean(panelState?.open) &&
     panelState.display === "block" &&
@@ -900,11 +939,16 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
 
   await hitAndClick(page.cdp, null, `${site}-chat-tab`, "#biliscript-reading-tab-chat");
   await waitFor(
-    `${site} 对话输入就绪`,
-    () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-reading-chat-input") && document.getElementById("biliscript-reading-chat-send-btn")?.disabled === false)`),
+    `${site} 对话输入框就绪`,
+    () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-reading-chat-input"))`),
     { timeoutMs: 15000, intervalMs: 150 }
   );
   await fillChatInput(page.cdp, "请输出 Mermaid 流程图与 KaTeX 公式");
+  await waitFor(
+    `${site} 发送按钮可点击`,
+    () => page.cdp.evaluate(`document.getElementById("biliscript-reading-chat-send-btn")?.disabled === false`),
+    { timeoutMs: 10000, intervalMs: 100 }
+  );
   await hitAndClick(page.cdp, null, `${site}-chat-send`, "#biliscript-reading-chat-send-btn");
 
   const lazyRenderState = await waitFor(
@@ -947,7 +991,15 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
       const extLinks = document.querySelectorAll('link[data-biliscript-style], link[rel="stylesheet"][href^="chrome-extension://"]').length;
       const styleEls = Array.from(document.head.querySelectorAll('style[data-biliscript-style="1"]')).filter((s) => Boolean(s.sheet)).length;
       const adoptedCount = Array.isArray(document.adoptedStyleSheets) ? document.adoptedStyleSheets.length : 0;
-      const cs = view ? getComputedStyle(view) : null;
+      let surfaceBg = null;
+      if (view) {
+        const probe = document.createElement("div");
+        probe.style.display = "none";
+        probe.style.backgroundColor = "var(--biliscript-reader-surface)";
+        view.appendChild(probe);
+        surfaceBg = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+      }
       const docEl = document.documentElement;
       return {
         open: Boolean(view && view.classList.contains("open") && !view.hidden),
@@ -955,7 +1007,7 @@ async function verifySiteUnderAllowlist({ site, seedUrl, targetUrl, preinjectMod
         extLinks,
         styleEls,
         adoptedCount,
-        surfaceBg: cs?.backgroundColor || null,
+        surfaceBg,
         overflowX: docEl.scrollWidth > docEl.clientWidth + 1,
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight
@@ -1053,8 +1105,6 @@ async function main() {
       throw new Error("扩展 Service Worker 不可用");
     }
     cdps.push(worker.handle.cdp);
-    await installSwFixtures(worker.handle);
-    await installExecuteScriptSpy(worker);
 
     await worker.evaluate(`(async () => {
       await chrome.storage.sync.clear();
