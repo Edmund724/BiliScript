@@ -3,7 +3,7 @@ import type { LiveFailureKind } from "../live/live-session-tracker.js";
 import {
   resolveLiveFailureActions,
   type LiveSettingsTarget
-} from "../live/fullscreen-live-overlay.js";
+} from "../live/live-failure-actions.js";
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { createChatLiveTextRecords } from "./chat-live-text-records.js";
