@@ -108,4 +108,22 @@ describe("Agent Bridge 视频帧编码", () => {
       vi.useRealTimers();
     }
   });
+
+  it("YouTube 站点支持当前帧截帧并拒绝历史时间点截帧", async () => {
+    const { clipState } = await import("../../extension/core/state.js");
+    clipState.setSite("youtube");
+    try {
+      const current = await captureAgentBridgeFrames({ bvid: "dQw4w9WgXcQ", cid: "yt" });
+      expect(current).toMatchObject({
+        site: "youtube",
+        bvid: "dQw4w9WgXcQ",
+        cid: "yt",
+        frames: [{ targetTime: 12.5, currentTime: 12.5 }]
+      });
+      await expect(captureAgentBridgeFrames({ bvid: "dQw4w9WgXcQ", cid: "yt", targetTime: 10 }))
+        .rejects.toThrow("YouTube 暂不支持指定时间点截帧");
+    } finally {
+      clipState.setSite("bilibili");
+    }
+  });
 });

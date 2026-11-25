@@ -452,7 +452,7 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     const host = document.getElementById("biliscript-reading-settings-host")!;
     expect(document.getElementById("openLiveSettingsBtn")!.hidden).toBe(true);
     expect(document.getElementById("openAsrSettingsBtn")!.hidden).toBe(true);
-    expect(document.getElementById("openAgentSettingsBtn")!.hidden).toBe(true);
+    expect(document.getElementById("openAgentSettingsBtn")!.hidden).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-settings-section="ai-button"]')!.hidden).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-settings-item="extra-playback-rates"]')!.hidden).toBe(true);
 
@@ -466,8 +466,8 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
 
     expect(isSettingsViewAllowed("live")).toBe(false);
     expect(isSettingsViewAllowed("asr")).toBe(false);
-    expect(isSettingsViewAllowed("agent")).toBe(false);
-    expect(isSettingsViewAllowed("agent-address")).toBe(false);
+    expect(isSettingsViewAllowed("agent")).toBe(true);
+    expect(isSettingsViewAllowed("agent-address")).toBe(true);
     expect(isSettingsViewAllowed("subtitle")).toBe(true);
 
     document.getElementById("openAsrSettingsBtn")!.click();
@@ -480,7 +480,6 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     requestUiCommand("open-settings", { target: "asr" });
     requestUiCommand("open-settings", { target: "live" });
     requestUiCommand("open-settings", { target: "gemini-key" });
-    requestUiCommand("open-settings", { target: "agent" });
     await settingsPanel.openReaderAsrSetup();
     await settingsPanel.openLiveSettings("live");
     await flushMicrotasks();
@@ -488,7 +487,11 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     expect(settingsPanelEl.hidden).toBe(true);
     expect(document.getElementById("biliscriptSettingsSubpageAsr")!.hidden).toBe(true);
     expect(document.getElementById("biliscriptSettingsSubpageLive")!.hidden).toBe(true);
-    expect(document.getElementById("biliscriptSettingsSubpageAgent")!.hidden).toBe(true);
+
+    document.getElementById("openAgentSettingsBtn")!.click();
+    await vi.waitFor(() => {
+      expect(document.getElementById("biliscriptSettingsSubpageAgent")!.hidden).toBe(false);
+    });
 
     const { ensureReaderDomain } = await import("../../extension/reader/lazy-reader.js");
     requestUiCommand("open-settings", { target: "appearance" });
@@ -501,10 +504,10 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>).mockClear();
     emitSyncStorageChanged({
       enableAgentBridge: { newValue: true },
-      agentBridgeUrl: { newValue: "http://127.0.0.1:9999" }
+      agentBridgeUrl: { newValue: "ws://127.0.0.1:18492" }
     });
     await flushMicrotasks();
-    expect(getSentRuntimeMessageTypes()).not.toContain("agent-bridge-status");
+    expect(getSentRuntimeMessageTypes()).toContain("agent-bridge-status");
   });
 
   it("reader.css 通过 #biliscript-reading-view .markdown-body 覆盖 --base-size-* 并隔离 YouTube 根字号", () => {

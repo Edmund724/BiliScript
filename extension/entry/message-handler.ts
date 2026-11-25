@@ -163,6 +163,22 @@ function handleAgentBridgeSubtitles(_message: Msg<"agent-bridge-subtitles">, sen
   return true;
 }
 
+function handleAgentBridgeComments(_message: Msg<"agent-bridge-comments">, sendResponse: SendResponse): boolean {
+  if (!isAgentBridgeSupportedForActiveSite()) {
+    sendResponse({ ok: false, error: "当前站点不支持 Agent 桥接" });
+    return false;
+  }
+  void (async () => {
+    try {
+      const { getAgentBridgeComments } = await import("../agent-bridge/content-subtitles.js");
+      sendResponse({ ok: true, result: await getAgentBridgeComments() });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+}
+
 function handleAgentBridgeFrame(message: Msg<"agent-bridge-frame">, sendResponse: SendResponse): boolean {
   if (!isAgentBridgeSupportedForActiveSite()) {
     sendResponse({ ok: false, error: "当前站点不支持 Agent 桥接" });
@@ -187,6 +203,7 @@ const contentMessageHandlerTable = {
   "live-session-takeover": handleLiveSessionTakeover,
   "agent-bridge-snapshot": handleAgentBridgeSnapshot,
   "agent-bridge-subtitles": handleAgentBridgeSubtitles,
+  "agent-bridge-comments": handleAgentBridgeComments,
   "agent-bridge-frame": handleAgentBridgeFrame
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 

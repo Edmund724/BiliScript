@@ -2,8 +2,11 @@ import {
   createHistoricalVideoFrameSession,
   type HistoricalVideoFrameSession
 } from "../chat/historical-video-frame.js";
+import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
+import { state } from "../core/state.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
+import { detectActiveSite, type SiteId } from "../shared/site.js";
 import type { AgentBridgeFrame, AgentBridgeFramesResult } from "./protocol.js";
 
 export interface AgentBridgeFrameInput {
@@ -43,15 +46,19 @@ async function captureQueued(
   { input }: QueuedFrameRequest,
   signal: AbortSignal
 ): Promise<AgentBridgeFramesResult> {
+  const site: SiteId = state.clip.site === "youtube" || detectActiveSite() === "youtube" ? "youtube" : "bilibili";
   let frames: AgentBridgeFrame[];
   if (input.targetTime === undefined) {
-    const frame = await capturePageVideoFrame();
+    const frame = await capturePageVideoFrame({ getVideo: () => getSiteRuntimeVideoElement() });
     frames = [{
       data: encodeBase64Bytes(frame.jpegBytes),
       targetTime: frame.currentTime,
       currentTime: frame.currentTime
     }];
   } else {
+    if (site === "youtube") {
+      throw new Error("YouTube 暂不支持指定时间点截帧，请省略 --time 截取当前播放画面");
+    }
     const key = inputKey(input);
     if (!historicalSession) {
       historicalSession = createHistoricalVideoFrameSession({ bvid: input.bvid, cid: input.cid });
@@ -65,7 +72,7 @@ async function captureQueued(
     }));
   }
   if (!frames.length) throw new Error("目标时间点附近没有截取到可用画面");
-  return { bvid: input.bvid, cid: input.cid, frames };
+  return { site, bvid: input.bvid, cid: input.cid, frames };
 }
 
 async function captureWithTimeout(request: QueuedFrameRequest): Promise<AgentBridgeFramesResult> {

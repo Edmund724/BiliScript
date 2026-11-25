@@ -144,7 +144,7 @@ describe("YouTube 内容脚本启动门控与 Agent 桥接懒加载", () => {
     expect(mocks.loadPlaybackRate).not.toHaveBeenCalled();
   });
 
-  it("Agent Bridge 快照在 YouTube 下被门控拒绝，在 B 站下按需懒加载返回快照", async () => {
+  it("Agent Bridge 快照在 YouTube 与 B 站下均按需懒加载返回快照", async () => {
     setCrossOriginLocation(YT_WATCH_URL);
     const { clipState } = await import("../../extension/core/state.js");
     const { dispatchContentScriptMessage } = await import("../../extension/entry/message-handler.js");
@@ -152,9 +152,14 @@ describe("YouTube 内容脚本启动门控与 Agent 桥接懒加载", () => {
     clipState.setSite("youtube");
     const ytResp = vi.fn();
     const ytKeepOpen = dispatchContentScriptMessage({ type: "agent-bridge-snapshot" }, ytResp);
-    expect(ytKeepOpen).toBe(false);
-    expect(ytResp).toHaveBeenCalledWith({ ok: false, error: expect.any(String) });
-    expect(mocks.collectAgentBridgeTabSnapshot).not.toHaveBeenCalled();
+    expect(ytKeepOpen).toBe(true);
+    await vi.waitFor(() =>
+      expect(ytResp).toHaveBeenCalledWith({
+        ok: true,
+        snapshot: expect.objectContaining({ bvid: "BV1test", cid: "1" })
+      })
+    );
+    expect(mocks.collectAgentBridgeTabSnapshot).toHaveBeenCalledTimes(1);
 
     clipState.setSite("bilibili");
     const biliResp = vi.fn();
@@ -166,7 +171,7 @@ describe("YouTube 内容脚本启动门控与 Agent 桥接懒加载", () => {
         snapshot: expect.objectContaining({ bvid: "BV1test", cid: "1" })
       })
     );
-    expect(mocks.collectAgentBridgeTabSnapshot).toHaveBeenCalledTimes(1);
+    expect(mocks.collectAgentBridgeTabSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("YouTube SPA 离开 watch 页至首页时关闭阅读面板并调用 resetClipState() 清理状态", async () => {

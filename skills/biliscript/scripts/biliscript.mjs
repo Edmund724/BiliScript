@@ -355,22 +355,37 @@ function daemonStatus(command, extensionOnline) {
   };
 }
 
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
 function extractTargetBvid(value) {
   const input = String(value || "").trim();
   if (!input) return "";
   if (/^BV[0-9A-Za-z]+$/.test(input)) return input;
   const pathMatch = input.match(/\/video\/(BV[0-9A-Za-z]+)/);
   if (pathMatch?.[1]) return pathMatch[1];
+  if (YOUTUBE_VIDEO_ID_RE.test(input)) return input;
   try {
-    const queryBvid = String(new URL(input).searchParams.get("bvid") || "").trim();
+    const parsed = new URL(input);
+    const queryBvid = String(parsed.searchParams.get("bvid") || "").trim();
     if (/^BV[0-9A-Za-z]+$/.test(queryBvid)) return queryBvid;
+    const host = parsed.hostname.toLowerCase();
+    if (host === "youtu.be") {
+      const id = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
+      if (YOUTUBE_VIDEO_ID_RE.test(id)) return id;
+    } else if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      if (parsed.pathname.replace(/\/+$/, "") === "/watch") {
+        const ytId = String(parsed.searchParams.get("v") || "").trim();
+        if (YOUTUBE_VIDEO_ID_RE.test(ytId)) return ytId;
+      }
+    }
   } catch {
   }
   return "";
 }
 
 function isNoActiveVideoTabError(error) {
-  return String(error?.message || "").includes("当前活动标签页不是 B 站视频页");
+  const message = String(error?.message || "");
+  return message.includes("当前活动标签页不是 B 站视频页") || message.includes("当前活动标签页不是支持的视频页");
 }
 
 export async function startDaemon({
@@ -975,7 +990,7 @@ function parseCliArgs(args) {
     if (flag === "--tab") {
       options.tabId = Number(value);
       if (!Number.isInteger(options.tabId) || options.tabId <= 0) return null;
-    } else if (flag === "--bvid") {
+    } else if (flag === "--bvid" || flag === "--video") {
       options.bvid = value;
     } else if (hasSubtitles && (flag === "--from" || flag === "--to")) {
       const number = Number(value);
@@ -1009,7 +1024,7 @@ async function main() {
   }
   const parsed = parseCliArgs(args);
   if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；fetch [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]；frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--time <sec>] [--out <dir>]" }));
     process.exitCode = 1;
     return;
   }

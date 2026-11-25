@@ -2,25 +2,41 @@ import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
 import type { ContentScriptMessage, ResponseOf } from "../shared/messaging-protocol.js";
 import { withBiliMediaSessionRule } from "../core/offscreen-host.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
+import {
+  detectSiteFromUrl,
+  extractYoutubeVideoId,
+  normalizeSiteId,
+  YOUTUBE_UNIT_CID,
+  type SiteId
+} from "../shared/site.js";
 import { sendMessageToTab } from "../shared/tab-utils.js";
 import { createAgentBridgeVideoService } from "./video-service.js";
 import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../core/validators.js";
 import {
   AGENT_BRIDGE_ALARM,
   AGENT_BRIDGE_PROTOCOL,
+  type AgentBridgeComment,
+  type AgentBridgeCommentsResult,
+  type AgentBridgeContentSubtitlesResult,
+  type AgentBridgeFetchResult,
   type AgentBridgeFramesResult,
   type AgentBridgeOffscreenFrameResponse,
   type AgentBridgeRequestOptions,
+  type AgentBridgeSubtitleItem,
+  type AgentBridgeSubtitlesResult,
   type AgentBridgeTabSnapshot,
-  type AgentBridgeTabsResult
+  type AgentBridgeTabsResult,
+  type AgentBridgeVideo
 } from "./protocol.js";
 
 const RECONNECT_BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000] as const;
 const TAB_SNAPSHOT_TIMEOUT_MS = 2000;
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const VIDEO_URL_PATTERNS = [
   "https://www.bilibili.com/video/*",
   "https://www.bilibili.com/list/*",
-  "https://www.bilibili.com/festival/*"
+  "https://www.bilibili.com/festival/*",
+  "https://www.youtube.com/watch*"
 ];
 
 interface AgentBridgeDeps {
@@ -35,11 +51,54 @@ interface WireRequest {
   options?: unknown;
 }
 
+function extractYoutubeTargetId(value: string): string {
+  const input = value.trim();
+  if (!input) return "";
+  const directWatch = extractYoutubeVideoId(input);
+  if (directWatch) return directWatch;
+  if (YOUTUBE_VIDEO_ID_RE.test(input)) return input;
+  try {
+    const parsed = new URL(input);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "youtu.be") {
+      const id = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
+      return YOUTUBE_VIDEO_ID_RE.test(id) ? id : "";
+    }
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      if (parsed.pathname.replace(/\/+$/, "") === "/watch") {
+        const id = parsed.searchParams.get("v") || "";
+        return YOUTUBE_VIDEO_ID_RE.test(id) ? id : "";
+      }
+    }
+  } catch {
+  }
+  return "";
+}
+
+function validateSubtitleRange(from = 0, to = Number.POSITIVE_INFINITY): void {
+  if (!Number.isFinite(from) || from < 0 || (!(to === Number.POSITIVE_INFINITY) && (!Number.isFinite(to) || to < 0))) {
+    throw new Error("--from 与 --to 必须是非负秒数");
+  }
+  if (to < from) throw new Error("--to 不能小于 --from");
+}
+
+function filterSubtitleRange(
+  items: AgentBridgeSubtitleItem[],
+  from = 0,
+  to = Number.POSITIVE_INFINITY
+): AgentBridgeSubtitleItem[] {
+  validateSubtitleRange(from, to);
+  return items.filter((item) => item.to >= from && item.from <= to);
+}
+
 function fallbackTabSnapshot(tab: chrome.tabs.Tab): AgentBridgeTabSnapshot {
+  const url = tab.url || "";
+  const site = detectSiteFromUrl(url);
   return {
+    site,
     tabId: tab.id || 0,
-    bvid: extractBvid(tab.url || ""),
-    cid: "",
+    bvid: site === "youtube" ? extractYoutubeVideoId(url) : extractBvid(url),
+    cid: site === "youtube" ? YOUTUBE_UNIT_CID : "",
     title: tab.title || "",
     currentTime: 0,
     duration: 0,
@@ -56,10 +115,12 @@ async function readTabSnapshot(tab: chrome.tabs.Tab): Promise<AgentBridgeTabSnap
   );
   const snapshot = response?.ok && response.snapshot ? response.snapshot : null;
   if (!snapshot) return fallback;
+  const site = snapshot.site ? normalizeSiteId(snapshot.site) : fallback.site;
   return {
+    site,
     tabId: fallback.tabId,
     bvid: String(snapshot.bvid || fallback.bvid),
-    cid: String(snapshot.cid || ""),
+    cid: String(snapshot.cid || (site === "youtube" ? YOUTUBE_UNIT_CID : "")),
     title: String(snapshot.title || fallback.title),
     currentTime: Number.isFinite(snapshot.currentTime) ? Number(snapshot.currentTime) : 0,
     duration: Number.isFinite(snapshot.duration) ? Number(snapshot.duration) : 0,
@@ -73,37 +134,49 @@ export async function listAgentBridgeTabs(): Promise<AgentBridgeTabsResult> {
     chrome.tabs.query({ active: true, currentWindow: true, url: VIDEO_URL_PATTERNS }).catch(() => [] as chrome.tabs.Tab[])
   ]);
   const activeTabId = activeTabs.find((tab) => tab.id && tab.active === true)?.id;
+  const snapshots = await Promise.all(
+    tabs.filter((tab) => tab.id).map(async (tab) => {
+      const snapshot = await readTabSnapshot(tab);
+      return tab.id === activeTabId ? { ...snapshot, active: true } : snapshot;
+    })
+  );
   return {
-    tabs: await Promise.all(
-      tabs.filter((tab) => tab.id).map(async (tab) => {
-        const snapshot = await readTabSnapshot(tab);
-        return tab.id === activeTabId ? { ...snapshot, active: true } : snapshot;
-      })
-    )
+    tabs: snapshots.filter((snapshot) => snapshot.site !== "youtube" || Boolean(snapshot.bvid))
   };
 }
 
 interface ResolvedTarget extends AgentBridgeRequestOptions {
+  site: SiteId;
   bvid: string;
   pageIndex: number;
   cid?: string;
   tabId?: number;
 }
 
-function parseBvidInput(value: unknown): { bvid: string; pageIndex: number } {
+function parseTargetInput(value: unknown): { site: SiteId; bvid: string; pageIndex: number; cid?: string } {
   const input = String(value || "").trim();
   const bvid = /^BV[0-9A-Za-z]+$/.test(input) ? input : extractBvid(input);
-  if (!bvid) throw new Error("请传入有效的 BV 号或 B 站视频链接");
-  return { bvid, pageIndex: extractPageIndex(input) };
+  if (bvid) {
+    return { site: "bilibili", bvid, pageIndex: extractPageIndex(input) };
+  }
+  const youtubeId = extractYoutubeTargetId(input);
+  if (youtubeId) {
+    return { site: "youtube", bvid: youtubeId, pageIndex: 1, cid: YOUTUBE_UNIT_CID };
+  }
+  throw new Error("请传入有效的 BV 号、YouTube 视频 ID 或视频链接");
 }
 
 async function snapshotTarget(tab: chrome.tabs.Tab): Promise<ResolvedTarget> {
   const snapshot = await readTabSnapshot(tab);
-  if (!snapshot.bvid) throw new Error("目标标签页不是 B 站视频页");
+  const site = snapshot.site || detectSiteFromUrl(tab.url || "");
+  if (!snapshot.bvid) {
+    throw new Error("目标标签页不是支持的视频页（B 站 / YouTube）");
+  }
   return {
+    site,
     bvid: snapshot.bvid,
-    pageIndex: extractPageIndex(tab.url || ""),
-    cid: snapshot.cid || undefined,
+    pageIndex: site === "youtube" ? 1 : extractPageIndex(tab.url || ""),
+    cid: snapshot.cid || (site === "youtube" ? YOUTUBE_UNIT_CID : undefined),
     tabId: snapshot.tabId
   };
 }
@@ -116,14 +189,22 @@ async function resolveTarget(rawOptions: unknown): Promise<ResolvedTarget> {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error("--tab 必须是正整数标签页 ID");
     target = await snapshotTarget(await chrome.tabs.get(tabId));
   } else if (String(options.bvid || "").trim()) {
-    const parsed = parseBvidInput(options.bvid);
+    const parsed = parseTargetInput(options.bvid);
     const tabs = await chrome.tabs.query({ url: VIDEO_URL_PATTERNS });
-    const match = tabs.find((tab) => extractBvid(tab.url || "") === parsed.bvid
-      && extractPageIndex(tab.url || "") === parsed.pageIndex);
-    target = match?.id ? { ...parsed, ...(await snapshotTarget(match)) } : parsed;
+    if (parsed.site === "youtube") {
+      const match = tabs.find((tab) => extractYoutubeVideoId(tab.url || "") === parsed.bvid);
+      if (!match?.id) {
+        throw new Error("目标 YouTube 视频未在浏览器标签页中打开，请先在浏览器打开该视频页后重试");
+      }
+      target = { ...parsed, ...(await snapshotTarget(match)) };
+    } else {
+      const match = tabs.find((tab) => extractBvid(tab.url || "") === parsed.bvid
+        && extractPageIndex(tab.url || "") === parsed.pageIndex);
+      target = match?.id ? { ...parsed, ...(await snapshotTarget(match)) } : parsed;
+    }
   } else {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true, url: VIDEO_URL_PATTERNS });
-    if (!tab) throw new Error("当前活动标签页不是 B 站视频页，请使用 --tab 或 --bvid 指定目标");
+    if (!tab) throw new Error("当前活动标签页不是支持的视频页（B 站 / YouTube），请使用 --tab 或 --bvid 指定目标");
     target = await snapshotTarget(tab);
   }
   return { ...target, from: options.from, to: options.to, targetTime: options.targetTime };
@@ -131,7 +212,7 @@ async function resolveTarget(rawOptions: unknown): Promise<ResolvedTarget> {
 
 type AgentBridgeTabResultMessage = Extract<
   ContentScriptMessage,
-  { type: "agent-bridge-subtitles" | "agent-bridge-frame" }
+  { type: "agent-bridge-subtitles" | "agent-bridge-comments" | "agent-bridge-frame" }
 >;
 
 async function requestTabResult<M extends AgentBridgeTabResultMessage>(
@@ -240,6 +321,10 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       return result;
     }
 
+    if (target.site === "youtube") {
+      throw new Error("YouTube 暂不支持指定时间点截帧，请省略 --time 截取当前播放画面");
+    }
+
     const targetTime = Number(target.targetTime);
     if (!Number.isFinite(targetTime) || targetTime < 0) {
       throw new Error("--time 必须是大于或等于 0 的有限秒数");
@@ -249,7 +334,7 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     let contextTabId = target.tabId;
     if (!contextTabId) {
       const tabs = await chrome.tabs.query({ url: VIDEO_URL_PATTERNS });
-      contextTabId = tabs.find((tab) => tab.id)?.id;
+      contextTabId = tabs.find((tab) => tab.id && detectSiteFromUrl(tab.url || "") === "bilibili")?.id;
     }
     if (contextTabId) {
       const result = await requestTabResult(
@@ -262,6 +347,88 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     return captureOffscreenFrames(input);
   };
 
+  const resolveYoutubeVideo = (target: ResolvedTarget, content: AgentBridgeContentSubtitlesResult): AgentBridgeVideo => {
+    if (content.video) {
+      return {
+        ...content.video,
+        site: "youtube",
+        bvid: content.video.bvid || target.bvid,
+        aid: "",
+        cid: content.video.cid || YOUTUBE_UNIT_CID,
+        page: 1,
+        pageCount: 1
+      };
+    }
+    return {
+      site: "youtube",
+      bvid: target.bvid,
+      aid: "",
+      cid: target.cid || YOUTUBE_UNIT_CID,
+      title: "",
+      author: "",
+      description: "",
+      uploadDate: "",
+      duration: 0,
+      page: 1,
+      pageCount: 1
+    };
+  };
+
+  const executeYoutube = async (
+    command: "fetch" | "subtitles" | "comments",
+    target: ResolvedTarget
+  ): Promise<AgentBridgeFetchResult | AgentBridgeSubtitlesResult | AgentBridgeCommentsResult> => {
+    if (!target.tabId) {
+      throw new Error("目标 YouTube 视频未在浏览器标签页中打开，请先在浏览器打开该视频页后重试");
+    }
+    if (command === "comments") {
+      const result = await requestTabResult(target.tabId, { type: "agent-bridge-comments" }, "页内热门评论抓取失败");
+      if (!result) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试");
+      return { video: result.video, comments: result.comments };
+    }
+
+    validateSubtitleRange(target.from, target.to);
+    if (command === "subtitles") {
+      const content = await requestTabResult(target.tabId, { type: "agent-bridge-subtitles" }, "页内字幕抓取失败");
+      if (!content) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试");
+      return {
+        video: resolveYoutubeVideo(target, content),
+        pages: [],
+        chapters: content.chapters,
+        subtitle: {
+          ...content.subtitle,
+          items: filterSubtitleRange(content.subtitle.items, target.from, target.to)
+        }
+      };
+    }
+
+    const [content, commentsOutcome] = await Promise.all([
+      requestTabResult(target.tabId, { type: "agent-bridge-subtitles" }, "页内字幕抓取失败"),
+      requestTabResult(target.tabId, { type: "agent-bridge-comments" }, "页内热门评论抓取失败").then(
+        (res) => ({
+          comments: res?.comments ?? ([] as AgentBridgeComment[]),
+          commentsError: res ? undefined : "目标标签页尚未加载扩展，无法获取热门评论"
+        }),
+        (error) => ({
+          comments: [] as AgentBridgeComment[],
+          commentsError: getErrorMessage(error)
+        })
+      )
+    ]);
+    if (!content) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试");
+    return {
+      video: resolveYoutubeVideo(target, content),
+      pages: [],
+      chapters: content.chapters,
+      subtitle: {
+        ...content.subtitle,
+        items: filterSubtitleRange(content.subtitle.items, target.from, target.to)
+      },
+      comments: commentsOutcome.comments,
+      ...(commentsOutcome.commentsError ? { commentsError: commentsOutcome.commentsError } : {})
+    };
+  };
+
   const execute = async (command: unknown, options: unknown): Promise<unknown> => {
     if (command === "tabs") return listAgentBridgeTabs();
     if (command === "frame") return captureFrames(options);
@@ -269,6 +436,9 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       throw new Error("不支持的桥接命令");
     }
     const target = await resolveTarget(options);
+    if (target.site === "youtube") {
+      return executeYoutube(command, target);
+    }
     if (command === "comments") return videoService.getComments(target);
     if (command === "fetch") {
       return videoService.getVideoBundle(

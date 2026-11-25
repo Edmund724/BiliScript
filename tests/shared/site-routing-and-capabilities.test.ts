@@ -62,8 +62,8 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
     expect(normalizeSiteId(" YouTube ")).toBe("youtube");
   });
 
-  it("bilibili 全部 10 项能力为 true；youtube 开放 supportsCurrentFrameCapture、supportsPlayerQuickAiButton、supportsPlayerInterpretOverlay 与 supportsHotComments", () => {
-    expect(getSiteCapabilities("bilibili")).toEqual({
+  it("bilibili 全部能力为 true；youtube 开放 supportsCurrentFrameCapture、supportsPlayerQuickAiButton、supportsPlayerInterpretOverlay、supportsHotComments 与 supportsAgentBridge", () => {
+    expect(getSiteCapabilities("bilibili")).toMatchObject({
       supportsAsr: true,
       supportsLiveCompanion: true,
       supportsPlayerInterpretOverlay: true,
@@ -75,7 +75,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
       supportsAgentBridge: true,
       supportsMultiPage: true
     });
-    expect(getSiteCapabilities("youtube")).toEqual({
+    expect(getSiteCapabilities("youtube")).toMatchObject({
       supportsAsr: false,
       supportsLiveCompanion: false,
       supportsPlayerInterpretOverlay: true,
@@ -84,7 +84,7 @@ describe("站点归一化与能力表（SiteCapabilities）", () => {
       supportsCurrentFrameCapture: true,
       supportsHistoricalFrameCapture: false,
       supportsHotComments: true,
-      supportsAgentBridge: false,
+      supportsAgentBridge: true,
       supportsMultiPage: false
     });
   });

@@ -135,4 +135,190 @@ describe("Agent Bridge background fetch 路由", () => {
     expect(bvidResp).toMatchObject({ type: "response", id: "req-bvid", ok: true });
     expect(getVideoBundle).toHaveBeenNthCalledWith(2, expect.objectContaining({ bvid: "BV1other00000" }), undefined);
   });
+
+  it("YouTube 已打开标签页支持 tabs/fetch/subtitles/comments/frame，拒绝未打开 URL 与历史截帧，且不泄漏转义存储键", async () => {
+    const ytId = "abc_def-123";
+    const ytUrl = `https://www.youtube.com/watch?v=${ytId}`;
+    let failComments = false;
+    const getVideoBundle = vi.fn();
+
+    vi.stubGlobal("chrome", {
+      ...chrome,
+      tabs: {
+        query: vi.fn(async () => [
+          { id: 12, url: ytUrl, title: "YT Demo - YouTube", active: true },
+          { id: 13, url: "https://www.youtube.com/watch", title: "YouTube" }
+        ]),
+        get: vi.fn(async (tabId: number) => ({ id: tabId, url: ytUrl, title: "YT Demo - YouTube" })),
+        sendMessage: vi.fn((tabId: number, msg: { type: string }, cb: (resp: unknown) => void) => {
+          if (msg.type === "agent-bridge-snapshot") {
+            if (tabId === 13) {
+              cb({ ok: true, snapshot: { site: "youtube", bvid: "", cid: "yt", title: "YouTube" } });
+              return;
+            }
+            cb({
+              ok: true,
+              snapshot: {
+                site: "youtube",
+                bvid: ytId,
+                cid: "yt",
+                title: "YT Demo",
+                currentTime: 18,
+                duration: 120,
+                subtitlesReady: true
+              }
+            });
+            return;
+          }
+          if (msg.type === "agent-bridge-subtitles") {
+            cb({
+              ok: true,
+              result: {
+                site: "youtube",
+                bvid: ytId,
+                cid: "yt",
+                pageIndex: 1,
+                video: {
+                  site: "youtube",
+                  bvid: ytId,
+                  aid: "",
+                  cid: "yt",
+                  title: "YT Demo",
+                  author: "Channel",
+                  description: "desc",
+                  uploadDate: "2026-01-01",
+                  duration: 120,
+                  page: 1,
+                  pageCount: 1
+                },
+                chapters: [{ title: "Intro", from: 0, to: 30, source: "youtube" }],
+                subtitle: {
+                  source: "youtube",
+                  trackId: "en-asr",
+                  language: "英语（YouTube 自动）",
+                  items: [
+                    { from: 1, to: 3, content: "first" },
+                    { from: 10, to: 15, content: "second" }
+                  ]
+                }
+              }
+            });
+            return;
+          }
+          if (msg.type === "agent-bridge-comments") {
+            if (failComments) {
+              cb({ ok: false, error: "评论区已关闭" });
+              return;
+            }
+            cb({
+              ok: true,
+              result: {
+                site: "youtube",
+                video: {
+                  site: "youtube",
+                  bvid: ytId,
+                  aid: "",
+                  cid: "yt",
+                  title: "YT Demo",
+                  author: "Channel",
+                  description: "desc",
+                  uploadDate: "2026-01-01",
+                  duration: 120,
+                  page: 1,
+                  pageCount: 1
+                },
+                comments: [{ uname: "viewer", like: 42, message: "great video" }]
+              }
+            });
+            return;
+          }
+          if (msg.type === "agent-bridge-frame") {
+            cb({
+              ok: true,
+              result: {
+                site: "youtube",
+                bvid: ytId,
+                cid: "yt",
+                frames: [{ data: "/9j/2Q==", targetTime: 18, currentTime: 18 }]
+              }
+            });
+          }
+        })
+      }
+    });
+
+    const bridge = createAgentBridge({
+      getConfig: async () => ({ enabled: true, url: "ws://127.0.0.1:18492" }),
+      videoService: {
+        resolveVideoInfo: vi.fn(),
+        completeContentSubtitles: vi.fn(),
+        getSubtitles: vi.fn(),
+        getComments: vi.fn(),
+        getVideoBundle
+      }
+    });
+
+    await bridge.sync();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+
+    const sendReq = async (id: string, command: string, options?: Record<string, unknown>) => {
+      const before = ws.sent.length;
+      ws.receive({ type: "request", id, command, ...(options ? { options } : {}) });
+      await vi.waitFor(() => expect(ws.sent.length).toBeGreaterThan(before));
+      return JSON.parse(ws.sent[ws.sent.length - 1]);
+    };
+
+    const tabsResp = await sendReq("yt-tabs", "tabs");
+    expect(tabsResp).toMatchObject({
+      ok: true,
+      result: {
+        tabs: [{ site: "youtube", tabId: 12, bvid: ytId, cid: "yt", active: true }]
+      }
+    });
+    expect(tabsResp.result.tabs).toHaveLength(1);
+
+    const fetchResp = await sendReq("yt-fetch", "fetch", { bvid: `https://youtu.be/${ytId}`, from: 8, to: 20 });
+    expect(fetchResp).toMatchObject({
+      ok: true,
+      result: {
+        video: { site: "youtube", bvid: ytId, cid: "yt", title: "YT Demo" },
+        pages: [],
+        chapters: [{ title: "Intro", source: "youtube" }],
+        subtitle: { source: "youtube", items: [{ from: 10, to: 15, content: "second" }] },
+        comments: [{ uname: "viewer", like: 42, message: "great video" }]
+      }
+    });
+    expect(JSON.stringify(fetchResp)).not.toContain("yt~");
+    expect(getVideoBundle).not.toHaveBeenCalled();
+
+    failComments = true;
+    const fetchFallbackResp = await sendReq("yt-fetch-fallback", "fetch", { bvid: ytId });
+    expect(fetchFallbackResp).toMatchObject({
+      ok: true,
+      result: {
+        video: { site: "youtube", bvid: ytId },
+        comments: [],
+        commentsError: "评论区已关闭"
+      }
+    });
+
+    const unopenedResp = await sendReq("yt-unopened", "fetch", { bvid: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+    expect(unopenedResp).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("未在浏览器标签页中打开")
+    });
+
+    const frameResp = await sendReq("yt-frame", "frame", { tabId: 12 });
+    expect(frameResp).toMatchObject({
+      ok: true,
+      result: { site: "youtube", bvid: ytId, cid: "yt", frames: [{ targetTime: 18, currentTime: 18 }] }
+    });
+
+    const historicalResp = await sendReq("yt-frame-hist", "frame", { tabId: 12, targetTime: 30 });
+    expect(historicalResp).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("暂不支持指定时间点截帧")
+    });
+  });
 });

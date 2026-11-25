@@ -20,7 +20,12 @@ import type {
   SubtitlePageRecord,
   SubtitleTrackStorageKind
 } from "../subtitle/idb-store.js";
-import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
+import type {
+  AgentBridgeContentCommentsResult,
+  AgentBridgeContentSubtitlesResult,
+  AgentBridgeFramesResult,
+  AgentBridgeTabSnapshot
+} from "../agent-bridge/protocol.js";
 
 export type ReaderEnterMessage = {
   type: "reader-enter";
@@ -67,6 +72,12 @@ export type AgentBridgeSubtitlesResponse = {
   result?: AgentBridgeContentSubtitlesResult;
   error?: string;
 };
+export type AgentBridgeCommentsMessage = { type: "agent-bridge-comments" };
+export type AgentBridgeCommentsResponse = {
+  ok: boolean;
+  result?: AgentBridgeContentCommentsResult;
+  error?: string;
+};
 export type AgentBridgeFrameMessage = {
   type: "agent-bridge-frame";
   bvid: string;
@@ -87,6 +98,7 @@ export type ContentScriptMessage =
   | LiveSessionTakeoverMessage
   | AgentBridgeSnapshotMessage
   | AgentBridgeSubtitlesMessage
+  | AgentBridgeCommentsMessage
   | AgentBridgeFrameMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
@@ -1096,6 +1108,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
   : M extends AgentBridgeSnapshotMessage ? AgentBridgeSnapshotResponse
   : M extends AgentBridgeSubtitlesMessage ? AgentBridgeSubtitlesResponse
+  : M extends AgentBridgeCommentsMessage ? AgentBridgeCommentsResponse
   : M extends AgentBridgeFrameMessage ? AgentBridgeFrameResponse
   : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
   : never;

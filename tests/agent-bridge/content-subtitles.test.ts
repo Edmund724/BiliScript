@@ -61,4 +61,50 @@ describe("agent-bridge content-subtitles 轮询边界", () => {
       }
     });
   });
+
+  it("YouTube 页内返回原始 videoId、source=youtube 与热评，不混入 asr 或内部转义键", async () => {
+    const ytId = "abc_def-123";
+    (globalThis as unknown as { jsdom: { reconfigure: (opts: { url: string }) => void } }).jsdom.reconfigure({
+      url: `https://www.youtube.com/watch?v=${ytId}`
+    });
+    const { clipState } = await import("../../extension/core/state.js");
+    const { getAgentBridgeSubtitles, getAgentBridgeComments } = await import(
+      "../../extension/agent-bridge/content-subtitles.js"
+    );
+
+    clipState.setSite("youtube");
+    clipState.setBvid(ytId);
+    clipState.setCid("yt");
+    clipState.setTitle("YT Video");
+    clipState.setAuthor("YT Author");
+    clipState.setVideoDuration(95);
+    clipState.setSelectedSubtitleId("track-yt-auto");
+    clipState.setSelectedSubtitleLang("英语（YouTube 自动）");
+    clipState.setChapters([{ title: "Part 1", from: 0, to: 40 }]);
+    clipState.setSubtitleBody([{ from: 2, to: 6, content: "Hello world" }]);
+    clipState.setSubtitleFetchState("ready");
+    clipState.setHotComments([{ uname: "alice", like: 12, message: "nice" }]);
+
+    const subResult = await getAgentBridgeSubtitles();
+    expect(subResult).toMatchObject({
+      site: "youtube",
+      bvid: ytId,
+      cid: "yt",
+      video: { site: "youtube", bvid: ytId, cid: "yt", title: "YT Video", author: "YT Author", duration: 95 },
+      chapters: [{ title: "Part 1", from: 0, to: 40, source: "youtube" }],
+      subtitle: {
+        source: "youtube",
+        trackId: "track-yt-auto",
+        language: "英语（YouTube 自动）",
+        items: [{ from: 2, to: 6, content: "Hello world" }]
+      }
+    });
+
+    const commentResult = await getAgentBridgeComments();
+    expect(commentResult).toMatchObject({
+      site: "youtube",
+      video: { site: "youtube", bvid: ytId, cid: "yt", title: "YT Video" },
+      comments: [{ uname: "alice", like: 12, message: "nice" }]
+    });
+  });
 });

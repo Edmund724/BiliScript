@@ -1,7 +1,7 @@
 ---
 name: biliscript
 disable-model-invocation: true
-description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、热门评论和关键帧，用于视频总结、问答、内容分析与多模态理解。用户要求分析 B 站视频、BV 号或 bilibili.com 链接，或查看当前视频的字幕、评论、画面时使用。
+description: 通过本机 BiliScript 浏览器扩展读取 B 站与 YouTube 视频字幕、热门评论和关键帧，用于视频总结、问答、内容分析与多模态理解。用户要求分析 B 站或 YouTube 视频、BV 号、视频链接，或查看当前视频的字幕、评论、画面时使用。
 ---
 
 # BiliScript
@@ -22,29 +22,29 @@ description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、�
 
 按已知条件选择最短入口：
 
-- **已知 BV 号或 B 站链接**（链接中的分 P 参数 `?p=` 会保留）：直接跳至第 2 步并传入 `--bvid <BV/URL>`。
-- **分析当前活动视频标签页**：直接跳至第 2 步并省略目标参数。
+- **已知视频 ID 或链接**：直接跳至第 2 步并传入 `--bvid <ID/URL>`（或等价别名 `--video <ID/URL>`）。B 站支持 BV 号、带 `?p=` 分 P 参数的链接（含未打开标签页后台直拉）；YouTube 支持 `youtube.com/watch?v=...`、`youtu.be/...` 或 11 位视频 ID，且要求目标视频已在浏览器标签页中打开。
+- **分析当前活动视频标签页**（B 站或 YouTube）：直接跳至第 2 步并省略目标参数。
 - **需要从多个已打开标签页中选择**：先列出当前视频标签页（Daemon 快照超时 6 秒）：
 
 ```bash
 node "<skill-dir>/scripts/biliscript.mjs" tabs
 ```
 
-`tabs` 返回已打开视频的 `tabId`、`bvid`、`title`、`currentTime`、`duration` 与 `subtitlesReady`（当前活动标签带 `active: true`）。同时连接多个浏览器实例时，`tabs` 会聚合所有在线实例并分配不冲突的 `tabId`；`--tab` 路由到所属实例，`--bvid` 优先命中已打开该视频的实例，省略参数时优先选活动视频标签页。
+`tabs` 返回已打开视频的 `site`（`bilibili` | `youtube`）、`tabId`、`bvid`（B 站 BV 号或 YouTube 11 位原始 ID）、`title`、`currentTime`、`duration` 与 `subtitlesReady`（当前活动标签带 `active: true`）。同时连接多个浏览器实例时，`tabs` 会聚合所有在线实例并分配不冲突的 `tabId`；`--tab` 路由到所属实例，`--bvid` / `--video` 优先命中已打开该视频的实例，省略参数时优先选活动视频标签页。
 
-**完成判据**：已确定目标参数（`--bvid <BV/URL>`、`--tab <tabId>` 或省略以指向当前活动标签页）；若任务涉及当前播放进度，已记录对应的 `currentTime`。
+**完成判据**：已确定目标参数（`--bvid <ID/URL>`、`--video <ID/URL>`、`--tab <tabId>` 或省略以指向当前活动标签页）；若任务涉及当前播放进度，已记录对应的 `currentTime`。
 
 ### 2. 单趟拉取字幕与热评（长字幕按文件精读）
 
 执行单趟采集命令一次获取视频元信息（`video`）、分 P（`pages`）、章节（`chapters`）、字幕（`subtitle`）与最多 20 条热门评论及高赞楼中楼（`comments`）：
 
 ```bash
-node "<skill-dir>/scripts/biliscript.mjs" fetch [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]
+node "<skill-dir>/scripts/biliscript.mjs" fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]
 ```
 
 - **大字幕自动落盘精读**：当 `subtitle.items` 的 UTF-8 JSON 体积超过 **12 KiB（12288 字节）** 或显式指定 `--out <dir>` 时，CLI 会将字幕写入 `${bvid}(-p${page})-${batchId}.txt`（默认位于系统临时目录），每行格式为 `<时间> <文本>`（不补零，如 `2:30 内容`；末尾时间达 1 小时及以上时带小时位，如 `1:02:30 内容`），JSON 中的 `subtitle` 返回 `{ source, trackId, language, path, count, from, to }`。遇到 `subtitle.path` 时，使用文件读取或文本检索工具结合 `chapters` 时间段与 `count` 分段精读，或追加 `--from <sec> --to <sec>` 提取局部区间。
-- **无字幕自动转写与容错**：无原生字幕且扩展已启用 ASR 时自动转写并返回 `source: "asr"` 字幕；`fetch`、`subtitles`、`comments` 在 Bridge 与 CLI 侧均不设固定短超时，支持长视频与转写等待。热评请求失败时返回 `comments: []` 与 `commentsError`，字幕与元信息正常返回。
-- **单项补拉**：仅需补拉局部字幕或热评时，可单独调用 `subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]` 或 `comments [--tab <id>|--bvid <BV/URL>]`。
+- **无字幕自动转写与容错**：B 站视频无原生字幕且扩展已启用 ASR 时自动转写并返回 `source: "asr"` 字幕；YouTube 暂不支持无字幕 ASR 转写，且其原生/自动字幕均标 `source: "youtube"`。`fetch`、`subtitles`、`comments` 在 Bridge 与 CLI 侧均不设固定短超时，支持长视频与转写等待。热评请求失败时返回 `comments: []` 与 `commentsError`，字幕与元信息正常返回。
+- **单项补拉**：仅需补拉局部字幕或热评时，可单独调用 `subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]` 或 `comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]`。
 - **证据区分与时间锚点**：以 `subtitle` 和 `chapters` 作为视频内容事实依据，以 `comments` 作为观众观点与热点补充；整理要点时保留秒级时间锚点，便于下一步定位画面。
 
 **完成判据**：已获取完整的 `video`、`chapters`、`subtitle`（内联 `items` 或已用文件工具读取 `subtitle.path` 相关区间）及 `comments`（或已确认 `commentsError`），并列出需要核验画面的精确秒数。
@@ -54,10 +54,10 @@ node "<skill-dir>/scripts/biliscript.mjs" fetch [--tab <id>|--bvid <BV/URL>] [--
 依据用户问题、章节和字幕确定目标时间戳后再截取关键帧：
 
 ```bash
-# 已打开标签页的当前播放帧（不改变播放位置）
-node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] [--out <dir>]
+# 已打开标签页的当前播放帧（B 站 / YouTube 均支持，不改变播放位置）
+node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--out <dir>]
 
-# 指定时间点附近前、中、后三帧（t-2s、t、t+2s，边界处可能更少；未打开视频必传 --time）
+# 指定时间点附近前、中、后三帧（t-2s、t、t+2s，边界处可能更少；仅 B 站支持，未打开视频必传 --time）
 node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] --time <sec> [--out <dir>]
 ```
 

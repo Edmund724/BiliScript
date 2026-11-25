@@ -43,7 +43,7 @@ const SITE_CAPABILITIES: Record<SiteId, SiteCapabilities> = Object.freeze({
     supportsCurrentFrameCapture: true,
     supportsHistoricalFrameCapture: false,
     supportsHotComments: true,
-    supportsAgentBridge: false,
+    supportsAgentBridge: true,
     supportsMultiPage: false
   })
 });

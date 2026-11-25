@@ -468,6 +468,19 @@ describe("桌面 Agent CLI 端到端", () => {
     })).rejects.toThrow("拒绝连接");
   });
 
+  it("支持 --video 别名并转发 YouTube 视频链接", async () => {
+    extensionRequests.length = 0;
+    const ytUrl = "https://www.youtube.com/watch?v=abc_def-123";
+    const result = await runCli("subtitles", ["--video", ytUrl]);
+    expect(result).toMatchObject({ ok: true, command: "subtitles" });
+    expect(extensionRequests).toContainEqual({
+      type: "request",
+      id: expect.any(String),
+      command: "subtitles",
+      options: { bvid: ytUrl }
+    });
+  });
+
   it("空闲超时后自动退出", async () => {
     extension?.close();
     extension = null;

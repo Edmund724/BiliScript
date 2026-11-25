@@ -1,10 +1,12 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
+import type { SiteId } from "../shared/site.js";
 
 export const AGENT_BRIDGE_URL = DEFAULT_SETTINGS.agentBridgeUrl;
 export const AGENT_BRIDGE_PROTOCOL = "biliscript-extension-v1";
 export const AGENT_BRIDGE_ALARM = "biliscript-agent-bridge-reconnect";
 
 export interface AgentBridgeTabSnapshot {
+  site?: SiteId;
   tabId: number;
   bvid: string;
   cid: string;
@@ -34,6 +36,7 @@ export interface AgentBridgeFrame {
 }
 
 export interface AgentBridgeFramesResult {
+  site?: SiteId;
   bvid: string;
   cid: string;
   frames: AgentBridgeFrame[];
@@ -59,6 +62,7 @@ export interface AgentBridgeSubtitleItem {
 }
 
 export interface AgentBridgeVideo {
+  site?: SiteId;
   bvid: string;
   aid: string;
   cid: string;
@@ -121,9 +125,17 @@ export interface AgentBridgeFetchResult {
 }
 
 export interface AgentBridgeContentSubtitlesResult {
+  site?: SiteId;
   bvid: string;
   cid: string;
   pageIndex: number;
+  video?: AgentBridgeVideo;
   chapters: AgentBridgeChapter[];
   subtitle: AgentBridgeSubtitle;
+}
+
+export interface AgentBridgeContentCommentsResult {
+  site?: SiteId;
+  video: AgentBridgeVideo;
+  comments: AgentBridgeComment[];
 }
