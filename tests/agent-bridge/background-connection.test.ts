@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createAgentBridge, listAgentBridgeTabs, testAgentBridgeConnection } from "../../extension/agent-bridge/background.js";
+import { createAgentBridge, testAgentBridgeConnection } from "../../extension/agent-bridge/background.js";
 import { AGENT_BRIDGE_ALARM } from "../../extension/agent-bridge/protocol.js";
 import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../../extension/core/validators.js";
 
@@ -43,6 +43,10 @@ class FakeWebSocket extends EventTarget {
     const event = new Event("close");
     this.dispatchEvent(event);
     this.onclose?.(event);
+  }
+
+  receive(data: string): void {
+    this.onmessage?.(new MessageEvent("message", { data }));
   }
 }
 
@@ -242,31 +246,29 @@ describe("Agent Bridge 连接", () => {
     }
   });
 
-  it("listAgentBridgeTabs 标记当前窗口活动视频标签页为 active", async () => {
-    const prevChrome = globalThis.chrome;
-    const allTabs = [
-      { id: 10, url: "https://www.bilibili.com/video/BV1one000001/", title: "后台", active: false },
-      { id: 20, url: "https://www.bilibili.com/video/BV1two000002/", title: "活动", active: true }
-    ];
-    vi.stubGlobal("chrome", {
-      ...prevChrome,
-      tabs: {
-        query: vi.fn(async (queryInfo: { active?: boolean }) =>
-          queryInfo.active ? [allTabs[1]] : allTabs
-        ),
-        sendMessage: vi.fn((_tabId: number, _msg: unknown, callback: (res: unknown) => void) => {
-          callback({ ok: false });
-        })
-      }
+  it("收到 request 线消息后委托 router.execute 并回传成功或失败响应", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ tabs: [] })
+      .mockRejectedValueOnce(new Error("命令执行失败"));
+
+    const bridge = createAgentBridge({
+      getConfig: async () => ({ enabled: true, url: "ws://127.0.0.1:18492" }),
+      router: { execute }
     });
-    try {
-      const result = await listAgentBridgeTabs();
-      expect(result.tabs).toHaveLength(2);
-      expect(result.tabs[0]).toMatchObject({ tabId: 10, bvid: "BV1one000001" });
-      expect(result.tabs[0].active).toBeUndefined();
-      expect(result.tabs[1]).toMatchObject({ tabId: 20, bvid: "BV1two000002", active: true });
-    } finally {
-      vi.stubGlobal("chrome", prevChrome);
-    }
+    await bridge.sync();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+
+    ws.receive("{not-json");
+    ws.receive(JSON.stringify({ type: "ping" }));
+    ws.receive(JSON.stringify({ type: "request", id: "req-1", command: "tabs", options: { tabId: 3 } }));
+    ws.receive(JSON.stringify({ type: "request", id: "req-2", command: "bad" }));
+
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(3));
+    expect(execute).toHaveBeenNthCalledWith(1, "tabs", { tabId: 3 });
+    expect(execute).toHaveBeenNthCalledWith(2, "bad", undefined);
+    expect(JSON.parse(ws.sent[1])).toEqual({ type: "response", id: "req-1", ok: true, result: { tabs: [] } });
+    expect(JSON.parse(ws.sent[2])).toEqual({ type: "response", id: "req-2", ok: false, error: "命令执行失败" });
   });
 });

@@ -150,17 +150,23 @@ function resolveVideo(meta: VideoMeta, pageIndex = 1, cid = ""): ResolvedVideo {
   };
 }
 
-function validateRange(from = 0, to = Number.POSITIVE_INFINITY): void {
+export function validateSubtitleRange(from = 0, to = Number.POSITIVE_INFINITY): void {
   if (!Number.isFinite(from) || from < 0 || (!(to === Number.POSITIVE_INFINITY) && (!Number.isFinite(to) || to < 0))) {
     throw new Error("--from 与 --to 必须是非负秒数");
   }
   if (to < from) throw new Error("--to 不能小于 --from");
 }
 
-function filterRange(items: AgentBridgeSubtitleItem[], from = 0, to = Number.POSITIVE_INFINITY): AgentBridgeSubtitleItem[] {
-  validateRange(from, to);
+export function filterSubtitleRange(
+  items: AgentBridgeSubtitleItem[],
+  from = 0,
+  to = Number.POSITIVE_INFINITY
+): AgentBridgeSubtitleItem[] {
+  validateSubtitleRange(from, to);
   return items.filter((item) => item.to >= from && item.from <= to);
 }
+
+export type AgentBridgeVideoService = ReturnType<typeof createAgentBridgeVideoService>;
 
 export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps = {}) {
   const transport = deps.transport || bgFetchJson;
@@ -297,7 +303,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       query: AgentBridgeSubtitleQuery,
       content: AgentBridgeContentSubtitlesResult
     ): Promise<AgentBridgeSubtitlesResult> {
-      validateRange(query.from, query.to);
+      validateSubtitleRange(query.from, query.to);
       const resolved = await resolve(query.bvid, content.pageIndex, content.cid);
       return {
         video: resolved.video,
@@ -305,13 +311,13 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
         chapters: content.chapters,
         subtitle: {
           ...content.subtitle,
-          items: filterRange(content.subtitle.items, query.from, query.to)
+          items: filterSubtitleRange(content.subtitle.items, query.from, query.to)
         }
       };
     },
 
     async getSubtitles(query: AgentBridgeSubtitleQuery): Promise<AgentBridgeSubtitlesResult> {
-      validateRange(query.from, query.to);
+      validateSubtitleRange(query.from, query.to);
       const resolved = await resolve(query.bvid, query.pageIndex, query.cid);
       const { chapters, subtitle } = await loadSubtitleForResolved(resolved);
       return {
@@ -320,7 +326,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
         chapters,
         subtitle: {
           ...subtitle,
-          items: filterRange(subtitle.items, query.from, query.to)
+          items: filterSubtitleRange(subtitle.items, query.from, query.to)
         }
       };
     },
@@ -337,7 +343,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       query: AgentBridgeSubtitleQuery,
       loadContentSubtitles?: () => Promise<AgentBridgeContentSubtitlesResult | null>
     ): Promise<AgentBridgeFetchResult> {
-      validateRange(query.from, query.to);
+      validateSubtitleRange(query.from, query.to);
       const metaTask = fetchVideoMeta(transport, query.bvid);
       const contentTask = loadContentSubtitles ? loadContentSubtitles() : Promise.resolve(null);
       const commentsTask = metaTask.then(
@@ -368,7 +374,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
         chapters,
         subtitle: {
           ...subtitle,
-          items: filterRange(subtitle.items, query.from, query.to)
+          items: filterSubtitleRange(subtitle.items, query.from, query.to)
         },
         comments,
         ...(commentsError ? { commentsError } : {})
