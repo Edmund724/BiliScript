@@ -355,8 +355,7 @@ describe("player-interpret: 仿原生字幕菜单与控制栏联动", () => {
     let interpretState = "idle";
     let availability = { ok: false, error: "未配置 MOSS-LIVE 密钥" };
     const controller = {
-      getState: () => interpretState,
-      getAvailability: () => availability
+      getSnapshot: () => ({ state: interpretState, availability })
     } as any;
 
     syncPlayerInterpretQuickActionState(controller, false);

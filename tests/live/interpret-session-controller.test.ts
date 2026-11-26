@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { state, clipState } from "../../extension/core/state.js";
+import { acceptSecondarySubtitle, acceptSubtitle } from "../../extension/subtitle/commit.js";
+import {
+  buildTranslationSignature,
+  configureSubtitleCacheStoreForTests,
+  createSubtitleIdbStore
+} from "../../extension/subtitle/cache.js";
 import {
   createInterpretSessionController,
   PAUSE_TIMEOUT_MS
 } from "../../extension/live/interpret-session-controller.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 import type { TranslateSubtitleTrackResult } from "../../extension/ai/subtitle-translate.js";
+import type { LiveInterpretTargetLang } from "../../extension/live/interpret-subtitle-preferences.js";
 import { contentEventBus } from "../../extension/shared/content-event-bus.js";
 
 function asTrackResult(
@@ -20,6 +28,7 @@ function asTrackResult(
 beforeEach(() => {
   resetModuleState();
   vi.useRealTimers();
+  state.setSettings({ ...DEFAULT_SETTINGS });
   clipState.setBvid("BV1test000000");
   clipState.setCid("123456");
   clipState.setVideoDuration(300);
@@ -29,7 +38,12 @@ beforeEach(() => {
   clipState.setSubtitles([]);
 });
 
-describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译管线)", () => {
+afterEach(() => {
+  configureSubtitleCacheStoreForTests(null);
+  vi.restoreAllMocks();
+});
+
+describe("InterpretSessionController (深化命令接口与 4 端口)", () => {
   function setupTest(overrides: {
     runAsr?: (args: any) => Promise<any>;
     translateTrack?: (args: any) => Promise<TranslateSubtitleTrackResult>;
@@ -37,10 +51,10 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     saveCache?: (key: string, body: unknown[]) => Promise<any>;
     clearTranslatedCache?: (args: { bvid: string; cid: string }) => Promise<string[]>;
     resolveTranslateProvider?: () => Promise<any>;
+    loadNativePrimaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
+    loadNativeSecondaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
     currentTime?: number;
     paused?: boolean;
-    targetLang?: string;
-    displayMode?: "auto" | "translation" | "bilingual";
   } = {}) {
     const video = document.createElement("video");
     let currentTimeVal = overrides.currentTime ?? 0;
@@ -62,71 +76,106 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
     const showNotice = vi.fn();
     const setSubtitle = vi.fn();
-    const clearSubtitles = vi.fn();
-    const clearSubtitlesOnSeek = vi.fn();
+    const clear = vi.fn();
+    const clearForSeek = vi.fn();
+    const syncAppearance = vi.fn();
+    const setSessionGeneration = vi.fn();
     const onStateChange = vi.fn();
     const onAvailabilityChange = vi.fn();
+    const saveSettings = vi.fn();
 
     const runAsr = overrides.runAsr || vi.fn(async () => []);
-    const translateTrack = vi.fn(overrides.translateTrack || (async ({ items }) => {
-      const list = items || [];
-      return asTrackResult(
-        list.map((it: any) => ({
-          from: it.from,
-          to: it.to,
-          content: `译: ${it.content}`
-        })),
-        list
-      );
-    }));
+    const translateTrack = vi.fn(
+      overrides.translateTrack ||
+        (async ({ items, targetLang }) => {
+          const list = items || [];
+          return asTrackResult(
+            list.map((it: any) => ({
+              from: it.from,
+              to: it.to,
+              content: targetLang && targetLang !== "zh" ? `[${targetLang}] ${it.content}` : `译: ${it.content}`
+            })),
+            list
+          );
+        })
+    );
     const cacheStorage = new Map<string, unknown[]>();
-    const loadCache = overrides.loadCache || vi.fn(async (key: string) => (cacheStorage.get(key) as SubtitleBodyItem[] | undefined) || null);
-    const saveCache = overrides.saveCache || vi.fn(async (key: string, body: unknown[]) => {
-      cacheStorage.set(key, body);
-      return { ok: true };
-    });
+    const loadCache =
+      overrides.loadCache ||
+      vi.fn(async (key: string) => (cacheStorage.get(key) as SubtitleBodyItem[] | undefined) || null);
+    const saveCache =
+      overrides.saveCache ||
+      vi.fn(async (key: string, body: unknown[]) => {
+        cacheStorage.set(key, body);
+        return { ok: true };
+      });
     const clearTranslatedCache = overrides.clearTranslatedCache || vi.fn(async () => []);
-    const resolveTranslateProvider = overrides.resolveTranslateProvider || vi.fn(async () => ({
-      provider: { id: "test-ai", name: "Test AI", baseUrl: "https://api.test", models: ["m1"], enabled: true },
-      apiKey: "sk-test",
-      baseUrl: "https://api.test",
-      model: "m1",
-      presetId: "custom",
-      isFallback: false
-    }));
-
+    const resolveTranslateProvider =
+      overrides.resolveTranslateProvider ||
+      vi.fn(async () => ({
+        provider: {
+          id: "test-ai",
+          name: "Test AI",
+          baseUrl: "https://api.test",
+          models: ["m1"],
+          enabled: true
+        },
+        apiKey: "sk-test",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      }));
     const loadAsrProviders = vi.fn(async () => [
       { id: "mock-asr", name: "Mock ASR", enabled: true, hasSavedKey: true, model: "whisper-1" }
     ]);
 
     const controller = createInterpretSessionController({
-      getVideoElement: () => video,
-      getTargetLang: () => overrides.targetLang || "zh",
-      getDisplayMode: () => overrides.displayMode || "bilingual",
-      showNotice,
-      setSubtitle,
-      clearSubtitles,
-      clearSubtitlesOnSeek,
-      onStateChange,
-      onAvailabilityChange,
-      runAsr,
-      translateTrack,
-      loadCache,
-      saveCache,
-      clearTranslatedCache,
-      resolveTranslateProvider,
-      loadAsrProviders
+      video: { getElement: () => video },
+      overlay: {
+        setSubtitle,
+        clear,
+        clearForSeek,
+        showNotice,
+        syncAppearance,
+        setSessionGeneration,
+        onStateChange,
+        onAvailabilityChange
+      },
+      storage: {
+        loadCache,
+        saveCache,
+        clearTranslatedCache,
+        saveSettings
+      },
+      media: {
+        runAsr,
+        translateTrack,
+        resolveTranslateProvider,
+        loadAsrProviders,
+        loadNativePrimaryTrack: overrides.loadNativePrimaryTrack,
+        loadNativeSecondaryTrack: overrides.loadNativeSecondaryTrack
+      }
     });
+
+    const startTranslate = (
+      targetLang: LiveInterpretTargetLang = "zh",
+      displayMode: "bilingual" | "translation" = "bilingual"
+    ) => controller.applyMode({ kind: "translate", displayMode, targetLang });
 
     return {
       controller,
+      startTranslate,
       video,
       showNotice,
       setSubtitle,
-      clearSubtitles,
-      clearSubtitlesOnSeek,
+      clear,
+      clearForSeek,
+      syncAppearance,
+      setSessionGeneration,
       onStateChange,
       onAvailabilityChange,
+      saveSettings,
       runAsr,
       translateItems: translateTrack,
       loadCache,
@@ -168,7 +217,15 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       const { resolveSubtitleTranslateProvider } = await import("../../extension/ai/subtitle-translate.js");
       let settingsState: Record<string, unknown> = {};
       const customProviders = [
-        { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat"], requiresKey: true, hasSavedKey: false, enabled: true }
+        {
+          id: "deepseek",
+          name: "DeepSeek",
+          baseUrl: "https://api.deepseek.com/v1",
+          models: ["deepseek-chat"],
+          requiresKey: true,
+          hasSavedKey: false,
+          enabled: true
+        }
       ];
 
       const { controller } = setupTest({
@@ -237,7 +294,86 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     });
   });
 
-  describe("缓存命中短路", () => {
+  describe("模式切换、重启编排与跨视频自动复位", () => {
+    it("原生双语 -> AI 精翻 -> 返回原生双语，以及跨视频自动复位 aiRefineMode", async () => {
+      const enTrack = {
+        id: "cc-en",
+        lan: "en-US",
+        lanDoc: "English",
+        subtitleUrl: "https://sub.test/en.json",
+        source: "player" as const
+      };
+      const zhTrack = {
+        id: "cc-zh",
+        lan: "zh-CN",
+        lanDoc: "中文（简体）",
+        subtitleUrl: "https://sub.test/zh.json",
+        source: "player" as const
+      };
+      clipState.setSubtitles([enTrack, zhTrack] as never);
+      await acceptSubtitle({
+        body: [{ from: 0, to: 10, content: "Hello world" }],
+        selectedSubtitleId: enTrack.id,
+        selectedSubtitleUrl: enTrack.subtitleUrl,
+        selectedSubtitleLang: enTrack.lanDoc,
+        skipHotComments: true
+      });
+
+      const { controller, translateItems, setSubtitle } = setupTest({
+        currentTime: 2,
+        loadNativeSecondaryTrack: async (target) => {
+          await acceptSecondarySubtitle({
+            body: [{ from: 0, to: 10, content: "原生中文" }],
+            subtitleId: target.id,
+            subtitleUrl: target.url
+          });
+        }
+      });
+
+      expect(controller.getSnapshot().nativePairAvailable).toBe(true);
+      expect(controller.getSnapshot().aiRefineMode).toBe("off");
+
+      expect(await controller.applyMode("native-bilingual")).toBe(true);
+      expect(controller.getSnapshot().state).toBe("connected");
+      expect(translateItems).not.toHaveBeenCalled();
+      expect(setSubtitle).toHaveBeenLastCalledWith("Hello world", "原生中文", expect.any(Number));
+
+      expect(await controller.applyMode({ kind: "ai-refine", refineMode: "manual-refine" })).toBe(true);
+      expect(controller.getSnapshot().aiRefineMode).toBe("manual-refine");
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(setSubtitle).toHaveBeenLastCalledWith("Hello world", "译: Hello world", expect.any(Number))
+      );
+
+      clipState.setBvid("BV1nextVideo00");
+      contentEventBus.emit("host:url-change", { url: location.href });
+      expect(controller.getSnapshot().state).toBe("idle");
+      expect(controller.getSnapshot().aiRefineMode).toBe("off");
+    });
+
+    it("同语种切 displayMode 仅触发 syncAppearance 不重启；切换目标语种自动重启翻译", async () => {
+      clipState.setSubtitleBody([{ from: 0, to: 10, content: "Hello" }]);
+      clipState.setSubtitleFetchState("ready");
+
+      const { controller, startTranslate, syncAppearance, translateItems } = setupTest({ currentTime: 2 });
+
+      expect(await startTranslate("zh", "bilingual")).toBe(true);
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(1));
+      const genAfterStart = controller.getSnapshot().generation;
+
+      await controller.applyMode({ kind: "translate", displayMode: "translation", targetLang: "zh" });
+      expect(syncAppearance).toHaveBeenCalledTimes(1);
+      expect(controller.getSnapshot().generation).toBe(genAfterStart);
+      expect(translateItems).toHaveBeenCalledTimes(1);
+
+      await controller.applyMode({ kind: "translate", displayMode: "bilingual", targetLang: "ja" });
+      expect(controller.getSnapshot().generation).toBeGreaterThan(genAfterStart);
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
+      expect(translateItems.mock.calls[1]?.[0]).toMatchObject({ targetLang: "ja" });
+    });
+  });
+
+  describe("缓存命中短路与签名重查", () => {
     it("主轨与副轨全命中时零网络请求挂载并渲染", async () => {
       const primaryMock: SubtitleBodyItem[] = [
         { from: 0, to: 10, content: "Hello chunk 0" },
@@ -248,7 +384,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         { from: 65, to: 75, content: "你好 分片 1" }
       ];
 
-      const { controller, runAsr, translateItems, setSubtitle } = setupTest({
+      const { controller, startTranslate, runAsr, translateItems, setSubtitle } = setupTest({
         loadCache: vi.fn(async (key: string) => {
           if (key.includes("id_asr:")) return primaryMock;
           if (key.includes("translate-")) return secondaryMock;
@@ -257,18 +393,121 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         currentTime: 5
       });
 
-      const started = await controller.start();
+      const started = await startTranslate("zh", "bilingual");
       expect(started).toBe(true);
-      expect(controller.getState()).toBe("connected");
-
+      expect(controller.getSnapshot().state).toBe("connected");
       expect(runAsr).not.toHaveBeenCalled();
       expect(translateItems).not.toHaveBeenCalled();
 
       expect(state.clip.subtitleBody).toEqual(primaryMock);
       expect(state.clip.secondarySubtitle.body).toEqual(secondaryMock);
       expect(state.clip.selectedSubtitleId).toBe("asr");
+      expect(setSubtitle).toHaveBeenCalledWith("Hello chunk 0", "你好 分片 0", expect.any(Number));
+    });
 
-      expect(setSubtitle).toHaveBeenCalledWith("Hello chunk 0", "你好 分片 0");
+    it("ASR 主轨部分命中且翻译器加载后签名变化时，自动重查精确签名缓存跳过重复翻译", async () => {
+      const idbStore = createSubtitleIdbStore({ indexedDB: null });
+      configureSubtitleCacheStoreForTests(idbStore);
+
+      const primaryMock: SubtitleBodyItem[] = [
+        { from: 0, to: 10, content: "Chunk 0 line." },
+        { from: 65, to: 75, content: "Chunk 1 line." }
+      ];
+      clipState.setSubtitleBody(primaryMock);
+      clipState.setSubtitleFetchState("ready");
+
+      const sourceText = primaryMock.map((i) => i.content).join("\n");
+      const oldSig = buildTranslationSignature({
+        model: "m1",
+        protocolVersion: "boundary-v3",
+        targetLang: "zh-CN",
+        sourceText
+      });
+      const newSig = buildTranslationSignature({
+        model: "m1",
+        protocolVersion: "cc-json",
+        targetLang: "zh-CN",
+        sourceText
+      });
+
+      await idbStore.upsertTranslatedTrack({
+        bvid: "BV1test000000",
+        cid: "123456",
+        sourceTrackKey: "asr",
+        targetLang: "zh-CN",
+        translationSig: oldSig,
+        mode: "boundary-v3",
+        items: [{ from: 0, to: 10, content: "旧签名仅分片0" }]
+      });
+      await idbStore.upsertTranslatedTrack({
+        bvid: "BV1test000000",
+        cid: "123456",
+        sourceTrackKey: "asr",
+        targetLang: "zh-CN",
+        translationSig: newSig,
+        mode: "cc-json",
+        items: [
+          { from: 0, to: 10, content: "新签名分片0" },
+          { from: 65, to: 75, content: "新签名分片1" }
+        ]
+      });
+
+      const translateSpy = vi.fn();
+      vi.doMock("../../extension/ai/subtitle-translate.js", async () => {
+        const actual = await vi.importActual<typeof import("../../extension/ai/subtitle-translate.js")>(
+          "../../extension/ai/subtitle-translate.js"
+        );
+        return {
+          ...actual,
+          resolveSubtitleTranslateProtocolMode: () => "cc-json" as const,
+          translateSubtitleTrack: translateSpy
+        };
+      });
+
+      try {
+        vi.resetModules();
+        const freshCache = await import("../../extension/subtitle/cache.js");
+        const freshState = await import("../../extension/core/state.js");
+        const freshCtrl = await import("../../extension/live/interpret-session-controller.js");
+        freshCache.configureSubtitleCacheStoreForTests(idbStore);
+        freshState.state.setSettings({ ...DEFAULT_SETTINGS });
+        freshState.clipState.setBvid("BV1test000000");
+        freshState.clipState.setCid("123456");
+        freshState.clipState.setSubtitleBody(primaryMock);
+        freshState.clipState.setSubtitleFetchState("ready");
+
+        const video = document.createElement("video");
+        Object.defineProperty(video, "currentTime", { value: 68, writable: true, configurable: true });
+        const setSubtitle = vi.fn();
+
+        const controller = freshCtrl.createInterpretSessionController({
+          video: { getElement: () => video },
+          overlay: { setSubtitle, clear: vi.fn() },
+          storage: { saveSettings: vi.fn() },
+          media: {
+            resolveTranslateProvider: vi.fn(async () => ({
+              provider: { id: "test-ai", name: "Test AI", baseUrl: "https://api.test", models: ["m1"], enabled: true },
+              apiKey: "sk-test",
+              baseUrl: "https://api.test",
+              model: "m1",
+              presetId: "custom",
+              isFallback: false
+            })) as never,
+            loadAsrProviders: vi.fn(async () => [
+              { id: "mock-asr", name: "Mock ASR", enabled: true, hasSavedKey: true, model: "whisper-1" }
+            ])
+          }
+        });
+
+        expect(
+          await controller.applyMode({ kind: "translate", displayMode: "bilingual", targetLang: "zh" })
+        ).toBe(true);
+        expect(translateSpy).not.toHaveBeenCalled();
+        expect(setSubtitle).toHaveBeenCalledWith("Chunk 1 line.", "新签名分片1", expect.any(Number));
+        controller.dispose();
+      } finally {
+        vi.doUnmock("../../extension/ai/subtitle-translate.js");
+      }
     });
 
     it("主轨已就绪仅缺译文时跳过 ASR，按窗口调度 LLM 翻译", async () => {
@@ -279,12 +518,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       clipState.setSubtitleBody(primaryMock);
       clipState.setSubtitleFetchState("ready");
 
-      const { controller, runAsr, translateItems } = setupTest({
-        currentTime: 0
-      });
+      const { startTranslate, runAsr, translateItems } = setupTest({ currentTime: 0 });
 
-      const started = await controller.start();
-      expect(started).toBe(true);
+      expect(await startTranslate("zh", "bilingual")).toBe(true);
       expect(runAsr).not.toHaveBeenCalled();
       await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
       expect(translateItems).toHaveBeenCalledWith(
@@ -304,7 +540,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         { from: 130, to: 140, content: "S2" }
       ];
 
-      const { controller, video, setSubtitle, clearSubtitlesOnSeek } = setupTest({
+      const { startTranslate, video, setSubtitle, clearForSeek } = setupTest({
         loadCache: vi.fn(async (key: string) => {
           if (key.includes("id_asr:")) return primaryMock;
           if (key.includes("translate-")) return secondaryMock;
@@ -313,14 +549,14 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         currentTime: 0
       });
 
-      await controller.start();
-      expect(setSubtitle).toHaveBeenCalledWith("P0", "S0");
+      await startTranslate("zh", "bilingual");
+      expect(setSubtitle).toHaveBeenCalledWith("P0", "S0", expect.any(Number));
 
       video.currentTime = 135;
       video.dispatchEvent(new Event("seeking"));
 
-      expect(clearSubtitlesOnSeek).toHaveBeenCalled();
-      expect(setSubtitle).toHaveBeenCalledWith("P2", "S2");
+      expect(clearForSeek).toHaveBeenCalled();
+      expect(setSubtitle).toHaveBeenCalledWith("P2", "S2", expect.any(Number));
     });
 
     it("Seek 到未就绪分片时给出轻量提示并推进调度", async () => {
@@ -330,11 +566,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       ]);
       clipState.setSubtitleFetchState("ready");
 
-      const { controller, video, showNotice, translateItems } = setupTest({
-        currentTime: 0
-      });
+      const { startTranslate, video, showNotice, translateItems } = setupTest({ currentTime: 0 });
 
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       translateItems.mockClear();
 
       video.currentTime = 255;
@@ -346,7 +580,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
   });
 
   describe("增量主/副轨合并与热评防重", () => {
-    it("分片逐片到达时增量合入主/副轨并落盘缓存，不重复触发热评；新 ASR 主轨持久化时仅失效旧译文一次", async () => {
+    it("分片逐片到达时增量合入主/副轨并落盘缓存；新 ASR 主轨持久化时仅失效旧译文一次", async () => {
       let chunkCb: any = null;
       const callOrder: string[] = [];
       const saveCache = vi.fn(async () => {
@@ -357,7 +591,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         callOrder.push("clearTranslatedCache");
         return [];
       });
-      const { controller, runAsr } = setupTest({
+      const { startTranslate, runAsr } = setupTest({
         saveCache,
         clearTranslatedCache,
         runAsr: vi.fn(async (args: any) => {
@@ -365,7 +599,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         })
       });
 
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       expect(runAsr).toHaveBeenCalled();
       expect(chunkCb).toBeDefined();
 
@@ -374,9 +608,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         [{ from: 0, to: 10, content: "Chunk 0 ASR" }]
       );
 
-      expect(state.clip.subtitleBody).toEqual([
-        { from: 0, to: 10, content: "Chunk 0 ASR" }
-      ]);
+      expect(state.clip.subtitleBody).toEqual([{ from: 0, to: 10, content: "Chunk 0 ASR" }]);
       expect(state.clip.secondarySubtitle.body).toEqual([
         { from: 0, to: 10, content: "译: Chunk 0 ASR" }
       ]);
@@ -395,69 +627,62 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     it("主轨已存在（只走翻译路径）时不失效其他语言的译文缓存", async () => {
       clipState.setSubtitleBody([{ from: 0, to: 10, content: "Existing ASR" }]);
       clipState.setSubtitleFetchState("ready");
-      const { controller, clearTranslatedCache, saveCache } = setupTest({
-        targetLang: "ja"
-      });
+      const { startTranslate, clearTranslatedCache, saveCache } = setupTest();
 
-      await controller.start();
+      await startTranslate("ja", "bilingual");
       await vi.waitFor(() => expect(saveCache).toHaveBeenCalled());
       expect(clearTranslatedCache).not.toHaveBeenCalled();
     });
   });
 
   describe("中止与清理", () => {
-    it("手动 stop 清理浮层与监听，保留已有缓存", async () => {
-      const { controller, clearSubtitles, setSubtitle, onStateChange } = setupTest();
-      await controller.start();
-      expect(controller.getState()).toBe("connected");
+    it("applyMode('off') 清理浮层与监听，保留已有缓存", async () => {
+      const { controller, startTranslate, clear, setSubtitle, onStateChange } = setupTest();
+      await startTranslate("zh", "bilingual");
+      expect(controller.getSnapshot().state).toBe("connected");
 
-      await controller.stop();
-      expect(controller.getState()).toBe("idle");
-      expect(clearSubtitles).toHaveBeenCalled();
-      expect(setSubtitle).toHaveBeenCalledWith("", "");
-      expect(onStateChange).toHaveBeenCalledWith("idle");
+      await controller.applyMode("off");
+      expect(controller.getSnapshot().state).toBe("idle");
+      expect(clear).toHaveBeenCalled();
+      expect(setSubtitle).toHaveBeenCalledWith("", "", expect.any(Number));
+      expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ state: "idle" }));
     });
 
     it("暂停超过 5 分钟自动关闭并提示", async () => {
       vi.useFakeTimers();
-      const { controller, video, showNotice } = setupTest();
-      await controller.start();
+      const { controller, startTranslate, video, showNotice } = setupTest();
+      await startTranslate("zh", "bilingual");
 
       (video as any).paused = true;
       video.dispatchEvent(new Event("pause"));
 
       vi.advanceTimersByTime(PAUSE_TIMEOUT_MS - 1000);
-      expect(controller.getState()).toBe("connected");
+      expect(controller.getSnapshot().state).toBe("connected");
 
       vi.advanceTimersByTime(2000);
-      expect(controller.getState()).toBe("idle");
-      expect(showNotice).toHaveBeenCalledWith(
-        "视频暂停超过 5 分钟，实时翻译已自动关闭",
-        6000
-      );
+      expect(controller.getSnapshot().state).toBe("idle");
+      expect(showNotice).toHaveBeenCalledWith("视频暂停超过 5 分钟，实时翻译已自动关闭", 6000);
     });
 
     it("页面切换/URL 改变自动中止当前会话", async () => {
-      const { controller } = setupTest();
-      await controller.start();
-      expect(controller.getState()).toBe("connected");
+      const { controller, startTranslate } = setupTest();
+      await startTranslate("zh", "bilingual");
+      expect(controller.getSnapshot().state).toBe("connected");
 
       clipState.setBvid("BV1newVideo999");
       contentEventBus.emit("host:url-change", { url: location.href });
 
-      expect(controller.getState()).toBe("idle");
+      expect(controller.getSnapshot().state).toBe("idle");
     });
 
     it("单片翻译失败后进入 15s 冷却期并提示，期间 timeupdate 不重复风暴重试；超时后可重试", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-11-15T00:00:00Z"));
-      clipState.setSubtitleBody([
-        { from: 0, to: 5, content: "Hello" }
-      ]);
+      clipState.setSubtitleBody([{ from: 0, to: 5, content: "Hello" }]);
       clipState.setSubtitleFetchState("ready");
 
       let calls = 0;
-      const { controller, video, showNotice, translateItems } = setupTest({
+      const { startTranslate, video, showNotice, translateItems } = setupTest({
         translateTrack: async ({ items }) => {
           calls += 1;
           if (calls === 1) throw new Error("rate limit");
@@ -469,7 +694,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         }
       });
 
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       await vi.waitFor(() =>
         expect(showNotice).toHaveBeenCalledWith("当前片段字幕翻译失败，将保留原文", 3000)
       );
@@ -489,14 +714,14 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
     });
 
-    it("空间隙期间有主轨时不显示转写提示；无主轨时节流每 2s 至多提示一次", async () => {
+    it("空间隙期间无主轨时节流每 2s 至多提示一次", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-11-15T00:00:00Z"));
 
-      const { controller, video, showNotice } = setupTest({
+      const { startTranslate, video, showNotice } = setupTest({
         runAsr: async () => new Promise(() => {})
       });
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       showNotice.mockClear();
 
       video.currentTime = 1;
@@ -525,7 +750,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       const chunkResolvers = new Map<number, (result: TranslateSubtitleTrackResult) => void>();
       const cueEmitters = new Map<number, (cue: any) => void>();
 
-      const { controller, setSubtitle } = setupTest({
+      const { startTranslate, setSubtitle } = setupTest({
         currentTime: 5,
         translateTrack: ({ items, onCueReady }: any) => {
           const chunkIdx = Math.floor((items[0]?.from || 0) / 60);
@@ -536,9 +761,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         }
       });
 
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       await vi.waitFor(() => expect(cueEmitters.has(0)).toBe(true));
-      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "");
+      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "", expect.any(Number));
       setSubtitle.mockClear();
 
       cueEmitters.get(0)!({
@@ -560,13 +785,15 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         translation: "流式译文0-首句"
       });
       expect(setSubtitle).toHaveBeenCalledTimes(1);
-      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "流式译文0-首句");
+      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "流式译文0-首句", expect.any(Number));
       setSubtitle.mockClear();
 
-      chunkResolvers.get(0)!(asTrackResult([
-        { from: 0, to: 10, content: "流式译文0-首句" },
-        { from: 12, to: 20, content: "流式译文0-后句" }
-      ]));
+      chunkResolvers.get(0)!(
+        asTrackResult([
+          { from: 0, to: 10, content: "流式译文0-首句" },
+          { from: 12, to: 20, content: "流式译文0-后句" }
+        ])
+      );
       await vi.waitFor(() => expect(cueEmitters.has(1)).toBe(true));
       setSubtitle.mockClear();
 
@@ -586,14 +813,14 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(setSubtitle).not.toHaveBeenCalled();
     });
 
-    it("会话 stop 推进代次后，迟到的流式 onCueReady 回调被拦截，不污染浮层或副轨槽", async () => {
+    it("会话 applyMode('off') 推进代次后，迟到的流式 onCueReady 回调被拦截，不污染浮层或副轨槽", async () => {
       clipState.setSubtitleBody([{ from: 0, to: 10, content: "P0" }]);
       clipState.setSubtitleFetchState("ready");
 
       let staleOnCueReady: ((cue: any) => void) | undefined;
       let releaseChunk!: (result: TranslateSubtitleTrackResult) => void;
 
-      const { controller, setSubtitle } = setupTest({
+      const { controller, startTranslate, setSubtitle } = setupTest({
         currentTime: 5,
         translateTrack: ({ onCueReady }: any) => {
           staleOnCueReady = onCueReady;
@@ -603,10 +830,10 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         }
       });
 
-      await controller.start();
+      await startTranslate("zh", "bilingual");
       await vi.waitFor(() => expect(staleOnCueReady).toBeDefined());
 
-      await controller.stop();
+      await controller.applyMode("off");
       setSubtitle.mockClear();
 
       staleOnCueReady!({
@@ -650,18 +877,16 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         }
       ]);
       clipState.setSelectedSubtitleId("yt-auto-a.en");
-      clipState.setSelectedSubtitleUrl("https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr");
+      clipState.setSelectedSubtitleUrl(
+        "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=en&kind=asr"
+      );
       clipState.setSelectedSubtitleLang("English");
       clipState.setSubtitleBody([{ from: 0, to: 10, content: "Hello YouTube" }]);
       clipState.setSubtitleFetchState("ready");
 
-      const { controller, translateItems, setSubtitle } = setupTest({
-        currentTime: 2,
-        targetLang: "zh"
-      });
+      const { startTranslate, translateItems, setSubtitle } = setupTest({ currentTime: 2 });
 
-      const started = await controller.start();
-      expect(started).toBe(true);
+      expect(await startTranslate("zh", "bilingual")).toBe(true);
       await vi.waitFor(() => expect(translateItems).toHaveBeenCalled());
       expect(translateItems.mock.calls[0]?.[0]).toMatchObject({
         targetLang: "zh",
@@ -669,7 +894,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         kind: "asr",
         source: "youtube-auto"
       });
-      await vi.waitFor(() => expect(setSubtitle).toHaveBeenCalledWith("Hello YouTube", "译: Hello YouTube"));
+      await vi.waitFor(() =>
+        expect(setSubtitle).toHaveBeenCalledWith("Hello YouTube", "译: Hello YouTube", expect.any(Number))
+      );
     });
   });
 });

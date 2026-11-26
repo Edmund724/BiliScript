@@ -1,17 +1,19 @@
 import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
+import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
 import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
 import { logWarn } from "../shared/logging.js";
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
-import { classifySubtitleTrack, findTrackByRef } from "./selection.js";
 import { slot } from "./slot.js";
 import {
   readCachedL1VideoIndex,
-  resolveRuntimeSubtitleContext
+  resolveRuntimeSubtitleContext,
+  type SubtitleTranslatePromptContext
 } from "../ai/subtitle-context.js";
 import {
   createTranslatedTrackSession,
   isUsableSubtitleItem,
+  resolveTranslatedTrackSource,
   type TranslatedTrackPrimaryChunk
 } from "./translated-track-session.js";
 
@@ -54,14 +56,6 @@ export async function ensureAsrSecondarySubtitle(
   const selectedId = String(state.clip.selectedSubtitleId || "").trim();
   const selectedUrl = String(state.clip.selectedSubtitleUrl || "").trim();
   const selectedLang = String(state.clip.selectedSubtitleLang || "").trim();
-  const matchedTrack = findTrackByRef(state.clip.subtitles, {
-    id: selectedId,
-    url: selectedUrl
-  });
-  const trackKind = classifySubtitleTrack(
-    matchedTrack ?? { id: selectedId, lan: selectedLang, subtitleUrl: selectedUrl }
-  );
-  const isAsrSource = trackKind === "asr" || (!selectedUrl && (!selectedId || selectedId === "asr"));
   const bvid = state.clip.bvid;
   const cid = state.clip.cid;
 
@@ -81,17 +75,15 @@ export async function ensureAsrSecondarySubtitle(
     cid,
     runId,
     primaryItems: usableBody,
-    source: {
-      isAsrSource,
-      selectedSubtitleId: selectedId,
-      selectedSubtitleUrl: selectedUrl,
-      selectedSubtitleLang: selectedLang,
-      trackLan: matchedTrack?.lan,
-      origin: matchedTrack?.origin,
-      kind: matchedTrack?.kind,
-      source: matchedTrack?.source,
+    source: resolveTranslatedTrackSource(
+      {
+        tracks: state.clip.subtitles,
+        selectedSubtitleId: selectedId,
+        selectedSubtitleUrl: selectedUrl,
+        selectedSubtitleLang: selectedLang
+      },
       targetLang
-    },
+    ),
     isStale
   });
 
@@ -100,73 +92,58 @@ export async function ensureAsrSecondarySubtitle(
     return { kind: "done", total: 0, done: 0, failed: 0 };
   }
 
-  const cached = await session.loadCached();
-  if (cached.length > 0) {
-    await session.seedSecondary(cached, { accept: false });
-  }
-  let pending = session.getPendingPrimaryChunks();
+  let l1Index: L1VideoIndexCacheRecord | null = null;
+  let baseContext: SubtitleTranslatePromptContext | undefined;
+
+  const hydrated = await session.hydrate({
+    mode: args.mode,
+    acceptOnHit: true,
+    protocolItems: body,
+    loadTranslator: async () => {
+      const [translateModule, cachedL1] = await Promise.all([
+        import("../ai/subtitle-translate.js"),
+        readCachedL1VideoIndex(state.clip)
+      ]);
+      l1Index = cachedL1;
+      baseContext = await resolveRuntimeSubtitleContext({ l1Index: cachedL1 });
+      const providerRes = await translateModule.resolveSubtitleTranslateProvider().catch(() => null);
+      return {
+        model: providerRes?.model,
+        glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary,
+        resolveProtocolMode: translateModule.resolveSubtitleTranslateProtocolMode,
+        translateTrack: translateModule.translateSubtitleTrack,
+        protocolItems: body
+      };
+    }
+  });
+
   const report = (done: number, failed: number) =>
     args.onProgress?.({ total: chunks.length, done, failed });
 
-  if (pending.length === 0) {
-    await session.acceptCurrentSecondary();
+  if (hydrated.status === "aborted") {
+    return { kind: "aborted", total: chunks.length, done: hydrated.doneChunks, failed: 0 };
+  }
+  if (hydrated.status === "ready") {
     report(chunks.length, 0);
     return { kind: "done", total: chunks.length, done: chunks.length, failed: 0 };
   }
-
   if (args.mode === "cache-only") {
-    report(chunks.length - pending.length, 0);
+    report(hydrated.doneChunks, 0);
     return {
       kind: "pending",
       total: chunks.length,
-      done: chunks.length - pending.length,
+      done: hydrated.doneChunks,
       failed: 0
     };
   }
 
-  const [translateModule, l1Index] = await Promise.all([
-    import("../ai/subtitle-translate.js"),
-    readCachedL1VideoIndex(state.clip)
-  ]);
-  const baseContext = await resolveRuntimeSubtitleContext({ l1Index });
-  const providerRes = await translateModule.resolveSubtitleTranslateProvider().catch(() => null);
-
-  const sigChanged = session.reconfigure({
-    model: providerRes?.model,
-    glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary,
-    resolveProtocolMode: translateModule.resolveSubtitleTranslateProtocolMode,
-    translateTrack: translateModule.translateSubtitleTrack,
-    protocolItems: body
-  });
-  if (sigChanged) {
-    const exactCached = await session.loadCached();
-    if (exactCached.length > 0) {
-      await session.seedSecondary(exactCached, { accept: false });
-      pending = session.getPendingPrimaryChunks();
-    }
-  }
-  if (pending.length === 0) {
-    if (isStale()) {
-      return { kind: "aborted", total: chunks.length, done: 0, failed: 0 };
-    }
-    await session.acceptCurrentSecondary();
-    report(chunks.length, 0);
-    return { kind: "done", total: chunks.length, done: chunks.length, failed: 0 };
-  }
-
-  let done = chunks.length - pending.length;
+  let done = hydrated.doneChunks;
   let failed = 0;
   report(done, failed);
 
-  if (isStale()) {
-    return { kind: "aborted", total: chunks.length, done, failed };
-  }
-
-  await session.acceptCurrentSecondary();
-
   const runtimeVideo = getSiteRuntimeVideoElement();
   const scheduler = createSubtitleChunkScheduler<TranslatedTrackPrimaryChunk>({
-    chunks: pending.map((chunk) => ({
+    chunks: hydrated.pendingChunks.map((chunk) => ({
       index: chunk.index,
       startSec: chunk.startSec,
       endSec: chunk.endSec,

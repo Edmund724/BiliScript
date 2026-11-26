@@ -10,6 +10,7 @@ import {
   resolveBpxPlayerContainer,
   type HostObserverHandle
 } from "../bilibili/host-adapter.js";
+import { logWarn } from "../shared/logging.js";
 import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { findYoutubePlayerHost, getYoutubeVideoElement } from "../youtube/host-adapter.js";
@@ -31,15 +32,6 @@ import {
   type LiveInterpretTargetLang
 } from "./interpret-subtitle-preferences.js";
 import {
-  clampInterpretPositionRatio,
-  loadInterpretPositionRatio,
-  saveInterpretPositionRatio
-} from "./interpret-position-persistence.js";
-import {
-  canUseNativeBilingualPair,
-  classifySubtitleTrack,
-  findManualForeignTrackForAiRefine,
-  findTrackByRef,
   getAvailableTargetLangOptions,
   isLoadableNativeTrack,
   resolveTargetLang
@@ -67,6 +59,71 @@ import {
 ensureInterpretSubtitleStyles();
 
 export type { InterpretSubtitleDisplayMode } from "./interpret-subtitle-preferences.js";
+
+const INTERPRET_SUBTITLE_POSITION_RATIO_KEY = "interpretSubtitlePositionRatio";
+const INTERPRET_POSITION_RATIO_MIN = 0.04;
+const INTERPRET_POSITION_RATIO_MAX = 0.85;
+
+function clampInterpretPositionRatio(
+  value: unknown,
+  fallback: number | null = null
+): number | null {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(
+    INTERPRET_POSITION_RATIO_MAX,
+    Math.max(INTERPRET_POSITION_RATIO_MIN, parsed)
+  );
+}
+
+function storageLocal(): chrome.storage.StorageArea | undefined {
+  try {
+    return globalThis.chrome?.storage?.local;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadInterpretPositionRatio(): Promise<number | null> {
+  const area = storageLocal();
+  if (!area) {
+    return null;
+  }
+  try {
+    const stored = (await area.get(INTERPRET_SUBTITLE_POSITION_RATIO_KEY)) as
+      | Record<string, unknown>
+      | undefined;
+    return clampInterpretPositionRatio(stored?.[INTERPRET_SUBTITLE_POSITION_RATIO_KEY], null);
+  } catch (error) {
+    logWarn("[BILISCRIPT] interpret position ratio load failed", error);
+    return null;
+  }
+}
+
+function saveInterpretPositionRatio(ratio: number): void {
+  const clamped = clampInterpretPositionRatio(ratio, null);
+  if (clamped === null) {
+    return;
+  }
+  const area = storageLocal();
+  if (!area) {
+    return;
+  }
+  try {
+    void Promise.resolve(
+      area.set({ [INTERPRET_SUBTITLE_POSITION_RATIO_KEY]: clamped })
+    ).catch((error) => {
+      logWarn("[BILISCRIPT] interpret position ratio save failed", error);
+    });
+  } catch (error) {
+    logWarn("[BILISCRIPT] interpret position ratio save failed", error);
+  }
+}
 
 export interface InterpretSubtitleLines {
   showOriginal: boolean;
@@ -184,8 +241,8 @@ export function computeInterpretSubtitleBottomPx(
     return Math.max(12, Math.round(targetBottom));
   }
 
-  const minBottom = Math.round(hostHeight * 0.04);
-  const ratioMaxBottom = Math.round(hostHeight * 0.85);
+  const minBottom = Math.round(hostHeight * INTERPRET_POSITION_RATIO_MIN);
+  const ratioMaxBottom = Math.round(hostHeight * INTERPRET_POSITION_RATIO_MAX);
   const windowHeight =
     Number.isFinite(input.windowHeight) && (input.windowHeight ?? 0) > 0
       ? input.windowHeight!
@@ -441,8 +498,8 @@ export function createInterpretSubtitleOverlay(
     if (hostHeight <= 0) {
       return Math.max(12, Math.round(rawBottomPx));
     }
-    const minBottom = Math.round(hostHeight * 0.04);
-    const ratioMaxBottom = Math.round(hostHeight * 0.85);
+    const minBottom = Math.round(hostHeight * INTERPRET_POSITION_RATIO_MIN);
+    const ratioMaxBottom = Math.round(hostHeight * INTERPRET_POSITION_RATIO_MAX);
     const windowHeight = measureWindowHeight();
     const maxBottom = Math.max(
       minBottom,
@@ -1262,8 +1319,7 @@ export function syncPlayerInterpretQuickActionState(
     button.textContent = buttonText;
   }
 
-  const interpretState = controller.getState();
-  const availability = controller.getAvailability();
+  const { state: interpretState, availability } = controller.getSnapshot();
   const active = interpretState === "connecting" || interpretState === "connected";
   const unavailable = !availability.ok && !active;
   button.classList.toggle("is-active", interpretState === "connected");
@@ -1292,12 +1348,9 @@ export function syncPlayerInterpretQuickActionState(
 }
 
 let interpretController: InterpretSessionController | null = null;
-let interpretSessionGeneration = 0;
 let unsubscribePresenter: (() => void) | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
 let pageHideBound = false;
-let playerAiRefineMode: InterpretAiRefineMode = "off";
-let playerAiRefineVideoKey = "";
 let pendingSyncSettingsPatch: Record<string, unknown> = {};
 let syncSettingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1325,39 +1378,6 @@ function scheduleDebouncedSyncSettingsSave(patch: Record<string, unknown>): void
     syncSettingsSaveTimer = null;
     flushDebouncedSyncSettingsSave();
   }, SYNC_SETTINGS_SAVE_DEBOUNCE_MS);
-}
-
-function getPlayerAiRefineMode(): InterpretAiRefineMode {
-  const key = `${state.clip.bvid}|${state.clip.cid}`;
-  if (playerAiRefineVideoKey !== key) {
-    playerAiRefineVideoKey = key;
-    playerAiRefineMode = "off";
-  }
-  return playerAiRefineMode;
-}
-
-function setPlayerAiRefineMode(mode: InterpretAiRefineMode): void {
-  playerAiRefineVideoKey = `${state.clip.bvid}|${state.clip.cid}`;
-  playerAiRefineMode = mode;
-}
-
-function resolveCurrentPlayerSourceLan(): string {
-  const tracks = state.clip.subtitles || [];
-  const current =
-    findTrackByRef(tracks, {
-      id: state.clip.selectedSubtitleId,
-      url: state.clip.selectedSubtitleUrl
-    }) ??
-    tracks[0] ??
-    null;
-  if (!current) {
-    return "";
-  }
-  if (classifySubtitleTrack(current) === "asr") {
-    const asrLang = String(state.settings?.asrLanguage || "auto").trim().toLowerCase();
-    return asrLang === "zh" || asrLang === "en" ? `asr-${asrLang}` : "";
-  }
-  return String(current.lan || "");
 }
 
 function shouldShowInterpret(): boolean {
@@ -1398,9 +1418,6 @@ function onWindowPageHide(): void {
 function bindInterpretLifecycleListeners(): void {
   if (!unsubscribePresenter) {
     unsubscribePresenter = subscribeReaderPresenter((event) => {
-      if (event.kind === "reset") {
-        setPlayerAiRefineMode("off");
-      }
       if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
         syncPlayerInterpretQuickAction();
         if (event.kind === "subtitle-ready" && shouldShowInterpret()) {
@@ -1465,32 +1482,30 @@ function bindInterpretLifecycleListeners(): void {
 function ensureInterpretController(): InterpretSessionController {
   if (!interpretController) {
     interpretController = createInterpretSessionController({
-      getVideoElement: () =>
-        isYoutubeActiveSite() ? getYoutubeVideoElement(document) : getRuntimeVideoElement(),
-      getTargetLang: () =>
-        resolveTargetLang(resolveCurrentPlayerSourceLan(), state.settings?.liveInterpretTargetLang || "zh"),
-      getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
-      getAiRefineMode: getPlayerAiRefineMode,
-      showNotice: (message, autoHideMs) => {
-        notifyPlayerOrConsumer(message, autoHideMs);
+      video: {
+        getElement: () =>
+          isYoutubeActiveSite() ? getYoutubeVideoElement(document) : getRuntimeVideoElement()
       },
-      setSubtitle: (original, translation) =>
-        interpretSubtitleOverlay.setSubtitle(original, translation, interpretSessionGeneration),
-      clearSubtitles: interpretSubtitleOverlay.unmount,
-      clearSubtitlesOnSeek: interpretSubtitleOverlay.clearForSeek,
-      onGenerationChange: (nextGeneration) => {
-        interpretSessionGeneration = nextGeneration;
-        interpretSubtitleOverlay.setSessionGeneration(nextGeneration);
-      },
-      onStateChange: (nextState) => {
-        const active = nextState === "connecting" || nextState === "connected";
-        syncNativePlayerSubtitleTakeover(active, findVideoPlayerHost());
-        if (!active) {
-          interpretSubtitleOverlay.unmount();
-        }
-        syncPlayerInterpretQuickAction();
-      },
-      onAvailabilityChange: syncPlayerInterpretQuickAction
+      overlay: {
+        setSubtitle: (original, translation, expectedGeneration) =>
+          interpretSubtitleOverlay.setSubtitle(original, translation, expectedGeneration),
+        clear: interpretSubtitleOverlay.unmount,
+        clearForSeek: interpretSubtitleOverlay.clearForSeek,
+        showNotice: (message, autoHideMs) => {
+          notifyPlayerOrConsumer(message, autoHideMs);
+        },
+        syncAppearance: interpretSubtitleOverlay.syncAppearance,
+        setSessionGeneration: interpretSubtitleOverlay.setSessionGeneration,
+        onStateChange: ({ state: nextState }) => {
+          const active = nextState === "connecting" || nextState === "connected";
+          syncNativePlayerSubtitleTakeover(active, findVideoPlayerHost());
+          if (!active) {
+            interpretSubtitleOverlay.unmount();
+          }
+          syncPlayerInterpretQuickAction();
+        },
+        onAvailabilityChange: syncPlayerInterpretQuickAction
+      }
     });
     bindInterpretLifecycleListeners();
     void interpretController.refreshAvailability();
@@ -1511,7 +1526,7 @@ export function syncPlayerInterpretQuickAction(): void {
 }
 
 export function getInterpretSessionState(): InterpretSubtitleMenuSessionState {
-  return interpretController?.getState() ?? "idle";
+  return interpretController?.getSnapshot().state ?? "idle";
 }
 
 export async function applyInterpretMenuChoice(
@@ -1535,69 +1550,27 @@ export async function applyInterpretMenuChoice(
 
   const controller = ensureInterpretController();
   if (choice.kind === "off") {
-    setPlayerAiRefineMode("off");
-    await controller.stop();
+    await controller.applyMode("off");
     syncNativePlayerSubtitleTakeover(false);
     interpretSubtitleOverlay.unmount();
     return;
   }
 
   if (choice.kind === "native-bilingual") {
-    setPlayerAiRefineMode("off");
-    const patch = { liveInterpretDisplayMode: "bilingual" as const };
-    state.patchSettings(patch);
-    void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
-    if (controller.getState() !== "idle") {
-      await controller.stop();
-    }
-    await controller.start();
+    await controller.applyMode("native-bilingual");
     return;
   }
 
   if (choice.kind === "ai-refine") {
-    setPlayerAiRefineMode(choice.refineMode);
-    const sourceLan =
-      choice.refineMode === "foreign-refine"
-        ? (findManualForeignTrackForAiRefine(state.clip.subtitles)?.lan ?? resolveCurrentPlayerSourceLan())
-        : resolveCurrentPlayerSourceLan();
-    const resolvedLang =
-      choice.refineMode === "foreign-refine"
-        ? "zh"
-        : resolveTargetLang(sourceLan, state.settings?.liveInterpretTargetLang || "zh");
-    const patch = {
-      liveInterpretTargetLang: resolvedLang,
-      liveInterpretDisplayMode: "bilingual" as const
-    };
-    state.patchSettings(patch);
-    void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
-    if (controller.getState() !== "idle") {
-      await controller.stop();
-    }
-    await controller.start();
+    await controller.applyMode({ kind: "ai-refine", refineMode: choice.refineMode });
     return;
   }
 
-  const resolvedLang = resolveTargetLang(resolveCurrentPlayerSourceLan(), choice.targetLang);
-  const prevLang = String(state.settings?.liveInterpretTargetLang || "zh");
-  const langChanged = resolvedLang !== prevLang;
-  const patch = {
-    liveInterpretTargetLang: resolvedLang,
-    liveInterpretDisplayMode: (choice.kind === "bilingual" ? "bilingual" : "translation") as
-      | "bilingual"
-      | "translation"
-  };
-  state.patchSettings(patch);
-  void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
-
-  const sessionState = controller.getState();
-  if (sessionState === "idle") {
-    await controller.start();
-  } else if (langChanged) {
-    await controller.stop();
-    await controller.start();
-  } else {
-    interpretSubtitleOverlay.syncAppearance();
-  }
+  await controller.applyMode({
+    kind: "translate",
+    displayMode: choice.kind === "bilingual" ? "bilingual" : "translation",
+    targetLang: choice.targetLang
+  });
 }
 
 export async function togglePlayerInterpretMenu(anchor: HTMLElement): Promise<void> {
@@ -1614,16 +1587,14 @@ export async function togglePlayerInterpretMenu(anchor: HTMLElement): Promise<vo
     getSessionState: getInterpretSessionState,
     getPreferences: async () => {
       const settings = await getSettings();
-      const tracks = state.clip.subtitles || [];
-      const nativeTracks = tracks.filter((track) => isLoadableNativeTrack(track));
-      const nativePairAvailable = canUseNativeBilingualPair(nativeTracks, state.clip.site);
+      const snapshot = ensureInterpretController().getSnapshot();
       return {
         targetLang: String(settings.liveInterpretTargetLang || "zh"),
         displayMode: String(settings.liveInterpretDisplayMode || "auto"),
-        sourceLan: resolveCurrentPlayerSourceLan(),
-        nativePairAvailable,
-        foreignRefineAvailable: Boolean(findManualForeignTrackForAiRefine(nativeTracks)),
-        aiRefineMode: getPlayerAiRefineMode(),
+        sourceLan: snapshot.sourceLan,
+        nativePairAvailable: snapshot.nativePairAvailable,
+        foreignRefineAvailable: snapshot.foreignRefineAvailable,
+        aiRefineMode: snapshot.aiRefineMode,
         fontScale: normalizeInterpretFontScale(
           state.settings?.liveInterpretFontScale ?? settings.liveInterpretFontScale
         ),
@@ -1646,11 +1617,9 @@ export function disposePlayerInterpret(): void {
     window.removeEventListener("pagehide", onWindowPageHide);
     pageHideBound = false;
   }
-  setPlayerAiRefineMode("off");
   syncNativePlayerSubtitleTakeover(false);
   interpretController?.dispose();
   interpretController = null;
-  interpretSessionGeneration = 0;
   closeInterpretSubtitleMenu();
   interpretSubtitleOverlay.clear();
   interpretSubtitleOverlay.dispose();

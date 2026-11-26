@@ -143,7 +143,6 @@ describe("播放器双语字幕叠层升级验收", () => {
       skipHotComments: true
     });
 
-    let activeGen = 0;
     const overlay = createInterpretSubtitleOverlay({
       getPlayerHost: () => container,
       getTargetLang: () => "zh",
@@ -152,25 +151,27 @@ describe("播放器双语字幕叠层升级验收", () => {
     });
 
     const controller = createInterpretSessionController({
-      getVideoElement: () => video,
-      onGenerationChange: (gen) => {
-        activeGen = gen;
-        overlay.setSessionGeneration(gen);
+      video: { getElement: () => video },
+      overlay: {
+        setSubtitle: overlay.setSubtitle,
+        clear: overlay.unmount,
+        clearForSeek: overlay.clearForSeek,
+        setSessionGeneration: overlay.setSessionGeneration
       },
-      setSubtitle: (orig, trans) => overlay.setSubtitle(orig, trans, activeGen),
-      clearSubtitles: overlay.unmount,
-      clearSubtitlesOnSeek: overlay.clearForSeek,
-      loadNativeSecondaryTrack: async (target) => {
-        await acceptSecondarySubtitle({
-          body: zhBody,
-          subtitleId: target.id,
-          subtitleUrl: target.url
-        });
+      media: {
+        loadNativeSecondaryTrack: async (target) => {
+          await acceptSecondarySubtitle({
+            body: zhBody,
+            subtitleId: target.id,
+            subtitleUrl: target.url
+          });
+        }
       }
     });
 
     video.currentTime = 0.1;
-    expect(await controller.start()).toBe(true);
+    expect(await controller.applyMode("native-bilingual")).toBe(true);
+    const activeGen = controller.getSnapshot().generation;
 
     const root = overlay.getElement()!;
     expect(videoWrap.contains(overlay.getContainerElement())).toBe(true);
@@ -224,7 +225,7 @@ describe("播放器双语字幕叠层升级验收", () => {
     video.dispatchEvent(new Event("timeupdate"));
     expect(root.hidden).toBe(true);
 
-    await controller.stop();
+    await controller.applyMode("off");
     expect(overlay.getElement()).toBeNull();
     overlay.dispose();
   });
@@ -386,13 +387,7 @@ describe("播放器双语字幕叠层升级验收", () => {
       computeInterpretSubtitleBottomPx,
       createInterpretSubtitleOverlay
     } = await import("../../extension/live/player-interpret.js");
-    const { clampInterpretPositionRatio } = await import(
-      "../../extension/live/interpret-position-persistence.js"
-    );
 
-    expect(clampInterpretPositionRatio(-0.5)).toBe(0.04);
-    expect(clampInterpretPositionRatio(0.99)).toBe(0.85);
-    expect(clampInterpretPositionRatio("bad")).toBeNull();
     expect(computeInterpretPositionRatio(200, 0)).toBeNull();
     expect(computeInterpretPositionRatio(150, 500)).toBe(0.3);
 
@@ -509,6 +504,18 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(root.style.bottom).toBe("425px");
     expect(saveRatioSpy).toHaveBeenLastCalledWith(0.85);
 
+    root.dispatchEvent(
+      new PointerEvent("pointerdown", { button: 0, pointerId: 4, clientX: 100, clientY: 100, bubbles: true })
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointermove", { pointerId: 4, clientX: 100, clientY: 800, bubbles: true })
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointerup", { pointerId: 4, clientX: 100, clientY: 800, bubbles: true })
+    );
+    expect(root.style.bottom).toBe("20px");
+    expect(saveRatioSpy).toHaveBeenLastCalledWith(0.04);
+
     overlay.dispose();
   });
 
@@ -576,15 +583,17 @@ describe("播放器双语字幕叠层升级验收", () => {
     expect(player.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
 
     const controller = createInterpretSessionController({
-      resolveTranslateProvider: async () =>
-        ({
-          provider: { id: "test", name: "Test" },
-          apiKey: "sk-test",
-          baseUrl: "https://example.com",
-          model: "gpt-test",
-          presetId: "openai",
-          isFallback: false
-        }) as never
+      media: {
+        resolveTranslateProvider: async () =>
+          ({
+            provider: { id: "test", name: "Test" },
+            apiKey: "sk-test",
+            baseUrl: "https://example.com",
+            model: "gpt-test",
+            presetId: "openai",
+            isFallback: false
+          }) as never
+      }
     });
     const availability = await controller.refreshAvailability();
     expect(availability).toEqual({

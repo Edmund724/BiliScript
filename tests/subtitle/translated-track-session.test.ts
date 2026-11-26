@@ -23,6 +23,7 @@ let buildTranslationSignature: (typeof import("../../extension/subtitle/cache.js
 let configureSubtitleCacheStoreForTests: (typeof import("../../extension/subtitle/cache.js"))["configureSubtitleCacheStoreForTests"];
 let loadTranslatedSubtitleTrack: (typeof import("../../extension/subtitle/cache.js"))["loadTranslatedSubtitleTrack"];
 let createTranslatedTrackSession: (typeof import("../../extension/subtitle/translated-track-session.js"))["createTranslatedTrackSession"];
+let resolveTranslatedTrackSource: (typeof import("../../extension/subtitle/translated-track-session.js"))["resolveTranslatedTrackSource"];
 
 beforeEach(async () => {
   resetModuleState();
@@ -36,6 +37,7 @@ beforeEach(async () => {
   configureSubtitleCacheStoreForTests = cacheMod.configureSubtitleCacheStoreForTests;
   loadTranslatedSubtitleTrack = cacheMod.loadTranslatedSubtitleTrack;
   createTranslatedTrackSession = sessionMod.createTranslatedTrackSession;
+  resolveTranslatedTrackSource = sessionMod.resolveTranslatedTrackSource;
 
   idbStore = cacheMod.createSubtitleIdbStore({ indexedDB: null });
   configureSubtitleCacheStoreForTests(idbStore);
@@ -51,12 +53,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createTranslatedTrackSession seam", () => {
-  it("ASR 伪轨与原生 CC 源轨各自装配正确的槽位 id、sourceKey 与缓存键", () => {
+describe("TranslatedTrackSession deepened interface", () => {
+  it("resolveTranslatedTrackSource 统一归一 ASR 伪轨与原生 CC 源轨的槽位、缓存键与协议", () => {
     const asrSession = createTranslatedTrackSession({
       bvid: "BV1session01",
       cid: "100",
-      source: { isAsrSource: true, targetLang: "en" }
+      source: resolveTranslatedTrackSource({ isAsrSource: true }, "en")
     });
     expect(asrSession.slotId).toBe("translate-en");
     expect(asrSession.sourceKey).toBe("asr");
@@ -70,14 +72,22 @@ describe("createTranslatedTrackSession seam", () => {
       bvid: "BV1session01",
       cid: "100",
       primaryItems: [{ from: 0, to: 3, content: "Hello world." }],
-      source: {
-        isAsrSource: false,
-        selectedSubtitleId: "cc-en",
-        selectedSubtitleUrl: "https://sub.test/cc-en.json",
-        selectedSubtitleLang: "English",
-        trackLan: "en-US",
-        targetLang: "zh"
-      }
+      source: resolveTranslatedTrackSource(
+        {
+          selectedSubtitleId: "cc-en",
+          selectedSubtitleUrl: "https://sub.test/cc-en.json",
+          selectedSubtitleLang: "English",
+          tracks: [
+            {
+              id: "cc-en",
+              lan: "en-US",
+              lanDoc: "English",
+              subtitleUrl: "https://sub.test/cc-en.json"
+            }
+          ]
+        },
+        "zh"
+      )
     });
     expect(ccSession.slotId).toBe("id_cc-en_translate-zh-CN");
     expect(ccSession.sourceKey).toBe("id_cc-en");
@@ -88,7 +98,61 @@ describe("createTranslatedTrackSession seam", () => {
     expect(ccSession.protocolMode).toBe("cc-json");
   });
 
-  it("reconfigure 更新模型与协议后重新计算签名并命中对应缓存", async () => {
+  it("hydrate 缓存全命中时零加载翻译器、写入副轨槽并支持 querySecondaryLine 查询", async () => {
+    const primary: SubtitleBodyItem[] = [
+      { from: 0, to: 4, content: "Hello world." },
+      { from: 5, to: 9, content: "Second line." }
+    ];
+    const source = resolveTranslatedTrackSource(
+      {
+        selectedSubtitleId: "cc-en",
+        selectedSubtitleUrl: "https://sub.test/cc-en.json",
+        tracks: [{ id: "cc-en", lan: "en-US", subtitleUrl: "https://sub.test/cc-en.json" }]
+      },
+      "zh"
+    );
+    const expectedSig = buildTranslationSignature({
+      model: "Index-Translate-35B-A3B",
+      protocolVersion: "cc-json",
+      targetLang: "zh-CN",
+      sourceText: primary.map((item) => item.content).join("\n")
+    });
+    await idbStore.upsertTranslatedTrack({
+      bvid: "BV1session01",
+      cid: "100",
+      sourceTrackKey: "id_cc-en",
+      targetLang: "zh-CN",
+      translationSig: expectedSig,
+      mode: "cc-json",
+      items: [
+        { from: 0, to: 4, content: "你好世界。" },
+        { from: 5.5, to: 9, content: "第二句。" }
+      ]
+    });
+
+    const loadTranslator = vi.fn();
+    const session = createTranslatedTrackSession({
+      bvid: "BV1session01",
+      cid: "100",
+      primaryItems: primary,
+      source
+    });
+
+    const hydrated = await session.hydrate({
+      mode: "translate",
+      loadTranslator,
+      acceptOnHit: true
+    });
+
+    expect(hydrated.status).toBe("ready");
+    expect(hydrated.pendingChunks).toEqual([]);
+    expect(loadTranslator).not.toHaveBeenCalled();
+    expect(clipState.secondarySubtitle.state).toBe("ready");
+    expect(session.querySecondaryLine(2)).toBe("你好世界。");
+    expect(session.querySecondaryLine(5.1, { from: 5, to: 9 })).toBe("第二句。");
+  });
+
+  it("hydrate 在签名变化时自动重查缓存并直接就绪，无需重复翻译", async () => {
     const primary: SubtitleBodyItem[] = [{ from: 0, to: 4, content: "Line one." }];
     const expectedSig = buildTranslationSignature({
       model: "gpt-4o-mini",
@@ -110,26 +174,37 @@ describe("createTranslatedTrackSession seam", () => {
       bvid: "BV1session01",
       cid: "100",
       primaryItems: primary,
-      source: {
-        isAsrSource: false,
-        selectedSubtitleId: "cc-en",
-        trackLan: "en-US",
-        targetLang: "zh"
-      }
+      source: resolveTranslatedTrackSource(
+        {
+          selectedSubtitleId: "cc-en",
+          tracks: [{ id: "cc-en", lan: "en-US", subtitleUrl: "https://sub.test/cc-en.json" }]
+        },
+        "zh"
+      )
     });
-    expect(await session.loadCached()).toEqual([]);
 
-    const changed = session.reconfigure({
-      model: "gpt-4o-mini",
-      resolveProtocolMode: () => "boundary-v3"
+    const cacheOnlyRes = await session.hydrate({ mode: "cache-only" });
+    expect(cacheOnlyRes.status).toBe("pending");
+    expect(clipState.secondarySubtitle.state).toBe("idle");
+
+    const hydrated = await session.hydrate({
+      mode: "translate",
+      acceptOnHit: true,
+      loadTranslator: async () => ({
+        model: "gpt-4o-mini",
+        resolveProtocolMode: () => "boundary-v3"
+      })
     });
-    expect(changed).toBe(true);
+
+    expect(hydrated.status).toBe("ready");
+    expect(hydrated.sigChanged).toBe(true);
     expect(session.protocolMode).toBe("boundary-v3");
     expect(session.translationSig).toBe(expectedSig);
-    expect(await session.loadCached()).toEqual([{ from: 0, to: 4, content: "第一句精翻" }]);
+    expect(session.querySecondaryLine(1)).toBe("第一句精翻");
+    expect(clipState.secondarySubtitle.body).toEqual([{ from: 0, to: 4, content: "第一句精翻" }]);
   });
 
-  it("youtube-auto 轨在 reconfigure 前后均透传 origin/kind/source 且保持 boundary-v3 一致", async () => {
+  it("youtube-auto 轨经 resolveTranslatedTrackSource + hydrate + translateChunk 保持 boundary-v3 与元数据透传", async () => {
     const { resolveSubtitleTranslateProtocolMode } = await import(
       "../../extension/ai/subtitle-translate.js"
     );
@@ -145,24 +220,42 @@ describe("createTranslatedTrackSession seam", () => {
     }> = [];
     const capturedTranslateInputs: TranslatedTrackTranslateInput[] = [];
 
-    const session = createTranslatedTrackSession(
-      {
-        bvid: "ytAutoId01",
-        cid: "yt",
-        primaryItems: primary,
-        source: {
-          isAsrSource: false,
-          selectedSubtitleId: "custom-yt-track",
-          selectedSubtitleUrl: "https://www.youtube.com/api/timedtext?v=ytAutoId01",
-          selectedSubtitleLang: "English",
-          trackLan: "en",
-          origin: "youtube",
-          kind: "asr",
-          source: "youtube-auto",
-          targetLang: "zh"
-        }
-      },
-      {
+    const session = createTranslatedTrackSession({
+      bvid: "ytAutoId01",
+      cid: "yt",
+      primaryItems: primary,
+      source: resolveTranslatedTrackSource(
+        {
+          track: {
+            id: "custom-yt-track",
+            subtitleUrl: "https://www.youtube.com/api/timedtext?v=ytAutoId01",
+            lan: "en",
+            lanDoc: "English",
+            origin: "youtube",
+            kind: "asr",
+            source: "youtube-auto"
+          }
+        },
+        "zh"
+      )
+    });
+
+    expect(session.protocolMode).toBe("boundary-v3");
+    const sigBefore = session.translationSig;
+
+    const hydrated = await session.hydrate({
+      mode: "translate",
+      protocolItems: primary,
+      loadTranslator: async () => ({
+        resolveProtocolMode: (input) => {
+          capturedProtocolInputs.push({
+            selectedSubtitleId: input.selectedSubtitleId,
+            origin: input.origin,
+            kind: input.kind,
+            source: input.source
+          });
+          return resolveSubtitleTranslateProtocolMode(input);
+        },
         translateTrack: async (input) => {
           capturedTranslateInputs.push(input);
           return asTrackResult(
@@ -170,26 +263,11 @@ describe("createTranslatedTrackSession seam", () => {
             input.items
           );
         }
-      }
-    );
-
-    expect(session.protocolMode).toBe("boundary-v3");
-    const sigBefore = session.translationSig;
-
-    const changed = session.reconfigure({
-      resolveProtocolMode: (input) => {
-        capturedProtocolInputs.push({
-          selectedSubtitleId: input.selectedSubtitleId,
-          origin: input.origin,
-          kind: input.kind,
-          source: input.source
-        });
-        return resolveSubtitleTranslateProtocolMode(input);
-      },
-      protocolItems: primary
+      })
     });
 
-    expect(changed).toBe(false);
+    expect(hydrated.status).toBe("pending");
+    expect(hydrated.sigChanged).toBe(false);
     expect(session.protocolMode).toBe("boundary-v3");
     expect(session.translationSig).toBe(sigBefore);
     expect(capturedProtocolInputs).toEqual([
@@ -204,8 +282,7 @@ describe("createTranslatedTrackSession seam", () => {
     await session.translateChunk({
       chunkIndex: 0,
       chunkFromSec: 0,
-      chunkToSec: 60,
-      items: primary
+      chunkToSec: 60
     });
     expect(capturedTranslateInputs).toHaveLength(1);
     expect(capturedTranslateInputs[0]).toMatchObject({
@@ -214,6 +291,7 @@ describe("createTranslatedTrackSession seam", () => {
       kind: "asr",
       source: "youtube-auto"
     });
+    expect(session.querySecondaryLine(1)).toBe("译:Hello world.");
   });
 
   it("相邻前一片（chunkIndex - 1）缺失时，previousLines 回溯取更早已完成分块的双语前情", async () => {
@@ -230,7 +308,7 @@ describe("createTranslatedTrackSession seam", () => {
         bvid: "BV1session01",
         cid: "100",
         primaryItems: [...chunk0, ...chunk2],
-        source: { isAsrSource: true, targetLang: "zh" }
+        source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
       },
       {
         translateTrack: async (input) => {
@@ -246,18 +324,8 @@ describe("createTranslatedTrackSession seam", () => {
       }
     );
 
-    await session.translateChunk({
-      chunkIndex: 0,
-      chunkFromSec: 0,
-      chunkToSec: 60,
-      items: chunk0
-    });
-    await session.translateChunk({
-      chunkIndex: 2,
-      chunkFromSec: 120,
-      chunkToSec: 180,
-      items: chunk2
-    });
+    await session.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 });
+    await session.translateChunk({ chunkIndex: 2, chunkFromSec: 120, chunkToSec: 180 });
 
     expect(capturedInputs).toHaveLength(2);
     expect(capturedInputs[0].previousLines).toBeUndefined();
@@ -267,7 +335,7 @@ describe("createTranslatedTrackSession seam", () => {
     ]);
   });
 
-  it("流式 onCueReady 即时聚合上屏与防抖缓冲，flush() 立即将流式句落入 IndexedDB", async () => {
+  it("流式 onCueReady 即时更新 querySecondaryLine 与防抖缓冲，flush() 立即落入 IndexedDB", async () => {
     const streamingUpdates: Array<{ count: number; cueText: string }> = [];
     let emitCue!: NonNullable<TranslatedTrackTranslateInput["onCueReady"]>;
     let resolveTranslate!: (result: TranslateSubtitleTrackResult) => void;
@@ -277,7 +345,7 @@ describe("createTranslatedTrackSession seam", () => {
         bvid: "BV1session01",
         cid: "100",
         primaryItems: [{ from: 0, to: 5, content: "Hello" }],
-        source: { isAsrSource: true, targetLang: "zh" }
+        source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
       },
       {
         translateTrack: async (input) => {
@@ -292,12 +360,7 @@ describe("createTranslatedTrackSession seam", () => {
       }
     );
 
-    const pending = session.translateChunk({
-      chunkIndex: 0,
-      chunkFromSec: 0,
-      chunkToSec: 60,
-      items: [{ from: 0, to: 5, content: "Hello" }]
-    });
+    const pending = session.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 });
 
     await vi.advanceTimersByTimeAsync(10);
     emitCue({
@@ -311,7 +374,7 @@ describe("createTranslatedTrackSession seam", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(streamingUpdates).toEqual([{ count: 1, cueText: "你好" }]);
-    expect(session.getSecondaryItems()).toEqual([{ from: 0, to: 5, content: "你好" }]);
+    expect(session.querySecondaryLine(2)).toBe("你好");
     expect(clipState.secondarySubtitle.body).toEqual([{ from: 0, to: 5, content: "你好" }]);
 
     const pageBeforeFlush = await idbStore.getPageRecord("BV1session01", "100");
@@ -340,7 +403,7 @@ describe("createTranslatedTrackSession seam", () => {
       {
         bvid: "BV1session01",
         cid: "100",
-        source: { isAsrSource: true, targetLang: "zh" }
+        source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
       },
       {
         translateTrack: async (input) => {
@@ -353,12 +416,7 @@ describe("createTranslatedTrackSession seam", () => {
     );
 
     session.setPrimaryChunk(0, [{ from: 0, to: 4, content: "Draft ASR" }]);
-    const firstRun = session.translateChunk({
-      chunkIndex: 0,
-      chunkFromSec: 0,
-      chunkToSec: 60,
-      items: session.getPrimaryChunk(0)
-    });
+    const firstRun = session.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 });
 
     await vi.advanceTimersByTimeAsync(10);
     session.invalidateChunk(0);
@@ -372,7 +430,7 @@ describe("createTranslatedTrackSession seam", () => {
       text: "Draft ASR",
       translation: "旧修订版流式译文"
     });
-    expect(session.getSecondaryItems()).toEqual([]);
+    expect(session.querySecondaryLine(2)).toBe("");
 
     resolveFirst(asTrackResult([{ from: 0, to: 4, content: "旧修订版终态" }]));
     const firstResult = await firstRun;
@@ -391,53 +449,7 @@ describe("createTranslatedTrackSession seam", () => {
     ).resolves.toBeNull();
   });
 
-  it("首分块流式输出后失败时，clipState.secondarySubtitle.body 与会话均回滚为空", async () => {
-    const session = createTranslatedTrackSession(
-      {
-        bvid: "BV1session01",
-        cid: "100",
-        primaryItems: [{ from: 0, to: 4, content: "Chunk 0" }],
-        source: { isAsrSource: true, targetLang: "zh" }
-      },
-      {
-        translateTrack: async (input) => {
-          input.onCueReady?.({
-            startIndex: 0,
-            endIndex: 0,
-            from: 0,
-            to: 4,
-            text: "Chunk 0",
-            translation: "首块半成品"
-          });
-          throw new Error("500 upstream error");
-        }
-      }
-    );
-
-    await expect(
-      session.translateChunk({
-        chunkIndex: 0,
-        chunkFromSec: 0,
-        chunkToSec: 60,
-        items: session.getPrimaryChunk(0)
-      })
-    ).rejects.toThrow("500 upstream error");
-
-    expect(session.getSecondaryItems()).toEqual([]);
-    expect(clipState.secondarySubtitle.body).toEqual([]);
-    await session.flush();
-    await expect(
-      loadTranslatedSubtitleTrack({
-        bvid: "BV1session01",
-        cid: "100",
-        sourceTrackKey: "asr",
-        targetLang: "zh-CN",
-        translationSig: session.translationSig
-      })
-    ).resolves.toBeNull();
-  });
-
-  it("分块失败时回滚当前分块流式缓冲并保留已完成分块；isStale 拦截过期会话写入", async () => {
+  it("分块失败时回滚当前分块流式缓冲并保持 querySecondaryLine 与已完成分块一致；isStale 拦截过期写入", async () => {
     let stale = false;
     let callCount = 0;
 
@@ -450,7 +462,7 @@ describe("createTranslatedTrackSession seam", () => {
           { from: 60, to: 64, content: "Chunk 1" },
           { from: 120, to: 124, content: "Chunk 2" }
         ],
-        source: { isAsrSource: true, targetLang: "zh" },
+        source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh"),
         isStale: () => stale
       },
       {
@@ -486,24 +498,61 @@ describe("createTranslatedTrackSession seam", () => {
 
     const run = (chunk: TranslateSessionChunkInput) => session.translateChunk(chunk);
 
-    await run({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60, items: session.getPrimaryChunk(0) });
+    await run({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 });
     await expect(
-      run({ chunkIndex: 1, chunkFromSec: 60, chunkToSec: 120, items: session.getPrimaryChunk(1) })
+      run({ chunkIndex: 1, chunkFromSec: 60, chunkToSec: 120 })
     ).rejects.toThrow("429 rate limit");
 
     expect(session.isChunkDone(0)).toBe(true);
     expect(session.isChunkDone(1)).toBe(false);
-    expect(session.getSecondaryItems()).toEqual([{ from: 0, to: 4, content: "第零块" }]);
+    expect(session.querySecondaryLine(2)).toBe("第零块");
+    expect(session.querySecondaryLine(62, { from: 60, to: 64 })).toBe("");
 
-    const staleRes = await run({
-      chunkIndex: 2,
-      chunkFromSec: 120,
-      chunkToSec: 180,
-      items: session.getPrimaryChunk(2)
-    });
+    const staleRes = await run({ chunkIndex: 2, chunkFromSec: 120, chunkToSec: 180 });
     expect(staleRes.status).toBe("aborted");
     expect(session.getSecondaryItems()).toEqual([{ from: 0, to: 4, content: "第零块" }]);
     expect(clipState.secondarySubtitle.body).toEqual([{ from: 0, to: 4, content: "第零块" }]);
+  });
+
+  it("首分块流式输出后失败时，副轨槽、缓存与 querySecondaryLine 均回滚为空", async () => {
+    const session = createTranslatedTrackSession(
+      {
+        bvid: "BV1session01",
+        cid: "100",
+        primaryItems: [{ from: 0, to: 4, content: "Chunk 0" }],
+        source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
+      },
+      {
+        translateTrack: async (input) => {
+          input.onCueReady?.({
+            startIndex: 0,
+            endIndex: 0,
+            from: 0,
+            to: 4,
+            text: "Chunk 0",
+            translation: "首块半成品"
+          });
+          throw new Error("500 upstream error");
+        }
+      }
+    );
+
+    await expect(
+      session.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 })
+    ).rejects.toThrow("500 upstream error");
+
+    expect(session.querySecondaryLine(2)).toBe("");
+    expect(clipState.secondarySubtitle.body).toEqual([]);
+    await session.flush();
+    await expect(
+      loadTranslatedSubtitleTrack({
+        bvid: "BV1session01",
+        cid: "100",
+        sourceTrackKey: "asr",
+        targetLang: "zh-CN",
+        translationSig: session.translationSig
+      })
+    ).resolves.toBeNull();
   });
 
   it("流式 acceptSecondarySubtitle 与回滚持久化：STALE_RUN 静默忽略，非 STALE_RUN 错误记 logWarn", async () => {
@@ -521,7 +570,7 @@ describe("createTranslatedTrackSession seam", () => {
           cid: "100",
           runId: 1,
           primaryItems: [{ from: 0, to: 5, content: "Hello" }],
-          source: { isAsrSource: true, targetLang: "zh" }
+          source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
         },
         {
           translateTrack: async (input) => {
@@ -533,12 +582,7 @@ describe("createTranslatedTrackSession seam", () => {
         }
       );
 
-      const p1 = staleStreamSession.translateChunk({
-        chunkIndex: 0,
-        chunkFromSec: 0,
-        chunkToSec: 60,
-        items: [{ from: 0, to: 5, content: "Hello" }]
-      });
+      const p1 = staleStreamSession.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 });
       await vi.advanceTimersByTimeAsync(10);
       clipState.setFetchRunId(2);
       emitCue({
@@ -559,7 +603,7 @@ describe("createTranslatedTrackSession seam", () => {
           cid: "100",
           runId: 1,
           primaryItems: [{ from: 0, to: 5, content: "Hello" }],
-          source: { isAsrSource: true, targetLang: "zh" }
+          source: resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
         },
         {
           translateTrack: async (input) => {
@@ -578,12 +622,7 @@ describe("createTranslatedTrackSession seam", () => {
       );
 
       await expect(
-        staleRollbackSession.translateChunk({
-          chunkIndex: 0,
-          chunkFromSec: 0,
-          chunkToSec: 60,
-          items: [{ from: 0, to: 5, content: "Hello" }]
-        })
+        staleRollbackSession.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 })
       ).rejects.toThrow("translate failed after run switched");
       expect(warnSpy).not.toHaveBeenCalled();
 
@@ -619,7 +658,7 @@ describe("createTranslatedTrackSession seam", () => {
           cid: "100",
           runId: 1,
           primaryItems: [{ from: 0, to: 5, content: "Hello" }],
-          source: { isAsrSource: true, targetLang: "zh" }
+          source: freshSessionMod.resolveTranslatedTrackSource({ isAsrSource: true }, "zh")
         },
         {
           translateTrack: async (input) => {
@@ -638,12 +677,7 @@ describe("createTranslatedTrackSession seam", () => {
       );
 
       await expect(
-        errSession.translateChunk({
-          chunkIndex: 0,
-          chunkFromSec: 0,
-          chunkToSec: 60,
-          items: [{ from: 0, to: 5, content: "Hello" }]
-        })
+        errSession.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 })
       ).rejects.toThrow("500 upstream error");
 
       expect(warnSpy).toHaveBeenCalledTimes(2);
@@ -675,12 +709,7 @@ describe("createTranslatedTrackSession seam", () => {
         .mockRejectedValueOnce(new Error("idb rollback disk full"));
       try {
         await expect(
-          errSession.translateChunk({
-            chunkIndex: 0,
-            chunkFromSec: 0,
-            chunkToSec: 60,
-            items: [{ from: 0, to: 5, content: "Hello" }]
-          })
+          errSession.translateChunk({ chunkIndex: 0, chunkFromSec: 0, chunkToSec: 60 })
         ).rejects.toThrow("500 upstream error");
 
         expect(warnSpy).toHaveBeenCalledTimes(1);
