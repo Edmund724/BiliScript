@@ -43,6 +43,7 @@ import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import {
   createProviderTransactions,
+  type DeleteProviderResult,
   type ProviderFamilyTable
 } from "./provider-transaction.js";
 import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
@@ -105,7 +106,7 @@ export interface ProviderSettingsHost {
   openLinkedCredentialEditor(target: AiCredentialLinkTarget): Promise<void>;
   openLiveTarget(target: LiveSettingsTarget): Promise<void>;
   upsertProvider(kind: ProviderEditorKind, upsert: ProviderRowItem): Promise<MutationResult>;
-  deleteProvider(kind: ProviderEditorKind, target: { id: string; baseUrl: string }): Promise<MutationResult>;
+  deleteProvider(kind: ProviderEditorKind, target: { id: string; baseUrl: string }): Promise<DeleteProviderResult>;
   dispose(): void;
 }
 
@@ -196,9 +197,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   let geminiCredentialStatus: AiCredentialStatus | null = null;
   let credentialRequest = 0;
   let linkedCredentialInFlight = false;
-  let deleteRevokeFailureInFlight = false;
   let statusErrorMarked = false;
-  let rerenderedDuringDelete = false;
   let editorModule: EditorModule | null = null;
   let pendingAiConsumerSync: Promise<void> | null = null;
   let pendingActiveRadioPersist: Promise<void> | null = null;
@@ -593,7 +592,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     requestOrigins: requestProviderOriginsViaBackground,
     rerender: (kind, providers) => {
       if (disposed) return;
-      rerenderedDuringDelete = true;
       if (kind === "ai") {
         renderAiProviders(providers);
         options.onAiChanged?.(providers, {});
@@ -618,7 +616,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       }
     },
     reportOriginRevokeFailure: (message) => {
-      deleteRevokeFailureInFlight = true;
       reportStatus(message, true);
     }
   });
@@ -644,13 +641,11 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   async function deleteProvider(
     kind: ProviderEditorKind,
     target: { id: string; baseUrl: string }
-  ): Promise<MutationResult> {
-    deleteRevokeFailureInFlight = false;
+  ): Promise<Awaited<ReturnType<typeof transactions.deleteProvider>>> {
     statusErrorMarked = false;
-    rerenderedDuringDelete = false;
     const result = await transactions.deleteProvider(kind, target);
     if (!disposed && result.ok) {
-      if (!rerenderedDuringDelete) {
+      if (!result.rerendered) {
         if (kind === "ai") {
           const latestAi = await loadRows("ai");
           if (disposed) return result;
@@ -697,7 +692,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
 
   const deleteProviderWithStatus: ProviderEditorDelete = async (deleteKind, target) => {
     const result = await deleteProvider(deleteKind, target);
-    if (!disposed && result.ok && !deleteRevokeFailureInFlight && !statusErrorMarked) {
+    if (!disposed && result.ok && !result.originRevokeFailed && !statusErrorMarked) {
       reportMutationText("平台已删除");
     }
     return result;

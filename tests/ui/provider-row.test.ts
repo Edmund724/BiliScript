@@ -84,9 +84,15 @@ beforeEach(() => {
   sendRuntimeMessageMock.mockImplementation(async () => ({ ok: true }));
 });
 
-async function createRows(onEdit: (providerId: string) => void = () => {}) {
+async function createRows(
+  onEdit: (providerId: string) => void = () => {},
+  onDelete: (kind: string, target: { id: string; baseUrl: string }) => Promise<{ ok: boolean; error?: string }> = async () => ({ ok: true })
+) {
   const { createProviderFamilyRows } = await import("../../extension/ui/provider-family.js");
-  return createProviderFamilyRows({ onRowEdit: (_kind, providerId) => onEdit(providerId) });
+  return createProviderFamilyRows({
+    onRowEdit: (_kind, providerId) => onEdit(providerId),
+    onRowDelete: (kind, target) => onDelete(kind, target)
+  });
 }
 
 describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明，紧凑形态）", () => {
@@ -178,54 +184,43 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(onEdit).toHaveBeenCalledWith("p1");
   });
 
-  it("删除：确认后先同步触发 onBeforeDelete（带行 dataset 的 baseUrl）再走后台删除；取消确认不触发", async () => {
-    const bindings = await createRows();
+  it("删除：确认后经 onRowDelete 携带 id 与 baseUrl 执行删除并恢复空态；取消确认不触发", async () => {
+    const onDelete = vi.fn(async () => ({ ok: true }));
+    const bindings = await createRows(() => {}, onDelete);
     const { listNode, emptyNode } = makeContainer();
-    const onBeforeDelete = vi.fn(async () => {});
-    bindings.ai.controller.setBeforeDeleteHandler(onBeforeDelete);
     bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
     const row = listNode.querySelector(".ai-provider-row")!;
 
     fireClick(row.querySelector(".provider-row-remove")!);
     cancelDelete();
     await flushMicrotasks();
-    expect(onBeforeDelete).not.toHaveBeenCalled();
-    expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
 
     fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
-    expect(onBeforeDelete).toHaveBeenCalledTimes(1);
-    expect(onBeforeDelete).toHaveBeenCalledWith("p1", "https://api.openai.com/v1");
-    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledWith("ai", { id: "p1", baseUrl: "https://api.openai.com/v1" });
     expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(0);
     expect(emptyNode.hidden).toBe(false);
   });
 
-  it("删除：onBeforeDelete 抛错不阻断删除，并通过 logWarn 留痕", async () => {
-    const { registerDebugGate } = await import("../../extension/shared/logging.js");
-    registerDebugGate(() => true);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const bindings = await createRows();
-      const { listNode, emptyNode } = makeContainer();
-      const hookError = new Error("permissions API unavailable");
-      bindings.ai.controller.setBeforeDeleteHandler(vi.fn(async () => {
-        throw hookError;
-      }));
-      bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
-      const row = listNode.querySelector(".ai-provider-row")!;
+  it("删除：onRowDelete 返回失败时保留行、恢复按钮可用并回报错误", async () => {
+    const onDelete = vi.fn(async () => ({ ok: false, error: "删除被拒" }));
+    const onError = vi.fn();
+    const bindings = await createRows(() => {}, onDelete);
+    bindings.ai.controller.setErrorHandler(onError);
+    const { listNode, emptyNode } = makeContainer();
+    bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
+    const row = listNode.querySelector(".ai-provider-row")!;
 
-      fireClick(row.querySelector(".provider-row-remove")!);
-      confirmDelete();
-      await flushMicrotasks();
-      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] onBeforeDelete hook failed", hookError);
-      expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
-      expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(0);
-      expect(emptyNode.hidden).toBe(false);
-    } finally {
-      warnSpy.mockRestore();
-    }
+    fireClick(row.querySelector(".provider-row-remove")!);
+    confirmDelete();
+    await flushMicrotasks();
+    expect(onError).toHaveBeenCalledWith("删除被拒");
+    expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(1);
+    expect(row.querySelector<HTMLButtonElement>(".provider-row-remove")!.disabled).toBe(false);
+    expect(emptyNode.hidden).toBe(true);
   });
 });
 
@@ -281,22 +276,17 @@ describe("createProviderRow：ASR 平台行（provider-family.js 的 ASR 族声�
     expect(bindings.asr.getActiveId!(listNode)).toBe("asr2");
   });
 
-  it("删除：后台消息后触发注入的 onDelete（删选用平台时清 activeAsrProviderId 的钩子），并恢复空态", async () => {
-    const bindings = await createRows();
+  it("删除：确认后经 onRowDelete 路由 ASR 删除并恢复空态", async () => {
+    const onDelete = vi.fn(async () => ({ ok: true }));
+    const bindings = await createRows(() => {}, onDelete);
     const { listNode, emptyNode } = makeContainer();
-    const onDelete = vi.fn(async () => {});
-    bindings.asr.controller.setDeleteHandler(onDelete);
-    const onBeforeDelete = vi.fn(async () => {});
-    bindings.asr.controller.setBeforeDeleteHandler(onBeforeDelete);
     bindings.asr.render(listNode, emptyNode, [asrItem], { presets: ASR_PRESETS });
     const row = listNode.querySelector(".asr-provider-row")!;
 
     fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
-    expect(onBeforeDelete).toHaveBeenCalledWith("asr1", "https://api.siliconflow.cn/v1");
-    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "asr-providers-delete", providerId: "asr1" });
-    expect(onDelete).toHaveBeenCalledWith("asr1");
+    expect(onDelete).toHaveBeenCalledWith("asr", { id: "asr1", baseUrl: "https://api.siliconflow.cn/v1" });
     expect(listNode.querySelectorAll(".asr-provider-row")).toHaveLength(0);
     expect(emptyNode.hidden).toBe(false);
   });

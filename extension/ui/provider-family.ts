@@ -14,7 +14,6 @@ import {
   type ProviderRowPreset,
   type ProviderRowVirtualRow
 } from "./provider-row.js";
-import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 export interface EditorUpsertFields {
   id: string;
@@ -63,7 +62,6 @@ interface FamilyRowDeclaration {
   dragHandleClass?: string;
   virtualRow?: ProviderRowVirtualRow;
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
-  buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
   editor: FamilyEditorDeclaration;
 }
 
@@ -75,7 +73,6 @@ const AI_FAMILY: FamilyRowDeclaration = {
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[presets.length - 1],
   displayName: (item, preset) => String(item.name || preset?.name || "自定义"),
   displayModel: () => "",
-  buildDeleteMessage: (providerId) => ({ type: "ai-providers-delete", providerId }),
   editor: {
     title: "AI 平台",
     defaultPresetId: () => "custom",
@@ -121,7 +118,6 @@ const ASR_FAMILY: FamilyRowDeclaration = {
     title: "选用该平台自动生成字幕",
     settingsKey: "activeAsrProviderId"
   },
-  buildDeleteMessage: (providerId) => ({ type: "asr-providers-delete", providerId }),
   editor: {
     title: "语音转写平台",
     defaultPresetId: (presets) => presets.find((p) => p.id === "siliconflow-sensevoice")?.id || "siliconflow-sensevoice",
@@ -182,7 +178,6 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
     label: "智能",
     hint: "自动选择可用平台并按顺序回退，自动跳过故障平台"
   },
-  buildDeleteMessage: (providerId) => ({ type: "search-providers-delete", providerId }),
   editor: {
     title: "搜索平台",
     defaultPresetId: (presets) => presets.find((p) => p.id === "tavily")?.id || "tavily",
@@ -224,7 +219,6 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     title: "选用该平台进行实时伴看",
     settingsKey: "activeLiveProviderId"
   },
-  buildDeleteMessage: (providerId) => ({ type: "live-providers-delete", providerId }),
   editor: {
     title: "实时伴看平台",
     defaultPresetId: (presets) => presets.find((p) => p.id === "moss-live")?.id || "moss-live",
@@ -278,7 +272,7 @@ export interface FamilyRowsBinding {
 
 export interface CreateFamilyRowsDeps {
   onRowEdit: (kind: ProviderEditorKind, providerId: string) => void;
-  onRowDelete?: (
+  onRowDelete: (
     kind: ProviderEditorKind,
     target: { id: string; baseUrl: string }
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -305,9 +299,8 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         buildTailFields: decl.buildTailFields ?? activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),
-        ...(deps.onRowDelete ? { onRowDelete: (target) => deps.onRowDelete!(kind, target) } : {}),
-        getConfirmMountHost: deps.getConfirmMountHost,
-        buildDeleteMessage: decl.buildDeleteMessage
+        onRowDelete: (target) => deps.onRowDelete(kind, target),
+        getConfirmMountHost: deps.getConfirmMountHost
       });
       const controller: ProviderRowController = {
         ...rawController,

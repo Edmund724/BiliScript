@@ -40,6 +40,13 @@ export interface ProviderTransactionsDeps {
   reportOriginRevokeFailure?: (message: string) => void;
 }
 
+export interface DeleteProviderResult {
+  ok: boolean;
+  error?: string;
+  rerendered?: boolean;
+  originRevokeFailed?: boolean;
+}
+
 export interface ProviderTransactions {
   upsertProvider(
     kind: ProviderEditorKind,
@@ -49,7 +56,7 @@ export interface ProviderTransactions {
   deleteProvider(
     kind: ProviderEditorKind,
     target: { id: string; baseUrl: string }
-  ): Promise<{ ok: boolean; error?: string }>;
+  ): Promise<DeleteProviderResult>;
 }
 
 export async function loadOriginSharingProviders(families: ProviderFamilyTable): Promise<ProviderRowItem[]> {
@@ -121,12 +128,13 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
   async function deleteProvider(
     kind: ProviderEditorKind,
     target: { id: string; baseUrl: string }
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<DeleteProviderResult> {
     const family = deps.families[kind];
     if (!family || typeof family.remove !== "function") {
       return { ok: false, error: "删除失败" };
     }
     try {
+      let originRevokeFailed = false;
       if (family.optionalHostPermission) {
         const providers = await loadOriginSharingProviders(deps.families);
         const { origins, revoked } = await revokeOrphanOriginViaBackground(
@@ -134,6 +142,7 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
           providers
         );
         if (origins.length > 0 && !revoked) {
+          originRevokeFailed = true;
           deps.reportOriginRevokeFailure?.(permissionRevokeErrorMessage(origins));
         }
       }
@@ -141,10 +150,11 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
       if (!resp?.ok) {
         return { ok: false, error: resp?.error || "删除失败" };
       }
-      if (Array.isArray(resp.providers)) {
-        deps.rerender?.(kind, resp.providers);
+      const rerendered = Array.isArray(resp.providers);
+      if (rerendered) {
+        deps.rerender?.(kind, resp.providers!);
       }
-      return { ok: true };
+      return { ok: true, rerendered, originRevokeFailed };
     } catch (error) {
       return { ok: false, error: (error as Error).message || "删除失败" };
     }

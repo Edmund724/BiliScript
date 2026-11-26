@@ -14,7 +14,10 @@ vi.mock("../../extension/shared/messaging.js", () => ({
   sendRuntimeMessage: sendRuntimeMessageMock
 }));
 
-const bindings = createProviderFamilyRows({ onRowEdit: () => {} });
+const bindings = createProviderFamilyRows({
+  onRowEdit: () => {},
+  onRowDelete: async () => ({ ok: true })
+});
 
 function makeContainer() {
   document.body.innerHTML = '<div id="biliscript-reading-view"><section id="biliscript-reading-settings-panel"></section></div>';

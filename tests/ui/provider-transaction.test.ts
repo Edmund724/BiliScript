@@ -261,7 +261,7 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
     const result = await tx.deleteProvider("ai", deleted);
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, rerendered: true, originRevokeFailed: true });
     expect(families.ai.loadProviders).toHaveBeenCalledTimes(1);
     expect(families.asr.loadProviders).toHaveBeenCalledTimes(1);
     expect(families.search.loadProviders).not.toHaveBeenCalled();
@@ -281,7 +281,7 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
     const result = await tx.deleteProvider("ai", deleted);
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, rerendered: true, originRevokeFailed: false });
     expect(deps.reportOriginRevokeFailure).not.toHaveBeenCalled();
   });
 
@@ -294,7 +294,7 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
     const result = await tx.deleteProvider("ai", deleted);
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, rerendered: true, originRevokeFailed: false });
     expect(remove).not.toHaveBeenCalled();
     expect(deps.reportOriginRevokeFailure).not.toHaveBeenCalled();
   });
@@ -304,7 +304,7 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
     const result = await tx.deleteProvider("search", { id: "search_1", baseUrl: "https://api.tavily.com" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, rerendered: true, originRevokeFailed: false });
     expect(families.ai.loadProviders).not.toHaveBeenCalled();
     expect(families.asr.loadProviders).not.toHaveBeenCalled();
     expect(deps.reportOriginRevokeFailure).not.toHaveBeenCalled();
@@ -327,7 +327,7 @@ describe("deleteProvider：删除事务与 orphan origin 双口径", () => {
 
     const result = await tx.deleteProvider("ai", deleted);
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, rerendered: false, originRevokeFailed: true });
     expect(deps.rerender).not.toHaveBeenCalled();
   });
 

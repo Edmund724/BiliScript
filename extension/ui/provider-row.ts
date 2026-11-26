@@ -1,12 +1,10 @@
 import { resolveNodeDocument } from "../shared/cross-doc.js";
-import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { renderUiIcon } from "./icon-registry.js";
 import type { SearchProviderAccess } from "../core/presets.js";
 import type { AiCredentialStatus } from "../core/ai-credential-reference.js";
-import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 export type ProviderRowElement = HTMLElement;
 
@@ -48,13 +46,6 @@ export type ProviderRowShowStatus = (
   isError?: boolean
 ) => void;
 
-export type ProviderRowBeforeDeleteHandler = (
-  providerId: string,
-  baseUrl: string
-) => Promise<void> | void;
-
-export type ProviderRowHandler = (providerId: string) => Promise<void> | void;
-
 export interface ProviderRowVirtualRow {
   id: string;
   label: string;
@@ -76,9 +67,8 @@ export interface CreateProviderRowConfig {
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
   onRowEdit: (row: ProviderRowElement) => void;
-  onRowDelete?: (target: { id: string; baseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
+  onRowDelete: (target: { id: string; baseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
   getConfirmMountHost?: () => HTMLElement | null;
-  buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
 }
 
 export type ActiveRadioChangeHandler = (
@@ -97,8 +87,6 @@ export interface ProviderRowController {
     addOptions?: { presets?: readonly ProviderRowPreset[]; activeId?: string }
   ) => ProviderRowItem[];
   updateEmptyState: (listNode: HTMLElement, emptyNode: HTMLElement) => void;
-  setDeleteHandler: (handler: ProviderRowHandler) => void;
-  setBeforeDeleteHandler: (handler: ProviderRowBeforeDeleteHandler) => void;
   setErrorHandler: (handler: ProviderRowErrorHandler) => void;
 }
 
@@ -209,11 +197,8 @@ export function createProviderRow({
   wireTailExtras,
   onRowEdit,
   onRowDelete,
-  getConfirmMountHost,
-  buildDeleteMessage
+  getConfirmMountHost
 }: CreateProviderRowConfig): ProviderRowController {
-  let onDelete: ProviderRowHandler = async () => {};
-  let onBeforeDelete: ProviderRowBeforeDeleteHandler = async () => {};
   let onError: ProviderRowErrorHandler = () => {};
 
   function generateId(): string {
@@ -332,34 +317,13 @@ export function createProviderRow({
           if (editBtn) editBtn.disabled = true;
           const providerId = row.dataset.providerId || "";
           const baseUrl = row.dataset.baseUrl || "";
-          if (onRowDelete) {
-            const resp = await onRowDelete({ id: providerId, baseUrl });
-            if (!resp?.ok) {
-              throw new Error(resp?.error || "删除平台失败");
-            }
-            if (row.isConnected) {
-              row.remove();
-              updateEmptyState(listNode, emptyNode);
-            }
-          } else {
-            try {
-              await onBeforeDelete(providerId, baseUrl);
-            } catch (error) {
-              logWarn("[BILISCRIPT] onBeforeDelete hook failed", error);
-            }
-            if (providerId) {
-              const resp = (await sendRuntimeMessage(buildDeleteMessage(providerId))) as
-                | { ok?: boolean; error?: string }
-                | undefined;
-              if (!resp?.ok) {
-                throw new Error(resp?.error || "删除平台失败");
-              }
-            }
+          const resp = await onRowDelete({ id: providerId, baseUrl });
+          if (!resp?.ok) {
+            throw new Error(resp?.error || "删除平台失败");
+          }
+          if (row.isConnected) {
             row.remove();
             updateEmptyState(listNode, emptyNode);
-            if (typeof onDelete === "function") {
-              await onDelete(providerId);
-            }
           }
         } catch (error) {
           onError((error as Error)?.message || "删除平台失败");
@@ -384,12 +348,6 @@ export function createProviderRow({
     generateId,
     render,
     updateEmptyState,
-    setDeleteHandler(handler) {
-      onDelete = handler;
-    },
-    setBeforeDeleteHandler(handler) {
-      onBeforeDelete = handler;
-    },
     setErrorHandler(handler) {
       onError = handler;
     }
