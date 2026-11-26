@@ -1,4 +1,5 @@
-import { formatClock } from "../shared/clock-text.js";
+import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
+import { formatClock, parseClock } from "../shared/clock-text.js";
 import {
   decodeVideoStorageBvid,
   detectSiteFromUrl,
@@ -19,15 +20,17 @@ import {
   type SubtitleBodyItemLike
 } from "./section-lines.js";
 import {
-  DEFAULT_NOTE_TEMPLATE,
-  getDefaultNoteTemplate
+  getDefaultNoteTemplate,
+  isDefaultNoteTemplate
 } from "./template-defaults.js";
 import type { NoteHighlightItem } from "./highlights-store.js";
 
 export {
   DEFAULT_NOTE_TEMPLATE,
   DEFAULT_YOUTUBE_NOTE_TEMPLATE,
-  getDefaultNoteTemplate
+  LEGACY_DEFAULT_NOTE_TEMPLATE,
+  getDefaultNoteTemplate,
+  isDefaultNoteTemplate
 } from "./template-defaults.js";
 
 export interface NoteTemplateChapterLike {
@@ -51,6 +54,7 @@ export interface NoteTemplateVariables {
   url: string;
   date: string;
   summary: string;
+  ai_note: string;
   chapters: string;
   quotes: string;
   notes: string;
@@ -78,6 +82,7 @@ export interface BuildNoteTemplateVariablesInput {
     quotes?: unknown;
   } | null;
   highlights?: readonly NoteHighlightItem[];
+  aiNote?: unknown;
 }
 
 function formatChaptersMarkdown(
@@ -176,9 +181,10 @@ export function buildNoteTemplateVariables(
   const author = String(meta.author || "").trim();
   const date = String(meta.uploadDate || "").trim() || formatLocalDate();
 
+  const ai_note = String(input.aiNote ?? "").replace(/\r\n?/g, "\n").trim();
   const overviewSummary = String(input.overview?.summary || "").trim();
   const description = String(meta.description || "").trim();
-  const summary = overviewSummary || description;
+  const summary = overviewSummary || (ai_note ? "" : description);
 
   const chapters = formatChaptersMarkdown(
     Array.isArray(input.overview?.chapters) ? (input.overview.chapters as NoteTemplateChapterLike[]) : undefined,
@@ -212,6 +218,7 @@ export function buildNoteTemplateVariables(
     url,
     date,
     summary,
+    ai_note,
     chapters,
     quotes,
     notes,
@@ -225,8 +232,7 @@ export function renderNoteTemplate(
 ): string {
   const trimmed = String(template || "").replace(/\r\n?/g, "\n").trim();
   const site = normalizeSiteId((variables as Partial<NoteTemplateVariables>).site);
-  const isDefaultTemplate = !trimmed || trimmed === DEFAULT_NOTE_TEMPLATE.trim();
-  const source = isDefaultTemplate ? getDefaultNoteTemplate(site) : trimmed;
+  const source = isDefaultNoteTemplate(trimmed) ? getDefaultNoteTemplate(site) : trimmed;
   const table = variables as Record<string, string | undefined>;
   const lookup = (key: string): string => {
     const val = table[key];
@@ -296,4 +302,259 @@ export function buildObsidianUri(input: BuildObsidianUriInput): ObsidianUriResul
 
   const clipboardUri = `obsidian://new?${[...baseParams, "clipboard=true"].join("&")}`;
   return { uri: clipboardUri, usedClipboardFallback: true };
+}
+
+export interface NoteTimestampLinkContext {
+  site: SiteId | unknown;
+  pageUrl: string;
+  bvid?: string;
+  videoId?: string;
+}
+
+const YOUTUBE_RAW_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const BILIBILI_BVID_RE = /^BV[0-9A-Za-z]+$/;
+const CLOCK_TOKEN_RE = /^\d{1,2}:\d{2}(?::\d{2})?$/;
+const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
+const LINE_PREFIX_CLOCK_CODE_RE =
+  /^(\s*(?:(?:[-*+]|\d+\.)\s+|>\s+)*)`(\d{1,2}:\d{2}(?::\d{2})?)`(?=\s|$)/;
+
+export function buildNoteTimestampDeepLink(
+  seconds: number,
+  context: NoteTimestampLinkContext
+): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+  const sec = Math.max(0, Math.floor(seconds));
+  const pageUrl = String(context.pageUrl || "").trim();
+  const hasExplicitSite =
+    context.site !== undefined && context.site !== null && String(context.site).trim() !== "";
+  const site: SiteId = hasExplicitSite ? normalizeSiteId(context.site) : detectSiteFromUrl(pageUrl);
+
+  if (site === "youtube") {
+    const candidate = decodeVideoStorageBvid(String(context.videoId || context.bvid || "").trim());
+    const rawId = YOUTUBE_RAW_ID_RE.test(candidate) ? candidate : extractYoutubeVideoId(pageUrl);
+    if (!rawId) {
+      return "";
+    }
+    return `https://www.youtube.com/watch?v=${rawId}&t=${sec}s`;
+  }
+
+  const candidate = decodeVideoStorageBvid(String(context.bvid || context.videoId || "").trim());
+  const bvid = BILIBILI_BVID_RE.test(candidate) ? candidate : extractBvid(pageUrl);
+  if (!bvid) {
+    return "";
+  }
+  const pageIndex = extractPageIndexFromUrl(pageUrl);
+  if (pageIndex > 1) {
+    return `https://www.bilibili.com/video/${bvid}/?p=${pageIndex}&t=${sec}`;
+  }
+  return `https://www.bilibili.com/video/${bvid}/?t=${sec}`;
+}
+
+function findMatchingDelimiter(
+  text: string,
+  openIndex: number,
+  openChar: string,
+  closeChar: string
+): number {
+  let depth = 0;
+  for (let i = openIndex; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (ch === closeChar) {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+function findClosingBackticks(text: string, startIndex: number, tickCount: number): number {
+  let i = startIndex;
+  while (i < text.length) {
+    if (text[i] !== "`") {
+      i += 1;
+      continue;
+    }
+    let runEnd = i;
+    while (runEnd < text.length && text[runEnd] === "`") {
+      runEnd += 1;
+    }
+    if (runEnd - i === tickCount) {
+      return runEnd;
+    }
+    i = runEnd;
+  }
+  return -1;
+}
+
+function linkifyInlineMarkdownLine(line: string, context: NoteTimestampLinkContext): string {
+  let prefixOut = "";
+  let cursorStart = 0;
+
+  const prefixMatch = line.match(LINE_PREFIX_CLOCK_CODE_RE);
+  if (prefixMatch) {
+    const clock = prefixMatch[2];
+    const seconds = parseClock(clock);
+    if (seconds !== null) {
+      const deepLink = buildNoteTimestampDeepLink(seconds, context);
+      if (deepLink) {
+        prefixOut = `${prefixMatch[1]}[${clock}](${deepLink})`;
+        cursorStart = prefixMatch[0].length;
+      }
+    }
+  }
+
+  let out = prefixOut;
+  let i = cursorStart;
+  const len = line.length;
+
+  while (i < len) {
+    const ch = line[i];
+
+    if (ch === "`") {
+      let tickEnd = i;
+      while (tickEnd < len && line[tickEnd] === "`") {
+        tickEnd += 1;
+      }
+      const tickCount = tickEnd - i;
+      const closeEnd = findClosingBackticks(line, tickEnd, tickCount);
+      if (closeEnd !== -1) {
+        out += line.slice(i, closeEnd);
+        i = closeEnd;
+        continue;
+      }
+      out += line.slice(i, tickEnd);
+      i = tickEnd;
+      continue;
+    }
+
+    if (ch === "!" && line[i + 1] === "[") {
+      const closeBracket = findMatchingDelimiter(line, i + 1, "[", "]");
+      if (closeBracket !== -1 && line[closeBracket + 1] === "(") {
+        const closeParen = findMatchingDelimiter(line, closeBracket + 1, "(", ")");
+        if (closeParen !== -1) {
+          out += line.slice(i, closeParen + 1);
+          i = closeParen + 1;
+          continue;
+        }
+      }
+      out += "![";
+      i += 2;
+      continue;
+    }
+
+    if (ch === "[") {
+      const closeBracket = findMatchingDelimiter(line, i, "[", "]");
+      if (closeBracket !== -1) {
+        const nextChar = line[closeBracket + 1];
+        if (nextChar === "(") {
+          const closeParen = findMatchingDelimiter(line, closeBracket + 1, "(", ")");
+          if (closeParen !== -1) {
+            out += line.slice(i, closeParen + 1);
+            i = closeParen + 1;
+            continue;
+          }
+        }
+        if (nextChar === "[") {
+          const closeRef = findMatchingDelimiter(line, closeBracket + 1, "[", "]");
+          if (closeRef !== -1) {
+            out += line.slice(i, closeRef + 1);
+            i = closeRef + 1;
+            continue;
+          }
+        }
+        const inner = line.slice(i + 1, closeBracket);
+        if (CLOCK_TOKEN_RE.test(inner)) {
+          const seconds = parseClock(inner);
+          if (seconds !== null) {
+            const deepLink = buildNoteTimestampDeepLink(seconds, context);
+            if (deepLink) {
+              out += `[${inner}](${deepLink})`;
+              i = closeBracket + 1;
+              continue;
+            }
+          }
+        }
+      }
+      out += "[";
+      i += 1;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return out;
+}
+
+function findFrontmatterEndLine(lines: readonly string[]): number {
+  if (lines.length < 3 || lines[0].trim() !== "---") {
+    return -1;
+  }
+  for (let i = 1; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (trimmed === "---" || trimmed === "...") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+export function linkifyNoteTimestamps(
+  markdown: string,
+  context: NoteTimestampLinkContext
+): string {
+  const source = String(markdown ?? "");
+  if (!source || !buildNoteTimestampDeepLink(0, context)) {
+    return source;
+  }
+
+  const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source.split(/\r?\n/);
+  const frontmatterEnd = findFrontmatterEndLine(lines);
+  let activeFenceChar = "";
+  let activeFenceLength = 0;
+
+  const output = lines.map((line, index) => {
+    if (frontmatterEnd !== -1 && index <= frontmatterEnd) {
+      return line;
+    }
+
+    if (activeFenceChar) {
+      const closeMatch = line.match(FENCE_OPEN_RE);
+      if (
+        closeMatch &&
+        closeMatch[1][0] === activeFenceChar &&
+        closeMatch[1].length >= activeFenceLength &&
+        line.slice(closeMatch[0].length).trim() === ""
+      ) {
+        activeFenceChar = "";
+        activeFenceLength = 0;
+      }
+      return line;
+    }
+
+    const openMatch = line.match(FENCE_OPEN_RE);
+    if (openMatch) {
+      activeFenceChar = openMatch[1][0];
+      activeFenceLength = openMatch[1].length;
+      return line;
+    }
+
+    return linkifyInlineMarkdownLine(line, context);
+  });
+
+  return output.join(lineBreak);
 }

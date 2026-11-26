@@ -4,10 +4,12 @@ export const MAX_NOTE_EXPORT_TEMPLATE_BYTES = 4096;
 export const MAX_OBSIDIAN_FIELD_LENGTH = 120;
 
 export const NOTE_TEMPLATE_VARIABLES_HELP =
-  "{{title}} {{videoId}} {{bvid}} {{site}} {{author}} {{url}} {{date}} {{summary}} {{chapters}} {{quotes}} {{notes}} {{subtitles}}";
+  "{{title}} {{videoId}} {{bvid}} {{site}} {{author}} {{url}} {{date}} {{summary}} {{ai_note}} {{chapters}} {{quotes}} {{notes}} {{subtitles}}";
 
 export const DEFAULT_NOTE_TEMPLATE = `---
 title: "{{title}}"
+site: "{{site}}"
+video_id: "{{videoId}}"
 bvid: "{{bvid}}"
 author: "{{author}}"
 source: "{{url}}"
@@ -23,6 +25,12 @@ date: "{{date}}"
 ## 摘要
 
 {{summary}}
+{{/if}}
+
+{{#if ai_note}}
+## 视频笔记
+
+{{ai_note}}
 {{/if}}
 
 {{#if chapters}}
@@ -43,9 +51,22 @@ date: "{{date}}"
 {{notes}}
 {{/if}}`;
 
+export const LEGACY_DEFAULT_NOTE_TEMPLATE = DEFAULT_NOTE_TEMPLATE
+  .replace('\nsite: "{{site}}"\nvideo_id: "{{videoId}}"', "")
+  .replace("\n\n{{#if ai_note}}\n## 视频笔记\n\n{{ai_note}}\n{{/if}}", "");
+
 export const DEFAULT_YOUTUBE_NOTE_TEMPLATE = DEFAULT_NOTE_TEMPLATE
   .replace('bvid: "{{bvid}}"', 'videoId: "{{videoId}}"')
   .replace("- UP主：{{author}}", "- 作者：{{author}}");
+
+export function isDefaultNoteTemplate(template: unknown): boolean {
+  const trimmed = String(template || "").replace(/\r\n?/g, "\n").trim();
+  return (
+    !trimmed ||
+    trimmed === DEFAULT_NOTE_TEMPLATE.trim() ||
+    trimmed === LEGACY_DEFAULT_NOTE_TEMPLATE.trim()
+  );
+}
 
 export function getDefaultNoteTemplate(site: SiteId | unknown = "bilibili"): string {
   return normalizeSiteId(site) === "youtube" ? DEFAULT_YOUTUBE_NOTE_TEMPLATE : DEFAULT_NOTE_TEMPLATE;

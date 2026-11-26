@@ -24,6 +24,7 @@ import {
 } from "./defaults.js";
 import {
   DEFAULT_NOTE_TEMPLATE,
+  isDefaultNoteTemplate,
   MAX_NOTE_EXPORT_TEMPLATE_BYTES,
   MAX_OBSIDIAN_FIELD_LENGTH
 } from "../notes/template-defaults.js";
@@ -106,7 +107,7 @@ function truncateUtf8ByBytes(text: string, maxBytes: number): string {
 
 export function normalizeNoteExportTemplate(value: unknown): string {
   const normalized = toString(value).replace(/\r\n?/g, "\n").trim();
-  if (!normalized) {
+  if (isDefaultNoteTemplate(normalized)) {
     return DEFAULT_NOTE_TEMPLATE;
   }
   return truncateUtf8ByBytes(normalized, MAX_NOTE_EXPORT_TEMPLATE_BYTES) || DEFAULT_NOTE_TEMPLATE;
