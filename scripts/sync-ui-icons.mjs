@@ -12,6 +12,7 @@ const ICON_SOURCE_MAP = {
   download: "download",
   play: "play",
   speaker: "volume-2",
+  speakerOff: "volume-x",
   stop: "square",
   reset: "rotate-ccw",
   share: "share-2",

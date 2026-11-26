@@ -45,12 +45,14 @@ describe("LiveChatController AI volume", () => {
   async function setup(options: {
     initialSpeed?: number;
     onServerOutputConfigured?: (patch: { liveVoiceVolume?: number; liveVoiceSpeed?: number }) => void;
+    onAiSpeakingChange?: (speaking: boolean) => void;
   } = {}) {
     const port = new FakePort();
     const controller = createLiveChatController({
       initialVolume: 0.6,
       initialSpeed: options.initialSpeed,
       onServerOutputConfigured: options.onServerOutputConfigured,
+      onAiSpeakingChange: options.onAiSpeakingChange,
       connectPort: () => port as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (message: any) => message.type === "live-session-prepare"
@@ -116,6 +118,40 @@ describe("LiveChatController AI volume", () => {
     const { controller, port } = await setup({ initialSpeed: 2 });
     expect(controller.getSpeed()).toBe(1.5);
     expect(port.postedMessages[0]).toMatchObject({ action: "start", speed: 1.5 });
+  });
+
+  it("toggles session-only AI output mute without altering saved volume or microphone mute", async () => {
+    const onServerOutputConfigured = vi.fn();
+    const onAiSpeakingChange = vi.fn();
+    const { controller, port } = await setup({ onServerOutputConfigured, onAiSpeakingChange });
+
+    expect(controller.isOutputMuted()).toBe(false);
+    expect(controller.getVolume()).toBe(0.6);
+
+    controller.toggleOutputMute();
+    expect(controller.isOutputMuted()).toBe(true);
+    expect(controller.isMuted()).toBe(false);
+    expect(controller.getVolume()).toBe(0.6);
+    expect(port.postedMessages.at(-1)).toEqual({ action: "set_output_muted", muted: true });
+    expect(onServerOutputConfigured).not.toHaveBeenCalled();
+
+    controller.toggleOutputMute();
+    expect(controller.isOutputMuted()).toBe(false);
+    expect(controller.getVolume()).toBe(0.6);
+    expect(port.postedMessages.at(-1)).toEqual({ action: "set_output_muted", muted: false });
+
+    port.emit({ type: "speaking_state", speaking: true });
+    port.emit({ type: "speaking_state", speaking: true });
+    expect(onAiSpeakingChange).toHaveBeenCalledTimes(1);
+    expect(onAiSpeakingChange).toHaveBeenLastCalledWith(true);
+
+    controller.interrupt();
+    expect(onAiSpeakingChange).toHaveBeenCalledTimes(2);
+    expect(onAiSpeakingChange).toHaveBeenLastCalledWith(false);
+
+    controller.setOutputMuted(true);
+    await controller.stop();
+    expect(controller.isOutputMuted()).toBe(false);
   });
 });
 

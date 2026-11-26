@@ -257,6 +257,60 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
       { type: "delegation_result", delegationId: "del-1", status: "completed", content: "最终口播结论" }
     ]);
   });
+
+  it("silences local playback gain on set_output_muted without touching WebSocket or saved volume and restores on unmute", () => {
+    const gainNode = { gain: { value: 1 }, connect: vi.fn() };
+    const fakeAudioCtx = {
+      state: "running",
+      currentTime: 0,
+      destination: {},
+      createGain: () => gainNode,
+      createBuffer: (_channels: number, length: number, sampleRate: number) => ({
+        duration: length / sampleRate,
+        getChannelData: () => new Float32Array(length)
+      }),
+      createBufferSource: () => ({
+        buffer: null,
+        playbackRate: { value: 1 },
+        onended: null,
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn()
+      }),
+      resume: vi.fn(async () => {})
+    };
+    const adapter = new FakeWireAdapter();
+    const events: MossLiveServerEvent[] = [];
+    const runtime = new OffscreenLiveSessionRuntime(adapter, {
+      videoContext: sampleContext,
+      createAudioContext: () => fakeAudioCtx as any,
+      onEvent: (ev) => events.push(ev)
+    });
+
+    runtime.handleAction({ action: "start", volume: 0.75 });
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: "ready", sessionId: "mute-sess" }));
+    adapter.callbacks!.enqueueAudioContext("c1", "r1", "t1");
+    adapter.callbacks!.enqueueAudioFrame(new Uint8Array(64).buffer);
+    expect(gainNode.gain.value).toBe(0.75);
+
+    ws.sentData.length = 0;
+    runtime.handleAction({ action: "set_output_muted", muted: true });
+    expect(gainNode.gain.value).toBe(0);
+    expect(ws.sentData).toHaveLength(0);
+
+    adapter.callbacks!.applyOutputConfiguration({ volumeDb: 0, speed: 1.25 });
+    expect(gainNode.gain.value).toBe(0);
+    adapter.callbacks!.emitTranscript({ kind: "output.done", text: "静音下文字正常显示", runId: "r1", turnId: "t1" });
+    expect(events).toContainEqual({
+      type: "transcript",
+      event: { kind: "output.done", text: "静音下文字正常显示", runId: "r1", turnId: "t1" }
+    });
+
+    runtime.handleAction({ action: "set_output_muted", muted: false });
+    expect(gainNode.gain.value).toBe(0.75);
+  });
 });
 
 describe("Unified runtime behavior across Gemini and MOSS", () => {

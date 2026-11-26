@@ -16,6 +16,7 @@ function createFakeControllerHarness(initialState: LiveChatState = "idle") {
   let currentState: LiveChatState = initialState;
   let capturedDeps: LiveChatControllerDeps | null = null;
   let muted = false;
+  let outputMuted = false;
   let shareVideoAudio = false;
   let voicePriority = true;
   let speed = 1;
@@ -69,6 +70,7 @@ function createFakeControllerHarness(initialState: LiveChatState = "idle") {
   const controller = {
     getState: () => currentState,
     isMuted: () => muted,
+    isOutputMuted: () => outputMuted,
     isSharingVideoAudio: () => shareVideoAudio,
     isVoicePriority: () => voicePriority,
     isVoiceRecentlyActive: () => true,
@@ -77,6 +79,14 @@ function createFakeControllerHarness(initialState: LiveChatState = "idle") {
     setMuted: vi.fn((next: boolean) => {
       muted = next;
     }),
+    setOutputMuted: vi.fn((next: boolean) => {
+      outputMuted = next;
+    }),
+    toggleOutputMute: vi.fn(() => {
+      outputMuted = !outputMuted;
+    }),
+    interrupt: vi.fn(),
+    sendUserPrompt: vi.fn(async () => true),
     setVolume,
     setSpeed,
     setVoicePriority,
@@ -282,6 +292,35 @@ describe("live/live-overlay-binding 共用浮窗挂载、控制器生命周期�
     });
     await Promise.resolve();
     expect(harness.controller.handleStorageChanges).toHaveBeenCalledWith("sync", ["liveProviders"]);
+
+    sendMessage.mockClear();
+    const audioBtn = binding.getOverlay()!.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    audioBtn.click();
+    expect(harness.controller.toggleOutputMute).toHaveBeenCalledTimes(1);
+    expect(audioBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(sendMessage).not.toHaveBeenCalled();
+    harness.getDeps().onTranscript?.({ kind: "output.done", text: "静音下仍显示文字", runId: "r1", turnId: "t1" });
+    expect(binding.getOverlay()!.getElement()!.querySelector(".live-overlay-bubble-assistant")?.textContent).toBe(
+      "静音下仍显示文字"
+    );
+
+    const interruptBtn = binding.getOverlay()!.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-interrupt-btn")!;
+    harness.getDeps().onAiSpeakingChange?.(true);
+    expect(interruptBtn.hidden).toBe(false);
+    interruptBtn.click();
+    expect(harness.controller.interrupt).toHaveBeenCalledTimes(1);
+    expect(interruptBtn.hidden).toBe(true);
+
+    const promptInput = binding.getOverlay()!.getElement()!.querySelector<HTMLInputElement>(".live-overlay-prompt-input")!;
+    promptInput.value = "这段讲了什么";
+    promptInput.dispatchEvent(new Event("input"));
+    promptInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(harness.controller.sendUserPrompt).toHaveBeenCalledWith("这段讲了什么", {
+        includeVideoFrame: false
+      });
+    });
+    expect(promptInput.value).toBe("");
 
     binding.dispose();
     addListener.mockRestore();

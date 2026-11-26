@@ -629,12 +629,14 @@ export type MossLiveClientAction =
       lowBandwidth?: boolean;
       voiceId?: string;
       volume?: number;
+      outputMuted?: boolean;
       speed?: number;
       videoContext?: MossLiveSessionContext | null;
       sessionId?: string | null;
     }
   | { action: "change_voice"; voiceId: string }
   | { action: "set_volume"; volume: number }
+  | { action: "set_output_muted"; muted: boolean }
   | { action: "set_speed"; speed: number }
   | { action: "context_update"; videoContext: MossLiveSessionContext | null }
   | { action: "tool_result"; callId: string; result: unknown }

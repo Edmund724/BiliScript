@@ -109,6 +109,7 @@ export interface LiveChatControllerDeps {
   onServerOutputConfigured?: (
     patch: Pick<LiveAudioSettingsPatch, "liveVoiceVolume" | "liveVoiceSpeed">
   ) => void;
+  onAiSpeakingChange?: (speaking: boolean) => void;
   onStateChange?: (state: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
@@ -133,6 +134,7 @@ export interface LiveChatController {
   getLastError(): string | undefined;
   getLastFailureKind(): LiveFailureKind | undefined;
   isMuted(): boolean;
+  isOutputMuted(): boolean;
   isReconnecting?(): boolean;
   getVideoAudioStatus(): VideoAudioTrackStatus;
   isVoiceRecentlyActive?(): boolean;
@@ -144,6 +146,8 @@ export interface LiveChatController {
   getVideoBaseVolume(): number | null;
   setVideoBaseVolume(volume: number): number | null;
   setMuted(muted: boolean): void;
+  setOutputMuted(muted: boolean): void;
+  toggleOutputMute(): void;
   setVolume(volume: number): void;
   getVolume(): number;
   setSpeed(speed: number): void;
@@ -171,6 +175,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     duckRatio = DEFAULT_LIVE_DUCK_RATIO,
     getVideoElement = null,
     onServerOutputConfigured,
+    onAiSpeakingChange,
     onStateChange,
     onReconnecting,
     onVadStateChange,
@@ -208,7 +213,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
   let lastError: string | undefined;
   let lastFailureKind: LiveFailureKind | undefined;
   let muted = false;
+  let outputMuted = false;
   let speaking = false;
+  let lastNotifiedAiSpeaking = false;
   let voicePriority = initialVoicePriority !== false;
   let shareVideoAudio = Boolean(initialShareVideoAudio);
   let micVadActive = false;
@@ -442,6 +449,18 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     void refreshTarget();
   }
 
+  function setAiSpeakingState(next: boolean): void {
+    const normalized = Boolean(next);
+    if (speaking !== normalized) {
+      speaking = normalized;
+      activeAudioCapture?.setAiSpeaking?.(speaking);
+    }
+    if (lastNotifiedAiSpeaking !== speaking) {
+      lastNotifiedAiSpeaking = speaking;
+      onAiSpeakingChange?.(speaking);
+    }
+  }
+
   function updateUi(nextState: LiveChatState, errorMessage?: string, failureKind?: LiveFailureKind): void {
     state = nextState;
     if (nextState === "failure") {
@@ -456,9 +475,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     }
     if (nextState !== "connected") {
       muted = nextState === "connecting" && activeAudioCapture ? activeAudioCapture.isMuted() : false;
-      speaking = false;
+      setAiSpeakingState(false);
       micVadActive = false;
-      activeAudioCapture?.setAiSpeaking?.(false);
       clearLongSummaryControls();
     }
     syncVideoDucking();
@@ -798,6 +816,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     const sessionId = `live-${generation}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
     muted = false;
+    outputMuted = false;
     backendTasks.cancelAllTasks();
     textToolCoordinator.clear();
     stopActiveMedia();
@@ -903,8 +922,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
             activePort?.postMessage({ action: "barge_in" });
           } catch {}
           if (speaking) {
-            speaking = false;
-            activeAudioCapture?.setAiSpeaking?.(false);
+            setAiSpeakingState(false);
             endLongSummaryControl();
             syncVideoDucking();
           }
@@ -1018,8 +1036,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
         if (state === "connected" || state === "connecting") {
           const nextSpeaking = Boolean(msg.speaking);
           if (nextSpeaking && !speaking) beginLongSummaryControl();
-          speaking = nextSpeaking;
-          activeAudioCapture?.setAiSpeaking?.(speaking);
+          setAiSpeakingState(nextSpeaking);
           if (!nextSpeaking) endLongSummaryControl();
           syncVideoDucking();
         }
@@ -1117,6 +1134,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
         providerType: resolvedProviderType,
         model: resolvedModel,
         volume,
+        ...(outputMuted ? { outputMuted: true } : {}),
         ...(savedMossSessionId ? { sessionId: savedMossSessionId } : {}),
         ...(speed !== 1 ? { speed } : {}),
         ...(activeTargetVoiceId ? { voiceId: activeTargetVoiceId } : {}),
@@ -1167,6 +1185,22 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     }
   }
 
+  function setOutputMuted(nextMuted: boolean): void {
+    if (state !== "connecting" && state !== "connected") return;
+    const next = Boolean(nextMuted);
+    if (outputMuted === next) return;
+    outputMuted = next;
+    if (activePort) {
+      try {
+        activePort.postMessage({ action: "set_output_muted", muted: outputMuted });
+      } catch {}
+    }
+  }
+
+  function toggleOutputMute(): void {
+    setOutputMuted(!outputMuted);
+  }
+
   function setVolume(nextVolume: number): void {
     volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(2, nextVolume)) : 1;
     if (!activePort) return;
@@ -1213,8 +1247,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     try {
       activePort.postMessage({ action: "interrupt" });
     } catch {}
-    speaking = false;
-    activeAudioCapture?.setAiSpeaking?.(false);
+    setAiSpeakingState(false);
     endLongSummaryControl();
     syncVideoDucking();
   }
@@ -1280,6 +1313,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
     savedMossSessionId = null;
+    outputMuted = false;
     textToolCoordinator.clear();
     stopActiveMedia();
     if (activePort) {
@@ -1302,6 +1336,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     getLastError: () => lastError,
     getLastFailureKind: () => lastFailureKind,
     isMuted: () => muted,
+    isOutputMuted: () => outputMuted,
     isReconnecting: () => reconnecting,
     getVideoAudioStatus: () => (!shareVideoAudio ? "未开启" : (activeAudioCapture?.getVideoAudioStatus() ?? "未开启")),
     isVoiceRecentlyActive: () => activeAudioCapture?.isVoiceRecentlyActive() ?? true,
@@ -1313,6 +1348,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     getVideoBaseVolume,
     setVideoBaseVolume,
     setMuted,
+    setOutputMuted,
+    toggleOutputMute,
     setVolume,
     getVolume: () => volume,
     setSpeed,

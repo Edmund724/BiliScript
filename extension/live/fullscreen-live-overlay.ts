@@ -60,6 +60,7 @@ export interface FullscreenLiveOverlay {
   syncState(state?: LiveChatState, reconnecting?: boolean, error?: string, failureKind?: LiveFailureKind): void;
   showInterpretNotice(message: string, autoHideMs?: number): void;
   updateVad(active: boolean): void;
+  updateAiSpeaking(speaking: boolean): void;
   updateTranscript(event: MossLiveTranscriptEvent): void;
   showVideoContextSwitch(context: MossLiveSessionContext): void;
   clearMessages(): void;
@@ -75,6 +76,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let statusTextEl: HTMLElement | null = null;
   let micBtnEl: HTMLButtonElement | null = null;
   let audioBtnEl: HTMLButtonElement | null = null;
+  let audioMenuBtnEl: HTMLButtonElement | null = null;
   let audioPopEl: HTMLElement | null = null;
   let audioPopoverHandle: AudioPopoverHandle | null = null;
   let volumeSliderEl: HTMLInputElement | null = null;
@@ -94,8 +96,13 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let retryBtnEl: HTMLButtonElement | null = null;
   let interpretNoticeEl: HTMLElement | null = null;
   let interpretNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  let messagesStageEl: HTMLElement | null = null;
   let messagesEl: HTMLElement | null = null;
+  let interruptBtnEl: HTMLButtonElement | null = null;
   let scrollBottomBtnEl: HTMLButtonElement | null = null;
+  let composerEl: HTMLElement | null = null;
+  let promptInputEl: HTMLInputElement | null = null;
+  let promptSendBtnEl: HTMLButtonElement | null = null;
 
   let miniCapsuleEl: HTMLButtonElement | null = null;
   let miniCapsuleDotEl: HTMLElement | null = null;
@@ -106,6 +113,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let isMin = true;
   let lastSyncedState: LiveChatState = "idle";
   let lastIsReconnecting = false;
+  let aiSpeaking = false;
+  let promptSubmitting = false;
   let failureActive = false;
   let restoreMiniAfterFailure = false;
   let lastFailureError: string | undefined;
@@ -324,9 +333,15 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             ${renderUiIcon("micOff", { className: "live-overlay-icon-mic-off", size: 16 })}
           </button>
           <div class="live-overlay-audio-anchor">
-            <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="音频设置" aria-label="音频设置" aria-expanded="false" aria-controls="biliscript-live-audio-popover">
-              ${renderUiIcon("speaker", { size: 16 })}
-            </button>
+            <div class="live-overlay-audio-group">
+              <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="静音 AI 播报" aria-label="静音 AI 播报" aria-pressed="false">
+                ${renderUiIcon("speaker", { className: "live-overlay-icon-speaker", size: 16 })}
+                ${renderUiIcon("speakerOff", { className: "live-overlay-icon-speaker-off", size: 16 })}
+              </button>
+              <button type="button" class="live-overlay-icon-btn live-overlay-audio-menu-btn" title="音频设置" aria-label="音频设置" aria-expanded="false" aria-controls="biliscript-live-audio-popover">
+                ${renderUiIcon("chevronDown", { size: 12 })}
+              </button>
+            </div>
             <div id="biliscript-live-audio-popover" class="live-overlay-audio-popover" popover="manual" hidden>
               <div class="live-overlay-output-controls">
                 <div class="live-overlay-pop-item live-overlay-pop-volume-item">
@@ -373,10 +388,25 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             <button type="button" class="live-overlay-action-btn live-overlay-retry-btn" data-primary-action="true">重试</button>
           </div>
         </div>
-        <div class="live-overlay-messages"></div>
-        <button type="button" class="live-overlay-scroll-bottom-btn" title="回到底部" aria-label="回到底部" hidden>
-          ${renderUiIcon("chevronDown", { size: 14 })}
-        </button>
+        <div class="live-overlay-messages-stage">
+          <div class="live-overlay-messages"></div>
+          <button type="button" class="live-overlay-interrupt-btn" aria-label="停止播报" hidden>
+            ${renderUiIcon("stop", { size: 11, fill: "currentColor", strokeWidth: 1.5 })}
+            <span>停止</span>
+          </button>
+          <button type="button" class="live-overlay-scroll-bottom-btn" title="回到底部" aria-label="回到底部" hidden>
+            ${renderUiIcon("chevronDown", { size: 14 })}
+          </button>
+        </div>
+        <div class="live-overlay-composer" data-has-text="false" data-disabled="true">
+          <div class="live-overlay-composer-pill" aria-hidden="true"></div>
+          <div class="live-overlay-composer-row">
+            <input type="text" class="live-overlay-prompt-input" placeholder="文字提问..." aria-label="文字提问" autocomplete="off" spellcheck="false" disabled />
+            <button type="button" class="live-overlay-icon-btn live-overlay-prompt-send-btn" title="发送" aria-label="发送" disabled>
+              ${renderUiIcon("arrowUp", { size: 14 })}
+            </button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -421,6 +451,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     statusTextEl = overlay.querySelector(".live-overlay-status-text");
     micBtnEl = overlay.querySelector(".live-overlay-mic-btn");
     audioBtnEl = overlay.querySelector(".live-overlay-audio-btn");
+    audioMenuBtnEl = overlay.querySelector(".live-overlay-audio-menu-btn");
     audioPopEl = overlay.querySelector(".live-overlay-audio-popover");
     volumeSliderEl = overlay.querySelector(".live-overlay-volume-slider:not(.live-overlay-speed-slider)");
     volumeValueEl = overlay.querySelector(".live-overlay-volume-value:not(.live-overlay-speed-value)");
@@ -438,8 +469,13 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     settingsBtnEl = overlay.querySelector(".live-overlay-settings-btn");
     retryBtnEl = overlay.querySelector(".live-overlay-retry-btn");
     interpretNoticeEl = overlay.querySelector(".live-overlay-interpret-notice");
+    messagesStageEl = overlay.querySelector(".live-overlay-messages-stage");
     messagesEl = overlay.querySelector(".live-overlay-messages");
+    interruptBtnEl = overlay.querySelector(".live-overlay-interrupt-btn");
     scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
+    composerEl = overlay.querySelector(".live-overlay-composer");
+    promptInputEl = overlay.querySelector(".live-overlay-prompt-input");
+    promptSendBtnEl = overlay.querySelector(".live-overlay-prompt-send-btn");
   }
 
   function bindEvents(overlay: HTMLElement): void {
@@ -466,10 +502,17 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       syncMicButton();
     });
 
+    audioBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!isMicControlActive()) return;
+      deps.getLiveController()?.toggleOutputMute?.();
+      syncOutputMuteButton();
+    });
+
     audioPopoverHandle?.dispose();
-    if (audioBtnEl && audioPopEl) {
+    if (audioMenuBtnEl && audioPopEl) {
       audioPopoverHandle = bindAudioPopover({
-        button: audioBtnEl,
+        button: audioMenuBtnEl,
         popover: audioPopEl,
         getOverlayRoot: () => rootEl,
         getMountHost,
@@ -600,6 +643,52 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       isScrolledToBottom = true;
       setScrollBottomButtonHidden(true);
     });
+
+    interruptBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deps.getLiveController()?.interrupt?.();
+      updateAiSpeaking(false);
+    });
+
+    const submitPrompt = async (): Promise<void> => {
+      if (!promptInputEl || promptSubmitting || !isMicControlActive()) return;
+      const text = promptInputEl.value.trim();
+      if (!text) return;
+      const controller = deps.getLiveController();
+      if (!controller?.sendUserPrompt) return;
+      promptSubmitting = true;
+      syncPromptControls();
+      try {
+        const sent = await controller.sendUserPrompt(text, { includeVideoFrame: false });
+        if (sent && promptInputEl) {
+          promptInputEl.value = "";
+        }
+      } finally {
+        promptSubmitting = false;
+        syncPromptControls();
+      }
+    };
+
+    promptInputEl?.addEventListener("input", () => {
+      syncPromptControls();
+    });
+    promptInputEl?.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        void submitPrompt();
+      }
+    });
+    promptInputEl?.addEventListener("keyup", (e) => {
+      e.stopPropagation();
+    });
+    promptInputEl?.addEventListener("keypress", (e) => {
+      e.stopPropagation();
+    });
+    promptSendBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void submitPrompt();
+    });
   }
 
   function bindCapsuleEvents(capsule: HTMLButtonElement): void {
@@ -693,8 +782,55 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     syncMiniCapsuleName();
   }
 
+  function syncOutputMuteButton(): void {
+    const active = isMicControlActive();
+    const isOutputMuted = active && (deps.getLiveController()?.isOutputMuted?.() ?? false);
+    if (audioBtnEl) {
+      audioBtnEl.disabled = !active;
+      audioBtnEl.setAttribute("aria-pressed", String(isOutputMuted));
+      const label = !active
+        ? "连接后可静音 AI 播报"
+        : isOutputMuted
+          ? "取消静音 AI 播报"
+          : "静音 AI 播报";
+      audioBtnEl.setAttribute("title", label);
+      audioBtnEl.setAttribute("aria-label", label);
+    }
+  }
+
+  function syncInterruptButton(): void {
+    const visible = aiSpeaking && isMicControlActive();
+    if (!visible && interruptBtnEl && document.activeElement === interruptBtnEl) {
+      minBtnEl?.focus({ preventScroll: true });
+    }
+    if (interruptBtnEl) {
+      interruptBtnEl.hidden = !visible;
+    }
+    messagesStageEl?.classList.toggle("has-interrupt-btn", visible);
+  }
+
+  function syncPromptControls(): void {
+    const active = isMicControlActive();
+    const value = promptInputEl?.value ?? "";
+    const hasText = value.length > 0;
+    const canSend = active && !promptSubmitting && value.trim().length > 0;
+    if (promptInputEl) {
+      promptInputEl.disabled = !active;
+    }
+    if (promptSendBtnEl) {
+      promptSendBtnEl.disabled = !canSend;
+    }
+    if (composerEl) {
+      composerEl.dataset.hasText = hasText ? "true" : "false";
+      composerEl.dataset.disabled = active ? "false" : "true";
+    }
+  }
+
   function syncAudioControls(): void {
     syncMicButton();
+    syncOutputMuteButton();
+    syncInterruptButton();
+    syncPromptControls();
     const controller = deps.getLiveController();
     if (!controller) return;
 
@@ -852,9 +988,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     isMin = true;
     lastSyncedState = "idle";
     lastIsReconnecting = false;
+    aiSpeaking = false;
+    promptSubmitting = false;
     smoothScrollingToBottom = false;
     failureActive = false;
     restoreMiniAfterFailure = false;
+    if (promptInputEl) promptInputEl.value = "";
+    syncInterruptButton();
+    syncPromptControls();
     if (rootEl) {
       if (!rootEl.hidden) {
         animateTriggerExit({
@@ -1035,6 +1176,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
+  function updateAiSpeaking(speaking: boolean): void {
+    aiSpeaking = Boolean(speaking) && isMicControlActive();
+    syncInterruptButton();
+  }
+
   function updateTranscript(event: MossLiveTranscriptEvent): void {
     transcriptMerger.handleEvent(event);
   }
@@ -1043,6 +1189,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (messagesEl) {
       messagesEl.innerHTML = "";
     }
+    aiSpeaking = false;
+    syncInterruptButton();
     smoothScrollingToBottom = false;
     isScrolledToBottom = true;
     setScrollBottomButtonHidden(true);
@@ -1140,6 +1288,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     syncState,
     showInterpretNotice,
     updateVad,
+    updateAiSpeaking,
     updateTranscript,
     showVideoContextSwitch,
     clearMessages,

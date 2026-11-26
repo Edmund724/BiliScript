@@ -37,6 +37,7 @@ export interface LiveOverlayConsumerHooks {
 
 type BoundLiveControllerCallbackKey =
   | "onVadStateChange"
+  | "onAiSpeakingChange"
   | "onTranscript"
   | "onVideoContextSwitch"
   | "onReconnecting"
@@ -160,6 +161,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
     return {
       onVadStateChange: (active) => {
         overlay?.updateVad(active);
+      },
+      onAiSpeakingChange: (speaking) => {
+        overlay?.updateAiSpeaking(speaking);
       },
       onTranscript: (event: MossLiveTranscriptEvent) => {
         overlay?.updateTranscript(event);

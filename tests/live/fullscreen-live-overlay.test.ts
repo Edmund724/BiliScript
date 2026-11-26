@@ -35,6 +35,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     onStopLive = vi.fn();
 
     let muted = false;
+    let outputMuted = false;
     let shareAudio = true;
     let voicePriority = true;
     let volume = 0.8;
@@ -47,6 +48,15 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       toggleMute: vi.fn(() => {
         muted = !muted;
       }),
+      isOutputMuted: () => outputMuted,
+      setOutputMuted: vi.fn((val: boolean) => {
+        outputMuted = val;
+      }),
+      toggleOutputMute: vi.fn(() => {
+        outputMuted = !outputMuted;
+      }),
+      interrupt: vi.fn(),
+      sendUserPrompt: vi.fn(async () => true),
       getVolume: () => volume,
       setVolume: vi.fn((val: number) => {
         volume = val;
@@ -229,13 +239,24 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(micBtn.getAttribute("aria-pressed")).toBe("true");
 
     const audioBtn = overlay.getElement()?.querySelector(".live-overlay-audio-btn") as HTMLButtonElement;
+    const audioMenuBtn = overlay.getElement()?.querySelector(".live-overlay-audio-menu-btn") as HTMLButtonElement;
     const popover = overlay.getElement()?.querySelector(".live-overlay-audio-popover") as HTMLElement;
-    expect(audioBtn.getAttribute("aria-controls")).toBe(popover.id);
-    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(audioBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(audioBtn.getAttribute("aria-expanded")).toBeNull();
+    expect(audioBtn.getAttribute("aria-controls")).toBeNull();
+    expect(audioMenuBtn.getAttribute("aria-controls")).toBe(popover.id);
+    expect(audioMenuBtn.getAttribute("aria-expanded")).toBe("false");
     expect(popover.hidden).toBe(true);
+
     audioBtn.click();
+    expect(mockController.toggleOutputMute).toHaveBeenCalledTimes(1);
+    expect(audioBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(onAudioChange).not.toHaveBeenCalled();
+    expect(popover.hidden).toBe(true);
+
+    audioMenuBtn.click();
     expect(popover.hidden).toBe(false);
-    expect(audioBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(audioMenuBtn.getAttribute("aria-expanded")).toBe("true");
 
     const volumeSlider = popover.querySelector(".live-overlay-volume-slider") as HTMLInputElement;
     const volumeValue = popover.querySelector(".live-overlay-volume-value") as HTMLElement;
@@ -268,7 +289,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
-    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const audioMenuBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-menu-btn")!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
     expect(popover.getAttribute("popover")).toBe("manual");
     Object.defineProperty(popover, "showPopover", {
@@ -277,15 +298,15 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
         throw new Error("native popover unavailable");
       })
     });
-    audioBtn.click();
+    audioMenuBtn.click();
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(popover.hidden).toBe(true);
-    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(audioBtn);
+    expect(audioMenuBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(audioMenuBtn);
     expect(onStopLive).not.toHaveBeenCalled();
 
-    audioBtn.click();
+    audioMenuBtn.click();
     const outsideInput = document.createElement("input");
     document.body.appendChild(outsideInput);
     outsideInput.focus();
@@ -298,7 +319,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
-  it("native popover='manual' 下点喇叭不闪关重开、键盘打开聚焦首控件、外点不抢焦点、Esc 归还焦点", () => {
+  it("native popover='manual' 下点箭头不闪关重开、键盘打开聚焦首控件、外点不抢焦点、Esc 归还焦点", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -306,7 +327,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
-    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const audioMenuBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-menu-btn")!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
     const volumeSlider = popover.querySelector<HTMLInputElement>(".live-overlay-volume-slider")!;
     const showPopover = vi.fn();
@@ -314,18 +335,18 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     Object.defineProperty(popover, "showPopover", { configurable: true, value: showPopover });
     Object.defineProperty(popover, "hidePopover", { configurable: true, value: hidePopover });
 
-    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
     expect(showPopover).toHaveBeenCalledTimes(1);
     expect(popover.hidden).toBe(false);
     expect(document.activeElement).toBe(volumeSlider);
 
-    audioBtn.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(hidePopover).toHaveBeenCalledTimes(1);
     expect(popover.hidden).toBe(true);
-    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(audioMenuBtn.getAttribute("aria-expanded")).toBe("false");
 
-    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(popover.hidden).toBe(false);
     const outsideBtn = document.createElement("button");
     document.body.appendChild(outsideBtn);
@@ -334,12 +355,12 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(popover.hidden).toBe(true);
     expect(document.activeElement).toBe(outsideBtn);
 
-    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(popover.hidden).toBe(true);
-    expect(document.activeElement).toBe(audioBtn);
+    expect(document.activeElement).toBe(audioMenuBtn);
 
-    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    audioMenuBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(popover.hidden).toBe(false);
     overlay.syncState("failure", false, "网络异常", "network");
     expect(popover.hidden).toBe(true);
@@ -355,16 +376,16 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
-    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const audioMenuBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-menu-btn")!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
-    audioBtn.getBoundingClientRect = () => ({
+    audioMenuBtn.getBoundingClientRect = () => ({
       left: 860, top: 300, right: 900, bottom: 340, width: 40, height: 40, x: 860, y: 300, toJSON: () => {}
     });
     popover.getBoundingClientRect = () => ({
       left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0, toJSON: () => {}
     });
 
-    audioBtn.click();
+    audioMenuBtn.click();
 
     expect(popover.dataset.placement).toBe("top");
     expect(popover.style.left).toBe("580px");
@@ -383,7 +404,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
-    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    root.querySelector<HTMLButtonElement>(".live-overlay-audio-menu-btn")!.click();
     const share = popover.querySelector<HTMLButtonElement>(".live-overlay-share-switch")!;
     const priority = popover.querySelector<HTMLButtonElement>(".live-overlay-priority-switch")!;
     const status = popover.querySelector<HTMLElement>(".live-overlay-audio-status")!;
@@ -430,7 +451,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
-    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    root.querySelector<HTMLButtonElement>(".live-overlay-audio-menu-btn")!.click();
     const slider = popover.querySelector<HTMLInputElement>(".live-overlay-volume-slider:not(.live-overlay-speed-slider)")!;
     const value = popover.querySelector<HTMLElement>(".live-overlay-volume-value:not(.live-overlay-speed-value)")!;
 
@@ -481,6 +502,65 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.syncState();
     expect(speedSlider.value).toBe("4");
     expect(speedValue.textContent).toBe("1.5×");
+    overlay.dispose();
+  });
+
+  it("AI 播报中显示停止按钮、点击打断并自动隐藏；底部文字提问回车发送且不附截帧，未连接时禁用", async () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const interruptBtn = root.querySelector<HTMLButtonElement>(".live-overlay-interrupt-btn")!;
+    const stage = root.querySelector<HTMLElement>(".live-overlay-messages-stage")!;
+    const composer = root.querySelector<HTMLElement>(".live-overlay-composer")!;
+    const input = root.querySelector<HTMLInputElement>(".live-overlay-prompt-input")!;
+    const sendBtn = root.querySelector<HTMLButtonElement>(".live-overlay-prompt-send-btn")!;
+
+    expect(interruptBtn.hidden).toBe(true);
+    overlay.updateAiSpeaking(true);
+    expect(interruptBtn.hidden).toBe(false);
+    expect(stage.classList.contains("has-interrupt-btn")).toBe(true);
+
+    interruptBtn.click();
+    expect(mockController.interrupt).toHaveBeenCalledTimes(1);
+    expect(interruptBtn.hidden).toBe(true);
+    expect(stage.classList.contains("has-interrupt-btn")).toBe(false);
+
+    overlay.updateAiSpeaking(true);
+    overlay.updateAiSpeaking(false);
+    expect(interruptBtn.hidden).toBe(true);
+
+    expect(input.disabled).toBe(false);
+    expect(composer.dataset.hasText).toBe("false");
+    expect(sendBtn.disabled).toBe(true);
+
+    input.value = "这里为什么这么推导？";
+    input.dispatchEvent(new Event("input"));
+    expect(composer.dataset.hasText).toBe("true");
+    expect(sendBtn.disabled).toBe(false);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
+    expect(mockController.sendUserPrompt).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(mockController.sendUserPrompt).toHaveBeenCalledWith("这里为什么这么推导？", {
+        includeVideoFrame: false
+      });
+    });
+    expect(input.value).toBe("");
+    expect(composer.dataset.hasText).toBe("false");
+    expect(sendBtn.disabled).toBe(true);
+
+    overlay.updateAiSpeaking(true);
+    overlay.syncState("connecting");
+    expect(interruptBtn.hidden).toBe(true);
+    expect(input.disabled).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.disabled).toBe(true);
+    overlay.dispose();
   });
 
   it("浮窗默认以微型状态胶囊出现，点击展开，点击最小化收回胶囊", () => {

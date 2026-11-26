@@ -280,6 +280,7 @@ export class OffscreenLiveSessionRuntime {
   protected reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   protected lastSocketError = "";
   protected outputVolume = 1;
+  protected outputMuted = false;
   protected outputSpeed = 1;
   protected serverSpeedUnsupported = false;
   protected voiceId = "";
@@ -488,8 +489,9 @@ export class OffscreenLiveSessionRuntime {
         if (msg.volume !== undefined && Number.isFinite(msg.volume)) {
           this.outputVolume = Math.max(0, Math.min(2, msg.volume));
         }
+        this.outputMuted = Boolean(msg.outputMuted);
         this.voiceId = msg.voiceId !== undefined ? String(msg.voiceId || "").trim() : "";
-        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        this.applyOutputPlaybackGain();
         this.connect();
         break;
 
@@ -502,8 +504,13 @@ export class OffscreenLiveSessionRuntime {
         if (Number.isFinite(msg.volume)) {
           this.outputVolume = Math.max(0, Math.min(2, msg.volume));
         }
-        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        this.applyOutputPlaybackGain();
         this.configureOutput();
+        break;
+
+      case "set_output_muted":
+        this.outputMuted = Boolean(msg.muted);
+        this.applyOutputPlaybackGain();
         break;
 
       case "set_speed":
@@ -713,7 +720,7 @@ export class OffscreenLiveSessionRuntime {
           if (config.volumeDb !== 0 || this.outputVolume >= 1) {
             this.outputVolume = Math.max(0, Math.min(2, 1 + config.volumeDb / 16));
           }
-          this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+          this.applyOutputPlaybackGain();
         }
         if (config.speed !== undefined && Number.isFinite(config.speed) && config.speed > 0) {
           this.outputSpeed = config.speed;
@@ -1188,8 +1195,13 @@ export class OffscreenLiveSessionRuntime {
     this.emit({ type: "error", error: error.message, code });
   }
 
+  protected applyOutputPlaybackGain(): void {
+    this.audioPlayer.setVolume(this.outputMuted ? 0 : Math.min(1, this.outputVolume));
+  }
+
   close(): void {
     this.disposed = true;
+    this.outputMuted = false;
     this.sessionId = null;
     this.reconnectAttempts = 0;
     this.clearReconnectTimer();
