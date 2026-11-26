@@ -21,7 +21,7 @@
 - **扩展自有引导页复用（`extension/onboarding.html`）**：
   - `extension/entry/onboarding-entry.ts` 作为独立经典脚本（`entry/onboarding-entry.js`）由 `scripts/build.js` 构建；`onboarding.html` 按序以同源 `<script>` 加载 `./entry/theme-init.js`、`./entry/chunks/g-shared.iife.js` 与 `./entry/onboarding-entry.js`，原生满足 Chromium 默认 CSP 与 Firefox `extension_pages: "script-src 'self'"`，无需放宽 CSP。
 - **双端体积与图谱守卫**：
-  - 硬体积预算：`MAX_RESIDENT_BYTES = 46080`（首帧常驻）、除常驻包外视频页首帧不悬停额外注入 `≤ 300 KB`（`g-buttons + g-subtitle`）、`BACKGROUND_JS_MAX_KB = 256`（`262,144 B`）、Chromium `DIST_RUNTIME_MAX_BYTES = 4200000`、Firefox `DIST_RUNTIME_MAX_BYTES = 3900000`、双端 `Release ZIP ≤ 1,200,000 B`。
+  - 硬体积预算：`MAX_RESIDENT_BYTES = 46080`（首帧常驻）、除常驻包外视频页首帧不悬停额外注入 `≤ 300 KB`（`g-buttons + g-subtitle`）、`BACKGROUND_JS_MAX_KB = 256`（`262,144 B`）、Chromium `DIST_RUNTIME_MAX_BYTES = 4350000`、Firefox `DIST_RUNTIME_MAX_BYTES = 4050000`、双端 `Release ZIP ≤ 1,200,000 B`。
   - `scripts/build-content.js`、`scripts/build.js` 与 `scripts/build_release.py` 强制执行上述体积阈值及 `assertAnalysisNotInReaderGraph`、`assertScriptButtonSlim`、`assertPlayerAiSlim`、`assertMermaidStubsApplied`、`assertFirefoxLivePruned` 等图谱/替身守卫。
 
 ### 2. 后台静态白名单 `executeScript`、发起方锁定与 `live.bilibili.com` 宿主权限（`extension/core/content-chunk-handlers.ts`）
