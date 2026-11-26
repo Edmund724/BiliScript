@@ -2,10 +2,20 @@ import {
   INDEX_TRANSLATE_DEFAULT_MODEL,
   INDEX_TRANSLATE_MODEL_OPTIONS,
   INDEX_TRANSLATE_PROVIDER_ID,
-  normalizeIndexTranslateModel
+  SILICONFLOW_TRANSLATE_BASE_URL,
+  SILICONFLOW_TRANSLATE_DEFAULT_MODEL,
+  SILICONFLOW_TRANSLATE_MODEL_OPTIONS,
+  SILICONFLOW_TRANSLATE_PROVIDER_ID,
+  normalizeIndexTranslateModel,
+  normalizeSiliconFlowTranslateModel
 } from "../../ai/subtitle-translate-config.js";
 import type { Settings } from "../../core/defaults.js";
+import {
+  hasHostPermissionViaBackground,
+  requestProviderOriginsViaBackground
+} from "../../core/host-permissions.js";
 import { state } from "../../core/state.js";
+import { sendRuntimeMessage } from "../../shared/messaging.js";
 import {
   buildModelOptionValue,
   normalizeProviderModels,
@@ -33,6 +43,7 @@ export interface ModelSelectBindDeps {
   savePatch: (elements: SettingsElements, patch: Record<string, unknown>) => Promise<boolean>;
   loadAiProviders: () => Promise<ProviderRowItem[]>;
   syncSummaries: (elements: SettingsElements) => void;
+  setStatus?: (elements: SettingsElements, text: string, isError?: boolean) => void;
 }
 
 function buildEnabledModelSelectGroups(aiProviders: ProviderRowItem[]): ProviderModelSelectGroup[] {
@@ -123,9 +134,67 @@ function renderIndexTranslateModelSelect(selectEl: HTMLSelectElement | null, cur
   setCustomSelectState(selectEl, { disabled: false });
 }
 
+function renderSiliconFlowTranslateModelSelect(selectEl: HTMLSelectElement | null, currentModel?: unknown): void {
+  if (!selectEl) return;
+  selectEl.disabled = false;
+  selectEl.innerHTML = SILICONFLOW_TRANSLATE_MODEL_OPTIONS.map((option) => {
+    const val = buildModelOptionValue(SILICONFLOW_TRANSLATE_PROVIDER_ID, option.id);
+    return `<option value="${escapeHtml(val)}">${escapeHtml(option.label)}</option>`;
+  }).join("");
+  const resolvedModel = normalizeSiliconFlowTranslateModel(currentModel);
+  const selectedValue = buildModelOptionValue(SILICONFLOW_TRANSLATE_PROVIDER_ID, resolvedModel);
+  selectEl.value = selectedValue;
+  rebuildCustomSelectOptions(selectEl);
+  setCustomSelectValue(selectEl, selectedValue);
+  initCustomSelect(selectEl, "custom-select-wrapper");
+  setCustomSelectState(selectEl, { disabled: false });
+}
+
+function applySiliconFlowKeyPlaceholder(
+  inputEl: HTMLInputElement | null,
+  status: { hasOwnKey: boolean; hasAsrKey: boolean }
+): void {
+  if (!inputEl) return;
+  if (status.hasOwnKey) {
+    inputEl.placeholder = "已保存独立 Key（留空保存可清除）";
+    return;
+  }
+  if (status.hasAsrKey) {
+    inputEl.placeholder = "已复用语音转写 Key（可留空，或填写覆盖）";
+    return;
+  }
+  inputEl.placeholder = "填写硅基流动 API Key";
+}
+
+export async function refreshSiliconFlowTranslateKeyStatus(
+  elements: SettingsElements,
+  fallbackHasAsrKey = false
+): Promise<{ hasOwnKey: boolean; hasAsrKey: boolean }> {
+  const fallback = { hasOwnKey: false, hasAsrKey: fallbackHasAsrKey };
+  try {
+    const resp = await sendRuntimeMessage({ type: "subtitle-translate-siliconflow-key-status" });
+    if (resp?.ok) {
+      const next = {
+        hasOwnKey: resp.hasOwnKey === true,
+        hasAsrKey: resp.hasAsrKey === true
+      };
+      applySiliconFlowKeyPlaceholder(elements.subtitleTranslateSiliconFlowKey, next);
+      return next;
+    }
+  } catch {
+  }
+  applySiliconFlowKeyPlaceholder(elements.subtitleTranslateSiliconFlowKey, fallback);
+  return fallback;
+}
+
+function setSiliconFlowKeyRowVisible(elements: SettingsElements, visible: boolean): void {
+  if (!elements.subtitleTranslateSiliconFlowKeyRow) return;
+  elements.subtitleTranslateSiliconFlowKeyRow.hidden = !visible;
+}
+
 function setSubtitleTranslateSourceValue(
   selectEl: HTMLSelectElement | null,
-  value: typeof INDEX_TRANSLATE_PROVIDER_ID | "custom"
+  value: typeof INDEX_TRANSLATE_PROVIDER_ID | typeof SILICONFLOW_TRANSLATE_PROVIDER_ID | "custom"
 ): void {
   if (!selectEl) return;
   selectEl.value = value;
@@ -141,6 +210,17 @@ function renderSubtitleTranslateSelects(
   const groups = buildEnabledModelSelectGroups(aiProviders);
   const preferredProviderId = String(s.subtitleTranslateProviderId || "").trim();
   const preferredModel = String(s.subtitleTranslateModel || "").trim();
+
+  if (preferredProviderId === SILICONFLOW_TRANSLATE_PROVIDER_ID) {
+    setSubtitleTranslateSourceValue(elements.subtitleTranslateSource, SILICONFLOW_TRANSLATE_PROVIDER_ID);
+    renderSiliconFlowTranslateModelSelect(elements.subtitleTranslateModel, preferredModel);
+    setSiliconFlowKeyRowVisible(elements, true);
+    void refreshSiliconFlowTranslateKeyStatus(elements);
+    return;
+  }
+
+  setSiliconFlowKeyRowVisible(elements, false);
+
   const isCustomProvider = Boolean(
     preferredProviderId &&
       preferredProviderId !== INDEX_TRANSLATE_PROVIDER_ID &&
@@ -230,6 +310,7 @@ function bindSubtitleTranslateSourceSelect(
     const prev = { subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel };
 
     if (source === INDEX_TRANSLATE_PROVIDER_ID) {
+      setSiliconFlowKeyRowVisible(elements, false);
       renderIndexTranslateModelSelect(elements.subtitleTranslateModel, INDEX_TRANSLATE_DEFAULT_MODEL);
       commitModelSelection({
         patch: {
@@ -248,6 +329,40 @@ function bindSubtitleTranslateSourceSelect(
       });
       return;
     }
+
+    if (source === SILICONFLOW_TRANSLATE_PROVIDER_ID) {
+      renderSiliconFlowTranslateModelSelect(elements.subtitleTranslateModel, SILICONFLOW_TRANSLATE_DEFAULT_MODEL);
+      setSiliconFlowKeyRowVisible(elements, true);
+      commitModelSelection({
+        patch: {
+          subtitleTranslateProviderId: SILICONFLOW_TRANSLATE_PROVIDER_ID,
+          subtitleTranslateModel: SILICONFLOW_TRANSLATE_DEFAULT_MODEL
+        },
+        prev,
+        elements,
+        deps,
+        rollback: () => {
+          void deps.loadAiProviders().then((providers) => {
+            renderSubtitleTranslateSelects(elements, providers, prev);
+            deps.syncSummaries(elements);
+          });
+        }
+      });
+      void refreshSiliconFlowTranslateKeyStatus(elements).then(async (keyStatus) => {
+        if (!keyStatus.hasOwnKey && !keyStatus.hasAsrKey) return;
+        const granted = await hasHostPermissionViaBackground(SILICONFLOW_TRANSLATE_BASE_URL).catch(() => true);
+        if (granted) return;
+        const perm = await requestProviderOriginsViaBackground([SILICONFLOW_TRANSLATE_BASE_URL]).catch(
+          () => ({ ok: false, error: "申请硅基流动域名权限失败" })
+        );
+        if (!perm.ok && perm.error) {
+          deps.setStatus?.(elements, perm.error, true);
+        }
+      });
+      return;
+    }
+
+    setSiliconFlowKeyRowVisible(elements, false);
 
     void deps.loadAiProviders().then((providers) => {
       const groups = buildEnabledModelSelectGroups(providers);
@@ -276,12 +391,70 @@ function bindSubtitleTranslateSourceSelect(
   });
 }
 
+function bindSiliconFlowTranslateKeySave(
+  elements: SettingsElements,
+  deps: ModelSelectBindDeps
+): void {
+  const inputEl = elements.subtitleTranslateSiliconFlowKey;
+  const saveBtn = elements.subtitleTranslateSiliconFlowKeySaveBtn;
+  if (!inputEl || !saveBtn) return;
+
+  const handleSave = async (): Promise<void> => {
+    const trimmed = String(inputEl.value || "").trim();
+    saveBtn.disabled = true;
+    try {
+      if (trimmed) {
+        const perm = await requestProviderOriginsViaBackground([SILICONFLOW_TRANSLATE_BASE_URL]).catch(
+          () => ({ ok: false, error: "申请硅基流动域名权限失败" })
+        );
+        if (!perm.ok) {
+          deps.setStatus?.(elements, perm.error || "未授权 api.siliconflow.cn 域名权限", true);
+          return;
+        }
+      }
+      const resp = await sendRuntimeMessage({
+        type: "subtitle-translate-siliconflow-key-save",
+        apiKey: trimmed
+      });
+      if (!resp?.ok) {
+        deps.setStatus?.(elements, resp?.error || "保存硅基流动 Key 失败", true);
+        return;
+      }
+      inputEl.value = "";
+      const nextStatus = {
+        hasOwnKey: resp.hasOwnKey === true,
+        hasAsrKey: resp.hasAsrKey === true
+      };
+      applySiliconFlowKeyPlaceholder(inputEl, nextStatus);
+      if (trimmed) {
+        deps.setStatus?.(elements, "已保存硅基流动翻译 Key");
+      } else if (nextStatus.hasAsrKey) {
+        deps.setStatus?.(elements, "已清除独立 Key，将复用语音转写 Key");
+      } else {
+        deps.setStatus?.(elements, "已清除硅基流动翻译 Key");
+      }
+    } finally {
+      saveBtn.disabled = false;
+    }
+  };
+
+  saveBtn.addEventListener("click", () => {
+    void handleSave();
+  });
+  inputEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    void handleSave();
+  });
+}
+
 export function bindModelSelectEvents(
   elements: SettingsElements,
   deps: ModelSelectBindDeps
 ): void {
   bindProviderModelSelect(elements.aiDefaultModel, "defaultModel", "defaultAiModel", elements, deps);
   bindSubtitleTranslateSourceSelect(elements, deps);
+  bindSiliconFlowTranslateKeySave(elements, deps);
   bindProviderModelSelect(
     elements.subtitleTranslateModel,
     "subtitleTranslateProviderId",

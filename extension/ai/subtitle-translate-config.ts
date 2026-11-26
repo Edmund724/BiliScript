@@ -43,6 +43,125 @@ export const INDEX_TRANSLATE_HOST = "index-translate.bilibili.com";
 export const INDEX_TRANSLATE_MODEL: IndexTranslateModelId = INDEX_TRANSLATE_DEFAULT_MODEL;
 export const INDEX_TRANSLATE_USER_AGENT = "Index-Translate-Client/1.0";
 
+export const SILICONFLOW_TRANSLATE_PROVIDER_ID = "siliconflow-translate";
+export const SILICONFLOW_TRANSLATE_PROVIDER_NAME = "SiliconFlow 硅基流动";
+export const SILICONFLOW_TRANSLATE_BASE_URL = "https://api.siliconflow.cn/v1";
+export const SILICONFLOW_TRANSLATE_HOST = "api.siliconflow.cn";
+export const SILICONFLOW_TRANSLATE_MODELS = ["tencent/Hunyuan-MT-7B"] as const;
+export type SiliconFlowTranslateModelId = (typeof SILICONFLOW_TRANSLATE_MODELS)[number];
+export const SILICONFLOW_TRANSLATE_DEFAULT_MODEL: SiliconFlowTranslateModelId = "tencent/Hunyuan-MT-7B";
+export const SILICONFLOW_TRANSLATE_KEY_STORAGE = "subtitleTranslateSiliconFlowKey";
+export const MISSING_SILICONFLOW_TRANSLATE_KEY_MESSAGE =
+  "请先填写硅基流动 API Key（或先在「语音转写」中配置硅基流动以自动复用）";
+
+export interface SiliconFlowTranslateModelOption {
+  id: SiliconFlowTranslateModelId;
+  label: string;
+  isDefault: boolean;
+  available: boolean;
+}
+
+export const SILICONFLOW_TRANSLATE_MODEL_OPTIONS: readonly SiliconFlowTranslateModelOption[] = [
+  {
+    id: "tencent/Hunyuan-MT-7B",
+    label: "tencent/Hunyuan-MT-7B（免费）",
+    isDefault: true,
+    available: true
+  }
+];
+
+export const SILICONFLOW_TRANSLATE_BUILTIN_PROVIDER: ProviderListEntry = {
+  id: SILICONFLOW_TRANSLATE_PROVIDER_ID,
+  presetId: "siliconflow",
+  name: SILICONFLOW_TRANSLATE_PROVIDER_NAME,
+  baseUrl: SILICONFLOW_TRANSLATE_BASE_URL,
+  models: [...SILICONFLOW_TRANSLATE_MODELS],
+  model: SILICONFLOW_TRANSLATE_DEFAULT_MODEL,
+  requiresKey: true,
+  hasSavedKey: false,
+  enabled: true,
+  protocol: "openai"
+};
+
+export function normalizeSiliconFlowTranslateModel(value: unknown): SiliconFlowTranslateModelId {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return SILICONFLOW_TRANSLATE_DEFAULT_MODEL;
+  const lower = trimmed.toLowerCase();
+  const matched = SILICONFLOW_TRANSLATE_MODELS.find((candidate) => candidate.toLowerCase() === lower);
+  return matched ?? SILICONFLOW_TRANSLATE_DEFAULT_MODEL;
+}
+
+export function isSiliconFlowTranslateProvider(
+  provider?: { id?: unknown; presetId?: unknown } | null
+): boolean {
+  if (!provider) return false;
+  const id = String(provider.id || "").trim();
+  const presetId = String(provider.presetId || "").trim();
+  return id === SILICONFLOW_TRANSLATE_PROVIDER_ID || presetId === SILICONFLOW_TRANSLATE_PROVIDER_ID;
+}
+
+export interface SiliconFlowAsrProviderLike {
+  id?: unknown;
+  presetId?: unknown;
+  baseUrl?: unknown;
+  enabled?: unknown;
+  hasSavedKey?: unknown;
+}
+
+export function isOfficialSiliconFlowEndpoint(baseUrl: unknown): boolean {
+  const raw = String(baseUrl || "").trim();
+  if (!raw) return false;
+  try {
+    const url = new URL(raw);
+    return (
+      url.protocol === "https:" &&
+      (!url.port || url.port === "443") &&
+      url.hostname.toLowerCase() === SILICONFLOW_TRANSLATE_HOST
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isSiliconFlowAsrProvider(
+  provider: SiliconFlowAsrProviderLike | null | undefined
+): boolean {
+  if (!provider || provider.enabled === false) return false;
+  const baseUrl = String(provider.baseUrl || "").trim();
+  if (baseUrl) {
+    return isOfficialSiliconFlowEndpoint(baseUrl);
+  }
+  return String(provider.presetId || "").trim() === "siliconflow-sensevoice";
+}
+
+export function hasSavedSiliconFlowAsrKey(
+  asrProviders: readonly SiliconFlowAsrProviderLike[] | undefined
+): boolean {
+  if (!Array.isArray(asrProviders)) return false;
+  return asrProviders.some((provider) => isSiliconFlowAsrProvider(provider) && provider.hasSavedKey === true);
+}
+
+export function resolveSiliconFlowAsrApiKey(
+  asrProviders: readonly SiliconFlowAsrProviderLike[] | undefined,
+  asrKeys: Record<string, string> | undefined,
+  activeAsrProviderId?: unknown
+): string {
+  const list = Array.isArray(asrProviders) ? asrProviders : [];
+  const activeId = String(activeAsrProviderId || "").trim();
+  const candidates = list.filter(isSiliconFlowAsrProvider);
+  if (activeId) {
+    const active = candidates.find((provider) => String(provider.id || "").trim() === activeId);
+    const activeKey = active ? String(asrKeys?.[String(active.id || "").trim()] || "").trim() : "";
+    if (activeKey) return activeKey;
+  }
+  for (const provider of candidates) {
+    const id = String(provider.id || "").trim();
+    const key = id ? String(asrKeys?.[id] || "").trim() : "";
+    if (key) return key;
+  }
+  return "";
+}
+
 export interface IndexTranslateModelOption {
   id: IndexTranslateModelId;
   label: string;
@@ -138,10 +257,18 @@ export function resolveSubtitleTranslateGlossary(
   return parseSubtitleGlossary(raw);
 }
 
+export interface ResolveSubtitleTranslateProviderConfigOptions {
+  asrProviders?: readonly SiliconFlowAsrProviderLike[];
+  asrKeys?: Record<string, string>;
+  siliconFlowApiKey?: string;
+  activeAsrProviderId?: unknown;
+}
+
 export function resolveSubtitleTranslateProviderConfig(
   providers: ProviderListEntry[],
   keys: Record<string, string>,
-  settings?: SubtitleTranslateSettingsInput
+  settings?: SubtitleTranslateSettingsInput,
+  options?: ResolveSubtitleTranslateProviderConfigOptions
 ): SubtitleTranslateProviderResolution {
   const providerList = Array.isArray(providers) ? providers : [];
   const enabled = providerList.filter(
@@ -154,6 +281,29 @@ export function resolveSubtitleTranslateProviderConfig(
 
   const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
   const preferredModel = String(settings?.subtitleTranslateModel || "").trim();
+
+  if (preferredProviderId === SILICONFLOW_TRANSLATE_PROVIDER_ID) {
+    const directKey = String(options?.siliconFlowApiKey || "").trim();
+    const apiKey =
+      directKey ||
+      resolveSiliconFlowAsrApiKey(options?.asrProviders, options?.asrKeys, options?.activeAsrProviderId);
+    if (!apiKey) {
+      throw new Error(MISSING_SILICONFLOW_TRANSLATE_KEY_MESSAGE);
+    }
+    const model = normalizeSiliconFlowTranslateModel(preferredModel);
+    return {
+      provider: {
+        ...SILICONFLOW_TRANSLATE_BUILTIN_PROVIDER,
+        hasSavedKey: true
+      },
+      apiKey,
+      baseUrl: SILICONFLOW_TRANSLATE_BASE_URL,
+      model,
+      presetId: "siliconflow",
+      protocol: "openai",
+      isFallback: false
+    };
+  }
 
   if (!preferredProviderId || preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
     if (preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {

@@ -70,5 +70,18 @@ describe("同声传译字幕设置归一化", () => {
     });
     expect(fallback.subtitleTranslateProviderId).toBe("bilibili-index-translate");
     expect(fallback.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+
+    const siliconflowDefault = normalizeSettings({
+      subtitleTranslateProviderId: "siliconflow-translate",
+      subtitleTranslateModel: ""
+    });
+    expect(siliconflowDefault.subtitleTranslateProviderId).toBe("siliconflow-translate");
+    expect(siliconflowDefault.subtitleTranslateModel).toBe("tencent/Hunyuan-MT-7B");
+
+    const siliconflowUnknown = normalizeSettings({
+      subtitleTranslateProviderId: "siliconflow-translate",
+      subtitleTranslateModel: "Qwen/Qwen2.5-7B-Instruct"
+    });
+    expect(siliconflowUnknown.subtitleTranslateModel).toBe("tencent/Hunyuan-MT-7B");
   });
 });

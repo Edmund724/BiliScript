@@ -235,6 +235,25 @@ export type ResolveSubtitleTranslateProviderResponse = {
   error?: string;
 };
 
+export type SubtitleTranslateSiliconFlowKeyStatusMessage = {
+  type: "subtitle-translate-siliconflow-key-status";
+};
+
+export type SubtitleTranslateSiliconFlowKeySaveMessage = {
+  type: "subtitle-translate-siliconflow-key-save";
+  apiKey: string;
+};
+
+export type SubtitleTranslateSiliconFlowKeyResponse = {
+  ok: boolean;
+  hasOwnKey?: boolean;
+  hasAsrKey?: boolean;
+  error?: string;
+};
+
+export type SubtitleTranslateSiliconFlowKeyStatusResponse = SubtitleTranslateSiliconFlowKeyResponse;
+export type SubtitleTranslateSiliconFlowKeySaveResponse = SubtitleTranslateSiliconFlowKeyResponse;
+
 export type SegmentCacheContext = SegmentCacheContextFields;
 export type SegmentCacheMessage = {
   type: "segment-cache";
@@ -638,6 +657,8 @@ export type BackgroundMessage =
   | ProviderHttpMessage
   | ResolveAiProviderMessage
   | ResolveSubtitleTranslateProviderMessage
+  | SubtitleTranslateSiliconFlowKeyStatusMessage
+  | SubtitleTranslateSiliconFlowKeySaveMessage
   | AsrPresetsListMessage
   | AsrProvidersListMessage
   | AsrProvidersSaveMessage
@@ -953,6 +974,18 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "resolve-subtitle-translate-provider": registerBackgroundMessage<
     ResolveSubtitleTranslateProviderMessage,
     ResolveSubtitleTranslateProviderResponse
+  >({
+    reply: "async"
+  }),
+  "subtitle-translate-siliconflow-key-status": registerBackgroundMessage<
+    SubtitleTranslateSiliconFlowKeyStatusMessage,
+    SubtitleTranslateSiliconFlowKeyStatusResponse
+  >({
+    reply: "async"
+  }),
+  "subtitle-translate-siliconflow-key-save": registerBackgroundMessage<
+    SubtitleTranslateSiliconFlowKeySaveMessage,
+    SubtitleTranslateSiliconFlowKeySaveResponse
   >({
     reply: "async"
   }),

@@ -477,6 +477,23 @@
   color: var(--biliscript-reader-text);
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-inline-input {
+  display: flex;
+  align-items: center;
+  gap: var(--biliscript-space-xs);
+  width: 100%;
+  min-width: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-inline-input .biliscript-set-input {
+  flex: 1;
+  min-width: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-inline-input .biliscript-reading-mini-btn {
+  flex-shrink: 0;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts input {
   width: 100%;

@@ -87,6 +87,7 @@ export function buildContentPagesHtml(): string {
             <label class="biliscript-set-label" for="${ids.subtitleTranslateSource}">翻译来源</label>
             <select id="${ids.subtitleTranslateSource}" class="biliscript-set-select">
               <option value="bilibili-index-translate">Index-Translate（免 Key）</option>
+              <option value="siliconflow-translate">SiliconFlow 硅基流动</option>
               <option value="custom">自定义 AI 平台</option>
             </select>
           </div>
@@ -95,6 +96,20 @@ export function buildContentPagesHtml(): string {
             <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
               <option value="Index-Translate-35B-A3B">Index-Translate-35B-A3B</option>
             </select>
+          </div>
+          <div id="${ids.subtitleTranslateSiliconFlowKeyRow}" class="biliscript-set-row" hidden>
+            <label class="biliscript-set-label" for="${ids.subtitleTranslateSiliconFlowKey}">硅基流动 Key</label>
+            <div class="biliscript-set-inline-input">
+              <input
+                id="${ids.subtitleTranslateSiliconFlowKey}"
+                class="biliscript-set-input"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="填写硅基流动 API Key"
+              />
+              <button id="${ids.subtitleTranslateSiliconFlowKeySaveBtn}" class="biliscript-reading-mini-btn" type="button">保存</button>
+            </div>
           </div>
           <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.bilingualDisplayOrder}">双语上下顺序</label>

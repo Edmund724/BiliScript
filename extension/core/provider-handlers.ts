@@ -7,9 +7,15 @@ import type {
   MessageReplyDecision,
   ProviderListEntry,
   ResolveAiProviderResponse,
-  ResolveSubtitleTranslateProviderResponse
+  ResolveSubtitleTranslateProviderResponse,
+  SubtitleTranslateSiliconFlowKeyResponse,
+  SubtitleTranslateSiliconFlowKeySaveMessage
 } from "../shared/messaging-protocol.js";
-import { resolveSubtitleTranslateProviderConfig } from "../ai/subtitle-translate-config.js";
+import {
+  resolveSiliconFlowAsrApiKey,
+  resolveSubtitleTranslateProviderConfig,
+  type SiliconFlowAsrProviderLike
+} from "../ai/subtitle-translate-config.js";
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;
@@ -234,15 +240,22 @@ export interface SubtitleTranslateProviderHandlerDeps {
   getMergedSettings: () => Promise<{
     subtitleTranslateProviderId?: unknown;
     subtitleTranslateModel?: unknown;
+    activeAsrProviderId?: unknown;
   }>;
   loadProviders: () => Promise<ProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;
+  loadAsrProviders?: () => Promise<readonly SiliconFlowAsrProviderLike[]>;
+  loadAsrKeys?: () => Promise<Record<string, string>>;
+  loadSiliconFlowTranslateKey?: () => Promise<string>;
 }
 
 export function createSubtitleTranslateProviderHandler({
   getMergedSettings,
   loadProviders,
-  loadKeys
+  loadKeys,
+  loadAsrProviders,
+  loadAsrKeys,
+  loadSiliconFlowTranslateKey
 }: SubtitleTranslateProviderHandlerDeps) {
   return function handleResolveSubtitleTranslateProvider(
     _message: unknown,
@@ -251,12 +264,20 @@ export function createSubtitleTranslateProviderHandler({
   ): void {
     withOkResponse(
       (async () => {
-        const [settings, providers, keys] = await Promise.all([
+        const [settings, providers, keys, asrProviders, asrKeys, siliconFlowApiKey] = await Promise.all([
           getMergedSettings(),
           loadProviders(),
-          loadKeys()
+          loadKeys(),
+          loadAsrProviders ? loadAsrProviders() : Promise.resolve(undefined),
+          loadAsrKeys ? loadAsrKeys() : Promise.resolve(undefined),
+          loadSiliconFlowTranslateKey ? loadSiliconFlowTranslateKey() : Promise.resolve("")
         ]);
-        const resolved = resolveSubtitleTranslateProviderConfig(providers, keys, settings);
+        const resolved = resolveSubtitleTranslateProviderConfig(providers, keys, settings, {
+          asrProviders,
+          asrKeys,
+          siliconFlowApiKey,
+          activeAsrProviderId: settings?.activeAsrProviderId
+        });
         const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
         const isFallback = preferredProviderId !== "" && resolved.isFallback;
         return {
@@ -270,5 +291,59 @@ export function createSubtitleTranslateProviderHandler({
       sendResponse,
       (error) => (error as Error)?.message || String(error)
     );
+  };
+}
+
+export interface SubtitleTranslateSiliconFlowKeyHandlersDeps {
+  getMergedSettings: () => Promise<{ activeAsrProviderId?: unknown }>;
+  loadAsrProviders: () => Promise<readonly SiliconFlowAsrProviderLike[]>;
+  loadAsrKeys: () => Promise<Record<string, string>>;
+  loadOwnKey: () => Promise<string>;
+  saveOwnKey: (apiKey: string) => Promise<void>;
+}
+
+export function createSubtitleTranslateSiliconFlowKeyHandlers({
+  getMergedSettings,
+  loadAsrProviders,
+  loadAsrKeys,
+  loadOwnKey,
+  saveOwnKey
+}: SubtitleTranslateSiliconFlowKeyHandlersDeps) {
+  async function readStatus(): Promise<SubtitleTranslateSiliconFlowKeyResponse> {
+    const [settings, asrProviders, asrKeys, ownKey] = await Promise.all([
+      getMergedSettings(),
+      loadAsrProviders(),
+      loadAsrKeys(),
+      loadOwnKey()
+    ]);
+    const hasOwnKey = String(ownKey || "").trim() !== "";
+    const hasAsrKey =
+      resolveSiliconFlowAsrApiKey(asrProviders, asrKeys, settings?.activeAsrProviderId) !== "";
+    return { ok: true, hasOwnKey, hasAsrKey };
+  }
+
+  return {
+    status(
+      _message: unknown,
+      _sender: unknown,
+      sendResponse: (response: SubtitleTranslateSiliconFlowKeyResponse) => void
+    ): void {
+      withOkResponse(readStatus(), sendResponse, (error) => (error as Error)?.message || String(error));
+    },
+    save(
+      message: SubtitleTranslateSiliconFlowKeySaveMessage,
+      _sender: unknown,
+      sendResponse: (response: SubtitleTranslateSiliconFlowKeyResponse) => void
+    ): void {
+      withOkResponse(
+        (async () => {
+          const normalized = String(message?.apiKey || "").trim();
+          await saveOwnKey(normalized);
+          return readStatus();
+        })(),
+        sendResponse,
+        (error) => (error as Error)?.message || String(error)
+      );
+    }
   };
 }

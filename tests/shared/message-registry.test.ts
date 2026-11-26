@@ -22,6 +22,8 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "provider-http": "async",
   "resolve-ai-provider": "async",
   "resolve-subtitle-translate-provider": "async",
+  "subtitle-translate-siliconflow-key-status": "async",
+  "subtitle-translate-siliconflow-key-save": "async",
   "asr-providers-list": "async",
   "asr-providers-save": "async",
   "asr-providers-delete": "async",

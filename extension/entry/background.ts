@@ -57,8 +57,10 @@ import {
   createAsrRuntimeConfigHandler,
   createAiResolvedProviderHandler,
   createSubtitleTranslateProviderHandler,
+  createSubtitleTranslateSiliconFlowKeyHandlers,
   withOkResponse
 } from "../core/provider-handlers.js";
+import { SILICONFLOW_TRANSLATE_KEY_STORAGE } from "../ai/subtitle-translate-config.js";
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
 import { createSubtitleCacheHandler } from "../subtitle/subtitle-cache-handler.js";
 import { migrateLegacyLocalStorageToIdb } from "../subtitle/storage-migration.js";
@@ -310,10 +312,35 @@ const aiResolvedProviderHandler = createAiResolvedProviderHandler({
   loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
 });
 
+async function loadSiliconFlowTranslateKey(): Promise<string> {
+  const localData = await chrome.storage.local.get([SILICONFLOW_TRANSLATE_KEY_STORAGE]);
+  return String(localData?.[SILICONFLOW_TRANSLATE_KEY_STORAGE] || "").trim();
+}
+
+async function saveSiliconFlowTranslateKey(apiKey: string): Promise<void> {
+  const trimmed = String(apiKey || "").trim();
+  if (!trimmed) {
+    await chrome.storage.local.remove(SILICONFLOW_TRANSLATE_KEY_STORAGE);
+    return;
+  }
+  await chrome.storage.local.set({ [SILICONFLOW_TRANSLATE_KEY_STORAGE]: trimmed });
+}
+
 const subtitleTranslateProviderHandler = createSubtitleTranslateProviderHandler({
   getMergedSettings: getSettingsSnapshot,
   loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
-  loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
+  loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys,
+  loadAsrProviders: async () => (await getProviderStoreSnapshot("asr")).providers,
+  loadAsrKeys: async () => (await getProviderStoreSnapshot("asr")).keys,
+  loadSiliconFlowTranslateKey
+});
+
+const subtitleTranslateSiliconFlowKeyHandlers = createSubtitleTranslateSiliconFlowKeyHandlers({
+  getMergedSettings: getSettingsSnapshot,
+  loadAsrProviders: async () => (await getProviderStoreSnapshot("asr")).providers,
+  loadAsrKeys: async () => (await getProviderStoreSnapshot("asr")).keys,
+  loadOwnKey: loadSiliconFlowTranslateKey,
+  saveOwnKey: saveSiliconFlowTranslateKey
 });
 
 function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageSender, sendResponse: Reply<"ai-presets-list">): void {
@@ -975,6 +1002,8 @@ const messageHandlerTable = {
   "provider-http": handleProviderHttp,
   "resolve-ai-provider": aiResolvedProviderHandler,
   "resolve-subtitle-translate-provider": subtitleTranslateProviderHandler,
+  "subtitle-translate-siliconflow-key-status": subtitleTranslateSiliconFlowKeyHandlers.status,
+  "subtitle-translate-siliconflow-key-save": subtitleTranslateSiliconFlowKeyHandlers.save,
   "asr-presets-list": handleAsrPresetsList,
   "asr-providers-list": asrProviderHandlers.list,
   "asr-providers-save": asrProviderHandlers.save,

@@ -15,6 +15,7 @@ import {
   createIndexTranslateResolution,
   isIndexTranslateModelId,
   isIndexTranslateProvider,
+  isSiliconFlowTranslateProvider,
   normalizeIndexTranslateModel,
   resolveSubtitleTranslateProvider,
   resolveSubtitleTranslateProviderConfig,
@@ -101,6 +102,7 @@ export {
   createThinkBlockStreamFilter,
   isIndexTranslateModelId,
   isIndexTranslateProvider,
+  isSiliconFlowTranslateProvider,
   normalizeIndexTranslateModel,
   resolveSubtitleTranslateProvider,
   stripThinkBlocks
@@ -132,6 +134,7 @@ export function buildSubtitleTranslateRequest(
   input: SubtitleTranslateRequestInput
 ): ChatCompletionInput {
   const isIndexTranslate = isIndexTranslateProvider(input.provider);
+  const isSiliconFlowTranslate = isSiliconFlowTranslateProvider(input.provider);
   const rawBaseUrl = String(input.provider.baseUrl || "").trim();
   const rawModel = String(input.provider.model || "").trim();
   const rawPresetId = String(input.provider.presetId || "").trim();
@@ -158,7 +161,7 @@ export function buildSubtitleTranslateRequest(
     fetchImpl: input.fetchImpl ?? providerFetchViaOffscreen,
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),
     ...(input.onStreamReset ? { onStreamReset: input.onStreamReset } : {}),
-    thinkingLevel: "off"
+    ...(isSiliconFlowTranslate ? {} : { thinkingLevel: "off" })
   };
 }
 

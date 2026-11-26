@@ -32,7 +32,15 @@ import {
   setStatus,
   type SettingsElements
 } from "./settings/elements.js";
-import { bindModelSelectEvents, renderAiModelSelects } from "./settings/model-selects.js";
+import {
+  bindModelSelectEvents,
+  refreshSiliconFlowTranslateKeyStatus,
+  renderAiModelSelects
+} from "./settings/model-selects.js";
+import {
+  SILICONFLOW_TRANSLATE_PROVIDER_ID,
+  hasSavedSiliconFlowAsrKey
+} from "../ai/subtitle-translate-config.js";
 import { createSettingsNavigator } from "./settings/navigation.js";
 import {
   bindScalarSettings,
@@ -230,13 +238,17 @@ function bindSettingsEvents(host: HTMLElement): SettingsElements {
     onSummaryChange: (snapshot) => {
       lastProviderSnapshot = snapshot;
       syncSummaries(elements);
+      if (elements.subtitleTranslateSource?.value === SILICONFLOW_TRANSLATE_PROVIDER_ID) {
+        void refreshSiliconFlowTranslateKeyStatus(elements, hasSavedSiliconFlowAsrKey(snapshot.asrProviders));
+      }
     }
   });
 
   bindModelSelectEvents(elements, {
     savePatch: saveSettingField,
     loadAiProviders: () => loadAiProviders(providerHost),
-    syncSummaries
+    syncSummaries,
+    setStatus
   });
 
   bindScalarSettings(host, elements, {

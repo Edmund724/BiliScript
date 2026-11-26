@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createProviderMessageHandlers, createAsrRuntimeConfigHandler, createSubtitleTranslateProviderHandler } from "../../extension/core/provider-handlers.js";
+import {
+  createProviderMessageHandlers,
+  createAsrRuntimeConfigHandler,
+  createSubtitleTranslateProviderHandler,
+  createSubtitleTranslateSiliconFlowKeyHandlers
+} from "../../extension/core/provider-handlers.js";
 
 function makeChannel<T = unknown>() {
   let resolveResponse: (payload: unknown) => void = () => {};
@@ -495,5 +500,103 @@ describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-pr
 
     handler({}, {}, sendResponse);
     expect(await response).toEqual({ ok: false, error: "该平台 API Key 未配置" });
+  });
+
+  it("硅基流动翻译：ASR 已配置时默认复用 ASR Key，模型固定为 tencent/Hunyuan-MT-7B", async () => {
+    const handler = createSubtitleTranslateProviderHandler({
+      getMergedSettings: vi.fn(async () => ({
+        subtitleTranslateProviderId: "siliconflow-translate",
+        subtitleTranslateModel: "",
+        activeAsrProviderId: "asr-sf-2"
+      })),
+      loadProviders: vi.fn(async () => SUBTITLE_PROVIDERS),
+      loadKeys: vi.fn(async () => ({})),
+      loadAsrProviders: vi.fn(async () => [
+        { id: "asr-sf-1", presetId: "siliconflow-sensevoice", baseUrl: "https://api.siliconflow.cn/v1", enabled: true },
+        { id: "asr-sf-2", presetId: "siliconflow-sensevoice", baseUrl: "https://api.siliconflow.cn/v1", enabled: true }
+      ]),
+      loadAsrKeys: vi.fn(async () => ({ "asr-sf-1": "sk-asr-1", "asr-sf-2": "sk-asr-2" })),
+      loadSiliconFlowTranslateKey: vi.fn(async () => "")
+    });
+    const { sendResponse, response } = makeChannel<{
+      ok: boolean;
+      apiKey?: string;
+      model?: string;
+      provider?: { id: string; baseUrl?: string };
+    }>();
+
+    handler({}, {}, sendResponse);
+    expect(await response).toMatchObject({
+      ok: true,
+      apiKey: "sk-asr-2",
+      model: "tencent/Hunyuan-MT-7B",
+      provider: {
+        id: "siliconflow-translate",
+        baseUrl: "https://api.siliconflow.cn/v1"
+      }
+    });
+  });
+
+  it("硅基流动翻译：填写独立 Key 时优先覆盖 ASR Key；两者均缺失时报错", async () => {
+    const overrideHandler = createSubtitleTranslateProviderHandler({
+      getMergedSettings: vi.fn(async () => ({
+        subtitleTranslateProviderId: "siliconflow-translate",
+        subtitleTranslateModel: "tencent/Hunyuan-MT-7B"
+      })),
+      loadProviders: vi.fn(async () => []),
+      loadKeys: vi.fn(async () => ({})),
+      loadAsrProviders: vi.fn(async () => [
+        { id: "asr-sf", presetId: "siliconflow-sensevoice", baseUrl: "https://api.siliconflow.cn/v1", enabled: true }
+      ]),
+      loadAsrKeys: vi.fn(async () => ({ "asr-sf": "sk-asr" })),
+      loadSiliconFlowTranslateKey: vi.fn(async () => "sk-own")
+    });
+    const overrideChan = makeChannel<{ ok: boolean; apiKey?: string }>();
+    overrideHandler({}, {}, overrideChan.sendResponse);
+    expect(await overrideChan.response).toMatchObject({ ok: true, apiKey: "sk-own" });
+
+    const missingHandler = createSubtitleTranslateProviderHandler({
+      getMergedSettings: vi.fn(async () => ({
+        subtitleTranslateProviderId: "siliconflow-translate"
+      })),
+      loadProviders: vi.fn(async () => []),
+      loadKeys: vi.fn(async () => ({})),
+      loadAsrProviders: vi.fn(async () => []),
+      loadAsrKeys: vi.fn(async () => ({})),
+      loadSiliconFlowTranslateKey: vi.fn(async () => "")
+    });
+    const missingChan = makeChannel<{ ok: boolean; error?: string }>();
+    missingHandler({}, {}, missingChan.sendResponse);
+    expect(await missingChan.response).toMatchObject({ ok: false });
+    expect((await missingChan.response).error).toContain("硅基流动 API Key");
+  });
+
+  it("硅基流动翻译 Key 状态查询与保存/清空", async () => {
+    let storedKey = "";
+    const handlers = createSubtitleTranslateSiliconFlowKeyHandlers({
+      getMergedSettings: vi.fn(async () => ({ activeAsrProviderId: "asr-sf" })),
+      loadAsrProviders: vi.fn(async () => [
+        { id: "asr-sf", presetId: "siliconflow-sensevoice", baseUrl: "https://api.siliconflow.cn/v1", enabled: true }
+      ]),
+      loadAsrKeys: vi.fn(async () => ({ "asr-sf": "sk-asr" })),
+      loadOwnKey: vi.fn(async () => storedKey),
+      saveOwnKey: vi.fn(async (key) => {
+        storedKey = key;
+      })
+    });
+
+    const initial = makeChannel<{ ok: boolean; hasOwnKey?: boolean; hasAsrKey?: boolean }>();
+    handlers.status({}, {}, initial.sendResponse);
+    expect(await initial.response).toEqual({ ok: true, hasOwnKey: false, hasAsrKey: true });
+
+    const saved = makeChannel<{ ok: boolean; hasOwnKey?: boolean; hasAsrKey?: boolean }>();
+    handlers.save({ type: "subtitle-translate-siliconflow-key-save", apiKey: "  sk-own  " }, {}, saved.sendResponse);
+    expect(await saved.response).toEqual({ ok: true, hasOwnKey: true, hasAsrKey: true });
+    expect(storedKey).toBe("sk-own");
+
+    const cleared = makeChannel<{ ok: boolean; hasOwnKey?: boolean; hasAsrKey?: boolean }>();
+    handlers.save({ type: "subtitle-translate-siliconflow-key-save", apiKey: "" }, {}, cleared.sendResponse);
+    expect(await cleared.response).toEqual({ ok: true, hasOwnKey: false, hasAsrKey: true });
+    expect(storedKey).toBe("");
   });
 });

@@ -2,7 +2,9 @@ import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "./default
 import { normalizeAsrLanguage } from "./presets.js";
 import {
   INDEX_TRANSLATE_PROVIDER_ID,
-  normalizeIndexTranslateModel
+  SILICONFLOW_TRANSLATE_PROVIDER_ID,
+  normalizeIndexTranslateModel,
+  normalizeSiliconFlowTranslateModel
 } from "../ai/subtitle-translate-config.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import {
@@ -138,6 +140,8 @@ export function normalizeSettings(merged: Record<string, unknown>): Settings {
   }
   if (normalized.subtitleTranslateProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
     normalized.subtitleTranslateModel = normalizeIndexTranslateModel(normalized.subtitleTranslateModel);
+  } else if (normalized.subtitleTranslateProviderId === SILICONFLOW_TRANSLATE_PROVIDER_ID) {
+    normalized.subtitleTranslateModel = normalizeSiliconFlowTranslateModel(normalized.subtitleTranslateModel);
   }
   return normalized as Settings;
 }
@@ -177,6 +181,11 @@ export async function saveSettings(settings: unknown): Promise<void> {
     "subtitleTranslateModel" in syncPayload
   ) {
     syncPayload.subtitleTranslateModel = normalizeIndexTranslateModel(syncPayload.subtitleTranslateModel);
+  } else if (
+    syncPayload.subtitleTranslateProviderId === SILICONFLOW_TRANSLATE_PROVIDER_ID &&
+    "subtitleTranslateModel" in syncPayload
+  ) {
+    syncPayload.subtitleTranslateModel = normalizeSiliconFlowTranslateModel(syncPayload.subtitleTranslateModel);
   }
   const whitelisted: Record<string, unknown> = {};
   for (const key of Object.keys(syncPayload)) {

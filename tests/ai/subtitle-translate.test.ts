@@ -267,6 +267,28 @@ describe("字幕翻译请求装配与思考关闭 buildSubtitleTranslateRequest"
       includeThoughts: false
     });
   });
+
+  it("硅基流动内置翻译模型 tencent/Hunyuan-MT-7B 不注入 thinkingLevel: off", () => {
+    const request = buildSubtitleTranslateRequest({
+      provider: {
+        id: "siliconflow-translate",
+        presetId: "siliconflow",
+        baseUrl: "https://api.siliconflow.cn/v1",
+        apiKey: "sk-sf",
+        model: "tencent/Hunyuan-MT-7B",
+        protocol: "openai"
+      },
+      messages: [
+        { role: "system", content: "You are a translator." },
+        { role: "user", content: "1. Hello world" }
+      ],
+      stream: false
+    });
+
+    expect(request.thinkingLevel).toBeUndefined();
+    expect(request.provider.baseUrl).toBe("https://api.siliconflow.cn/v1");
+    expect(request.provider.model).toBe("tencent/Hunyuan-MT-7B");
+  });
 });
 
 describe("字幕翻译序号行协议", () => {

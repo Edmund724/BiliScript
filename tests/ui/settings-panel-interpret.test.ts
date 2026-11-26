@@ -186,4 +186,79 @@ describe("设置面板字幕翻译", () => {
     );
     expect(modelSelect.value).toBe("bilibili-index-translate\u0001Index-Translate-35B-A3B");
   });
+
+  it("支持切换硅基流动翻译（平台不标免费、模型标免费），默认复用 ASR Key 且支持独立保存/清除", async () => {
+    document.body.innerHTML = `
+      <div id="biliscript-reading-view">
+        <section id="biliscript-reading-settings-panel">
+          <div id="biliscript-reading-settings-host"></div>
+        </section>
+      </div>`;
+    let currentSettings: Record<string, unknown> = {};
+    let ownKey = "";
+    const bus = installSettingsPanelBus<BusMessage & { settings?: Record<string, unknown>; apiKey?: string }>({
+      "get-settings": () => ({ ok: true, settings: currentSettings }),
+      "save-settings": (msg: BusMessage & { settings?: Record<string, unknown> }) => {
+        currentSettings = { ...currentSettings, ...(msg.settings || {}) };
+        return { ok: true };
+      },
+      "ai-providers-list": () => ({ ok: true, providers: [] }),
+      "check-provider-origin": () => ({ ok: true, granted: true, status: "granted" }),
+      "request-provider-origins": () => ({ ok: true }),
+      "subtitle-translate-siliconflow-key-status": () => ({
+        ok: true,
+        hasOwnKey: ownKey !== "",
+        hasAsrKey: true
+      }),
+      "subtitle-translate-siliconflow-key-save": (msg: BusMessage & { apiKey?: string }) => {
+        ownKey = String(msg.apiKey || "").trim();
+        return { ok: true, hasOwnKey: ownKey !== "", hasAsrKey: true };
+      }
+    });
+    await renderReaderSettingsPanel();
+    const host = document.getElementById("biliscript-reading-settings-host")!;
+
+    await waitForFast(() => expect(host.querySelector("#subtitleTranslateSource")).toBeTruthy());
+    const sourceSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateSource")!;
+    const modelSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
+    const keyRow = host.querySelector<HTMLElement>("#subtitleTranslateSiliconFlowKeyRow")!;
+    const keyInput = host.querySelector<HTMLInputElement>("#subtitleTranslateSiliconFlowKey")!;
+    const keySaveBtn = host.querySelector<HTMLButtonElement>("#subtitleTranslateSiliconFlowKeySaveBtn")!;
+
+    const sfOption = sourceSelect.querySelector<HTMLOptionElement>('option[value="siliconflow-translate"]');
+    expect(sfOption?.textContent).toBe("SiliconFlow 硅基流动");
+    expect(keyRow.hidden).toBe(true);
+
+    sourceSelect.value = "siliconflow-translate";
+    sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitForFast(() =>
+      expect(
+        bus.sent.some(
+          (m) =>
+            m.type === "save-settings" &&
+            m.settings?.subtitleTranslateProviderId === "siliconflow-translate" &&
+            m.settings?.subtitleTranslateModel === "tencent/Hunyuan-MT-7B"
+        )
+      ).toBe(true)
+    );
+    expect(keyRow.hidden).toBe(false);
+    expect(modelSelect.value).toBe("siliconflow-translate\u0001tencent/Hunyuan-MT-7B");
+    expect(modelSelect.options[0]?.textContent).toBe("tencent/Hunyuan-MT-7B（免费）");
+    await waitForFast(() => expect(keyInput.placeholder).toContain("已复用语音转写 Key"));
+
+    keyInput.value = "sk-translate-override";
+    keySaveBtn.click();
+    await waitForFast(() =>
+      expect(bus.sent.some((m) => m.type === "subtitle-translate-siliconflow-key-save" && m.apiKey === "sk-translate-override")).toBe(true)
+    );
+    await waitForFast(() => expect(keyInput.placeholder).toContain("已保存独立 Key"));
+    expect(keyInput.value).toBe("");
+
+    keySaveBtn.click();
+    await waitForFast(() =>
+      expect(bus.sent.some((m) => m.type === "subtitle-translate-siliconflow-key-save" && m.apiKey === "")).toBe(true)
+    );
+    await waitForFast(() => expect(keyInput.placeholder).toContain("已复用语音转写 Key"));
+  });
 });
