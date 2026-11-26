@@ -504,28 +504,30 @@ async function setupEndToEndLiveSession(options: {
   const transcripts: MossLiveTranscriptEvent[] = [];
   const isGemini = options.providerType === "gemini-live";
 
+  const providerRecord = {
+    id: isGemini ? "gemini-live-1" : "moss-live-1",
+    type: options.providerType,
+    baseUrl: isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
+    model: isGemini ? "gemini-3.8-live" : "moss-live-1.0",
+    enabled: true,
+    hasSavedKey: true
+  };
   const controller = createLiveChatController({
     initialShareVideoAudio: options.shareVideoAudio ?? true,
     initialVoicePriority: options.voicePriority ?? false,
-    getTargetProviderType: () => options.providerType,
-    getTargetOrigin: () =>
-      isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
-    getTargetModel: () => (isGemini ? "gemini-3.8-live" : "moss-live-1.0"),
     getVideoElement: () => videoEl,
     getVideoContext: () => sampleVideoContext,
     onTranscript: (ev) => transcripts.push(ev),
     requestOrigins: async () => ({ ok: true }),
     sendRuntimeMessage: (async (msg: { type?: string }) => {
+      if (msg.type === "live-providers-list") {
+        return { ok: true, providers: [providerRecord] };
+      }
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: { activeLiveProviderId: providerRecord.id } };
+      }
       if (msg.type === "live-session-prepare") {
-        return {
-          ok: true,
-          provider: {
-            id: isGemini ? "gemini-live-1" : "moss-live-1",
-            type: options.providerType,
-            baseUrl: isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
-            model: isGemini ? "gemini-3.8-live" : "moss-live-1.0"
-          }
-        };
+        return { ok: true, provider: providerRecord };
       }
       return { ok: true };
     }) as typeof chrome.runtime.sendMessage,
@@ -543,6 +545,7 @@ async function setupEndToEndLiveSession(options: {
     })
   });
 
+  await controller.refreshTarget();
   await controller.start();
   await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
   const ws = FakeWebSocket.instances[0];
@@ -840,7 +843,7 @@ describe("End-to-end 0ms optimistic barge-in & server seal idempotency (Gemini L
       })
     );
 
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
     expect(playbackAudioCtx.sources).toHaveLength(2);
     expect(playbackAudioCtx.sources[0].stopped).toBe(false);
     expect(captureAudioCtx.videoSendGain.effectiveTargetGain).toBe(DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN);
@@ -848,18 +851,17 @@ describe("End-to-end 0ms optimistic barge-in & server seal idempotency (Gemini L
     captureAudioCtx.emitSamples(new Float32Array(640).fill(0), new Float32Array(640).fill(0.6));
     expect(lastAudioChannelSample(ws, "gemini-live")).toBeCloseTo(0.036, 2);
     expect(playbackAudioCtx.sources[0].stopped).toBe(false);
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
 
     captureAudioCtx.emitSamples(new Float32Array(640).fill(0.3), new Float32Array(640).fill(0.5));
     captureAudioCtx.emitSamples(new Float32Array(320).fill(0), new Float32Array(320).fill(0.5));
     expect(playbackAudioCtx.sources[0].stopped).toBe(false);
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
 
     captureAudioCtx.emitSamples(new Float32Array(960).fill(0.25), new Float32Array(960).fill(0.5));
 
     expect(playbackAudioCtx.sources[0].stopped).toBe(true);
     expect(playbackAudioCtx.sources[1].stopped).toBe(true);
-    expect(controller.isSpeaking()).toBe(false);
     expect(getOffscreenClient().isSpeaking()).toBe(false);
     expect(getOffscreenClient().getInterruptEpoch()).toBe(1);
     expect(captureAudioCtx.videoSendGain.effectiveTargetGain).toBe(DEFAULT_VIDEO_SEND_NORMAL_GAIN);
@@ -910,7 +912,7 @@ describe("End-to-end 0ms optimistic barge-in & server seal idempotency (Gemini L
     );
     expect(playbackAudioCtx.sources).toHaveLength(3);
     expect(playbackAudioCtx.sources[2].stopped).toBe(false);
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
     const newOutput = transcripts.at(-1) as Extract<
       MossLiveTranscriptEvent,
       { kind: "output.updated" }
@@ -993,12 +995,11 @@ describe("End-to-end 0ms optimistic barge-in & split-frame alignment (MOSS-LIVE)
     );
 
     expect(playbackAudioCtx.sources).toHaveLength(1);
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
     expect(captureAudioCtx.videoSendGain.effectiveTargetGain).toBe(DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN);
 
     captureAudioCtx.emitSamples(new Float32Array(960).fill(0.25), new Float32Array(960).fill(0.4));
     expect(playbackAudioCtx.sources[0].stopped).toBe(true);
-    expect(controller.isSpeaking()).toBe(false);
     expect(getOffscreenClient().isSpeaking()).toBe(false);
     expect(captureAudioCtx.videoSendGain.effectiveTargetGain).toBe(DEFAULT_VIDEO_SEND_NORMAL_GAIN);
     expect(transcripts.filter((t) => t.kind === "response.interrupted")).toHaveLength(1);
@@ -1041,7 +1042,7 @@ describe("End-to-end 0ms optimistic barge-in & split-frame alignment (MOSS-LIVE)
   });
 
   it("pre-seals a text-only active turn on 0ms barge-in so its late arriving audio chunks never start playing", async () => {
-    const { controller, captureAudioCtx, playbackAudioCtx, ws, transcripts } =
+    const { controller, captureAudioCtx, playbackAudioCtx, ws, transcripts, getOffscreenClient } =
       await setupEndToEndLiveSession({
         providerType: "moss-live",
         shareVideoAudio: false
@@ -1050,10 +1051,10 @@ describe("End-to-end 0ms optimistic barge-in & split-frame alignment (MOSS-LIVE)
     ws.simulateMessage(
       JSON.stringify({ action: "output.transcript.updated", data: { text: "准备开口", run_id: "r1", turn_id: "t1" } })
     );
-    expect(controller.isSpeaking()).toBe(true);
+    expect(getOffscreenClient().isSpeaking()).toBe(true);
 
     captureAudioCtx.emitSamples(new Float32Array(960).fill(0.25));
-    expect(controller.isSpeaking()).toBe(false);
+    expect(getOffscreenClient().isSpeaking()).toBe(false);
     expect(transcripts.filter((t) => t.kind === "response.interrupted")).toHaveLength(1);
 
     ws.simulateMessage(
@@ -1061,7 +1062,7 @@ describe("End-to-end 0ms optimistic barge-in & split-frame alignment (MOSS-LIVE)
     );
     ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.3)).buffer);
     expect(playbackAudioCtx.sources).toHaveLength(0);
-    expect(controller.isSpeaking()).toBe(false);
+    expect(getOffscreenClient().isSpeaking()).toBe(false);
 
     await controller.stop();
   });

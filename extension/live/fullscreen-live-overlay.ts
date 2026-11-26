@@ -1,4 +1,5 @@
 import { createLiquidGlassLens } from "./liquid-glass-lens.js";
+import type { LiveAudioSettingsPatch } from "./live-audio-settings.js";
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
@@ -43,8 +44,7 @@ export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
   getVolume?: () => number;
-  onVolumeChange?: (volume: number) => void;
-  onSpeedChange?: (speed: number) => void;
+  onAudioChange?: (patch: LiveAudioSettingsPatch, options: { persist: boolean }) => void;
   onStopLive?: () => void;
   onRetryLive?: () => void;
   onOpenLiveSettings?: (target: LiveSettingsTarget) => void;
@@ -477,47 +477,63 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       });
     }
 
-    const previewVolume = (target: HTMLInputElement): number => {
+    const emitAudioChange = (patch: LiveAudioSettingsPatch, persist: boolean): void => {
+      if (deps.onAudioChange) {
+        deps.onAudioChange(patch, { persist });
+        return;
+      }
+      const controller = deps.getLiveController();
+      if (!controller) return;
+      if (typeof controller.applyAudioSettings === "function") {
+        controller.applyAudioSettings(patch);
+      } else {
+        if (patch.liveVoiceVolume !== undefined) controller.setVolume(patch.liveVoiceVolume / 100);
+        if (patch.liveVoiceSpeed !== undefined) controller.setSpeed(patch.liveVoiceSpeed);
+        if (patch.liveVoicePriority !== undefined) controller.setVoicePriority(patch.liveVoicePriority);
+        if (patch.liveShareVideoAudio !== undefined) controller.setShareVideoAudio(patch.liveShareVideoAudio);
+      }
+      syncAudioControls();
+    };
+
+    const handleVolumeEvent = (target: HTMLInputElement, persist: boolean): void => {
       const val = Math.max(0, Math.min(200, Math.round(Number(target.value) || 0)));
       syncVolumeDisplay(val);
-      deps.getLiveController()?.setVolume(val / 100);
-      return val;
+      emitAudioChange({ liveVoiceVolume: val }, persist);
     };
     volumeSliderEl?.addEventListener("input", (e) => {
       e.stopPropagation();
-      previewVolume(e.target as HTMLInputElement);
+      handleVolumeEvent(e.target as HTMLInputElement, false);
     });
     volumeSliderEl?.addEventListener("change", (e) => {
       e.stopPropagation();
-      deps.onVolumeChange?.(previewVolume(e.target as HTMLInputElement));
+      handleVolumeEvent(e.target as HTMLInputElement, true);
     });
 
-    const onSpeedInput = (e: Event) => {
-      e.stopPropagation();
-      const target = e.target as HTMLInputElement;
+    const handleSpeedEvent = (target: HTMLInputElement, persist: boolean): void => {
       const index = Math.max(0, Math.min(LIVE_VOICE_SPEED_STEPS.length - 1, Math.round(Number(target.value) || 0)));
       const speed = LIVE_VOICE_SPEED_STEPS[index];
       syncSpeedDisplay(speed);
-      deps.getLiveController()?.setSpeed(speed);
-      deps.onSpeedChange?.(speed);
+      emitAudioChange({ liveVoiceSpeed: speed }, persist);
     };
-    speedSliderEl?.addEventListener("input", onSpeedInput);
-    speedSliderEl?.addEventListener("change", onSpeedInput);
+    speedSliderEl?.addEventListener("input", (e) => {
+      e.stopPropagation();
+      handleSpeedEvent(e.target as HTMLInputElement, false);
+    });
+    speedSliderEl?.addEventListener("change", (e) => {
+      e.stopPropagation();
+      handleSpeedEvent(e.target as HTMLInputElement, true);
+    });
 
     shareAudioSwitchEl?.addEventListener("click", () => {
       const controller = deps.getLiveController();
-      if (controller) {
-        controller.setShareVideoAudio(!controller.isSharingVideoAudio());
-        syncAudioControls();
-      }
+      if (!controller) return;
+      emitAudioChange({ liveShareVideoAudio: !controller.isSharingVideoAudio() }, true);
     });
 
     voicePrioritySwitchEl?.addEventListener("click", () => {
       const controller = deps.getLiveController();
-      if (controller) {
-        controller.setVoicePriority(!controller.isVoicePriority());
-        syncAudioControls();
-      }
+      if (!controller) return;
+      emitAudioChange({ liveVoicePriority: !controller.isVoicePriority() }, true);
     });
 
     headerSettingsBtnEl?.addEventListener("click", (e) => {

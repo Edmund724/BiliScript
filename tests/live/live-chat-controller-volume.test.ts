@@ -42,11 +42,15 @@ beforeEach(() => {
 });
 
 describe("LiveChatController AI volume", () => {
-  async function setup(options: { initialSpeed?: number } = {}) {
+  async function setup(options: {
+    initialSpeed?: number;
+    onServerOutputConfigured?: (patch: { liveVoiceVolume?: number; liveVoiceSpeed?: number }) => void;
+  } = {}) {
     const port = new FakePort();
     const controller = createLiveChatController({
       initialVolume: 0.6,
       initialSpeed: options.initialSpeed,
+      onServerOutputConfigured: options.onServerOutputConfigured,
       connectPort: () => port as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (message: any) => message.type === "live-session-prepare"
@@ -70,12 +74,24 @@ describe("LiveChatController AI volume", () => {
   }
 
   it("starts with the saved volume and forwards real-time changes", async () => {
-    const { controller, port } = await setup();
+    const onServerOutputConfigured = vi.fn();
+    const { controller, port } = await setup({ onServerOutputConfigured });
     expect(port.postedMessages[0]).toMatchObject({ action: "start", volume: 0.6 });
     expect(controller.getState()).toBe("connected");
 
-    controller.setVolume(0.35);
-    expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 0.35 });
+    controller.applyAudioSettings({
+      liveVoiceVolume: 35,
+      liveVoiceSpeed: 1.25,
+      liveVoicePriority: false,
+      liveShareVideoAudio: true
+    });
+    expect(port.postedMessages.slice(-2)).toEqual([
+      { action: "set_volume", volume: 0.35 },
+      { action: "set_speed", speed: 1.25 }
+    ]);
+    expect(controller.isVoicePriority()).toBe(false);
+    expect(controller.isSharingVideoAudio()).toBe(true);
+    expect(onServerOutputConfigured).not.toHaveBeenCalled();
 
     controller.setVolume(2);
     expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 2 });
@@ -84,11 +100,16 @@ describe("LiveChatController AI volume", () => {
     expect(controller.getState()).toBe("idle");
   });
 
-  it("adopts server-confirmed output volume and speed", async () => {
-    const { controller, port } = await setup();
-    port.emit({ type: "output_configured", volume: 1.5, speed: 1.25 });
-    expect(controller.getVolume()).toBe(1.5);
+  it("adopts server-confirmed output volume and speed and emits quantized integer percent", async () => {
+    const onServerOutputConfigured = vi.fn();
+    const { controller, port } = await setup({ onServerOutputConfigured });
+    port.emit({ type: "output_configured", volume: 1.375, speed: 1.25 });
+    expect(controller.getVolume()).toBe(1.38);
     expect(controller.getSpeed()).toBe(1.25);
+    expect(onServerOutputConfigured).toHaveBeenCalledWith({
+      liveVoiceVolume: 138,
+      liveVoiceSpeed: 1.25
+    });
   });
 
   it("clamps the legacy 2x setting to the new 1.5x maximum", async () => {
@@ -244,49 +265,40 @@ describe("LiveChatController voice priority and ducking", () => {
   });
 
   it("ducks video volume when user mic VAD detects speech and restores on silence", async () => {
-    const { controller, video, emitVad } = await setupWithVideo({ videoVolume: 0.8 });
-    expect(controller.isDucked()).toBe(false);
+    const { video, emitVad } = await setupWithVideo({ videoVolume: 0.8 });
     expect(video.volume).toBeCloseTo(0.8, 5);
 
     emitVad(true);
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.16, 5);
 
     emitVad(false);
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.8, 5);
   });
 
   it("ducks video volume when Agent is speaking and restores when speaking ends", async () => {
-    const { controller, port, video } = await setupWithVideo({ videoVolume: 1.0 });
-    expect(controller.isDucked()).toBe(false);
+    const { port, video } = await setupWithVideo({ videoVolume: 1.0 });
+    expect(video.volume).toBeCloseTo(1.0, 5);
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.2, 5);
 
     port.emit({ type: "speaking_state", speaking: false });
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(1.0, 5);
   });
 
   it("keeps video ducked while overlapping user VAD and Agent speech occur, restoring only when both finish", async () => {
-    const { controller, port, video, emitVad } = await setupWithVideo({ videoVolume: 0.5 });
+    const { port, video, emitVad } = await setupWithVideo({ videoVolume: 0.5 });
 
     emitVad(true);
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
     emitVad(false);
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.1, 5);
 
     port.emit({ type: "speaking_state", speaking: false });
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.5, 5);
   });
 
@@ -294,16 +306,13 @@ describe("LiveChatController voice priority and ducking", () => {
     const { controller, port, video, emitVad } = await setupWithVideo({ videoVolume: 0.6 });
 
     emitVad(true);
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.12, 5);
 
     controller.setVoicePriority(false);
     expect(controller.isVoicePriority()).toBe(false);
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.6, 5);
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.6, 5);
   });
 
@@ -311,10 +320,9 @@ describe("LiveChatController voice priority and ducking", () => {
     const { controller, video, emitVad } = await setupWithVideo({ videoVolume: 0.8 });
 
     emitVad(true);
-    expect(controller.isDucked()).toBe(true);
+    expect(video.volume).toBeCloseTo(0.16, 5);
 
     controller.setMuted(true);
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.8, 5);
   });
 
@@ -322,10 +330,9 @@ describe("LiveChatController voice priority and ducking", () => {
     const { controller, port, video } = await setupWithVideo({ videoVolume: 0.8 });
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(true);
+    expect(video.volume).toBeCloseTo(0.16, 5);
 
     controller.interrupt();
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.8, 5);
   });
 
@@ -333,10 +340,9 @@ describe("LiveChatController voice priority and ducking", () => {
     const { controller, port, video } = await setupWithVideo({ videoVolume: 0.8 });
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(true);
+    expect(video.volume).toBeCloseTo(0.16, 5);
 
     await controller.stop();
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.8, 5);
   });
 
@@ -344,7 +350,6 @@ describe("LiveChatController voice priority and ducking", () => {
     const { controller, port, video } = await setupWithVideo({ videoVolume: 0.8 });
 
     port.emit({ type: "speaking_state", speaking: true });
-    expect(controller.isDucked()).toBe(true);
     expect(video.volume).toBeCloseTo(0.16, 5);
     expect(controller.getVideoBaseVolume()).toBeCloseTo(0.8, 5);
 
@@ -353,7 +358,6 @@ describe("LiveChatController voice priority and ducking", () => {
     expect(video.volume).toBeCloseTo(0.1, 5);
 
     port.emit({ type: "speaking_state", speaking: false });
-    expect(controller.isDucked()).toBe(false);
     expect(video.volume).toBeCloseTo(0.5, 5);
   });
 

@@ -144,18 +144,13 @@ beforeEach(() => {
 
 describe("LiveChatController", () => {
   function setupTest(overrides: {
-    getTargetOrigin?: () => string;
-    getTargetModel?: () => string;
-    getTargetProviderType?: () => LiveProviderType;
     getVideoElement?: () => HTMLVideoElement | null;
     requestOrigins?: (origins: string[]) => Promise<{ ok: boolean; error?: string }>;
     sendRuntimeMessage?: (msg: any) => Promise<any>;
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
     startVideoCapture?: (opts: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
     port?: FakePort;
-    onSpeakingChange?: (speaking: boolean) => void;
     onStateChange?: (state: any, error?: string, failureKind?: string) => void;
-    onInterruptStateChange?: (active: boolean) => void;
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
@@ -201,7 +196,6 @@ describe("LiveChatController", () => {
     });
 
     const controller = createLiveChatController({
-      onSpeakingChange: overrides.onSpeakingChange,
       onStateChange: overrides.onStateChange,
       showNotice,
       connectPort,
@@ -212,9 +206,6 @@ describe("LiveChatController", () => {
       onTranscript: (ev) => {
         receivedTranscripts.push(ev);
       },
-      getTargetOrigin: overrides.getTargetOrigin,
-      getTargetModel: overrides.getTargetModel,
-      getTargetProviderType: overrides.getTargetProviderType,
       getVideoElement: overrides.getVideoElement,
       getVideoContext: overrides.getVideoContext,
       executeTool: overrides.executeTool,
@@ -223,7 +214,6 @@ describe("LiveChatController", () => {
 
     return {
       controller,
-      onSpeakingChange: overrides.onSpeakingChange,
       showNotice,
       fakePort,
       connectPort,
@@ -243,7 +233,6 @@ describe("LiveChatController", () => {
 
     expect(controller.getState()).toBe("idle");
     expect(controller.isMuted()).toBe(false);
-    expect(controller.isSpeaking()).toBe(false);
   });
 
   it("切换伴看平台保留当前连接，并提示重新连接后生效", async () => {
@@ -332,6 +321,49 @@ describe("LiveChatController", () => {
     await controller.stop();
   });
 
+  it("handleStorageChanges 按变更键与 gemini-credential 失败态过滤刷新目标", async () => {
+    let providers: Array<Record<string, unknown>> = [
+      { id: "gemini-1", presetId: "gemini-live", name: "Gemini", type: "gemini-live", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-3.8-live", enabled: true, hasSavedKey: false }
+    ];
+    let aiProviders: Array<Record<string, unknown>> = [];
+    let aiKeys: Record<string, string> = {};
+    const sendRuntimeMessage = vi.fn(async (msg: any) => {
+      const table: Record<string, () => unknown> = {
+        "live-providers-list": () => ({ ok: true, providers }),
+        "get-settings": () => ({ ok: true, settings: { activeLiveProviderId: "gemini-1" } }),
+        "live-session-prepare": () => ({ ok: false, failureKind: "gemini-credential", error: "缺少 Gemini Key" }),
+        "ai-providers-list": () => ({ ok: true, providers: aiProviders }),
+        "get-ai-provider-key": () => ({ ok: true, apiKey: aiKeys[String(msg.providerId || "")] || "" })
+      };
+      return (table[msg.type] ?? (() => ({ ok: true })))();
+    });
+    const { controller } = setupTest({ sendRuntimeMessage });
+
+    controller.handleStorageChanges("sync", ["aiProviders"]);
+    controller.handleStorageChanges("local", ["aiProviderKeys"]);
+    await Promise.resolve();
+    expect(sendRuntimeMessage).not.toHaveBeenCalledWith({ type: "live-providers-list" });
+
+    controller.handleStorageChanges("sync", ["liveProviders"]);
+    await vi.waitFor(() => {
+      expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: "live-providers-list" });
+    });
+
+    await controller.start();
+    expect(controller.getLastFailureKind()).toBe("gemini-credential");
+
+    sendRuntimeMessage.mockClear();
+    aiProviders = [
+      { id: "ai-gem", presetId: "gemini", baseUrl: "https://generativelanguage.googleapis.com", enabled: true, hasSavedKey: true }
+    ];
+    aiKeys = { "ai-gem": "gem-secret" };
+    controller.handleStorageChanges("local", ["aiProviderKeys"]);
+    await vi.waitFor(() => {
+      expect(controller.getLastFailureKind()).toBe("unknown");
+    });
+    await controller.stop();
+  });
+
   it("initiates permission request synchronously from start before any await tick", () => {
     let permCalled = false;
     const requestOrigins = vi.fn(async () => {
@@ -352,13 +384,45 @@ describe("LiveChatController", () => {
     return startPromise;
   });
 
-  it("requests custom origin synchronously from getTargetOrigin without requesting default api.mosi.cn", async () => {
+  it("requests custom origin synchronously after refreshTarget without requesting default api.mosi.cn", async () => {
     const requestOrigins = vi.fn(async () => ({ ok: true }));
     const { controller } = setupTest({
-      getTargetOrigin: () => "https://custom.live.mosi.cn:8080",
-      requestOrigins
+      requestOrigins,
+      sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-providers-list") {
+          return {
+            ok: true,
+            providers: [
+              {
+                id: "custom-1",
+                name: "Custom",
+                type: "moss-live",
+                baseUrl: "https://custom.live.mosi.cn:8080",
+                model: "moss-live-1.0",
+                enabled: true,
+                hasSavedKey: true
+              }
+            ]
+          };
+        }
+        if (msg.type === "get-settings") {
+          return { ok: true, settings: { activeLiveProviderId: "custom-1" } };
+        }
+        if (msg.type === "live-session-prepare") {
+          return {
+            ok: true,
+            provider: {
+              id: "custom-1",
+              baseUrl: "https://custom.live.mosi.cn:8080",
+              model: "moss-live-1.0"
+            }
+          };
+        }
+        return { ok: true };
+      }
     });
 
+    await controller.refreshTarget();
     await controller.start();
 
     expect(requestOrigins).toHaveBeenCalledWith([
@@ -370,27 +434,32 @@ describe("LiveChatController", () => {
 
   it("requests generativelanguage.googleapis.com origins and posts gemini-live start action when target is gemini-live", async () => {
     const requestOrigins = vi.fn(async () => ({ ok: true }));
+    const geminiProvider = {
+      id: "gemini-live-1",
+      name: "Gemini Live",
+      type: "gemini-live" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.1-flash-live-preview",
+      enabled: true,
+      hasSavedKey: true
+    };
     const { controller, fakePort } = setupTest({
-      getTargetProviderType: () => "gemini-live",
-      getTargetOrigin: () => "https://generativelanguage.googleapis.com",
-      getTargetModel: () => "gemini-3.1-flash-live-preview",
       requestOrigins,
       sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-providers-list") {
+          return { ok: true, providers: [geminiProvider] };
+        }
+        if (msg.type === "get-settings") {
+          return { ok: true, settings: { activeLiveProviderId: geminiProvider.id } };
+        }
         if (msg.type === "live-session-prepare") {
-          return {
-            ok: true,
-            provider: {
-              id: "gemini-live-1",
-              type: "gemini-live",
-              baseUrl: "https://generativelanguage.googleapis.com",
-              model: "gemini-3.1-flash-live-preview"
-            }
-          };
+          return { ok: true, provider: geminiProvider };
         }
         return { ok: true };
       }
     });
 
+    await controller.refreshTarget();
     const ok = await controller.start();
     expect(ok).toBe(true);
     expect(requestOrigins).toHaveBeenCalledWith([
@@ -482,33 +551,30 @@ describe("LiveChatController", () => {
   });
 
   it("handles interrupt with speaking_state and posts interrupt action without disconnecting", async () => {
-    const onSpeakingChange = vi.fn();
-    const { controller, fakePort } = setupTest({ onSpeakingChange });
-    expect(controller.isSpeaking()).toBe(false);
+    const fakeVideo = { volume: 1, paused: false, pause: vi.fn(), play: vi.fn(async () => {}) } as unknown as HTMLVideoElement;
+    const { controller, fakePort } = setupTest({ getVideoElement: () => fakeVideo });
 
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
-    expect(controller.isSpeaking()).toBe(false);
+    expect(fakeVideo.volume).toBeCloseTo(1, 5);
 
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
-    expect(onSpeakingChange).toHaveBeenCalledWith(true);
-    expect(controller.isSpeaking()).toBe(true);
+    expect(fakeVideo.volume).toBeCloseTo(0.2, 5);
 
     fakePort.postedMessages.length = 0;
     controller.interrupt();
     expect(fakePort.postedMessages).toContainEqual({ action: "interrupt" });
-    expect(controller.isSpeaking()).toBe(false);
-    expect(onSpeakingChange).toHaveBeenCalledWith(false);
+    expect(fakeVideo.volume).toBeCloseTo(1, 5);
     expect(controller.getState()).toBe("connected");
 
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
-    expect(controller.isSpeaking()).toBe(true);
+    expect(fakeVideo.volume).toBeCloseTo(0.2, 5);
     fakePort.simulateMessage({ type: "speaking_state", speaking: false });
-    expect(controller.isSpeaking()).toBe(false);
+    expect(fakeVideo.volume).toBeCloseTo(1, 5);
 
     await controller.stop();
-    expect(controller.isSpeaking()).toBe(false);
+    expect(fakeVideo.volume).toBeCloseTo(1, 5);
   });
 
   it("handles preparation failure (e.g. missing API key) without opening microphone", async () => {
@@ -612,10 +678,16 @@ describe("LiveChatController", () => {
     const fakeVideo = document.createElement("video");
     Object.defineProperty(fakeVideo, "currentTime", { configurable: true, get: () => 85 });
     Object.defineProperty(fakeVideo, "paused", { configurable: true, get: () => true });
+    const geminiProvider = {
+      id: "gemini-live-1",
+      name: "Gemini Live",
+      type: "gemini-live" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.8-live",
+      enabled: true,
+      hasSavedKey: true
+    };
     const { controller, fakePort, getAudioCapture, getVideoCapture } = setupTest({
-      getTargetProviderType: () => "gemini-live",
-      getTargetOrigin: () => "https://generativelanguage.googleapis.com",
-      getTargetModel: () => "gemini-3.8-live",
       getVideoElement: () => fakeVideo,
       getVideoContext: () => ({
         url: "https://www.bilibili.com/video/BV1test000000/",
@@ -628,21 +700,20 @@ describe("LiveChatController", () => {
         chapters: []
       }),
       sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-providers-list") {
+          return { ok: true, providers: [geminiProvider] };
+        }
+        if (msg.type === "get-settings") {
+          return { ok: true, settings: { activeLiveProviderId: geminiProvider.id } };
+        }
         if (msg.type === "live-session-prepare") {
-          return {
-            ok: true,
-            provider: {
-              id: "gemini-live-1",
-              type: "gemini-live",
-              baseUrl: "https://generativelanguage.googleapis.com",
-              model: "gemini-3.8-live"
-            }
-          };
+          return { ok: true, provider: geminiProvider };
         }
         return { ok: true };
       }
     });
 
+    await controller.refreshTarget();
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     const videoCapture = getVideoCapture()!;
@@ -832,9 +903,11 @@ describe("LiveChatController", () => {
   it("surfaces runtime microphone failure, stops capture, and restores ducking only once", async () => {
     let capturedOptions: any = null;
     let fakeCapture: any = null;
+    const fakeVideo = { volume: 1, paused: false, pause: vi.fn(), play: vi.fn(async () => {}) } as unknown as HTMLVideoElement;
     const onStateChange = vi.fn();
     const { controller, fakePort, showNotice, sendRuntimeMessage } = setupTest({
       onStateChange,
+      getVideoElement: () => fakeVideo,
       startAudioCapture: async (options) => {
         capturedOptions = options;
         fakeCapture = new FakeAudioCapture(options);
@@ -845,14 +918,14 @@ describe("LiveChatController", () => {
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     capturedOptions?.onVadStateChange?.(true);
-    expect(controller.isDucked()).toBe(true);
+    expect(fakeVideo.volume).toBeCloseTo(0.2, 5);
 
     const error = new Error("麦克风连接已中断，请检查设备或浏览器权限后重试");
     (capturedOptions as any)?.onMicrophoneError?.(error);
     (capturedOptions as any)?.onMicrophoneError?.(error);
 
     expect(controller.getState()).toBe("failure");
-    expect(controller.isDucked()).toBe(false);
+    expect(fakeVideo.volume).toBeCloseTo(1, 5);
     expect(fakeCapture?.stopped).toBe(true);
     expect(fakePort.disconnected).toBe(true);
     expect(controller.getLastError()).toBe(error.message);
@@ -998,7 +1071,7 @@ describe("LiveChatController", () => {
 describe("LiveChatController video context and page tools", () => {
   function setupContextTest(overrides: {
     getVideoContext?: () => MossLiveVideoContext | null;
-    getTargetProviderType?: () => LiveProviderType;
+    providerType?: LiveProviderType;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
     onVideoContextSwitch?: (context: import("../../extension/live/moss-live-protocol.js").MossLiveSessionContext | null) => void;
@@ -1008,11 +1081,21 @@ describe("LiveChatController video context and page tools", () => {
     const fakePort = new FakePort();
     let audioCapture: FakeAudioCapture | null = null;
     let videoCapture: FakeVideoCapture | null = null;
+    const providerType = overrides.providerType ?? "moss-live";
     const controller = createLiveChatController({
       connectPort: () => fakePort as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
-        ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+        ? {
+            ok: true,
+            provider: {
+              type: providerType,
+              baseUrl: providerType === "gemini-live"
+                ? "https://generativelanguage.googleapis.com"
+                : "https://api.mosi.cn",
+              model: providerType === "gemini-live" ? "gemini-3.8-live" : "moss-live-1.0"
+            }
+          }
         : { ok: true }) as any,
       startAudioCapture: async (options) => {
         audioCapture = new FakeAudioCapture(options);
@@ -1023,7 +1106,6 @@ describe("LiveChatController video context and page tools", () => {
         return videoCapture;
       },
       getVideoContext: overrides.getVideoContext,
-      getTargetProviderType: overrides.getTargetProviderType,
       executeTool: overrides.executeTool,
       subscribeVideoContextChanges: overrides.subscribeVideoContextChanges,
       onVideoContextSwitch: overrides.onVideoContextSwitch,
@@ -1457,7 +1539,6 @@ describe("LiveChatController video context and page tools", () => {
     });
 
     expect(controller.getVideoAudioStatus()).toBe("未开启");
-    expect(controller.isMicVadActive()).toBe(false);
 
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
@@ -1481,10 +1562,14 @@ describe("LiveChatController video context and page tools", () => {
 
   describe("MOSS session_id persistence, auto-reconnect notice and close diagnostics", () => {
     it("saves session_id on session_attached and carries it on subsequent start, clears on stop()", async () => {
-      const fakePort = new FakePort();
+      const ports: FakePort[] = [];
       const showNotice = vi.fn();
       const controller = createLiveChatController({
-        connectPort: () => fakePort as any,
+        connectPort: () => {
+          const port = new FakePort();
+          ports.push(port);
+          return port as any;
+        },
         requestOrigins: async () => ({ ok: true }),
         sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
           ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
@@ -1495,13 +1580,21 @@ describe("LiveChatController video context and page tools", () => {
       });
 
       await controller.start();
-      expect(controller.getSavedSessionId?.()).toBeNull();
+      expect(ports[0].postedMessages[0]).not.toHaveProperty("sessionId");
 
-      fakePort.simulateMessage({ type: "session_attached", sessionId: "sess-moss-persist-99" });
-      expect(controller.getSavedSessionId?.()).toBe("sess-moss-persist-99");
+      ports[0].simulateMessage({ type: "session_attached", sessionId: "sess-moss-persist-99" });
+      ports[0].simulateMessage({ type: "closed", code: 1006 });
+
+      await controller.start();
+      expect(ports[1].postedMessages[0]).toMatchObject({
+        action: "start",
+        sessionId: "sess-moss-persist-99"
+      });
 
       await controller.stop();
-      expect(controller.getSavedSessionId?.()).toBeNull();
+      await controller.start();
+      expect(ports[2].postedMessages[0]).not.toHaveProperty("sessionId");
+      await controller.stop();
     });
 
     it("displays reconnecting notice with only safe progress and WebSocket code", async () => {
@@ -1610,7 +1703,7 @@ describe("LiveChatController video context and page tools", () => {
     });
     const persistTextToolRecord = vi.fn();
     const { controller, fakePort } = setupContextTest({
-      getTargetProviderType: () => "gemini-live",
+      providerType: "gemini-live",
       getVideoContext: () => initialContext,
       videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() },
       persistTextToolRecord
@@ -1721,7 +1814,7 @@ describe("LiveChatController video context and page tools", () => {
       });
     });
     const { controller, fakePort } = setupContextTest({
-      getTargetProviderType: () => "gemini-live",
+      providerType: "gemini-live",
       videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() }
     });
     await controller.start();

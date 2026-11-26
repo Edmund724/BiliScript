@@ -26,6 +26,7 @@ import {
   type AiCredentialMessageSender
 } from "../core/ai-credential-reference.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import type { LiveAudioSettingsPatch } from "./live-audio-settings.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import {
@@ -105,18 +106,13 @@ export interface LiveChatControllerDeps {
   initialShareVideoAudio?: boolean;
   duckRatio?: number;
   getVideoElement?: () => HTMLVideoElement | null;
-  onVoicePriorityChange?: (enabled: boolean) => void;
-  onShareVideoAudioChange?: (enabled: boolean) => void;
-  onVolumeChange?: (volumePercent: number) => void;
-  onSpeedChange?: (speed: number) => void;
+  onServerOutputConfigured?: (
+    patch: Pick<LiveAudioSettingsPatch, "liveVoiceVolume" | "liveVoiceSpeed">
+  ) => void;
   onStateChange?: (state: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
-  onSpeakingChange?: (speaking: boolean) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
   onVideoAudioStatusChange?: (status: VideoAudioTrackStatus) => void;
-  getTargetOrigin?: () => string;
-  getTargetModel?: () => string;
-  getTargetProviderType?: () => LiveProviderType;
   showNotice?: (message: string, autoHideMs?: number) => void;
   connectPort?: () => chrome.runtime.Port;
   sendRuntimeMessage?: typeof defaultSendRuntimeMessage;
@@ -136,18 +132,15 @@ export interface LiveChatController {
   getState(): LiveChatState;
   getLastError(): string | undefined;
   getLastFailureKind(): LiveFailureKind | undefined;
-  getSavedSessionId?(): string | null;
   isMuted(): boolean;
-  isSpeaking(): boolean;
   isReconnecting?(): boolean;
   getVideoAudioStatus(): VideoAudioTrackStatus;
-  isMicVadActive(): boolean;
   isVoiceRecentlyActive?(): boolean;
+  applyAudioSettings(patch: LiveAudioSettingsPatch): void;
   setShareVideoAudio(enabled: boolean): void;
   isSharingVideoAudio(): boolean;
   setVoicePriority(enabled: boolean): void;
   isVoicePriority(): boolean;
-  isDucked(): boolean;
   getVideoBaseVolume(): number | null;
   setVideoBaseVolume(volume: number): number | null;
   setMuted(muted: boolean): void;
@@ -159,13 +152,13 @@ export interface LiveChatController {
   interrupt(): void;
   sendUserPrompt(prompt: string, options?: { includeVideoFrame?: boolean }): Promise<boolean>;
   refreshTarget(): Promise<void>;
+  handleStorageChanges(areaName: string, changedKeys: readonly string[]): void;
   getTextToolRecords(): LiveTextToolRecord[];
   subscribeTextToolRecords(listener: () => void): () => void;
   retryTextToolRecord(callId: string): boolean;
   dismissTextToolRecord(callId: string): void;
   start(): Promise<boolean>;
   stop(): Promise<void>;
-  toggle(): Promise<void>;
   dispose(): void;
 }
 
@@ -177,18 +170,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     initialShareVideoAudio = false,
     duckRatio = DEFAULT_LIVE_DUCK_RATIO,
     getVideoElement = null,
-    onVoicePriorityChange,
-    onShareVideoAudioChange,
-    onVolumeChange,
-    onSpeedChange,
+    onServerOutputConfigured,
     onStateChange,
-    onSpeakingChange,
     onReconnecting,
     onVadStateChange,
     onVideoAudioStatusChange,
-    getTargetOrigin,
-    getTargetModel,
-    getTargetProviderType,
     showNotice = () => {},
     connectPort = () => chrome.runtime.connect({ name: MOSS_LIVE_PORT_NAME }),
     sendRuntimeMessage = defaultSendRuntimeMessage,
@@ -441,8 +427,19 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     }
   }
 
-  function updateSpeakingUi(): void {
-    onSpeakingChange?.(speaking);
+  function handleStorageChanges(areaName: string, changedKeys: readonly string[]): void {
+    if (changedKeys.length === 0) return;
+    const keySet = new Set(changedKeys);
+    const isAiCredentialChange = areaName === "sync"
+      ? keySet.has("aiProviders")
+      : areaName === "local" && keySet.has("aiProviderKeys");
+    const isLiveChange = areaName === "sync"
+      ? keySet.has("liveProviders") || keySet.has("activeLiveProviderId")
+      : areaName === "local" && keySet.has("liveProviderKeys");
+    if (!isLiveChange && (!isAiCredentialChange || lastFailureKind !== "gemini-credential")) {
+      return;
+    }
+    void refreshTarget();
   }
 
   function updateUi(nextState: LiveChatState, errorMessage?: string, failureKind?: LiveFailureKind): void {
@@ -465,7 +462,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
       clearLongSummaryControls();
     }
     syncVideoDucking();
-    updateSpeakingUi();
     onStateChange?.(nextState, errorMessage, failureKind);
   }
 
@@ -808,17 +804,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     updateUi("connecting");
 
     const targetProviderType: LiveProviderType =
-      (getTargetProviderType?.() || activeTargetProviderType) === "gemini-live"
-        ? "gemini-live"
-        : "moss-live";
+      activeTargetProviderType === "gemini-live" ? "gemini-live" : "moss-live";
     const targetOrigin = (
-      getTargetOrigin?.() ||
       activeTargetOrigin ||
       (targetProviderType === "gemini-live"
         ? "https://generativelanguage.googleapis.com"
         : "https://api.mosi.cn")
     ).trim();
-    const targetModel = (getTargetModel?.() || activeTargetModel || DEFAULT_LIVE_MODEL).trim();
+    const targetModel = (activeTargetModel || DEFAULT_LIVE_MODEL).trim();
     const permPromise = requestOrigins(
       resolveMossLivePermissionOrigins(targetOrigin, targetModel, targetProviderType)
     );
@@ -913,7 +906,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
             speaking = false;
             activeAudioCapture?.setAiSpeaking?.(false);
             endLongSummaryControl();
-            updateSpeakingUi();
             syncVideoDucking();
           }
         },
@@ -1006,10 +998,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
         syncVideoContext();
         startActiveVideoCapture(generation);
       } else if (msg.type === "output_configured") {
-        volume = Number.isFinite(msg.volume) ? Math.max(0, Math.min(2, msg.volume)) : volume;
-        speed = normalizeLiveVoiceSpeed(msg.speed);
-        onVolumeChange?.(Math.round(volume * 100));
-        onSpeedChange?.(speed);
+        const volumePercent = Number.isFinite(msg.volume)
+          ? Math.round(Math.max(0, Math.min(2, msg.volume)) * 100)
+          : Math.round(volume * 100);
+        volume = volumePercent / 100;
+        speed = Number.isFinite(msg.speed) ? normalizeLiveVoiceSpeed(msg.speed) : speed;
+        onServerOutputConfigured?.({
+          liveVoiceVolume: volumePercent,
+          liveVoiceSpeed: speed
+        });
       } else if (msg.type === "video_configured") {
         videoCaptureConfig = msg.video;
         activeVideoCapture?.configure(msg.video);
@@ -1024,7 +1021,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
           speaking = nextSpeaking;
           activeAudioCapture?.setAiSpeaking?.(speaking);
           if (!nextSpeaking) endLongSummaryControl();
-          updateSpeakingUi();
           syncVideoDucking();
         }
       } else if (msg.type === "transcript") {
@@ -1163,7 +1159,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     if (muted === next) return;
     muted = next;
     activeAudioCapture?.setMuted(muted);
-    updateSpeakingUi();
     syncVideoDucking();
     if (activePort) {
       try {
@@ -1195,7 +1190,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
   function setVoicePriority(enabled: boolean): void {
     voicePriority = Boolean(enabled);
     syncVideoDucking();
-    onVoicePriorityChange?.(voicePriority);
   }
 
   function setShareVideoAudio(enabled: boolean): void {
@@ -1205,8 +1199,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
       currentVideoAudioStatus = "未开启";
       onVideoAudioStatusChange?.("未开启");
     }
-    onShareVideoAudioChange?.(shareVideoAudio);
   }
+
+  function applyAudioSettings(patch: LiveAudioSettingsPatch): void {
+    if (patch.liveVoiceVolume !== undefined) setVolume(patch.liveVoiceVolume / 100);
+    if (patch.liveVoiceSpeed !== undefined) setSpeed(patch.liveVoiceSpeed);
+    if (patch.liveVoicePriority !== undefined) setVoicePriority(patch.liveVoicePriority);
+    if (patch.liveShareVideoAudio !== undefined) setShareVideoAudio(patch.liveShareVideoAudio);
+  }
+
   function interrupt(): void {
     if (state !== "connected" || !activePort) return;
     try {
@@ -1215,7 +1216,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     speaking = false;
     activeAudioCapture?.setAiSpeaking?.(false);
     endLongSummaryControl();
-    updateSpeakingUi();
     syncVideoDucking();
   }
 
@@ -1292,14 +1292,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     await cleanupSessionRule(stoppingSessionId || undefined);
   }
 
-  async function toggle(): Promise<void> {
-    if (state === "connected" || state === "connecting") {
-      await stop();
-    } else {
-      await start();
-    }
-  }
-
   function dispose(): void {
     void stop();
     syncVideoDucking();
@@ -1309,19 +1301,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     getState: () => state,
     getLastError: () => lastError,
     getLastFailureKind: () => lastFailureKind,
-    getSavedSessionId: () => savedMossSessionId,
-
     isMuted: () => muted,
-    isSpeaking: () => speaking,
     isReconnecting: () => reconnecting,
     getVideoAudioStatus: () => (!shareVideoAudio ? "未开启" : (activeAudioCapture?.getVideoAudioStatus() ?? "未开启")),
-    isMicVadActive: () => activeAudioCapture?.isMicVadActive() ?? false,
     isVoiceRecentlyActive: () => activeAudioCapture?.isVoiceRecentlyActive() ?? true,
+    applyAudioSettings,
     setShareVideoAudio,
     isSharingVideoAudio: () => shareVideoAudio,
     setVoicePriority,
     isVoicePriority: () => voicePriority,
-    isDucked: () => isDucked,
     getVideoBaseVolume,
     setVideoBaseVolume,
     setMuted,
@@ -1333,13 +1321,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps = {}): Liv
     interrupt,
     sendUserPrompt,
     refreshTarget,
+    handleStorageChanges,
     getTextToolRecords: textToolCoordinator.getSnapshot,
     subscribeTextToolRecords: textToolCoordinator.subscribe,
     retryTextToolRecord: textToolCoordinator.retry,
     dismissTextToolRecord: textToolCoordinator.dismiss,
     start,
     stop,
-    toggle,
     dispose
   };
 }

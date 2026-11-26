@@ -36,12 +36,34 @@ function createFakeControllerHarness(initialState: LiveChatState = "idle") {
     currentState = "idle";
     capturedDeps?.onStateChange?.("idle");
   });
-  const toggle = vi.fn(async () => {
-    const active = currentState === "connecting" || currentState === "connected";
-    await (active ? stop() : start());
-  });
   const dispose = vi.fn(() => {
     calls.push("dispose");
+  });
+  const setVolume = vi.fn((next: number) => {
+    volume = next;
+  });
+  const setSpeed = vi.fn((next: number) => {
+    speed = next;
+  });
+  const setVoicePriority = vi.fn((next: boolean) => {
+    voicePriority = next;
+  });
+  const setShareVideoAudio = vi.fn((next: boolean) => {
+    shareVideoAudio = next;
+  });
+  const applyAudioSettings = vi.fn((patch: {
+    liveVoiceVolume?: number;
+    liveVoiceSpeed?: number;
+    liveVoicePriority?: boolean;
+    liveShareVideoAudio?: boolean;
+  }) => {
+    if (patch.liveVoiceVolume !== undefined) setVolume(patch.liveVoiceVolume / 100);
+    if (patch.liveVoiceSpeed !== undefined) setSpeed(patch.liveVoiceSpeed);
+    if (patch.liveVoicePriority !== undefined) setVoicePriority(patch.liveVoicePriority);
+    if (patch.liveShareVideoAudio !== undefined) setShareVideoAudio(patch.liveShareVideoAudio);
+  });
+  const handleStorageChanges = vi.fn((_areaName: string, _changedKeys: readonly string[]) => {
+    void refreshTarget();
   });
 
   const controller = {
@@ -55,22 +77,15 @@ function createFakeControllerHarness(initialState: LiveChatState = "idle") {
     setMuted: vi.fn((next: boolean) => {
       muted = next;
     }),
-    setVolume: vi.fn((next: number) => {
-      volume = next;
-    }),
-    setSpeed: vi.fn((next: number) => {
-      speed = next;
-    }),
-    setVoicePriority: vi.fn((next: boolean) => {
-      voicePriority = next;
-    }),
-    setShareVideoAudio: vi.fn((next: boolean) => {
-      shareVideoAudio = next;
-    }),
+    setVolume,
+    setSpeed,
+    setVoicePriority,
+    setShareVideoAudio,
+    applyAudioSettings,
     refreshTarget,
+    handleStorageChanges,
     start,
     stop,
-    toggle,
     dispose
   } as any;
 
@@ -187,7 +202,7 @@ describe("live/live-overlay-binding 共用浮窗挂载、控制器生命周期�
     binding.dispose();
   });
 
-  it("音频开关与音量变更持久化，监听 liveProviders 存储变更并刷新目标平台", async () => {
+  it("浮窗四项音频操作与服务端调音调速均走单一同步入口，存储变更委托给控制器处理", async () => {
     const storageListeners: Array<(changes: Record<string, any>, area: string) => void> = [];
     const addListener = vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((fn: any) => {
       storageListeners.push(fn);
@@ -195,6 +210,12 @@ describe("live/live-overlay-binding 共用浮窗挂载、控制器生命周期�
     const host = document.createElement("div");
     host.className = "bpx-player-container";
     document.body.appendChild(host);
+    state.setSettings({
+      liveVoiceVolume: 100,
+      liveVoiceSpeed: 1,
+      liveVoicePriority: true,
+      liveShareVideoAudio: false
+    } as any);
 
     const sendMessage = vi.spyOn(chrome.runtime, "sendMessage");
     const harness = createFakeControllerHarness();
@@ -203,27 +224,64 @@ describe("live/live-overlay-binding 共用浮窗挂载、控制器生命周期�
       createController: harness.createController
     });
     binding.ensureController();
-    binding.ensureOverlay();
-
-    harness.getDeps().onShareVideoAudioChange?.(true);
-    expect(state.settings?.liveShareVideoAudio).toBe(true);
-    harness.getDeps().onVoicePriorityChange?.(false);
-    expect(state.settings?.liveVoicePriority).toBe(false);
-
-    sendMessage.mockClear();
     expect(binding.ensureOverlay().getElement()).toBeNull();
     harness.emitState("connected");
-    const syncSpy = vi.spyOn(binding.getOverlay()!, "syncState");
-    harness.getDeps().onVolumeChange?.(80);
-    expect(syncSpy).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
 
-    harness.controller.refreshTarget.mockClear();
+    const popover = binding.getOverlay()!.getElement()!.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    const volumeSlider = popover.querySelector<HTMLInputElement>(".live-overlay-volume-slider:not(.live-overlay-speed-slider)")!;
+    const speedSlider = popover.querySelector<HTMLInputElement>(".live-overlay-speed-slider")!;
+    const shareSwitch = popover.querySelector<HTMLButtonElement>(".live-overlay-share-switch")!;
+    const prioritySwitch = popover.querySelector<HTMLButtonElement>(".live-overlay-priority-switch")!;
+
+    volumeSlider.value = "140";
+    volumeSlider.dispatchEvent(new Event("input"));
+    expect(harness.controller.setVolume).toHaveBeenCalledWith(1.4);
+    expect(sendMessage).not.toHaveBeenCalled();
+    volumeSlider.dispatchEvent(new Event("change"));
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "save-settings", settings: { liveVoiceVolume: 140 } },
+      expect.any(Function)
+    );
+
+    sendMessage.mockClear();
+    speedSlider.value = "3";
+    speedSlider.dispatchEvent(new Event("input"));
+    expect(harness.controller.setSpeed).toHaveBeenCalledWith(1.25);
+    expect(sendMessage).not.toHaveBeenCalled();
+    speedSlider.dispatchEvent(new Event("change"));
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "save-settings", settings: { liveVoiceSpeed: 1.25 } },
+      expect.any(Function)
+    );
+
+    sendMessage.mockClear();
+    shareSwitch.click();
+    expect(state.settings?.liveShareVideoAudio).toBe(true);
+    expect(harness.controller.setShareVideoAudio).toHaveBeenCalledWith(true);
+    prioritySwitch.click();
+    expect(state.settings?.liveVoicePriority).toBe(false);
+    expect(harness.controller.setVoicePriority).toHaveBeenCalledWith(false);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+
+    sendMessage.mockClear();
+    harness.controller.applyAudioSettings.mockClear();
+    const syncSpy = vi.spyOn(binding.getOverlay()!, "syncState");
+    harness.getDeps().onServerOutputConfigured?.({ liveVoiceVolume: 138, liveVoiceSpeed: 1.5 });
+    expect(syncSpy).toHaveBeenCalledTimes(1);
+    expect(harness.controller.applyAudioSettings).not.toHaveBeenCalled();
+    expect(state.settings).toMatchObject({ liveVoiceVolume: 138, liveVoiceSpeed: 1.5 });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "save-settings", settings: { liveVoiceVolume: 138, liveVoiceSpeed: 1.5 } },
+      expect.any(Function)
+    );
+
+    harness.controller.handleStorageChanges.mockClear();
     storageListeners.forEach((listener) => {
       listener({ liveProviders: { newValue: [] } }, "sync");
     });
     await Promise.resolve();
-    expect(harness.controller.refreshTarget).toHaveBeenCalledTimes(1);
+    expect(harness.controller.handleStorageChanges).toHaveBeenCalledWith("sync", ["liveProviders"]);
 
     binding.dispose();
     addListener.mockRestore();

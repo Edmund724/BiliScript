@@ -17,6 +17,13 @@ export interface LiveAudioSettingsPatch {
   liveShareVideoAudio?: boolean;
 }
 
+export type LiveAudioChangeSource = "overlay" | "settings" | "server" | "storage";
+
+export interface DispatchLiveAudioChangeOptions {
+  source: Exclude<LiveAudioChangeSource, "storage">;
+  persist?: boolean;
+}
+
 type LiveAudioController = Pick<
   LiveChatController,
   | "setVolume"
@@ -27,66 +34,162 @@ type LiveAudioController = Pick<
   | "isVoicePriority"
   | "setShareVideoAudio"
   | "isSharingVideoAudio"
->;
+> & Partial<Pick<LiveChatController, "applyAudioSettings">>;
 
 type LiveAudioSettingsInput = { [K in keyof LiveAudioSettingsPatch]?: unknown };
-type LiveAudioSettingsListener = (patch: LiveAudioSettingsPatch) => void;
+type LiveAudioSettingsListener = (
+  patch: LiveAudioSettingsPatch,
+  source: Exclude<LiveAudioChangeSource, "storage">
+) => void;
 
 const localListeners = new Set<LiveAudioSettingsListener>();
 
+function normalizeLiveAudioPatch(patch: LiveAudioSettingsInput): LiveAudioSettingsPatch {
+  const normalized: LiveAudioSettingsPatch = {};
+  if ("liveVoiceVolume" in patch) {
+    normalized.liveVoiceVolume = normalizeLiveVoiceVolume(patch.liveVoiceVolume);
+  }
+  if ("liveVoiceSpeed" in patch) {
+    normalized.liveVoiceSpeed = normalizeLiveVoiceSpeed(patch.liveVoiceSpeed);
+  }
+  if ("liveVoicePriority" in patch) {
+    normalized.liveVoicePriority = normalizeLiveVoicePriority(patch.liveVoicePriority);
+  }
+  if ("liveShareVideoAudio" in patch) {
+    normalized.liveShareVideoAudio = normalizeLiveShareVideoAudio(patch.liveShareVideoAudio);
+  }
+  return normalized;
+}
+
+function diffServerPersistPatch(normalized: LiveAudioSettingsPatch): LiveAudioSettingsPatch {
+  const current = state.settings;
+  const diff: LiveAudioSettingsPatch = {};
+  if (
+    normalized.liveVoiceVolume !== undefined &&
+    current?.liveVoiceVolume !== normalized.liveVoiceVolume
+  ) {
+    diff.liveVoiceVolume = normalized.liveVoiceVolume;
+  }
+  if (
+    normalized.liveVoiceSpeed !== undefined &&
+    current?.liveVoiceSpeed !== normalized.liveVoiceSpeed
+  ) {
+    diff.liveVoiceSpeed = normalized.liveVoiceSpeed;
+  }
+  if (
+    normalized.liveVoicePriority !== undefined &&
+    current?.liveVoicePriority !== normalized.liveVoicePriority
+  ) {
+    diff.liveVoicePriority = normalized.liveVoicePriority;
+  }
+  if (
+    normalized.liveShareVideoAudio !== undefined &&
+    current?.liveShareVideoAudio !== normalized.liveShareVideoAudio
+  ) {
+    diff.liveShareVideoAudio = normalized.liveShareVideoAudio;
+  }
+  return diff;
+}
+
+function applyPatchToController(
+  controller: LiveAudioController,
+  patch: LiveAudioSettingsPatch
+): void {
+  if (typeof controller.applyAudioSettings === "function") {
+    controller.applyAudioSettings(patch);
+    return;
+  }
+  if (patch.liveVoiceVolume !== undefined) controller.setVolume(patch.liveVoiceVolume / 100);
+  if (patch.liveVoiceSpeed !== undefined) controller.setSpeed(patch.liveVoiceSpeed);
+  if (patch.liveVoicePriority !== undefined) controller.setVoicePriority(patch.liveVoicePriority);
+  if (patch.liveShareVideoAudio !== undefined) controller.setShareVideoAudio(patch.liveShareVideoAudio);
+}
+
 function syncLiveAudioSettings(
-  patch: LiveAudioSettingsInput,
+  rawPatch: LiveAudioSettingsInput,
+  source: LiveAudioChangeSource,
   getController: () => LiveAudioController | null,
   onSync?: () => void
 ): void {
+  const normalized = normalizeLiveAudioPatch(rawPatch);
+  if (Object.keys(normalized).length === 0) return;
+
+  if (source === "storage") {
+    state.patchSettings(normalized as Partial<Settings>);
+  }
+
   const controller = getController();
-  let changed = false;
-  if ("liveVoiceVolume" in patch) {
-    const volume = normalizeLiveVoiceVolume(patch.liveVoiceVolume);
-    state.patchSettings({ liveVoiceVolume: volume });
-    if (controller && controller.getVolume() !== volume / 100) controller.setVolume(volume / 100);
-    changed = true;
+  if (controller && source !== "server") {
+    const controllerPatch: LiveAudioSettingsPatch = {};
+    if (
+      normalized.liveVoiceVolume !== undefined &&
+      Math.round(controller.getVolume() * 100) !== normalized.liveVoiceVolume
+    ) {
+      controllerPatch.liveVoiceVolume = normalized.liveVoiceVolume;
+    }
+    if (
+      normalized.liveVoiceSpeed !== undefined &&
+      normalizeLiveVoiceSpeed(controller.getSpeed()) !== normalized.liveVoiceSpeed
+    ) {
+      controllerPatch.liveVoiceSpeed = normalized.liveVoiceSpeed;
+    }
+    if (
+      normalized.liveVoicePriority !== undefined &&
+      controller.isVoicePriority() !== normalized.liveVoicePriority
+    ) {
+      controllerPatch.liveVoicePriority = normalized.liveVoicePriority;
+    }
+    if (
+      normalized.liveShareVideoAudio !== undefined &&
+      controller.isSharingVideoAudio() !== normalized.liveShareVideoAudio
+    ) {
+      controllerPatch.liveShareVideoAudio = normalized.liveShareVideoAudio;
+    }
+    if (Object.keys(controllerPatch).length > 0) {
+      applyPatchToController(controller, controllerPatch);
+    }
   }
-  if ("liveVoiceSpeed" in patch) {
-    const speed = normalizeLiveVoiceSpeed(patch.liveVoiceSpeed);
-    state.patchSettings({ liveVoiceSpeed: speed });
-    if (controller && controller.getSpeed() !== speed) controller.setSpeed(speed);
-    changed = true;
+  onSync?.();
+}
+
+export function dispatchLiveAudioChange(
+  patch: LiveAudioSettingsPatch,
+  options: DispatchLiveAudioChangeOptions
+) {
+  const normalized = normalizeLiveAudioPatch(patch);
+  if (Object.keys(normalized).length === 0) {
+    return Promise.resolve({ ok: true as const });
   }
-  if ("liveVoicePriority" in patch) {
-    const enabled = normalizeLiveVoicePriority(patch.liveVoicePriority);
-    state.patchSettings({ liveVoicePriority: enabled });
-    if (controller && controller.isVoicePriority() !== enabled) controller.setVoicePriority(enabled);
-    changed = true;
+  const persistPatch = options.persist
+    ? (options.source === "server" ? diffServerPersistPatch(normalized) : normalized)
+    : {};
+  state.patchSettings(normalized as Partial<Settings>);
+  for (const listener of [...localListeners]) {
+    listener(normalized, options.source);
   }
-  if ("liveShareVideoAudio" in patch) {
-    const enabled = normalizeLiveShareVideoAudio(patch.liveShareVideoAudio);
-    state.patchSettings({ liveShareVideoAudio: enabled });
-    if (controller && controller.isSharingVideoAudio() !== enabled) controller.setShareVideoAudio(enabled);
-    changed = true;
+  if (!options.persist || Object.keys(persistPatch).length === 0) {
+    return Promise.resolve({ ok: true as const });
   }
-  if (changed) onSync?.();
+  return sendRuntimeMessage({
+    type: "save-settings",
+    settings: persistPatch
+  }).catch((error) => ({ ok: false as const, error: (error as Error).message || "保存失败" }));
 }
 
 export function applyLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
-  state.patchSettings(patch as Partial<Settings>);
-  for (const listener of [...localListeners]) listener(patch);
+  void dispatchLiveAudioChange(patch, { source: "settings", persist: false });
 }
 
 export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch) {
-  applyLiveAudioSettings(patch);
-  return sendRuntimeMessage({
-    type: "save-settings",
-    settings: patch
-  }).catch((error) => ({ ok: false as const, error: (error as Error).message || "保存失败" }));
+  return dispatchLiveAudioChange(patch, { source: "settings", persist: true });
 }
 
 export function watchLiveAudioSettings(
   getController: () => LiveAudioController | null,
   onSync?: () => void
 ): () => void {
-  const localListener: LiveAudioSettingsListener = (patch) => {
-    syncLiveAudioSettings(patch, getController, onSync);
+  const localListener: LiveAudioSettingsListener = (patch, source) => {
+    syncLiveAudioSettings(patch, source, getController, onSync);
   };
   localListeners.add(localListener);
   const unsubscribeStorage = watchStorageKeys((changes) => {
@@ -95,7 +198,7 @@ export function watchLiveAudioSettings(
     if (changes.liveVoiceSpeed) patch.liveVoiceSpeed = changes.liveVoiceSpeed.newValue;
     if (changes.liveVoicePriority) patch.liveVoicePriority = changes.liveVoicePriority.newValue;
     if (changes.liveShareVideoAudio) patch.liveShareVideoAudio = changes.liveShareVideoAudio.newValue;
-    syncLiveAudioSettings(patch, getController, onSync);
+    syncLiveAudioSettings(patch, "storage", getController, onSync);
   }, {
     sync: ["liveVoiceVolume", "liveVoiceSpeed", "liveVoicePriority", "liveShareVideoAudio"]
   });

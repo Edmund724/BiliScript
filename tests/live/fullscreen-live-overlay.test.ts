@@ -213,11 +213,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
   });
 
   it("独立麦克风按钮与音频二级设置（音量滑轨、原声分享、语音优先）", () => {
-    const onVolumeChange = vi.fn();
+    const onAudioChange = vi.fn();
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onVolumeChange,
+      onAudioChange,
       onStopLive
     });
     overlay.show({ forceExpand: true });
@@ -244,20 +244,19 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     volumeSlider.value = "65";
     volumeSlider.dispatchEvent(new Event("input"));
-    expect(mockController.setVolume).toHaveBeenCalledWith(0.65);
-    expect(onVolumeChange).not.toHaveBeenCalled();
+    expect(onAudioChange).toHaveBeenCalledWith({ liveVoiceVolume: 65 }, { persist: false });
+    expect(mockController.setVolume).not.toHaveBeenCalled();
     expect(volumeValue.textContent).toBe("65%");
     volumeSlider.dispatchEvent(new Event("change"));
-    expect(onVolumeChange).toHaveBeenCalledTimes(1);
-    expect(onVolumeChange).toHaveBeenCalledWith(65);
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveVoiceVolume: 65 }, { persist: true });
 
     const shareSwitch = popover.querySelector(".live-overlay-share-switch") as HTMLButtonElement;
     shareSwitch.click();
-    expect(mockController.setShareVideoAudio).toHaveBeenCalledWith(false);
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveShareVideoAudio: false }, { persist: true });
 
     const prioSwitch = popover.querySelector(".live-overlay-priority-switch") as HTMLButtonElement;
     prioSwitch.click();
-    expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveVoicePriority: false }, { persist: true });
     overlay.dispose();
   });
 
@@ -417,12 +416,16 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
   });
 
   it("拖动预览后同步音量回包，不回退到旧设置值", () => {
-    const onVolumeChange = vi.fn();
+    const onAudioChange = vi.fn((patch: { liveVoiceVolume?: number }) => {
+      if (patch.liveVoiceVolume !== undefined) {
+        mockController.setVolume?.(patch.liveVoiceVolume / 100);
+      }
+    });
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
       getVolume: () => 80,
-      onVolumeChange
+      onAudioChange
     });
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
@@ -437,17 +440,18 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     expect(slider.value).toBe("65");
     expect(value.textContent).toBe("65%");
+    expect(onAudioChange).toHaveBeenCalledWith({ liveVoiceVolume: 65 }, { persist: false });
     slider.dispatchEvent(new Event("change"));
-    expect(onVolumeChange).toHaveBeenCalledWith(65);
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveVoiceVolume: 65 }, { persist: true });
     overlay.dispose();
   });
 
-  it("支持 200% 音量与五档吸附语速，并同步服务端调速", () => {
-    const onSpeedChange = vi.fn();
+  it("支持 200% 音量与五档吸附语速，input 预览、change 提交，并同步服务端调速", () => {
+    const onAudioChange = vi.fn();
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onSpeedChange,
+      onAudioChange,
       onStopLive
     });
     overlay.show({ forceExpand: true });
@@ -456,7 +460,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(volumeSlider.max).toBe("200");
     volumeSlider.value = "150";
     volumeSlider.dispatchEvent(new Event("input"));
-    expect(mockController.setVolume).toHaveBeenCalledWith(1.5);
+    expect(onAudioChange).toHaveBeenCalledWith({ liveVoiceVolume: 150 }, { persist: false });
 
     const speedSlider = popover.querySelector(".live-overlay-speed-slider") as HTMLInputElement;
     const speedValue = popover.querySelector(".live-overlay-speed-value") as HTMLElement;
@@ -468,9 +472,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
 
     speedSlider.value = "0";
     speedSlider.dispatchEvent(new Event("input"));
-    expect(mockController.setSpeed).toHaveBeenCalledWith(0.5);
-    expect(onSpeedChange).toHaveBeenCalledWith(0.5);
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveVoiceSpeed: 0.5 }, { persist: false });
     expect(speedValue.textContent).toBe("0.5×");
+    speedSlider.dispatchEvent(new Event("change"));
+    expect(onAudioChange).toHaveBeenLastCalledWith({ liveVoiceSpeed: 0.5 }, { persist: true });
 
     mockController.getSpeed = () => 1.5;
     overlay.syncState();

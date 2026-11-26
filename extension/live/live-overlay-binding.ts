@@ -5,7 +5,7 @@ import {
 import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { persistLiveAudioSettings, watchLiveAudioSettings } from "./live-audio-settings.js";
+import { dispatchLiveAudioChange, watchLiveAudioSettings } from "./live-audio-settings.js";
 import { syncPlayerLiveQuickActionState } from "./player-live-toggle.js";
 import {
   createFullscreenLiveOverlay,
@@ -33,10 +33,6 @@ export interface LiveOverlayConsumerHooks {
   onBeforeStart?: () => void;
   onStateChange?: (liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
-  onVadStateChange?: (active: boolean) => void;
-  onVoicePriorityChange?: (enabled: boolean) => void;
-  onShareVideoAudioChange?: (enabled: boolean) => void;
-  onVideoAudioStatusChange?: LiveChatControllerDeps["onVideoAudioStatusChange"];
 }
 
 type BoundLiveControllerCallbackKey =
@@ -45,10 +41,7 @@ type BoundLiveControllerCallbackKey =
   | "onVideoContextSwitch"
   | "onReconnecting"
   | "onStateChange"
-  | "onVolumeChange"
-  | "onSpeedChange"
-  | "onVoicePriorityChange"
-  | "onShareVideoAudioChange"
+  | "onServerOutputConfigured"
   | "onVideoAudioStatusChange";
 
 type BoundLiveControllerCallbacks = Pick<LiveChatControllerDeps, BoundLiveControllerCallbackKey>;
@@ -106,36 +99,15 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
     return liveState === "connecting" || liveState === "connected";
   }
 
-  function handleVolumeChange(volumePercent: number): void {
-    persistLiveAudioSettings({ liveVoiceVolume: volumePercent });
-  }
-
-  function handleSpeedChange(speed: number): void {
-    if (state.settings?.liveVoiceSpeed !== speed) {
-      persistLiveAudioSettings({ liveVoiceSpeed: speed });
-    }
-  }
-
-  function handleVoicePriorityChange(enabled: boolean): void {
-    if (state.settings?.liveVoicePriority !== enabled) {
-      persistLiveAudioSettings({ liveVoicePriority: enabled });
-    }
-  }
-
-  function handleShareVideoAudioChange(enabled: boolean): void {
-    if (state.settings?.liveShareVideoAudio !== enabled) {
-      persistLiveAudioSettings({ liveShareVideoAudio: enabled });
-    }
-  }
-
   function ensureOverlay(): FullscreenLiveOverlay {
     if (!overlay) {
       overlay = createFullscreenLiveOverlay({
         getPlayerHost,
         getLiveController: () => controller,
         getVolume: () => state.settings?.liveVoiceVolume ?? 100,
-        onVolumeChange: handleVolumeChange,
-        onSpeedChange: handleSpeedChange,
+        onAudioChange: (patch, { persist }) => {
+          void dispatchLiveAudioChange(patch, { source: "overlay", persist });
+        },
         onOpenLiveSettings: options.onOpenLiveSettings,
         onStopLive: () => {
           void stop();
@@ -187,7 +159,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
   function bindControllerCallbacks(): BoundLiveControllerCallbacks {
     return {
       onVadStateChange: (active) => {
-        consumerHooks?.onVadStateChange?.(active);
         overlay?.updateVad(active);
       },
       onTranscript: (event: MossLiveTranscriptEvent) => {
@@ -199,23 +170,10 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
         overlay?.syncState(controller?.getState(), true);
       },
       onStateChange: handleStateChange,
-      onVolumeChange: () => {
-        overlay?.syncState();
+      onServerOutputConfigured: (patch) => {
+        void dispatchLiveAudioChange(patch, { source: "server", persist: true });
       },
-      onSpeedChange: (speed) => {
-        handleSpeedChange(speed);
-        overlay?.syncState();
-      },
-      onVoicePriorityChange: (enabled) => {
-        consumerHooks?.onVoicePriorityChange?.(enabled);
-        handleVoicePriorityChange(enabled);
-      },
-      onShareVideoAudioChange: (enabled) => {
-        consumerHooks?.onShareVideoAudioChange?.(enabled);
-        handleShareVideoAudioChange(enabled);
-      },
-      onVideoAudioStatusChange: (status) => {
-        consumerHooks?.onVideoAudioStatusChange?.(status);
+      onVideoAudioStatusChange: () => {
         overlay?.syncState();
       }
     };
@@ -225,21 +183,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}
     if (!unsubscribeStorageWatcher) {
       unsubscribeStorageWatcher = watchStorageKeys(
         (changes, areaName) => {
-          const isAiCredentialChange = areaName === "sync"
-            ? Object.prototype.hasOwnProperty.call(changes, "aiProviders")
-            : Object.prototype.hasOwnProperty.call(changes, "aiProviderKeys");
-          const isLiveChange = areaName === "sync"
-            ? Object.prototype.hasOwnProperty.call(changes, "liveProviders") ||
-              Object.prototype.hasOwnProperty.call(changes, "activeLiveProviderId")
-            : Object.prototype.hasOwnProperty.call(changes, "liveProviderKeys");
-          if (
-            !isLiveChange &&
-            isAiCredentialChange &&
-            controller?.getLastFailureKind?.() !== "gemini-credential"
-          ) {
-            return;
-          }
-          void controller?.refreshTarget();
+          controller?.handleStorageChanges?.(areaName, Object.keys(changes));
         },
         {
           sync: ["liveProviders", "activeLiveProviderId", "aiProviders"],

@@ -318,28 +318,37 @@ async function setupEndToEndLivePipeline(options: {
   } as unknown as HTMLVideoElement;
 
   let videoCapture: SpyVideoCapture | null = null;
+  let micVadActive = false;
   const isGemini = options.providerType === "gemini-live";
+  const providerRecord = {
+    id: isGemini ? "gemini-live-1" : "moss-live-1",
+    type: options.providerType,
+    baseUrl: isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
+    model: isGemini ? "gemini-3.8-live" : "moss-live-1.0",
+    enabled: true,
+    hasSavedKey: true
+  };
 
   const controller = createLiveChatController({
     initialShareVideoAudio: Boolean(options.shareVideoAudio),
-    getTargetProviderType: () => options.providerType,
-    getTargetOrigin: () =>
-      isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
-    getTargetModel: () => (isGemini ? "gemini-3.8-live" : "moss-live-1.0"),
     getVideoElement: () => videoEl,
     getVideoContext: () => sampleVideoContext,
+    onVadStateChange: (active) => {
+      micVadActive = active;
+    },
     requestOrigins: async () => ({ ok: true }),
     sendRuntimeMessage: (async (msg: { type?: string }) => {
+      if (msg.type === "live-providers-list") {
+        return { ok: true, providers: [providerRecord] };
+      }
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: { activeLiveProviderId: providerRecord.id } };
+      }
       if (msg.type === "live-session-prepare") {
         return {
           ok: true,
           liveLowBandwidth: Boolean(options.liveLowBandwidth),
-          provider: {
-            id: isGemini ? "gemini-live-1" : "moss-live-1",
-            type: options.providerType,
-            baseUrl: isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn",
-            model: isGemini ? "gemini-3.8-live" : "moss-live-1.0"
-          }
+          provider: providerRecord
         };
       }
       return { ok: true };
@@ -358,6 +367,7 @@ async function setupEndToEndLivePipeline(options: {
     }
   });
 
+  await controller.refreshTarget();
   await controller.start();
   await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
   const ws = FakeWebSocket.instances[0];
@@ -375,6 +385,7 @@ async function setupEndToEndLivePipeline(options: {
     audioCtx,
     micStream,
     ws,
+    isMicVadActive: () => micVadActive,
     getVideoCapture: () => videoCapture!
   };
 }
@@ -393,7 +404,7 @@ afterEach(() => {
 
 describe("实时伴看上行音频连续性与闭麦状态机全链路验证", () => {
   it("① 静音输入、本地 VAD 低能量及 liveLowBandwidth: true 时，16kHz PCM 静音帧持续连续发出", async () => {
-    const { controller, audioCtx, ws, getVideoCapture } = await setupEndToEndLivePipeline({
+    const { controller, audioCtx, ws, isMicVadActive, getVideoCapture } = await setupEndToEndLivePipeline({
       providerType: "gemini-live",
       liveLowBandwidth: true
     });
@@ -402,12 +413,12 @@ describe("实时伴看上行音频连续性与闭麦状态机全链路验证", (
     ws.sentData.length = 0;
 
     audioCtx.emitSamples(new Float32Array(640).fill(0));
-    expect(controller.isMicVadActive()).toBe(false);
+    expect(isMicVadActive()).toBe(false);
 
     audioCtx.emitSamples(new Float32Array(640).fill(0.25));
-    expect(controller.isMicVadActive()).toBe(true);
+    expect(isMicVadActive()).toBe(true);
     audioCtx.emitSamples(new Float32Array(5120).fill(0.001));
-    expect(controller.isMicVadActive()).toBe(false);
+    expect(isMicVadActive()).toBe(false);
 
     audioCtx.emitSamples(undefined, undefined, 128);
     audioCtx.emitSamples(undefined, undefined, 128);
