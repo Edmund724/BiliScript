@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
-import type { SecondaryColumnView } from "../../extension/reader/secondary-subtitle.js";
+import type { BilingualPickerView } from "../../extension/reader/secondary-subtitle.js";
 import type { SubtitleToolbarFacts } from "../../extension/reader/subtitle-tab-ui.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 const SENTINEL_EMPTY = "暂无字幕";
 const SENTINEL_LOADING = "抓取中…";
@@ -20,39 +21,50 @@ let toolbar: import("../../extension/reader/subtitle-tab-ui.js").SubtitleToolbar
 let ids: typeof import("../../extension/reader/state.js").ids;
 let secondarySubtitle: typeof import("../../extension/reader/secondary-subtitle.js");
 
-function emptyColumn(overrides: Partial<SecondaryColumnView> = {}): SecondaryColumnView {
-  return { note: "", footerNote: "", selectedUrl: "", retry: false, busy: false, ...overrides };
+function nativePicker(overrides: Partial<BilingualPickerView> = {}): BilingualPickerView {
+  return {
+    mode: "native",
+    bilingual: false,
+    switchDisabled: true,
+    heading: "副字幕",
+    note: "",
+    footerNote: "",
+    selectedValue: "",
+    selectDisabled: false,
+    busy: false,
+    action: null,
+    aiRefineAction: null,
+    translationOptions: [],
+    ...overrides
+  };
 }
 
 function makeFacts(overrides: Partial<SubtitleToolbarFacts> = {}): SubtitleToolbarFacts {
   return {
     tracks: [],
-    bilingual: false,
-    switchDisabled: true,
     transcribing: false,
     loading: false,
     marked: false,
     selectedTrackId: "",
     switchInFlight: null,
-    secondaryColumn: emptyColumn(),
-    asrScenario: false,
-    asrTranslation: {
-      lang: "zh",
-      inFlight: false,
-      note: "",
-      action: null
-    },
+    bilingualPicker: nativePicker(),
     ...overrides
   };
 }
 
-function dualBase(overrides: Partial<SubtitleToolbarFacts> = {}): Partial<SubtitleToolbarFacts> {
+function dualBase(
+  pickerOverrides: Partial<BilingualPickerView> = {},
+  factOverrides: Partial<SubtitleToolbarFacts> = {}
+): Partial<SubtitleToolbarFacts> {
   return {
     tracks: SAMPLE_TRACKS,
     selectedTrackId: SAMPLE_TRACKS[0].id,
-    bilingual: true,
-    switchDisabled: false,
-    ...overrides
+    bilingualPicker: nativePicker({
+      bilingual: true,
+      switchDisabled: false,
+      ...pickerOverrides
+    }),
+    ...factOverrides
   };
 }
 
@@ -279,7 +291,13 @@ describe("在飞：乐观目标轨与保留旧列表", () => {
 describe("双语量：bilingual × switchDisabled", () => {
   it("bilingual=false：单列 + 页脚开关 off、无徽标、无副列", () => {
     mountAnchor();
-    render(makeFacts({ tracks: SAMPLE_TRACKS, selectedTrackId: SAMPLE_TRACKS[0].id, switchDisabled: false }));
+    render(
+      makeFacts({
+        tracks: SAMPLE_TRACKS,
+        selectedTrackId: SAMPLE_TRACKS[0].id,
+        bilingualPicker: nativePicker({ bilingual: false, switchDisabled: false })
+      })
+    );
 
     expect(col("main")).not.toBeNull();
     expect(col("sub")).toBeNull();
@@ -314,7 +332,13 @@ describe("双语量：bilingual × switchDisabled", () => {
   it("switchDisabled=true：副列收起、开关禁用、单轨说明进列表区且不占页脚", () => {
     mountAnchor();
     const single = [SAMPLE_TRACKS[0]];
-    render(makeFacts({ tracks: single, selectedTrackId: single[0].id, bilingual: true, switchDisabled: true }));
+    render(
+      makeFacts({
+        tracks: single,
+        selectedTrackId: single[0].id,
+        bilingualPicker: nativePicker({ bilingual: true, switchDisabled: true })
+      })
+    );
 
     expect(toggle().disabled).toBe(true);
     expect(toggle().getAttribute("aria-checked")).toBe("true");
@@ -333,11 +357,7 @@ describe("双语量：bilingual × switchDisabled", () => {
 describe("副列：六态模型的事实投影", () => {
   it("note / footerNote 逐字落位：说明进副列列首、页脚提示进页脚", () => {
     mountAnchor();
-    render(
-      makeFacts(
-        dualBase({ secondaryColumn: emptyColumn({ note: "列首说明探针", footerNote: "页脚提示探针" }) })
-      )
-    );
+    render(makeFacts(dualBase({ note: "列首说明探针", footerNote: "页脚提示探针" })));
 
     expect(emptyNote()).toBe("列首说明探针");
     expect(footerNoteText()).toBe("页脚提示探针");
@@ -351,7 +371,7 @@ describe("副列：六态模型的事实投影", () => {
 
   it("note / footerNote 转空：同一骨架下一次投影即清空（不留残文）", () => {
     mountAnchor();
-    render(makeFacts(dualBase({ secondaryColumn: emptyColumn({ note: "先来一行", footerNote: "再留一句" }) })));
+    render(makeFacts(dualBase({ note: "先来一行", footerNote: "再留一句" })));
     expect(emptyNote()).toBe("先来一行");
     expect(footerNoteText()).toBe("再留一句");
 
@@ -363,14 +383,17 @@ describe("副列：六态模型的事实投影", () => {
     expect(footer().textContent?.trim()).toBe(footerLabel());
   });
 
-  it("retry：只在 retry=true 时出重试行，且只出在副列里", () => {
+  it("retry：只在 action 存在时出重试行，且只出在副列里", () => {
     mountAnchor();
-    render(makeFacts(dualBase({ secondaryColumn: emptyColumn({ selectedUrl: SAMPLE_TRACKS[1].subtitleUrl }) })));
+    render(makeFacts(dualBase({ selectedValue: SAMPLE_TRACKS[1].subtitleUrl })));
     expect(retryButton()).toBeNull();
 
     render(
       makeFacts(
-        dualBase({ secondaryColumn: emptyColumn({ selectedUrl: SAMPLE_TRACKS[1].subtitleUrl, retry: true }) })
+        dualBase({
+          selectedValue: SAMPLE_TRACKS[1].subtitleUrl,
+          action: { kind: "retry", label: "加载失败 · 重试", disabled: false }
+        })
       )
     );
     const retry = retryButton();
@@ -378,17 +401,17 @@ describe("副列：六态模型的事实投影", () => {
     expect(retry!.textContent).toBeTruthy();
     expect(col("sub")!.contains(retry!)).toBe(true);
 
-    render(makeFacts(dualBase({ secondaryColumn: emptyColumn({ selectedUrl: SAMPLE_TRACKS[1].subtitleUrl }) })));
+    render(makeFacts(dualBase({ selectedValue: SAMPLE_TRACKS[1].subtitleUrl })));
     expect(retryButton()).toBeNull();
   });
 
-  it("selectedUrl 落副列值源；busy 落本列禁用与忙碌，busy=false 恢复可用", () => {
+  it("selectedValue 落副列值源；busy/selectDisabled 落本列禁用与忙碌，恢复后可用", () => {
     mountAnchor();
     const target = SAMPLE_TRACKS[2];
     const loadable = SAMPLE_TRACKS.map((track) => track.subtitleUrl);
 
     render(
-      makeFacts(dualBase({ secondaryColumn: emptyColumn({ selectedUrl: target.subtitleUrl, busy: true }) }))
+      makeFacts(dualBase({ selectedValue: target.subtitleUrl, busy: true, selectDisabled: true }))
     );
 
     expect(secondarySelect().value).toBe(target.subtitleUrl);
@@ -403,7 +426,7 @@ describe("副列：六态模型的事实投影", () => {
     expect(trigger().disabled).toBe(false);
 
     render(
-      makeFacts(dualBase({ secondaryColumn: emptyColumn({ selectedUrl: target.subtitleUrl, busy: false }) }))
+      makeFacts(dualBase({ selectedValue: target.subtitleUrl, busy: false, selectDisabled: false }))
     );
 
     expect(secondarySelect().disabled).toBe(false);
@@ -412,30 +435,25 @@ describe("副列：六态模型的事实投影", () => {
     expect(secondarySelect().value).toBe(target.subtitleUrl);
   });
 
-  it("三套空态：直接投影判定叶给出的 note / footerNote 字段，本文件不重算", () => {
+  it("三套空态：直接投影 resolveBilingualPickerView 给出的 note / footerNote 字段，本文件不重算", async () => {
     mountAnchor();
-    const noPreference = secondarySubtitle.resolveSecondaryColumnView({
-      resolution: { kind: "none", reason: "no-preference" },
-      preferenceLang: "",
-      slotState: "idle",
-      loadInFlight: false
-    });
-    const noTrack = secondarySubtitle.resolveSecondaryColumnView({
-      resolution: { kind: "none", reason: "no-track" },
-      preferenceLang: "ja-JP",
-      slotState: "idle",
-      loadInFlight: false
-    });
-    const mainTrack = secondarySubtitle.resolveSecondaryColumnView({
-      resolution: { kind: "none", reason: "main-track" },
-      preferenceLang: "ja-JP",
-      slotState: "idle",
-      loadInFlight: false
-    });
+    const { state, clipState } = await import("../../extension/core/state.js");
+    clipState.setSubtitles(SAMPLE_TRACKS as never);
+    clipState.setSelectedSubtitleId(SAMPLE_TRACKS[0].id);
+
+    state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true, secondarySubtitleLang: "" });
+    const noPreference = secondarySubtitle.resolveBilingualPickerView();
+
+    state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true, secondarySubtitleLang: "ko-KR" });
+    const noTrack = secondarySubtitle.resolveBilingualPickerView();
+
+    state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true, secondarySubtitleLang: "zh-CN" });
+    const mainTrack = secondarySubtitle.resolveBilingualPickerView();
+
     const loadable = SAMPLE_TRACKS.map((track) => track.subtitleUrl);
 
     for (const model of [noPreference, noTrack, mainTrack]) {
-      render(makeFacts(dualBase({ secondaryColumn: model })));
+      render(makeFacts(dualBase(model)));
 
       expect(emptyNote()).toBe(model.note);
       expect(footerNoteText()).toBe(model.footerNote);
@@ -479,7 +497,7 @@ describe("副列列表：只列可装载的真轨", () => {
     };
     const tracks = [...SAMPLE_TRACKS, pseudoTrack];
     mountAnchor();
-    render(makeFacts(dualBase({ tracks })));
+    render(makeFacts(dualBase({}, { tracks })));
 
     expect(optionValues(mainSelect())).toEqual(tracks.map((track) => track.subtitleUrl));
     expect(optionValues(secondarySelect())).toEqual(SAMPLE_TRACKS.map((track) => track.subtitleUrl));

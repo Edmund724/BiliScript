@@ -2,11 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
-import type { SecondaryColumnView } from "../../extension/reader/secondary-subtitle.js";
-import type {
-  SubtitleToolbarFacts
-} from "../../extension/reader/subtitle-tab-ui.js";
-import type { AsrTranslationView } from "../../extension/reader/asr-translation.js";
+import type { BilingualPickerView } from "../../extension/reader/secondary-subtitle.js";
+import type { SubtitleToolbarFacts } from "../../extension/reader/subtitle-tab-ui.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
 
 const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
@@ -24,34 +21,33 @@ let toolbar: import("../../extension/reader/subtitle-tab-ui.js").SubtitleToolbar
 let ids: typeof import("../../extension/reader/state.js").ids;
 let state: (typeof import("../../extension/core/state.js"))["state"];
 
-function emptyColumn(): SecondaryColumnView {
-  return { note: "", footerNote: "", selectedUrl: "", retry: false, busy: false };
-}
-
-function translationView(overrides: Partial<AsrTranslationView> = {}): AsrTranslationView {
+function translationPicker(overrides: Partial<BilingualPickerView> = {}): BilingualPickerView {
   return {
-    lang: "en",
-    inFlight: false,
+    mode: "translation",
+    bilingual: true,
+    switchDisabled: false,
+    heading: "译文",
     note: "",
-    action: { label: "开始生成译文", kind: "start" },
+    footerNote: "",
+    selectedValue: "en",
+    selectDisabled: false,
+    busy: false,
+    action: { label: "开始生成译文", kind: "start", disabled: false },
+    aiRefineAction: null,
+    translationOptions: LIVE_INTERPRET_TARGET_LANG_OPTIONS,
     ...overrides
   };
 }
 
-function asrFacts(overrides: Partial<SubtitleToolbarFacts> = {}): SubtitleToolbarFacts {
+function asrFacts(overrides: Partial<BilingualPickerView> = {}): SubtitleToolbarFacts {
   return {
     tracks: [ASR_TRACK],
-    bilingual: true,
-    switchDisabled: false,
     transcribing: false,
     loading: false,
     marked: false,
     selectedTrackId: "asr",
     switchInFlight: null,
-    secondaryColumn: emptyColumn(),
-    asrScenario: true,
-    asrTranslation: translationView(),
-    ...overrides
+    bilingualPicker: translationPicker(overrides)
   };
 }
 
@@ -179,11 +175,10 @@ describe("副列的说明行与按钮（进度 / 启动 / 补齐）", () => {
     render(
       asrFacts({
         aiRefineAction: { kind: "exit-refine", label: "返回原生副字幕" },
-        asrTranslation: translationView({
-          inFlight: true,
-          note: "正在生成译文 3/12 片",
-          action: null
-        })
+        busy: true,
+        selectDisabled: false,
+        note: "正在生成译文 3/12 片",
+        action: null
       })
     );
 
@@ -197,10 +192,8 @@ describe("副列的说明行与按钮（进度 / 启动 / 补齐）", () => {
   it("部分失败：说明行 +「补齐失败的 2 片」", () => {
     render(
       asrFacts({
-        asrTranslation: translationView({
-          note: "译文已生成，部分分片失败",
-          action: { label: "补齐失败的 2 片", kind: "fill" }
-        })
+        note: "译文已生成，部分分片失败",
+        action: { label: "补齐失败的 2 片", kind: "fill", disabled: false }
       })
     );
 
@@ -211,7 +204,7 @@ describe("副列的说明行与按钮（进度 / 启动 / 补齐）", () => {
   it("零产出：按钮 =「重试」，副列仍可点新语言", () => {
     render(
       asrFacts({
-        asrTranslation: translationView({ action: { label: "重试", kind: "retry" } })
+        action: { label: "重试", kind: "retry", disabled: false }
       })
     );
 

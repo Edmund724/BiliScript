@@ -19,8 +19,6 @@ import {
   shouldMarkAiSubtitleTracks
 } from "../subtitle/labels.js";
 import {
-  canUseNativeBilingualPair,
-  findManualForeignTrackForAiRefine,
   isLoadableNativeTrack,
   resolveSubtitleTrackOrigin,
   resolveTrackTarget,
@@ -42,33 +40,18 @@ import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, set
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 import {
-  clearSecondarySubtitleIfShadowedByMain,
-  ensureSecondarySubtitleLoaded,
-  exitAiRefineAndLoadNativeSecondary,
-  isSecondarySubtitleLoadInFlight,
-  resolveSecondaryColumnView,
-  resolveSecondaryTarget,
-  retrySecondarySubtitleLoad,
-  selectSecondarySubtitleTrack,
+  handleMainSubtitleSwitched,
+  resolveBilingualPickerView,
+  selectSecondaryOption,
   syncBilingualSettingsFromStorage,
-  toggleBilingualSubtitles
+  toggleBilingualSubtitles,
+  triggerAiRefineAction,
+  triggerSecondaryAction,
+  type BilingualPickerView,
+  type BilingualTranslationOption,
+  type SecondaryEnsureOutcome
 } from "./secondary-subtitle.js";
-import type { SecondaryColumnView, SecondaryEnsureOutcome } from "./secondary-subtitle.js";
-import {
-  activateAiTranslationRefine,
-  cancelAsrTranslation,
-  ensureAsrTranslation,
-  hasAsrPseudoTrack,
-  isAiRefineOverrideActive,
-  isCurrentMainTrackAsr,
-  isTranslationSecondaryScenario,
-  resolveAsrTranslationOptions,
-  resolveAsrTranslationView,
-  selectAsrTranslationLanguage
-} from "./asr-translation.js";
-import type { AsrTranslationView } from "./asr-translation.js";
 import { beginReaderAsrSetupFlow } from "./setup-resume.js";
-import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../live/interpret-subtitle-preferences.js";
 import { playTrackSwitchAnimation } from "./track-switch-animation.js";
 import { TRANSCRIBE_BANNER_COPY, isReaderTranscribing } from "./transcribe-banner.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
@@ -166,61 +149,26 @@ function buildSubtitleTrackOptionHtml(track: SubtitleTrack, marked: boolean, sel
   )}" data-id="${escapeHtml(track.id || "")}" data-origin="${escapeHtml(origin)}"${triggerAttr} dir="auto"${selected ? " selected" : ""}>${escapeHtml(text)}</option>`;
 }
 
-export interface AiRefineToolbarAction {
-  kind: "foreign-refine" | "manual-refine" | "exit-refine";
-  label: string;
-}
-
 export interface SubtitleToolbarFacts {
   tracks: SubtitleTrack[];
-  bilingual: boolean;
-  switchDisabled: boolean;
   transcribing: boolean;
   loading: boolean;
   marked: boolean;
   selectedTrackId: string;
   switchInFlight: string | null;
-  secondaryColumn: SecondaryColumnView;
-  asrScenario: boolean;
-  asrTranslation: AsrTranslationView;
-  translationOptions?: ReadonlyArray<(typeof LIVE_INTERPRET_TARGET_LANG_OPTIONS)[number]>;
-  aiRefineAction?: AiRefineToolbarAction | null;
-}
-
-function resolveAiRefineToolbarAction(tracks: SubtitleTrack[]): AiRefineToolbarAction | null {
-  if (!canUseNativeBilingualPair(tracks, state.clip.site) || isCurrentMainTrackAsr(tracks)) {
-    return null;
-  }
-  if (isAiRefineOverrideActive()) {
-    return { kind: "exit-refine", label: "返回原生副字幕" };
-  }
-  if (findManualForeignTrackForAiRefine(tracks)) {
-    return { kind: "foreign-refine", label: "基于原版外语轨 AI 精翻" };
-  }
-  return { kind: "manual-refine", label: "改用 AI 重新精翻" };
+  bilingualPicker: BilingualPickerView;
 }
 
 export function selectSubtitleToolbarFacts(switchInFlight: string | null = null): SubtitleToolbarFacts {
   const tracks = state.clip.subtitles || [];
   return {
     tracks,
-    bilingual: state.settings.bilingualSubtitles === true,
-    switchDisabled: isBilingualSwitchDisabled(tracks),
     transcribing: isReaderTranscribing(),
     loading: state.clip.subtitleFetchState === "loading",
     marked: shouldMarkAiSubtitleTracks(tracks),
     selectedTrackId: state.clip.selectedSubtitleId,
     switchInFlight,
-    secondaryColumn: resolveSecondaryColumnView({
-      resolution: resolveSecondaryTarget(),
-      preferenceLang: state.settings.secondarySubtitleLang,
-      slotState: state.clip.secondarySubtitle.state,
-      loadInFlight: isSecondarySubtitleLoadInFlight()
-    }),
-    asrScenario: isTranslationSecondaryScenario(tracks),
-    asrTranslation: resolveAsrTranslationView(),
-    translationOptions: resolveAsrTranslationOptions(),
-    aiRefineAction: resolveAiRefineToolbarAction(tracks)
+    bilingualPicker: resolveBilingualPickerView()
   };
 }
 
@@ -243,7 +191,6 @@ export function renderReadingSubtitleTrackPicker(
   const facts = selectFacts();
   const tracks = facts.tracks;
   const segmented = tracks.length > 0;
-  const dual = facts.bilingual && !facts.switchDisabled;
   const transcribing = facts.transcribing;
   const loading = facts.loading;
   const disabled = !segmented || transcribing;
@@ -339,7 +286,6 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       render();
       return;
     }
-    const wasTranslationScenario = isTranslationSecondaryScenario(currentTracks());
     const optionValue = select.value;
     switchInFlight = optionValue;
     const expectedRunId = state.clip.fetchRunId;
@@ -369,26 +315,10 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
         logWarn("[BILISCRIPT] failed to switch subtitle track", error);
       } finally {
         switchInFlight = null;
-        const nextTranslationScenario = isTranslationSecondaryScenario(currentTracks());
-        if (switched && nextTranslationScenario) {
-          cancelAsrTranslation();
-          state.clip.clearSecondarySubtitle();
-          if (state.settings.bilingualSubtitles === true) {
-            void ensureAsrTranslation("cache-only");
-          }
-          render();
-        } else if (switched) {
-          if (wasTranslationScenario) {
-            cancelAsrTranslation();
-          }
-          clearSecondarySubtitleIfShadowedByMain();
-          render();
-          if (wasTranslationScenario && state.settings.bilingualSubtitles === true) {
-            projectSecondaryLoad(ensureSecondarySubtitleLoaded());
-          }
-        } else {
-          clearSecondarySubtitleIfShadowedByMain();
-          render();
+        const secondaryOutcome = handleMainSubtitleSwitched(switched);
+        render();
+        if (secondaryOutcome.kind === "started") {
+          projectSecondaryLoad(secondaryOutcome);
         }
         if (switched && state.reader.readingViewOpen) {
           playTrackSwitchAnimation(requireActiveById(ids.readingSubtitleList));
@@ -438,21 +368,10 @@ const SUBTITLE_BILINGUAL_SWITCH_LABEL = "双语字幕";
 const SUBTITLE_BILINGUAL_BADGE_TEXT = "双语";
 const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
-const SUB_HEAD_TEXT_TRACK = "副字幕";
-const SUB_HEAD_TEXT_TRANSLATION = "译文";
 
 function loadableSecondaryTracks(tracks: SubtitleTrack[]): SubtitleTrack[] {
   return tracks.filter(isLoadableNativeTrack);
-}
-
-function currentTracks(): SubtitleTrack[] {
-  return state.clip.subtitles || [];
-}
-
-function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {
-  return loadableSecondaryTracks(tracks).length === 0 && !hasAsrPseudoTrack(tracks);
 }
 
 interface BilingualCardNodes {
@@ -526,7 +445,7 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   const subCol = doc.createElement("div");
   subCol.className = "biliscript-bilingual-col";
   subCol.dataset.col = "sub";
-  const subHead = buildColumnHead(SUB_HEAD_TEXT_TRACK, doc);
+  const subHead = buildColumnHead("副字幕", doc);
   const aiRefine = doc.createElement("button");
   aiRefine.type = "button";
   aiRefine.className = "biliscript-bilingual-ai-refine";
@@ -535,7 +454,6 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   const retry = doc.createElement("button");
   retry.type = "button";
   retry.className = "biliscript-bilingual-retry";
-  retry.textContent = SECONDARY_RETRY_TEXT;
   retry.hidden = true;
   retry.addEventListener("click", handleSecondaryRetryClick);
   const secondaryHost = doc.createElement("div");
@@ -606,9 +524,8 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
     nodes.context = context;
   }
   const tracks = facts.tracks;
-  const dual = facts.bilingual && !facts.switchDisabled;
-  const model = facts.secondaryColumn;
-  const translation = facts.asrTranslation;
+  const picker = facts.bilingualPicker;
+  const dual = picker.bilingual && !picker.switchDisabled;
   setCustomSelectSlots(nodes.mainSelect, {
     extras: [nodes.root],
     optionsHost: nodes.mainList,
@@ -617,63 +534,57 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
 
   nodes.pickerWrapper.dataset.bilingual = dual ? "true" : "false";
   nodes.mainHead.hidden = !dual;
-  nodes.hint.hidden = dual || tracks.length === 0 || !facts.switchDisabled;
+  nodes.hint.hidden = dual || tracks.length === 0 || !picker.switchDisabled;
   nodes.subCol.hidden = !dual;
-  nodes.subHead.textContent = facts.asrScenario ? SUB_HEAD_TEXT_TRANSLATION : SUB_HEAD_TEXT_TRACK;
-  const refineAction = dual ? (facts.aiRefineAction ?? null) : null;
+  nodes.subHead.textContent = picker.heading;
+  const refineAction = dual ? picker.aiRefineAction : null;
   nodes.aiRefine.hidden = !refineAction;
   if (refineAction) {
     nodes.aiRefine.textContent = refineAction.label;
     nodes.aiRefine.dataset.action = refineAction.kind;
-    nodes.aiRefine.disabled = model.busy;
+    nodes.aiRefine.disabled = picker.selectDisabled;
   } else {
     delete nodes.aiRefine.dataset.action;
   }
-  const noteText = facts.asrScenario ? translation.note : model.note;
-  const retryVisible = facts.asrScenario
-    ? Boolean(translation.action)
-    : model.retry;
-  nodes.retry.hidden = !(dual && retryVisible);
-  nodes.empty.hidden = !dual || !noteText;
-  if (dual && noteText) {
+  const action = dual ? picker.action : null;
+  nodes.retry.hidden = !action;
+  if (action) {
+    nodes.retry.textContent = action.label;
+    nodes.retry.disabled = action.disabled;
+  }
+  const noteText = dual ? picker.note : "";
+  nodes.empty.hidden = !noteText;
+  if (noteText) {
     nodes.empty.textContent = noteText;
   }
-  if (facts.asrScenario) {
-    nodes.retry.textContent = translation.action?.label ?? SECONDARY_RETRY_TEXT;
-    nodes.retry.disabled = translation.inFlight;
-  } else {
-    nodes.retry.textContent = SECONDARY_RETRY_TEXT;
-    nodes.retry.disabled = false;
-  }
-  const footerNoteText = dual && !facts.asrScenario ? model.footerNote : "";
+  const footerNoteText = dual ? picker.footerNote : "";
   nodes.footerNote.hidden = !footerNoteText;
   nodes.footerNote.textContent = footerNoteText;
   nodes.secondaryHost.hidden = !dual;
 
-  if (dual && facts.asrScenario) {
-    writeTranslationOptions(
-      nodes.secondarySelect,
-      translation.lang,
-      facts.translationOptions ?? LIVE_INTERPRET_TARGET_LANG_OPTIONS
-    );
-    setCustomSelectValue(nodes.secondarySelect, translation.lang);
+  if (dual && picker.mode === "translation") {
+    writeTranslationOptions(nodes.secondarySelect, picker.selectedValue, picker.translationOptions);
+    setCustomSelectValue(nodes.secondarySelect, picker.selectedValue);
     setCustomSelectState(nodes.secondarySelect, {
-      disabled: false,
-      busy: translation.inFlight
+      disabled: picker.selectDisabled,
+      busy: picker.busy
     });
   } else if (dual) {
-    writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
-    setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
-    setCustomSelectState(nodes.secondarySelect, { disabled: model.busy, busy: model.busy });
+    writeSecondaryOptions(nodes.secondarySelect, tracks, picker.selectedValue);
+    setCustomSelectValue(nodes.secondarySelect, picker.selectedValue);
+    setCustomSelectState(nodes.secondarySelect, {
+      disabled: picker.selectDisabled,
+      busy: picker.busy
+    });
   } else {
     writeSecondaryOptions(nodes.secondarySelect, [], "");
     setCustomSelectState(nodes.secondarySelect, { disabled: true, busy: false });
   }
 
-  const on = facts.bilingual;
+  const on = picker.bilingual;
   nodes.toggle.setAttribute("aria-checked", on ? "true" : "false");
   nodes.toggle.dataset.on = on ? "true" : "false";
-  nodes.toggle.disabled = facts.switchDisabled;
+  nodes.toggle.disabled = picker.switchDisabled;
 }
 
 function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: SubtitleTrack[], selectedUrl: string): void {
@@ -698,7 +609,7 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
 function writeTranslationOptions(
   select: HTMLSelectElement | null,
   selectedLang: string,
-  options: ReadonlyArray<(typeof LIVE_INTERPRET_TARGET_LANG_OPTIONS)[number]> = LIVE_INTERPRET_TARGET_LANG_OPTIONS
+  options: ReadonlyArray<BilingualTranslationOption>
 ): void {
   if (!select) {
     return;
@@ -761,18 +672,18 @@ function handleBilingualSwitchClick(event: Event): void {
 }
 
 function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
-  if (isTranslationSecondaryScenario(currentTracks())) {
-    selectAsrTranslationLanguage(select.value);
-    return;
-  }
   const nodes = ensureBilingualCard();
   const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
   const option = select.options[select.selectedIndex];
-  const outcome = selectSecondarySubtitleTrack({
+  const outcome = selectSecondaryOption({
     id: option?.dataset.id,
     url: select.value,
-    lang: option?.dataset.lang
+    lang: option?.dataset.lang,
+    value: select.value
   });
+  if (outcome.kind === "translation") {
+    return;
+  }
   if (outcome.kind === "skipped") {
     rerender();
     return;
@@ -793,11 +704,10 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
 }
 
 function handleSecondaryRetryClick(): void {
-  if (isTranslationSecondaryScenario(currentTracks())) {
-    void ensureAsrTranslation("translate");
-    return;
+  const outcome = triggerSecondaryAction();
+  if (outcome.kind === "started") {
+    projectSecondaryLoad(outcome);
   }
-  projectSecondaryLoad(retrySecondarySubtitleLoad());
 }
 
 function handleAiRefineClick(event: Event): void {
@@ -806,22 +716,23 @@ function handleAiRefineClick(event: Event): void {
     return;
   }
   const action = button.dataset.action;
-  const nodes = ensureBilingualCard();
-  const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
-  if (action === "exit-refine") {
-    const outcome = exitAiRefineAndLoadNativeSecondary();
-    if (outcome.kind === "started") {
-      projectSecondaryLoad(outcome);
-      return;
-    }
-    rerender();
+  if (action !== "exit-refine" && action !== "foreign-refine" && action !== "manual-refine") {
     return;
   }
-  void activateAiTranslationRefine({
-    preferManualForeignSource: action === "foreign-refine"
-  }).finally(() => {
-    rerender();
-  });
+  const nodes = ensureBilingualCard();
+  const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
+  const outcome = triggerAiRefineAction(action);
+  if (outcome.kind === "started") {
+    projectSecondaryLoad(outcome);
+    return;
+  }
+  if (outcome.kind === "translation") {
+    void outcome.settled.finally(() => {
+      rerender();
+    });
+    return;
+  }
+  rerender();
 }
 
 let cleanupSubtitleHostBindings: (() => void) | null = null;

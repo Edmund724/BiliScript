@@ -174,7 +174,6 @@ describe("2. 矩阵场景 1：仅有单条 en-US CC", () => {
   it("双语开关可用，默认目标语言 zh-CN，走 CC 流式翻译且缓存键独立、不篡改 CC 主轨身份", async () => {
     const { state, clipState } = await import("../../extension/core/state.js");
     const tabUi = await import("../../extension/reader/subtitle-tab-ui.js");
-    const readerAsr = await import("../../extension/reader/asr-translation.js");
     const subtitleAsr = await import("../../extension/subtitle/asr-translation.js");
     const cache = await import("../../extension/subtitle/cache.js");
 
@@ -190,14 +189,13 @@ describe("2. 矩阵场景 1：仅有单条 en-US CC", () => {
     clipState.setSubtitleFetchState("ready");
 
     const facts = tabUi.selectSubtitleToolbarFacts();
-    expect(facts.switchDisabled).toBe(false);
-    expect(facts.asrScenario).toBe(true);
-    expect(facts.asrTranslation.lang).toBe("zh");
-    expect(readerAsr.resolveAsrTranslationTargetBcp47()).toBe("zh-CN");
+    expect(facts.bilingualPicker.switchDisabled).toBe(false);
+    expect(facts.bilingualPicker.mode).toBe("translation");
+    expect(facts.bilingualPicker.selectedValue).toBe("zh");
 
     const result = await subtitleAsr.ensureAsrSecondarySubtitle({
       mode: "translate",
-      targetLang: facts.asrTranslation.lang,
+      targetLang: facts.bilingualPicker.selectedValue as "zh",
       runId: 1
     });
 
@@ -222,9 +220,8 @@ describe("3. 矩阵场景 2：仅有单条 zh-CN CC 或 zh-Hans + zh-Hant 繁简
   it("默认零 LLM 请求且不接管原生播放器字幕；繁简双轨严禁假双语配对，手动开双语候选不含中文且默认切为 en-US", async () => {
     const { state, clipState } = await import("../../extension/core/state.js");
     const secondary = await import("../../extension/reader/secondary-subtitle.js");
-    const readerAsr = await import("../../extension/reader/asr-translation.js");
     const interpret = await import("../../extension/live/player-interpret.js");
-    const { isMonolingualNativeTracks } = await import("../../extension/subtitle/selection.js");
+    const { isMonolingualNativeTracks, resolveTargetLangBcp47 } = await import("../../extension/subtitle/selection.js");
 
     const playerHost = document.createElement("div");
     playerHost.className = "bpx-player-container";
@@ -248,12 +245,12 @@ describe("3. 矩阵场景 2：仅有单条 zh-CN CC 或 zh-Hans + zh-Hant 繁简
     expect(mockRuntime.llmCalls).toHaveLength(0);
     expect(playerHost.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
     expect(isMonolingualNativeTracks([ZH_HANS_TRACK, ZH_HANT_TRACK])).toBe(true);
-    expect(secondary.resolveSecondaryTarget()).toEqual({ kind: "none", reason: "no-track" });
 
-    const options = readerAsr.resolveAsrTranslationOptions();
-    expect(options.map((item) => item.value)).not.toContain("zh");
-    expect(readerAsr.resolveAsrTranslationLang()).toBe("en");
-    expect(readerAsr.resolveAsrTranslationTargetBcp47()).toBe("en-US");
+    const view = secondary.resolveBilingualPickerView();
+    expect(view.mode).toBe("translation");
+    expect(view.translationOptions.map((item) => item.value)).not.toContain("zh");
+    expect(view.selectedValue).toBe("en");
+    expect(resolveTargetLangBcp47(ZH_HANS_TRACK.lan, state.settings.liveInterpretTargetLang)).toBe("en-US");
   });
 });
 

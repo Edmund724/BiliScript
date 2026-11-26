@@ -58,10 +58,7 @@ let ensureAsrSecondarySubtitle: (typeof import("../../extension/subtitle/asr-tra
 let YOUTUBE_CAPTIONS_UNAVAILABLE_NOTICE: (typeof import("../../extension/reader/subtitle-notice.js"))["YOUTUBE_CAPTIONS_UNAVAILABLE_NOTICE"];
 let resolveNoSubtitleNoticeText: (typeof import("../../extension/reader/subtitle-notice.js"))["resolveNoSubtitleNoticeText"];
 let showNoSubtitleNotice: (typeof import("../../extension/reader/subtitle-notice.js"))["showNoSubtitleNotice"];
-let ensureSecondarySubtitleLoaded: (typeof import("../../extension/reader/secondary-subtitle.js"))["ensureSecondarySubtitleLoaded"];
-let resolveSecondaryTarget: (typeof import("../../extension/reader/secondary-subtitle.js"))["resolveSecondaryTarget"];
-let isTranslationSecondaryScenario: (typeof import("../../extension/reader/asr-translation.js"))["isTranslationSecondaryScenario"];
-let resolveAsrTranslationLang: (typeof import("../../extension/reader/asr-translation.js"))["resolveAsrTranslationLang"];
+let resolveBilingualPickerView: (typeof import("../../extension/reader/secondary-subtitle.js"))["resolveBilingualPickerView"];
 let ids: (typeof import("../../extension/reader/state.js"))["ids"];
 let createViewRender: (typeof import("../../extension/reader/view-render.js"))["createViewRender"];
 let getReadingSubtitlePlaceholderText: (typeof import("../../extension/subtitle/core.js"))["getReadingSubtitlePlaceholderText"];
@@ -240,7 +237,6 @@ beforeEach(async () => {
     asrTransMod,
     noticeMod,
     secMod,
-    readerAsrMod,
     readerStateMod,
     viewRenderMod,
     coreMod,
@@ -262,7 +258,6 @@ beforeEach(async () => {
     import("../../extension/subtitle/asr-translation.js"),
     import("../../extension/reader/subtitle-notice.js"),
     import("../../extension/reader/secondary-subtitle.js"),
-    import("../../extension/reader/asr-translation.js"),
     import("../../extension/reader/state.js"),
     import("../../extension/reader/view-render.js"),
     import("../../extension/subtitle/core.js"),
@@ -301,8 +296,7 @@ beforeEach(async () => {
   ({ ensureAsrSecondarySubtitle } = asrTransMod);
   ({ YOUTUBE_CAPTIONS_UNAVAILABLE_NOTICE, resolveNoSubtitleNoticeText, showNoSubtitleNotice } =
     noticeMod);
-  ({ ensureSecondarySubtitleLoaded, resolveSecondaryTarget } = secMod);
-  ({ isTranslationSecondaryScenario, resolveAsrTranslationLang } = readerAsrMod);
+  ({ resolveBilingualPickerView } = secMod);
   ({ ids } = readerStateMod);
   ({ createViewRender } = viewRenderMod);
   ({ getReadingSubtitlePlaceholderText, refreshHotComments } = coreMod);
@@ -1109,15 +1103,21 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     clipState.setSelectedSubtitleUrl(manualEn.subtitleUrl);
     clipState.setSelectedSubtitleLang(manualEn.lanDoc || "English");
 
-    expect(isTranslationSecondaryScenario([manualEn, manualZh])).toBe(true);
-    expect(resolveSecondaryTarget()).toEqual({ kind: "none", reason: "no-track" });
-    expect(ensureSecondarySubtitleLoaded()).toEqual({ kind: "skipped", reason: "no-track" });
+    expect(resolveBilingualPickerView()).toMatchObject({
+      mode: "translation",
+      selectedValue: "zh",
+      aiRefineAction: null
+    });
 
     const zhHant = { ...manualZh, id: "yt-cc-.zh-Hant", lan: "zh-Hant", lanDoc: "中文（繁體）" };
     clipState.setSubtitles([manualZh, zhHant]);
     clipState.setSelectedSubtitleId(manualZh.id);
     expect(isMonolingualNativeTracks([manualZh, zhHant])).toBe(true);
-    expect(resolveSecondaryTarget()).toEqual({ kind: "none", reason: "no-track" });
+    expect(resolveBilingualPickerView()).toMatchObject({
+      mode: "translation",
+      selectedValue: "en",
+      aiRefineAction: null
+    });
 
     transitionReaderShell("open");
     clipState.setSubtitles([autoEn]);
@@ -1131,8 +1131,10 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     clipState.setSubtitleFetchState("ready");
     clipState.clearSecondarySubtitle();
 
-    expect(isTranslationSecondaryScenario([autoEn])).toBe(true);
-    expect(resolveAsrTranslationLang()).toBe("zh");
+    expect(resolveBilingualPickerView()).toMatchObject({
+      mode: "translation",
+      selectedValue: "zh"
+    });
 
     const autoSession = createTranslatedTrackSession({
       bvid: "ytDemo01234",

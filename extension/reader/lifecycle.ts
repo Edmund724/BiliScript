@@ -15,8 +15,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts, readerPorts } from "./reader-bus.js";
 import type { ReaderPresenterEvent } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
-import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
-import { ensureAsrTranslation } from "./asr-translation.js";
+import { ensureSecondarySubtitleForCurrentClip } from "./secondary-subtitle.js";
 
 import {
   hydrateReaderStateFromSettings,
@@ -280,10 +279,7 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   }
 
   if (ensureSecondarySubtitle) {
-    ensureSecondarySubtitleLoaded();
-    if (state.settings.bilingualSubtitles === true) {
-      void ensureAsrTranslation("cache-only");
-    }
+    ensureSecondarySubtitleForCurrentClip();
   }
 }
 

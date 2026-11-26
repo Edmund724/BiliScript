@@ -381,7 +381,7 @@ describe("reader 生命周期", () => {
 
     it("视图未打开时：对账路径整条跳过，subtitle-ready 通知仍执行双语副轨装载（Q1 决议）", async () => {
       const secSubtitle = await import("../../extension/reader/secondary-subtitle.js");
-      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleLoaded").mockReturnValue({
+      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleForCurrentClip").mockReturnValue({
         kind: "skipped",
         reason: "bilingual-off"
       });
@@ -400,7 +400,7 @@ describe("reader 生命周期", () => {
 
     it("进入阅读模式：若字幕已在手（如预抓取落定），按偏好确保副轨发起装载", async () => {
       const secSubtitle = await import("../../extension/reader/secondary-subtitle.js");
-      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleLoaded").mockReturnValue({
+      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleForCurrentClip").mockReturnValue({
         kind: "skipped",
         reason: "bilingual-off"
       });
