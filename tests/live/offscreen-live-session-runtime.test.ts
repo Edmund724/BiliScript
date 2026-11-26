@@ -177,14 +177,12 @@ afterEach(() => {
 });
 
 describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
-  it("orchestrates duck_video, speaking_state, and deferred context_update through the adapter seam", () => {
+  it("orchestrates speaking_state, transcript, and deferred context_update through the adapter seam", () => {
     const adapter = new FakeWireAdapter();
     const events: MossLiveServerEvent[] = [];
-    const duckStates: boolean[] = [];
     const runtime = new OffscreenLiveSessionRuntime(adapter, {
       videoContext: sampleContext,
-      onEvent: (ev) => events.push(ev),
-      onDuckVideo: (active) => duckStates.push(active)
+      onEvent: (ev) => events.push(ev)
     } satisfies OffscreenLiveSessionRuntimeOptions);
 
     runtime.connect();
@@ -196,7 +194,7 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     expect(runtime.getSessionId()).toBe("fake-sess-1");
 
     adapter.callbacks!.emitTranscript({ kind: "input.updated", text: "请问" });
-    expect(duckStates).toEqual([true]);
+    expect(runtime.isSpeaking()).toBe(false);
 
     adapter.callbacks!.emitTranscript({
       kind: "output.updated",
@@ -220,7 +218,11 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
       turnId: "t1"
     });
     expect(runtime.isSpeaking()).toBe(false);
-    expect(duckStates).toEqual([true, false]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "speaking_state" }> => ev.type === "speaking_state")
+        .map((ev) => ev.speaking)
+    ).toEqual([true, false]);
     expect(adapter.contextUpdates).toEqual([nextContext]);
   });
 
@@ -258,11 +260,11 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
 });
 
 describe("Unified runtime behavior across Gemini and MOSS", () => {
-  it("emits duck_video for Gemini Live during user input and model output turns", () => {
-    const duckStates: boolean[] = [];
+  it("emits speaking_state for Gemini Live only during model output turns", () => {
+    const events: MossLiveServerEvent[] = [];
     const client = new OffscreenGeminiLiveClient({
       videoContext: sampleContext,
-      onDuckVideo: (active) => duckStates.push(active)
+      onEvent: (ev) => events.push(ev)
     });
 
     client.connect();
@@ -277,7 +279,7 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
         }
       })
     );
-    expect(duckStates).toEqual([true]);
+    expect(events.filter((ev) => ev.type === "speaking_state")).toEqual([]);
 
     ws.simulateMessage(
       JSON.stringify({
@@ -286,7 +288,9 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
         }
       })
     );
-    expect(duckStates).toEqual([true]);
+    expect(events.filter((ev) => ev.type === "speaking_state")).toEqual([
+      { type: "speaking_state", speaking: true }
+    ]);
 
     ws.simulateMessage(
       JSON.stringify({
@@ -296,18 +300,18 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
         }
       })
     );
-    expect(duckStates).toEqual([true, false]);
+    expect(events.filter((ev) => ev.type === "speaking_state")).toEqual([
+      { type: "speaking_state", speaking: true },
+      { type: "speaking_state", speaking: false }
+    ]);
   });
 
   it("reconnects Gemini Live automatically using sessionResumptionUpdate.newHandle (up to 3 attempts)", () => {
-    const reconnecting: Array<{ attempt: number; maxAttempts: number; code?: number }> = [];
-    const attachedHandles: string[] = [];
+    const events: MossLiveServerEvent[] = [];
     const client = new OffscreenGeminiLiveClient({
       videoContext: sampleContext,
       reconnectDelayMs: 0,
-      onSessionAttached: (handle) => attachedHandles.push(handle),
-      onReconnecting: (attempt, maxAttempts, info) =>
-        reconnecting.push({ attempt, maxAttempts, code: info?.code })
+      onEvent: (ev) => events.push(ev)
     });
 
     client.connect();
@@ -326,10 +330,18 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
     );
 
     expect(client.getSessionId()).toBe("gemini-resume-token-42");
-    expect(attachedHandles).toEqual(["gemini-resume-token-42"]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "session_attached" }> => ev.type === "session_attached")
+        .map((ev) => ev.sessionId)
+    ).toEqual(["gemini-resume-token-42"]);
 
     ws1.close(1006, "Network lost");
-    expect(reconnecting).toEqual([{ attempt: 1, maxAttempts: 3, code: 1006 }]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "reconnecting" }> => ev.type === "reconnecting")
+        .map(({ attempt, maxAttempts, code }) => ({ attempt, maxAttempts, code }))
+    ).toEqual([{ attempt: 1, maxAttempts: 3, code: 1006 }]);
     expect(client.getReconnectAttempts()).toBe(1);
 
     const ws2 = FakeWebSocket.instances[1];
@@ -348,7 +360,9 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
     const transcripts: MossLiveTranscriptEvent[] = [];
     const client = new OffscreenMossLiveClient({
       videoContext: sampleContext,
-      onTranscript: (event) => transcripts.push(event)
+      onEvent: (ev) => {
+        if (ev.type === "transcript") transcripts.push(ev.event);
+      }
     });
 
     client.connect();

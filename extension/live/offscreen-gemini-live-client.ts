@@ -361,7 +361,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
           turnCoverage: GEMINI_LIVE_TURN_COVERAGE
         },
         systemInstruction: {
-          parts: [{ text: buildVideoInstructions(context.videoContext, true) }]
+          parts: [{ text: buildVideoInstructions(context.videoContext) }]
         },
         tools: buildGeminiSetupTools(this.liveGeminiNativeSearch, context.videoContext, this.model),
         inputAudioTranscription: {},
@@ -571,10 +571,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     const fullInputText = (turn.inputText + turn.interimInputText).trim();
     if (!turn.inputDone && fullInputText) {
       turn.inputDone = true;
-      callbacks.emitTranscript(
-        { kind: "input.done", text: fullInputText },
-        { duckInput: false }
-      );
+      callbacks.emitTranscript({ kind: "input.done", text: fullInputText });
     }
     if (!turn.outputDone && turn.outputText) {
       turn.outputDone = true;
@@ -612,10 +609,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     const fullInputText = (turn.inputText + turn.interimInputText).trim();
     if (!turn.inputDone && fullInputText) {
       turn.inputDone = true;
-      callbacks.emitTranscript(
-        { kind: "input.done", text: fullInputText },
-        { duckInput: false }
-      );
+      callbacks.emitTranscript({ kind: "input.done", text: fullInputText });
     }
     if (!turn.outputDone && turn.outputText) {
       turn.outputDone = true;

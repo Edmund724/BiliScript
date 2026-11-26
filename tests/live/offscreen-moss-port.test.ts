@@ -190,7 +190,7 @@ describe("attachMossLivePort", () => {
     expect(port.postedMessages).toContainEqual({ type: "closed" });
   });
 
-  it("relays duck transitions from client and releases once on stop", async () => {
+  it("relays speaking_state transitions from client and releases once on stop", async () => {
     const port = new FakePort();
     attachMossLivePort(port as any, {
       loadClient: async () => (options) => new OffscreenMossLiveClient(options)
@@ -203,16 +203,18 @@ describe("attachMossLivePort", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
-    ws.simulateMessage(JSON.stringify({ action: "input.transcript.updated", data: { text: "你好" } }));
-    ws.simulateMessage(JSON.stringify({ action: "input.transcript.done", data: { text: "你好" } }));
-    expect(port.postedMessages.filter((message) => message.type === "duck_video")).toEqual([
-      { type: "duck_video", active: true }
+    ws.simulateMessage(JSON.stringify({
+      action: "output.transcript.updated",
+      data: { text: "你好", run_id: "r1", turn_id: "t1" }
+    }));
+    expect(port.postedMessages.filter((message) => message.type === "speaking_state")).toEqual([
+      { type: "speaking_state", speaking: true }
     ]);
 
     port.simulateMessage({ action: "stop" });
-    expect(port.postedMessages.filter((message) => message.type === "duck_video")).toEqual([
-      { type: "duck_video", active: true },
-      { type: "duck_video", active: false }
+    expect(port.postedMessages.filter((message) => message.type === "speaking_state")).toEqual([
+      { type: "speaking_state", speaking: true },
+      { type: "speaking_state", speaking: false }
     ]);
   });
 

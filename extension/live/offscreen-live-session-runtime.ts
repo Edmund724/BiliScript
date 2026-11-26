@@ -18,7 +18,6 @@ import {
   type MossLiveServerEvent,
   type MossLiveSessionContext,
   type MossLiveToolCall,
-  type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent
 } from "./moss-live-protocol.js";
 
@@ -110,7 +109,7 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   markContextSent(context: MossLiveSessionContext | null): void;
   applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
   applyMediaConfiguration(config: { video: MossVideoCaptureConfig; error: string }): void;
-  emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
+  emitTranscript(event: MossLiveTranscriptEvent): void;
   enqueueAudioContext(chunkId: string, runId: string, turnId: string): boolean;
   enqueueAudioFrame(pcmBuffer: ArrayBufferLike): void;
   enqueueAudioChunk(
@@ -217,23 +216,6 @@ export interface OffscreenLiveSessionRuntimeOptions {
   executeWebSearch?: LiveWebSearchExecutor;
   createAudioContext?: () => AudioContextLike | null;
   onEvent?: (event: MossLiveServerEvent) => void;
-  onConnecting?: () => void;
-  onConnected?: (sessionId?: string) => void;
-  onSessionAttached?: (sessionId: string) => void;
-  onVoiceFallback?: (voiceId: string) => void;
-  onReconnecting?: (
-    attempt: number,
-    maxAttempts: number,
-    info?: { code?: number; reason?: string; error?: string }
-  ) => void;
-  onDuckVideo?: (active: boolean) => void;
-  onTranscript?: (event: MossLiveTranscriptEvent) => void;
-  onSpeakingState?: (speaking: boolean) => void;
-  onToolCall?: (call: MossLiveToolCall) => void;
-  onToolStatus?: (event: MossLiveToolStatusEvent) => void;
-  onToolError?: (error: string) => void;
-  onError?: (error: Error, code?: number | string) => void;
-  onClosed?: (event?: { code?: number; reason?: string; error?: string }) => void;
 }
 
 type ActiveRuntimeToolCall =
@@ -289,8 +271,6 @@ export class OffscreenLiveSessionRuntime {
   protected lastSentContextKey = "";
   protected pendingVideoContext: MossLiveSessionContext | null = null;
   protected hasPendingContext = false;
-  protected videoDucked = false;
-  protected inputDucked = false;
   protected activeTurnKey: string | null = null;
   protected speaking = false;
   protected sessionId: string | null = null;
@@ -358,70 +338,10 @@ export class OffscreenLiveSessionRuntime {
 
   protected emit(event: MossLiveServerEvent): void {
     this.options.onEvent?.(event);
-    switch (event.type) {
-      case "connecting":
-        this.options.onConnecting?.();
-        break;
-      case "connected":
-        this.options.onConnected?.(event.sessionId);
-        break;
-      case "session_attached":
-        this.options.onSessionAttached?.(event.sessionId);
-        break;
-      case "voice_fallback":
-        this.options.onVoiceFallback?.(event.voiceId);
-        break;
-      case "reconnecting":
-        this.options.onReconnecting?.(event.attempt, event.maxAttempts, {
-          code: event.code,
-          reason: event.reason,
-          error: event.error
-        });
-        break;
-      case "duck_video":
-        this.options.onDuckVideo?.(event.active);
-        break;
-      case "speaking_state":
-        this.options.onSpeakingState?.(event.speaking);
-        break;
-      case "transcript":
-        this.options.onTranscript?.(event.event);
-        break;
-      case "tool_call":
-        this.options.onToolCall?.(event.call);
-        break;
-      case "tool_status":
-        this.options.onToolStatus?.(event.event);
-        break;
-      case "tool_error":
-        this.options.onToolError?.(event.error);
-        break;
-      case "error": {
-        const err = new Error(event.error);
-        if (event.code !== undefined) {
-          (err as Error & { code?: number | string }).code = event.code;
-        }
-        this.options.onError?.(err);
-        break;
-      }
-      case "closed":
-        this.options.onClosed?.({
-          code: event.code,
-          reason: event.reason,
-          error: event.error
-        });
-        break;
-    }
   }
 
   protected hasPageToolHandler(): boolean {
-    return Boolean(this.options.onEvent || this.options.onToolCall);
-  }
-
-  protected setVideoDucked(active: boolean): void {
-    if (this.videoDucked === active) return;
-    this.videoDucked = active;
-    this.emit({ type: "duck_video", active });
+    return Boolean(this.options.onEvent);
   }
 
   protected clearReconnectTimer(): void {
@@ -485,22 +405,16 @@ export class OffscreenLiveSessionRuntime {
     this.emit({ type: "speaking_state", speaking: nextSpeaking });
   }
 
-  protected syncVideoDuck(): void {
-    this.setVideoDucked(this.inputDucked || this.activeTurnKey !== null);
-    this.syncSpeakingState();
-  }
-
   protected activateTurn(runId: string, turnId: string): void {
     if (!this.audioPlayer.canActivateTurn(runId, turnId)) return;
-    this.inputDucked = false;
     this.activeTurnKey = this.getTurnKey(runId, turnId);
-    this.syncVideoDuck();
+    this.syncSpeakingState();
   }
 
   protected finishActiveTurn(runId: string, turnId: string): void {
     if (this.activeTurnKey !== this.getTurnKey(runId, turnId)) return;
     this.activeTurnKey = null;
-    this.syncVideoDuck();
+    this.syncSpeakingState();
     this.flushPendingVideoContextIfIdle();
   }
 
@@ -529,8 +443,6 @@ export class OffscreenLiveSessionRuntime {
   protected stopAllPlayback(): void {
     this.audioPlayer.stopAll();
     this.activeTurnKey = null;
-    this.inputDucked = false;
-    this.setVideoDucked(false);
     this.syncSpeakingState();
   }
 
@@ -540,10 +452,8 @@ export class OffscreenLiveSessionRuntime {
     this.adapter.onResetPlayback?.();
     this.audioPlayer.reset();
     this.activeTurnKey = null;
-    this.inputDucked = false;
     this.interruptedTurnKeys.clear();
     this.webSearchCallCounts.clear();
-    this.setVideoDucked(false);
     this.syncSpeakingState();
   }
 
@@ -820,18 +730,13 @@ export class OffscreenLiveSessionRuntime {
           ...(error ? { error } : {})
         });
       },
-      emitTranscript: (event, options) => {
+      emitTranscript: (event) => {
         if (!isCurrent() || this.suppressAdapterTranscripts) return;
         if (event.kind === "output.updated" || event.kind === "output.done") {
           const key = this.getTurnKey(event.runId, event.turnId);
           if (this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) return;
         }
-        if (event.kind === "input.updated" || event.kind === "input.done") {
-          if (options?.duckInput !== false) {
-            this.inputDucked = true;
-            this.syncVideoDuck();
-          }
-        } else if (event.kind === "output.updated" || event.kind === "output.done") {
+        if (event.kind === "output.updated" || event.kind === "output.done") {
           this.activateTurn(event.runId, event.turnId);
         } else if (event.kind === "response.ended") {
           const key = this.getTurnKey(event.runId, event.turnId);
@@ -1486,8 +1391,6 @@ export class OffscreenLiveSessionRuntime {
     }
 
     this.activeTurnKey = null;
-    this.inputDucked = false;
-    this.setVideoDucked(false);
     this.syncSpeakingState();
     this.flushPendingVideoContextIfIdle();
   }

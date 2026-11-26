@@ -62,7 +62,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
       compressedSummaryMarkdown: "## 成稿笔记\n\n短片成稿补充：前端采集 16kHz PCM 后经端口转推。"
     });
 
-    const result = assembleLiveContextBudget(context, { clientDelegation: true });
+    const result = assembleLiveContextBudget(context);
 
     expect(result.tier).toBe("A");
     expect(result.charCount).toBe(result.text.length);
@@ -98,7 +98,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
       compressedSummaryMarkdown: `## 分段小结\n\n${segmentSummaries}\n\n## 成稿笔记\n\n${longNote}`
     });
 
-    const result = assembleLiveContextBudget(context, { clientDelegation: true });
+    const result = assembleLiveContextBudget(context);
 
     expect(result.tier).toBe("B");
     expect(result.totalChapters).toBe(18);
@@ -129,7 +129,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
       }
     });
 
-    const result = assembleLiveContextBudget(context, { clientDelegation: true });
+    const result = assembleLiveContextBudget(context);
 
     expect(result.tier).toBe("C");
     expect(result.totalChapters).toBe(150);
@@ -155,7 +155,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
       }
     });
 
-    const result = assembleLiveContextBudget(context, { clientDelegation: true });
+    const result = assembleLiveContextBudget(context);
 
     expect(result.tier).toBe("C");
     expect(result.charCount).toBeLessThanOrEqual(LIVE_CONTEXT_HARD_MAX_CHARS);
@@ -188,7 +188,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
     expect(lead).toBe("精炼结论：视频核心比较了两种传输协议。");
 
     const tierAContext = makeBaseVideo({ compressedSummaryMarkdown: dirtySummary });
-    const tierAResult = assembleLiveContextBudget(tierAContext, { clientDelegation: true });
+    const tierAResult = assembleLiveContextBudget(tierAContext);
     expect(tierAResult.tier).toBe("A");
     expect(tierAResult.text).not.toContain("不应泄漏");
 
@@ -196,12 +196,12 @@ describe("live-context-budget 三档容量预算装配器", () => {
       chapters: makeChapterSeries(100, 60).map(({ from, to, title }) => ({ from, to, title })),
       compressedSummaryMarkdown: dirtySummary
     });
-    const tierCResult = assembleLiveContextBudget(tierCContext, { clientDelegation: true });
+    const tierCResult = assembleLiveContextBudget(tierCContext);
     expect(tierCResult.tier).toBe("C");
     expect(tierCResult.charCount).toBeLessThanOrEqual(LIVE_CONTEXT_HARD_MAX_CHARS);
     expect(tierCResult.text).not.toContain("不应泄漏");
 
-    const instructions = buildVideoInstructions(tierCContext, true);
+    const instructions = buildVideoInstructions(tierCContext);
     expect(instructions).not.toContain("不应泄漏");
     expect(instructions).toContain("常规脉络与章节大意直接根据上下文中的概览或章节骨架秒答");
     expect(instructions).toContain("追问具体某段原话细节需跨片查证时");
@@ -228,7 +228,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
       }
     });
 
-    const result = assembleLiveContextBudget(context, { clientDelegation: true });
+    const result = assembleLiveContextBudget(context);
     expect(result.tier).toBe("A");
     expect(result.text).toContain("0:05 五秒章节");
     expect(result.text).toContain("2:30 两分半章节");
@@ -260,8 +260,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
           quotes: [],
           statusText: "当前视频没有可用字幕，暂时无法生成全片概览。"
         }
-      }),
-      { clientDelegation: true }
+      })
     );
     expect(noSubtitle.tier).toBe("A");
     expect(noSubtitle.text).toContain("章节：无章节信息");
@@ -279,8 +278,7 @@ describe("live-context-budget 三档容量预算装配器", () => {
           failedRanges: [{ from: 120, to: 300 }],
           statusText: "覆盖不完整：1 段字幕生成失败；不得当作完整全片总结。"
         }
-      }),
-      { clientDelegation: true }
+      })
     );
     expect(partialLarge.tier).toBe("C");
     expect(partialLarge.text).toContain("全片概览状态：partial（覆盖：partial）");

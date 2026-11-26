@@ -17,10 +17,6 @@ export const LIVE_CONTEXT_CHARS_PER_TOKEN = 1;
 
 export type LiveContextBudgetTier = "none" | "live-room" | "A" | "B" | "C";
 
-export interface LiveContextBudgetOptions {
-  clientDelegation?: boolean;
-}
-
 export interface LiveContextBudgetResult {
   tier: LiveContextBudgetTier;
   text: string;
@@ -252,11 +248,8 @@ export function mergeChapterSkeletonIntervals(
   return lines;
 }
 
-function noOverviewLine(clientDelegation: boolean): string {
-  return clientDelegation
-    ? "全片概览：当前没有可用的本地概览；需要全片总结或脉络时发起后台委派，不得编造全片内容。"
-    : "全片概览：当前没有可用的全片概览；遇到全片总结类问题时如实说明无法总结，不得编造全片内容。";
-}
+const NO_OVERVIEW_LINE =
+  "全片概览：当前没有可用的本地概览；需要全片总结或脉络时发起后台委派，不得编造全片内容。";
 
 function formatFailedRanges(
   failedRanges: ReadonlyArray<{ from: number; to: number }> | undefined,
@@ -297,11 +290,10 @@ function buildMetaLines(context: MossLiveVideoContext): string[] {
 
 function buildTierAOverviewLines(
   overview: MossLiveOverviewContext | null | undefined,
-  overviewChapters: ReadonlyArray<NormalizedBudgetChapter>,
-  clientDelegation: boolean
+  overviewChapters: ReadonlyArray<NormalizedBudgetChapter>
 ): string[] {
   if (!overview) {
-    return [noOverviewLine(clientDelegation)];
+    return [NO_OVERVIEW_LINE];
   }
   const lines = [`全片概览状态：${overview.phase}（覆盖：${overview.coverage}）`];
   const statusText = safeText(overview.statusText);
@@ -345,12 +337,11 @@ function buildTierAOverviewLines(
 
 function buildCompactStatusLines(
   overview: MossLiveOverviewContext | null | undefined,
-  clientDelegation: boolean,
   statusChars: number,
   failedMax: number
 ): string[] {
   if (!overview) {
-    return [noOverviewLine(clientDelegation)];
+    return [NO_OVERVIEW_LINE];
   }
   const lines = [`全片概览状态：${overview.phase}（覆盖：${overview.coverage}）`];
   const statusText = safeSingleLine(overview.statusText);
@@ -428,8 +419,7 @@ function isLiveRoom(context: MossLiveSessionContext): context is MossLiveRoomCon
 }
 
 export function assembleLiveContextBudget(
-  context: MossLiveSessionContext | null | undefined,
-  options: LiveContextBudgetOptions = {}
+  context: MossLiveSessionContext | null | undefined
 ): LiveContextBudgetResult {
   if (!context) {
     return formatBudgetResult("none", "", 0, 0);
@@ -443,7 +433,6 @@ export function assembleLiveContextBudget(
     return formatBudgetResult("live-room", lines.join("\n"), 0, 0);
   }
 
-  const clientDelegation = options.clientDelegation === true;
   const overview = context.overview;
   const normalizedContextChapters = normalizeBudgetChapters(context.chapters);
   const normalizedOverviewChapters: ReadonlyArray<NormalizedBudgetChapter> =
@@ -471,7 +460,7 @@ export function assembleLiveContextBudget(
     const tierALines = [
       ...metaLines,
       `章节：${tierAChapterText}`,
-      ...buildTierAOverviewLines(overview, normalizedOverviewChapters, clientDelegation)
+      ...buildTierAOverviewLines(overview, normalizedOverviewChapters)
     ];
     if (sanitizedCompressed) {
       tierALines.push(`压缩摘要：\n${sanitizedCompressed}`);
@@ -485,7 +474,7 @@ export function assembleLiveContextBudget(
   if (totalChapters <= LIVE_CONTEXT_TIER_B_MAX_CHAPTERS) {
     const tierBLines = [
       ...metaLines,
-      ...buildCompactStatusLines(overview, clientDelegation, 240, 6),
+      ...buildCompactStatusLines(overview, 240, 6),
       ...buildCoreLeadLines(overview, sanitizedCompressed, LIVE_CONTEXT_TIER_B_SUMMARY_MAX_CHARS)
     ];
     if (totalChapters === 0) {
@@ -509,7 +498,7 @@ export function assembleLiveContextBudget(
   for (const preset of TIER_C_PRESETS) {
     const tierCLines = [
       ...metaLines,
-      ...buildCompactStatusLines(overview, clientDelegation, preset.statusChars, preset.failedMax),
+      ...buildCompactStatusLines(overview, preset.statusChars, preset.failedMax),
       ...buildCoreLeadLines(overview, sanitizedCompressed, preset.summaryChars)
     ];
     let includedChapters = 0;

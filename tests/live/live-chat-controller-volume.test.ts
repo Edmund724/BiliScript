@@ -96,14 +96,6 @@ describe("LiveChatController AI volume", () => {
     expect(controller.getSpeed()).toBe(1.5);
     expect(port.postedMessages[0]).toMatchObject({ action: "start", speed: 1.5 });
   });
-
-  it("ignores legacy duck events instead of taking over the page player volume", async () => {
-    const { port } = await setup();
-    const messageCount = port.postedMessages.length;
-    port.emit({ type: "duck_video", active: true });
-    port.emit({ type: "duck_video", active: false });
-    expect(port.postedMessages).toHaveLength(messageCount);
-  });
 });
 
 describe("LiveChatController voice priority and ducking", () => {

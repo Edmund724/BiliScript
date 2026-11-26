@@ -14,7 +14,7 @@ import {
   buildMinimalSessionUpdatePayload,
   encodeBase64Bytes,
   encodeFloat32ToPcmS16LE,
-  type MossLiveTranscriptEvent
+  type MossLiveServerEvent
 } from "../../extension/live/moss-live-protocol.js";
 
 class FakeWebSocket {
@@ -149,14 +149,24 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function createEventCollector() {
+  const events: MossLiveServerEvent[] = [];
+  return {
+    events,
+    onEvent: (event: MossLiveServerEvent) => {
+      events.push(event);
+    },
+    ofType: <T extends MossLiveServerEvent["type"]>(type: T) =>
+      events.filter((ev): ev is Extract<MossLiveServerEvent, { type: T }> => ev.type === type)
+  };
+}
+
 describe("OffscreenMossLiveClient", () => {
-  it("connects, sends attach_session upon open, and does not fire onConnected yet", () => {
-    const onConnected = vi.fn();
-    const onError = vi.fn();
+  it("connects, sends attach_session upon open, and does not emit connected yet", () => {
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onConnected,
-      onError
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -176,14 +186,15 @@ describe("OffscreenMossLiveClient", () => {
     });
 
     expect(client.getState()).toBe("connecting");
-    expect(onConnected).not.toHaveBeenCalled();
+    expect(collector.ofType("connected")).toHaveLength(0);
+    expect(collector.ofType("error")).toHaveLength(0);
   });
 
   it("transitions to connected, sends tagged-v1 media.mode and session.update upon receiving session_attached, and mic_state on session.updated", () => {
-    const onConnected = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onConnected
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -193,7 +204,7 @@ describe("OffscreenMossLiveClient", () => {
     ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
     expect(client.getState()).toBe("connected");
-    expect(onConnected).toHaveBeenCalledTimes(1);
+    expect(collector.ofType("connected")).toHaveLength(1);
 
     expect(ws.sentData).toHaveLength(6);
     expect(JSON.parse(ws.sentData[1])).toEqual({
@@ -280,11 +291,9 @@ describe("OffscreenMossLiveClient", () => {
     it("records a rejected client context without interrupting the session", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       registerDebugGate(() => true);
-      const onError = vi.fn();
-      const transcripts: MossLiveTranscriptEvent[] = [];
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
-        onError,
-        onTranscript: (event) => transcripts.push(event)
+        onEvent: collector.onEvent
       });
       client.connect();
       const ws = (client as any).ws as FakeWebSocket;
@@ -302,8 +311,10 @@ describe("OffscreenMossLiveClient", () => {
 
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("时区上下文"));
       expect(client.getState()).toBe("connected");
-      expect(onError).not.toHaveBeenCalled();
-      expect(transcripts).toEqual([{ kind: "input.updated", text: "会话继续" }]);
+      expect(collector.ofType("error")).toHaveLength(0);
+      expect(collector.ofType("transcript").map((ev) => ev.event)).toEqual([
+        { kind: "input.updated", text: "会话继续" }
+      ]);
       warn.mockRestore();
     });
   });
@@ -395,8 +406,8 @@ describe("OffscreenMossLiveClient", () => {
   });
 
   it("sends change_voice after session_attached and defers session.update until voice_changed", () => {
-    const onConnected = vi.fn();
-    const client = new OffscreenMossLiveClient({ onConnected });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ onEvent: collector.onEvent });
     client.handleAction({ action: "start", voiceId: "voice-1" });
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -406,7 +417,7 @@ describe("OffscreenMossLiveClient", () => {
     }));
 
     expect(client.getState()).toBe("connecting");
-    expect(onConnected).not.toHaveBeenCalled();
+    expect(collector.ofType("connected")).toHaveLength(0);
     const handshake = ws.sentData.map((data) => JSON.parse(data));
     expect(handshake.slice(1).map((message) => message.action)).toEqual([
       "media.mode",
@@ -419,7 +430,7 @@ describe("OffscreenMossLiveClient", () => {
     ws.simulateMessage(JSON.stringify({ action: "voice_changed", data: { name: "voice-1" } }));
 
     expect(client.getState()).toBe("connected");
-    expect(onConnected).toHaveBeenCalledTimes(1);
+    expect(collector.ofType("connected")).toHaveLength(1);
     const afterAttach = ws.sentData.map((data) => JSON.parse(data));
     expect(afterAttach.slice(4).map((message) => message.action)).toEqual([
       "session.update",
@@ -429,9 +440,8 @@ describe("OffscreenMossLiveClient", () => {
   });
 
   it("falls back to the default voice and reports once when change_voice fails", () => {
-    const onVoiceFallback = vi.fn();
-    const onError = vi.fn();
-    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ onEvent: collector.onEvent });
     client.handleAction({ action: "start", voiceId: "deleted-voice" });
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -442,8 +452,10 @@ describe("OffscreenMossLiveClient", () => {
       data: { code: "invalid_voice", message: "音色不存在" }
     }));
 
-    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
-    expect(onError).not.toHaveBeenCalled();
+    expect(collector.ofType("voice_fallback")).toEqual([
+      { type: "voice_fallback", voiceId: "deleted-voice" }
+    ]);
+    expect(collector.ofType("error")).toHaveLength(0);
     expect(client.getState()).toBe("connected");
     const actions = ws.sentData.map((data) => JSON.parse(data).action);
     expect(actions).toContain("session.update");
@@ -451,9 +463,8 @@ describe("OffscreenMossLiveClient", () => {
   });
 
   it("treats a voice failure with a generic error code as a fallback, not a session error", () => {
-    const onVoiceFallback = vi.fn();
-    const onError = vi.fn();
-    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ onEvent: collector.onEvent });
     client.handleAction({ action: "start", voiceId: "deleted-voice" });
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -464,15 +475,16 @@ describe("OffscreenMossLiveClient", () => {
       data: { code: "invalid_request", message: "音色不存在" }
     }));
 
-    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
-    expect(onError).not.toHaveBeenCalled();
+    expect(collector.ofType("voice_fallback")).toEqual([
+      { type: "voice_fallback", voiceId: "deleted-voice" }
+    ]);
+    expect(collector.ofType("error")).toHaveLength(0);
     expect(client.getState()).toBe("connected");
   });
 
   it("keeps non-voice errors during the voice wait on the normal session error path", () => {
-    const onVoiceFallback = vi.fn();
-    const onError = vi.fn();
-    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError, reconnectDelayMs: 0 });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ onEvent: collector.onEvent, reconnectDelayMs: 0 });
     client.handleAction({ action: "start", voiceId: "voice-1" });
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -483,8 +495,8 @@ describe("OffscreenMossLiveClient", () => {
       data: { code: "internal_error", message: "server exploded" }
     }));
 
-    expect(onVoiceFallback).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalled();
+    expect(collector.ofType("voice_fallback")).toHaveLength(0);
+    expect(collector.ofType("error")).toHaveLength(1);
   });
 
   it("sends change_voice mid-session so the next reply uses the new voice", () => {
@@ -588,10 +600,10 @@ describe("OffscreenMossLiveClient", () => {
 
   it("falls back to local playbackRate without resending server speed control", () => {
     const fakeAudioCtx = new FakeAudioContext();
-    const onError = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       createAudioContext: () => fakeAudioCtx,
-      onError,
+      onEvent: collector.onEvent,
       reconnectDelayMs: 0
     });
     client.handleAction({ action: "start", speed: 1.5 });
@@ -607,7 +619,7 @@ describe("OffscreenMossLiveClient", () => {
     }));
 
     expect(client.getState()).toBe("connected");
-    expect(onError).not.toHaveBeenCalled();
+    expect(collector.ofType("error")).toHaveLength(0);
     ws.sentData.length = 0;
     client.handleAction({ action: "set_speed", speed: 0.75 });
     client.handleAction({ action: "set_volume", volume: 1.25 });
@@ -675,10 +687,10 @@ describe("OffscreenMossLiveClient", () => {
   });
 
   it("fails when server sends error action (top-level or nested data.error)", () => {
-    const onError = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onError
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -688,16 +700,16 @@ describe("OffscreenMossLiveClient", () => {
     ws.simulateMessage(JSON.stringify({ action: "error", message: "鉴权失败：密钥无效" }));
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("鉴权失败：密钥无效")
+    expect(collector.ofType("error")).toContainEqual(expect.objectContaining({
+      error: expect.stringContaining("鉴权失败：密钥无效")
     }));
   });
 
   it("fails when session.updated contains data.error", () => {
-    const onError = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onError
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -710,16 +722,16 @@ describe("OffscreenMossLiveClient", () => {
     }));
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("unsupported sample rate")
+    expect(collector.ofType("error")).toContainEqual(expect.objectContaining({
+      error: expect.stringContaining("unsupported sample rate")
     }));
   });
 
   it("fails when socket encounters error", () => {
-    const onError = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onError
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -728,16 +740,16 @@ describe("OffscreenMossLiveClient", () => {
     ws.simulateError();
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("WebSocket 连接失败或握手鉴权被拒绝")
+    expect(collector.ofType("error")).toContainEqual(expect.objectContaining({
+      error: expect.stringContaining("WebSocket 连接失败或握手鉴权被拒绝")
     }));
   });
 
   it("fails when socket closes during connecting state", () => {
-    const onError = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onError
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -746,16 +758,16 @@ describe("OffscreenMossLiveClient", () => {
     ws.close(1006, "Connection refused");
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("1006")
+    expect(collector.ofType("error")).toContainEqual(expect.objectContaining({
+      error: expect.stringContaining("1006")
     }));
   });
 
-  it("notifies onClosed when socket closes cleanly after connected", () => {
-    const onClosed = vi.fn();
+  it("emits closed when socket closes cleanly after connected", () => {
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onClosed
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -767,18 +779,16 @@ describe("OffscreenMossLiveClient", () => {
     ws.close(1000, "Normal closure");
 
     expect(client.getState()).toBe("closed");
-    expect(onClosed).toHaveBeenCalledWith({ code: 1000, reason: "Normal closure" });
+    expect(collector.ofType("closed")).toEqual([
+      { type: "closed", code: 1000, reason: "Normal closure" }
+    ]);
   });
 
   it("close() shuts down socket, transitions to idle, and ignores subsequent server messages", () => {
-    const onConnected = vi.fn();
-    const onError = vi.fn();
-    const onClosed = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-      onConnected,
-      onError,
-      onClosed
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -792,19 +802,19 @@ describe("OffscreenMossLiveClient", () => {
     ws.simulateError();
     ws.close(1006, "Abnormal closure");
 
-    expect(onConnected).not.toHaveBeenCalled();
-    expect(onError).not.toHaveBeenCalled();
-    expect(onClosed).not.toHaveBeenCalled();
+    expect(collector.ofType("connected")).toHaveLength(0);
+    expect(collector.ofType("error")).toHaveLength(0);
+    expect(collector.ofType("closed")).toHaveLength(0);
   });
 
   describe("handshake timeout and socket replacement", () => {
     it("times out if server remains silent and does not send session_attached within handshakeTimeoutMs", () => {
       vi.useFakeTimers();
-      const onError = vi.fn();
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
         handshakeTimeoutMs: 5000,
-        onError
+        onEvent: collector.onEvent
       });
 
       client.connect();
@@ -816,20 +826,18 @@ describe("OffscreenMossLiveClient", () => {
       vi.advanceTimersByTime(5001);
 
       expect(client.getState()).toBe("failed");
-      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-        message: expect.stringContaining("MOSS-LIVE 会话附着握手超时")
+      expect(collector.ofType("error")).toContainEqual(expect.objectContaining({
+        error: expect.stringContaining("MOSS-LIVE 会话附着握手超时")
       }));
     });
 
     it("clears handshake timeout once session_attached arrives", () => {
       vi.useFakeTimers();
-      const onError = vi.fn();
-      const onConnected = vi.fn();
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
         handshakeTimeoutMs: 5000,
-        onConnected,
-        onError
+        onEvent: collector.onEvent
       });
 
       client.connect();
@@ -840,23 +848,21 @@ describe("OffscreenMossLiveClient", () => {
       ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
       expect(client.getState()).toBe("connected");
-      expect(onConnected).toHaveBeenCalledTimes(1);
+      expect(collector.ofType("connected")).toHaveLength(1);
 
       vi.advanceTimersByTime(10000);
 
       expect(client.getState()).toBe("connected");
-      expect(onError).not.toHaveBeenCalled();
+      expect(collector.ofType("error")).toHaveLength(0);
     });
 
     it("regression: handshake timeout from an earlier replaced socket does not fail a newer attached socket", () => {
       vi.useFakeTimers();
-      const onError = vi.fn();
-      const onConnected = vi.fn();
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
         handshakeTimeoutMs: 5000,
-        onConnected,
-        onError
+        onEvent: collector.onEvent
       });
 
       client.connect();
@@ -872,23 +878,19 @@ describe("OffscreenMossLiveClient", () => {
       ws2.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
       expect(client.getState()).toBe("connected");
-      expect(onConnected).toHaveBeenCalledTimes(1);
+      expect(collector.ofType("connected")).toHaveLength(1);
 
       vi.advanceTimersByTime(3000);
 
       expect(client.getState()).toBe("connected");
-      expect(onError).not.toHaveBeenCalled();
+      expect(collector.ofType("error")).toHaveLength(0);
     });
 
     it("regression: fail() invalidates socket generation, ignoring late session_attached/error/close after failure, while allowing later explicit connect()", () => {
-      const onError = vi.fn();
-      const onConnected = vi.fn();
-      const onClosed = vi.fn();
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
-        onConnected,
-        onError,
-        onClosed
+        onEvent: collector.onEvent
       });
 
       client.connect();
@@ -898,16 +900,16 @@ describe("OffscreenMossLiveClient", () => {
       ws1.simulateError(new Error("Initial connection error"));
 
       expect(client.getState()).toBe("failed");
-      expect(onError).toHaveBeenCalledTimes(1);
+      expect(collector.ofType("error")).toHaveLength(1);
 
       ws1.simulateMessage(JSON.stringify({ action: "session_attached" }));
       ws1.simulateError(new Error("Late error"));
       ws1.close(1006, "Late close");
 
       expect(client.getState()).toBe("failed");
-      expect(onConnected).not.toHaveBeenCalled();
-      expect(onError).toHaveBeenCalledTimes(1);
-      expect(onClosed).not.toHaveBeenCalled();
+      expect(collector.ofType("connected")).toHaveLength(0);
+      expect(collector.ofType("error")).toHaveLength(1);
+      expect(collector.ofType("closed")).toHaveLength(0);
 
       client.connect();
       expect(client.getState()).toBe("connecting");
@@ -918,7 +920,7 @@ describe("OffscreenMossLiveClient", () => {
       ws2.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
       expect(client.getState()).toBe("connected");
-      expect(onConnected).toHaveBeenCalledTimes(1);
+      expect(collector.ofType("connected")).toHaveLength(1);
     });
   });
 
@@ -1030,10 +1032,10 @@ describe("OffscreenMossLiveClient", () => {
       expect(ws.sentData).toHaveLength(0);
     });
 
-    it("forwards input/output transcript and response.ended events to onTranscript", () => {
-      const transcripts: MossLiveTranscriptEvent[] = [];
+    it("forwards input/output transcript and response.ended events via onEvent", () => {
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
-        onTranscript: (ev) => transcripts.push(ev)
+        onEvent: collector.onEvent
       });
 
       client.connect();
@@ -1066,7 +1068,7 @@ describe("OffscreenMossLiveClient", () => {
         })
       );
 
-      expect(transcripts).toEqual([
+      expect(collector.ofType("transcript").map((ev) => ev.event)).toEqual([
         { kind: "input.updated", text: "你好" },
         { kind: "input.done", text: "你好助手" },
         { kind: "output.updated", text: "我在", runId: "r1", turnId: "t1" },
@@ -1076,45 +1078,19 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 
-  it("ducks while the user is speaking and keeps that duck through the previous turn's end", () => {
-    const duckStates: boolean[] = [];
-    const client = new OffscreenMossLiveClient({ onDuckVideo: (active) => duckStates.push(active) });
-    client.connect();
-    const ws = (client as any).ws as FakeWebSocket;
-    ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
-
-    ws.simulateMessage(JSON.stringify({
-      action: "output.transcript.updated",
-      data: { text: "旧回答", run_id: "r1", turn_id: "t1" }
-    }));
-    ws.simulateMessage(JSON.stringify({ action: "input.transcript.updated", data: { text: "新问题" } }));
-    ws.simulateMessage(JSON.stringify({
-      action: "response.ended",
-      data: { run_id: "r1", turn_id: "t1", status: "completed" }
-    }));
-    ws.simulateMessage(JSON.stringify({
-      action: "output.transcript.updated",
-      data: { text: "新回答", run_id: "r2", turn_id: "t2" }
-    }));
-    ws.simulateMessage(JSON.stringify({
-      action: "response.ended",
-      data: { run_id: "r2", turn_id: "t2", status: "completed" }
-    }));
-
-    expect(duckStates).toEqual([true, false]);
-    client.close();
-  });
-
-  it("ducks for questions and audio, then releases on done, interruption, response end, and hangup", () => {
-    const duckStates: boolean[] = [];
+  it("tracks speaking_state across audio turns and releases on done, interruption, response end, and hangup", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
-      onDuckVideo: (active) => duckStates.push(active)
+      createAudioContext: () => fakeAudioCtx,
+      onEvent: collector.onEvent
     });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    const pcm = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.1));
 
     ws.simulateMessage(JSON.stringify({ action: "input.transcript.done", data: { text: "问题" } }));
     for (const chunkId of ["c1", "c2"]) {
@@ -1122,16 +1098,20 @@ describe("OffscreenMossLiveClient", () => {
         action: "response.audio.context",
         data: { chunk_id: chunkId, run_id: "r1", turn_id: "t1" }
       }));
+      ws.simulateMessage(pcm.buffer);
     }
     ws.simulateMessage(JSON.stringify({
       action: "response.audio.done",
       data: { run_id: "r1", turn_id: "t1" }
     }));
+    fakeAudioCtx.sources[0].finishPlayback();
+    fakeAudioCtx.sources[1].finishPlayback();
 
     ws.simulateMessage(JSON.stringify({
       action: "response.audio.context",
       data: { chunk_id: "c3", run_id: "r2", turn_id: "t2" }
     }));
+    ws.simulateMessage(pcm.buffer);
     ws.simulateMessage(JSON.stringify({
       action: "response.interrupted",
       data: { run_id: "r2", turn_id: "t2" }
@@ -1142,8 +1122,8 @@ describe("OffscreenMossLiveClient", () => {
     }));
 
     ws.simulateMessage(JSON.stringify({
-      action: "response.audio.context",
-      data: { chunk_id: "c4", run_id: "r3", turn_id: "t3" }
+      action: "output.transcript.updated",
+      data: { text: "第三轮回答", run_id: "r3", turn_id: "t3" }
     }));
     ws.simulateMessage(JSON.stringify({
       action: "response.ended",
@@ -1154,15 +1134,25 @@ describe("OffscreenMossLiveClient", () => {
       action: "response.audio.context",
       data: { chunk_id: "c5", run_id: "r4", turn_id: "t4" }
     }));
+    ws.simulateMessage(pcm.buffer);
     client.close();
     client.close();
 
-    expect(duckStates).toEqual([true, false, true, false, true, false, true, false]);
+    expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]);
   });
 
-  it("releases an active duck when the connection fails", () => {
-    const duckStates: boolean[] = [];
-    const client = new OffscreenMossLiveClient({ onDuckVideo: (active) => duckStates.push(active) });
+  it("releases active speaking_state when the connection fails", () => {
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ onEvent: collector.onEvent });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -1172,7 +1162,7 @@ describe("OffscreenMossLiveClient", () => {
       data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
     }));
     ws.simulateError();
-    expect(duckStates).toEqual([true, false]);
+    expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true, false]);
   });
 
   describe("downstream 48kHz PCM gapless playback & receipts", () => {
@@ -1461,10 +1451,10 @@ describe("OffscreenMossLiveClient", () => {
 
     it("stops immediately on response.interrupted, reports accurate progress once, and drops late audio", () => {
       const fakeAudioCtx = new FakeAudioContext();
-      const transcripts: MossLiveTranscriptEvent[] = [];
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         createAudioContext: () => fakeAudioCtx,
-        onTranscript: (event) => transcripts.push(event)
+        onEvent: collector.onEvent
       });
       client.connect();
       const ws = (client as any).ws as FakeWebSocket;
@@ -1485,7 +1475,9 @@ describe("OffscreenMossLiveClient", () => {
       }));
 
       expect(fakeAudioCtx.sources[0].stopped).toBe(true);
-      expect(transcripts).toEqual([{ kind: "response.interrupted", runId: "r1", turnId: "t1" }]);
+      expect(collector.ofType("transcript").map((ev) => ev.event)).toEqual([
+        { kind: "response.interrupted", runId: "r1", turnId: "t1" }
+      ]);
       expect(ws.sentData).toHaveLength(0);
 
       const stop = JSON.stringify({
@@ -1581,12 +1573,12 @@ describe("OffscreenMossLiveClient", () => {
       ]);
     });
 
-    it("keeps a newer playing and ducked turn untouched by late terminal events for an old turn", () => {
+    it("keeps a newer playing turn untouched by late terminal events for an old turn", () => {
       const fakeAudioCtx = new FakeAudioContext();
-      const duckStates: boolean[] = [];
+      const collector = createEventCollector();
       const client = new OffscreenMossLiveClient({
         createAudioContext: () => fakeAudioCtx,
-        onDuckVideo: (active) => duckStates.push(active)
+        onEvent: collector.onEvent
       });
       client.connect();
       const ws = (client as any).ws as FakeWebSocket;
@@ -1623,17 +1615,20 @@ describe("OffscreenMossLiveClient", () => {
 
       expect(fakeAudioCtx.sources[0].stopped).toBe(true);
       expect(fakeAudioCtx.sources[1].stopped).toBe(false);
-      expect(duckStates).toEqual([true]);
+      expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true]);
 
       ws.simulateMessage(JSON.stringify({
         action: "response.audio.done",
         data: { run_id: "r2", turn_id: "t2" }
       }));
-      expect(duckStates).toEqual([true, false]);
       expect(fakeAudioCtx.sources[1].stopped).toBe(false);
+      expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true]);
       expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
         { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 0 }
       ]);
+
+      fakeAudioCtx.sources[1].finishPlayback();
+      expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true, false]);
       client.close();
     });
 
@@ -1683,8 +1678,8 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
   };
 
   it("sends initial context, deduplicates unchanged refreshes, and relays tool calls/results", () => {
-    const onToolCall = vi.fn();
-    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onEvent: collector.onEvent });
     expect((client as any).overviewToolTimeoutMs).toBe(DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS);
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
@@ -1704,12 +1699,12 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
       action: "tool.call",
       data: { call_id: "call-1", name: "search_video_subtitles", arguments: { query: "语音" } }
     }));
-    expect(onToolCall).toHaveBeenCalledWith({
+    expect(collector.ofType("tool_call").map((ev) => ev.call)).toEqual([{
       callId: "call-1",
       name: "search_video_subtitles",
       arguments: { query: "语音" },
       video: { bvid: "BV1test000000", cid: "456", pageIndex: 2 }
-    });
+    }]);
     expect(client.sendToolResult("call-1", { ok: true, items: [] })).toBe(true);
     expect(ws.sentData.filter((d) => typeof d === "string").some((d) => JSON.parse(d).action === "tool.result")).toBe(false);
     expect(client.getState()).toBe("connected");
@@ -1731,8 +1726,8 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
   });
 
   it("routes completed player function calls through the page executor with video identity", () => {
-    const onToolCall = vi.fn();
-    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onEvent: collector.onEvent });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -1747,12 +1742,12 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
         turn_id: "t1"
       }
     }));
-    expect(onToolCall).toHaveBeenCalledWith({
+    expect(collector.ofType("tool_call").map((ev) => ev.call)).toEqual([{
       callId: "player-1",
       name: "control_bilibili_player",
       arguments: "{\"command\":\"seek\",\"time\":40}",
       video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
-    });
+    }]);
   });
   it("pushes a completed overview into session instructions and deduplicates it", () => {
     const client = new OffscreenMossLiveClient({ videoContext: context });
@@ -1797,8 +1792,8 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
   };
 
   it("relays summarize_video tool.call with video identity and sends tool.result back to server", () => {
-    const onToolCall = vi.fn();
-    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onEvent: collector.onEvent });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -1813,12 +1808,12 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
     );
 
     expect(client.isSpeaking()).toBe(true);
-    expect(onToolCall).toHaveBeenCalledWith({
+    expect(collector.ofType("tool_call").map((ev) => ev.call)).toEqual([{
       callId: "call-sum-1",
       name: "summarize_video",
       arguments: {},
       video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
-    });
+    }]);
 
     const overviewResult = {
       ok: true,
@@ -1833,8 +1828,8 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
   });
 
   it("routes summarize_video function_call.done with video identity and sends tool.result", () => {
-    const onToolCall = vi.fn();
-    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onEvent: collector.onEvent });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -1855,12 +1850,12 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
     );
 
     expect(client.isSpeaking()).toBe(true);
-    expect(onToolCall).toHaveBeenCalledWith({
+    expect(collector.ofType("tool_call").map((ev) => ev.call)).toEqual([{
       callId: "call-sum-2",
       name: "summarize_video",
       arguments: "{}",
       video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
-    });
+    }]);
 
     expect(client.sendToolResult("call-sum-2", { ok: false, error: "当前视频没有可用字幕" })).toBe(true);
     expect(client.isSpeaking()).toBe(false);
@@ -1911,8 +1906,8 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
   });
 
   it("cancels in-flight summarize_video on interrupt() and drops late tool results", () => {
-    const onToolCall = vi.fn();
-    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    const collector = createEventCollector();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onEvent: collector.onEvent });
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -2121,13 +2116,13 @@ describe("OffscreenMossLiveClient web search tools", () => {
   }
 
   it("returns search output to the same call and resumes the response", async () => {
-    const onToolStatus = vi.fn();
+    const collector = createEventCollector();
     const executeWebSearch = vi.fn().mockResolvedValue({
       output: "查证结果与来源",
       resultCount: 2,
       platform: "Tavily"
     });
-    const { client, ws } = connectClient({ executeWebSearch, onToolStatus });
+    const { client, ws } = connectClient({ executeWebSearch, onEvent: collector.onEvent });
 
     emitToolCall(ws);
     emitToolCall(ws);
@@ -2139,12 +2134,13 @@ describe("OffscreenMossLiveClient web search tools", () => {
     const frames = sentJson(ws);
     expect(frames.some((frame) => frame.action === "conversation.item.create")).toBe(false);
     expect(frames.some((frame) => frame.action === "response.create")).toBe(false);
-    expect(onToolStatus).toHaveBeenNthCalledWith(1, {
+    const toolStatuses = collector.ofType("tool_status").map((ev) => ev.event);
+    expect(toolStatuses[0]).toEqual({
       tool: "web_search",
       status: "searching",
       query: "B 站最新财报"
     });
-    expect(onToolStatus).toHaveBeenLastCalledWith({
+    expect(toolStatuses.at(-1)).toEqual({
       tool: "web_search",
       status: "done",
       query: "B 站最新财报",
@@ -2155,10 +2151,10 @@ describe("OffscreenMossLiveClient web search tools", () => {
   });
 
   it("reports an empty result set without treating it as a successful factual answer", async () => {
-    const onToolStatus = vi.fn();
+    const collector = createEventCollector();
     const { client, ws } = connectClient({
       executeWebSearch: vi.fn().mockResolvedValue({ output: "没有找到相关结果，不要编造", resultCount: 0 }),
-      onToolStatus
+      onEvent: collector.onEvent
     });
 
     emitToolCall(ws);
@@ -2166,7 +2162,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
     await Promise.resolve();
 
     expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
-    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(collector.ofType("tool_status").at(-1)?.event).toEqual(expect.objectContaining({
       status: "no_results",
       resultCount: 0
     }));
@@ -2174,10 +2170,10 @@ describe("OffscreenMossLiveClient web search tools", () => {
   });
 
   it("returns explicit search failures while keeping the live session connected", async () => {
-    const onToolStatus = vi.fn();
+    const collector = createEventCollector();
     const { client, ws } = connectClient({
       executeWebSearch: vi.fn().mockRejectedValue(new Error("所有搜索平台不可用")),
-      onToolStatus
+      onEvent: collector.onEvent
     });
 
     emitToolCall(ws);
@@ -2185,7 +2181,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
     await Promise.resolve();
 
     expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
-    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(collector.ofType("tool_status").at(-1)?.event).toEqual(expect.objectContaining({
       status: "failed",
       error: "所有搜索平台不可用"
     }));
@@ -2258,15 +2254,13 @@ describe("OffscreenMossLiveClient web search tools", () => {
     client.close();
   });
   it("supports manual interrupt: sends response.cancel, stops playback and tool calls, fires interrupted transcript", async () => {
-    const transcripts: MossLiveTranscriptEvent[] = [];
-    const speakingStates: boolean[] = [];
+    const collector = createEventCollector();
     let searchSignal: AbortSignal | undefined;
     const fakeCtx = new FakeAudioContext();
 
     const client = new OffscreenMossLiveClient({
       createAudioContext: () => fakeCtx,
-      onTranscript: (ev) => transcripts.push(ev),
-      onSpeakingState: (sp) => speakingStates.push(sp),
+      onEvent: collector.onEvent,
       executeWebSearch: vi.fn((_q, signal) => {
         searchSignal = signal;
         return new Promise<never>(() => {});
@@ -2284,7 +2278,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
       data: { text: "你好呀", run_id: "r1", turn_id: "t1" }
     }));
     expect(client.isSpeaking()).toBe(true);
-    expect(speakingStates).toContain(true);
+    expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toContain(true);
 
     const pcm = encodeFloat32ToPcmS16LE(new Float32Array(960));
     ws.simulateMessage(JSON.stringify({
@@ -2299,12 +2293,12 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(searchSignal?.aborted).toBe(false);
 
     ws.sentData.length = 0;
-    transcripts.length = 0;
+    collector.events.length = 0;
 
     client.interrupt();
 
     expect(client.isSpeaking()).toBe(false);
-    expect(speakingStates[speakingStates.length - 1]).toBe(false);
+    expect(collector.ofType("speaking_state").at(-1)?.speaking).toBe(false);
     expect(sourceNode.stopped).toBe(true);
     expect(searchSignal?.aborted).toBe(true);
 
@@ -2315,7 +2309,12 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(stoppedFrame.run_id).toBe("r1");
     expect(stoppedFrame.turn_id).toBe("t1");
 
-    expect(transcripts.some((t) => t.kind === "response.interrupted" && t.runId === "r1")).toBe(true);
+    expect(
+      collector
+        .ofType("transcript")
+        .map((ev) => ev.event)
+        .some((t) => t.kind === "response.interrupted" && t.runId === "r1")
+    ).toBe(true);
 
     ws.simulateMessage(JSON.stringify({
       action: "response.audio.context",
@@ -2331,11 +2330,9 @@ describe("OffscreenMossLiveClient web search tools", () => {
 describe("OffscreenMossLiveClient unified page tool lifecycle & interruption", () => {
   it("keeps isSpeaking() true during in-flight page tool calls and cancels timeout on response.interrupted or manual interrupt", () => {
     vi.useFakeTimers();
-    const speakingStates: boolean[] = [];
-    const events: any[] = [];
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
-      onSpeakingState: (speaking) => speakingStates.push(speaking),
-      onEvent: (ev) => events.push(ev)
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -2351,7 +2348,7 @@ describe("OffscreenMossLiveClient unified page tool lifecycle & interruption", (
       })
     );
     expect(client.isSpeaking()).toBe(true);
-    expect(speakingStates).toEqual([true]);
+    expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true]);
 
     ws.simulateMessage(
       JSON.stringify({
@@ -2360,12 +2357,12 @@ describe("OffscreenMossLiveClient unified page tool lifecycle & interruption", (
       })
     );
     expect(client.isSpeaking()).toBe(false);
-    expect(speakingStates).toEqual([true, false]);
+    expect(collector.ofType("speaking_state").map((ev) => ev.speaking)).toEqual([true, false]);
 
     expect(client.sendToolResult("page-call-1", { ok: true, items: [] })).toBe(false);
     vi.advanceTimersByTime(10000);
     expect(ws.sentData).toHaveLength(0);
-    expect(events.some((e) => e.type === "tool_error")).toBe(false);
+    expect(collector.ofType("tool_error")).toHaveLength(0);
 
     ws.simulateMessage(
       JSON.stringify({
@@ -2562,11 +2559,9 @@ describe("MossAudioPlayer parameterized sampleRate & enablePlaybackReceipts", ()
 
 describe("MOSS session_id persistence and auto-reconnect", () => {
   it("saves session_id upon receiving session_attached and emits session_attached event", () => {
-    const onSessionAttached = vi.fn();
-    const onConnected = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
-      onSessionAttached,
-      onConnected
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -2578,8 +2573,12 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     }));
 
     expect(client.getSessionId()).toBe("sess_moss_12345");
-    expect(onSessionAttached).toHaveBeenCalledWith("sess_moss_12345");
-    expect(onConnected).toHaveBeenCalledWith("sess_moss_12345");
+    expect(collector.ofType("session_attached")).toEqual([
+      { type: "session_attached", sessionId: "sess_moss_12345" }
+    ]);
+    expect(collector.ofType("connected")).toEqual([
+      { type: "connected", sessionId: "sess_moss_12345" }
+    ]);
   });
 
   it("clears session_id when stop action is received or client is closed", () => {
@@ -2599,12 +2598,10 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
   });
 
   it("automatically reconnects with saved session_id on unexpected close (up to 3 times)", async () => {
-    const onReconnecting = vi.fn();
-    const onClosed = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       reconnectDelayMs: 0,
-      onReconnecting,
-      onClosed
+      onEvent: collector.onEvent
     });
 
     client.connect();
@@ -2617,8 +2614,11 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     expect(client.getState()).toBe("connected");
 
     ws.close(1006, "Abnormal network drop");
-    expect(onReconnecting).toHaveBeenCalledTimes(1);
-    expect(onReconnecting).toHaveBeenLastCalledWith(1, 3, expect.objectContaining({
+    expect(collector.ofType("reconnecting")).toHaveLength(1);
+    expect(collector.ofType("reconnecting").at(-1)).toEqual(expect.objectContaining({
+      type: "reconnecting",
+      attempt: 1,
+      maxAttempts: 3,
       code: 1006,
       reason: "Abnormal network drop"
     }));
@@ -2635,8 +2635,11 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     });
 
     ws.close(1001, "Server restarting");
-    expect(onReconnecting).toHaveBeenCalledTimes(2);
-    expect(onReconnecting).toHaveBeenLastCalledWith(2, 3, expect.objectContaining({
+    expect(collector.ofType("reconnecting")).toHaveLength(2);
+    expect(collector.ofType("reconnecting").at(-1)).toEqual(expect.objectContaining({
+      type: "reconnecting",
+      attempt: 2,
+      maxAttempts: 3,
       code: 1001,
       reason: "Server restarting"
     }));
@@ -2645,8 +2648,11 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
     ws.close(1006, "Relay timeout");
-    expect(onReconnecting).toHaveBeenCalledTimes(3);
-    expect(onReconnecting).toHaveBeenLastCalledWith(3, 3, expect.objectContaining({
+    expect(collector.ofType("reconnecting")).toHaveLength(3);
+    expect(collector.ofType("reconnecting").at(-1)).toEqual(expect.objectContaining({
+      type: "reconnecting",
+      attempt: 3,
+      maxAttempts: 3,
       code: 1006,
       reason: "Relay timeout"
     }));
@@ -2656,7 +2662,8 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     ws.simulateOpen();
     ws.close(1006, "Final failure");
     expect(client.getState()).toBe("closed");
-    expect(onClosed).toHaveBeenCalledWith(expect.objectContaining({
+    expect(collector.ofType("closed")).toContainEqual(expect.objectContaining({
+      type: "closed",
       code: 1006,
       reason: "Final failure",
       error: expect.stringContaining("已达最大重连次数 (3 次)")
@@ -2664,10 +2671,10 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
   });
 
   it("resets reconnect attempts upon successful session_attached after a reconnect", () => {
-    const onReconnecting = vi.fn();
+    const collector = createEventCollector();
     const client = new OffscreenMossLiveClient({
       reconnectDelayMs: 0,
-      onReconnecting
+      onEvent: collector.onEvent
     });
 
     client.connect();

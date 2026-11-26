@@ -22,6 +22,7 @@ const resolveRuntime = vi.mocked(resolveWebSearchRuntime);
 import {
   encodeBase64Bytes,
   encodeFloat32ToPcmS16LE,
+  type MossLiveServerEvent,
   type MossLiveTranscriptEvent,
   type MossLiveVideoContext
 } from "../../extension/live/moss-live-protocol.js";
@@ -162,16 +163,20 @@ const videoContext: MossLiveVideoContext = {
 };
 
 function createClient(options: Partial<GeminiLiveClientOptions> = {}) {
+  const { onEvent: userOnEvent, ...rest } = options;
   const transcripts: MossLiveTranscriptEvent[] = [];
-  const events: any[] = [];
+  const events: MossLiveServerEvent[] = [];
   const audioContext = new FakeAudioContext();
   const client = new OffscreenGeminiLiveClient({
     model: "gemini-3.8-live",
     videoContext,
     createAudioContext: () => audioContext,
-    onEvent: (event) => events.push(event),
-    onTranscript: (event) => transcripts.push(event),
-    ...options
+    ...rest,
+    onEvent: (event) => {
+      events.push(event);
+      if (event.type === "transcript") transcripts.push(event.event);
+      userOnEvent?.(event);
+    }
   });
   return { client, transcripts, events, audioContext };
 }
@@ -234,8 +239,7 @@ afterEach(() => {
 
 describe("OffscreenGeminiLiveClient handshake and media", () => {
   it("sends setup on open and waits for setupComplete before connected or media upload", () => {
-    const onConnected = vi.fn();
-    const { client } = createClient({ onConnected });
+    const { client, events } = createClient();
 
     client.handleAction({ action: "start", model: "models/gemini-3.8-live", videoContext });
     const ws = FakeWebSocket.instances[0];
@@ -258,11 +262,11 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
     expect(setup.systemInstruction.parts[0].text).toContain("实时语音原理");
     expect(setup.systemInstruction.parts[0].text).toContain("P1 基础");
     expect(client.getState()).toBe("connecting");
-    expect(onConnected).not.toHaveBeenCalled();
+    expect(events.filter((ev) => ev.type === "connected")).toHaveLength(0);
 
     ws.simulateMessage(JSON.stringify({ setupComplete: {} }));
     expect(client.getState()).toBe("connected");
-    expect(onConnected).toHaveBeenCalledTimes(1);
+    expect(events.filter((ev) => ev.type === "connected")).toHaveLength(1);
   });
 
   it.each([
@@ -285,29 +289,27 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
   });
 
   it("fails and cleans up on an error frame", () => {
-    const onError = vi.fn();
-    const { client } = createClient({ onError });
+    const { client, events } = createClient();
     client.connect();
     const ws = FakeWebSocket.instances[0];
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ error: { code: 401, message: "API key invalid" } }));
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "API key invalid" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "error", error: "API key invalid" }));
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
 
   it("times out a stalled setup handshake", () => {
     vi.useFakeTimers();
-    const onError = vi.fn();
-    const { client } = createClient({ handshakeTimeoutMs: 1000, onError });
+    const { client, events } = createClient({ handshakeTimeoutMs: 1000 });
     client.connect();
     FakeWebSocket.instances[0].simulateOpen();
     vi.advanceTimersByTime(1001);
 
     expect(client.getState()).toBe("failed");
-    expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining("握手超时") })
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "error", error: expect.stringContaining("握手超时") })
     );
   });
 
@@ -374,10 +376,11 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
 
 describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   it("queues 24kHz PCM gaplessly without playback receipts and synchronizes speaking state", () => {
-    const speakingStates: boolean[] = [];
-    const { client, transcripts, audioContext } = createClient({
-      onSpeakingState: (speaking) => speakingStates.push(speaking)
-    });
+    const { client, transcripts, events, audioContext } = createClient();
+    const speakingStates = () =>
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "speaking_state" }> => ev.type === "speaking_state")
+        .map((ev) => ev.speaking);
     const ws = connect(client);
     ws.sentData.length = 0;
 
@@ -396,7 +399,7 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     expect(audioContext.sources[0].buffer?.sampleRate).toBe(24000);
     expect(audioContext.sources[0].startedAt).toBeCloseTo(1.03, 5);
     expect(audioContext.sources[1].startedAt).toBeCloseTo(1.13, 5);
-    expect(speakingStates).toEqual([true]);
+    expect(speakingStates()).toEqual([true]);
 
     ws.simulateMessage(serverContent({ turnComplete: true }));
     expect(transcripts.slice(-2)).toEqual([
@@ -407,7 +410,7 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
 
     audioContext.sources.forEach((source) => source.finishPlayback());
     expect(client.isSpeaking()).toBe(false);
-    expect(speakingStates).toEqual([true, false]);
+    expect(speakingStates()).toEqual([true, false]);
     expect(ws.sentData).toHaveLength(0);
   });
 
@@ -488,10 +491,7 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   });
 
   it("stops playback immediately on server interruption and drops late output until new input", () => {
-    const speakingStates: boolean[] = [];
-    const { client, transcripts, audioContext } = createClient({
-      onSpeakingState: (speaking) => speakingStates.push(speaking)
-    });
+    const { client, transcripts, events, audioContext } = createClient();
     const ws = connect(client);
 
     ws.simulateMessage(serverContent({ outputTranscription: { text: "说到一半" } }));
@@ -501,7 +501,11 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     ws.simulateMessage(serverContent({ interrupted: true }));
 
     expect(audioContext.sources[0].stopped).toBe(true);
-    expect(speakingStates).toEqual([true, false]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "speaking_state" }> => ev.type === "speaking_state")
+        .map((ev) => ev.speaking)
+    ).toEqual([true, false]);
     expect(transcripts.map((event) => event.kind)).toEqual([
       "output.updated",
       "output.done",
@@ -526,10 +530,7 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   });
 
   it("stops still-playing audio when interruption arrives after turnComplete", () => {
-    const speakingStates: boolean[] = [];
-    const { client, audioContext } = createClient({
-      onSpeakingState: (speaking) => speakingStates.push(speaking)
-    });
+    const { client, events, audioContext } = createClient();
     const ws = connect(client);
     ws.simulateMessage(serverContent({
       modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(4800) } }] }
@@ -541,7 +542,11 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
 
     expect(audioContext.sources[0].stopped).toBe(true);
     expect(client.isSpeaking()).toBe(false);
-    expect(speakingStates).toEqual([true, false]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "speaking_state" }> => ev.type === "speaking_state")
+        .map((ev) => ev.speaking)
+    ).toEqual([true, false]);
   });
 
   it("manually interrupts without a MOSS response.cancel frame and resets local state", () => {
@@ -847,18 +852,20 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
   });
 
   it("handles concurrent page tool and web_search calls in a single toolCall frame and wraps toolResponse.functionResponses", async () => {
-    const toolCalls: any[] = [];
-    const toolStatuses: any[] = [];
     const executeWebSearch = vi.fn(async (query: string) => ({
       output: `已检索：${query}`,
       resultCount: 2,
       platform: "Exa"
     }));
-    const { client } = createClient({
-      executeWebSearch,
-      onToolCall: (call) => toolCalls.push(call),
-      onToolStatus: (status) => toolStatuses.push(status)
-    });
+    const { client, events } = createClient({ executeWebSearch });
+    const toolCalls = () =>
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "tool_call" }> => ev.type === "tool_call")
+        .map((ev) => ev.call);
+    const toolStatuses = () =>
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "tool_status" }> => ev.type === "tool_status")
+        .map((ev) => ev.event);
     const ws = connect(client);
     ws.sentData.length = 0;
 
@@ -882,7 +889,7 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     );
 
     expect(client.isSpeaking()).toBe(true);
-    expect(toolCalls).toEqual([
+    expect(toolCalls()).toEqual([
       {
         callId: "call-sub-1",
         name: "search_video_subtitles",
@@ -890,16 +897,16 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
         video: { bvid: "BV1gemini", cid: "100", pageIndex: 1 }
       }
     ]);
-    expect(toolStatuses[0]).toEqual({
+    expect(toolStatuses()[0]).toEqual({
       tool: "web_search",
       status: "searching",
       query: "Gemini Live BidiGenerateContent"
     });
 
     await vi.waitFor(() => {
-      expect(toolStatuses).toHaveLength(2);
+      expect(toolStatuses()).toHaveLength(2);
     });
-    expect(toolStatuses[1]).toEqual({
+    expect(toolStatuses()[1]).toEqual({
       tool: "web_search",
       status: "done",
       query: "Gemini Live BidiGenerateContent",
@@ -1091,9 +1098,10 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
 
     const { client } = createClient({
       model: "gemini-3.8-live",
-      onToolCall: (call) => {
-        void bridge.executeTool(call).then((result) => {
-          client.handleAction({ action: "tool_result", callId: call.callId, result });
+      onEvent: (event) => {
+        if (event.type !== "tool_call") return;
+        void bridge.executeTool(event.call).then((result) => {
+          client.handleAction({ action: "tool_result", callId: event.call.callId, result });
         });
       }
     });
@@ -1154,7 +1162,6 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
   });
 
   it("reuses the 7-platform web_search fallback chain and emits no_results / failed statuses", async () => {
-    const toolStatuses: any[] = [];
     const executeSearch = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1176,9 +1183,7 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       runtime: { maxToolCalls: 5, executeSearch }
     });
 
-    const { client } = createClient({
-      onToolStatus: (status) => toolStatuses.push(status)
-    });
+    const { client, events } = createClient();
     const ws = connect(client);
     ws.sentData.length = 0;
 
@@ -1198,6 +1203,9 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       expect(ws.jsonFrames()).toHaveLength(3);
     });
 
+    const toolStatuses = events
+      .filter((ev): ev is Extract<MossLiveServerEvent, { type: "tool_status" }> => ev.type === "tool_status")
+      .map((ev) => ev.event);
     expect(toolStatuses).toContainEqual({
       tool: "web_search",
       status: "failed",
@@ -1231,10 +1239,8 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
 
   it("times out a stalled page tool call, sends an error toolResponse, and ignores late tool_result", () => {
     vi.useFakeTimers();
-    const toolErrors: string[] = [];
-    const { client } = createClient({
-      pageToolTimeoutMs: 500,
-      onToolError: (err) => toolErrors.push(err)
+    const { client, events } = createClient({
+      pageToolTimeoutMs: 500
     });
     const ws = connect(client);
     ws.sentData.length = 0;
@@ -1257,7 +1263,11 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     vi.advanceTimersByTime(501);
 
     expect(client.isSpeaking()).toBe(false);
-    expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
+    expect(
+      events
+        .filter((ev): ev is Extract<MossLiveServerEvent, { type: "tool_error" }> => ev.type === "tool_error")
+        .map((ev) => ev.error)
+    ).toEqual(["页面工具执行超时，请稍后重试"]);
     expect(ws.jsonFrames()).toEqual([
       {
         toolResponse: {
@@ -1285,11 +1295,9 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
 
   it("maps summarize_video to a background task and sends SILENT/WHEN_IDLE responses", () => {
     vi.useFakeTimers();
-    const toolErrors: string[] = [];
     const { client, events } = createClient({
       pageToolTimeoutMs: 500,
-      overviewToolTimeoutMs: 2500,
-      onToolError: (err) => toolErrors.push(err)
+      overviewToolTimeoutMs: 2500
     });
     const ws = connect(client);
     ws.sentData.length = 0;
@@ -1320,7 +1328,7 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     });
     expect(client.isSpeaking()).toBe(false);
     vi.advanceTimersByTime(3000);
-    expect(toolErrors).toHaveLength(0);
+    expect(events.filter((ev) => ev.type === "tool_error")).toHaveLength(0);
     expect(ws.jsonFrames()).toHaveLength(0);
 
     client.handleAction({
@@ -1564,33 +1572,5 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     expect(client.isSpeaking()).toBe(false);
     vi.advanceTimersByTime(1500);
     expect(ws.jsonFrames()).toHaveLength(0);
-  });
-
-  it("forwards reconnecting events to onReconnecting callback", () => {
-    const reconnectingEvents: any[] = [];
-    const { client } = createClient({
-      onReconnecting: (attempt, maxAttempts, info) => {
-        reconnectingEvents.push({ attempt, maxAttempts, ...info });
-      }
-    });
-
-    (client as any).emit({
-      type: "reconnecting",
-      attempt: 2,
-      maxAttempts: 3,
-      code: 1006,
-      reason: "Abnormal Closure",
-      error: "WebSocket error"
-    });
-
-    expect(reconnectingEvents).toEqual([
-      {
-        attempt: 2,
-        maxAttempts: 3,
-        code: 1006,
-        reason: "Abnormal Closure",
-        error: "WebSocket error"
-      }
-    ]);
   });
 });

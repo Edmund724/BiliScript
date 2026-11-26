@@ -320,9 +320,10 @@ try {
         pageTitle: '',
         chapters: []
       },
-      onToolCall: (call) => {
-        window.testBridge.executeTool(call).then((res) => {
-          client.sendToolResult(call.callId, res);
+      onEvent: (event) => {
+        if (event.type !== 'tool_call') return;
+        window.testBridge.executeTool(event.call).then((res) => {
+          client.sendToolResult(event.call.callId, res);
         });
       }
     });
