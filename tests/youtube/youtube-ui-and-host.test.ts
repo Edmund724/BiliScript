@@ -325,7 +325,6 @@ describe("宿主主题 <html dark> 与主题文案通用化", () => {
         readerTheme: "bilibili",
         readerPalette: "flyme",
         readerFontSizeScale: 100,
-        customPanelWidth: 540,
         enableAgentBridge: false,
         cleanConversationsOlderThan30Days: false,
         enableDebugLogs: false
@@ -405,9 +404,9 @@ describe("YouTube script-host 右栏锚定、剧场降级与实时重排", () =>
 
     expect(view.getAttribute("data-biliscript-script-float")).toBeNull();
     expect(getVars(view)).toEqual({
-      left: "900px",
+      left: "990px",
       top: "80px",
-      width: "540px",
+      width: "450px",
       height: "820px"
     });
 

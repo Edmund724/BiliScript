@@ -113,7 +113,7 @@ describe("进入视频页自动展开 / 直达时，首载无锚点瞬态防闪�
 
     expect(view.classList.contains("open")).toBe(true);
     expect(view.getAttribute("data-biliscript-script-float")).toBeNull();
-    expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1380px");
+    expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1520px");
     expect(view.getAttribute("data-biliscript-reader-ready")).toBe("1");
   });
 

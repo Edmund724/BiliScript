@@ -165,6 +165,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   opacity: 0.9;
 }
 
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-resizing="1"][data-biliscript-script-snapped="1"] .biliscript-reading-resize-handle::after {
+  width: 4px;
+  opacity: 1;
+}
+
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] .biliscript-reading-resize-handle,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-detached="1"] .biliscript-reading-resize-handle,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not(.open) .biliscript-reading-resize-handle,

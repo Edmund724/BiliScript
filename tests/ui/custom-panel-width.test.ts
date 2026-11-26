@@ -67,7 +67,7 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       expect(state.settings.customPanelWidth).toBe(500);
     });
 
-    it("未置显式自定义标记时宽度改动不生效：贴栏保持默认 540px", async () => {
+    it("未置显式自定义标记时宽度改动不生效：贴栏默认填满右侧（锚点左缘至视口右缘）", async () => {
       vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
         cb(0);
         return 0;
@@ -94,12 +94,13 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       const { openScriptHost, closeScriptHost } = await import("../../extension/reader/script-host.js");
       state.patchSettings({ customPanelWidthEnabled: false, customPanelWidth: 460 });
       openScriptHost();
-      expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("540px");
+      expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1420px");
+      expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("500px");
       closeScriptHost();
       vi.restoreAllMocks();
     });
 
-    it("文摘面板宽度在 400 到 960 之间调整时实际生效（默认 540px）", async () => {
+    it("文摘面板宽度在 400 到 960 之间调整时实际生效（默认填满右侧）", async () => {
       vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
         cb(0);
         return 0;
@@ -126,8 +127,8 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
       const { openScriptHost, closeScriptHost } = await import("../../extension/reader/script-host.js");
       openScriptHost();
 
-      expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("540px");
-      expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1380px");
+      expect(view.style.getPropertyValue("--biliscript-script-width")).toBe("500px");
+      expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1420px");
 
       state.patchSettings({ customPanelWidthEnabled: true });
 

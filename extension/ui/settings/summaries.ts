@@ -1,7 +1,6 @@
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
 import {
-  normalizeCustomPanelWidth,
   normalizeDownloadFormat,
   normalizeReaderFontSizeScale,
   normalizeReaderPalette,
@@ -36,7 +35,6 @@ export interface SettingsSummaryFormValues {
   readerTheme: unknown;
   readerPalette: unknown;
   readerFontSizeScale: unknown;
-  customPanelWidth: unknown;
   enableAgentBridge: boolean;
   cleanConversationsOlderThan30Days: boolean;
   enableDebugLogs: boolean;
@@ -175,8 +173,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随当前站点";
   const paletteLabel = normalizeReaderPalette(form.readerPalette) === "editorial" ? "数字刊物" : "蓝雾玻璃";
   const fontScale = normalizeReaderFontSizeScale(form.readerFontSizeScale);
-  const panelWidth = normalizeCustomPanelWidth(form.customPanelWidth);
-  const appearanceSettings = `${themeLabel} · ${paletteLabel} · ${fontScale}% · ${panelWidth}px`;
+  const appearanceSettings = `${themeLabel} · ${paletteLabel} · ${fontScale}%`;
 
   let agentSettings: string;
   if (agentBridgeState?.connected) {
@@ -220,7 +217,6 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       readerTheme: elements.readerTheme.value,
       readerPalette: elements.readerPalette.value,
       readerFontSizeScale: elements.readerFontSizeScale.value,
-      customPanelWidth: elements.customPanelWidth.value,
       enableAgentBridge: elements.enableAgentBridge.checked,
       cleanConversationsOlderThan30Days: elements.cleanConversationsOlderThan30Days.checked,
       enableDebugLogs: elements.enableDebugLogs.checked

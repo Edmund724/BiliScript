@@ -21,7 +21,6 @@ import {
   applyChatDisplaySettings,
   watchChatDisplaySettings
 } from "../../reader/chat-display-settings.js";
-import { subscribePanelWidthSync } from "../../reader/panel-resize.js";
 import { applyReadingViewTypography } from "../../reader/presentation.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { sendRuntimeMessage } from "../../shared/messaging.js";
@@ -68,7 +67,6 @@ export interface ScalarSettingsBindDeps {
 }
 
 let unwatchChatDisplay: (() => void) | null = null;
-let unwatchPanelWidth: (() => void) | null = null;
 let unwatchStorageSync: (() => void) | null = null;
 const pendingDebounceCancels = new Set<() => void>();
 
@@ -80,8 +78,6 @@ export function disposeScalarBindings(): void {
   pendingDebounceCancels.clear();
   unwatchChatDisplay?.();
   unwatchChatDisplay = null;
-  unwatchPanelWidth?.();
-  unwatchPanelWidth = null;
   unwatchStorageSync?.();
   unwatchStorageSync = null;
 }
@@ -178,8 +174,6 @@ function buildDefaultPreferencePayload() {
     bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
     secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
     bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
-    customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
-    customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     detachedWindowMode: DEFAULT_SETTINGS.detachedWindowMode,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
     enableCostGuard: DEFAULT_SETTINGS.enableCostGuard,
@@ -444,14 +438,6 @@ function bindScalarExternalSync(
         setResettableRangeValue(currentElements[key], patch[key]);
       }
     }
-    deps.syncSummaries(currentElements);
-  });
-
-  unwatchPanelWidth?.();
-  unwatchPanelWidth = subscribePanelWidthSync((width) => {
-    if (!host.isConnected) return;
-    const currentElements = collectElements(host);
-    setResettableRangeValue(currentElements.customPanelWidth, width);
     deps.syncSummaries(currentElements);
   });
 

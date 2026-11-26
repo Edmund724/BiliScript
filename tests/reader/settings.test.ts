@@ -611,29 +611,8 @@ describe("主题：只剩明暗一轴", () => {
       settings: { readerFontSizeScale: 100 }
     });
 
-    const widthSlider = document.getElementById("customPanelWidth") as HTMLInputElement;
-    const widthBadge = document.getElementById("customPanelWidthValue") as HTMLElement;
-    const widthReset = document.getElementById("customPanelWidthResetBtn") as HTMLButtonElement;
-    expect(widthSlider).toBeTruthy();
-    expect(widthSlider.value).toBe("540");
-    expect(widthBadge.textContent).toBe("540px");
-    expect(widthReset.disabled).toBe(true);
-
-    widthSlider.value = "450";
-    widthSlider.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo((50 / 560) * 100);
-    expect(widthBadge.textContent).toBe("450px");
-    expect(widthReset.disabled).toBe(false);
-
-    widthReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(widthSlider.value).toBe("540");
-    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(25);
-    expect(widthBadge.textContent).toBe("540px");
-    expect(widthReset.disabled).toBe(true);
-    expect(sentMessages).toContainEqual({
-      type: "save-settings",
-      settings: { customPanelWidth: 540, customPanelWidthEnabled: false }
-    });
+    expect(document.getElementById("customPanelWidth")).toBeNull();
+    expect(document.getElementById("customPanelWidthContainer")).toBeNull();
 
     const searchSlider = document.getElementById("webSearchMaxToolCalls") as HTMLInputElement;
     const searchBadge = document.getElementById("webSearchMaxToolCallsValue") as HTMLElement;

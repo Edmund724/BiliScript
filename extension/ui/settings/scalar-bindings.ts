@@ -4,7 +4,6 @@ import { state } from "../../core/state.js";
 import {
   normalizeBilingualDisplayOrder,
   normalizeChatInputGlow,
-  normalizeCustomPanelWidth,
   normalizeDetachedWindowMode,
   normalizeDownloadFormat,
   normalizeLiveShareVideoAudio,
@@ -41,7 +40,6 @@ import {
   applyReadingViewTypography,
   applyReduceTransparency
 } from "../../reader/presentation.js";
-import { relayoutScriptHost } from "../../reader/script-host.js";
 import {
   resolveEffectiveTheme,
   resolveReaderThemeMode,
@@ -257,22 +255,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     patchState: false,
     persist: persistChatDisplayField,
     onPreview: (val) => applyChatDisplaySettings({ speechVoiceVolume: val })
-  },
-  {
-    kind: "slider",
-    key: "customPanelWidth",
-    getElement: (el) => el.customPanelWidth,
-    getBadge: (el) => el.customPanelWidthValue,
-    getResetBtn: (el) => el.customPanelWidthResetBtn,
-    defaultValue: DEFAULT_SETTINGS.customPanelWidth,
-    normalize: normalizeCustomPanelWidth,
-    format: (width) => `${width}px`,
-    watchSync: true,
-    commitExtras: () => ({ customPanelWidthEnabled: true }),
-    resetExtras: () => ({ customPanelWidthEnabled: false }),
-    onPreview: () => {
-      relayoutScriptHost();
-    }
   },
   {
     kind: "select",

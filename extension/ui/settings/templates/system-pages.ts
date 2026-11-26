@@ -61,24 +61,6 @@ export function buildSystemPagesHtml(): string {
             </div>
           </div>
 
-          <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
-            <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
-            <div class="biliscript-slider-control">
-              <input
-                id="${ids.customPanelWidth}"
-                type="range"
-                class="biliscript-range-input"
-                min="400"
-                max="960"
-                step="1"
-                value="540"
-                style="--range-progress: 25%;"
-              />
-              <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
-              <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-
           <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.detachedWindowMode}">独立窗口模式</label>
             <select id="${ids.detachedWindowMode}" class="biliscript-set-select">

@@ -8,35 +8,24 @@ import type { DisposableContext } from "../shared/typed-event-bus.js";
 import { ids } from "./state.js";
 
 const RESIZING_VIEW_ATTR = "data-biliscript-script-resizing";
+const SNAPPED_VIEW_ATTR = "data-biliscript-script-snapped";
 const RESIZING_ROOT_ATTR = "data-biliscript-panel-resizing";
 const FLOAT_ATTR = "data-biliscript-script-float";
 const DETACHED_ATTR = "data-biliscript-detached";
 const READY_ATTR = "data-biliscript-reader-ready";
 const SCRIPT_WIDTH_VAR = "--biliscript-script-width";
 
-type PanelWidthListener = (width: number) => void;
-
-const widthListeners = new Set<PanelWidthListener>();
-
-export function subscribePanelWidthSync(listener: PanelWidthListener): () => void {
-  widthListeners.add(listener);
-  return () => {
-    widthListeners.delete(listener);
-  };
-}
-
-function notifyPanelWidthSync(width: number): void {
-  for (const listener of widthListeners) {
-    try {
-      listener(width);
-    } catch {
-    }
-  }
-}
+export const PANEL_RESIZE_SNAP_THRESHOLD_PX = 12;
 
 export interface PanelResizeBindingDeps {
   getMaxWidth: () => number;
+  getSnapWidth?: () => number | null;
   applyLayout: () => void;
+}
+
+interface ResizeTarget {
+  snapped: boolean;
+  width: number;
 }
 
 interface ActiveResizeSession {
@@ -45,10 +34,12 @@ interface ActiveResizeSession {
   readingView: HTMLElement;
   startX: number;
   startWidth: number;
+  snapWidth: number | null;
   prevEnabled: boolean;
   prevWidth: number;
   currentWidth: number;
-  pendingWidth: number | null;
+  snappedToDefault: boolean;
+  pendingTarget: ResizeTarget | null;
   rafId: number;
   moved: boolean;
 }
@@ -89,6 +80,7 @@ function canStartResize(readingView: HTMLElement): boolean {
 
 function clearResizingAttrs(readingView?: HTMLElement | null): void {
   readingView?.removeAttribute(RESIZING_VIEW_ATTR);
+  readingView?.removeAttribute(SNAPPED_VIEW_ATTR);
   document.documentElement?.removeAttribute(RESIZING_ROOT_ATTR);
 }
 
@@ -103,13 +95,20 @@ export function bindPanelResizeHandle(
     return Math.max(CUSTOM_PANEL_WIDTH_MIN, Math.min(maxWidth, Math.round(raw)));
   };
 
-  const applyWidthPreview = (width: number): void => {
-    state.patchSettings({
-      customPanelWidthEnabled: true,
-      customPanelWidth: width
-    });
+  const applyTargetPreview = (active: ActiveResizeSession, target: ResizeTarget): void => {
+    if (target.snapped) {
+      active.readingView.setAttribute(SNAPPED_VIEW_ATTR, "1");
+      state.patchSettings({
+        customPanelWidthEnabled: false
+      });
+    } else {
+      active.readingView.removeAttribute(SNAPPED_VIEW_ATTR);
+      state.patchSettings({
+        customPanelWidthEnabled: true,
+        customPanelWidth: target.width
+      });
+    }
     deps.applyLayout();
-    notifyPanelWidthSync(width);
   };
 
   const flushPendingPreview = (active: ActiveResizeSession): void => {
@@ -117,15 +116,20 @@ export function bindPanelResizeHandle(
       scope.cancelAnimationFrame(active.rafId);
       active.rafId = 0;
     }
-    if (active.pendingWidth === null) {
+    if (!active.pendingTarget) {
       return;
     }
-    const nextWidth = active.pendingWidth;
-    active.pendingWidth = null;
-    if (nextWidth !== active.currentWidth || !active.moved) {
-      active.currentWidth = nextWidth;
+    const next = active.pendingTarget;
+    active.pendingTarget = null;
+    if (
+      next.snapped !== active.snappedToDefault ||
+      next.width !== active.currentWidth ||
+      !active.moved
+    ) {
+      active.snappedToDefault = next.snapped;
+      active.currentWidth = next.width;
       active.moved = true;
-      applyWidthPreview(nextWidth);
+      applyTargetPreview(active, next);
     }
   };
 
@@ -163,13 +167,18 @@ export function bindPanelResizeHandle(
     }
 
     if (commit) {
-      const finalWidth = active.currentWidth;
+      const settings = active.snappedToDefault
+        ? {
+            customPanelWidthEnabled: false,
+            customPanelWidth: DEFAULT_SETTINGS.customPanelWidth
+          }
+        : {
+            customPanelWidth: active.currentWidth,
+            customPanelWidthEnabled: true
+          };
       void sendRuntimeMessage({
         type: "save-settings",
-        settings: {
-          customPanelWidth: finalWidth,
-          customPanelWidthEnabled: true
-        }
+        settings
       }).catch((error) => {
         logWarn("[BILISCRIPT] failed to save resized panel width", error);
       });
@@ -181,7 +190,6 @@ export function bindPanelResizeHandle(
       customPanelWidth: active.prevWidth
     });
     deps.applyLayout();
-    notifyPanelWidthSync(active.prevWidth);
   };
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -205,6 +213,7 @@ export function bindPanelResizeHandle(
     event.stopPropagation();
 
     const startWidth = resolveStartWidth(readingView);
+    const snapWidth = deps.getSnapWidth?.() ?? null;
     const prevEnabled = state.settings?.customPanelWidthEnabled === true;
     const prevWidth = Number.isFinite(state.settings?.customPanelWidth)
       ? Math.round(state.settings.customPanelWidth)
@@ -216,10 +225,12 @@ export function bindPanelResizeHandle(
       readingView,
       startX: event.clientX,
       startWidth,
+      snapWidth,
       prevEnabled,
       prevWidth,
       currentWidth: startWidth,
-      pendingWidth: null,
+      snappedToDefault: !prevEnabled && snapWidth !== null && startWidth === snapWidth,
+      pendingTarget: null,
       rafId: 0,
       moved: false
     };
@@ -244,11 +255,18 @@ export function bindPanelResizeHandle(
     if (!active.moved && Math.abs(delta) < 1) {
       return;
     }
-    const nextWidth = clampWidth(active.startWidth + delta);
-    if (!active.moved && nextWidth === active.startWidth) {
+    const rawWidth = active.startWidth + delta;
+    const snapped =
+      active.snapWidth !== null &&
+      Math.abs(rawWidth - active.snapWidth) <= PANEL_RESIZE_SNAP_THRESHOLD_PX;
+    const next: ResizeTarget = snapped
+      ? { snapped: true, width: active.snapWidth! }
+      : { snapped: false, width: clampWidth(rawWidth) };
+
+    if (!active.moved && next.snapped === active.snappedToDefault && next.width === active.currentWidth) {
       return;
     }
-    active.pendingWidth = nextWidth;
+    active.pendingTarget = next;
     if (!active.rafId) {
       let ranSynchronously = false;
       const rafId = scope.requestAnimationFrame(() => {

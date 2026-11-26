@@ -20,7 +20,6 @@ const FESTIVAL_HEADER_GAP = 8;
 
 const ANCHOR_MIN_WIDTH = 280;
 const PANEL_MIN_WIDTH = 300;
-const DEFAULT_PANEL_TARGET_WIDTH = 540;
 export const MIN_PINNED_VIEWPORT_GUTTER = 320;
 
 export function getMaxPinnedPanelWidth(viewportRight = getViewportRightBound()): number {
@@ -143,6 +142,7 @@ export function openScriptHost(): void {
   bindScriptHostListeners(scope);
   bindPanelResizeHandle(scope, {
     getMaxWidth: () => getMaxPinnedPanelWidth(),
+    getSnapWidth: () => getDefaultPinnedPanelWidth(),
     applyLayout: () => applyScriptRect()
   });
   scope.setInterval(checkReanchor, REANCHOR_INTERVAL_MS);
@@ -449,13 +449,38 @@ function resolvePinnedTop(rawTop: number): number {
   return clampTopIntoViewport(effectiveTop);
 }
 
+function getDefaultPinnedPanelWidth(): number | null {
+  if (!canPinInViewport()) {
+    return null;
+  }
+  const right = getViewportRightBound();
+  const found = findScriptAnchor();
+  if (found?.rect) {
+    const left = Math.min(found.rect.left, right - CUSTOM_PANEL_WIDTH_MIN);
+    return Math.round(right - left);
+  }
+  if (!isYoutubeSite()) {
+    const playerRect = getPlayerRect();
+    if (playerRect) {
+      const available = right - (playerRect.right + PLAYER_GAP);
+      if (available >= PANEL_MIN_WIDTH) {
+        return Math.round(available);
+      }
+    }
+  }
+  return null;
+}
+
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
-  const rawWidth = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
-  const width = Math.min(rawWidth, getMaxPinnedPanelWidth(right));
-  const left = right - width;
+  const custom = getCustomPanelWidth();
   const top = resolvePinnedTop(rect.top);
-  return { left, top, width, height: window.innerHeight - top };
+  if (custom != null) {
+    const width = Math.min(custom, getMaxPinnedPanelWidth(right));
+    return { left: right - width, top, width, height: window.innerHeight - top };
+  }
+  const left = Math.min(rect.left, right - CUSTOM_PANEL_WIDTH_MIN);
+  return { left, top, width: right - left, height: window.innerHeight - top };
 }
 
 function getPlayerRect(): DOMRect | null {

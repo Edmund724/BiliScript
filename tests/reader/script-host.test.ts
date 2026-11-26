@@ -170,9 +170,9 @@ describe("script-host 锚点命中", () => {
     const el = readingView();
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     expect(vars(el)).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "80px",
-      width: "540px",
+      width: "400px",
       height: "688px"
     });
   });
@@ -184,18 +184,18 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
 
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
   });
 
-  it("可填宽度不足下限 380：左缘左移补足", async () => {
+  it("可填宽度不足下限 400：左缘左移补足", async () => {
     await loadModules();
     mountAnchor(".right-container-inner", makeRect(1640, 80, 280, 2000));
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "80px",
-      width: "540px",
+      width: "400px",
       height: "688px"
     });
   });
@@ -207,9 +207,9 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1360px",
+      left: "1500px",
       top: "80px",
-      width: "540px",
+      width: "400px",
       height: "688px"
     });
   });
@@ -220,9 +220,9 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "0px",
-      width: "540px",
+      width: "400px",
       height: "768px"
     });
     expect(anchor).toBeTruthy();
@@ -336,14 +336,14 @@ describe("script-host 降级链", () => {
 
     const el = readingView();
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
-    expect(vars(el).width).toBe("540px");
+    expect(vars(el).width).toBe("400px");
   });
 });
 
 describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
-  it("贴栏形态：显式自定义 400/960 生效，未自定义回默认 540，窄视口受动态留白上限钳制", async () => {
+  it("贴栏形态：显式自定义 400/960 生效，未自定义默认填满右侧，窄视口受动态留白上限钳制", async () => {
     await loadModules();
-    const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const anchor = mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
 
     coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 400 });
     scriptHost.openScriptHost();
@@ -360,10 +360,10 @@ describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
     expect(vars(readingView())).toMatchObject({ left: "320px", width: "680px" });
 
     window.innerWidth = 1920;
-    anchor.getBoundingClientRect = () => makeRect(1520, 80, 360, 2000) as DOMRect;
+    anchor.getBoundingClientRect = () => makeRect(1420, 80, 360, 2000) as DOMRect;
     coreState.state.patchSettings({ customPanelWidthEnabled: false, customPanelWidth: 460 });
     scriptHost.relayoutScriptHost();
-    expect(vars(readingView())).toMatchObject({ left: "1380px", width: "540px" });
+    expect(vars(readingView())).toMatchObject({ left: "1420px", width: "500px" });
     vi.restoreAllMocks();
   });
 
@@ -433,7 +433,7 @@ describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
 
       expect(readingView().getAttribute("data-biliscript-script-float")).toBe(floatAttr);
       if (floatAttr === null) {
-        expect(vars(readingView()).width).toBe("540px");
+        expect(vars(readingView()).width).toBe("480px");
       }
     }
   );
@@ -591,7 +591,7 @@ describe("script-host 重算时机", () => {
     await loadModules();
     const old = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
 
     old.getBoundingClientRect = () => makeRect(0, 0, 0, 0) as DOMRect;
     mountAnchor(".right-container", makeRect(1500, 100, 360, 1800));
@@ -611,7 +611,7 @@ describe("script-host 重算时机", () => {
     await loadModules();
     const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
 
     const rectSpy = vi.spyOn(anchor, "getBoundingClientRect");
     const querySpy = vi.spyOn(document, "querySelector");
@@ -621,9 +621,9 @@ describe("script-host 重算时机", () => {
     expect(querySpy).toHaveBeenCalledTimes(1);
     expect(rectSpy).toHaveBeenCalledTimes(1);
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "80px",
-      width: "540px",
+      width: "400px",
       height: "688px"
     });
     vi.useRealTimers();
@@ -641,7 +641,7 @@ describe("script-host 重算时机", () => {
     scriptHost.openScriptHost();
     expect(setIntervalSpy).not.toHaveBeenCalled();
 
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -702,7 +702,7 @@ describe("script-host close", () => {
     await loadModules();
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
 
     scriptHost.closeScriptHost();
 
@@ -725,7 +725,7 @@ describe("script-host close", () => {
 
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("400px");
   });
 
   it("未 open 时 close 是安全 no-op", async () => {
@@ -744,7 +744,7 @@ describe("script-host close", () => {
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     runRafSynchronously();
     window.dispatchEvent(new Event("resize"));
-    expect(vars(view).width).toBe("540px");
+    expect(vars(view).width).toBe("400px");
   });
 
   it("窄窗浮层 → 贴栏切换：重算后清浮层属性并写变量", async () => {
@@ -763,9 +763,9 @@ describe("script-host close", () => {
     window.dispatchEvent(new Event("resize"));
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     expect(vars(el)).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "80px",
-      width: "540px",
+      width: "400px",
       height: "688px"
     });
   });
@@ -783,9 +783,9 @@ describe("script-host 活动专题页顶边上移", () => {
     scriptHost.openScriptHost();
 
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1020px",
       top: "72px",
-      width: "540px",
+      width: "900px",
       height: "696px"
     });
   });
@@ -799,9 +799,9 @@ describe("script-host 活动专题页顶边上移", () => {
     scriptHost.openScriptHost();
 
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1020px",
       top: "0px",
-      width: "540px",
+      width: "900px",
       height: "768px"
     });
   });
@@ -867,9 +867,9 @@ describe("script-host 活动专题页顶边上移", () => {
     scriptHost.openScriptHost();
 
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1520px",
       top: "324px",
-      width: "540px",
+      width: "400px",
       height: "444px"
     });
   });
@@ -898,24 +898,21 @@ function makePointerEvent(
 }
 
 describe("script-host 左边缘拖拽改宽", () => {
-  it("贴栏形态向左拖动实时预览，松手后持久化并通知同步订阅者", async () => {
+  it("贴栏形态默认填满右侧，向左拖动实时预览，松手后持久化", async () => {
     await loadModules();
     runRafSynchronously();
-    const { subscribePanelWidthSync } = await import("../../extension/reader/panel-resize.js");
-    const syncedWidths: number[] = [];
-    const unsubscribe = subscribePanelWidthSync((w) => syncedWidths.push(w));
 
     const sendMessage = vi.fn((_msg, cb?: (resp: unknown) => void) => cb?.({ ok: true }));
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
 
-    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
     const handle = mountResizeHandle();
     readingView().classList.add("open");
 
     scriptHost.openScriptHost();
-    expect(vars(readingView())).toMatchObject({ left: "1380px", width: "540px" });
+    expect(vars(readingView())).toMatchObject({ left: "1420px", width: "500px" });
 
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380, button: 0, pointerId: 7 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420, button: 0, pointerId: 7 }));
     expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe("1");
     expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe("1");
 
@@ -923,7 +920,6 @@ describe("script-host 左边缘拖拽改宽", () => {
     expect(vars(readingView())).toMatchObject({ left: "1200px", width: "720px" });
     expect(coreState.state.settings.customPanelWidthEnabled).toBe(true);
     expect(coreState.state.settings.customPanelWidth).toBe(720);
-    expect(syncedWidths).toEqual([720]);
     expect(sendMessage).not.toHaveBeenCalled();
 
     window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1200, pointerId: 7 }));
@@ -937,11 +933,48 @@ describe("script-host 左边缘拖拽改宽", () => {
       },
       expect.any(Function)
     );
-
-    unsubscribe();
   });
 
-  it("播放器降级模式：默认填满空隙起步零跳动，向左拖动允许覆盖播放器", async () => {
+  it("拖拽靠近默认右侧对齐线（±12px）时吸附，松手恢复默认填满右侧", async () => {
+    await loadModules();
+    runRafSynchronously();
+    const sendMessage = vi.fn((_msg, cb?: (resp: unknown) => void) => cb?.({ ok: true }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 720 });
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1200px", width: "720px" });
+
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1200 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1412 }));
+    expect(vars(readingView())).toMatchObject({ left: "1420px", width: "500px" });
+    expect(readingView().getAttribute("data-biliscript-script-snapped")).toBe("1");
+    expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
+
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1412 }));
+    expect(readingView().getAttribute("data-biliscript-script-snapped")).toBe(null);
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: "save-settings",
+        settings: { customPanelWidthEnabled: false, customPanelWidth: 540 }
+      },
+      expect.any(Function)
+    );
+
+    sendMessage.mockClear();
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1412 }));
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1412 }));
+    expect(vars(readingView())).toMatchObject({ left: "1420px", width: "500px" });
+    expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("播放器降级模式：默认填满空隙起步零跳动，向左拖动允许覆盖播放器，拖回边缘吸附", async () => {
     await loadModules();
     runRafSynchronously();
     const sendMessage = vi.fn((_msg, cb?: (resp: unknown) => void) => cb?.({ ok: true }));
@@ -966,6 +999,19 @@ describe("script-host 左边缘拖拽改宽", () => {
       },
       expect.any(Function)
     );
+
+    sendMessage.mockClear();
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1312 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1502 }));
+    expect(vars(readingView())).toMatchObject({ left: "1512px", width: "408px" });
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1502 }));
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: "save-settings",
+        settings: { customPanelWidthEnabled: false, customPanelWidth: 540 }
+      },
+      expect.any(Function)
+    );
   });
 
   it("拖拽宽度受 400 下限、960 上限与视口 320px 留白动态上限钳制", async () => {
@@ -973,13 +1019,13 @@ describe("script-host 左边缘拖拽改宽", () => {
     runRafSynchronously();
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } });
 
-    const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const anchor = mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
     const handle = mountResizeHandle();
     readingView().classList.add("open");
 
     scriptHost.openScriptHost();
 
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420 }));
     window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1700 }));
     expect(vars(readingView())).toMatchObject({ left: "1520px", width: "400px" });
 
@@ -999,13 +1045,13 @@ describe("script-host 左边缘拖拽改宽", () => {
     const sendMessage = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
 
-    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
     const handle = mountResizeHandle();
     readingView().classList.add("open");
 
     scriptHost.openScriptHost();
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
-    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1380 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420 }));
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1420 }));
 
     expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
@@ -1017,22 +1063,22 @@ describe("script-host 左边缘拖拽改宽", () => {
     const sendMessage = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
 
-    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
     const handle = mountResizeHandle();
     readingView().classList.add("open");
 
     scriptHost.openScriptHost();
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420 }));
     window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1200 }));
     expect(vars(readingView()).width).toBe("720px");
 
     window.dispatchEvent(makePointerEvent("pointercancel", { clientX: 1200 }));
-    expect(vars(readingView()).width).toBe("540px");
+    expect(vars(readingView()).width).toBe("500px");
     expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe(null);
 
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420 }));
     expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe("1");
     scriptHost.closeScriptHost();
     expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe(null);
@@ -1051,9 +1097,9 @@ describe("script-host 左边缘拖拽改宽", () => {
     expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe(null);
 
     window.innerWidth = 1920;
-    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    mountAnchor(".right-container-inner", makeRect(1420, 80, 360, 2000));
     scriptHost.relayoutScriptHost();
-    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380, button: 2 }));
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1420, button: 2 }));
     expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe(null);
   });
 });
