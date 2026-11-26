@@ -95,7 +95,7 @@ describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设�
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-trigger\s*\{[^}]*height:\s*32px/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*min-height:\s*38px/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-wrapper\s*\{[^}]*position:\s*relative/);
-    expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*var\(--select-arrow-stroke-width,\s*2\)/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*var\(--select-arrow-stroke-width,\s*1\.75\)/);
   });
 
   it("搬走后设置表不重复声明，且同度量的模型弹层声明仍在场（两边渲染度量都不变）", () => {

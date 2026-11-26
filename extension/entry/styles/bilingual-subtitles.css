@@ -8,7 +8,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px;
+  padding: 8px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -36,7 +36,7 @@
 #biliscript-reading-view .biliscript-bilingual-cols {
   display: flex;
   flex: 1 1 auto;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
 }
@@ -83,7 +83,7 @@
 }
 
 #biliscript-reading-view .biliscript-bilingual-col-head {
-  padding: 2px 10px;
+  padding: 2px 12px;
   font-size: var(--biliscript-font-size-sm);
   line-height: 18px;
   color: var(--biliscript-reader-faint);
@@ -136,7 +136,7 @@
   box-sizing: border-box;
   min-height: 38px;
   max-width: 140px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: var(--biliscript-font-size-base);
   line-height: 30px;
   color: var(--biliscript-reader-faint);
@@ -147,7 +147,7 @@
 
 #biliscript-reading-view .biliscript-bilingual-hint {
   box-sizing: border-box;
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: var(--biliscript-font-size-sm);
   line-height: 18px;
   color: var(--biliscript-reader-faint);
@@ -161,7 +161,7 @@
   width: 100%;
   box-sizing: border-box;
   min-height: 38px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-panel));
   corner-shape: round;
@@ -192,7 +192,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 2px;
+  padding: 8px 12px 2px;
   border-top: 1px solid var(--biliscript-reader-border);
 }
 

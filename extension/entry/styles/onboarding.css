@@ -72,10 +72,15 @@ body.onboarding-page {
   -webkit-backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px) saturate(1.2));
 }
 
+:root[data-biliscript-onboarding="1"][data-palette="editorial"] .onboarding-topbar {
+  background: var(--biliscript-reader-topbar-bg);
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
 .onboarding-brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--biliscript-space-10);
+  gap: var(--biliscript-space-md);
   min-width: 0;
 }
 
@@ -99,7 +104,7 @@ body.onboarding-page {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   font-family: var(--biliscript-reader-font-mono);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   font-weight: 600;
 }
 
@@ -156,7 +161,7 @@ body.onboarding-page {
   align-items: center;
   width: fit-content;
   justify-self: start;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
@@ -356,7 +361,7 @@ body.onboarding-page {
 }
 
 .section-title {
-  margin: var(--biliscript-space-6) 0 0;
+  margin: var(--biliscript-space-sm) 0 0;
   font-family: var(--biliscript-reader-font-sans-medium);
   font-size: var(--biliscript-font-size-xl);
   font-weight: 700;
@@ -366,8 +371,8 @@ body.onboarding-page {
 .privacy-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: var(--biliscript-radius-pill);
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-card);
@@ -409,8 +414,8 @@ body.onboarding-page {
 .status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: 8px;
+  padding: 4px 12px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
@@ -636,7 +641,7 @@ body.onboarding-page {
 .onboarding-page .custom-select-arrow svg {
   width: 14px;
   height: 14px;
-  stroke-width: 2;
+  stroke-width: 1.75;
 }
 
 .onboarding-page .custom-select-trigger[aria-expanded="true"] .custom-select-arrow {
@@ -664,7 +669,7 @@ body.onboarding-page {
   max-height: 280px;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--biliscript-space-6, 6px);
+  padding: var(--biliscript-space-sm);
   margin: 0;
   list-style: none;
   border: 1px solid var(--biliscript-reader-border);
@@ -753,9 +758,9 @@ body.onboarding-page {
   box-sizing: border-box;
   width: 100%;
   position: sticky;
-  top: -6px;
+  top: -8px;
   z-index: 2;
-  padding: 2px 2px var(--biliscript-space-6, 6px);
+  padding: 2px 2px var(--biliscript-space-sm);
   background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-surface));
   border-bottom: 1px solid var(--biliscript-reader-border);
   list-style: none;
@@ -766,7 +771,7 @@ body.onboarding-page {
   box-sizing: border-box;
   width: 100%;
   height: 28px;
-  padding: 2px 10px;
+  padding: 2px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-pill);
   font: inherit;
@@ -795,7 +800,7 @@ body.onboarding-page {
   border-radius: var(--biliscript-radius-panel-inner, 10px);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
-  padding: 4px 10px;
+  padding: 4px 12px;
   text-align: start;
   font: inherit;
   font-size: var(--biliscript-font-size-base);
@@ -850,8 +855,8 @@ body.onboarding-page {
 .model-picker-count {
   box-sizing: border-box;
   width: 100%;
-  padding: 6px 10px 4px;
-  font-size: var(--biliscript-font-size-xs);
+  padding: 8px 12px 4px;
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
   border-top: 1px solid var(--biliscript-reader-border);
   margin-top: 4px;
@@ -861,7 +866,7 @@ body.onboarding-page {
 .key-visibility-btn {
   flex: 0 0 auto;
   height: 36px;
-  padding: 0 14px;
+  padding: 0 16px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-surface-2);
@@ -966,7 +971,7 @@ body.onboarding-page {
 
 .btn-cta {
   height: 42px;
-  padding: 0 22px;
+  padding: 0 24px;
 }
 
 .card-status {
@@ -1060,7 +1065,7 @@ body.onboarding-page {
 
 .cta-copy {
   display: grid;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
 }
 
 .cta-note {

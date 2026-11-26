@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { TRASH_ICON_PATHS } from "../../extension/ui/provider-row.js";
+import { UI_ICON_PATHS } from "../../extension/ui/icon-registry.js";
 
 const { sendRuntimeMessageMock } = vi.hoisted(() => ({
   sendRuntimeMessageMock: vi.fn()
@@ -37,11 +37,11 @@ const ASR_PRESETS = [
 ];
 
 const TRASH_PATHS = [
-  "M4 7h16",
-  "M9 3h6",
   "M10 11v6",
   "M14 11v6",
-  "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"
+  "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6",
+  "M3 6h18",
+  "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
 ];
 
 function makeContainer() {
@@ -122,7 +122,7 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(row.querySelectorAll("input")).toHaveLength(0);
     expect(row.querySelectorAll("select")).toHaveLength(0);
     expect(row.querySelector(".asr-provider-active-radio")).toBeNull();
-    expect(TRASH_ICON_PATHS).toContain('d="M4 7h16"');
+    expect(UI_ICON_PATHS.trash).toContain('d="M3 6h18"');
     expect(readTrashPaths(row)).toEqual(TRASH_PATHS);
 
     expect(allRows[1].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("saved");

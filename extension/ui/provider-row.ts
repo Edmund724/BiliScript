@@ -3,23 +3,10 @@ import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
+import { renderUiIcon } from "./icon-registry.js";
 import type { SearchProviderAccess } from "../core/presets.js";
 import type { AiCredentialStatus } from "../core/ai-credential-reference.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
-
-export const TRASH_ICON_PATHS: string = [
-  '<path d="M4 7h16"></path>',
-  '<path d="M9 3h6"></path>',
-  '<path d="M10 11v6"></path>',
-  '<path d="M14 11v6"></path>',
-  '<path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>'
-].join("");
-
-const DRAG_HANDLE_ICON_PATHS: string = [
-  '<circle cx="12" cy="6" r="1.7"></circle>',
-  '<circle cx="12" cy="12" r="1.7"></circle>',
-  '<circle cx="12" cy="18" r="1.7"></circle>'
-].join("");
 
 export type ProviderRowElement = HTMLElement;
 
@@ -302,7 +289,7 @@ export function createProviderRow({
             : "未保存 API Key";
       const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
       const dragHandle = dragHandleClass
-        ? `<button type="button" class="${dragHandleClass}" title="拖拽或按上下方向键调整搜索顺序" aria-label="调整 ${escapeHtml(nameText)} 搜索顺序"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${DRAG_HANDLE_ICON_PATHS}</svg></button>`
+        ? `<button type="button" class="${dragHandleClass}" title="拖拽或按上下方向键调整搜索顺序" aria-label="调整 ${escapeHtml(nameText)} 搜索顺序">${renderUiIcon("gripVertical")}</button>`
         : "";
       row.innerHTML = `
         <div class="provider-row-line">
@@ -312,7 +299,7 @@ export function createProviderRow({
           ${buildTailFields ? buildTailFields({ id, isActive }) : ""}
           <button type="button" class="${editClass}">编辑</button>
           <button type="button" class="${removeClass}" aria-label="删除" title="删除">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${TRASH_ICON_PATHS}</svg>
+            ${renderUiIcon("trash")}
           </button>
           ${dragHandle}
         </div>

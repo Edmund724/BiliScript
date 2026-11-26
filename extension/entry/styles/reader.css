@@ -6,7 +6,7 @@
   height: min(76vh, 860px);
   z-index: 2147483646;
   display: none;
-  padding: 20px 22px;
+  padding: 20px 24px;
   box-sizing: border-box;
   background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
   border: 1px solid var(--biliscript-reader-border, var(--biliscript-primitive-color-gray-300));
@@ -87,7 +87,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
   transition: opacity 200ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
@@ -109,11 +109,11 @@
   display: flex;
   align-items: center;
   align-self: flex-start;
-  gap: 10px;
+  gap: 12px;
   flex: 0 0 auto;
   flex-wrap: nowrap;
   justify-content: flex-end;
-  margin: -6px -6px 0 0;
+  margin: -4px -4px 0 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -242,8 +242,8 @@
 .biliscript-reading-script-panel .biliscript-reading-header {
   grid-row: 1;
   align-items: center;
-  padding: 14px 16px 10px;
-  gap: 10px;
+  padding: 16px 16px 12px;
+  gap: 12px;
 }
 
 .biliscript-reading-tabs-row {
@@ -253,7 +253,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 2px 6px 0;
+  margin: 2px 8px 0;
 }
 
 .biliscript-reading-tabs-tools {
@@ -337,7 +337,7 @@
   border: none;
   background: none;
   cursor: pointer;
-  padding: 7px 16px;
+  padding: 8px 16px;
   border-radius: var(--biliscript-radius-2xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   font-size: var(--biliscript-font-size-base);
@@ -374,8 +374,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin: 10px 14px 14px;
-  padding: 12px 14px;
+  margin: 12px 16px 16px;
+  padding: 12px 16px;
   background: var(--biliscript-reader-card);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -409,7 +409,7 @@
 .biliscript-reading-placeholder,
 .biliscript-reading-ov-empty-card {
   margin: auto 0;
-  padding: 26px 20px;
+  padding: 24px 20px;
   background: var(--biliscript-reader-glass-solid-bg, var(--biliscript-reader-card));
   border: none;
   border-radius: var(--biliscript-radius-xl);
@@ -423,7 +423,7 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .biliscript-reading-placeholder-copy {
@@ -452,7 +452,7 @@
   flex: 1;
   min-height: 0;
   margin: 0 auto;
-  padding: 6px 8px 12px;
+  padding: 8px 8px 12px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
@@ -534,7 +534,7 @@
   background: transparent;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 10px 12px;
+  padding: 12px 12px;
   text-align: left;
   color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
   cursor: pointer;
@@ -562,7 +562,7 @@
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   border-radius: var(--biliscript-radius-pill);
-  padding: 1px 7px;
+  padding: 1px 8px;
   white-space: nowrap;
   justify-self: start;
   align-self: start;
@@ -582,7 +582,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   padding: 16px 8px;
   line-height: 1.6;
   font-size: var(--biliscript-font-size-base);
@@ -608,7 +608,7 @@
     left: 12px;
     right: 12px;
     bottom: 12px;
-    padding: 18px;
+    padding: 16px;
   }
 }
 
@@ -634,7 +634,7 @@
 #biliscript-reading-view .biliscript-reading-panel {
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 14px 16px;
+  padding: 16px 16px;
   pointer-events: auto;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
@@ -672,7 +672,7 @@
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
-  padding: 1px 7px;
+  padding: 1px 8px;
   border-radius: var(--biliscript-radius-pill);
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
@@ -695,8 +695,8 @@
 
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-item {
-    gap: 10px;
-    padding: 10px 8px;
+    gap: 12px;
+    padding: 12px 8px;
   }
 }
 
@@ -712,7 +712,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-group {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
 .biliscript-reading-sub-toolbar {
@@ -721,7 +721,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .biliscript-reading-sub-toolbar .biliscript-reading-search {
@@ -735,11 +735,11 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 0 4px 0 10px;
+  padding: 0 4px 0 12px;
   background: var(--biliscript-reader-card);
 }
 
@@ -839,7 +839,7 @@
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-card);
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
-  padding: 6px 12px;
+  padding: 8px 12px;
   font-family: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   color: var(--biliscript-reader-muted);
@@ -898,7 +898,7 @@
 
 .biliscript-reading-subtitle-notice {
   flex: 0 0 auto;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: var(--biliscript-font-size-md);
   line-height: 1.4;
   color: var(--biliscript-reader-danger);
@@ -910,8 +910,8 @@
   background: var(--biliscript-reader-highlight);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 12px 14px;
-  margin-bottom: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
 }
 
 .biliscript-reading-asr-title {
@@ -926,7 +926,7 @@
   font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-muted);
-  margin: 0 0 10px;
+  margin: 0 0 12px;
 }
 
 .biliscript-reading-asr-track {
@@ -964,7 +964,7 @@
   justify-content: space-between;
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .biliscript-reading-main {
@@ -988,11 +988,11 @@
   transform: translateX(-50%);
   z-index: 6;
   border: 1px solid var(--biliscript-reader-border);
-  padding: 6px 14px;
+  padding: 8px 16px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
-  font-size: var(--btn-font-size, var(--biliscript-font-size-xs));
+  font-size: var(--btn-font-size, var(--biliscript-font-size-sm));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   line-height: 1.3;
@@ -1061,7 +1061,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 4px;
   max-width: calc(100% - 16px);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-pill);
@@ -1081,9 +1081,9 @@
   border: none;
   background: transparent;
   color: var(--biliscript-reader-text);
-  padding: 4px 9px;
+  padding: 4px 8px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   line-height: 1.3;
@@ -1124,11 +1124,11 @@
 .biliscript-reading-note-badge {
   flex: 0 0 auto;
   margin-left: auto;
-  padding: 1px 6px;
+  padding: 1px 8px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-  font-size: var(--biliscript-font-size-2xs);
+  font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   line-height: 1.5;
@@ -1188,7 +1188,7 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 12px 12px;
   border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
@@ -1234,8 +1234,8 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-cmd-status {
-  padding: 6px 14px;
-  font-size: var(--biliscript-font-size-xs);
+  padding: 8px 16px;
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   border-bottom: 1px solid var(--biliscript-reader-border);
@@ -1244,15 +1244,15 @@ dialog.biliscript-cmd-palette::backdrop {
 .biliscript-cmd-list {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .biliscript-cmd-group {
-  padding: 6px 8px 3px;
-  font-size: var(--biliscript-font-size-2xs);
+  padding: 8px 8px 4px;
+  font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-faint);
@@ -1263,8 +1263,8 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 10px;
+  gap: 12px;
+  padding: 8px 12px;
   border: none;
   border-radius: var(--biliscript-radius-md);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1295,7 +1295,7 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-cmd-item-title {
-  font-size: var(--biliscript-font-size-sm);
+  font-size: var(--biliscript-font-size-base);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   white-space: nowrap;
@@ -1304,7 +1304,7 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-cmd-item-sub {
-  font-size: var(--biliscript-font-size-2xs);
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1315,22 +1315,22 @@ dialog.biliscript-cmd-palette::backdrop {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .biliscript-cmd-badge {
-  padding: 1px 6px;
+  padding: 1px 8px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-  font-size: var(--biliscript-font-size-2xs);
+  font-size: var(--biliscript-font-size-sm);
   font-weight: 600;
 }
 
 .biliscript-cmd-kbds {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .biliscript-cmd-kbd {
@@ -1338,14 +1338,14 @@ dialog.biliscript-cmd-palette::backdrop {
   align-items: center;
   justify-content: center;
   min-width: 20px;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-family: var(--biliscript-reader-font-mono);
-  font-size: var(--biliscript-font-size-2xs);
+  font-size: var(--biliscript-font-size-sm);
   line-height: 1.4;
 }
 
@@ -1360,10 +1360,10 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface-2);
-  font-size: var(--biliscript-font-size-2xs);
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-muted);
 }
 
@@ -1413,7 +1413,7 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px 8px;
+  padding: 12px 16px 8px;
 }
 
 .biliscript-reading-explain-card-title {
@@ -1466,8 +1466,8 @@ dialog.biliscript-cmd-palette::backdrop {
   max-height: 68px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  margin: 0 0 10px;
-  padding: 10px 14px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
@@ -1480,7 +1480,7 @@ dialog.biliscript-cmd-palette::backdrop {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 14px 12px;
+  padding: 0 16px 12px;
   font-size: var(--biliscript-font-size-base);
   line-height: 1.75;
   color: var(--biliscript-reader-text);
@@ -1544,14 +1544,14 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 0 10px;
+  padding: 2px 0 12px;
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
 }
 
 .biliscript-reading-explain-card-state.is-error {
   display: block;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
   color: var(--biliscript-reader-danger);
   overflow-wrap: anywhere;
 }
@@ -1560,14 +1560,14 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .biliscript-reading-explain-card-skeleton {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 2px 0 6px;
+  padding: 2px 0 8px;
 }
 
 .biliscript-reading-explain-card-skeleton-line {
@@ -1601,7 +1601,7 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-reading-explain-card-notice {
-  padding-top: 10px;
+  padding-top: 12px;
   font-size: var(--biliscript-font-size-base);
   line-height: 1.5;
   color: var(--biliscript-reader-muted);
@@ -1627,7 +1627,7 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 0 14px 14px;
+  padding: 0 16px 16px;
 }
 
 .biliscript-md-mermaid[data-biliscript-mermaid="done"] .biliscript-md-mermaid-src {
@@ -1635,7 +1635,7 @@ dialog.biliscript-cmd-palette::backdrop {
 }
 
 .biliscript-md-mermaid-svg {
-  margin: 6px 0;
+  margin: 8px 0;
   overflow-x: auto;
 }
 
@@ -1659,7 +1659,7 @@ dialog.biliscript-cmd-palette::backdrop {
   background: var(--biliscript-reader-card);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 10px 12px;
+  padding: 12px 12px;
   margin-bottom: 8px;
 }
 
@@ -1671,7 +1671,7 @@ dialog.biliscript-cmd-palette::backdrop {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .biliscript-reading-chat-intent-title {
@@ -1714,7 +1714,7 @@ dialog.biliscript-cmd-palette::backdrop {
 
 .biliscript-reading-chat-intent-send:not([hidden]) {
   margin-left: auto;
-  padding: 2px 10px;
+  padding: 2px 12px;
 }
 
 .biliscript-reading-chat-intent-send:not([hidden]) + .biliscript-reading-chat-intent-cancel {
@@ -1733,7 +1733,7 @@ dialog.biliscript-cmd-palette::backdrop {
   flex: 1;
   min-height: 0;
   margin-inline: -12px;
-  padding: 6px 20px 12px 14px;
+  padding: 8px 20px 12px 16px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
@@ -1754,7 +1754,7 @@ dialog.biliscript-cmd-palette::backdrop {
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--biliscript-reader-faint);
-  margin-bottom: 9px;
+  margin-bottom: 8px;
 }
 
 .biliscript-reading-ov-badge {
@@ -1790,13 +1790,13 @@ dialog.biliscript-cmd-palette::backdrop {
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
   align-items: start;
   border: 1px solid transparent;
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 9px 10px;
+  padding: 8px 12px;
   margin-bottom: 8px;
   text-align: left;
   font-family: inherit;
@@ -1895,7 +1895,7 @@ dialog.biliscript-cmd-palette::backdrop {
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 10px 12px 8px;
+  padding: 12px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
   font-family: inherit;
@@ -1968,7 +1968,7 @@ dialog.biliscript-cmd-palette::backdrop {
 .biliscript-reading-ov-quote-seek {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .biliscript-reading-ov-quote-play {
@@ -2028,7 +2028,7 @@ dialog.biliscript-cmd-palette::backdrop {
   height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -2038,11 +2038,11 @@ dialog.biliscript-cmd-palette::backdrop {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 9px 12px;
+  padding: 8px 12px;
   margin-bottom: 12px;
 }
 
@@ -2078,7 +2078,7 @@ dialog.biliscript-cmd-palette::backdrop {
   background: var(--biliscript-reader-track, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
   border-radius: var(--biliscript-radius-pill);
   overflow: hidden;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .biliscript-reading-ov-fill {
@@ -2157,13 +2157,13 @@ dialog.biliscript-cmd-palette::backdrop {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 0 16px 14px;
+  padding: 0 16px 16px;
 }
 
 #biliscript-reading-view .confirm-dialog-cancel,
 #biliscript-reading-view .confirm-dialog-confirm {
   height: 32px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
@@ -2294,7 +2294,7 @@ math mo {
   align-items: baseline;
   flex: 0 1 auto;
   min-width: 0;
-  row-gap: 6px;
+  row-gap: 8px;
 }
 
 .biliscript-math-term {
@@ -2316,7 +2316,7 @@ math mo {
   flex-wrap: wrap !important;
   align-items: baseline;
   max-width: 100%;
-  row-gap: 6px;
+  row-gap: 8px;
   box-sizing: border-box;
 }
 
@@ -2384,7 +2384,7 @@ math mo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .biliscript-quote-share-title {
@@ -2436,7 +2436,7 @@ math mo {
   width: 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 8px;
   justify-content: center;
 }
@@ -2444,7 +2444,7 @@ math mo {
 .biliscript-quote-preset-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding: 4px 8px;
   border-radius: var(--biliscript-radius-md);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -2491,7 +2491,7 @@ math mo {
   width: 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 16px;
   justify-content: center;
 }
@@ -2500,7 +2500,7 @@ math mo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: var(--biliscript-radius-md);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 0;
@@ -2764,16 +2764,16 @@ math mo {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .biliscript-quote-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   height: 32px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   border: 0;
   background: transparent;
@@ -2951,7 +2951,7 @@ math mo {
   background: var(--biliscript-surface-elevated, var(--biliscript-reader-surface));
   color: var(--biliscript-reader-text);
   box-shadow: var(--biliscript-reader-shadow);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   line-height: 1.45;
   pointer-events: auto;
 }

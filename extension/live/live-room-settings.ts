@@ -18,6 +18,7 @@ import {
   animateTriggerExit,
   cancelTriggerExit
 } from "../ui/trigger-motion.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 
 export interface LiveRoomSettingsDeps {
   getState: () => LiveChatState;
@@ -77,7 +78,7 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
   dialog.setAttribute("data-biliscript-extension-node", "live-room-settings");
   dialog.setAttribute("aria-label", "伴看平台与密钥");
   dialog.innerHTML = `
-    <button type="button" class="biliscript-live-room-settings-close" aria-label="关闭伴看设置"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <button type="button" class="biliscript-live-room-settings-close" aria-label="关闭伴看设置">${renderUiIcon("close", { size: 16 })}</button>
     <div id="${ids.readingView}" class="biliscript-live-room-settings-view" data-theme="dark">
       <section id="${ids.readingSettingsPanel}" class="biliscript-reading-settings-panel">
         <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">

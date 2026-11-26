@@ -1,6 +1,7 @@
 import { getActiveReaderDocument } from "../../shared/active-host.js";
 import { resolveNodeDocument } from "../../shared/cross-doc.js";
 import { READING_CHEVRON_DOWN_ICON } from "../../ui/reading-icons.js";
+import { renderUiIcon } from "../../ui/icon-registry.js";
 import { formatClock } from "../../shared/clock-text.js";
 import { createChatImageViewButton, type ChatImageViewer } from "../chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "../protocol.js";
@@ -8,8 +9,7 @@ import type { ChatSearchSource, HistorySearchTurn } from "../search-sources.js";
 import type { SourcePreviewController } from "./source-preview.js";
 import type { ThinkingBufferController } from "./thinking-buffer.js";
 
-const THINKING_ICON_SVG =
-  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
+const THINKING_ICON_SVG = renderUiIcon("sparkle");
 
 function createChevronSpan(
   className: string,

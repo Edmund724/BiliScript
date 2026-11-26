@@ -5,6 +5,7 @@ import {
   animateTriggerExit,
   cancelTriggerExit
 } from "./trigger-motion.js";
+import { renderUiIcon } from "./icon-registry.js";
 
 export const TABLE_SHELL_CLASS = "biliscript-md-table";
 const TABLE_SCROLL_CLASS = "biliscript-md-table-scroll";
@@ -15,8 +16,8 @@ const TABLE_DIALOG_CLASS = "biliscript-md-table-dialog";
 const CARD_LONG_TEXT_CHARS = 40;
 const TABLE_CELL_LABEL_WIDE_CLASS = "biliscript-md-table-cell-label-wide";
 const CELL_WIDE_TEXT_CHARS = 16;
-const EXPAND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>';
-const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+const EXPAND_ICON = renderUiIcon("expand");
+const CLOSE_ICON = renderUiIcon("close");
 let activeDialog: HTMLDialogElement | null = null;
 
 onActiveHostChange(() => {

@@ -6,9 +6,9 @@ import {
   animateTriggerExit,
   cancelTriggerExit
 } from "../ui/trigger-motion.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 
-const CLOSE_ICON =
-  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+const CLOSE_ICON = renderUiIcon("close", { size: 16 });
 
 export interface ChatImageViewer {
   open(src: string, trigger: HTMLElement, alt?: string): void;

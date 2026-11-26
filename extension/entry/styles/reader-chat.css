@@ -10,16 +10,16 @@
 }
 
 .biliscript-reading-tab-body:has(> .biliscript-reading-chat) {
-  padding-top: 10px;
+  padding-top: 12px;
 }
 
 .biliscript-reading-chat .chat-thinking-row {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 4px 6px 2px;
+  padding: 4px 8px 2px;
   box-sizing: border-box;
   color: var(--biliscript-reader-text);
   font-size: var(--biliscript-font-size-sm);
@@ -28,7 +28,7 @@
 .biliscript-reading-chat .chat-thinking-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 24px;
   padding-right: 28px;
 }
@@ -79,7 +79,7 @@
   height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -302,7 +302,7 @@
 
 .biliscript-reading-chat .chat-thinking-hint {
   flex-basis: 100%;
-  padding: 0 6px;
+  padding: 0 8px;
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.4;
@@ -336,7 +336,7 @@
   height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -350,11 +350,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin-right: -14px;
-  padding: 12px 14px 8px 0;
+  margin-right: -16px;
+  padding: 12px 16px 8px 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   scroll-behavior: smooth;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
@@ -407,10 +407,10 @@
 }
 
 .biliscript-reading-chat .chat-hero-sugs {
-  margin-top: 26px;
+  margin-top: 24px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -447,7 +447,7 @@
   max-width: 94%;
   white-space: pre-wrap;
   word-wrap: break-word;
-  padding: 7px 11px;
+  padding: 8px 12px;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   line-height: var(--biliscript-chat-line-height, 1.6);
@@ -471,7 +471,7 @@
   max-width: 100%;
   white-space: pre-wrap;
   word-wrap: break-word;
-  padding: 7px 11px;
+  padding: 8px 12px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
   border: 1px solid var(--biliscript-reader-border);
@@ -513,7 +513,7 @@
   display: grid;
   grid-template-rows: max-content 1fr;
   transition: grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -536,7 +536,7 @@
 .biliscript-reading-chat .chat-thought-chain-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   padding: 0;
   border: 0;
@@ -623,7 +623,7 @@
 .biliscript-reading-chat .chat-thought-chain-steps {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .biliscript-reading-chat .chat-thought-step {
@@ -647,7 +647,7 @@
 .biliscript-reading-chat .chat-thought-step-dot {
   width: 7px;
   height: 7px;
-  margin-top: 6px;
+  margin-top: 8px;
   justify-self: center;
   border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-accent);
@@ -679,7 +679,7 @@
 .biliscript-reading-chat .chat-thought-step-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   font-size: var(--biliscript-font-size-sm);
 }
@@ -707,7 +707,7 @@
 .biliscript-reading-chat .chat-thought-step-meta {
   margin-left: auto;
   flex: none;
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   font-variant-numeric: tabular-nums;
   color: var(--biliscript-reader-faint);
 }
@@ -846,7 +846,7 @@
   height: var(--select-arrow-size, 14px);
   fill: none;
   stroke: currentColor;
-  stroke-width: var(--select-arrow-stroke-width, 2);
+  stroke-width: var(--select-arrow-stroke-width, 1.75);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -866,7 +866,7 @@
 .biliscript-reading-chat .chat-msg-actions {
   display: flex;
   justify-content: flex-start;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
 }
 
@@ -918,7 +918,7 @@
   height: 18px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1003,7 +1003,7 @@
 .biliscript-reading-chat .chat-msg-assistant h4,
 .biliscript-reading-chat .chat-msg-assistant h5,
 .biliscript-reading-chat .chat-msg-assistant h6 {
-  margin: 11px 0 5px;
+  margin: 12px 0 4px;
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   line-height: 1.4;
@@ -1090,7 +1090,7 @@
   position: absolute;
   z-index: 22;
   max-width: 300px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1116,12 +1116,12 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-timestamp-tooltip-hint {
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
 }
 
@@ -1132,7 +1132,7 @@
 }
 
 #biliscript-reading-view .markdown-body .biliscript-md-code {
-  margin: 6px 0 var(--biliscript-chat-paragraph-spacing, 12px);
+  margin: 8px 0 var(--biliscript-chat-paragraph-spacing, 12px);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1148,7 +1148,7 @@
   border-bottom: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
 }
 
 #biliscript-reading-view .markdown-body .biliscript-md-code-lang {
@@ -1196,7 +1196,7 @@
   height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1209,8 +1209,8 @@
 }
 
 #biliscript-reading-view .markdown-body pre {
-  margin: 6px 0 var(--biliscript-chat-paragraph-spacing, 12px);
-  padding: 10px 12px;
+  margin: 8px 0 var(--biliscript-chat-paragraph-spacing, 12px);
+  padding: 12px 12px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
@@ -1404,7 +1404,7 @@
     min-width: 0;
     max-width: none;
     position: relative;
-    padding: 6px 0 6px 6em;
+    padding: 8px 0 8px 6em;
   }
 
   #biliscript-reading-view .markdown-body .biliscript-md-table-cards table tbody td:has(> .biliscript-md-table-cell-label-wide) {
@@ -1479,9 +1479,9 @@
 .biliscript-reading-chat .chat-msg-cursor {
   display: inline-flex;
   align-items: center;
-  gap: 3.5px;
+  gap: 4px;
   height: 1.12em;
-  margin-left: 5px;
+  margin-left: 4px;
   vertical-align: -0.18em;
   animation: biliscript-chat-pulse-in 0.22s ease-out both;
 }
@@ -1518,7 +1518,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 8px 10px;
+  padding: 8px 12px;
   font-size: var(--biliscript-font-size-base);
 }
 
@@ -1541,7 +1541,7 @@
   text-align: center;
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
-  padding: 18px 16px;
+  padding: 16px 16px;
   line-height: 1.65;
 }
 
@@ -1560,7 +1560,7 @@
   top: 10px;
   z-index: 1;
   margin-bottom: 2px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1585,7 +1585,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .biliscript-reading-chat .chat-context-notice.is-success {
@@ -1628,7 +1628,7 @@
   display: inline-block;
   width: 12px;
   height: 12px;
-  margin-right: 6px;
+  margin-right: 8px;
   vertical-align: -2px;
   border: 2px solid var(--biliscript-reader-accent);
   border-top-color: transparent;
@@ -1642,8 +1642,8 @@
 
 .biliscript-reading-chat .chat-asr-notice {
   flex: 0 0 auto;
-  margin: 0 0 6px;
-  padding: 7px 10px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1663,9 +1663,9 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 10px;
-  margin: 0 0 6px;
-  padding: 7px 10px;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1717,12 +1717,12 @@
 .biliscript-reading-chat .chat-live-tool-records {
   flex: 0 0 100%;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   max-height: 220px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-top: 6px;
+  padding-top: 8px;
   border-top: 1px solid var(--biliscript-reader-border);
 }
 
@@ -1749,7 +1749,7 @@
 
 .biliscript-reading-chat .chat-live-tool-record {
   min-width: 0;
-  padding: 8px 9px;
+  padding: 8px 8px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1769,7 +1769,7 @@
   flex-wrap: wrap;
   gap: 4px 8px;
   color: var(--biliscript-reader-muted);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
 }
 
 .biliscript-reading-chat .chat-live-tool-record-status {
@@ -1789,7 +1789,7 @@
 .biliscript-reading-chat .chat-live-tool-record-objective,
 .biliscript-reading-chat .chat-live-tool-record-summary,
 .biliscript-reading-chat .chat-live-tool-record-error {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   overflow-wrap: anywhere;
 }
 
@@ -1811,9 +1811,9 @@
 }
 
 .biliscript-reading-chat .chat-live-tool-record-details {
-  margin-top: 7px;
+  margin-top: 8px;
   border-top: 1px solid var(--biliscript-reader-border);
-  padding-top: 5px;
+  padding-top: 4px;
 }
 
 .biliscript-reading-chat .chat-live-tool-record-details > summary {
@@ -1829,14 +1829,14 @@
 }
 
 .biliscript-reading-chat .chat-live-tool-record-markdown {
-  margin-top: 7px;
+  margin-top: 8px;
   font-size: var(--biliscript-font-size-sm);
 }
 
 .biliscript-reading-chat .chat-footer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 0 0;
   flex-shrink: 0;
   position: relative;
@@ -1886,7 +1886,7 @@
   height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1912,7 +1912,7 @@
   height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1976,8 +1976,8 @@
 .biliscript-reading-chat .chat-input-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 8px;
+  gap: 8px;
+  padding: 12px 12px 8px;
   border: 1px solid var(--chat-input-border, var(--biliscript-reader-border));
   border-radius: var(--chat-input-radius, var(--biliscript-radius-panel));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1992,7 +1992,7 @@
 .biliscript-reading-chat .chat-subtitle-wait {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
   line-height: 1.35;
@@ -2254,7 +2254,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   align-items: center;
   gap: 4px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 0;
   border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: transparent;
@@ -2298,7 +2298,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   height: var(--select-arrow-size, 14px);
   fill: none;
   stroke: var(--select-arrow-color, var(--biliscript-reader-faint));
-  stroke-width: var(--select-arrow-stroke-width, 2);
+  stroke-width: var(--select-arrow-stroke-width, 1.75);
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: transform 150ms ease-out;
@@ -2343,7 +2343,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -2354,6 +2354,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   display: none;
 }
 
+.biliscript-reading-chat .chat-send-btn .chat-stop-icon rect,
 .biliscript-reading-chat .chat-send-btn .chat-stop-icon-core {
   fill: currentColor;
   stroke: none;
@@ -2392,7 +2393,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   flex-direction: column;
   gap: 8px;
   max-height: min(430px, calc(100vh - 260px));
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -2516,7 +2517,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 }
 
 .biliscript-reading-chat .chat-model-group {
-  padding: 6px 8px 2px;
+  padding: 8px 8px 2px;
   color: var(--biliscript-reader-faint);
   font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
@@ -2529,7 +2530,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 8px 8px;
   border: 0;
   border-radius: var(--chat-model-option-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -2575,7 +2576,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--biliscript-reader-border);
 }
@@ -2624,7 +2625,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-history-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   padding-right: 12px;
   border-radius: var(--biliscript-radius-sm);
@@ -2699,18 +2700,18 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-history-meta-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .biliscript-reading-chat .chat-history-site {
   flex: 0 0 auto;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: var(--biliscript-radius-pill);
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   line-height: 1.5;
 }
 
@@ -2771,16 +2772,16 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-history-kind {
   flex: 0 0 auto;
   color: var(--biliscript-reader-accent);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
 }
 
 .biliscript-reading-chat .chat-history-current {
   flex: 0 0 auto;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-accent);
   color: var(--biliscript-reader-accent-ink);
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -2828,7 +2829,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 }
 
 .biliscript-reading-chat .chat-live-history-back {
-  padding: 6px 0;
+  padding: 8px 0;
   border: 0;
   background: transparent;
   color: var(--biliscript-reader-accent);
@@ -2839,7 +2840,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-live-history-heading {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   margin: 8px 0 12px;
 }
 
@@ -2892,13 +2893,13 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
-  padding: 8px 10px;
+  padding: 8px 12px;
 }
 
 #biliscript-reading-view .biliscript-reading-chat .chat-search-card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   padding: 0;
   border: 0;
@@ -2925,7 +2926,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   height: var(--select-arrow-size, 14px);
   fill: none;
   stroke: currentColor;
-  stroke-width: var(--select-arrow-stroke-width, 2);
+  stroke-width: var(--select-arrow-stroke-width, 1.75);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -2953,7 +2954,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 
 .biliscript-reading-chat .chat-search-card-query::before {
   content: "·";
-  margin-right: 5px;
+  margin-right: 4px;
 }
 
 .biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-steps,
@@ -2977,9 +2978,9 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-search-step {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;
-  gap: 7px;
+  gap: 8px;
   align-items: center;
-  padding: 5px 0;
+  padding: 4px 0;
   font-size: var(--biliscript-font-size-sm);
 }
 
@@ -3060,10 +3061,10 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-search-source-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 7px;
+  gap: 8px;
   align-items: baseline;
   width: 100%;
-  padding: 5px 0;
+  padding: 4px 0;
   border: 0;
   background: none;
   font: inherit;
@@ -3096,7 +3097,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   flex: 0 0 auto;
   font-size: var(--biliscript-font-size-sm);
   line-height: 1;
-  padding: 2px 5px;
+  padding: 2px 4px;
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   color: var(--biliscript-reader-accent);
@@ -3106,7 +3107,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 .biliscript-reading-chat .chat-search-sources-notice {
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
-  padding: 6px 0 2px;
+  padding: 8px 0 2px;
 }
 
 .biliscript-reading-chat .chat-cite {
@@ -3152,7 +3153,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   position: absolute;
   z-index: 20;
   max-width: 320px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -3170,7 +3171,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-text);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .biliscript-reading-chat .chat-search-preview-host {
@@ -3199,7 +3200,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 
 .biliscript-reading-chat .biliscript-md-math[data-streaming-open="true"] {
   min-height: 2.2em;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
@@ -3305,7 +3306,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   align-items: baseline;
   flex: 0 1 auto;
   min-width: 0;
-  row-gap: 6px;
+  row-gap: 8px;
 }
 
 .biliscript-reading-chat .biliscript-math-term {
@@ -3327,7 +3328,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   flex-wrap: wrap !important;
   align-items: baseline;
   max-width: 100%;
-  row-gap: 6px;
+  row-gap: 8px;
   box-sizing: border-box;
 }
 
@@ -3383,10 +3384,10 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 #biliscript-reading-view .biliscript-reading-chat-more-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   box-sizing: border-box;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 0;
   border-radius: var(--chat-more-item-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -3431,7 +3432,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-row {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-row[hidden] {
@@ -3454,12 +3455,12 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-badge {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 8px;
   font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;

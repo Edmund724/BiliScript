@@ -1,22 +1,9 @@
-:root {
-
-  --biliscript-primitive-font-size-10: 10px;
-  --biliscript-primitive-font-size-11: 11px;
-  --biliscript-primitive-font-size-12: 12px;
+:root {  --biliscript-primitive-font-size-12: 12px;
   --biliscript-primitive-font-size-14: 14px;
   --biliscript-primitive-font-size-16: 16px;
   --biliscript-primitive-font-size-18: 18px;
   --biliscript-primitive-font-size-20: 20px;
-  --biliscript-primitive-font-size-base: var(--biliscript-primitive-font-size-14);
-
-  --biliscript-primitive-radius-2: 2px;
-  --biliscript-primitive-radius-4: 4px;
-  --biliscript-primitive-radius-6: 6px;
-  --biliscript-primitive-radius-8: 8px;
-  --biliscript-primitive-radius-10: 10px;
-  --biliscript-primitive-radius-12: 12px;
-  --biliscript-primitive-radius-14: 14px;
-  --biliscript-primitive-radius-16: 16px;
+  --biliscript-primitive-font-size-base: var(--biliscript-primitive-font-size-14);  --biliscript-primitive-radius-4: 4px;  --biliscript-primitive-radius-8: 8px;  --biliscript-primitive-radius-12: 12px;  --biliscript-primitive-radius-16: 16px;
   --biliscript-primitive-radius-20: 20px;
   --biliscript-primitive-radius-24: 24px;
   --biliscript-primitive-radius-28: 28px;
@@ -25,13 +12,7 @@
   --biliscript-primitive-radius-circle: 50%;
   --biliscript-primitive-corner-shape-continuous: superellipse(1.25);
 
-  --biliscript-primitive-space-4: 4px;
-  --biliscript-primitive-space-6: 6px;
-  --biliscript-primitive-space-8: 8px;
-  --biliscript-primitive-space-10: 10px;
-  --biliscript-primitive-space-12: 12px;
-  --biliscript-primitive-space-14: 14px;
-  --biliscript-primitive-space-16: 16px;
+  --biliscript-primitive-space-4: 4px;  --biliscript-primitive-space-8: 8px;  --biliscript-primitive-space-12: 12px;  --biliscript-primitive-space-16: 16px;
   --biliscript-primitive-space-20: 20px;
   --biliscript-primitive-space-24: 24px;
   --biliscript-primitive-space-28: 28px;

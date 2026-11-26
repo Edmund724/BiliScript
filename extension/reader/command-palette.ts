@@ -23,6 +23,7 @@ import { ids, isReaderViewOpen } from "./state.js";
 import { activateScriptTab } from "./script-tab-activation.js";
 import { requestUiCommand } from "./reader-bus.js";
 import { jumpReadingTarget } from "./sync.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 import { ensureReaderShell } from "./lazy-shell.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
 import { isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -581,7 +582,7 @@ function ensurePaletteDom(): PaletteRuntime {
           spellcheck="false"
         />
         <button type="button" class="biliscript-cmd-close" aria-label="关闭命令面板" title="关闭（Esc）">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          ${renderUiIcon("close", { size: 16 })}
         </button>
       </div>
       <div class="biliscript-cmd-status" role="status" aria-live="polite" hidden></div>

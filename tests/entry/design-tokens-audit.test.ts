@@ -281,9 +281,19 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
   });
 
   describe("3. 全局字号缩放联动契约（--biliscript-reader-font-scale）", () => {
+    it("tokens-primitive.css 与 reader-gate.css 遵守 4px 栅格、圆角与 12px 最小字号契约", () => {
+      const primitiveCss = stripCssComments(readStyleFile("extension/entry/styles/tokens-primitive.css"));
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
+      expect(primitiveCss).not.toMatch(/--biliscript-primitive-space-(?:6|10|14)\b/);
+      expect(primitiveCss).not.toMatch(/--biliscript-primitive-font-size-(?:10|11)\b/);
+      expect(primitiveCss).not.toMatch(/--biliscript-primitive-radius-(?:2|6|10|14)\b/);
+      expect(gateCss).not.toMatch(/--biliscript-space-(?:6|10|14)\b/);
+      expect(gateCss).not.toMatch(/--biliscript-font-size-(?:2xs|xs)\b/);
+    });
+
     it("所有语义字阶令牌均挂接 --biliscript-reader-font-scale 进行等比缩放", () => {
       const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
-      const scaleTokens = ["2xs", "xs", "sm", "base", "md", "lg", "xl"];
+      const scaleTokens = ["sm", "base", "md", "lg", "xl"];
 
       for (const token of scaleTokens) {
         const regex = new RegExp(`--biliscript-font-size-${token}:\\s*calc\\(var\\(--biliscript-primitive-font-size-[^)]+\\)\\s*\\*\\s*var\\(--biliscript-reader-font-scale,\\s*1\\)\\);`);

@@ -23,6 +23,7 @@ import {
 } from "../shared/cross-doc.js";
 import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 import {
   SELECTED_PROVIDER_KEY,
   MODEL_OPTION_SEPARATOR,
@@ -676,10 +677,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
               ` data-level="${escapeHtml(defaultEntry.level)}"` +
               ` title="恢复默认（Default）" aria-label="恢复默认（Default）">` +
               `<span class="chat-thinking-btn-label" hidden>${escapeHtml(defaultEntry.label)}</span>` +
-              `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">` +
-              `<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>` +
-              `<path d="M3 3v5h5"></path>` +
-              `</svg>` +
+              renderUiIcon("reset") +
               `</button>`
           );
         }

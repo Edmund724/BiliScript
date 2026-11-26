@@ -83,7 +83,8 @@ body.grant-page {
 
 .grant-logo {
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: var(--biliscript-radius-sm, 8px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .grant-brand-title {
@@ -121,7 +122,7 @@ body.grant-page {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-6, 6px);
+  gap: var(--biliscript-space-sm);
 }
 
 .grant-origins::-webkit-scrollbar {

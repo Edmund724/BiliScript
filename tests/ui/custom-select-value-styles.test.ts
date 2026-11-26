@@ -251,9 +251,9 @@ describe("选项行文字纵向居中（行盒 = 内容盒 30px）", () => {
     );
   });
 
-  it("源码守卫：padding 4px 10px / min-height 38px / line-height 30px 三项同时在场", () => {
+  it("源码守卫：padding 4px 12px / min-height 38px / line-height 30px 三项同时在场", () => {
     const block = optionBlock();
-    expect(block, "选项行左右 padding 是 10 号票定的度量，不得为居中而改").toMatch(/padding:\s*4px 10px/);
+    expect(block, "选项行左右 padding 是 4px 栅格统一度量，不得为居中而改").toMatch(/padding:\s*4px 12px/);
     expect(block, "行高 38px 是既有度量，不得为居中而改").toMatch(/min-height:\s*38px/);
     expect(block, "缺 line-height 即回到「文字偏上」的旧形态").toMatch(/line-height:\s*30px/);
   });
@@ -283,8 +283,8 @@ describe("弹层横向溢出（选项行盒子宽于弹层内容盒）", () => {
     expect(optionBlock, ".custom-select-option 规则块未找到").not.toBeNull();
     expect(optionBlock![0]).toMatch(/box-sizing:\s*border-box/);
     expect(optionBlock![0]).toMatch(/width:\s*100%/);
-    expect(optionBlock![0], "选项行左右 padding 是 10 号票定的度量，不得为消溢出而改").toMatch(
-      /padding:\s*4px 10px/
+    expect(optionBlock![0], "选项行左右 padding 是 4px 栅格统一度量，不得为消溢出而改").toMatch(
+      /padding:\s*4px 12px/
     );
     expect(optionBlock![0], "min-height 必须记边框盒数（内容 30 + 上下 padding 8 = 38）").toMatch(
       /min-height:\s*38px/

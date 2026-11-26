@@ -1,6 +1,7 @@
 import { ids } from "./state.js";
 import { state } from "../core/state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { getSiteCapabilities, type SiteId } from "../shared/site.js";
 
@@ -11,9 +12,7 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
         <section id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>
           <div class="chat-history-popover-head">
             <button id="${ids.readingChatHistoryBackBtn}" type="button" class="chat-icon-btn" title="返回对话" aria-label="返回对话">
-              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                <path d="m15 18-6-6 6-6"></path>
-              </svg>
+              ${renderUiIcon("chevronLeft")}
             </button>
             <span class="chat-history-popover-title">历史记录</span>
             <button id="${ids.readingChatHistoryClearBtn}" type="button" class="chat-history-clear-btn">清空全部</button>
@@ -94,18 +93,9 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
                 </div>
               </div>
               <button id="${ids.readingChatSendBtn}" type="button" class="${liveEnabled ? "chat-send-btn is-live" : "chat-send-btn"}" aria-label="${liveEnabled ? "开启实时伴看" : "发送"}"${liveEnabled ? ' title="开启实时伴看"' : " disabled"}>
-                <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path d="M12 19V5"></path>
-                  <path d="m5 12 7-7 7 7"></path>
-                </svg>
-                <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
-                </svg>
-                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                  <line x1="12" y1="19" x2="12" y2="22"></line>
-                </svg>
+                ${renderUiIcon("arrowUp", { className: "chat-send-icon" })}
+                ${renderUiIcon("stop", { className: "chat-stop-icon", fill: "currentColor" })}
+                ${renderUiIcon("mic", { className: "chat-live-icon" })}
                 <svg class="chat-spinner-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 16" stroke-linecap="round"></circle>
                 </svg>

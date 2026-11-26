@@ -1,5 +1,6 @@
 import { READING_HEADER_ICONS } from "../../reading-header-icons.js";
 import { READING_RESET_ICON } from "../../reading-icons.js";
+import { renderUiIcon } from "../../icon-registry.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   type ChatDisplaySettingKey
@@ -22,8 +23,8 @@ export function buildSettingsChatDisplayRowHtml(
           </div>`;
 }
 
-export const CHEVRON_RIGHT_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
-export const EXTERNAL_LINK_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+export const CHEVRON_RIGHT_SVG = renderUiIcon("chevronRight", { className: "biliscript-entry-chevron", size: 16 });
+export const EXTERNAL_LINK_SVG = renderUiIcon("externalLink", { className: "biliscript-entry-chevron", size: 16 });
 
 export function buildSettingsNavBarHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;

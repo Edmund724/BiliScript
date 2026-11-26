@@ -250,7 +250,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-toggle-row,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-hint {
-  padding: var(--biliscript-space-10) var(--biliscript-space-14);
+  padding: var(--biliscript-space-md) var(--biliscript-space-lg);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row {
@@ -286,7 +286,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -296,7 +296,7 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub {
-  font-size: var(--biliscript-font-size-xs);
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-muted);
   overflow-wrap: anywhere;
   text-wrap: pretty;
@@ -308,7 +308,7 @@
   display: inline-block;
   width: 5px;
   height: 5px;
-  margin-right: 5px;
+  margin-right: 4px;
   border-radius: var(--biliscript-radius-circle, 50%);
   background: var(--biliscript-primitive-color-amber-500);
   vertical-align: 1px;
@@ -323,7 +323,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: var(--biliscript-space-10) var(--biliscript-space-14);
+  padding: var(--biliscript-space-md) var(--biliscript-space-lg);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-textarea:focus {
@@ -341,7 +341,7 @@
   border-radius: 0;
   background: transparent;
   height: 36px;
-  padding: 0 var(--biliscript-space-14);
+  padding: 0 var(--biliscript-space-lg);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input:not(:last-child) {
@@ -412,12 +412,12 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--biliscript-space-sm);
-  padding: var(--biliscript-space-10) var(--biliscript-space-14);
+  padding: var(--biliscript-space-md) var(--biliscript-space-lg);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .search-chain-footer-bar .add-property-btn {
   height: 28px;
-  padding: 0 var(--biliscript-space-10);
+  padding: 0 var(--biliscript-space-md);
   border: 1px solid transparent;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-card);
@@ -468,7 +468,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row {
   display: grid;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-label {
@@ -519,7 +519,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea {
   width: 100%;
   min-height: 66px;
-  padding: var(--biliscript-space-sm) var(--biliscript-space-10);
+  padding: var(--biliscript-space-sm) var(--biliscript-space-md);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-lg);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -550,7 +550,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 8px;
   margin: 0;
   font-size: var(--biliscript-font-size-base);
   line-height: 1.45;
@@ -579,7 +579,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--biliscript-space-10);
+  gap: var(--biliscript-space-md);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-actions > button {
@@ -588,7 +588,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn {
   height: 32px;
-  padding: 0 var(--biliscript-space-14);
+  padding: 0 var(--biliscript-space-lg);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;

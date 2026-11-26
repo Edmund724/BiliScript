@@ -30,10 +30,9 @@ describe("Semantic Tokens: reader-gate.css 语义层契约", () => {
       expect(baseBlock).toContain("--biliscript-radius-xl: var(--biliscript-primitive-radius-20)");
     });
 
-    it("规范联动 --biliscript-reader-font-scale 的完整 6 档字阶语义变量", () => {
+    it("规范联动 --biliscript-reader-font-scale 的完整 5 档字阶语义变量", () => {
       const baseBlock = FLYME_LIGHT();
 
-      expect(baseBlock).toMatch(/--biliscript-font-size-xs:\s*calc\(var\(--biliscript-primitive-font-size-(?:11|xs)\)\s*\*\s*var\(--biliscript-reader-font-scale,\s*1\)\)/);
       expect(baseBlock).toMatch(/--biliscript-font-size-sm:\s*calc\(var\(--biliscript-primitive-font-size-(?:12|sm)\)\s*\*\s*var\(--biliscript-reader-font-scale,\s*1\)\)/);
       expect(baseBlock).toMatch(/--biliscript-font-size-base:\s*calc\(var\(--biliscript-primitive-font-size-(?:14|base)\)\s*\*\s*var\(--biliscript-reader-font-scale,\s*1\)\)/);
       expect(baseBlock).toMatch(/--biliscript-font-size-md:\s*calc\(var\(--biliscript-primitive-font-size-(?:16|md)\)\s*\*\s*var\(--biliscript-reader-font-scale,\s*1\)\)/);
@@ -113,6 +112,7 @@ describe("Semantic Tokens: reader-gate.css 语义层契约", () => {
       expect(block).toContain("--biliscript-reader-surface-2: var(--biliscript-primitive-color-paper-100)");
       expect(block).toContain("--biliscript-reader-surface-3: var(--biliscript-primitive-color-paper-200)");
       expect(block).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-paper-100)");
+      expect(block).toContain("--biliscript-reader-card-highlight: none");
       expect(block).toContain("--biliscript-reader-border: var(--biliscript-primitive-color-paper-300)");
       expect(block).toContain("--biliscript-reader-text: var(--biliscript-primitive-color-paper-950)");
       expect(block).toContain("--biliscript-reader-muted: var(--biliscript-primitive-color-paper-600)");
@@ -130,6 +130,7 @@ describe("Semantic Tokens: reader-gate.css 语义层契约", () => {
       expect(block).toContain("--biliscript-reader-surface-2: var(--biliscript-primitive-color-charcoal-900)");
       expect(block).toContain("--biliscript-reader-surface-3: var(--biliscript-primitive-color-charcoal-800)");
       expect(block).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-charcoal-900)");
+      expect(block).toContain("--biliscript-reader-card-highlight: none");
       expect(block).toContain("--biliscript-reader-border: var(--biliscript-primitive-color-charcoal-700)");
       expect(block).toContain("--biliscript-reader-text: var(--biliscript-primitive-color-charcoal-100)");
       expect(block).toContain("--biliscript-reader-muted: var(--biliscript-primitive-color-charcoal-400)");

@@ -25,6 +25,7 @@ import {
   cancelTriggerExit,
   captureTriggerRect
 } from "../ui/trigger-motion.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 
 import {
   resolveLiveFailureActions,
@@ -314,33 +315,17 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             <span class="live-overlay-status-text">正在伴看</span>
           </div>
           <button type="button" class="live-overlay-icon-btn live-overlay-header-settings-btn" title="伴看平台与密钥" aria-label="伴看平台与密钥">
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
+            ${renderUiIcon("settings", { size: 16 })}
           </button>
         </div>
         <div class="live-overlay-header-actions">
           <button type="button" class="live-overlay-icon-btn live-overlay-mic-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
-            <svg aria-hidden="true" focusable="false" class="live-overlay-icon-mic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="22"></line>
-            </svg>
-            <svg aria-hidden="true" focusable="false" class="live-overlay-icon-mic-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="1" y1="1" x2="23" y2="23"></line>
-              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
-              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
-              <line x1="12" y1="19" x2="12" y2="22"></line>
-            </svg>
+            ${renderUiIcon("mic", { className: "live-overlay-icon-mic", size: 16 })}
+            ${renderUiIcon("micOff", { className: "live-overlay-icon-mic-off", size: 16 })}
           </button>
           <div class="live-overlay-audio-anchor">
             <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="音频设置" aria-label="音频设置" aria-expanded="false" aria-controls="biliscript-live-audio-popover">
-              <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-              </svg>
+              ${renderUiIcon("speaker", { size: 16 })}
             </button>
             <div id="biliscript-live-audio-popover" class="live-overlay-audio-popover" popover="manual" hidden>
               <div class="live-overlay-output-controls">
@@ -371,15 +356,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             </div>
           </div>
           <button type="button" class="live-overlay-icon-btn live-overlay-min-btn" title="最小化伴看浮窗" aria-label="最小化伴看浮窗" aria-expanded="true" aria-controls="biliscript-fullscreen-live-overlay">
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
+            ${renderUiIcon("minimize", { size: 16 })}
           </button>
           <button type="button" class="live-overlay-icon-btn live-overlay-close-btn" title="关闭伴看" aria-label="关闭伴看">
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
+            ${renderUiIcon("close", { size: 16 })}
           </button>
         </div>
       </div>
@@ -395,9 +375,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         </div>
         <div class="live-overlay-messages"></div>
         <button type="button" class="live-overlay-scroll-bottom-btn" title="回到底部" aria-label="回到底部" hidden>
-          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
+          ${renderUiIcon("chevronDown", { size: 14 })}
         </button>
       </div>
     `;
@@ -415,11 +393,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       <span class="live-overlay-status-dot" aria-hidden="true"></span>
       <span class="live-overlay-mini-status-text">正在伴看</span>
       <span class="live-overlay-mini-mic-text">麦克风已开启</span>
-      <svg aria-hidden="true" focusable="false" class="live-overlay-mini-mic-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-        <line x1="12" x2="12" y1="19" y2="22"/>
-      </svg>
+      ${renderUiIcon("mic", { className: "live-overlay-mini-mic-icon", size: 14 })}
     `;
 
     host.appendChild(overlay);

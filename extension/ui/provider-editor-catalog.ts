@@ -1,7 +1,7 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
-import { TRASH_ICON_PATHS } from "./provider-row.js";
+import { renderUiIcon } from "./icon-registry.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { captureSession, editDraft, getDialog, runIfCurrent, state } from "./provider-editor-state.js";
 import { isSavedKeyReconfirmRequired, renderProjection } from "./provider-editor-projection.js";
@@ -140,7 +140,7 @@ export function modelRowHtml(value: string): string {
       <span class="provider-editor-model-result" data-state="idle" hidden></span>
       <button type="button" class="provider-editor-model-test" data-provider-editor-action="test-model" title="用该行模型 ID 测试连通性">测试</button>
       <button type="button" class="provider-editor-model-remove" data-provider-editor-action="remove-model" aria-label="删除该模型" title="删除该模型">
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${TRASH_ICON_PATHS}</svg>
+        ${renderUiIcon("trash")}
       </button>
     </div>`;
 }

@@ -194,6 +194,9 @@ importers:
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
+      lucide-static:
+        specifier: ^1.79.0
+        version: 1.79.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1260,6 +1263,9 @@ packages:
   lru-cache@11.5.2:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
     engines: {node: 20 || >=22}
+
+  lucide-static@1.79.0:
+    resolution: {integrity: sha512-1Oq9qzywx2Sa16LRGju97VvqSMBxq2R9GtBWYW4sfX+qpNJRLNLJq2wWvA4NODfdgknHOJBkqhjxpFRlvXehLg==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -2462,6 +2468,8 @@ snapshots:
   lodash-es@4.18.1: {}
 
   lru-cache@11.5.2: {}
+
+  lucide-static@1.79.0: {}
 
   magic-string@0.30.21:
     dependencies:

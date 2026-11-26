@@ -53,7 +53,7 @@
 .biliscript-interpret-subtitle-translation {
   box-sizing: border-box;
   max-width: 100%;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.68);

@@ -50,7 +50,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--biliscript-space-md);
-  padding: var(--biliscript-space-14) var(--biliscript-space-lg) var(--biliscript-space-10);
+  padding: var(--biliscript-space-md) var(--biliscript-space-lg);
   border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
@@ -63,7 +63,7 @@
 
 #biliscript-reading-view .provider-editor-delete {
   min-height: 32px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-14);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-danger-soft);
@@ -98,12 +98,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--biliscript-space-md);
-  padding: var(--biliscript-space-14) 18px;
+  padding: var(--biliscript-space-lg);
 }
 
 #biliscript-reading-view .provider-editor-context-banner {
   margin: 0;
-  padding: var(--biliscript-space-sm) var(--biliscript-space-10);
+  padding: var(--biliscript-space-sm) var(--biliscript-space-md);
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
@@ -188,7 +188,7 @@
 #biliscript-reading-view .provider-editor-dialog .ai-provider-model-wrapper .provider-editor-model {
   flex: 1;
   min-width: 0;
-  padding-right: 30px !important;
+  padding-right: 32px !important;
 }
 
 #biliscript-reading-view .provider-editor-testrow {
@@ -275,7 +275,7 @@
   flex-wrap: wrap;
   gap: var(--biliscript-space-sm);
   min-width: 0;
-  padding: var(--biliscript-space-10) var(--biliscript-space-sm);
+  padding: var(--biliscript-space-md) var(--biliscript-space-sm);
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
@@ -298,7 +298,7 @@
 #biliscript-reading-view .provider-editor-linked-credential-btn {
   flex: 0 0 auto;
   min-height: 32px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-14);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-accent-soft);
@@ -331,13 +331,13 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: var(--biliscript-space-sm);
-  padding: var(--biliscript-space-10) var(--biliscript-space-lg) var(--biliscript-space-14);
+  padding: var(--biliscript-space-md) var(--biliscript-space-lg) var(--biliscript-space-lg);
   border-top: 1px solid var(--biliscript-reader-border);
 }
 
 #biliscript-reading-view .provider-editor-cancel {
   min-height: 32px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-14);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
@@ -430,7 +430,7 @@
 #biliscript-reading-view .provider-editor-model-list {
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
   min-width: 0;
 }
 
@@ -438,7 +438,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
   min-width: 0;
 }
 
@@ -511,7 +511,7 @@
 
 #biliscript-reading-view .provider-editor-model-result[data-unsaved="true"]::after {
   content: "未保存";
-  padding-left: 3px;
+  padding-left: 4px;
   font-size: var(--biliscript-font-size-sm);
   font-weight: 400;
   color: var(--biliscript-reader-faint);
@@ -602,7 +602,7 @@
   height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -642,7 +642,7 @@
 #biliscript-reading-view .provider-editor-model-add {
   align-self: flex-start;
   min-height: 32px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-14);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
@@ -681,8 +681,8 @@
   inset: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-10);
-  padding: var(--biliscript-space-14) var(--biliscript-space-lg);
+  gap: var(--biliscript-space-md);
+  padding: var(--biliscript-space-lg);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface);
@@ -707,7 +707,7 @@
 #biliscript-reading-view .provider-editor-fetch-back {
   flex: 0 0 auto;
   min-height: 28px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-10);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
@@ -776,7 +776,7 @@
 #biliscript-reading-view .provider-editor-fetch-all-row {
   display: flex;
   align-items: center;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -798,7 +798,7 @@
   overscroll-behavior: contain;
   list-style: none;
   margin: 0;
-  padding: var(--biliscript-space-6);
+  padding: var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -821,7 +821,7 @@
   align-items: center;
   gap: var(--biliscript-space-sm);
   min-height: 30px;
-  padding: 0 var(--biliscript-space-6);
+  padding: 0 var(--biliscript-space-sm);
   border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
@@ -835,7 +835,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-sm);
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-text);
   cursor: pointer;
@@ -858,7 +858,7 @@
 }
 
 #biliscript-reading-view .provider-editor-fetch-message {
-  padding: var(--biliscript-space-xs) var(--biliscript-space-10);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
 }
@@ -887,7 +887,7 @@
 
 #biliscript-reading-view .provider-editor-fetch-retry {
   min-height: 28px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-10);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   margin-left: var(--biliscript-space-xs);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
@@ -925,7 +925,7 @@
 
 #biliscript-reading-view .provider-editor-fetch-cancel {
   min-height: 32px;
-  padding: var(--biliscript-space-xs) var(--biliscript-space-14);
+  padding: var(--biliscript-space-xs) var(--biliscript-space-md);
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;

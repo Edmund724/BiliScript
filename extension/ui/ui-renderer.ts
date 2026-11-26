@@ -13,6 +13,7 @@ import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
+import { renderUiIcon } from "./icon-registry.js";
 import { themeButtonView } from "./theme-button.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
@@ -113,28 +114,16 @@ export function buildUiHtml(): string {
               </div>
               <div class="biliscript-reading-tabs-tools">
                 <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="true" aria-controls="${ids.readingChatMoreMenu}" aria-expanded="false">
-                  <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true">
-                    <circle cx="12" cy="5" r="1.75"></circle>
-                    <circle cx="12" cy="12" r="1.75"></circle>
-                    <circle cx="12" cy="19" r="1.75"></circle>
-                  </svg>
+                  ${renderUiIcon("moreVertical")}
                 </button>
                 <div id="${ids.readingChatMoreMenu}" class="biliscript-reading-chat-more-menu" hidden>
                   <div class="biliscript-reading-chat-more-actions">
                     <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-chat-more-item">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                        <path d="M5.87 16.44A8.2 8.2 0 1 1 10.73 19.86L3.11 19.86 5.87 16.44Z"></path>
-                        <path d="M12.7 8.7v6.4"></path>
-                        <path d="M9.5 11.9h6.4"></path>
-                      </svg>
+                      ${renderUiIcon("newChat")}
                       <span>开启新会话</span>
                     </button>
                     <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-chat-more-item">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                        <path d="M3 3v5h5"></path>
-                        <path d="M12 7v5l4 2"></path>
-                      </svg>
+                      ${renderUiIcon("history")}
                       <span>历史对话</span>
                     </button>
                   </div>

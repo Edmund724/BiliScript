@@ -142,10 +142,7 @@ body[data-biliscript-reader-mode="1"],
 :root[data-biliscript-onboarding="1"],
 #biliscript-reading-view {
 
-  --biliscript-reader-font-scale: 1;
-  --biliscript-font-size-2xs: calc(var(--biliscript-primitive-font-size-10) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-xs: calc(var(--biliscript-primitive-font-size-11) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-sm: calc(var(--biliscript-primitive-font-size-12) * var(--biliscript-reader-font-scale, 1));
+  --biliscript-reader-font-scale: 1;  --biliscript-font-size-sm: calc(var(--biliscript-primitive-font-size-12) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-base: calc(var(--biliscript-primitive-font-size-14) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-md: calc(var(--biliscript-primitive-font-size-16) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-lg: calc(var(--biliscript-primitive-font-size-18) * var(--biliscript-reader-font-scale, 1));
@@ -170,13 +167,7 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-radius-circle: var(--biliscript-primitive-radius-circle);
   --biliscript-corner-shape: var(--biliscript-primitive-corner-shape-continuous);
 
-  --biliscript-space-xs: var(--biliscript-primitive-space-4);
-  --biliscript-space-6: var(--biliscript-primitive-space-6);
-  --biliscript-space-sm: var(--biliscript-primitive-space-8);
-  --biliscript-space-10: var(--biliscript-primitive-space-10);
-  --biliscript-space-md: var(--biliscript-primitive-space-12);
-  --biliscript-space-14: var(--biliscript-primitive-space-14);
-  --biliscript-space-lg: var(--biliscript-primitive-space-16);
+  --biliscript-space-xs: var(--biliscript-primitive-space-4);  --biliscript-space-sm: var(--biliscript-primitive-space-8);  --biliscript-space-md: var(--biliscript-primitive-space-12);  --biliscript-space-lg: var(--biliscript-primitive-space-16);
   --biliscript-space-xl: var(--biliscript-primitive-space-20);
   --biliscript-space-2xl: var(--biliscript-primitive-space-24);
   --biliscript-space-3xl: var(--biliscript-primitive-space-28);
@@ -310,7 +301,7 @@ body[data-biliscript-reader-mode="1"],
   --chat-input-border: var(--biliscript-reader-border);
   --chat-input-radius: var(--biliscript-radius-panel);
   --chat-input-inner-radius: max(0px, calc(var(--chat-input-radius) - 11px));
-  --chat-input-pad: 10px 10px 8px;
+  --chat-input-pad: 12px 12px 8px;
   --chat-input-font-size: var(--biliscript-font-size-base);
   --chat-input-line-height: var(--biliscript-chat-line-height, 1.6);
   --chat-input-focus-border: var(--biliscript-reader-accent);
@@ -341,7 +332,7 @@ body[data-biliscript-reader-mode="1"],
   --select-search-font-size: var(--biliscript-font-size-sm);
   --select-arrow-color: var(--biliscript-reader-faint);
   --select-arrow-size: 14px;
-  --select-arrow-stroke-width: 2;
+  --select-arrow-stroke-width: 1.75;
 
   --toggle-track-width: 40px;
   --toggle-track-height: 24px;
@@ -449,6 +440,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
   --biliscript-reader-surface-3: var(--biliscript-primitive-color-paper-200);
   --biliscript-reader-fill-hover: rgba(var(--biliscript-primitive-color-paper-hover-rgb), 0.07);
   --biliscript-reader-card: var(--biliscript-primitive-color-paper-100);
+  --biliscript-reader-card-highlight: none;
   --biliscript-reader-popover-bg: var(--biliscript-primitive-surface-paper-elevated);
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-paper-shadow-rgb), 0.14);
   --biliscript-reader-border: var(--biliscript-primitive-color-paper-300);
@@ -488,6 +480,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-
   --biliscript-reader-surface-3: var(--biliscript-primitive-color-charcoal-800);
   --biliscript-reader-fill-hover: rgba(var(--biliscript-primitive-color-charcoal-hover-rgb), 0.08);
   --biliscript-reader-card: var(--biliscript-primitive-color-charcoal-900);
+  --biliscript-reader-card-highlight: none;
   --biliscript-reader-popover-bg: var(--biliscript-primitive-surface-charcoal-elevated);
   --biliscript-reader-border: var(--biliscript-primitive-color-charcoal-700);
   --biliscript-reader-text: var(--biliscript-primitive-color-charcoal-100);
@@ -587,7 +580,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    --biliscript-tab-gap: 6px;
+    --biliscript-tab-gap: 8px;
     gap: var(--biliscript-tab-gap);
   }
 
@@ -652,7 +645,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 #biliscript-reading-view .biliscript-reading-overview {
   margin-inline: -12px;
-  padding: 6px 20px 12px 14px;
+  padding: 8px 20px 12px 16px;
 }
 
 #biliscript-reading-view .biliscript-reading-ov-h {
@@ -1149,7 +1142,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon {
   width: 64px;
   height: 64px;
-  margin-bottom: -6px;
+  margin-bottom: -4px;
   background: none;
   box-shadow: none;
 }
