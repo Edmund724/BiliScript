@@ -69,10 +69,10 @@ export function buildSystemPagesHtml(): string {
                 type="range"
                 class="biliscript-range-input"
                 min="400"
-                max="650"
-                step="10"
+                max="960"
+                step="1"
                 value="540"
-                style="--range-progress: 56%;"
+                style="--range-progress: 25%;"
               />
               <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
               <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>

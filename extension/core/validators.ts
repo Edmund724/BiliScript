@@ -280,11 +280,14 @@ export const normalizeChatParagraphSpacing = clampedIntField(
   DEFAULT_SETTINGS.chatParagraphSpacing
 );
 
+export const CUSTOM_PANEL_WIDTH_MIN = 400;
+export const CUSTOM_PANEL_WIDTH_MAX = 960;
+
 export const normalizeCustomPanelWidthEnabled = booleanField(false);
 
 export const normalizeCustomPanelWidth = clampedIntField(
-  400,
-  650,
+  CUSTOM_PANEL_WIDTH_MIN,
+  CUSTOM_PANEL_WIDTH_MAX,
   DEFAULT_SETTINGS.customPanelWidth
 );
 

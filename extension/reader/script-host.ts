@@ -2,6 +2,7 @@ import { BILI_HOST_SELECTORS } from "../bilibili/host-selectors.js";
 import { isFestivalPage } from "../bilibili/video-id-shared.js";
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 import { state } from "../core/state.js";
+import { CUSTOM_PANEL_WIDTH_MAX, CUSTOM_PANEL_WIDTH_MIN } from "../core/validators.js";
 import { activeById, getOpenerDocument, isReaderDetached } from "../shared/active-host.js";
 import { detectActiveSite } from "../shared/site.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
@@ -10,6 +11,7 @@ import {
   findYoutubeScriptAnchor,
   getYoutubeWatchFlexy
 } from "../youtube/host-adapter.js";
+import { bindPanelResizeHandle } from "./panel-resize.js";
 import { ids } from "./state.js";
 
 const ANCHOR_SELECTORS = BILI_HOST_SELECTORS.rightColumnAnchors;
@@ -19,13 +21,19 @@ const FESTIVAL_HEADER_GAP = 8;
 const ANCHOR_MIN_WIDTH = 280;
 const PANEL_MIN_WIDTH = 300;
 const DEFAULT_PANEL_TARGET_WIDTH = 540;
+export const MIN_PINNED_VIEWPORT_GUTTER = 320;
+
+export function getMaxPinnedPanelWidth(viewportRight = getViewportRightBound()): number {
+  const maxByViewport = Math.round(viewportRight - MIN_PINNED_VIEWPORT_GUTTER);
+  return Math.max(CUSTOM_PANEL_WIDTH_MIN, Math.min(CUSTOM_PANEL_WIDTH_MAX, maxByViewport));
+}
 
 function getCustomPanelWidth(): number | null {
   if (state.settings?.customPanelWidthEnabled !== true) {
     return null;
   }
   const custom = Number(state.settings?.customPanelWidth);
-  if (Number.isFinite(custom) && custom >= 400 && custom <= 650) {
+  if (Number.isFinite(custom) && custom >= CUSTOM_PANEL_WIDTH_MIN && custom <= CUSTOM_PANEL_WIDTH_MAX) {
     return Math.round(custom);
   }
   return null;
@@ -133,6 +141,10 @@ export function openScriptHost(): void {
   hostScope = scope;
   applyScriptRect();
   bindScriptHostListeners(scope);
+  bindPanelResizeHandle(scope, {
+    getMaxWidth: () => getMaxPinnedPanelWidth(),
+    applyLayout: () => applyScriptRect()
+  });
   scope.setInterval(checkReanchor, REANCHOR_INTERVAL_MS);
 }
 
@@ -381,11 +393,12 @@ function applyScriptRect(finding?: AnchorFinding): void {
     const playerRect = getPlayerRect();
     if (playerRect) {
       const right = getViewportRightBound();
-      const left = playerRect.right + PLAYER_GAP;
-      const available = right - left;
+      const available = right - (playerRect.right + PLAYER_GAP);
       if (available >= PANEL_MIN_WIDTH) {
         const custom = getCustomPanelWidth();
-        const width = custom == null ? available : Math.min(custom, available);
+        const width =
+          custom == null ? available : Math.min(custom, getMaxPinnedPanelWidth(right));
+        const left = right - width;
         const top = resolvePinnedTop(playerRect.top);
         applyPinnedRect(readingView, {
           left,
@@ -438,7 +451,8 @@ function resolvePinnedTop(rawTop: number): number {
 
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
-  const width = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
+  const rawWidth = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
+  const width = Math.min(rawWidth, getMaxPinnedPanelWidth(right));
   const left = right - width;
   const top = resolvePinnedTop(rect.top);
   return { left, top, width, height: window.innerHeight - top };

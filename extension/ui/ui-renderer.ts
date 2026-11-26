@@ -162,6 +162,7 @@ export function buildUiHtml(): string {
             ${buildExplainPopHtml()}
             ${buildExplainCardHostHtml()}
       </aside>
+      <div id="${ids.readingResizeHandle}" class="biliscript-reading-resize-handle" aria-hidden="true"></div>
     </section>
   `;
 }

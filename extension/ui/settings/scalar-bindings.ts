@@ -267,6 +267,7 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     defaultValue: DEFAULT_SETTINGS.customPanelWidth,
     normalize: normalizeCustomPanelWidth,
     format: (width) => `${width}px`,
+    watchSync: true,
     commitExtras: () => ({ customPanelWidthEnabled: true }),
     resetExtras: () => ({ customPanelWidthEnabled: false }),
     onPreview: () => {

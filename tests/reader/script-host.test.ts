@@ -341,60 +341,77 @@ describe("script-host 降级链", () => {
 });
 
 describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
-  it("贴栏形态：显式自定义 400/650 生效，未自定义回默认 540", async () => {
+  it("贴栏形态：显式自定义 400/960 生效，未自定义回默认 540，窄视口受动态留白上限钳制", async () => {
     await loadModules();
-    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
 
     coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 400 });
     scriptHost.openScriptHost();
     expect(vars(readingView())).toMatchObject({ left: "1520px", width: "400px" });
 
     runRafSynchronously();
-    coreState.state.patchSettings({ customPanelWidth: 650 });
+    coreState.state.patchSettings({ customPanelWidth: 960 });
     scriptHost.relayoutScriptHost();
-    expect(vars(readingView())).toMatchObject({ left: "1270px", width: "650px" });
+    expect(vars(readingView())).toMatchObject({ left: "960px", width: "960px" });
 
+    window.innerWidth = 1000;
+    anchor.getBoundingClientRect = () => makeRect(640, 80, 360, 2000) as DOMRect;
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "320px", width: "680px" });
+
+    window.innerWidth = 1920;
+    anchor.getBoundingClientRect = () => makeRect(1520, 80, 360, 2000) as DOMRect;
     coreState.state.patchSettings({ customPanelWidthEnabled: false, customPanelWidth: 460 });
     scriptHost.relayoutScriptHost();
     expect(vars(readingView())).toMatchObject({ left: "1380px", width: "540px" });
     vi.restoreAllMocks();
   });
 
-  it("播放器降级：自定义宽度收缩为自定义值，未自定义占满可用宽度", async () => {
+  it("播放器降级：未自定义占满右侧空隙，自定义宽度右对齐并按目标值渲染", async () => {
     await loadModules();
     mountPlayerChain(makeRect(0, 80, 1000, 560));
 
     coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 400 });
     scriptHost.openScriptHost();
-    expect(vars(readingView())).toMatchObject({ left: "1012px", top: "80px", width: "400px" });
+    expect(vars(readingView())).toMatchObject({ left: "1520px", top: "80px", width: "400px" });
 
     runRafSynchronously();
     coreState.state.patchSettings({ customPanelWidth: 650 });
     scriptHost.relayoutScriptHost();
-    expect(vars(readingView()).width).toBe("650px");
+    expect(vars(readingView())).toMatchObject({ left: "1270px", width: "650px" });
 
     coreState.state.patchSettings({ customPanelWidthEnabled: false });
     scriptHost.relayoutScriptHost();
-    expect(vars(readingView()).width).toBe("908px");
+    expect(vars(readingView())).toMatchObject({ left: "1012px", width: "908px" });
     vi.restoreAllMocks();
   });
 
-  it("播放器降级：自定义宽度不超过可用宽度（钳制）", async () => {
+  it("播放器降级：自定义宽度允许向左覆盖播放器，受视口动态上限约束", async () => {
     await loadModules();
     mountPlayerChain(makeRect(0, 80, 1500, 560));
 
     coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 650 });
     scriptHost.openScriptHost();
-    expect(vars(readingView())).toMatchObject({ left: "1512px", width: "408px" });
+    expect(vars(readingView())).toMatchObject({ left: "1270px", width: "650px" });
+
+    runRafSynchronously();
+    coreState.state.patchSettings({ customPanelWidth: 960 });
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "960px", width: "960px" });
+
+    window.innerWidth = 1100;
+    scriptHost.relayoutScriptHost();
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe("1");
+    vi.restoreAllMocks();
   });
 
   it("播放器降级：可用宽度 300px 下限——可用 300 成立、298 降浮层", async () => {
     await loadModules();
     const { host } = mountPlayerChain(makeRect(0, 80, 1608, 560));
-    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 650 });
+    coreState.state.patchSettings({ customPanelWidthEnabled: false });
     scriptHost.openScriptHost();
     expect(readingView().getAttribute("data-biliscript-script-float")).toBe(null);
-    expect(vars(readingView()).width).toBe("300px");
+    expect(vars(readingView())).toMatchObject({ left: "1620px", width: "300px" });
 
     runRafSynchronously();
     host.getBoundingClientRect = () => makeRect(0, 80, 1610, 560) as DOMRect;
@@ -855,5 +872,188 @@ describe("script-host 活动专题页顶边上移", () => {
       width: "540px",
       height: "444px"
     });
+  });
+});
+
+function mountResizeHandle(): HTMLElement {
+  const handle = document.createElement("div");
+  handle.id = "biliscript-reading-resize-handle";
+  handle.className = "biliscript-reading-resize-handle";
+  readingView().appendChild(handle);
+  return handle;
+}
+
+function makePointerEvent(
+  type: string,
+  init: { clientX?: number; button?: number; pointerId?: number } = {}
+): Event {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: init.clientX ?? 0,
+    button: init.button ?? 0
+  });
+  Object.defineProperty(event, "pointerId", { value: init.pointerId ?? 1 });
+  return event;
+}
+
+describe("script-host 左边缘拖拽改宽", () => {
+  it("贴栏形态向左拖动实时预览，松手后持久化并通知同步订阅者", async () => {
+    await loadModules();
+    runRafSynchronously();
+    const { subscribePanelWidthSync } = await import("../../extension/reader/panel-resize.js");
+    const syncedWidths: number[] = [];
+    const unsubscribe = subscribePanelWidthSync((w) => syncedWidths.push(w));
+
+    const sendMessage = vi.fn((_msg, cb?: (resp: unknown) => void) => cb?.({ ok: true }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1380px", width: "540px" });
+
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380, button: 0, pointerId: 7 }));
+    expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe("1");
+    expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe("1");
+
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1200, pointerId: 7 }));
+    expect(vars(readingView())).toMatchObject({ left: "1200px", width: "720px" });
+    expect(coreState.state.settings.customPanelWidthEnabled).toBe(true);
+    expect(coreState.state.settings.customPanelWidth).toBe(720);
+    expect(syncedWidths).toEqual([720]);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1200, pointerId: 7 }));
+    expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe(null);
+    expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe(null);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: "save-settings",
+        settings: { customPanelWidth: 720, customPanelWidthEnabled: true }
+      },
+      expect.any(Function)
+    );
+
+    unsubscribe();
+  });
+
+  it("播放器降级模式：默认填满空隙起步零跳动，向左拖动允许覆盖播放器", async () => {
+    await loadModules();
+    runRafSynchronously();
+    const sendMessage = vi.fn((_msg, cb?: (resp: unknown) => void) => cb?.({ ok: true }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    mountPlayerChain(makeRect(0, 80, 1500, 560));
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1512px", width: "408px" });
+
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1512, button: 0 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1312 }));
+    expect(vars(readingView())).toMatchObject({ left: "1312px", width: "608px" });
+
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1312 }));
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: "save-settings",
+        settings: { customPanelWidth: 608, customPanelWidthEnabled: true }
+      },
+      expect.any(Function)
+    );
+  });
+
+  it("拖拽宽度受 400 下限、960 上限与视口 320px 留白动态上限钳制", async () => {
+    await loadModules();
+    runRafSynchronously();
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } });
+
+    const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1700 }));
+    expect(vars(readingView())).toMatchObject({ left: "1520px", width: "400px" });
+
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 400 }));
+    expect(vars(readingView())).toMatchObject({ left: "960px", width: "960px" });
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 400 }));
+
+    window.innerWidth = 1100;
+    anchor.getBoundingClientRect = () => makeRect(740, 80, 360, 2000) as DOMRect;
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "320px", width: "780px" });
+  });
+
+  it("仅点击手柄未拖动：不改动设置也不持久化", async () => {
+    await loadModules();
+    runRafSynchronously();
+    const sendMessage = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    window.dispatchEvent(makePointerEvent("pointerup", { clientX: 1380 }));
+
+    expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("pointercancel 回滚拖拽前状态，closeScriptHost 中途关闭清理全局属性", async () => {
+    await loadModules();
+    runRafSynchronously();
+    const sendMessage = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    window.dispatchEvent(makePointerEvent("pointermove", { clientX: 1200 }));
+    expect(vars(readingView()).width).toBe("720px");
+
+    window.dispatchEvent(makePointerEvent("pointercancel", { clientX: 1200 }));
+    expect(vars(readingView()).width).toBe("540px");
+    expect(coreState.state.settings.customPanelWidthEnabled).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe(null);
+
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380 }));
+    expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe("1");
+    scriptHost.closeScriptHost();
+    expect(document.documentElement.getAttribute("data-biliscript-panel-resizing")).toBe(null);
+  });
+
+  it("浮窗模式与非主按键点击不启动拖拽", async () => {
+    await loadModules();
+    runRafSynchronously();
+    window.innerWidth = 900;
+    const handle = mountResizeHandle();
+    readingView().classList.add("open");
+
+    scriptHost.openScriptHost();
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe("1");
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 200, button: 0 }));
+    expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe(null);
+
+    window.innerWidth = 1920;
+    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+    scriptHost.relayoutScriptHost();
+    handle.dispatchEvent(makePointerEvent("pointerdown", { clientX: 1380, button: 2 }));
+    expect(readingView().getAttribute("data-biliscript-script-resizing")).toBe(null);
   });
 });

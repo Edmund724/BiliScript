@@ -621,13 +621,13 @@ describe("主题：只剩明暗一轴", () => {
 
     widthSlider.value = "450";
     widthSlider.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(widthSlider.style.getPropertyValue("--range-progress")).toBe("20%");
+    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo((50 / 560) * 100);
     expect(widthBadge.textContent).toBe("450px");
     expect(widthReset.disabled).toBe(false);
 
     widthReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(widthSlider.value).toBe("540");
-    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(56);
+    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(25);
     expect(widthBadge.textContent).toBe("540px");
     expect(widthReset.disabled).toBe(true);
     expect(sentMessages).toContainEqual({

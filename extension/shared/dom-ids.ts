@@ -10,6 +10,7 @@ export const ids = {
   readingMeta: "biliscript-reading-meta",
   readingSubtitleList: "biliscript-reading-subtitle",
   readingScriptPanel: "biliscript-reading-script-panel",
+  readingResizeHandle: "biliscript-reading-resize-handle",
   readingTabSubtitle: "biliscript-reading-tab-subtitle",
   readingTabOverview: "biliscript-reading-tab-overview",
   readingTabChat: "biliscript-reading-tab-chat",
