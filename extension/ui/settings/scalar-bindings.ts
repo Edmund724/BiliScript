@@ -1,28 +1,8 @@
 import { cleanExpiredConversations } from "../../chat/conversation-store.js";
 import { DEFAULT_SETTINGS, type DetachedWindowMode, type KnownSettingKey, type Settings } from "../../core/defaults.js";
+import { normalizeSettingField } from "../../core/settings-store.js";
 import { state } from "../../core/state.js";
-import {
-  normalizeBilingualDisplayOrder,
-  normalizeChatInputGlow,
-  normalizeDetachedWindowMode,
-  normalizeDownloadFormat,
-  normalizeLiveShareVideoAudio,
-  normalizeLiveVoicePriority,
-  normalizeLiveVoiceSpeed,
-  normalizeLiveVoiceVolume,
-  normalizeNoteExportTemplate,
-  normalizeObsidianFolder,
-  normalizeObsidianVaultName,
-  normalizePlayerAiQuickPrompt,
-  normalizeReaderFontSizeScale,
-  normalizeReaderPalette,
-  normalizeReaderTheme,
-  normalizeReduceTransparency,
-  normalizeSubtitleSegmentationStrategy,
-  normalizeSubtitleTranslateGlossary,
-  normalizeWebSearchMaxToolCalls,
-  type ReaderThemeMode
-} from "../../core/validators.js";
+import type { ReaderThemeMode } from "../../core/validators.js";
 import {
   applyLiveAudioSettings,
   persistLiveAudioSettings,
@@ -67,7 +47,7 @@ export interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly kind: "select";
   readonly key: K;
   readonly getElement: (elements: SettingsElements) => HTMLSelectElement;
-  readonly normalize: (value: unknown) => Settings[K] & string;
+  readonly normalize?: (value: unknown) => Settings[K] & string;
   readonly readFromSettings?: (settings: Partial<Settings>) => unknown;
   readonly commitExtras?: () => Record<string, unknown>;
   readonly patchState?: boolean;
@@ -80,7 +60,7 @@ export interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly kind: "toggle";
   readonly key: K;
   readonly getElement: (elements: SettingsElements) => HTMLInputElement;
-  readonly normalize: (value: unknown) => boolean;
+  readonly normalize?: (value: unknown) => boolean;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly persist?: ScalarFieldPersist;
@@ -95,7 +75,7 @@ export interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly getBadge: (elements: SettingsElements) => HTMLElement;
   readonly getResetBtn: (elements: SettingsElements) => HTMLButtonElement;
   readonly defaultValue: number;
-  readonly normalize: (value: unknown) => number;
+  readonly normalize?: (value: unknown) => number;
   readonly format?: (val: number) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
@@ -109,7 +89,7 @@ export interface DebouncedTextFieldBinding<K extends KnownSettingKey = KnownSett
   readonly kind: "debounced-text";
   readonly key: K;
   readonly getElement: (elements: SettingsElements) => HTMLTextAreaElement | HTMLInputElement;
-  readonly normalize: (value: unknown) => string;
+  readonly normalize?: (value: unknown) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
 }
@@ -120,59 +100,59 @@ export type ScalarFieldBinding =
   | SliderFieldBinding
   | DebouncedTextFieldBinding;
 
+export function normalizeScalarBindingValue(binding: SelectFieldBinding, value: unknown): string;
+export function normalizeScalarBindingValue(binding: ToggleFieldBinding, value: unknown): boolean;
+export function normalizeScalarBindingValue(binding: SliderFieldBinding, value: unknown): number;
+export function normalizeScalarBindingValue(binding: DebouncedTextFieldBinding, value: unknown): string;
+export function normalizeScalarBindingValue(binding: ScalarFieldBinding, value: unknown): unknown {
+  return binding.normalize ? binding.normalize(value) : normalizeSettingField(binding.key, value);
+}
+
 export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   {
     kind: "select",
     key: "downloadFormat",
-    getElement: (el) => el.downloadFormat,
-    normalize: normalizeDownloadFormat
+    getElement: (el) => el.downloadFormat
   },
   {
     kind: "debounced-text",
     key: "noteExportTemplate",
     getElement: (el) => el.noteExportTemplate,
-    normalize: normalizeNoteExportTemplate,
     watchSync: true
   },
   {
     kind: "debounced-text",
     key: "obsidianVaultName",
     getElement: (el) => el.obsidianVaultName,
-    normalize: normalizeObsidianVaultName,
     watchSync: true
   },
   {
     kind: "debounced-text",
     key: "obsidianFolder",
     getElement: (el) => el.obsidianFolder,
-    normalize: normalizeObsidianFolder,
     watchSync: true
   },
   {
     kind: "select",
     key: "subtitleSegmentationStrategy",
-    getElement: (el) => el.subtitleSegmentationStrategy,
-    normalize: normalizeSubtitleSegmentationStrategy
+    getElement: (el) => el.subtitleSegmentationStrategy
   },
   {
     kind: "select",
     key: "bilingualDisplayOrder",
     getElement: (el) => el.bilingualDisplayOrder,
-    normalize: normalizeBilingualDisplayOrder,
     watchSync: true
   },
   {
     kind: "debounced-text",
     key: "subtitleTranslateGlossary",
     getElement: (el) => el.subtitleTranslateGlossary,
-    normalize: normalizeSubtitleTranslateGlossary,
     watchSync: true
   },
   {
     kind: "select",
     key: "readerTheme",
     getElement: (el) => el.readerTheme,
-    normalize: normalizeReaderTheme,
     readFromSettings: (settings) => resolveReaderThemeMode(settings),
     commitExtras: () => ({ readerThemeUserSet: true }),
     watchSync: true,
@@ -193,7 +173,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "select",
     key: "readerPalette",
     getElement: (el) => el.readerPalette,
-    normalize: normalizeReaderPalette,
     onApply: (val) => {
       state.reader?.setPalette?.(val);
       writeThemeSnapshot({
@@ -211,7 +190,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.readerFontSizeScaleValue,
     getResetBtn: (el) => el.readerFontSizeScaleResetBtn,
     defaultValue: DEFAULT_SETTINGS.readerFontSizeScale,
-    normalize: normalizeReaderFontSizeScale,
     format: (val) => `${val}%`,
     onPreview: () => {
       applyReadingViewTypography();
@@ -224,7 +202,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.chatLineHeightValue,
     getResetBtn: (el) => el.chatLineHeightResetBtn,
     defaultValue: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.defaultValue,
-    normalize: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.normalize,
     format: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.format,
     patchState: false,
     persist: persistChatDisplayField,
@@ -237,7 +214,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.chatParagraphSpacingValue,
     getResetBtn: (el) => el.chatParagraphSpacingResetBtn,
     defaultValue: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.defaultValue,
-    normalize: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.normalize,
     format: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.format,
     patchState: false,
     persist: persistChatDisplayField,
@@ -250,7 +226,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.speechVoiceVolumeValue,
     getResetBtn: (el) => el.speechVoiceVolumeResetBtn,
     defaultValue: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.defaultValue,
-    normalize: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize,
     format: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.format,
     patchState: false,
     persist: persistChatDisplayField,
@@ -260,7 +235,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "select",
     key: "detachedWindowMode",
     getElement: (el) => el.detachedWindowMode,
-    normalize: normalizeDetachedWindowMode,
     watchSync: true,
     onChange: (val, hooks, elements) => {
       hooks.onDetachedWindowModeChanged?.(val as DetachedWindowMode, elements);
@@ -269,38 +243,32 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   {
     kind: "toggle",
     key: "includeDateInFilename",
-    getElement: (el) => el.includeDateInFilename,
-    normalize: (val) => val !== false
+    getElement: (el) => el.includeDateInFilename
   },
   {
     kind: "toggle",
     key: "enablePlayerAiQuickAction",
-    getElement: (el) => el.enablePlayerAiQuickAction,
-    normalize: (val) => Boolean(val)
+    getElement: (el) => el.enablePlayerAiQuickAction
   },
   {
     kind: "debounced-text",
     key: "playerAiQuickPrompt",
-    getElement: (el) => el.playerAiQuickPrompt,
-    normalize: normalizePlayerAiQuickPrompt
+    getElement: (el) => el.playerAiQuickPrompt
   },
   {
     kind: "toggle",
     key: "includeTimestampInBody",
-    getElement: (el) => el.includeTimestampInBody,
-    normalize: (val) => Boolean(val)
+    getElement: (el) => el.includeTimestampInBody
   },
   {
     kind: "toggle",
     key: "enableDebugLogs",
-    getElement: (el) => el.enableDebugLogs,
-    normalize: (val) => Boolean(val)
+    getElement: (el) => el.enableDebugLogs
   },
   {
     kind: "toggle",
     key: "enableAgentBridge",
     getElement: (el) => el.enableAgentBridge,
-    normalize: (val) => val === true,
     patchState: false,
     watchSync: true,
     onSaved: (val, hooks, elements) => {
@@ -311,7 +279,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "cleanConversationsOlderThan30Days",
     getElement: (el) => el.cleanConversationsOlderThan30Days,
-    normalize: (val) => val === true,
     onApply: async (val) => {
       if (val) {
         await cleanExpiredConversations();
@@ -321,27 +288,23 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   {
     kind: "toggle",
     key: "autoOpenReader",
-    getElement: (el) => el.autoOpenReader,
-    normalize: (val) => val === true
+    getElement: (el) => el.autoOpenReader
   },
   {
     kind: "toggle",
     key: "enableCostGuard",
     getElement: (el) => el.enableCostGuard,
-    normalize: (val) => val === true,
     watchSync: true
   },
   {
     kind: "toggle",
     key: "enableExtraPlaybackRates",
-    getElement: (el) => el.enableExtraPlaybackRates,
-    normalize: (val) => Boolean(val)
+    getElement: (el) => el.enableExtraPlaybackRates
   },
   {
     kind: "toggle",
     key: "chatInputGlow",
     getElement: (el) => el.chatInputGlow,
-    normalize: normalizeChatInputGlow,
     onApply: () => {
       applyChatInputGlow();
     }
@@ -350,7 +313,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "reduceTransparency",
     getElement: (el) => el.reduceTransparency,
-    normalize: normalizeReduceTransparency,
     onApply: () => {
       applyReduceTransparency();
     }
@@ -358,14 +320,12 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   {
     kind: "debounced-text",
     key: "aiSystemPrompt",
-    getElement: (el) => el.aiSystemPrompt,
-    normalize: (val) => String(val || "").trim()
+    getElement: (el) => el.aiSystemPrompt
   },
   {
     kind: "toggle",
     key: "asrAutoFallback",
     getElement: (el) => el.asrAutoFallback,
-    normalize: (val) => val !== false,
     patchState: false,
     watchSync: true,
     onSaved: (val, hooks, elements) => {
@@ -379,7 +339,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.liveVoiceVolumeValue,
     getResetBtn: (el) => el.liveVoiceVolumeResetBtn,
     defaultValue: DEFAULT_SETTINGS.liveVoiceVolume,
-    normalize: normalizeLiveVoiceVolume,
     format: (val) => `${val}%`,
     patchState: false,
     watchSync: true,
@@ -393,7 +352,7 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.liveVoiceSpeedValue,
     getResetBtn: (el) => el.liveVoiceSpeedResetBtn,
     defaultValue: DEFAULT_SETTINGS.liveVoiceSpeed,
-    normalize: (value) => normalizeLiveVoiceSpeed(typeof value === "string" ? Number(value) : value),
+    normalize: (value) => normalizeSettingField("liveVoiceSpeed", typeof value === "string" ? Number(value) : value),
     format: (val) => `${val}×`,
     patchState: false,
     watchSync: true,
@@ -404,7 +363,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "liveShareVideoAudio",
     getElement: (el) => el.liveShareVideoAudio,
-    normalize: normalizeLiveShareVideoAudio,
     patchState: false,
     watchSync: true,
     persist: persistLiveAudioField
@@ -413,7 +371,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "liveVoicePriority",
     getElement: (el) => el.liveVoicePriority,
-    normalize: normalizeLiveVoicePriority,
     patchState: false,
     watchSync: true,
     persist: persistLiveAudioField
@@ -422,7 +379,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "liveLowBandwidth",
     getElement: (el) => el.liveLowBandwidth,
-    normalize: (val) => val === true,
     patchState: false,
     watchSync: true
   },
@@ -430,7 +386,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "allowPaidSearchProviders",
     getElement: (el) => el.allowPaidSearchProviders,
-    normalize: (val) => val === true,
     patchState: false,
     watchSync: true
   },
@@ -441,7 +396,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getBadge: (el) => el.webSearchMaxToolCallsValue,
     getResetBtn: (el) => el.webSearchMaxToolCallsResetBtn,
     defaultValue: DEFAULT_SETTINGS.webSearchMaxToolCalls,
-    normalize: normalizeWebSearchMaxToolCalls,
     patchState: false,
     watchSync: true
   }
@@ -452,7 +406,7 @@ export function syncPlayerQuickPromptVisibility(elements: SettingsElements): voi
 }
 
 export function syncChatInputGlowAvailability(elements: SettingsElements): void {
-  const isEditorial = normalizeReaderPalette(elements.readerPalette.value) === "editorial";
+  const isEditorial = normalizeSettingField("readerPalette", elements.readerPalette.value) === "editorial";
   const row = elements.chatInputGlow.closest<HTMLElement>(".biliscript-toggle-row");
   elements.chatInputGlow.disabled = isEditorial;
   syncToggleSwitch(elements.chatInputGlow);

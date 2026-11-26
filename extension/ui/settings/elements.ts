@@ -168,6 +168,7 @@ export function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsValue: byIdIn<HTMLElement>(dom.webSearchMaxToolCallsValue),
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
+    aiSystemPromptResetBtn: byIdIn<HTMLButtonElement>(dom.aiSystemPromptResetBtn),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
     aiDefaultModel: byIdIn<HTMLSelectElement>(dom.aiDefaultModel),
     enableCostGuard: byIdIn<HTMLInputElement>(dom.enableCostGuard),

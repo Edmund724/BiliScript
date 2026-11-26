@@ -6,7 +6,10 @@ export function buildContentPagesHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
   return `    <div id="${ids.subpageAiPrompt}" class="biliscript-settings-view" hidden>
       <section class="biliscript-set-group" data-settings-section="system-prompt">
-        <div class="biliscript-set-h">系统提示词</div>
+        <div class="biliscript-set-header-row">
+          <div class="biliscript-set-h">系统提示词</div>
+          <button id="${ids.aiSystemPromptResetBtn}" class="add-property-btn" type="button">恢复默认</button>
+        </div>
         <div class="biliscript-set-card">
           <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
         </div>

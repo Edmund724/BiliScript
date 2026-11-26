@@ -624,3 +624,45 @@ describe("设置抽屉外部同步分发、占位摘要与 dispose 清理", () =
     expect(sent.length).toBe(sentCountAfterDispose);
   });
 });
+
+describe("系统提示词留空与恢复默认按钮", () => {
+  it("清空系统提示词后失焦保存为空串并保持留空，点击「恢复默认」填入默认提示词并保存", async () => {
+    let currentSettings: Record<string, unknown> = { aiSystemPrompt: "自定义系统提示词" };
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: currentSettings }),
+      "save-settings": (message) => {
+        currentSettings = { ...currentSettings, ...(message.settings || {}) };
+        return { ok: true };
+      }
+    });
+    const host = await mountPanel();
+
+    const textarea = host.querySelector<HTMLTextAreaElement>("#aiSystemPrompt")!;
+    const resetPromptBtn = host.querySelector<HTMLButtonElement>("#aiSystemPromptResetBtn")!;
+    expect(textarea.value).toBe("自定义系统提示词");
+    expect(resetPromptBtn.textContent?.trim()).toBe("恢复默认");
+
+    textarea.value = "   ";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.dispatchEvent(new Event("blur", { bubbles: true }));
+
+    await waitForFast(() => {
+      expect(sent).toContainEqual({ type: "save-settings", settings: { aiSystemPrompt: "" } });
+    });
+    expect(state.settings?.aiSystemPrompt).toBe("");
+
+    await renderReaderSettingsPanel();
+    expect(textarea.value).toBe("");
+
+    fireClick(resetPromptBtn);
+    await waitForFast(() => {
+      expect(sent).toContainEqual({
+        type: "save-settings",
+        settings: { aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT }
+      });
+    });
+    expect(textarea.value).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(state.settings?.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(lastStatus(host).textContent).toBe("已保存");
+  });
+});

@@ -74,6 +74,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
+  aiSystemPromptResetBtn: "aiSystemPromptResetBtn",
   readerTheme: "readerTheme",
   readerPalette: "readerPalette",
   chatInputGlow: "chatInputGlow",

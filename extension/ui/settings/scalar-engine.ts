@@ -1,12 +1,8 @@
-import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../core/default-prompts.js";
-import { DEFAULT_SETTINGS, type Settings } from "../../core/defaults.js";
+import { DEFAULT_AI_SYSTEM_PROMPT } from "../../core/default-prompts.js";
+import type { Settings } from "../../core/defaults.js";
 import { resetDetachedWindowBounds } from "../../core/detached-bounds-store.js";
+import { buildDefaultPreferencePatch, normalizeSettingField } from "../../core/settings-store.js";
 import { state } from "../../core/state.js";
-import {
-  normalizeNoteExportTemplate,
-  normalizeObsidianFolder,
-  normalizeObsidianVaultName
-} from "../../core/validators.js";
 import { applyLiveAudioSettings } from "../../live/live-audio-settings.js";
 import { copyCurrentVideoNote, openCurrentVideoInObsidian } from "../../notes/export-actions.js";
 import { DEFAULT_NOTE_TEMPLATE } from "../../notes/template-defaults.js";
@@ -33,6 +29,7 @@ import {
 } from "./elements.js";
 import {
   SCALAR_FIELD_BINDINGS,
+  normalizeScalarBindingValue,
   syncScalarSideEffects,
   type ScalarBindingRuntimeHooks,
   type ScalarFieldBinding,
@@ -72,13 +69,13 @@ function hydrateScalarField(
   switch (binding.kind) {
     case "select": {
       const el = binding.getElement(elements);
-      setCustomSelectValue(el, binding.normalize(rawValue));
+      setCustomSelectValue(el, normalizeScalarBindingValue(binding, rawValue));
       initCustomSelect(el, "custom-select-wrapper");
       break;
     }
     case "toggle": {
       const el = binding.getElement(elements);
-      el.checked = binding.normalize(rawValue);
+      el.checked = normalizeScalarBindingValue(binding, rawValue);
       syncToggleSwitch(el);
       break;
     }
@@ -135,44 +132,6 @@ export function applyChatDisplayPatch(
   }
 }
 
-function buildDefaultPreferencePayload() {
-  return {
-    downloadFormat: DEFAULT_SETTINGS.downloadFormat,
-    subtitleSegmentationStrategy: DEFAULT_SETTINGS.subtitleSegmentationStrategy,
-    subtitleTranslateGlossary: DEFAULT_SETTINGS.subtitleTranslateGlossary,
-    includeDateInFilename: DEFAULT_SETTINGS.includeDateInFilename,
-    enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
-    playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
-    includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
-    enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
-    enableAgentBridge: DEFAULT_SETTINGS.enableAgentBridge,
-    readerTheme: DEFAULT_SETTINGS.readerTheme,
-    readerPalette: DEFAULT_SETTINGS.readerPalette,
-    readerFontSizeScale: DEFAULT_SETTINGS.readerFontSizeScale,
-    chatLineHeight: DEFAULT_SETTINGS.chatLineHeight,
-    chatParagraphSpacing: DEFAULT_SETTINGS.chatParagraphSpacing,
-    speechVoiceVolume: DEFAULT_SETTINGS.speechVoiceVolume,
-    liveVoiceVolume: DEFAULT_SETTINGS.liveVoiceVolume,
-    liveVoiceSpeed: DEFAULT_SETTINGS.liveVoiceSpeed,
-    liveShareVideoAudio: DEFAULT_SETTINGS.liveShareVideoAudio,
-    liveVoicePriority: DEFAULT_SETTINGS.liveVoicePriority,
-    aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-    aiInitialQuickPrompts: [],
-    bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
-    secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
-    bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
-    detachedWindowMode: DEFAULT_SETTINGS.detachedWindowMode,
-    autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
-    enableCostGuard: DEFAULT_SETTINGS.enableCostGuard,
-    enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
-    chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
-    reduceTransparency: DEFAULT_SETTINGS.reduceTransparency,
-    noteExportTemplate: DEFAULT_NOTE_TEMPLATE,
-    obsidianVaultName: DEFAULT_SETTINGS.obsidianVaultName,
-    obsidianFolder: DEFAULT_SETTINGS.obsidianFolder
-  };
-}
-
 async function resetPreferences(
   elements: SettingsElements,
   deps: { reloadSettings: () => Promise<void> }
@@ -186,7 +145,7 @@ async function resetPreferences(
   }
   setBusy(elements, true);
   try {
-    const payload = buildDefaultPreferencePayload();
+    const payload = buildDefaultPreferencePatch();
     const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
     if (!resp?.ok) {
       setStatus(elements, resp?.error || "重置失败", true);
@@ -249,14 +208,14 @@ function bindScalarFieldEvents(
     case "select": {
       const el = binding.getElement(elements);
       el.addEventListener("change", () => {
-        const val = binding.normalize(el.value);
+        const val = normalizeScalarBindingValue(binding, el.value);
         const patch = { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) };
         if (binding.patchState !== false) {
           state.patchSettings(patch);
         }
-        binding.onApply?.(val);
+        binding.onApply?.(val as never);
         try {
-          binding.onChange?.(val, deps.hooks ?? {}, elements);
+          binding.onChange?.(val as never, deps.hooks ?? {}, elements);
         } catch {
         }
         syncScalarSideEffects(binding.key, elements);
@@ -288,7 +247,7 @@ function bindScalarFieldEvents(
         badge: binding.getBadge(elements),
         resetBtn: binding.getResetBtn(elements),
         defaultValue: binding.defaultValue,
-        normalize: binding.normalize,
+        normalize: (value) => normalizeScalarBindingValue(binding, value),
         format: binding.format,
         onPreview: (val) => {
           if (binding.patchState !== false) {
@@ -321,7 +280,7 @@ function bindScalarFieldEvents(
     case "debounced-text": {
       const el = binding.getElement(elements);
       const save = () => {
-        const val = binding.normalize(el.value);
+        const val = normalizeScalarBindingValue(binding, el.value);
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
@@ -361,6 +320,11 @@ function bindScalarSectionActions(
   elements.resetBtn.addEventListener("click", () => {
     void resetPreferences(elements, { reloadSettings: deps.reloadSettings });
   });
+  elements.aiSystemPromptResetBtn.addEventListener("click", () => {
+    elements.aiSystemPrompt.value = DEFAULT_AI_SYSTEM_PROMPT;
+    state.patchSettings({ aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT });
+    void saveSettingField(elements, { aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT });
+  });
   elements.noteExportResetTemplateBtn.addEventListener("click", () => {
     elements.noteExportTemplate.value = DEFAULT_NOTE_TEMPLATE;
     state.patchSettings({ noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
@@ -368,7 +332,7 @@ function bindScalarSectionActions(
   });
   elements.noteExportCopyBtn.addEventListener("click", () => {
     void (async () => {
-      const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
+      const normalizedTemplate = normalizeSettingField("noteExportTemplate", elements.noteExportTemplate.value);
       state.patchSettings({ noteExportTemplate: normalizedTemplate });
       const ok = await copyCurrentVideoNote();
       setStatus(elements, ok ? "已复制当前视频笔记" : "复制失败：请检查剪贴板权限或内容", !ok);
@@ -376,9 +340,9 @@ function bindScalarSectionActions(
   });
   elements.noteExportObsidianBtn.addEventListener("click", () => {
     void (async () => {
-      const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
-      const vault = normalizeObsidianVaultName(elements.obsidianVaultName.value);
-      const folder = normalizeObsidianFolder(elements.obsidianFolder.value);
+      const normalizedTemplate = normalizeSettingField("noteExportTemplate", elements.noteExportTemplate.value);
+      const vault = normalizeSettingField("obsidianVaultName", elements.obsidianVaultName.value);
+      const folder = normalizeSettingField("obsidianFolder", elements.obsidianFolder.value);
       state.patchSettings({
         noteExportTemplate: normalizedTemplate,
         obsidianVaultName: vault,

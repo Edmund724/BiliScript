@@ -115,19 +115,55 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: "按章节整理内容" }).playerAiQuickPrompt).toBe("按章节整理内容");
   });
 
-  it("新装缺键：提示词字段回落当前默认；初始问题留空保持空数组（自动生成）", async () => {
+  it("新装缺键：aiSystemPrompt 保持留空，playerAiQuickPrompt 回落默认，初始问题保持空数组", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ ...DEFAULT_SETTINGS });
-    expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(out.aiSystemPrompt).toBe("");
     expect(out.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(out.aiInitialQuickPrompts).toEqual([]);
   });
 
-  it("清空保存：aiSystemPrompt/playerAiQuickPrompt 空串回落当前默认", async () => {
+  it("清空保存：aiSystemPrompt 空串保持留空，playerAiQuickPrompt 空串回落当前默认", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "  ", playerAiQuickPrompt: "" });
-    expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(out.aiSystemPrompt).toBe("");
     expect(out.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+  });
+
+  it("normalizeSettingField / buildDefaultPreferencePatch / normalizeSettingsPatch 单源一致", async () => {
+    const { normalizeSettingField, buildDefaultPreferencePatch, normalizeSettingsPatch, normalizeSettings } =
+      await loadStoreModule();
+    expect(normalizeSettingField("aiSystemPrompt", "   ")).toBe("");
+    expect(normalizeSettingField("aiSystemPrompt", LEGACY_DEFAULT_AI_SYSTEM_PROMPT)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(normalizeSettingField("aiSystemPrompt", " 自定义提示词 ")).toBe("自定义提示词");
+    expect(normalizeSettingField("enablePlayerAiQuickAction", "truthy")).toBe(false);
+    expect(normalizeSettingField("includeTimestampInBody", undefined)).toBe(true);
+    expect(normalizeSettingField("includeTimestampInBody", false)).toBe(false);
+    expect(normalizeSettingField("enableDebugLogs", undefined)).toBe(false);
+
+    const patchA = buildDefaultPreferencePatch();
+    const patchB = buildDefaultPreferencePatch();
+    expect(patchA.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(patchA.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(patchA.aiInitialQuickPrompts).toEqual([]);
+    expect(patchA.aiInitialQuickPrompts).not.toBe(patchB.aiInitialQuickPrompts);
+    expect(patchA).not.toHaveProperty("defaultModel");
+    expect(patchA).not.toHaveProperty("liveLowBandwidth");
+    expect(patchA).not.toHaveProperty("asrAutoFallback");
+
+    expect(
+      normalizeSettings({ ...DEFAULT_SETTINGS, customPanelWidth: 460, customPanelWidthEnabled: false })
+        .customPanelWidthEnabled
+    ).toBe(true);
+    expect(
+      normalizeSettingsPatch({
+        subtitleTranslateProviderId: "bilibili-index-translate",
+        subtitleTranslateModel: "bogus-model"
+      })
+    ).toEqual({
+      subtitleTranslateProviderId: "bilibili-index-translate",
+      subtitleTranslateModel: "Index-Translate-35B-A3B"
+    });
   });
 });
 
@@ -338,7 +374,7 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(syncSetMock.mock.calls[0][0].aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
   });
 
-  it("写路径：清空的提示词落盘为当前默认，初始问题清空落空数组", async () => {
+  it("写路径：清空 aiSystemPrompt 落盘空串，playerAiQuickPrompt 回落当前默认，初始问题清空落空数组", async () => {
     const { saveSettings } = await loadStoreModule();
 
     await saveSettings({
@@ -350,7 +386,7 @@ describe("normalizeSettings 是唯一归一化路径", () => {
 
     expect(syncSetMock).toHaveBeenCalledTimes(1);
     const persisted = syncSetMock.mock.calls[0][0];
-    expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(persisted.aiSystemPrompt).toBe("");
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(persisted.aiInitialQuickPrompts).toEqual([]);
   });
@@ -475,7 +511,7 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     expect(persisted.aiThinkingLevel).toBe("high");
   });
 
-  it("onInstalled 新装迁移：空占位 prompt 落盘为当前默认，不产生空串", async () => {
+  it("onInstalled 新装迁移：aiSystemPrompt 保持留空（请求期按站点解析默认），playerAiQuickPrompt 回落当前默认", async () => {
     await import("../../extension/entry/background.js");
     const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
       .calls[0][0] as unknown as () => unknown;
@@ -484,7 +520,7 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     await onInstalledListener();
 
     const persisted = syncSetMock.mock.calls[0][0];
-    expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(persisted.aiSystemPrompt).toBe("");
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(persisted.aiInitialQuickPrompts).toEqual([]);
     expect(persisted.subtitleTranslateProviderId).toBe("bilibili-index-translate");
