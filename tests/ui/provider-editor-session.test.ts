@@ -231,60 +231,49 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
   });
 
-  it("S6 runWithOriginPreflight 同步触发权限申请，并在会话关闭时丢弃权限成功回执与后续工作", async () => {
+  it("S6 平台测试权限在飞时关 Modal：同步触发权限申请，关闭后丢弃权限成功回执与后续探针", async () => {
     const editor = await import("../../extension/ui/provider-editor.js");
-    const { captureSession } = await import("../../extension/ui/provider-editor-state.js");
-    let resolvePermission: ((res: { ok: boolean }) => void) | undefined;
-    const requestOriginsMock = vi.fn(
-      () => new Promise<{ ok: boolean }>((resolve) => { resolvePermission = resolve; })
-    );
-    const work = vi.fn(async () => "done");
-    const ok = vi.fn();
-    const denied = vi.fn();
+    deferPermission = true;
+    editor.openProviderEditor({ kind: "asr", presets: PRESETS, onSave: async () => ({ ok: true }) });
 
-    editor.openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
-    const session = captureSession();
+    const dialog = dialogNode();
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
+    fireClick(dialog.querySelector(".provider-editor-test"));
 
-    const p = session.runWithOriginPreflight(
-      ["https://test.example.com"],
-      work,
-      { ok, denied },
-      requestOriginsMock
-    );
-
-    expect(requestOriginsMock, "权限代申请必须同步触发").toHaveBeenCalledWith(["https://test.example.com"]);
-    expect(work).not.toHaveBeenCalled();
+    expect(pendingPermission, "权限代申请必须同步触发").toBeTruthy();
+    expect(sent.find((message) => message.type === "request-provider-origins")?.baseUrls).toEqual([
+      "https://asr.example.com/v1"
+    ]);
+    expect(testAsrConnection).not.toHaveBeenCalled();
 
     editor.closeProviderEditor(true);
-    resolvePermission!({ ok: true });
-    await p;
+    pendingPermission!({ ok: true });
+    await flushMicrotasks();
 
-    expect(work, "会话关闭后不得触发 work").not.toHaveBeenCalled();
-    expect(ok).not.toHaveBeenCalled();
-    expect(denied).not.toHaveBeenCalled();
+    expect(testAsrConnection, "会话关闭后不得触发探针").not.toHaveBeenCalled();
+    expect(document.querySelector(".provider-editor-dialog")).toBeNull();
   });
 
-  it("S7 runWithOriginPreflight 权限被拒且会话当前时触发 denied 分支", async () => {
+  it("S7 平台测试权限被拒且会话当前时展示拒绝错误且不触发探针", async () => {
     const editor = await import("../../extension/ui/provider-editor.js");
-    const { captureSession } = await import("../../extension/ui/provider-editor-state.js");
-    const requestOriginsMock = vi.fn(async () => ({ ok: false, error: "用户取消授权" }));
-    const work = vi.fn(async () => "done");
-    const ok = vi.fn();
-    const denied = vi.fn();
+    installBus({
+      "request-provider-origins": () => ({ ok: false, error: "用户取消授权" })
+    });
+    editor.openProviderEditor({ kind: "asr", presets: PRESETS, onSave: async () => ({ ok: true }) });
 
-    editor.openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
-    const session = captureSession();
+    const dialog = dialogNode();
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
+    fireClick(dialog.querySelector(".provider-editor-test"));
+    await flushMicrotasks();
 
-    await session.runWithOriginPreflight(
-      ["https://test.example.com"],
-      work,
-      { ok, denied },
-      requestOriginsMock
-    );
-
-    expect(denied).toHaveBeenCalledWith("用户取消授权");
-    expect(work).not.toHaveBeenCalled();
-    expect(ok).not.toHaveBeenCalled();
+    expect(statusNode(dialog).hidden).toBe(false);
+    expect(statusNode(dialog).dataset.error).toBe("true");
+    expect(statusNode(dialog).textContent).toContain("用户取消授权");
+    expect(testAsrConnection).not.toHaveBeenCalled();
   });
 
   it("S8 「获取可用模型」拉取在飞时关子视图重开：旧回执不覆盖新子视图（票 09 代次令牌）", async () => {

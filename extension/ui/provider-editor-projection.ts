@@ -4,13 +4,14 @@ import { presetBaseUrlForProtocol } from "../core/presets.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField } from "./model-picker.js";
 import { rebuildCustomSelectOptions, setCustomSelectValue } from "./custom-select.js";
-import { syncToggleSwitch } from "./toggle-switch.js";
 import { PROVIDER_FAMILY_ROWS, type FamilyEditorDeclaration } from "./provider-family.js";
-import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from "./provider-editor-state.js";
+import type { EditorDraftView, ProviderEditorKind } from "./provider-editor-session.js";
 import type { ProviderRowPreset } from "./provider-row.js";
 import type { LiveVoice } from "../live/live-provider-store.js";
 
 export { presetBaseUrlForProtocol };
+
+export const KEY_RECONFIRM_MESSAGE = "已切换平台或地址，请重新确认 API Key";
 
 export function normalizeProtocolValue(value: unknown): AiProtocol {
   return typeof value === "string" && value in PROTOCOL_ADAPTERS ? (value as AiProtocol) : "openai";
@@ -24,6 +25,10 @@ export function protocolNotes(protocol: unknown): string {
   const unsupported = resolveAdapter(protocol).capabilities.unsupported;
   const text = Object.values(unsupported).join("；");
   return text ? `该协议限制：${text}` : "";
+}
+
+export function isMossLivePreset(preset: { id?: string; type?: string } | null | undefined): boolean {
+  return preset?.type === "moss-live" || preset?.id === "moss-live";
 }
 
 export interface ProjectionContext {
@@ -67,8 +72,7 @@ interface FieldSpec {
   project(scope: ProjectionScope, draft: EditorDraftView): FieldProjection;
   html(projection: FieldProjection, scope: ProjectionScope): string;
   apply(dialog: HTMLElement, projection: FieldProjection, scope: ProjectionScope): void;
-  read(dialog: HTMLElement): FieldProjection;
-  input?: { draftKey: DraftInputKey; selector: string; clearStatus: boolean };
+  input?: { draftKey: DraftInputKey; selector: string };
 }
 
 function scopeOf(draft: EditorDraftView, ctx: ProjectionContext): ProjectionScope {
@@ -86,12 +90,6 @@ function fieldBlock(label: string, control: string, controlId?: string, errorId?
 
 function inputValue(projection: FieldProjection): string {
   return escapeHtml(projection.value ?? "");
-}
-
-function isMossLiveScope(scope: ProjectionScope): boolean {
-  if (scope.ctx.kind !== "live") return false;
-  const preset = scope.preset;
-  return preset?.type === "moss-live" || preset?.id === "moss-live";
 }
 
 function voiceOptionsHtml(scope: ProjectionScope, selected: string): string {
@@ -133,8 +131,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (Array.from(select.options).some((option) => option.value === projection.value)) {
         setCustomSelectValue(select, projection.value);
       }
-    },
-    read: (dialog) => ({ value: dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value ?? "" })
+    }
   },
 
   protocol: {
@@ -155,12 +152,11 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
       if (!select || projection.value === undefined) return;
       setCustomSelectValue(select, projection.value);
-    },
-    read: (dialog) => ({ value: dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value ?? "" })
+    }
   },
 
   name: {
-    input: { draftKey: "name", selector: ".provider-editor-name", clearStatus: true },
+    input: { draftKey: "name", selector: ".provider-editor-name" },
     project: (scope, draft) => ({
       value: draft.name,
       placeholder: scope.ctx.kind === "ai" ? scope.preset?.name || "" : "平台名称"
@@ -176,15 +172,11 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (!input) return;
       input.value = projection.value ?? "";
       input.placeholder = projection.placeholder ?? "";
-    },
-    read: (dialog) => {
-      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-name");
-      return { value: input?.value ?? "", placeholder: input?.placeholder ?? "" };
     }
   },
 
   baseUrl: {
-    input: { draftKey: "baseUrl", selector: ".provider-editor-baseurl", clearStatus: true },
+    input: { draftKey: "baseUrl", selector: ".provider-editor-baseurl" },
     project: (_scope, draft) => ({ value: draft.baseUrl }),
     html: (projection) =>
       fieldBlock(
@@ -197,12 +189,11 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
       const nextValue = projection.value ?? "";
       if (input && input.value !== nextValue) input.value = nextValue;
-    },
-    read: (dialog) => ({ value: dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")?.value ?? "" })
+    }
   },
 
   apiKey: {
-    input: { draftKey: "apiKey", selector: ".provider-editor-apikey", clearStatus: true },
+    input: { draftKey: "apiKey", selector: ".provider-editor-apikey" },
     project: (scope, draft) => {
       if (usesAiCredentialReference(scope.ctx.kind, scope.preset?.id)) {
         return { hidden: true, required: false };
@@ -210,7 +201,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const keyRequired = scope.family.isKeyRequired(scope.preset);
       const placeholder =
         scope.ctx.reconfirmKey && keyRequired
-          ? "已切换平台或地址，请重新确认 API Key"
+          ? KEY_RECONFIRM_MESSAGE
           : scope.family.apiKeyPlaceholder(scope.preset, scope.ctx.hasSavedKey);
       const projection: FieldProjection = {
         placeholder,
@@ -233,20 +224,11 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       input.placeholder = projection.placeholder ?? "";
       input.required = projection.required === true;
       if (projection.value !== undefined && input.value !== projection.value) input.value = projection.value;
-    },
-    read: (dialog) => {
-      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
-      return {
-        value: input?.value ?? "",
-        placeholder: input?.placeholder ?? "",
-        required: input?.required ?? false,
-        hidden: input?.closest<HTMLElement>(".provider-editor-field")?.hidden === true
-      };
     }
   },
 
   model: {
-    input: { draftKey: "model", selector: ".provider-editor-model", clearStatus: false },
+    input: { draftKey: "model", selector: ".provider-editor-model" },
     project: (scope, draft) => (scope.family.modelSource === "input" ? { value: draft.model, required: true } : {}),
     html: (projection) =>
       fieldBlock(
@@ -265,10 +247,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (!input) return;
       input.value = projection.value ?? "";
       input.required = projection.required === true;
-    },
-    read: (dialog) => {
-      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
-      return { value: input?.value ?? "", required: input?.required ?? false };
     }
   },
 
@@ -285,16 +263,12 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (!node) return;
       node.hidden = projection.hidden === true;
       node.textContent = projection.text ?? "";
-    },
-    read: (dialog) => {
-      const node = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
-      return { hidden: node?.hidden === true, text: node?.textContent ?? "" };
     }
   },
 
   voice: {
     project: (scope, draft) => {
-      if (!isMossLiveScope(scope)) return { hidden: true };
+      if (scope.ctx.kind !== "live" || !isMossLivePreset(scope.preset)) return { hidden: true };
       return { hidden: false, value: String(draft.voiceId || "") };
     },
     html: (projection, scope) =>
@@ -313,13 +287,6 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
         }
         rebuildCustomSelectOptions(select);
       }
-    },
-    read: (dialog) => {
-      const field = dialog.querySelector<HTMLElement>(".provider-editor-field-voice");
-      return {
-        value: dialog.querySelector<HTMLSelectElement>(".provider-editor-voice")?.value ?? "",
-        hidden: field ? field.hidden === true : true
-      };
     }
   },
 
@@ -330,8 +297,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     apply: (dialog, projection) => {
       const node = dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty");
       if (node) node.hidden = projection.hidden === true;
-    },
-    read: (dialog) => ({ hidden: dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")?.hidden === true })
+    }
   },
 
   liveGeminiNativeSearch: {
@@ -359,45 +325,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (input && projection.checked !== undefined) {
         input.checked = projection.checked;
       }
-    },
-    read: (dialog) => {
-      const container = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search");
-      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
-      return {
-        hidden: container ? container.hidden === true : true,
-        checked: input ? input.checked : false
-      };
     }
   }
 };
-
-export function isSavedKeyReconfirmRequired(draft: EditorDraftView | null = state.draft): boolean {
-  if (!state.hasSavedKey || !state.editingId || !draft) return false;
-  if (draft.apiKey.trim()) return false;
-  if (usesAiCredentialReference(state.kind, draft.presetId)) return false;
-  const presetChanged = Boolean(state.openPresetId && draft.presetId !== state.openPresetId);
-  let openOrigin = "";
-  let currentOrigin = "";
-  try {
-    openOrigin = state.openBaseUrl ? new URL(state.openBaseUrl).origin : "";
-  } catch {}
-  try {
-    currentOrigin = draft.baseUrl.trim() ? new URL(draft.baseUrl.trim()).origin : "";
-  } catch {}
-  const originChanged = Boolean(openOrigin && currentOrigin && currentOrigin !== openOrigin);
-  return presetChanged || originChanged;
-}
-
-export function sessionProjectionContext(): ProjectionContext {
-  const reconfirmKey = isSavedKeyReconfirmRequired();
-  return {
-    kind: state.kind,
-    presets: state.presets,
-    hasSavedKey: state.hasSavedKey && !reconfirmKey,
-    reconfirmKey,
-    voices: state.voices
-  };
-}
 
 export function projectEditorFields(
   draft: EditorDraftView,
@@ -425,32 +355,139 @@ export function projectionBlocks(
   ) as Record<ProjectionFieldKey, string>;
 }
 
-export function renderProjection(
-  draft: EditorDraftView | null = state.draft,
-  ctx: ProjectionContext = sessionProjectionContext()
-): void {
-  const dialog = getDialog();
-  if (!dialog || !draft) return;
+export function applyFieldProjection(dialog: HTMLElement, draft: EditorDraftView, ctx: ProjectionContext): void {
   const scope = scopeOf(draft, ctx);
   for (const spec of Object.values(FIELDS)) {
     spec.apply(dialog, spec.project(scope, draft), scope);
   }
 }
 
-export function readProjection(): Record<ProjectionFieldKey, FieldProjection> {
-  const dialog = getDialog();
-  if (!dialog) {
-    return Object.fromEntries(
-      (Object.keys(FIELDS) as ProjectionFieldKey[]).map((key) => [key, {}])
-    ) as Record<ProjectionFieldKey, FieldProjection>;
-  }
-  return Object.fromEntries(
-    (Object.entries(FIELDS) as [ProjectionFieldKey, FieldSpec][]).map(([key, spec]) => [key, spec.read(dialog)])
-  ) as Record<ProjectionFieldKey, FieldProjection>;
+export const DRAFT_INPUT_FIELDS: readonly { key: DraftInputKey; selector: string }[] = (
+  Object.values(FIELDS) as FieldSpec[]
+).flatMap((spec) => (spec.input ? [{ key: spec.input.draftKey, selector: spec.input.selector }] : []));
+
+export type EditorFieldKey = "baseUrl" | "apiKey" | "model" | "models";
+
+export interface EditorFieldIssue {
+  field: EditorFieldKey;
+  message: string;
 }
 
-export const DRAFT_INPUTS: readonly { key: DraftInputKey; selector: string; clearStatus: boolean }[] = (
-  Object.values(FIELDS) as FieldSpec[]
-).flatMap((spec) =>
-  spec.input ? [{ key: spec.input.draftKey, selector: spec.input.selector, clearStatus: spec.input.clearStatus }] : []
-);
+const VALIDATION_FIELD_DOM: Record<EditorFieldKey, { control: string; error: string }> = {
+  baseUrl: { control: ".provider-editor-baseurl", error: "provider-editor-error-baseurl" },
+  apiKey: { control: ".provider-editor-apikey", error: "provider-editor-error-apikey" },
+  model: { control: ".provider-editor-model", error: "provider-editor-error-model" },
+  models: { control: '[data-provider-editor-action="add-model"]', error: "provider-editor-error-models" }
+};
+
+export const VALIDATION_FIELD_ORDER: readonly EditorFieldKey[] = ["baseUrl", "apiKey", "model", "models"];
+const HTTP_URL_RE = /^https?:\/\/.+/i;
+
+export function issueForEditorField(
+  field: EditorFieldKey,
+  draft: EditorDraftView,
+  ctx: ProjectionContext,
+  options: { firstSetup: boolean; reconfirmRequired: boolean }
+): EditorFieldIssue | null {
+  const family = PROVIDER_FAMILY_ROWS[ctx.kind];
+  const preset = family.resolvePreset(ctx.presets, draft.presetId);
+  if (field === "baseUrl") {
+    const baseUrl = draft.baseUrl.trim();
+    if (!baseUrl) return { field, message: "请填写 API 地址" };
+    if (!HTTP_URL_RE.test(baseUrl)) return { field, message: "API 地址需以 http:// 或 https:// 开头" };
+    try {
+      new URL(baseUrl);
+    } catch {
+      return { field, message: "请输入合法的 API 地址" };
+    }
+    return null;
+  }
+  if (field === "apiKey") {
+    const projection = projectEditorFields(draft, ctx).apiKey;
+    if (projection.hidden) return null;
+    if (projection.required && !draft.apiKey.trim()) {
+      if (options.reconfirmRequired) {
+        return { field, message: KEY_RECONFIRM_MESSAGE };
+      }
+      const name = draft.name.trim() || preset?.name || "自定义";
+      return { field, message: `平台「${name}」需要填写 API Key` };
+    }
+    return null;
+  }
+  if (field === "model") {
+    if (family.editor.modelSource !== "input") return null;
+    if (!draft.model.trim()) return { field, message: "请填写模型名" };
+    return null;
+  }
+  if (options.firstSetup && ctx.kind === "ai" && !draft.models.some((model) => model.trim())) {
+    return { field, message: "请至少添加一个模型后再保存" };
+  }
+  return null;
+}
+
+export function validateEditorFields(
+  draft: EditorDraftView,
+  ctx: ProjectionContext,
+  options: { firstSetup: boolean; reconfirmRequired: boolean },
+  fields: readonly EditorFieldKey[] = VALIDATION_FIELD_ORDER
+): EditorFieldIssue[] {
+  return fields.flatMap((field) => {
+    const issue = issueForEditorField(field, draft, ctx, options);
+    return issue ? [issue] : [];
+  });
+}
+
+function controlOfField(dialog: HTMLElement, field: EditorFieldKey): HTMLElement | null {
+  if (field === "models") {
+    const empty = Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).find(
+      (input) => !input.value.trim()
+    );
+    if (empty) return empty;
+  }
+  return dialog.querySelector<HTMLElement>(VALIDATION_FIELD_DOM[field].control) ?? null;
+}
+
+export function applyFieldIssueDom(dialog: HTMLElement, field: EditorFieldKey, issue: EditorFieldIssue | null): void {
+  const { control: selector, error: errorId } = VALIDATION_FIELD_DOM[field];
+  const error = dialog.querySelector<HTMLElement>(`#${errorId}`);
+  const controls =
+    field === "models"
+      ? [
+          ...Array.from(dialog.querySelectorAll<HTMLElement>(".provider-editor-model-id")),
+          ...Array.from(dialog.querySelectorAll<HTMLElement>(selector))
+        ]
+      : Array.from(dialog.querySelectorAll<HTMLElement>(selector));
+  for (const control of controls) {
+    control.removeAttribute("aria-invalid");
+    if (control.getAttribute("aria-describedby") === errorId) {
+      control.removeAttribute("aria-describedby");
+    }
+  }
+  if (error) {
+    error.hidden = !issue;
+    error.textContent = issue?.message ?? "";
+  }
+  if (issue) {
+    const target = controlOfField(dialog, field);
+    target?.setAttribute("aria-invalid", "true");
+    target?.setAttribute("aria-describedby", errorId);
+  }
+}
+
+export function renderEditorFieldIssues(
+  dialog: HTMLElement,
+  issues: readonly EditorFieldIssue[],
+  fields: readonly EditorFieldKey[] = VALIDATION_FIELD_ORDER
+): void {
+  for (const field of fields) {
+    applyFieldIssueDom(dialog, field, issues.find((entry) => entry.field === field) ?? null);
+  }
+}
+
+export function focusEditorField(dialog: HTMLElement, field: EditorFieldKey): void {
+  const control = controlOfField(dialog, field);
+  const error = dialog.querySelector<HTMLElement>(`#${VALIDATION_FIELD_DOM[field].error}`);
+  control?.focus();
+  control?.scrollIntoView?.({ block: "nearest" });
+  error?.scrollIntoView?.({ block: "nearest" });
+}

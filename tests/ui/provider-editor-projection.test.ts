@@ -1,14 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
-import { initCustomSelect } from "../../extension/ui/custom-select.js";
-import * as projectionModule from "../../extension/ui/provider-editor-projection.js";
-import * as stateModule from "../../extension/ui/provider-editor-state.js";
-import type { EditorDraft } from "../../extension/ui/provider-editor-state.js";
+
+const mocks = vi.hoisted(() => ({
+  fetchProviderModels: vi.fn(async (): Promise<{ ok: boolean; models?: string[]; error?: string }> => ({
+    ok: true,
+    models: []
+  }))
+}));
+
+vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/ai/provider-models.js")>();
+  return {
+    ...actual,
+    fetchProviderModels: mocks.fetchProviderModels
+  };
+});
+
+import { closeProviderEditor, openProviderEditor } from "../../extension/ui/provider-editor.js";
 import type { ProviderRowPreset } from "../../extension/ui/provider-row.js";
 import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
-import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
+import { closeConfirmDialog } from "../../extension/ui/confirm-dialog.js";
+import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
-const PRESETS: ProviderRowPreset[] = [
+const AI_PRESETS: ProviderRowPreset[] = [
   { id: "custom", name: "自定义", baseUrl: "", requiresKey: true },
   {
     id: "deepseek",
@@ -21,182 +35,15 @@ const PRESETS: ProviderRowPreset[] = [
   { id: "ollama", name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false }
 ];
 
-function draftOf(overrides: Partial<EditorDraft> = {}): EditorDraft {
-  return {
-    presetId: "custom",
-    name: "",
-    baseUrl: "",
-    apiKey: "",
-    protocol: "openai",
-    models: [],
-    model: "",
-    ...overrides
-  };
-}
+const ASR_PRESETS: ProviderRowPreset[] = [
+  { id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true },
+  { id: "local-whisper", name: "本地 Whisper 服务", baseUrl: "http://localhost:8000/v1", model: "whisper-large-v3", requiresKey: false }
+];
 
-beforeEach(() => {
-  resetSettingsPanelState();
-});
-
-afterEach(() => {
-  stateModule.endEditorSession();
-});
-
-async function mountProjectionSession(draft: EditorDraft, kind: "ai" | "asr" = "ai") {
-  document.body.innerHTML = `
-    <div id="biliscript-reading-view">
-      <div class="provider-editor-host">
-        <section class="provider-editor-dialog">
-          <select class="provider-editor-preset">
-            ${PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
-          </select>
-          <select class="provider-editor-protocol">
-            <option value="openai">OpenAI Chat Completions</option>
-            <option value="anthropic">Anthropic Messages</option>
-          </select>
-          <input class="provider-editor-name" type="text" />
-          <input class="provider-editor-baseurl" type="text" />
-          <input class="provider-editor-apikey" type="password" />
-          <input class="provider-editor-model" type="text" />
-          <p class="provider-editor-protocol-notes" hidden></p>
-          <p class="provider-editor-catalog-empty" hidden></p>
-          <div class="provider-editor-model-list"></div>
-        </section>
-      </div>
-    </div>`;
-  const host = document.querySelector<HTMLElement>(".provider-editor-host")!;
-  stateModule.beginEditorSession({
-    kind,
-    host,
-    presets: PRESETS,
-    hasSavedKey: false,
-    draft
-  });
-  return { state: stateModule, projection: projectionModule, host, dialog: document.querySelector<HTMLElement>(".provider-editor-dialog")! };
-}
-
-function context(kind: "ai" | "asr" = "ai") {
-  return { kind, presets: PRESETS, hasSavedKey: false };
-}
-
-function expectProjectionMatches(
-  projection: { projectEditorFields: Function; readProjection: Function },
-  draft: EditorDraft,
-  ctx: { kind: "ai" | "asr"; presets: ProviderRowPreset[]; hasSavedKey: boolean }
-) {
-  const expected = projection.projectEditorFields(draft, ctx) as Record<string, Record<string, unknown>>;
-  const actual = projection.readProjection(ctx) as Record<string, Record<string, unknown>>;
-  for (const [field, state] of Object.entries(expected)) {
-    for (const [prop, value] of Object.entries(state)) {
-      expect(actual[field]?.[prop], `${field}.${prop} 未投影到 DOM`).toEqual(value);
-    }
-  }
-}
-
-describe("字段投影（owner 1）：模板与联动共用的唯一投影点", () => {
-  it("重投影后逐字段 DOM 目标态 == projectEditorFields（投影漏字段即红）", async () => {
-    const { projection } = await mountProjectionSession(draftOf());
-    const initial = draftOf({
-      presetId: "deepseek",
-      name: "我的端点",
-      baseUrl: "https://api.deepseek.com/v1",
-      apiKey: "sk-typed",
-      protocol: "anthropic",
-      models: ["deepseek-v4-pro"]
-    });
-
-    projection.renderProjection(initial, context());
-    expectProjectionMatches(projection, initial, context());
-
-    const next = draftOf({
-      presetId: "ollama",
-      name: "",
-      baseUrl: "http://localhost:11434/v1",
-      apiKey: "",
-      protocol: "openai",
-      models: []
-    });
-    projection.renderProjection(next, context());
-    expectProjectionMatches(projection, next, context());
-  });
-
-  it("ASR 形态：单模型输入与 Key 值/必填同源投影", async () => {
-    const { projection } = await mountProjectionSession(draftOf({ presetId: "custom", model: "" }), "asr");
-    const asr = draftOf({ presetId: "custom", name: "本地", baseUrl: "http://localhost:8000/v1", apiKey: "", model: "whisper-large-v3" });
-
-    projection.renderProjection(asr, context("asr"));
-    expectProjectionMatches(projection, asr, context("asr"));
-  });
-
-  it("模板片段是同一投影的产物（模板自写死值即红）", async () => {
-    const { projection } = await mountProjectionSession(draftOf());
-    const draft = draftOf({
-      presetId: "deepseek",
-      name: "我的端点",
-      baseUrl: "https://api.deepseek.com/v1",
-      protocol: "anthropic",
-      models: ["deepseek-v4-pro"]
-    });
-    const ctx = context();
-    const fields = projection.projectEditorFields(draft, ctx) as Record<string, Record<string, string>>;
-    const blocks = projection.projectionBlocks(draft, ctx) as Record<string, string>;
-
-    expect(blocks.name).toContain(`value="${fields.name.value}"`);
-    expect(blocks.name).toContain(`placeholder="${fields.name.placeholder}"`);
-    expect(blocks.baseUrl).toContain(`value="${fields.baseUrl.value}"`);
-    expect(blocks.apiKey).toContain(`placeholder="${fields.apiKey.placeholder}"`);
-    expect(blocks.preset).toContain(`value="${fields.preset.value}" selected`);
-    expect(fields.protocolNotes.text).toBe("");
-    expect(blocks.protocolNotes).toContain("hidden");
-    expect(blocks.catalogEmpty).toContain("hidden");
-  });
-
-  it("预设切换：所有字段随 draft 重投影（协议 trigger / Key 占位与必填 / 名称占位）", async () => {
-    const draft = draftOf();
-    const { projection, dialog, state } = await mountProjectionSession(draft);
-    const { presetProtocol, presetBaseUrlForProtocol } = projection;
-
-    const next = PRESETS[1];
-    state.editDraft((current) => {
-      current.presetId = next.id;
-      current.protocol = presetProtocol(next);
-      current.baseUrl = presetBaseUrlForProtocol(next, current.protocol);
-    });
-    initCustomSelect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!);
-    initCustomSelect(dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!);
-    projection.renderProjection();
-
-    const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
-    const protocolWrapper = protocolSelect.closest<HTMLElement>(".custom-select-wrapper")!;
-    expect(protocolSelect.value).toBe("anthropic");
-    expect(protocolWrapper.querySelector(".custom-select-value")!.textContent).toBe("Anthropic Messages");
-    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe(
-      "https://api.deepseek.com/anthropic"
-    );
-    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.placeholder).toBe("DeepSeek");
-    expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(true);
-  });
-});
-
-describe("draft 真源与 dirty（F3/F5）", () => {
-  it("EditorDraft 全键穷举：任一字段变化都判脏（draftsEqual 漏比即红）", async () => {
-    const { cloneDraft, draftsEqual } = stateModule;
-    const base = draftOf({ presetId: "custom", name: "n", baseUrl: "https://a.example.com", apiKey: "k", protocol: "openai", models: ["m"], model: "x" });
-    expect(draftsEqual(base, cloneDraft(base))).toBe(true);
-
-    for (const key of Object.keys(base)) {
-      const mutated = cloneDraft(base) as unknown as Record<string, unknown>;
-      const current = mutated[key];
-      mutated[key] = Array.isArray(current) ? [...current, "m2"] : key === "protocol" ? "anthropic" : `${String(current)}!`;
-      expect(draftsEqual(base, mutated as never), `${key} 变化必须判脏`).toBe(false);
-    }
-  });
-
-  it("models 顺序不同同样判脏（不只看长度）", async () => {
-    const { draftsEqual } = stateModule;
-    expect(draftsEqual(draftOf({ models: ["a", "b"] }), draftOf({ models: ["b", "a"] }))).toBe(false);
-  });
-});
+const LIVE_PRESETS: ProviderRowPreset[] = [
+  { id: "moss-live", name: "MOSS Live", type: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-live-1.0", requiresKey: true },
+  { id: "gemini-live", name: "Gemini Live", type: "gemini-live", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-3.8-live", requiresKey: false }
+];
 
 type MessageResponder = (message: { type: string } & Record<string, any>) => unknown;
 
@@ -210,13 +57,17 @@ function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
   return host.sent;
 }
 
-async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
+function mountView(): void {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
       <section id="biliscript-reading-settings-panel">
         <div id="biliscript-reading-settings-host"></div>
       </section>
     </div>`;
+}
+
+async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
+  mountView();
   const sent = installMessageBus(busOverrides);
   await renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
@@ -225,7 +76,7 @@ async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
   return { sent, host };
 }
 
-async function openEditor(host: HTMLElement, buttonSelector: string) {
+async function openEditorFromPanel(host: HTMLElement, buttonSelector: string) {
   host.querySelector(buttonSelector)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   await waitForFast(() => {
     expect(document.querySelector(".provider-editor-dialog")).toBeTruthy();
@@ -233,12 +84,240 @@ async function openEditor(host: HTMLElement, buttonSelector: string) {
   return document.querySelector<HTMLElement>(".provider-editor-dialog")!;
 }
 
+function fireClick(node: Element | null) {
+  node!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
 function setFieldValue(input: HTMLInputElement, value: string) {
   input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
+beforeEach(() => {
+  resetSettingsPanelState();
+  mocks.fetchProviderModels.mockReset().mockResolvedValue({ ok: true, models: [] });
+});
+
+afterEach(() => {
+  closeConfirmDialog();
+  closeProviderEditor(true);
+});
+
+describe("字段投影：经对外接口观测初始渲染与联动重投影", () => {
+  it("AI 打开预填与预设切换：preset / protocol trigger / name 占位 / baseUrl / apiKey / protocolNotes / catalogEmpty 同步更新", () => {
+    mountView();
+    openProviderEditor({
+      kind: "ai",
+      item: {
+        id: "p_1",
+        presetId: "deepseek",
+        name: "我的端点",
+        baseUrl: "https://api.deepseek.com/anthropic",
+        protocol: "anthropic",
+        models: ["deepseek-v4-pro"],
+        hasSavedKey: false
+      },
+      presets: AI_PRESETS,
+      onSave: async () => ({ ok: true })
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
+    const protocolWrapper = protocolSelect.closest<HTMLElement>(".custom-select-wrapper")!;
+    const nameInput = dialog.querySelector<HTMLInputElement>(".provider-editor-name")!;
+    const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
+    const apiKeyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    const protocolNotes = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!;
+    const catalogEmpty = dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")!;
+
+    expect(presetSelect.value).toBe("deepseek");
+    expect(protocolSelect.value).toBe("anthropic");
+    expect(protocolWrapper.querySelector(".custom-select-value")!.textContent).toBe("Anthropic Messages");
+    expect(nameInput.value).toBe("我的端点");
+    expect(nameInput.placeholder).toBe("DeepSeek");
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+    expect(apiKeyInput.placeholder).toBe("API Key");
+    expect(apiKeyInput.required).toBe(true);
+    expect(protocolNotes.hidden).toBe(true);
+    expect(catalogEmpty.hidden).toBe(true);
+
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
+
+    presetSelect.value = "ollama";
+    presetSelect.dispatchEvent(new Event("change"));
+    fireClick(dialog.querySelector(".provider-editor-model-remove"));
+
+    expect(protocolSelect.value).toBe("openai");
+    expect(protocolWrapper.querySelector(".custom-select-value")!.textContent).toBe("OpenAI Chat Completions");
+    expect(nameInput.placeholder).toBe("Ollama (本地)");
+    expect(baseUrlInput.value).toBe("http://localhost:11434/v1");
+    expect(apiKeyInput.placeholder).toBe("API Key（可选）");
+    expect(apiKeyInput.required).toBe(false);
+    expect(catalogEmpty.hidden).toBe(false);
+  });
+
+  it("ASR 形态：单模型输入必填、暂存草稿 apiKey 回填且切免 Key 预设清空 Key", () => {
+    mountView();
+    openProviderEditor({
+      kind: "asr",
+      presets: ASR_PRESETS,
+      initialDraft: {
+        presetId: "custom",
+        name: "本地",
+        baseUrl: "http://localhost:8000/v1",
+        apiKey: "sk-stashed",
+        protocol: "",
+        models: [],
+        model: "whisper-large-v3"
+      },
+      onSave: async () => ({ ok: true })
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const modelInput = dialog.querySelector<HTMLInputElement>(".provider-editor-model")!;
+    const apiKeyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    expect(modelInput.value).toBe("whisper-large-v3");
+    expect(modelInput.required).toBe(true);
+    expect(apiKeyInput.value).toBe("sk-stashed");
+    expect(apiKeyInput.required).toBe(true);
+
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    presetSelect.value = "local-whisper";
+    presetSelect.dispatchEvent(new Event("change"));
+    expect(apiKeyInput.value).toBe("");
+    expect(apiKeyInput.required).toBe(false);
+  });
+
+  it("批量从「获取可用模型」确认添加：一次事务写入全部新模型并清错、隐藏空态", async () => {
+    mountView();
+    installMessageBus();
+    mocks.fetchProviderModels.mockResolvedValueOnce({
+      ok: true,
+      models: ["gpt-4o-mini", "gpt-4o", "o3-mini"]
+    });
+    openProviderEditor({
+      kind: "ai",
+      firstSetup: true,
+      presets: AI_PRESETS,
+      onSave: async () => ({ ok: true })
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    expect(document.getElementById("provider-editor-error-models")!.hidden).toBe(false);
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await waitForFast(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(3);
+    });
+    fireClick(document.querySelector(".provider-editor-fetch-all"));
+    fireClick(document.querySelector(".provider-editor-fetch-confirm"));
+    await flushMicrotasks();
+
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(
+      Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["gpt-4o-mini", "gpt-4o", "o3-mini"]);
+    expect(dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")!.hidden).toBe(true);
+    expect(document.getElementById("provider-editor-error-models")!.hidden).toBe(true);
+    expect(dialog.querySelector<HTMLElement>(".provider-editor-status")!.hidden).toBe(true);
+  });
+});
+
+describe("draft 脏检测覆盖全部可编辑字段（经取消确认框观测）", () => {
+  it("models 顺序调整判脏，恢复原序后不再判脏", async () => {
+    mountView();
+    openProviderEditor({
+      kind: "ai",
+      item: {
+        id: "p_1",
+        presetId: "custom",
+        name: "端点",
+        baseUrl: "https://api.example.com/v1",
+        models: ["a", "b"],
+        hasSavedKey: true
+      },
+      presets: AI_PRESETS,
+      onSave: async () => ({ ok: true })
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const inputs = dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id");
+    setFieldValue(inputs[0], "b");
+    setFieldValue(inputs[1], "a");
+
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-host")).not.toBeNull();
+    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    await waitForFast(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
+
+    setFieldValue(inputs[0], "a");
+    setFieldValue(inputs[1], "b");
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+    expect(document.querySelector(".provider-editor-dialog")).toBeNull();
+  });
+
+  it("Live 专属字段（liveGeminiNativeSearch / voiceId）变更均触发脏保护", async () => {
+    mountView();
+    openProviderEditor({
+      kind: "live",
+      item: {
+        id: "live_1",
+        presetId: "gemini-live",
+        name: "Gemini Live",
+        type: "gemini-live",
+        baseUrl: "https://generativelanguage.googleapis.com",
+        model: "gemini-3.8-live",
+        liveGeminiNativeSearch: false,
+        hasSavedKey: false
+      },
+      presets: LIVE_PRESETS,
+      onSave: async () => ({ ok: true })
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const toggle = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search")!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-host")).not.toBeNull();
+    closeConfirmDialog();
+    closeProviderEditor(true);
+
+    openProviderEditor({
+      kind: "live",
+      item: {
+        id: "live_2",
+        presetId: "moss-live",
+        name: "MOSS Live",
+        type: "moss-live",
+        baseUrl: "https://api.mosi.cn",
+        model: "moss-live-1.0",
+        voiceId: "voice-1",
+        hasSavedKey: true
+      },
+      presets: LIVE_PRESETS,
+      onSave: async () => ({ ok: true })
+    });
+
+    const mossDialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const voiceSelect = mossDialog.querySelector<HTMLSelectElement>(".provider-editor-voice")!;
+    voiceSelect.value = "";
+    voiceSelect.dispatchEvent(new Event("change"));
+
+    fireClick(mossDialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-host")).not.toBeNull();
+  });
+});
+
+describe("输入回写与联动（真实设置面板路径）", () => {
   it.each([
     ["name", "#addAiProviderBtn", ".provider-editor-name", "我的端点"],
     ["baseUrl", "#addAiProviderBtn", ".provider-editor-baseurl", "https://api.example.com/v1"],
@@ -246,13 +325,13 @@ describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
     ["model", "#addAsrProviderBtn", ".provider-editor-model", "whisper-1"]
   ])("%s 经 input 事件写入即判脏（回写漏字段即红）", async (_key, button, selector, value) => {
     const { host } = await mountPanel();
-    const dialog = await openEditor(host, button);
+    const dialog = await openEditorFromPanel(host, button);
 
     dialog.querySelector(".provider-editor-cancel")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(document.querySelector(".confirm-dialog-host"), "未改动前取消不应弹放弃确认").toBeNull();
     expect(document.querySelector(".provider-editor-dialog")).toBeNull();
 
-    const reopened = await openEditor(host, button);
+    const reopened = await openEditorFromPanel(host, button);
     setFieldValue(reopened.querySelector<HTMLInputElement>(selector)!, value);
     reopened.querySelector(".provider-editor-cancel")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(document.querySelector(".confirm-dialog-host"), "输入后取消必须触发未保存放弃确认").not.toBeNull();
@@ -260,7 +339,7 @@ describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
 
   it("预设切换走自定义下拉：联动结果写入 draft 并随保存落盘（只改 DOM 会落旧值）", async () => {
     const { sent, host } = await mountPanel();
-    const dialog = await openEditor(host, "#addAiProviderBtn");
+    const dialog = await openEditorFromPanel(host, "#addAiProviderBtn");
 
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     const wrapper = presetSelect.closest<HTMLElement>(".custom-select-wrapper")!;

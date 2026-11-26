@@ -1,6 +1,6 @@
 import { permissionRevokeErrorMessage, revokeOrphanOriginViaBackground } from "../core/host-permissions.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
-import type { ProviderEditorKind } from "./provider-editor-state.js";
+import type { ProviderEditorKind } from "./provider-editor.js";
 import type { ProviderRowItem } from "./provider-row.js";
 
 export interface ProviderTransactionFamily {

@@ -1,6 +1,51 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CatalogModelMeta } from "../../extension/ai/model-catalog.js";
+import * as realModelCatalog from "../../extension/ai/model-catalog.js";
 import { UPSTREAM_CATALOG_SOURCE } from "../../extension/ai/catalog/models-dev-catalog.generated.js";
-import { resetModuleState } from "../setup.js";
+
+type CatalogModule = typeof realModelCatalog;
+
+const catalogGate = vi.hoisted(() => ({
+  loaded: null as CatalogModule | null,
+  deferred: null as Promise<CatalogModule> | null,
+  resolveDeferred: null as ((mod: CatalogModule) => void) | null,
+  customLookup: null as ((presetId: unknown, baseUrl: unknown, modelId: unknown) => CatalogModelMeta | null) | null
+}));
+
+const fetchMocks = vi.hoisted(() => ({
+  fetchProviderModels: vi.fn(async (): Promise<{ ok: boolean; models?: string[]; error?: string }> => ({
+    ok: true,
+    models: []
+  }))
+}));
+
+vi.mock("../../extension/ui/lazy-model-catalog.js", () => ({
+  loadedModelCatalog: () => catalogGate.loaded,
+  loadModelCatalog: async () => {
+    if (catalogGate.loaded) {
+      return catalogGate.loaded;
+    }
+    if (catalogGate.deferred) {
+      return catalogGate.deferred;
+    }
+    const mod: CatalogModule = catalogGate.customLookup
+      ? { ...realModelCatalog, lookupCatalogMeta: catalogGate.customLookup }
+      : realModelCatalog;
+    catalogGate.loaded = mod;
+    return mod;
+  }
+}));
+
+vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/ai/provider-models.js")>();
+  return {
+    ...actual,
+    fetchProviderModels: fetchMocks.fetchProviderModels
+  };
+});
+
+import { closeProviderEditor, openProviderEditor } from "../../extension/ui/provider-editor.js";
+import { flushMicrotasks, resetProviderEditorState, waitForFast } from "../helpers/reset-provider-editor-state.js";
 
 const MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
@@ -12,48 +57,39 @@ const PRESET_SUBSET = [
   { id: "qwen", name: "Qwen", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" }
 ];
 
-async function mountDialog(options: { presetId: string; baseUrl: string; models: string[] }) {
-  document.body.innerHTML = `
-    <div id="biliscript-reading-view">
-      <div class="provider-editor-host">
-        <section class="provider-editor-dialog">
-          <select class="provider-editor-preset">
-            ${PRESET_SUBSET.map(
-              (preset) =>
-                `<option value="${preset.id}" ${preset.id === options.presetId ? "selected" : ""}>${preset.name}</option>`
-            ).join("")}
-          </select>
-          <input class="provider-editor-baseurl" type="text" value="${options.baseUrl}" />
-          <div class="provider-editor-model-list"></div>
-        </section>
-      </div>
-    </div>`;
-  const { beginEditorSession } = await import("../../extension/ui/provider-editor-state.js");
-  beginEditorSession({
+function mountEditor(options: { presetId: string; baseUrl: string; models: string[]; apiKey?: string }) {
+  document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
+  openProviderEditor({
     kind: "ai",
-    host: document.querySelector<HTMLElement>(".provider-editor-host")!,
-    presets: PRESET_SUBSET,
-    draft: {
+    item: {
+      id: "p_meta",
       presetId: options.presetId,
       name: "",
       baseUrl: options.baseUrl,
-      apiKey: "",
-      protocol: "openai",
-      models: [],
-      model: ""
-    }
+      models: options.models,
+      hasSavedKey: true
+    },
+    presets: PRESET_SUBSET,
+    onSave: async () => ({ ok: true })
   });
-  const state = await import("../../extension/ui/provider-editor-state.js");
-  const catalog = await import("../../extension/ui/provider-editor-catalog.js");
-  for (const model of options.models) {
-    catalog.addModelRow(model);
-  }
   const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
-  return { state, catalog, dialog };
+  if (options.apiKey) {
+    const keyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    keyInput.value = options.apiKey;
+    keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  return dialog;
 }
 
-function hostElement(): HTMLElement {
-  return document.querySelector<HTMLElement>(".provider-editor-host")!;
+function deferCatalogLoad() {
+  catalogGate.deferred = new Promise<CatalogModule>((resolve) => {
+    catalogGate.resolveDeferred = (mod) => {
+      catalogGate.loaded = mod;
+      catalogGate.deferred = null;
+      catalogGate.resolveDeferred = null;
+      resolve(mod);
+    };
+  });
 }
 
 function metaSlot(dialog: HTMLElement, index: number): HTMLElement {
@@ -69,43 +105,75 @@ function fireInput(node: HTMLElement): void {
   node.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function fireClick(node: Element | null): void {
+  node!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
 beforeEach(() => {
-  resetModuleState();
-  document.body.innerHTML = "";
+  resetProviderEditorState();
+  catalogGate.loaded = null;
+  catalogGate.deferred = null;
+  catalogGate.resolveDeferred = null;
+  catalogGate.customLookup = null;
+  fetchMocks.fetchProviderModels.mockReset().mockResolvedValue({ ok: true, models: [] });
 });
 
-afterEach(async () => {
-  const { endEditorSession } = await import("../../extension/ui/provider-editor-state.js");
-  endEditorSession();
+afterEach(() => {
+  closeProviderEditor(true);
 });
 
-describe("元数据短格式（spec §展示）", () => {
-  it("≥10⁶ 用 M，否则十进制取整到 K", async () => {
-    const { formatContextWindow } = await import("../../extension/ui/provider-editor-catalog.js");
-    expect(formatContextWindow(1_000_000)).toBe("1M");
-    expect(formatContextWindow(524_288)).toBe("524K");
-    expect(formatContextWindow(128_000)).toBe("128K");
-    expect(formatContextWindow(384_000)).toBe("384K");
-    expect(formatContextWindow(8_192)).toBe("8K");
-    expect(formatContextWindow(1_500_000)).toBe("1.5M");
-    expect(formatContextWindow(0)).toBe("");
-    expect(formatContextWindow(Number.NaN)).toBe("");
+describe("元数据短格式（经编辑器模型行展示验证）", () => {
+  it("≥10⁶ 用 M，否则十进制取整到 K，非正数/NaN 不显示窗口文本", async () => {
+    const cases: [string, number, string][] = [
+      ["m-1m", 1_000_000, "1M"],
+      ["m-524k", 524_288, "524K"],
+      ["m-128k", 128_000, "128K"],
+      ["m-384k", 384_000, "384K"],
+      ["m-8k", 8_192, "8K"],
+      ["m-1.5m", 1_500_000, "1.5M"],
+      ["m-0", 0, ""],
+      ["m-nan", Number.NaN, ""]
+    ];
+    const table = new Map<string, CatalogModelMeta>(
+      cases.map(([id, contextWindow]) => [
+        id,
+        { id, name: id, contextWindow, maxTokens: 4096, reasoning: false, input: ["text"] }
+      ])
+    );
+    catalogGate.customLookup = (_presetId, _baseUrl, modelId) => table.get(String(modelId ?? "")) ?? null;
+
+    const dialog = mountEditor({
+      presetId: "custom",
+      baseUrl: "https://api.example.com/v1",
+      models: cases.map(([id]) => id)
+    });
+    await flushMicrotasks();
+
+    cases.forEach(([, , expected], index) => {
+      const slot = metaSlot(dialog, index);
+      if (expected) {
+        expect(slot.hidden).toBe(false);
+        expect(slot.querySelector(".provider-editor-model-window")?.textContent).toBe(expected);
+      } else {
+        expect(slot.hidden).toBe(true);
+        expect(slot.textContent).toBe("");
+      }
+    });
   });
 });
 
 describe("模型行元数据", () => {
-  it("命中：窗口 + 能力徽标；title 带输出上限与数据版本", async () => {
-    const { dialog, catalog } = await mountDialog({
+  it("命中：延迟加载前隐藏，加载后展示窗口 + 能力徽标；title 带输出上限与数据版本", async () => {
+    deferCatalogLoad();
+    const dialog = mountEditor({
       presetId: "custom",
       baseUrl: MIMO_BASE_URL,
       models: ["mimo-v2.5"]
     });
-    const lazy = await import("../../extension/ui/lazy-model-catalog.js");
-    expect(lazy.loadedModelCatalog()).toBeNull();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    await lazy.loadModelCatalog();
-    catalog.refreshModelCatalogMeta();
+    catalogGate.resolveDeferred!(realModelCatalog);
+    await flushMicrotasks();
 
     const slot = metaSlot(dialog, 0);
     expect(slot.hidden).toBe(false);
@@ -120,26 +188,26 @@ describe("模型行元数据", () => {
   });
 
   it("只文本的模型不挂「图片」徽标", async () => {
-    const { dialog, catalog } = await mountDialog({
+    const dialog = mountEditor({
       presetId: "deepseek",
       baseUrl: DEEPSEEK_BASE_URL,
       models: ["deepseek-v4-pro"]
     });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    catalog.refreshModelCatalogMeta();
+    await flushMicrotasks();
+
     const slot = metaSlot(dialog, 0);
     expect(slot.textContent).toBe("1M思考");
     expect(slot.title).toContain("仅文本输入");
   });
 
   it("查不到整栏静默隐藏：不占位、无 title、无徽标", async () => {
-    const { dialog, catalog } = await mountDialog({
+    const dialog = mountEditor({
       presetId: "deepseek",
       baseUrl: DEEPSEEK_BASE_URL,
       models: ["no-such-model"]
     });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    catalog.refreshModelCatalogMeta();
+    await flushMicrotasks();
+
     const slot = metaSlot(dialog, 0);
     expect(slot.hidden).toBe(true);
     expect(slot.textContent).toBe("");
@@ -147,42 +215,36 @@ describe("模型行元数据", () => {
   });
 
   it("无数据平台（ollama）整栏不渲染", async () => {
-    const { dialog, catalog } = await mountDialog({
+    const dialog = mountEditor({
       presetId: "ollama",
       baseUrl: "http://localhost:11434/v1",
       models: ["qwen3.8-max"]
     });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    catalog.refreshModelCatalogMeta();
+    await flushMicrotasks();
+
     expect(metaSlot(dialog, 0).hidden).toBe(true);
   });
 
   it("原无数据平台（qwen）改源后命中：窗口 + 思考 + 图片徽标（10 号票白名单收缩）", async () => {
-    const { dialog, catalog } = await mountDialog({
+    const dialog = mountEditor({
       presetId: "qwen",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       models: ["qwen3.8-max"]
     });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    catalog.refreshModelCatalogMeta();
+    await flushMicrotasks();
+
     const slot = metaSlot(dialog, 0);
     expect(slot.hidden).toBe(false);
     expect(slot.textContent).toBe("1M思考图片");
   });
 
   it("只跟着平台身份与模型 id 走：改 baseUrl / 模型 id / 预设都重算", async () => {
-    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    const { openProviderEditor, closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
-    openProviderEditor({
-      kind: "ai",
-      item: { id: "p1", presetId: "custom", name: "", baseUrl: "", models: ["mimo-v2.5"] },
-      presets: PRESET_SUBSET,
-      onSave: async () => ({ ok: true })
+    const dialog = mountEditor({
+      presetId: "custom",
+      baseUrl: "",
+      models: ["mimo-v2.5"]
     });
-    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
-    const catalog = await import("../../extension/ui/provider-editor-catalog.js");
-    catalog.refreshModelCatalogMeta();
+    await flushMicrotasks();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
     const baseUrl = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
@@ -198,88 +260,99 @@ describe("模型行元数据", () => {
     input.value = "mimo-v2.5";
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(false);
+
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     presetSelect.value = "ollama";
     presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
-
-    closeProviderEditor(true);
-    catalog.refreshModelCatalogMeta();
-    expect(metaSlot(dialog, 0).hidden).toBe(true);
   });
 
   it("新加的行也带上元数据（草稿行增删路径）", async () => {
-    const { dialog, catalog } = await mountDialog({
+    const dialog = mountEditor({
       presetId: "deepseek",
       baseUrl: DEEPSEEK_BASE_URL,
       models: []
     });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    catalog.addModelRow("deepseek-v4-pro");
+    await flushMicrotasks();
+
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    const input = modelInput(dialog, 0);
+    input.value = "deepseek-v4-pro";
+    fireInput(input);
     expect(metaSlot(dialog, 0).textContent).toBe("1M思考");
   });
 
-  it("仅以 session draft 为真源：跳过未同步到 draft 的裸 DOM 修改，且默认以 draft 克隆建立基线", async () => {
-    const { dialog, catalog, state } = await mountDialog({
+  it("仅以 session draft 为真源：裸改 DOM 不生效，经 input 写入 draft 后重算元数据", async () => {
+    const dialog = mountEditor({
       presetId: "custom",
       baseUrl: "",
       models: ["mimo-v2.5"]
     });
-    expect(state.state.baselineDraft).toEqual({
-      presetId: "custom",
-      name: "",
-      baseUrl: "",
-      apiKey: "",
-      protocol: "openai",
-      models: [],
-      model: ""
-    });
+    await flushMicrotasks();
 
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value = "deepseek";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = MIMO_BASE_URL;
-    catalog.refreshModelCatalogMeta();
+    const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
+    baseUrlInput.value = MIMO_BASE_URL;
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    state.editDraft((draft) => {
-      draft.baseUrl = MIMO_BASE_URL;
-    });
-    catalog.refreshModelCatalogMeta();
+    baseUrlInput.value = MIMO_BASE_URL;
+    fireInput(baseUrlInput);
     expect(metaSlot(dialog, 0).hidden).toBe(false);
     expect(metaSlot(dialog, 0).textContent).toBe("1M思考图片");
   });
 });
 
-describe("「获取可用模型」勾选弹窗（spec §展示：同一套短格式）", () => {
+describe("「获取可用模型」勾选弹窗（同一套短格式）", () => {
   it("勾选项按同一格式化显示窗口与徽标，查不到的项隐藏", async () => {
-    await mountDialog({ presetId: "deepseek", baseUrl: DEEPSEEK_BASE_URL, models: [] });
-    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
-    const { renderFetchSkeleton, renderFetchList } = await import(
-      "../../extension/ui/provider-editor-fetch-dialog.js"
-    );
-    renderFetchSkeleton();
-    renderFetchList(["deepseek-v4-pro", "no-such-model"]);
+    fetchMocks.fetchProviderModels.mockResolvedValueOnce({
+      ok: true,
+      models: ["deepseek-v4-pro", "no-such-model"]
+    });
+    const dialog = mountEditor({
+      presetId: "deepseek",
+      baseUrl: DEEPSEEK_BASE_URL,
+      models: []
+    });
+    await flushMicrotasks();
 
-    const items = hostElement().querySelectorAll<HTMLElement>(".provider-editor-fetch-item");
-    expect(items).toHaveLength(2);
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await waitForFast(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
+    });
+
+    const items = document.querySelectorAll<HTMLElement>(".provider-editor-fetch-item");
     expect(items[0].querySelector<HTMLElement>("[data-model-meta]")!.textContent).toBe("1M思考");
     expect(items[1].querySelector<HTMLElement>("[data-model-meta]")!.hidden).toBe(true);
   });
 
   it("目录模块后加载：弹窗列表不重渲也能补齐元数据（勾选态不丢）", async () => {
-    await mountDialog({ presetId: "deepseek", baseUrl: DEEPSEEK_BASE_URL, models: [] });
-    const { renderFetchSkeleton, renderFetchList } = await import(
-      "../../extension/ui/provider-editor-fetch-dialog.js"
-    );
-    renderFetchSkeleton();
-    renderFetchList(["deepseek-v4-pro"]);
-    const item = hostElement().querySelector<HTMLElement>(".provider-editor-fetch-item")!;
+    deferCatalogLoad();
+    fetchMocks.fetchProviderModels.mockResolvedValueOnce({
+      ok: true,
+      models: ["deepseek-v4-pro"]
+    });
+    const dialog = mountEditor({
+      presetId: "deepseek",
+      baseUrl: DEEPSEEK_BASE_URL,
+      models: []
+    });
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await waitForFast(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
+    });
+
+    const item = document.querySelector<HTMLElement>(".provider-editor-fetch-item")!;
     expect(item.querySelector<HTMLElement>("[data-model-meta]")!.hidden).toBe(true);
 
     const check = item.querySelector<HTMLInputElement>(".provider-editor-fetch-check")!;
-    check.checked = true;
-    const { primeModelCatalogMeta } = await import("../../extension/ui/provider-editor-catalog.js");
-    await primeModelCatalogMeta();
+    fireClick(check);
+    expect(check.checked).toBe(true);
+
+    catalogGate.resolveDeferred!(realModelCatalog);
+    await flushMicrotasks();
+
     expect(item.querySelector<HTMLElement>("[data-model-meta]")!.textContent).toBe("1M思考");
     expect(item.querySelector<HTMLInputElement>(".provider-editor-fetch-check")!.checked).toBe(true);
   });

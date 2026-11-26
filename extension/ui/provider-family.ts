@@ -3,7 +3,7 @@ import { SMART_SEARCH_ACTIVE_ID } from "../core/search-mode.js";
 import { validateAiProviders } from "../core/validators.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
 import { resolveMossLivePermissionOrigins } from "../live/moss-live-protocol.js";
-import type { ProviderEditorKind } from "./provider-editor-state.js";
+import type { ProviderEditorKind } from "./provider-editor.js";
 import {
   buildActiveRadioTail,
   createProviderRow,
