@@ -13,12 +13,12 @@ import {
   type ConversationChange,
   type ConversationContextNotice,
   type ConversationStore,
-  type StorageArea
+  type StorageArea,
+  type StreamInterruptOptions
 } from "./conversation-store.js";
 import { createContextLoad, type ContextLoad } from "./context-load.js";
 import { createSendGate, type SendGate } from "./send-gate.js";
 import { createConversationReplay, type ConversationReplay } from "./replay.js";
-import type { ViewResetIntent } from "./view-intent.js";
 
 export {
   chatSessionState,
@@ -42,11 +42,10 @@ export interface CreateChatTabDomainDeps {
   input: HTMLTextAreaElement;
   ui: ChatRuntimeUi;
   onConversationChanged: (change: ConversationChange) => void;
-  onStreamInterrupted: () => void;
+  onStreamInterrupted: (opts?: StreamInterruptOptions) => void;
   onContextNotice: (notice: ConversationContextNotice) => void;
   renderHistoryList: () => void;
   renderInitialState: () => void;
-  requestViewReset: (intent: ViewResetIntent) => void;
   suggestions: {
     render: () => void;
     clear: () => void;
@@ -70,7 +69,6 @@ export interface CreateChatTabDomainDeps {
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getPlaybackCursorSeconds?: () => number | undefined;
   getTimestampNavDeps: () => TimestampNavDeps;
-  normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
   getSpeechVolume?: () => number | undefined;
   isLiveActive?: () => boolean;
@@ -105,8 +103,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.suggestions.render,
-    requestViewReset: deps.requestViewReset,
-    restoreLatest: () => store.restoreLatest(),
+    requestViewReset: deps.ui.requestViewReset,
+    restoreLatest: (opts) => store.restoreLatest(opts),
     isStreaming: () => runtime.isStreaming(),
     hasPendingUserPrompt: () => runtime.hasPendingUserPrompt(),
     isLiveActive: deps.isLiveActive
@@ -140,7 +138,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
     getPlaybackCursorSeconds: deps.getPlaybackCursorSeconds,
     getTimestampNavDeps: deps.getTimestampNavDeps,
-    normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,
     isCostGuardEnabled: () => deps.settings().enableCostGuard === true,
     getSpeechVolume: deps.getSpeechVolume,

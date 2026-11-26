@@ -185,7 +185,7 @@ describe("loadContextState 动作分支", () => {
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
 
-  it("apply-live：preserveInput 透传到 requestViewReset(restart)（发送闸调用链不清输入/附件）", async () => {
+  it("apply-live：preserveInput 透传到 requestViewReset(restart) 与 restoreLatest(preserveStream)（发送闸调用链不清输入/附件且不拆在途受理）", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4b", title: "换P后的视频" });
@@ -201,6 +201,7 @@ describe("loadContextState 动作分支", () => {
       keepContext: true,
       preserveInput: true
     });
+    expect(deps.restoreLatest).toHaveBeenCalledWith({ preserveStream: true });
   });
 
   it("apply-live：上下文未变化（首次落地）不触发对话恢复，走 renderSuggestions", async () => {

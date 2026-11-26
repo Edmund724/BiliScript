@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock, MockInstance } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import { renderMarkdown } from "../../extension/ui/markdown.js";
 import type { ChatPortMessage, CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
@@ -82,7 +81,6 @@ function makeDeps(): TestDeps {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);

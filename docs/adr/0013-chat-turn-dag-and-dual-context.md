@@ -14,7 +14,7 @@
 - **发送闸等回放让位**：`chat/send-gate.ts` 在放行前单向 `await replay.inFlight`。
 - **历史回放零等待（Wait-Free）**：`chat/replay.ts` 内部绝不等待 `turnLifecycle` 或 `sendGate`；以 50ms 帧预算分片让出主线程，并在每次恢复时核对单调递增的 `generation` 代次以作废过期分片。
 
-### 2. 建连窗口延迟停止与 4 秒 `settled()` 看门狗（`extension/chat/turn-lifecycle.ts`）
+### 2. 建连窗口延迟停止与 4 秒 `settled()` 看门狗（`extension/chat/chat-runtime.ts`）
 
 - 用户在发送闸等待（见 [ADR-0011](0011-subtitle-prefetch-and-asr-isolation.md)）或 `runtime.connect` 尚未就绪期间点击「停止」时，标记 `stopWhenPortReady`，并在 `port.postMessage({ type: "chat" })` 发出后**紧随其后同步补发 `stop`**，避免远端尚未登记活跃生成而静默丢弃停止指令。
 - `settled()` 内置 `TURN_SETTLE_FALLBACK_MS`（4 秒）看门狗超时兜底，防止 Offscreen 文档被浏览器异常回收且未派发 `Port.onDisconnect` 时导致对话面板永久锁死在在途态。

@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChatStreamRenderer } from "../../extension/chat/chat-stream-render.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 
 function makeDeps(smoothStream = true) {
   const messages = document.createElement("div");
   return {
     messages,
-    normalizeMarkdownForSectionPaste,
     getTimestampNavDeps: () => ({}),
     smoothStream
   };

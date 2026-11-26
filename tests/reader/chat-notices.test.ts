@@ -23,11 +23,6 @@ function makeHarness() {
   }
   const timers: InjectedTimer[] = [];
   let timerSeq = 0;
-  const suggestions = {
-    render: vi.fn(),
-    clear: vi.fn(),
-    isPresent: vi.fn(() => true)
-  };
   const deps = {
     messages,
     inputCard,
@@ -44,14 +39,13 @@ function makeHarness() {
       }
     }),
     scrollToBottom: vi.fn(),
-    suggestions,
     onOpenSettings: vi.fn()
   };
   const feedback = createReaderChatFeedback(deps as unknown as CreateReaderChatFeedbackDeps);
   const fireTimers = () => {
     [...timers].forEach((timer) => timer.fn());
   };
-  return { messages, inputCard, deps, feedback, timers, fireTimers, suggestions };
+  return { messages, inputCard, deps, feedback, timers, fireTimers };
 }
 
 describe("showConversationContextNotice / removeConversationContextNotice", () => {
@@ -258,33 +252,5 @@ describe("showConversationContextError / removeCenteredState", () => {
     feedback.removeCenteredState();
 
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);
-  });
-});
-
-describe("removeSuggestions / isMessagesNearBottom", () => {
-  it("removeSuggestions：调建议区属主的 clear（本模块不持建议区节点）", () => {
-    const { feedback, suggestions } = makeHarness();
-
-    feedback.removeSuggestions();
-
-    expect(suggestions.clear).toHaveBeenCalledTimes(1);
-  });
-
-  it("isMessagesNearBottom：距底 <= 阈值（默认 56）为近底", () => {
-    const { messages, feedback } = makeHarness();
-    let scrollTopValue = 0;
-    Object.defineProperty(messages, "scrollTop", {
-      configurable: true,
-      get: () => scrollTopValue,
-      set: (value) => {
-        scrollTopValue = value;
-      }
-    });
-    Object.defineProperty(messages, "scrollHeight", { value: 1000, configurable: true });
-    Object.defineProperty(messages, "clientHeight", { value: 900, configurable: true });
-
-    expect(feedback.isMessagesNearBottom()).toBe(false);
-    messages.scrollTop = 950;
-    expect(feedback.isMessagesNearBottom()).toBe(true);
   });
 });

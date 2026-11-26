@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-lists.js";
-import type { ChatSuggestionsSlot } from "../../extension/reader/chat-suggestions-slot.js";
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
-let state: typeof import("../../extension/core/state.js").state;
 let chatSessionState: ChatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
-let resetQuickPromptCacheForTests: typeof import("../../extension/chat/quick-prompt-cache.js").resetQuickPromptCacheForTests;
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -18,25 +13,12 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 async function importModule() {
   const module = await import("../../extension/reader/chat-lists.js");
   const chatState = await import("../../extension/chat/chat-state.js");
-  const cache = await import("../../extension/chat/quick-prompt-cache.js");
   createReaderChatLists = module.createReaderChatLists;
-  state = (await import("../../extension/core/state.js")).state;
   chatSessionState = chatState.chatSessionState;
   chatSessionStateForTests = chatState.chatSessionStateForTests;
   applyConversationIdentity = chatState.applyConversationIdentity;
   setSavedConversations = chatState.setSavedConversations;
   resetChatSessionStateForTests = chatState.resetChatSessionStateForTests;
-  writeCachedQuickPrompts = cache.writeCachedQuickPrompts;
-  resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
-}
-
-function makeSuggestionsSlot(overrides: Partial<ChatSuggestionsSlot> = {}): ChatSuggestionsSlot {
-  return {
-    render: vi.fn(),
-    clear: vi.fn(),
-    isPresent: vi.fn(() => true),
-    ...overrides
-  } as ChatSuggestionsSlot;
 }
 
 function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
@@ -52,12 +34,11 @@ function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
     isTurnActive: vi.fn(() => false),
     confirmDeleteCurrent: vi.fn(async () => true),
     startNewConversation: vi.fn(async () => true),
-    suggestions: makeSuggestionsSlot(),
     hideHistoryPopover: vi.fn(),
     ...overrides
   };
   const lists = createReaderChatLists(deps);
-  return { deps, lists, historyList, historyClearBtn, suggestions: deps.suggestions };
+  return { deps, lists, historyList, historyClearBtn };
 }
 
 function clickOnce(el: Element) {
@@ -65,110 +46,13 @@ function clickOnce(el: Element) {
 }
 
 const VIDEO_CONTEXT = { isVideoContext: true, title: "测试视频", url: "https://www.bilibili.com/video/BV1" };
-const PAGE_BVID = "BV1test000000";
-const PAGE_CID = "1";
-const PAGE_CACHE_KEY = `video:${PAGE_BVID}|${PAGE_CID}`;
 
 beforeEach(async () => {
   resetModuleState();
   await importModule();
   resetChatSessionStateForTests();
-  resetQuickPromptCacheForTests();
   chatSessionStateForTests.providers = [{ id: "p1", name: "平台一", enabled: true }];
   chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT };
-  chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
-  state.clip.setBvid(PAGE_BVID);
-  state.clip.setCid(PAGE_CID);
-  state.clip.setSubtitleBody([{ from: 0, to: 5, content: "第一句" }]);
-});
-
-describe("renderSuggestions（提交给建议区属主的清单）", () => {
-  it("有上下文 + 有平台 + 无历史：提交自定义的三条问题", () => {
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-
-    expect(suggestions.isPresent).toHaveBeenCalled();
-    expect(suggestions.render).toHaveBeenCalledWith(["总结视频", "整理笔记"]);
-  });
-
-  it("无上下文：提交空表（属主保留空壳）", () => {
-    chatSessionStateForTests.contextData = null;
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith([]);
-  });
-
-  it("非视频上下文（isVideoContext === false）：提交空表", () => {
-    chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT, isVideoContext: false };
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith([]);
-  });
-
-  it("有会话历史（流式中）：提交空表", () => {
-    applyConversationIdentity({ history: [{ role: "user", content: "hi" }] });
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith([]);
-  });
-
-  it("无可用平台：提交空表", () => {
-    chatSessionStateForTests.providers = [];
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith([]);
-  });
-
-  it("建议区不在场（发送受理撤除 / 回放清场）：不对账重渲", () => {
-    const { lists, suggestions } = makeDeps({ suggestions: makeSuggestionsSlot({ isPresent: vi.fn(() => false) }) });
-    lists.renderSuggestions();
-    expect(suggestions.render).not.toHaveBeenCalled();
-  });
-
-  it("自定义留空（留空即自动生成）：提交该视频的生成结果", () => {
-    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    writeCachedQuickPrompts(PAGE_CACHE_KEY, ["生成一", "生成二", "生成三"]);
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith(["生成一", "生成二", "生成三"]);
-  });
-
-  it("自定义留空且该视频还没有生成结果：提交固定三条兜底", () => {
-    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
-  });
-
-  it("字幕未就绪（转写中，字幕体为空）：回落固定三条默认问题，不用该视频已有的生成结果", () => {
-    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    writeCachedQuickPrompts(PAGE_CACHE_KEY, ["上一轮一", "上一轮二", "上一轮三"]);
-    chatSessionStateForTests.currentContextKey = PAGE_CACHE_KEY;
-    state.clip.setSubtitleBody([]);
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
-  });
-
-  it("clip 还停在上一个视频（转写中换片竞态）：回落固定三条，不遗留上个视频的生成结果", () => {
-    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    const prevKey = "video:BV1prev00000|9";
-    writeCachedQuickPrompts(prevKey, ["Karpathy四层输出阶梯是什么？", "第三层网页为何更适合读长文？", "如何用一次性软件降低大脑带宽？"]);
-    chatSessionStateForTests.currentContextKey = prevKey;
-    state.clip.setBvid("BV1prev00000");
-    state.clip.setCid("9");
-    state.clip.setSubtitleBody([{ from: 0, to: 5, content: "上个视频的第一句" }]);
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
-  });
-
-  it("自定义超过三条：只提交前三条", () => {
-    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["一", "二", "三", "四"];
-    const { lists, suggestions } = makeDeps();
-    lists.renderSuggestions();
-    expect(suggestions.render).toHaveBeenCalledWith(["一", "二", "三"]);
-  });
 });
 
 describe("renderHistoryList（历史会话）", () => {

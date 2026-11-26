@@ -6,7 +6,7 @@ import {
   rebuildCurrentContextKeyFromContext
 } from "../chat/chat-state.js";
 import { isPinnedContextStrict } from "../chat/context-load.js";
-import type { LoadContextStateOptions } from "../chat/conversation-store.js";
+import type { LoadContextStateOptions, StreamInterruptOptions } from "../chat/conversation-store.js";
 import type { ViewResetIntent } from "../chat/view-intent.js";
 import { confirmDialog as defaultConfirmDialog, type ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import { findSubtitlePreviewAtTime, type TimestampNavDeps } from "../ui/timestamp-nav.js";
@@ -29,7 +29,7 @@ export interface CreateChatContextOrchestratorDeps {
   openSettingsId: string;
   isSessionClosed: () => boolean;
   loadContextState: (opts?: LoadContextStateOptions) => Promise<boolean>;
-  detachForRestart: () => void;
+  detachForRestart: (opts?: StreamInterruptOptions) => void;
   isTurnActive: () => boolean;
   setAutoScroll: (autoScroll: boolean) => void;
   scrollToBottom: (force?: boolean) => void;
@@ -40,8 +40,8 @@ export interface CreateChatContextOrchestratorDeps {
   setStreamingUiState: (isStreaming: boolean) => void;
   getInputImageCount: () => number;
   clearInputImages: () => void;
-  resetSuggestionsShell: () => void;
-  renderSuggestions: () => void;
+  resetSuggestions: () => void;
+  refreshSuggestions: () => void;
   resetScrollFollow: () => void;
   hasSelectableModels: () => boolean;
   getSetupStateHtml: () => string;
@@ -65,13 +65,10 @@ export interface ChatContextOrchestrator {
   requestViewReset: (intent: ViewResetIntent) => void;
   startNewConversation: () => Promise<boolean>;
   getTimestampNavDeps: () => TimestampNavDeps;
-  isRestartForContextFollow: () => boolean;
-  clearRestartForContextFollow: () => void;
 }
 
 export function createChatContextOrchestrator(deps: CreateChatContextOrchestratorDeps): ChatContextOrchestrator {
   let urlChangeSyncTimer = 0;
-  let restartForContextFollow = false;
   const confirmPrompt = deps.confirmDialog ?? defaultConfirmDialog;
 
   function cancelPendingSync(): void {
@@ -115,7 +112,7 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
       renderInitialState();
       return;
     }
-    deps.renderSuggestions();
+    deps.refreshSuggestions();
   }
 
   function resetConversationView(stateHtml = ""): void {
@@ -128,15 +125,13 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
       stateNode.innerHTML = stateHtml;
       deps.messagesEl.appendChild(stateNode);
     }
-    deps.resetSuggestionsShell();
-    deps.renderSuggestions();
+    deps.resetSuggestions();
     deps.setAutoScroll(true);
     deps.scrollToBottom(true);
     deps.resetScrollFollow();
   }
 
   function renderInitialState(): void {
-    restartForContextFollow = false;
     deps.updateLayout();
     if (!chatSessionState.contextData) {
       resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
@@ -200,13 +195,7 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
   }
 
   function restartChat({ keepContext = false, preserveInput = false }: RestartChatOptions = {}): void {
-    restartForContextFollow = Boolean(preserveInput);
-    try {
-      deps.detachForRestart();
-    } catch (error) {
-      restartForContextFollow = false;
-      throw error;
-    }
+    deps.detachForRestart(preserveInput ? { preserveStream: true } : undefined);
     if (!keepContext) {
       rebuildCurrentContextKeyFromContext();
     }
@@ -253,10 +242,6 @@ export function createChatContextOrchestrator(deps: CreateChatContextOrchestrato
     resetConversationView,
     requestViewReset,
     startNewConversation,
-    getTimestampNavDeps,
-    isRestartForContextFollow: () => restartForContextFollow,
-    clearRestartForContextFollow: () => {
-      restartForContextFollow = false;
-    }
+    getTimestampNavDeps
   };
 }

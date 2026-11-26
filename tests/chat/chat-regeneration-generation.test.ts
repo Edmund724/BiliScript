@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { AiContext, ImagePart } from "../../extension/ai/types.js";
 import type { ChatPortMessage } from "../../extension/chat/protocol.js";
 
@@ -83,7 +82,6 @@ function makeDeps() {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     getInputImages: () => [...inputImages],
     takeInputImages: (snapshot: ImagePart[]) => {
       const consumed = new Set(snapshot);

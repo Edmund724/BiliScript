@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
 import type { AiContext, HotComment } from "../../extension/ai/types.js";
@@ -156,7 +155,6 @@ function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);

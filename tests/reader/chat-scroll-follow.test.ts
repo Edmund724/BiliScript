@@ -7,12 +7,13 @@ import {
 } from "../../extension/reader/chat-scroll-follow.js";
 
 function makeHarness(initialNearBottom = true, initialOffset?: number) {
-  let nearBottom = initialNearBottom;
-  let bottomOffset = initialOffset;
+  let bottomOffset = initialOffset ?? (initialNearBottom ? 0 : DEFAULT_BUTTON_THRESHOLD_PX + 80);
   let autoScrollState: boolean | null = null;
   let scrollToBottomCalledWith: boolean | null = null;
   const buttonListeners = new Map<string, Set<(e: Event) => void>>();
   const listeners = new Map<string, Set<(e: Event) => void>>();
+  const scrollHeight = 1000;
+  const clientHeight = 400;
 
   const scrollBottomBtn = {
     hidden: true,
@@ -33,6 +34,11 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
   };
 
   const messages = {
+    get scrollTop() {
+      return Math.max(0, scrollHeight - clientHeight - bottomOffset);
+    },
+    scrollHeight,
+    clientHeight,
     addEventListener: (type: string, listener: (e: Event) => void) => {
       if (!listeners.has(type)) {
         listeners.set(type, new Set());
@@ -81,13 +87,6 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
   const deps: ChatScrollFollowDeps = {
     messages,
     scrollBottomBtn,
-    isNearBottom: (threshold = DEFAULT_FOLLOW_THRESHOLD_PX) => {
-      if (typeof bottomOffset === "number") {
-        return bottomOffset <= threshold;
-      }
-      return nearBottom;
-    },
-    getBottomOffset: typeof bottomOffset === "number" ? () => bottomOffset! : undefined,
     setAutoScroll: (val) => {
       autoScrollState = val;
     },
@@ -103,13 +102,10 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
   return {
     controller,
     setNearBottom: (val: boolean) => {
-      nearBottom = val;
+      bottomOffset = val ? DEFAULT_FOLLOW_THRESHOLD_PX : DEFAULT_BUTTON_THRESHOLD_PX + 80;
     },
     setBottomOffset: (offset: number) => {
       bottomOffset = offset;
-      if (!deps.getBottomOffset) {
-        deps.getBottomOffset = () => bottomOffset!;
-      }
     },
     getAutoScroll: () => autoScrollState,
     getScrollToBottomCalledWith: () => scrollToBottomCalledWith,

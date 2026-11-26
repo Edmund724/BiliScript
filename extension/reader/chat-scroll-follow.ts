@@ -5,10 +5,8 @@ export const DEFAULT_FOLLOW_THRESHOLD_PX = 40;
 export const DEFAULT_BUTTON_THRESHOLD_PX = 120;
 
 export interface ChatScrollFollowDeps {
-  messages: Pick<HTMLElement, "addEventListener" | "removeEventListener">;
+  messages: Pick<HTMLElement, "addEventListener" | "removeEventListener" | "scrollTop" | "scrollHeight" | "clientHeight">;
   scrollBottomBtn: Pick<HTMLElement, "hidden"> & Partial<Pick<HTMLElement, "addEventListener">>;
-  getBottomOffset?: () => number;
-  isNearBottom?: (threshold?: number) => boolean;
   setAutoScroll: (autoScroll: boolean) => void;
   scrollToBottom: (smooth?: boolean) => void;
   requestFrame?: (cb: () => void) => number;
@@ -104,20 +102,12 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
   let scrollBottomHold = false;
 
   function computeDistances(): { nearBottom: boolean; showButton: boolean } {
-    if (deps.getBottomOffset) {
-      const offset = deps.getBottomOffset();
-      return {
-        nearBottom: offset <= followThreshold,
-        showButton: offset > buttonThreshold
-      };
-    }
-    if (deps.isNearBottom) {
-      return {
-        nearBottom: deps.isNearBottom(followThreshold),
-        showButton: !deps.isNearBottom(buttonThreshold)
-      };
-    }
-    return { nearBottom: true, showButton: false };
+    const { scrollTop, scrollHeight, clientHeight } = deps.messages;
+    const offset = Math.max(0, scrollHeight - (scrollTop + clientHeight));
+    return {
+      nearBottom: offset <= followThreshold,
+      showButton: offset > buttonThreshold
+    };
   }
 
   function setScrollBottomVisible(visible: boolean): void {

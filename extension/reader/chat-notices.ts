@@ -1,5 +1,4 @@
 import { resolveNodeDocument } from "../shared/cross-doc.js";
-import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 
 export interface CreateReaderChatFeedbackDeps {
   messages: HTMLElement;
@@ -7,7 +6,6 @@ export interface CreateReaderChatFeedbackDeps {
   setTimer: (fn: () => void, ms: number) => number;
   clearTimer: (handle: number) => void;
   scrollToBottom: () => void;
-  suggestions: ChatSuggestionsSlot;
   onOpenSettings: (settingsTarget?: "asr") => void;
 }
 
@@ -29,12 +27,9 @@ export interface ReaderChatFeedback {
   removePersistentContextNotice: () => void;
   showConversationContextError: (message: string) => void;
   removeCenteredState: () => void;
-  removeSuggestions: () => void;
-  isMessagesNearBottom: (threshold?: number) => boolean;
-  getMessagesBottomOffset: () => number;
 }
 
-export function createReaderChatFeedback({ messages, inputCard, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
+export function createReaderChatFeedback({ messages, inputCard, setTimer, clearTimer, scrollToBottom, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
   let messageNoticeTimer = 0;
   let messageNoticePersistent = false;
   let inputNoticeTimer = 0;
@@ -182,27 +177,11 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
     messages.querySelectorAll(".chat-center-error").forEach((node) => node.remove());
   }
 
-  function removeSuggestions(): void {
-    suggestions.clear();
-  }
-
-  function getMessagesBottomOffset(): number {
-    const { scrollTop, scrollHeight, clientHeight } = messages;
-    return Math.max(0, scrollHeight - (scrollTop + clientHeight));
-  }
-
-  function isMessagesNearBottom(threshold = 40): boolean {
-    return getMessagesBottomOffset() <= threshold;
-  }
-
   return {
     showConversationContextNotice,
     removeConversationContextNotice,
     removePersistentContextNotice,
     showConversationContextError,
-    removeCenteredState,
-    removeSuggestions,
-    isMessagesNearBottom,
-    getMessagesBottomOffset
+    removeCenteredState
   };
 }

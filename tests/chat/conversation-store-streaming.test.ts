@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import type { Conversation, CreateConversationStoreDeps, StorageArea } from "../../extension/chat/conversation-store.js";
 import type { ChatPortMessage, CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
@@ -272,6 +271,20 @@ describe("conversation-store reset 路径在流式中的停流", () => {
     expect(chatSessionState.chatHistory).toEqual([]);
   });
 
+  it("detachForRestart / restoreLatest 携带 preserveStream 时显式透传给 onStreamInterrupted", async () => {
+    const onStreamInterrupted = vi.fn();
+    const h = makeStreamHarness({ onStreamInterrupted });
+
+    h.store.detachForRestart({ preserveStream: true });
+    expect(onStreamInterrupted).toHaveBeenLastCalledWith({ preserveStream: true });
+
+    await h.store.restoreLatest({ preserveStream: true });
+    expect(onStreamInterrupted).toHaveBeenLastCalledWith({ preserveStream: true });
+
+    h.store.detachForRestart();
+    expect(onStreamInterrupted).toHaveBeenLastCalledWith(undefined);
+  });
+
   it("restoreLatest 有匹配：照常 apply，不停流", async () => {
     const h = makeStreamHarness();
     setSavedConversations([makeConversation("c1")]);
@@ -348,7 +361,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
       getProviderId: () => "test-provider",
       getSelectedModel: () => "test-model",
       getTimestampNavDeps: () => ({}),
-      normalizeMarkdownForSectionPaste,
       connectPort: vi.fn(async () => port)
     };
     input.value = "在途问题";

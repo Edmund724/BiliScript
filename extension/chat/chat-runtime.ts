@@ -6,7 +6,6 @@ import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 import { buildContextKey, generateConversationId } from "../ai/conversation.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import { resolveWebSearchOptIn, SEARCH_OPT_IN_DECLINED_NOTICE } from "../search/opt-in-notice.js";
-import type { ConversationStore } from "./conversation-store.js";
 import {
   appendChatHistory,
   applyConversationIdentity,
@@ -21,12 +20,15 @@ import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ViewResetIntent } from "./view-intent.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
-import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
+
+export type SendVerdict = "accepted" | "blocked" | "ignored";
+
+export const TURN_SETTLE_FALLBACK_MS = 4000;
 
 export interface SendTurnOptions {
   preserveInputDraft?: boolean;
@@ -89,7 +91,6 @@ export interface CreateChatRuntimeDeps {
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getPlaybackCursorSeconds?: () => number | undefined;
   getTimestampNavDeps: () => TimestampNavDeps;
-  normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
   isCostGuardEnabled?: () => boolean;
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
@@ -130,6 +131,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let streamSlowNoticeTimer = 0;
   let streamFirstTokenReceived = false;
   let sendInFlight = false;
+  let pendingSettles: Array<() => void> = [];
+  let stopWhenPortReady = false;
+  let settleWatchdogTimer = 0;
   let acceptanceEpoch = 0;
   let pendingRetryDraft: { images: ImagePart[] } | null = null;
   let pendingSendOptions: SendTurnOptions | null = null;
@@ -139,25 +143,85 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   const activeToolCalls = new Set<string>();
   let activeToolGeneration = 0;
 
-  const turn = createTurnLifecycle({
-    accepting: {
-      get: () => sendInFlight,
-      set: (value) => {
-        sendInFlight = value;
+  function isTurnActive(): boolean {
+    return sendInFlight || activePort !== null;
+  }
+
+  function resolveTurnSettles(): void {
+    if (settleWatchdogTimer) {
+      window.clearTimeout(settleWatchdogTimer);
+      settleWatchdogTimer = 0;
+    }
+    stopWhenPortReady = false;
+    if (!pendingSettles.length) {
+      return;
+    }
+    const resolvers = pendingSettles;
+    pendingSettles = [];
+    for (const resolveSettle of resolvers) {
+      resolveSettle();
+    }
+  }
+
+  function requestTurnStop(): void {
+    if (activePort === null) {
+      if (sendInFlight) {
+        stopWhenPortReady = true;
       }
-    },
-    isStreaming: () => activePort !== null,
-    stopStream: () => stopStreamNow(),
-    forceReset: () => {
-      resetStreamState();
-      setStreamingUiState(false);
-    },
-    runAcceptance: (text) => runAcceptance(text)
-  });
+      return;
+    }
+    stopStreamNow();
+  }
+
+  function flushDeferredTurnStop(): boolean {
+    if (!stopWhenPortReady) {
+      return false;
+    }
+    stopWhenPortReady = false;
+    requestTurnStop();
+    return true;
+  }
+
+  function settleTurn(): Promise<void> {
+    if (!isTurnActive()) {
+      return Promise.resolve();
+    }
+    const settledPromise = new Promise<void>((resolveSettle) => {
+      pendingSettles.push(resolveSettle);
+    });
+    requestTurnStop();
+    if (!settleWatchdogTimer) {
+      settleWatchdogTimer = window.setTimeout(() => {
+        settleWatchdogTimer = 0;
+        resetStreamState();
+        setStreamingUiState(false);
+        resolveTurnSettles();
+      }, TURN_SETTLE_FALLBACK_MS);
+    }
+    return settledPromise;
+  }
+
+  async function sendTurnInternal(text: string): Promise<SendVerdict> {
+    const prompt = String(text ?? "").trim();
+    if (!prompt || isTurnActive()) {
+      return "ignored";
+    }
+    sendInFlight = true;
+    let verdict: SendVerdict;
+    try {
+      verdict = await runAcceptance(prompt);
+    } finally {
+      sendInFlight = false;
+    }
+    if (verdict === "blocked") {
+      resolveTurnSettles();
+    }
+    return verdict;
+  }
 
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
-    messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeBranch !== null);
+    messageArea.setRegenerationDisabled(isStreaming || isTurnActive() || activeBranch !== null);
   }
   function noteBranchOutput(chunk: unknown): void {
     if (activeBranch && String(chunk ?? "").length > 0) {
@@ -208,7 +272,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
     onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
-    isRegenerationDisabled: () => turn.isActive() || activeBranch !== null
+    isRegenerationDisabled: () => isTurnActive() || activeBranch !== null
   });
   function dispatchChatPortMessage(msg: ChatPortMessage | null | undefined, port: ChatPort | null): void {
     if (!msg) return;
@@ -362,18 +426,18 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   async function sendTurn(text: string, options?: SendTurnOptions): Promise<SendVerdict> {
-    const canAttempt = Boolean(String(text ?? "").trim()) && !turn.isActive();
+    const canAttempt = Boolean(String(text ?? "").trim()) && !isTurnActive();
     if (canAttempt) {
       pendingSendOptions = options ?? null;
     }
     messageArea.setRegenerationDisabled(true);
     try {
-      return await turn.send(text);
+      return await sendTurnInternal(text);
     } finally {
       if (canAttempt) {
         pendingSendOptions = null;
       }
-      if (!turn.isActive()) {
+      if (!isTurnActive()) {
         messageArea.setRegenerationDisabled(false);
       }
     }
@@ -406,7 +470,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function startBranch(action: "regenerate" | "continue", historyIndex: number, node: HTMLDivElement): void {
-    if (turn.isActive() || activeBranch) {
+    if (isTurnActive() || activeBranch) {
       return;
     }
     const originalHistory = [...chatSessionState.chatHistory];
@@ -465,7 +529,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeBranch = branch;
     messageArea.setRegenerationDisabled(true);
     const sendPrompt = kind === "continue-append" ? "继续" : userPrompt;
-    void turn.send(sendPrompt).then((verdict) => {
+    void sendTurnInternal(sendPrompt).then((verdict) => {
       if (verdict === "accepted" || activeBranch !== branch) {
         return;
       }
@@ -512,11 +576,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function retryFailedTurn(prompt: string, images: ImagePart[]): void {
-    if (turn.isActive()) {
+    if (isTurnActive()) {
       return;
     }
     pendingRetryDraft = { images: images.map((img) => ({ ...img })) };
-    void turn.send(prompt).then((verdict) => {
+    void sendTurnInternal(prompt).then((verdict) => {
       if (verdict !== "accepted" && pendingRetryDraft) {
         pendingRetryDraft = null;
       }
@@ -714,7 +778,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         history: branch ? buildBranchRequestHistory(branch) : chatSessionState.chatHistory
       });
 
-      turn.flushDeferredStop();
+      flushDeferredTurnStop();
     } catch (err) {
       if (epoch !== acceptanceEpoch) {
         return "blocked";
@@ -728,7 +792,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         setStreamingUiState(false);
       }
       activeTurn = null;
-      turn.resolve();
+      resolveTurnSettles();
       return "accepted";
     }
     return "accepted";
@@ -759,7 +823,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.input.focus({ preventScroll: true });
     }
     scrollToBottom();
-    turn.resolve();
+    resolveTurnSettles();
   }
 
   function getActiveAssistantHistoryIndex(): number {
@@ -908,11 +972,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function stopActiveStream(): void {
-    if (!turn.isActive()) {
+    if (!isTurnActive()) {
       return;
     }
     setStreamingUiState(true, { stopping: true });
-    turn.stop();
+    requestTurnStop();
   }
 
   function stopStreamNow(): void {
@@ -967,14 +1031,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return activePort !== null;
   }
 
-  function isTurnActive(): boolean {
-    return turn.isActive();
-  }
-
-  function settleTurn(): Promise<void> {
-    return turn.settled();
-  }
-
   function hasPendingUserPrompt(): boolean {
     return activeUserPrompt !== "";
   }
@@ -1011,7 +1067,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeTurnProviderId = "";
     activeToolCalls.clear();
     activeToolGeneration = 0;
-    turn.discard();
+    sendInFlight = false;
+    resolveTurnSettles();
   }
 
   return {

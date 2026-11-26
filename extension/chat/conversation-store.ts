@@ -141,6 +141,10 @@ export type ConversationContextNotice =
   | { kind: "clear" }
   | { kind: "error"; message: string };
 
+export interface StreamInterruptOptions {
+  preserveStream?: boolean;
+}
+
 export interface CreateConversationStoreDeps {
   loadContextState: (opts: LoadContextStateOptions) => Promise<boolean | object>;
   resolveAiConversationRef: (
@@ -148,7 +152,7 @@ export interface CreateConversationStoreDeps {
     purpose: "context" | "page"
   ) => Promise<Record<string, unknown>>;
   onConversationChanged: (change: ConversationChange) => void;
-  onStreamInterrupted: () => void;
+  onStreamInterrupted: (opts?: StreamInterruptOptions) => void;
   onContextNotice: (notice: ConversationContextNotice) => void;
   storage?: StorageArea;
   syncStorage?: StorageArea;
@@ -168,8 +172,8 @@ export interface ConversationStore {
   applyById: (id: string) => void;
   deleteById: (id: string) => Promise<ConversationDeletion | null>;
   clearAll: () => Promise<void>;
-  restoreLatest: () => Promise<boolean>;
-  detachForRestart: () => void;
+  restoreLatest: (opts?: StreamInterruptOptions) => Promise<boolean>;
+  detachForRestart: (opts?: StreamInterruptOptions) => void;
   hydratePinned: (opts?: HydratePinnedOptions) => Promise<boolean>;
 }
 
@@ -312,8 +316,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     setSavedConversations(next);
   }
 
-  function detachCurrent(): void {
-    onStreamInterrupted();
+  function detachCurrent(opts?: StreamInterruptOptions): void {
+    onStreamInterrupted(opts);
     detachConversationIdentity();
   }
 
@@ -452,7 +456,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange({});
   }
 
-  async function restoreLatest(): Promise<boolean> {
+  async function restoreLatest(opts?: StreamInterruptOptions): Promise<boolean> {
     const targetContextKey = chatSessionState.liveContextKey || chatSessionState.currentContextKey;
     const currentRef = chatSessionState.liveContextData || chatSessionState.contextData;
     const conversations = saved();
@@ -460,7 +464,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       doesConversationMatchCurrentContext(item, currentRef, targetContextKey)
     );
     if (!latest || isLiveTextToolHistoryEntry(latest)) {
-      detachCurrent();
+      detachCurrent(opts);
       return false;
     }
     if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
@@ -586,8 +590,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange({ historyCleared: true, resetView: true });
   }
 
-  function detachForRestart(): void {
-    detachCurrent();
+  function detachForRestart(opts?: StreamInterruptOptions): void {
+    detachCurrent(opts);
   }
 
   function isCurrent(id: string): boolean {

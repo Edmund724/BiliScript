@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import { renderMarkdown } from "../../extension/ui/markdown.js";
 import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 
@@ -39,7 +38,6 @@ function makeDeps(): CreateChatRuntimeDeps & {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(() => ({
       name: "offscreen-chat",
       onMessage: { addListener: () => {} },

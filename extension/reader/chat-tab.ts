@@ -13,7 +13,7 @@ import {
   type ChatDisplaySettingsPatch
 } from "./chat-display-settings.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
+import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import {
   CONVERSATIONS_STORAGE_KEY,
   OFFSCREEN_CHAT_PORT_NAME,
@@ -32,7 +32,6 @@ import { isReaderTranscribing } from "./transcribe-banner.js";
 import { createExplainIntentController } from "./explain-intent.js";
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
-import { createReaderChatSessionTriggers } from "./chat-session-triggers.js";
 import { createChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
@@ -139,7 +138,6 @@ const feedback = createReaderChatFeedback({
   setTimer: (fn, ms) => window.setTimeout(fn, ms),
   clearTimer: (handle) => window.clearTimeout(handle),
   scrollToBottom: () => chatRuntime.scrollToBottom(),
-  suggestions: suggestionsSlot,
   onOpenSettings: (settingsTarget) => liveBridge.openChatSettings(settingsTarget)
 });
 const {
@@ -147,10 +145,7 @@ const {
   removeConversationContextNotice,
   removePersistentContextNotice,
   showConversationContextError,
-  removeCenteredState,
-  removeSuggestions,
-  isMessagesNearBottom,
-  getMessagesBottomOffset
+  removeCenteredState
 } = feedback;
 
 const liveBridge = createChatLiveBridge({
@@ -253,7 +248,7 @@ const contextOrchestrator = createChatContextOrchestrator({
   openSettingsId: ids.readingChatOpenSettings,
   isSessionClosed: () => sessionClosed,
   loadContextState: (opts) => contextLoad.loadContextState(opts),
-  detachForRestart: () => conversationStore.detachForRestart(),
+  detachForRestart: (opts) => conversationStore.detachForRestart(opts),
   isTurnActive: () => chatRuntime.isTurnActive(),
   setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
   scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
@@ -264,8 +259,8 @@ const contextOrchestrator = createChatContextOrchestrator({
   setStreamingUiState: (isStreaming) => composer.setStreamingUiState(isStreaming),
   getInputImageCount: () => inputImages.count(),
   clearInputImages: () => inputImages.clear(),
-  resetSuggestionsShell: () => suggestionsSlot.render([]),
-  renderSuggestions: () => lists.renderSuggestions(),
+  resetSuggestions: () => suggestionsSlot.reset(),
+  refreshSuggestions: () => suggestionsSlot.refresh(),
   resetScrollFollow: () => scrollFollow.reset(),
   hasSelectableModels: () => modelPanel.hasSelectableModels(),
   getSetupStateHtml: () => setupFlow.setupStateHtml(),
@@ -283,7 +278,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   input: els.input,
   updateChatLayoutState,
   suggestions: {
-    render: () => lists.renderSuggestions(),
+    render: () => suggestionsSlot.refresh(),
     clear: () => suggestionsSlot.clear()
   },
   ui: {
@@ -292,7 +287,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     removeConversationContextNotice: removePersistentContextNotice,
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
-    removeSuggestions,
+    removeSuggestions: () => suggestionsSlot.clear(),
     requestViewReset: contextOrchestrator.requestViewReset,
     autosizeInput: composer.autosizeInput,
     onTurnFailedRestoreDraft: ({ text, images }) => {
@@ -318,8 +313,8 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
       contextOrchestrator.renderInitialState();
     }
   },
-  onStreamInterrupted: () => {
-    if (!contextOrchestrator.isRestartForContextFollow()) {
+  onStreamInterrupted: (opts) => {
+    if (!opts?.preserveStream) {
       chatRuntime.resetStreamState();
     }
     contextOrchestrator.resetConversationView();
@@ -336,7 +331,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   renderHistoryList: () => lists.renderHistoryList(),
   renderInitialState: contextOrchestrator.renderInitialState,
-  requestViewReset: contextOrchestrator.requestViewReset,
   storage: chrome.storage.local,
   clip: () => state.clip,
   settings: () => state.settings,
@@ -387,7 +381,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }));
   },
   getTimestampNavDeps: contextOrchestrator.getTimestampNavDeps,
-  normalizeMarkdownForSectionPaste,
   getSpeechVolume: () => CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(state.settings?.speechVoiceVolume) / 100,
   connectPort: async () => {
     if (sessionClosed) {
@@ -411,14 +404,10 @@ const lists = createReaderChatLists({
   historyClearBtn: els.historyClearBtn,
   applyById: openConversationById,
   settleTurn: () => (chatRuntime.isTurnActive() ? chatRuntime.settleTurn() : undefined),
-  deleteById: (id) => {
-    contextOrchestrator.clearRestartForContextFollow();
-    return conversationStore.deleteById(id);
-  },
+  deleteById: (id) => conversationStore.deleteById(id),
   isTurnActive: () => chatRuntime.isTurnActive(),
   confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
   startNewConversation: contextOrchestrator.startNewConversation,
-  suggestions: suggestionsSlot,
   hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
 
@@ -462,116 +451,122 @@ const modelPanel = createReaderChatModelPanel({
 const scrollFollow = createScrollFollowController({
   messages: els.messages,
   scrollBottomBtn: els.scrollBottomBtn,
-  getBottomOffset: getMessagesBottomOffset,
-  isNearBottom: isMessagesNearBottom,
   setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
   scrollToBottom: (smooth) => chatRuntime.scrollToBottom(smooth)
 });
 
-const sessionTriggers = createReaderChatSessionTriggers({
-  statusBus: () => {
-    sendGate.bindStatusBus();
-    return () => sendGate.unbindStatusBus();
-  },
-  urlChange: () => {
-    let clipSignature = computeCurrentClipSignature();
-    const handler = () => {
-      const nextSignature = computeCurrentClipSignature();
-      if (nextSignature === clipSignature) {
-        return;
-      }
-      clipSignature = nextSignature;
-      quickActionGeneration += 1;
-      setupFlow.invalidate();
-      sendGate.cancel();
-      deactivateChatTabOverlays();
-      dismissConfirmDialog();
-      contextOrchestrator.clearRestartForContextFollow();
-      lists.settlePendingDeletion();
-      conversationStore.detachForRestart();
-      contextOrchestrator.scheduleLiveContextSync();
-    };
-    return contentEventBus.on("host:url-change", handler);
-  },
-  clipSettle: () => subscribeReaderPresenter((event) => {
+let sessionTriggerScope: DisposableContext | null = null;
+
+function activateSessionTriggers(): void {
+  if (sessionTriggerScope && !sessionTriggerScope.isDisposed()) {
+    return;
+  }
+  const scope = createDisposableContext();
+  sessionTriggerScope = scope;
+
+  sendGate.bindStatusBus();
+  scope.track(() => sendGate.unbindStatusBus());
+
+  let clipSignature = computeCurrentClipSignature();
+  scope.track(contentEventBus.on("host:url-change", () => {
+    const nextSignature = computeCurrentClipSignature();
+    if (nextSignature === clipSignature) {
+      return;
+    }
+    clipSignature = nextSignature;
+    quickActionGeneration += 1;
+    setupFlow.invalidate();
+    sendGate.cancel();
+    deactivateChatTabOverlays();
+    dismissConfirmDialog();
+    lists.settlePendingDeletion();
+    conversationStore.detachForRestart();
+    contextOrchestrator.scheduleLiveContextSync();
+  }));
+
+  scope.track(subscribeReaderPresenter((event) => {
     if (event.kind === "subtitle-ready") {
       contextOrchestrator.scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
     }
-  }),
-  storageWatcher: () => {
-    const unwatchProviders = watchStorageKeys(() => {
-      void refreshProvidersAndPrefsAfterExternalChange();
-      if (isLiveCompanionAllowed()) {
-        void liveBridge.refreshTarget();
+  }));
+
+  const unwatchProviders = watchStorageKeys(() => {
+    void refreshProvidersAndPrefsAfterExternalChange();
+    if (isLiveCompanionAllowed()) {
+      void liveBridge.refreshTarget();
+    }
+  }, {
+    sync: [
+      "aiProviders",
+      "aiSystemPrompt",
+      "aiInitialQuickPrompts",
+      "defaultModel",
+      "defaultAiModel",
+      "aiThinkingLevel",
+      "liveProviders",
+      "activeLiveProviderId",
+      "webSearchEnabled"
+    ],
+    local: ["aiProviderKeys"]
+  });
+  const unwatchPresentation = watchChatDisplaySettings((patch) => {
+    syncMoreMenuSlidersPatch(patch);
+  });
+  const unwatchConversations = watchStorageKeys((changes) => {
+    if (!(CONVERSATIONS_STORAGE_KEY in changes)) {
+      return;
+    }
+    const rawNext = changes[CONVERSATIONS_STORAGE_KEY]?.newValue;
+    if (syncSavedConversationsFromStorage(rawNext)) {
+      lists.renderHistoryList();
+      if (hasExternalizedChatImages(rawNext) && typeof chrome !== "undefined" && chrome.storage?.local) {
+        void readConversationHistory(chrome.storage.local)
+          .then(() => {
+            lists.renderHistoryList();
+          })
+          .catch(() => {});
       }
-    }, {
-      sync: [
-        "aiProviders",
-        "aiSystemPrompt",
-        "aiInitialQuickPrompts",
-        "defaultModel",
-        "defaultAiModel",
-        "aiThinkingLevel",
-        "liveProviders",
-        "activeLiveProviderId",
-        "webSearchEnabled"
-      ],
-      local: ["aiProviderKeys"]
-    });
-    const unwatchPresentation = watchChatDisplaySettings((patch) => {
-      syncMoreMenuSlidersPatch(patch);
-    });
-    const unwatchConversations = watchStorageKeys((changes) => {
-      if (!(CONVERSATIONS_STORAGE_KEY in changes)) {
-        return;
-      }
-      const rawNext = changes[CONVERSATIONS_STORAGE_KEY]?.newValue;
-      if (syncSavedConversationsFromStorage(rawNext)) {
-        lists.renderHistoryList();
-        if (hasExternalizedChatImages(rawNext) && typeof chrome !== "undefined" && chrome.storage?.local) {
-          void readConversationHistory(chrome.storage.local)
-            .then(() => {
-              lists.renderHistoryList();
-            })
-            .catch(() => {});
-        }
-      }
-    }, {
-      local: [CONVERSATIONS_STORAGE_KEY]
-    });
-    return () => {
-      unwatchConversations();
-      unwatchPresentation();
-      unwatchProviders();
-    };
-  },
-  quickPrompts: () => subscribeQuickPromptsChange(() => {
+    }
+  }, {
+    local: [CONVERSATIONS_STORAGE_KEY]
+  });
+  scope.track(() => {
+    unwatchConversations();
+    unwatchPresentation();
+    unwatchProviders();
+  });
+
+  scope.track(subscribeQuickPromptsChange(() => {
     if (!initialized || chatRuntime.isStreaming()) {
       return;
     }
-    lists.renderSuggestions();
-  }),
-  outsideClick: () => {
-    setChatTabOutsideClickHandler((event) => {
-      popovers.handleDocumentClick(event);
-    });
-    return () => setChatTabOutsideClickHandler(null);
-  },
-  escapeKey: () => {
-    let boundWin: Window | null = getActiveReaderWindow();
+    suggestionsSlot.refresh();
+  }));
+
+  setChatTabOutsideClickHandler((event) => {
+    popovers.handleDocumentClick(event);
+  });
+  scope.track(() => setChatTabOutsideClickHandler(null));
+
+  let boundWin: Window | null = getActiveReaderWindow();
+  boundWin.addEventListener("keydown", onWindowEscapeKey);
+  const stopHostWatch = onActiveHostChange((ctx) => {
+    safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+    boundWin = ctx.win;
     boundWin.addEventListener("keydown", onWindowEscapeKey);
-    const stopWatch = onActiveHostChange((ctx) => {
-      safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
-      boundWin = ctx.win;
-      boundWin.addEventListener("keydown", onWindowEscapeKey);
-    });
-    return () => {
-      stopWatch();
-      safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
-      boundWin = null;
-    };
-  }
-});
+  });
+  scope.track(() => {
+    stopHostWatch();
+    safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+    boundWin = null;
+  });
+}
+
+function deactivateSessionTriggers(): void {
+  const current = sessionTriggerScope;
+  sessionTriggerScope = null;
+  current?.dispose();
+}
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
@@ -583,7 +578,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   const isStale = () => sessionClosed || generation !== sessionGeneration;
   requireShell();
   bindEvents();
-  sessionTriggers.activate();
+  activateSessionTriggers();
   await Promise.all([
     sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null),
     modelPanel.reload(),
@@ -592,12 +587,12 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     isLiveCompanionAllowed() ? liveBridge.refreshTarget() : Promise.resolve()
   ]);
   if (isStale()) {
-    sessionTriggers.deactivate();
+    deactivateSessionTriggers();
     return;
   }
   await conversationStore.restoreLatest();
   if (isStale()) {
-    sessionTriggers.deactivate();
+    deactivateSessionTriggers();
     return;
   }
   contextOrchestrator.renderInitialState();
@@ -651,7 +646,7 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   }
   if (sessionClosed) {
     sessionClosed = false;
-    sessionTriggers.activate();
+    activateSessionTriggers();
     await restoreChatSession();
   }
   if (consumeIntent && !sessionClosed) {
@@ -675,13 +670,12 @@ export function closeChatSession(): void {
   sessionGeneration += 1;
   sessionClosed = true;
   initInFlight = null;
-  contextOrchestrator.clearRestartForContextFollow();
   quickActionGeneration += 1;
   setupFlow.invalidate();
   contextOrchestrator.cancelPendingSync();
   liveBridge.closeSession();
   if (!initialized) {
-    sessionTriggers.deactivate();
+    deactivateSessionTriggers();
     return;
   }
   chatRuntime.resetStreamState();
@@ -696,7 +690,7 @@ export function closeChatSession(): void {
   removeConversationContextNotice();
   sendGate.refreshAsrNotice();
   explainIntentController.hide();
-  sessionTriggers.deactivate();
+  deactivateSessionTriggers();
 }
 
 let quickActionInFlight: Promise<boolean> | null = null;

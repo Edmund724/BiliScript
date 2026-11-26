@@ -10,7 +10,7 @@ import {
 } from "./chat-state.js";
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
-import type { LoadContextStateOptions } from "./conversation-store.js";
+import type { LoadContextStateOptions, StreamInterruptOptions } from "./conversation-store.js";
 import type { ViewResetIntent } from "./view-intent.js";
 
 export const NO_TAB_MESSAGE = "找不到当前标签页。";
@@ -28,7 +28,7 @@ export interface CreateContextLoadDeps {
   renderInitialState: () => void;
   renderSuggestions: () => void;
   requestViewReset: (intent: ViewResetIntent) => void;
-  restoreLatest: () => Promise<boolean>;
+  restoreLatest: (opts?: StreamInterruptOptions) => Promise<boolean>;
   isStreaming: () => boolean;
   hasPendingUserPrompt: () => boolean;
   isLiveActive?: () => boolean;
@@ -98,7 +98,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         const contextChanged = applyContextPayload(payload, preserveInput);
         deps.renderHistoryList();
         if (contextChanged) {
-          await deps.restoreLatest();
+          await (preserveInput ? deps.restoreLatest({ preserveStream: true }) : deps.restoreLatest());
           deps.renderInitialState();
         }
         return true;
@@ -112,7 +112,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     const contextChanged = applyContextPayload(payload, preserveInput);
     deps.renderHistoryList();
     if (contextChanged) {
-      await deps.restoreLatest();
+      await (preserveInput ? deps.restoreLatest({ preserveStream: true }) : deps.restoreLatest());
       deps.renderInitialState();
     }
     return true;

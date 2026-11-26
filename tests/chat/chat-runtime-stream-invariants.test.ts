@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import type { ChatPort, ChatPortMessage } from "../../extension/chat/chat-runtime.js";
 
 vi.mock("../../extension/ui/lazy-mermaid.js", () => ({
@@ -83,7 +82,6 @@ function makeDeps() {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);

@@ -4,7 +4,6 @@ import type {
   ChatAssistantTurn,
   ChatInPlaceSession
 } from "../chat-stream-render.js";
-import type { ThoughtChainState } from "./thought-chain.js";
 
 export interface InPlaceTurnTokenStreamDeps {
   cancelFlush: () => void;
@@ -14,12 +13,7 @@ export interface InPlaceTurnTokenStreamDeps {
 }
 
 export interface InPlaceTurnThoughtChainDeps {
-  getChain: (node: HTMLElement) => ThoughtChainState | null;
-  setChain: (node: HTMLElement, chain: ThoughtChainState) => void;
-  deleteChain: (node: HTMLElement) => void;
-  clearSettled: (node: HTMLElement) => void;
-  cancelChainThinkingFrames: (chain: ThoughtChainState) => void;
-  clearThoughtChain: (node: HTMLDivElement | null) => void;
+  beginInPlaceEdit: (node: HTMLDivElement, mode: "replace" | "continue") => () => void;
 }
 
 export interface InPlaceTurnControllerDeps {
@@ -65,17 +59,10 @@ export function createInPlaceTurnController(deps: InPlaceTurnControllerDeps): In
     const savedScrollTop = deps.messages.scrollTop;
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalChildren = Array.from(node.childNodes);
-    const originalThoughtChain = deps.thoughtChain.getChain(node);
     const following = createFollowingVisibilityScope(node);
 
     deps.tokenStream.cancelFlush();
-    if (originalThoughtChain) {
-      deps.thoughtChain.cancelChainThinkingFrames(originalThoughtChain);
-    }
-    if (options.mode === "replace") {
-      deps.thoughtChain.deleteChain(node);
-    }
-    deps.thoughtChain.clearSettled(node);
+    const restoreThoughtChain = deps.thoughtChain.beginInPlaceEdit(node, options.mode);
     deps.tokenStream.resetState(node);
 
     if (options.mode === "replace") {
@@ -119,12 +106,9 @@ export function createInPlaceTurnController(deps: InPlaceTurnControllerDeps): In
       }
       settled = true;
       baseTurn.discard();
-      deps.thoughtChain.clearThoughtChain(node);
+      restoreThoughtChain();
       node.innerHTML = "";
       originalChildren.forEach((child) => node.appendChild(child));
-      if (originalThoughtChain) {
-        deps.thoughtChain.setChain(node, originalThoughtChain);
-      }
       following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);
       deps.messages.scrollTop = savedScrollTop;

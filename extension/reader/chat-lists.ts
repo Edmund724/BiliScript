@@ -1,5 +1,4 @@
 import {
-  buildContextKey,
   doesConversationMatchCurrentContext,
   doesTabMatchContextUrl,
   formatConversationTimestamp,
@@ -7,13 +6,8 @@ import {
 } from "../ai/conversation.js";
 import { isElementNode } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { resolveInitialQuickPrompts } from "../chat/quick-prompts.js";
-import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
 import { chatSessionState } from "../chat/chat-state.js";
-import { extractVideoId } from "../bilibili/video-id-shared.js";
 import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
-import { state } from "../core/state.js";
-import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { renderLiveTextToolRecordHtml } from "./chat-live-text-records.js";
 import { hydrateMarkdownContent } from "../ui/markdown.js";
@@ -27,13 +21,11 @@ export interface CreateReaderChatListsDeps {
   isTurnActive: () => boolean;
   confirmDeleteCurrent: (message: string) => boolean | Promise<boolean>;
   startNewConversation: () => Promise<boolean> | boolean;
-  suggestions: ChatSuggestionsSlot;
   hideHistoryPopover: () => void;
   settleTurn?: () => Promise<void> | undefined;
 }
 
 export interface ReaderChatLists {
-  renderSuggestions: () => void;
   renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
   settlePendingDeletion: () => void;
   cancelPendingSwitch: () => void;
@@ -43,18 +35,6 @@ export interface ReaderChatLists {
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
   const { historyList, historyClearBtn } = deps;
-
-  function currentPageVideoKey(): string {
-    const clip = state.clip;
-    if (!clip.subtitleBody?.length) {
-      return "";
-    }
-    const bvid = String(clip.bvid || "").trim();
-    if (!bvid || bvid !== extractVideoId(location.href)) {
-      return "";
-    }
-    return buildContextKey({ site: clip.site, bvid, cid: clip.cid, aid: clip.aid, url: location.href });
-  }
 
   function resolveConversationSite(conversation: Conversation): SiteId {
     if (!isLiveTextToolHistoryEntry(conversation) && conversation.contextRef?.site) {
@@ -72,22 +52,6 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
 
   function formatSiteBadgeLabel(site: SiteId): string {
     return site === "youtube" ? "YouTube" : "B 站";
-  }
-
-  function renderSuggestions(): void {
-    if (!deps.suggestions.isPresent()) {
-      return;
-    }
-    if (!chatSessionState.contextData || !chatSessionState.providers.length || chatSessionState.chatHistory.length || chatSessionState.contextData.isVideoContext === false) {
-      deps.suggestions.render([]);
-      return;
-    }
-    deps.suggestions.render(
-      resolveInitialQuickPrompts(
-        chatSessionState.aiPrefs.aiInitialQuickPrompts,
-        readCachedQuickPrompts(currentPageVideoKey())
-      )
-    );
   }
 
   let openLiveHistoryId: string | null = null;
@@ -413,7 +377,6 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   }
 
   return {
-    renderSuggestions,
     renderHistoryList,
     settlePendingDeletion,
     cancelPendingSwitch,

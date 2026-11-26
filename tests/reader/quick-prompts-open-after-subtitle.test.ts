@@ -3,7 +3,7 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import type { TestState } from "./reader-test-env.js";
-import type { ReaderChatLists } from "../../extension/reader/chat-lists.js";
+import type { ChatSuggestionsSlot } from "../../extension/reader/chat-suggestions-slot.js";
 
 const mocks = vi.hoisted(() => ({
   resolveActiveProvider: vi.fn(),
@@ -46,7 +46,7 @@ function stubStreamingAnswer(): void {
 describe("字幕已落定后打开面板：建议区的预热触发", () => {
   let state: TestState;
   let shell: typeof import("../../extension/reader/index.js");
-  let lists: ReaderChatLists;
+  let suggestions: ChatSuggestionsSlot;
   let chipTexts: () => string[];
 
   beforeEach(async () => {
@@ -74,26 +74,14 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
 
     const messages = document.createElement("div");
     document.body.appendChild(messages);
-    const slot = (await import("../../extension/reader/chat-suggestions-slot.js")).createChatSuggestionsSlot({
+    suggestions = (await import("../../extension/reader/chat-suggestions-slot.js")).createChatSuggestionsSlot({
       messages,
       id: "test-chat-suggestions",
       onPick: () => {}
     });
-    slot.render([]);
-    lists = (await import("../../extension/reader/chat-lists.js")).createReaderChatLists({
-      historyList: document.createElement("div"),
-      historyClearBtn: document.createElement("button"),
-      applyById: () => {},
-      deleteById: async () => null,
-      isTurnActive: () => false,
-      confirmDeleteCurrent: async () => true,
-      startNewConversation: async () => true,
-      suggestions: slot,
-      hideHistoryPopover: () => {}
-    });
     const { subscribeQuickPromptsChange } = await import("../../extension/chat/quick-prompt-cache.js");
     subscribeQuickPromptsChange(() => {
-      lists.renderSuggestions();
+      suggestions.refresh();
     });
 
     const chatState = await import("../../extension/chat/chat-state.js");
@@ -104,6 +92,7 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
       title: "缓存穿透的三种成因",
       url: READER_MODE_URL
     };
+    suggestions.reset();
 
     chipTexts = () =>
       [...messages.querySelectorAll(".chat-chip")].map((node) => node.textContent || "");
@@ -117,7 +106,7 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
 
     await shell.enterReaderMode();
 
-    lists.renderSuggestions();
+    suggestions.refresh();
     expect(chipTexts()).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
 
     await vi.waitFor(() => {
@@ -135,7 +124,7 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
     await shell.enterReaderMode();
     shell.handleReaderPresenterNotification({ kind: "subtitle-ready" });
 
-    lists.renderSuggestions();
+    suggestions.refresh();
     await vi.waitFor(() => {
       expect(chipTexts()).toEqual(GENERATED);
     });

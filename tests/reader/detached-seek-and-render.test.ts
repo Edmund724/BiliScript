@@ -263,6 +263,9 @@ describe("reader 独立宿主：时间戳跳转无抢焦、rAF 批渲染迁移�
     } as unknown as Window;
 
     const messages = document.createElement("div");
+    Object.defineProperty(messages, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(messages, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(messages, "scrollTop", { value: 400, configurable: true });
     const scrollBottomBtn = document.createElement("button");
     scrollBottomBtn.hidden = true;
     document.body.append(messages, scrollBottomBtn);
@@ -271,7 +274,6 @@ describe("reader 独立宿主：时间戳跳转无抢焦、rAF 批渲染迁移�
     const ctrl = createScrollFollowController({
       messages,
       scrollBottomBtn,
-      getBottomOffset: () => 200,
       setAutoScroll,
       scrollToBottom: vi.fn(),
     });

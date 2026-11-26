@@ -2,11 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock, MockInstance } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
-import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
+import { TURN_SETTLE_FALLBACK_MS, type CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
-import { TURN_SETTLE_FALLBACK_MS } from "../../extension/chat/turn-lifecycle.js";
 
 type MockFn = Mock<(...args: any[]) => any>;
 type RafSpy = MockInstance<(callback: () => void) => number>;
@@ -79,7 +77,6 @@ function makeDeps(): TestDeps {
     getProviderId: () => "test-provider",
     getSelectedModel: () => "test-model",
     getTimestampNavDeps: () => ({}),
-    normalizeMarkdownForSectionPaste,
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);
@@ -356,17 +353,80 @@ describe("settleTurn（在途回合结算）", () => {
     expect(second.settled).toBe(true);
   });
 
-  it("拆除类入口（resetStreamState）清场时：已武装的 settle 一并兑现（不留悬挂）", async () => {
-    const { runtime } = await makeRuntime("问题");
+  it("空文本 / 在途双发均返回 ignored，不建端口且不污染消息区", async () => {
+    const deps = makeDeps();
+    let releaseEnsure!: (value: unknown) => void;
+    deps.ensureCurrentContextForSend = vi.fn(
+      () => new Promise((resolve) => { releaseEnsure = resolve; })
+    );
+    const runtime = createChatRuntime(deps);
+
+    await expect(runtime.sendTurn("")).resolves.toBe("ignored");
+    await expect(runtime.sendTurn("  \n ")).resolves.toBe("ignored");
+    expect(runtime.isTurnActive()).toBe(false);
+    expect(deps.ports).toHaveLength(0);
+
+    deps.input.value = "第一问";
+    const sending = runtime.sendTurn("第一问");
+    await expect(runtime.sendTurn("受理窗口中的第二问")).resolves.toBe("ignored");
+
+    releaseEnsure({ pass: true });
+    await expect(sending).resolves.toBe("accepted");
+    await expect(runtime.sendTurn("流式中的第三问")).resolves.toBe("ignored");
+    expect(deps.ports).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+  });
+
+  it("终态先到时撤下看门狗：不误拆下一回合", async () => {
+    vi.useFakeTimers();
+    const { deps, runtime, session } = await makeRuntime("第一问");
+    const settled = trackSettle(runtime.settleTurn());
+    await flushMicrotasks();
+
+    emitMessage(session, { type: "stopped", reason: "已停止生成" });
+    await flushMicrotasks();
+    expect(settled.settled).toBe(true);
+
+    deps.input.value = "第二问";
+    await expect(runtime.sendTurn("第二问")).resolves.toBe("accepted");
+    vi.advanceTimersByTime(TURN_SETTLE_FALLBACK_MS);
+    await flushMicrotasks();
+
+    expect(runtime.isStreaming()).toBe(true);
+    expect(deps.ports[1].port.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("拆除类入口（resetStreamState）清场时：撤下停流登记与看门狗，兑现已武装的 settle 且不影响后续发送", async () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    let releaseEnsure!: (value: unknown) => void;
+    deps.ensureCurrentContextForSend = vi.fn(
+      () => new Promise((resolve) => { releaseEnsure = resolve; })
+    );
+    const runtime = createChatRuntime(deps);
+
+    deps.input.value = "闸中问题";
+    const sending = runtime.sendTurn("闸中问题");
     const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
 
     runtime.resetStreamState();
+    releaseEnsure({ pass: true });
+    await expect(sending).resolves.toBe("blocked");
     await flushMicrotasks();
 
     expect(settled.settled).toBe(true);
     expect(runtime.isTurnActive()).toBe(false);
+    expect(deps.ports).toHaveLength(0);
+
+    deps.ensureCurrentContextForSend = vi.fn(async () => ({ pass: true }));
+    deps.input.value = "清场后的新问题";
+    await expect(runtime.sendTurn("清场后的新问题")).resolves.toBe("accepted");
+    vi.advanceTimersByTime(TURN_SETTLE_FALLBACK_MS);
+    await flushMicrotasks();
+    expect(postedActions(deps.ports[0])).toEqual(["chat"]);
+    expect(runtime.isStreaming()).toBe(true);
   });
 });
 

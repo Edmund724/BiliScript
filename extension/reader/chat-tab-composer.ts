@@ -1,5 +1,4 @@
-import type { SendTurnOptions } from "../chat/chat-runtime.js";
-import type { SendVerdict } from "../chat/turn-lifecycle.js";
+import type { SendTurnOptions, SendVerdict } from "../chat/chat-runtime.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 import { dispatchCrossDocEvent } from "../shared/cross-doc.js";
 

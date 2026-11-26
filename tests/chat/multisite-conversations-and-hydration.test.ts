@@ -529,7 +529,6 @@ describe("历史列表站点徽标与阅读模式能力门控", () => {
       isTurnActive: vi.fn(() => false),
       confirmDeleteCurrent: vi.fn(async () => true),
       startNewConversation: vi.fn(async () => true),
-      suggestions: { render: vi.fn(), clear: vi.fn(), isPresent: vi.fn(() => false) } as never,
       hideHistoryPopover: vi.fn()
     });
 

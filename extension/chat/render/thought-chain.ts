@@ -73,11 +73,7 @@ export type TerminalThinkingFallbackOptions =
   | { mode: "failed" };
 
 export interface ThoughtChainController {
-  getChain: (node: HTMLElement) => ThoughtChainState | null;
-  setChain: (node: HTMLElement, chain: ThoughtChainState) => void;
-  deleteChain: (node: HTMLElement) => void;
-  clearSettled: (node: HTMLElement) => void;
-  cancelChainThinkingFrames: (chain: ThoughtChainState) => void;
+  beginInPlaceEdit: (node: HTMLDivElement, mode: "replace" | "continue") => () => void;
   setSubtitleContextCount: (node: HTMLElement, count: number) => void;
   flushPendingThinking: (node: HTMLElement) => void;
   cancelAllThinkingFrames: (node: HTMLElement) => void;
@@ -426,28 +422,29 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
   const subtitleContextCounts = new WeakMap<HTMLElement, number>();
   const settledSearchTurns = new WeakSet<HTMLElement>();
 
-  function getChain(node: HTMLElement): ThoughtChainState | null {
-    return thoughtChainStates.get(node) ?? null;
-  }
-
-  function setChain(node: HTMLElement, chain: ThoughtChainState): void {
-    thoughtChainStates.set(node, chain);
-  }
-
-  function deleteChain(node: HTMLElement): void {
-    thoughtChainStates.delete(node);
-  }
-
-  function clearSettled(node: HTMLElement): void {
-    settledSearchTurns.delete(node);
-  }
-
   function cancelChainThinkingFrames(chain: ThoughtChainState): void {
     for (const step of chain.steps) {
       if (step.kind === "thinking") {
         deps.thinkingBuffer.cancelFrame(step.bodyEl);
       }
     }
+  }
+
+  function beginInPlaceEdit(node: HTMLDivElement, mode: "replace" | "continue"): () => void {
+    const originalChain = thoughtChainStates.get(node) ?? null;
+    if (originalChain) {
+      cancelChainThinkingFrames(originalChain);
+    }
+    if (mode === "replace") {
+      thoughtChainStates.delete(node);
+    }
+    settledSearchTurns.delete(node);
+    return () => {
+      clearThoughtChain(node);
+      if (originalChain) {
+        thoughtChainStates.set(node, originalChain);
+      }
+    };
   }
 
   function setSubtitleContextCount(node: HTMLElement, count: number): void {
@@ -916,11 +913,7 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
   }
 
   return {
-    getChain,
-    setChain,
-    deleteChain,
-    clearSettled,
-    cancelChainThinkingFrames,
+    beginInPlaceEdit,
     setSubtitleContextCount,
     flushPendingThinking,
     cancelAllThinkingFrames,
