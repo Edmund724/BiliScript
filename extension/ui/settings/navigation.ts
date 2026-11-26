@@ -12,8 +12,7 @@ import {
   supportsWebAnimations,
   type NavDirection
 } from "../nav-motion.js";
-import { SETTINGS_PANEL_DOM_IDS } from "./dom-ids.js";
-import { collectElements, resolveSettingsCapabilities, type SettingsElements } from "./elements.js";
+import { resolveSettingsCapabilities, type SettingsElements } from "./elements.js";
 
 export type SettingsSubpageId =
   | "ai-providers"
@@ -45,7 +44,7 @@ const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
 };
 
 export interface SettingsNavigatorDeps {
-  getHost: () => HTMLElement | null;
+  getMounted: () => { host: HTMLElement; elements: SettingsElements } | null;
   ensureRendered: () => Promise<void>;
   onAgentAddressClosed?: (options: { focusButton: boolean }) => void;
   openLinkedCredentialEditor?: (target: AiCredentialLinkTarget) => Promise<void> | void;
@@ -53,7 +52,6 @@ export interface SettingsNavigatorDeps {
 
 export interface SettingsNavigator {
   navigateSettingsView(
-    host: HTMLElement,
     view: SettingsViewId,
     options?: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean }
   ): void;
@@ -135,13 +133,13 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
   }
 
-  function navigateSettingsView(
+  function navigateView(
     host: HTMLElement,
+    elements: SettingsElements,
     view: SettingsViewId,
-    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean; elements?: SettingsElements } = {}
+    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean } = {}
   ): void {
     const targetView: SettingsViewId = isSettingsViewAllowed(view) ? view : "root";
-    const elements = options.elements ?? collectElements(host);
     const previousView = activeSettingsView;
     const scrollContainer = getScrollContainer(host);
 
@@ -254,11 +252,20 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
   }
 
+  function navigateSettingsView(
+    view: SettingsViewId,
+    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean } = {}
+  ): void {
+    const current = deps.getMounted();
+    if (!current) return;
+    navigateView(current.host, current.elements, view, options);
+  }
+
   function bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): void {
     activeSettingsView = "root";
     savedRootScrollTop = 0;
     subpageReturnButton = null;
-    navigateSettingsView(host, "root", { focusOnEnter: false, animate: false, elements });
+    navigateView(host, elements, "root", { focusOnEnter: false, animate: false });
 
     const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
       [elements.openAiProvidersBtn, "ai-providers"],
@@ -275,7 +282,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     for (const [button, view] of entries) {
       button.addEventListener("click", () => {
         if (!isSettingsViewAllowed(view)) return;
-        navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true, elements });
+        navigateView(host, elements, view, { returnButton: button, focusOnEnter: true });
       });
     }
 
@@ -283,10 +290,10 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     unregisterBackInterceptor = registerReaderSettingsBackInterceptor(() => {
       if (activeSettingsView === "root") return false;
       if (activeSettingsView === "agent-address") {
-        navigateSettingsView(host, "agent", { focusOnEnter: true, elements });
+        navigateView(host, elements, "agent", { focusOnEnter: true });
         return true;
       }
-      navigateSettingsView(host, "root", { focusOnEnter: true, elements });
+      navigateView(host, elements, "root", { focusOnEnter: true });
       return true;
     });
 
@@ -298,7 +305,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       scrollContainer.scrollTop = 0;
       syncScrollHeaderState(scrollContainer);
       if (activeSettingsView !== "root") {
-        navigateSettingsView(host, "root", { focusOnEnter: false, animate: false, elements });
+        navigateView(host, elements, "root", { focusOnEnter: false, animate: false });
       }
     });
 
@@ -317,7 +324,8 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     if ((target === "live" || target === "gemini-key") && !isSettingsViewAllowed("live")) {
       return;
     }
-    const host = deps.getHost() ?? activeById(ids.readingSettingsHost);
+    const existing = deps.getMounted();
+    const host = existing?.host ?? activeById(ids.readingSettingsHost);
     if (!host) return;
     pendingSettingsTarget = target;
     if (!host.dataset.biliscriptSettingsRendered) {
@@ -325,18 +333,24 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       return;
     }
     pendingSettingsTarget = null;
+    let current = existing && existing.host === host ? existing : null;
+    if (!current) {
+      await deps.ensureRendered();
+      current = deps.getMounted();
+    }
+    if (!current) return;
     const view: SettingsSubpageId =
       target === "appearance" ? "ai-prompt" : target === "note-export" ? "subtitle" : "live";
-    navigateSettingsView(host, view, { focusOnEnter: false, animate: false });
+    navigateView(current.host, current.elements, view, { focusOnEnter: false, animate: false });
     const sectionHeading = target === "appearance"
-      ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
+      ? current.elements.chatPreferencesHeading
       : target === "note-export"
-        ? host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="note-export"] .biliscript-set-h`)
-        : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
+        ? current.host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="note-export"] .biliscript-set-h`)
+        : current.host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
     if (target === "appearance" || target === "note-export") {
       const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup], [data-settings-section]") ?? sectionHeading;
       scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
-      syncScrollHeaderState(getScrollContainer(host));
+      syncScrollHeaderState(getScrollContainer(current.host));
     }
     if (target === "gemini-key") {
       await deps.openLinkedCredentialEditor?.("gemini-live");
@@ -348,9 +362,9 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
 
   function focusSettingsView(view: SettingsSubpageId): void {
     if (!isSettingsViewAllowed(view)) return;
-    const host = deps.getHost();
-    if (!host || !host.dataset.biliscriptSettingsRendered) return;
-    navigateSettingsView(host, view, { focusOnEnter: false, animate: false });
+    const current = deps.getMounted();
+    if (!current || !current.host.dataset.biliscriptSettingsRendered) return;
+    navigateView(current.host, current.elements, view, { focusOnEnter: false, animate: false });
   }
 
   function flushPendingTarget(): void {
@@ -362,7 +376,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   }
 
   function dispose(): void {
-    cancelNavTransition(deps.getHost());
+    cancelNavTransition(deps.getMounted()?.host ?? null);
     pendingSettingsTarget = null;
     activeSettingsView = "root";
     savedRootScrollTop = 0;

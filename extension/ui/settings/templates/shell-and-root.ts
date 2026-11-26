@@ -99,7 +99,7 @@ export function buildSettingsRootViewHtml(): string {
           <button id="${ids.openAppearanceBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">阅读器与播放器</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.appearanceSettingsSummary}" class="biliscript-entry-summary-text">蓝雾玻璃 · 100% · 540px</span>
+              <span id="${ids.appearanceSettingsSummary}" class="biliscript-entry-summary-text">蓝雾玻璃 · 100%</span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>

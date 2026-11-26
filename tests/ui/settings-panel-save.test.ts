@@ -10,7 +10,9 @@ vi.mock("../../extension/ai/provider-test.js", () => ({
 }));
 
 import { state } from "../../extension/core/state.js";
-import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { applyChatDisplaySettings } from "../../extension/reader/chat-display-settings.js";
+import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
+import { disposeReaderSettingsPanel, renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
 import { flushMicrotasks, resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
@@ -516,5 +518,109 @@ describe("设置抽屉保存行：末行贴底 + 状态提示同排", () => {
     expect(status.closest(".biliscript-set-actions")).toBe(host.querySelector(".biliscript-set-actions"));
     expect(status.nextElementSibling?.id).toBe("biliscriptSettingsResetBtn");
     expect(host.querySelector("#biliscriptSettingsSaveBtn")).toBeNull();
+  });
+});
+
+describe("设置抽屉外部同步分发、占位摘要与 dispose 清理", () => {
+  it("appearanceSettingsSummary 不含遗留 540px 占位，并在加载后显示运行时摘要", async () => {
+    const initialHtml = buildSettingsHtml();
+    expect(initialHtml).not.toContain("540px");
+
+    installMessageBus();
+    const host = await mountPanel();
+    expect(host.querySelector("#appearanceSettingsSummary")?.textContent).toBe("跟随当前站点 · 蓝雾玻璃 · 100%");
+  });
+
+  it("单次 sync 存储事件跨标量、Agent Bridge 与 AI 模型三路分发并刷新总览摘要", async () => {
+    const listeners: Array<(changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void> = [];
+    vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((fn) => {
+      listeners.push(fn);
+    });
+
+    let currentSettings: Record<string, unknown> = {
+      defaultModel: "p1",
+      defaultAiModel: "deepseek-chat",
+      agentBridgeUrl: "ws://127.0.0.1:18492",
+      enableAgentBridge: false
+    };
+    let bridgeConnected = false;
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: currentSettings }),
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [
+          { id: "p1", name: "DeepSeek", enabled: true, hasSavedKey: true, models: ["deepseek-chat", "deepseek-reasoner"] }
+        ]
+      }),
+      "agent-bridge-status": () => ({ ok: true, connected: bridgeConnected })
+    });
+    const host = await mountPanel();
+
+    await waitForFast(() => {
+      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
+    });
+    const statusCallsBefore = sent.filter((m) => m.type === "agent-bridge-status").length;
+
+    currentSettings = { ...currentSettings, defaultAiModel: "deepseek-reasoner" };
+    bridgeConnected = true;
+    for (const listener of listeners) {
+      listener(
+        {
+          agentBridgeUrl: { oldValue: "ws://127.0.0.1:18492", newValue: "ws://127.0.0.1:19999" },
+          enableAgentBridge: { oldValue: false, newValue: true },
+          allowPaidSearchProviders: { oldValue: false, newValue: true },
+          defaultAiModel: { oldValue: "deepseek-chat", newValue: "deepseek-reasoner" }
+        },
+        "sync"
+      );
+    }
+
+    expect(host.querySelector<HTMLElement>("#agentBridgeAddressSummary")?.textContent).toBe("ws://127.0.0.1:19999");
+    expect(host.querySelector<HTMLInputElement>("#enableAgentBridge")?.checked).toBe(true);
+    expect(host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")?.checked).toBe(true);
+    await waitForFast(() => {
+      expect(sent.filter((m) => m.type === "agent-bridge-status").length).toBeGreaterThan(statusCallsBefore);
+      expect(host.querySelector<HTMLElement>("#agentSettingsSummary")?.textContent).toBe("已连接");
+      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(
+        `p1${String.fromCharCode(1)}deepseek-reasoner`
+      );
+    });
+  });
+
+  it("disposeReaderSettingsPanel 清空缓存并卸载外部同步，后续变更不再写旧宿主也不发 IPC", async () => {
+    const listeners: Array<(changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void> = [];
+    vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((fn) => {
+      listeners.push(fn);
+    });
+    const sent = installMessageBus({
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [{ id: "p1", name: "DeepSeek", enabled: true, hasSavedKey: true, models: ["deepseek-chat"] }]
+      })
+    });
+    const host = await mountPanel();
+    const paidToggle = host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!;
+    const lineHeightSlider = host.querySelector<HTMLInputElement>("#chatLineHeight")!;
+
+    disposeReaderSettingsPanel();
+    const sentCountAfterDispose = sent.length;
+
+    for (const listener of listeners) {
+      listener(
+        {
+          allowPaidSearchProviders: { oldValue: false, newValue: true },
+          agentBridgeUrl: { oldValue: "ws://127.0.0.1:18492", newValue: "ws://127.0.0.1:19111" },
+          enableAgentBridge: { oldValue: false, newValue: true },
+          defaultAiModel: { oldValue: "deepseek-chat", newValue: "deepseek-reasoner" }
+        },
+        "sync"
+      );
+    }
+    applyChatDisplaySettings({ chatLineHeight: 195 });
+    await flushMicrotasks();
+
+    expect(paidToggle.checked).toBe(false);
+    expect(lineHeightSlider.value).toBe(String(DEFAULT_SETTINGS.chatLineHeight));
+    expect(sent.length).toBe(sentCountAfterDispose);
   });
 });

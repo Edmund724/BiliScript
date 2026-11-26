@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus, type BusResponder } from "../helpers/settings-panel-bus.js";
-import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import {
+  openAppearanceSettings,
+  openNoteExportSettings,
+  renderReaderSettingsPanel
+} from "../../extension/ui/settings-panel.js";
 import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
 beforeEach(() => {
@@ -274,5 +278,27 @@ describe("设置抽屉三级总览与子页导航", () => {
     closeReaderSettingsMode();
     expect(panelEl.scrollTop).toBe(0);
     expect(panelEl.hasAttribute("data-biliscript-settings-scrolled")).toBe(false);
+  });
+
+  it("openAppearanceSettings 与 openNoteExportSettings 复用已挂载元素定位到对应子页与分区标题", async () => {
+    const host = await mountPanel();
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
+    const aiPromptView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAiPrompt")!;
+    const subtitleView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageSubtitle")!;
+    const chatHeading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
+    const noteExportHeading = host.querySelector<HTMLElement>(
+      '.biliscript-set-group[data-settings-section="note-export"] .biliscript-set-h'
+    )!;
+
+    await openAppearanceSettings();
+    expect(aiPromptView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("AI 对话与快捷动作");
+    expect(document.activeElement).toBe(chatHeading);
+
+    await openNoteExportSettings();
+    expect(subtitleView.hidden).toBe(false);
+    expect(aiPromptView.hidden).toBe(true);
+    expect(title.textContent?.trim()).toBe("字幕翻译与导出");
+    expect(document.activeElement).toBe(noteExportHeading);
   });
 });
