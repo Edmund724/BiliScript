@@ -569,4 +569,47 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     await vi.advanceTimersByTimeAsync(20);
     expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
   });
+
+  it("稳定就位时跳过重挂仅刷新视觉样式，suppress 窗口期间拆除且不重试", async () => {
+    const host = makePlayerDom();
+    const { playerAiState: aiState } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    const wrap = document.querySelector<HTMLElement>(".biliscript-player-ai-wrap")!;
+    const button = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
+    expect(wrap).not.toBeNull();
+
+    const appendSpy = vi.spyOn(host, "appendChild");
+    button.style.removeProperty("--biliscript-player-ai-action-icon-size");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(appendSpy).not.toHaveBeenCalled();
+    expect(button.style.getPropertyValue("--biliscript-player-ai-action-icon-size")).toBe("26px");
+
+    aiState.setSuppressedUntil(Date.now() + 5000);
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
+    expect(aiState.playerAiQuickActionSyncTimer).toBe(0);
+  });
+
+  it("已挂载后宿主消失：拆除残留按钮并进入重试", async () => {
+    const host = makePlayerDom();
+    const { playerAiState: aiState } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
+
+    host.remove();
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
+    expect(aiState.playerAiQuickActionSyncTimer).not.toBe(0);
+  });
 });

@@ -1,11 +1,3 @@
-import {
-  CONTEXT_READ_FAILED_MESSAGE,
-  LOAD_CONTEXT_ACTION,
-  NO_TAB_MESSAGE,
-  isPinnedContextStrict,
-  resolveLoadContextAction,
-  resolveNoTabPlan
-} from "./context-policy.js";
 import { buildContextKey, type AiContext } from "../ai/conversation.js";
 import {
   applyContextSnapshot,
@@ -20,6 +12,15 @@ import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
 import type { LoadContextStateOptions } from "./conversation-store.js";
 import type { ViewResetIntent } from "./view-intent.js";
+
+export const NO_TAB_MESSAGE = "找不到当前标签页。";
+export const CONTEXT_READ_FAILED_MESSAGE = "当前页面上下文读取失败。";
+
+export function isPinnedContextStrict(
+  currentConversationMeta: { pinnedContext?: unknown } | null | undefined
+): boolean {
+  return currentConversationMeta?.pinnedContext === true;
+}
 
 export interface CreateContextLoadDeps {
   fetchContext: ContextFetch;
@@ -46,84 +47,75 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       .catch((error: unknown) => ({ kind: "error", error: (error as Error)?.message }) as ContextFetchOutcome);
 
     if (outcome.kind === "no-tab") {
-      const plan = resolveNoTabPlan({ hasPinnedConversation, silent, isLiveActive });
       resetLiveContext();
-      if (plan.clearContext) {
+      if (!hasPinnedConversation) {
         clearMainContext();
       }
-      if (plan.resetView) {
-        deps.requestViewReset({ kind: "state", html: plan.message ?? NO_TAB_MESSAGE });
+      if (!silent && !hasPinnedConversation && !isLiveActive) {
+        deps.requestViewReset({ kind: "state", html: NO_TAB_MESSAGE });
       }
-      return plan.returnValue;
+      return false;
     }
 
     noteLiveTabUrl(outcome.tabUrl || "");
 
-    const resp = outcome.kind === "error"
-      ? { ok: false as const, error: outcome.error }
-      : { ok: true as const, payload: outcome.payload };
-
-    const plan = resolveLoadContextAction({
-      response: resp,
-      hasPinnedConversation,
-      silent,
-      isStreaming: deps.isStreaming(),
-      hasPendingUserPrompt: deps.hasPendingUserPrompt(),
-      isLiveActive
-    });
-
-    if (plan.action === LOAD_CONTEXT_ACTION.SKIP_UNCHANGED) {
-      return plan.returnValue;
+    if (outcome.kind === "payload" && (outcome.payload as { unchanged?: unknown } | null)?.unchanged === true) {
+      return true;
     }
 
-    if (plan.action === LOAD_CONTEXT_ACTION.ERROR) {
+    if (outcome.kind !== "payload" || !outcome.payload) {
+      const rawError = outcome.kind === "error" ? outcome.error : undefined;
+      const message = typeof rawError === "string" && rawError ? rawError : CONTEXT_READ_FAILED_MESSAGE;
       applyLiveContextSnapshot(null);
-      if (plan.clearContext) {
+      if (!hasPinnedConversation) {
         clearMainContext();
       }
-      if (plan.resetView) {
-        deps.requestViewReset({ kind: "state", html: plan.message ?? CONTEXT_READ_FAILED_MESSAGE });
+      if (!silent && !hasPinnedConversation && !isLiveActive) {
+        deps.requestViewReset({ kind: "state", html: message });
       }
-      return plan.returnValue;
+      return false;
     }
 
-    applyLiveContextSnapshot(resp.payload as ChatSessionContextSnapshot);
+    const payload = outcome.payload as ChatSessionContextSnapshot;
+    applyLiveContextSnapshot(payload);
 
-    if (plan.action === LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION) {
+    if (hasPinnedConversation && !isLiveActive) {
+      deps.renderHistoryList();
+      return true;
+    }
+
+    if (deps.isStreaming() || deps.hasPendingUserPrompt()) {
+      deps.renderHistoryList();
+      return true;
+    }
+
+    if (isLiveActive) {
       const oldKey = chatSessionState.currentContextKey;
-      const nextKey = buildContextKey(resp.payload as AiContext);
+      const nextKey = buildContextKey(payload as AiContext);
       const isVideoSwitch = Boolean(oldKey && nextKey && nextKey !== oldKey);
 
       if (isVideoSwitch) {
-        const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null, preserveInput);
+        const contextChanged = applyContextPayload(payload, preserveInput);
         deps.renderHistoryList();
         if (contextChanged) {
           await deps.restoreLatest();
           deps.renderInitialState();
         }
-        return plan.returnValue;
+        return true;
       }
 
       applyLiveContextToMain();
       deps.renderHistoryList();
-      return plan.returnValue;
+      return true;
     }
 
-    if (
-      plan.action === LOAD_CONTEXT_ACTION.APPLY_PINNED ||
-      plan.action === LOAD_CONTEXT_ACTION.BLOCKED_STREAMING
-    ) {
-      deps.renderHistoryList();
-      return plan.returnValue;
-    }
-
-    const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null, preserveInput);
+    const contextChanged = applyContextPayload(payload, preserveInput);
     deps.renderHistoryList();
     if (contextChanged) {
       await deps.restoreLatest();
       deps.renderInitialState();
     }
-    return plan.returnValue;
+    return true;
   }
 
   function applyContextPayload(payload: ChatSessionContextSnapshot | null, preserveInput: boolean): boolean {

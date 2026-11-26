@@ -4,6 +4,9 @@ import type { ChatSessionContextSnapshot } from "../../extension/chat/chat-state
 import type { ContextFetchOutcome } from "../../extension/core/context-assembly.js";
 
 let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
+let isPinnedContextStrict: typeof import("../../extension/chat/context-load.js").isPinnedContextStrict;
+let CONTEXT_READ_FAILED_MESSAGE: string;
+let NO_TAB_MESSAGE: string;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
@@ -13,6 +16,9 @@ async function importModule() {
   const module = await import("../../extension/chat/context-load.js");
   const state = await import("../../extension/chat/chat-state.js");
   createContextLoad = module.createContextLoad;
+  isPinnedContextStrict = module.isPinnedContextStrict;
+  CONTEXT_READ_FAILED_MESSAGE = module.CONTEXT_READ_FAILED_MESSAGE;
+  NO_TAB_MESSAGE = module.NO_TAB_MESSAGE;
   chatSessionState = state.chatSessionState;
   chatSessionStateForTests = state.chatSessionStateForTests;
   applyConversationIdentity = state.applyConversationIdentity;
@@ -254,7 +260,7 @@ describe("loadContextState 动作分支", () => {
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
 
-  it("apply-live：上下文变化但流式中 → 动作被 policy 判为 blocked-streaming（只落地 live 快照）", async () => {
+  it("apply-live：上下文变化但流式中 → 只落地 live 快照、冻结主上下文", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const { deps, contextLoad } = makeHarness({
@@ -270,9 +276,101 @@ describe("loadContextState 动作分支", () => {
     expect(deps.requestViewReset).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
   });
+
+  it("unchanged 严格判定 === true：非 true 真值不短路；true 时优先于 pinned 与流式守卫", async () => {
+    const truthyPayload = makePayload({ signature: "sig-truthy", unchanged: 1 } as Partial<ChatSessionContextSnapshot>);
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload: truthyPayload })
+    });
+    expect(await contextLoad.loadContextState({ silent: true })).toBe(true);
+    expect(chatSessionState.contextData).toEqual(truthyPayload);
+
+    applyConversationIdentity({ meta: { pinnedContext: true } });
+    deps.isStreaming.mockReturnValue(true);
+    deps.renderHistoryList.mockClear();
+    deps.fetchContext.mockResolvedValueOnce({
+      kind: "payload",
+      tabUrl: ACTIVE_TAB.url,
+      payload: { unchanged: true }
+    });
+    expect(await contextLoad.loadContextState({ silent: true })).toBe(true);
+    expect(deps.renderHistoryList).not.toHaveBeenCalled();
+  });
+
+  it("error 边界：非字符串/缺失错误回落通用文案；pinned 保留主上下文且不重置；伴看中清主上下文但不重置视图", async () => {
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "error", tabUrl: ACTIVE_TAB.url, error: { code: 7 } as unknown as string })
+    });
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
+
+    deps.requestViewReset.mockClear();
+    const pinnedContext = makePayload({ signature: "sig-pinned" });
+    chatSessionStateForTests.contextData = pinnedContext;
+    applyConversationIdentity({ meta: { pinnedContext: true } });
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(chatSessionState.contextData).toEqual(pinnedContext);
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
+
+    applyConversationIdentity({ meta: { pinnedContext: false } });
+    deps.isLiveActive.mockReturnValue(true);
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(chatSessionState.contextData).toBeNull();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
+  });
+
+  it("no-tab 边界：pinned 保留主上下文；silent 或伴看中抑制视图重置", async () => {
+    const initial = makePayload({ signature: "sig-keep" });
+    chatSessionStateForTests.contextData = initial;
+    applyConversationIdentity({ meta: { pinnedContext: true } });
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "no-tab" })
+    });
+
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(chatSessionState.contextData).toEqual(initial);
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
+
+    applyConversationIdentity({ meta: { pinnedContext: false } });
+    deps.isLiveActive.mockReturnValue(true);
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(chatSessionState.contextData).toBeNull();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
+
+    deps.isLiveActive.mockReturnValue(false);
+    expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
+    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: NO_TAB_MESSAGE });
+  });
+
+  it("hasPendingUserPrompt 冻结主上下文；伴看进行中即使 pinned 也优先跟随页面视频", async () => {
+    const payload = makePayload({ signature: "sig-pending" });
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload })
+    });
+    deps.hasPendingUserPrompt.mockReturnValue(true);
+
+    expect(await contextLoad.loadContextState({ silent: true })).toBe(true);
+    expect(chatSessionState.liveContextData).toEqual(payload);
+    expect(chatSessionState.contextData).toBeNull();
+
+    deps.hasPendingUserPrompt.mockReturnValue(false);
+    applyConversationIdentity({ meta: { pinnedContext: true } });
+    deps.isLiveActive.mockReturnValue(true);
+    expect(await contextLoad.loadContextState({ silent: true })).toBe(true);
+    expect(chatSessionState.contextData).toEqual(payload);
+  });
 });
 
-describe("ContextLoad 接口面", () => {
+describe("isPinnedContextStrict 与 ContextLoad 接口面", () => {
+  it("isPinnedContextStrict 仅字面量 true 返回 true", () => {
+    expect(isPinnedContextStrict({ pinnedContext: true })).toBe(true);
+    expect(isPinnedContextStrict({ pinnedContext: 1 })).toBe(false);
+    expect(isPinnedContextStrict({ pinnedContext: "true" })).toBe(false);
+    expect(isPinnedContextStrict({})).toBe(false);
+    expect(isPinnedContextStrict(undefined)).toBe(false);
+    expect(isPinnedContextStrict(null)).toBe(false);
+  });
+
   it("只暴露 loadContextState（跳转编排 openCurrentContextUrl 与 getActiveTab 已下线）", () => {
     const { contextLoad } = makeHarness();
 

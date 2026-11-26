@@ -755,5 +755,145 @@ describe("发送闸 createSendGate", () => {
       const h = makeHarness();
       expect(() => h.gate.kickSubtitleWait()).not.toThrow();
     });
+
+    it("轮询进行中重复 kick 去重，不并发多轮 poll", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
+      let releasePoll!: () => void;
+      let polls = 0;
+      const h = makeHarness({
+        pollIntervalMs: 60000,
+        clip: () => clip({ subtitleFetchState: "loading" }),
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls === 2) {
+            await new Promise<void>((resolve) => {
+              releasePoll = resolve;
+            });
+          }
+          if (polls >= 3) {
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
+          }
+          return true;
+        })
+      });
+      const pending = h.gate.ensureContextForSend();
+      await vi.waitFor(() => expect(releasePoll).toBeDefined());
+      expect(polls).toBe(2);
+
+      h.gate.kickSubtitleWait();
+      h.gate.kickSubtitleWait();
+      h.gate.kickSubtitleWait();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(polls).toBe(2);
+
+      releasePoll();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      h.gate.kickSubtitleWait();
+      await expect(pending).resolves.toEqual({ pass: true });
+      expect(polls).toBeGreaterThanOrEqual(3);
+    });
+
+    it("重入 ensureContextForSend 时使旧等待失效且不泄漏定时器", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
+      let polls = 0;
+      const h = makeHarness({
+        pollIntervalMs: 60000,
+        clip: () => clip({ subtitleFetchState: "loading" }),
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls >= 4) {
+            const ready = snapshotFromClip(readyClip());
+            chatSessionStateForTests.liveContextData = ready;
+            chatSessionStateForTests.contextData = ready;
+          }
+          return true;
+        })
+      });
+      const first = h.gate.ensureContextForSend();
+      await vi.waitFor(() => expect(polls).toBe(2));
+
+      const second = h.gate.ensureContextForSend();
+      await expect(first).resolves.toEqual({ pass: false, kind: "read-failed" });
+      await expect(second).resolves.toEqual({ pass: true });
+    });
+  });
+
+  describe("字幕就绪容错与无字幕提示映射（经 createSendGate 边界验证）", () => {
+    it("快照 idle 但转写广播活跃时继续等待，asr-done 后放行", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "idle" }));
+      const waitingCalls: boolean[] = [];
+      const h = makeHarness({
+        pollIntervalMs: 60000,
+        clip: () => clip({ subtitleFetchState: "ready" }),
+        onWaitingChange: (waiting) => waitingCalls.push(waiting)
+      });
+      h.gate.bindStatusBus();
+      h.firePhase("asr-transcribing");
+
+      const pending = h.gate.ensureContextForSend();
+      await vi.waitFor(() => expect(waitingCalls).toEqual([true]));
+
+      const ready = snapshotFromClip(readyClip());
+      chatSessionStateForTests.liveContextData = ready;
+      chatSessionStateForTests.contextData = ready;
+      h.firePhase("asr-done");
+
+      await expect(pending).resolves.toEqual({ pass: true });
+      expect(waitingCalls).toEqual([true, false]);
+    });
+
+    it("脏 subtitleFetchState 折算为 idle；非数组 subtitleBody 折算为空体", async () => {
+      const dirtyClip = clip({ subtitleFetchState: "junk", subtitleBody: "not-an-array" });
+      chatSessionStateForTests.contextData = {
+        ...snapshotFromClip(clip({ subtitleFetchState: "empty" })),
+        subtitleBody: "not-an-array" as never
+      };
+      const h = makeHarness({ clip: () => dirtyClip });
+
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("字幕体非空优先于 empty/loading 状态，直接放行", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleBody: [{ from: 0, to: 1, content: "ok" }], subtitleFetchState: "empty" })
+      );
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["no-asr-config", true],
+      ["asr-disabled", true],
+      ["asr-auth", true],
+      ["upower-exclusive", false],
+      ["bili-login-required", false],
+      ["asr-ratelimit", false],
+      ["asr-network", false],
+      ["asr-media", false],
+      ["asr-server", false],
+      ["asr-unknown", false],
+      ["asr-empty", false],
+      ["something-else", false]
+    ] as const)("无字幕原因 %s 映射 openSettingsAction=%s 且不泄露错误详情行", async (reason, expectedOpenSettings) => {
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: reason })
+      );
+      const h = makeHarness({ clip: () => clip({ subtitleFetchState: "ready" }) });
+
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+        buildAsrNoSubtitleMessage("sidepanel", reason as never),
+        0,
+        expect.objectContaining({
+          placement: "input",
+          openSettingsAction: expectedOpenSettings,
+          settingsTarget: "asr"
+        })
+      );
+      const shownMessage = h.mocks.showContextNotice.mock.calls[0][0] as string;
+      expect(shownMessage).not.toContain("错误详情");
+    });
   });
 });

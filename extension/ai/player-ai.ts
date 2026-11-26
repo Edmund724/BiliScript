@@ -19,7 +19,6 @@ import { isVisibleReaderControl } from "../shared/dom-utils.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { logInfoAlways } from "../shared/logging.js";
 import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-injector.js";
-import { decidePlayerAiQuickAction } from "./player-ai-mount-decision.js";
 import {
   DEFAULT_PLAYER_CONTAINER_SELECTOR,
   applyControlBarPlacement,
@@ -574,56 +573,37 @@ function syncPlayerAiQuickActionButton(): void {
     siteAllowed &&
     Boolean(state.settings?.enablePlayerAiQuickAction) &&
     Date.now() >= playerAiState.playerAiQuickActionSuppressedUntil;
-  const calibrated = playerAiSubtitleControlCalibrated;
-  const hasSubtitleControl =
-    enabled && !calibrated && !youtubeSite ? Boolean(findPlayerSubtitleControlNode()) : false;
-  const mountedStable = enabled ? isPlayerAiQuickActionMountedStable() : false;
-  const host = enabled ? findPlayerAiQuickActionHost() : null;
-
-  const decision = decidePlayerAiQuickAction({
-    enabled,
-    calibrated,
-    hasSubtitleControl,
-    mountedStable,
-    hasHost: Boolean(host)
-  });
-
-  switch (decision) {
-    case "none":
-      removePlayerAiQuickActionButton();
-      resetPlayerAiQuickActionRetryCount();
-      return;
-
-    case "refresh-visuals":
-      tryRefreshPlayerAiQuickActionVisuals();
-      playerAiQuickActionRetryCount = 0;
-      playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
-      return;
-
-    case "unmount-retry": {
-      const existing = document.getElementById("biliscript-player-ai-quick-action");
-      const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
-      existingWrap?.remove();
-      existing?.remove();
-      clearPlayerAiQuickActionMountRecord();
-      schedulePlayerAiQuickActionRetry();
-      return;
-    }
-
-    case "recalibrate":
-      playerAiSubtitleControlCalibrated = true;
-      clearPlayerAiQuickActionMountRecord();
-      if (host) {
-        mountPlayerAiQuickActionButtonToHost(host);
-      }
-      return;
-
-    case "mount":
-      if (host) {
-        mountPlayerAiQuickActionButtonToHost(host);
-      }
-      return;
+  if (!enabled) {
+    removePlayerAiQuickActionButton();
+    resetPlayerAiQuickActionRetryCount();
+    return;
   }
+
+  const shouldCalibrate =
+    !playerAiSubtitleControlCalibrated && !youtubeSite && Boolean(findPlayerSubtitleControlNode());
+  if (!shouldCalibrate && isPlayerAiQuickActionMountedStable()) {
+    tryRefreshPlayerAiQuickActionVisuals();
+    playerAiQuickActionRetryCount = 0;
+    playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
+    return;
+  }
+
+  const host = findPlayerAiQuickActionHost();
+  if (!host) {
+    const existing = document.getElementById("biliscript-player-ai-quick-action");
+    const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
+    existingWrap?.remove();
+    existing?.remove();
+    clearPlayerAiQuickActionMountRecord();
+    schedulePlayerAiQuickActionRetry();
+    return;
+  }
+
+  if (shouldCalibrate) {
+    playerAiSubtitleControlCalibrated = true;
+    clearPlayerAiQuickActionMountRecord();
+  }
+  mountPlayerAiQuickActionButtonToHost(host);
 }
 
 export function removePlayerAiQuickActionButton(): void {

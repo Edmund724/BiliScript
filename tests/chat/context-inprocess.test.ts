@@ -22,8 +22,7 @@ let createInProcessPinnedContextResolver: typeof import("../../extension/core/co
 let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
-let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js").createSubtitleWaiter;
-let subtitleReadiness: typeof import("../../extension/chat/subtitle-readiness.js");
+let createSendGate: typeof import("../../extension/chat/send-gate.js").createSendGate;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
@@ -45,9 +44,8 @@ async function importModules() {
   createConversationStore = storeModule.createConversationStore;
   const runtimeModule = await import("../../extension/chat/chat-runtime.js");
   createChatRuntime = runtimeModule.createChatRuntime;
-  const waitModule = await import("../../extension/chat/subtitle-wait.js");
-  createSubtitleWaiter = waitModule.createSubtitleWaiter;
-  subtitleReadiness = await import("../../extension/chat/subtitle-readiness.js");
+  const sendGateModule = await import("../../extension/chat/send-gate.js");
+  createSendGate = sendGateModule.createSendGate;
   const stateModule = await import("../../extension/chat/chat-state.js");
   chatSessionState = stateModule.chatSessionState;
   chatSessionStateForTests = stateModule.chatSessionStateForTests;
@@ -246,7 +244,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     expect(chatSessionState.contextData!.hotComments).toEqual(HOT_COMMENTS);
   });
 
-  it("③ ASR 转写中发送 → subtitle-wait 等待而非发空上下文；转写完成后放行完整字幕", async () => {
+  it("③ ASR 转写中发送 → send-gate 等待而非发空上下文；转写完成后放行完整字幕", async () => {
     const clipRef = {
       current: makeClip({ subtitleBody: [], subtitleFetchState: "loading" })
     };
@@ -254,57 +252,27 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     await contextLoad.loadContextState({ silent: true });
     chatSessionStateForTests.asrTranscribingActive = true;
 
-    const waitingNotice = vi.fn();
+    const waitingCalls: boolean[] = [];
     const removeNotice = vi.fn();
-    const timers: Array<{ fn: () => void; ms: number; id?: number }> = [];
-    let timerSeq = 0;
-    const subtitleWaiter = createSubtitleWaiter({
-      pollIntervalMs: 4000,
-      pollContext: async () => {
-        const ok = await contextLoad.loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
-        const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
-        return {
-          ok: Boolean(snapshot),
-          pending: subtitleReadiness.isPending(
-            subtitleReadiness.readinessFromSnapshot(snapshot, {
-              asrTranscribingActive: chatSessionState.asrTranscribingActive
-            })
-          )
-        };
-      },
-      showWaitingNotice: waitingNotice,
-      removeNotice,
-      setTimer: (fn: () => void, ms: number) => {
-        timers.push({ fn, ms });
-        return ++timerSeq;
-      },
-      clearTimer: (handle: number) => {
-        const index = timers.findIndex((t) => t.id === handle || timers.indexOf(t) === handle - 1);
-        if (index >= 0) {
-          timers.splice(index, 1);
-        }
-      }
+    const sendGate = createSendGate({
+      loadContextState: (opts) => contextLoad.loadContextState(opts),
+      hydratePinned: vi.fn(async () => true),
+      showContextNotice: vi.fn(),
+      removeContextNotice: removeNotice,
+      onWaitingChange: (waiting) => waitingCalls.push(waiting),
+      replayInFlight: () => null,
+      isSessionClosed: () => false,
+      isReaderTranscribing: () => chatSessionState.asrTranscribingActive,
+      asrNotice: null,
+      pageBvid: () => "BV1test000000",
+      clip: () => clipRef.current as ClipState,
+      startSubtitleFetch: vi.fn(async () => true),
+      subscribeStatusPhase: () => () => {},
+      pollIntervalMs: 60000
     });
 
     const { deps } = makeChatDeps();
-    deps.ensureCurrentContextForSend = vi.fn(async () => {
-      const ok = await contextLoad.loadContextState({ forceRefresh: false, silent: true });
-      if (!ok || !chatSessionState.contextData) {
-        return { pass: false, kind: "read-failed" } as const;
-      }
-      const ready = await subtitleWaiter.wait();
-      if (!ready) {
-        return { pass: false, kind: "read-failed" } as const;
-      }
-      await contextLoad.loadContextState({ forceRefresh: false, silent: true });
-      if (!chatSessionState.contextData) {
-        return { pass: false, kind: "read-failed" } as const;
-      }
-      if (subtitleReadiness.isNoSubtitleEmpty(subtitleReadiness.readinessFromSnapshot(chatSessionState.contextData))) {
-        return { pass: false, kind: "no-subtitle" } as const;
-      }
-      return { pass: true } as const;
-    });
+    deps.ensureCurrentContextForSend = vi.fn(() => sendGate.ensureContextForSend());
     const runtime = createChatRuntime(deps);
 
     const sendPromise = send(runtime, deps, "总结一下这个视频");
@@ -312,17 +280,17 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     await flush();
 
     expect(deps.ensureCurrentContextForSend).toHaveBeenCalledTimes(1);
-    expect(waitingNotice).toHaveBeenCalled();
+    expect(waitingCalls).toEqual([true]);
     expect(deps.ports).toHaveLength(0);
     expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
     expect(deps.ui.setStreamingUiState).not.toHaveBeenCalledWith(true, expect.anything());
-    expect(timers).toHaveLength(1);
 
     clipRef.current = makeClip();
     chatSessionStateForTests.asrTranscribingActive = false;
-    subtitleWaiter.kick();
+    sendGate.kickSubtitleWait();
     await sendPromise;
 
+    expect(waitingCalls).toEqual([true, false]);
     expect(deps.ports).toHaveLength(1);
     const chatMsg = deps.ports[0].port.postMessage.mock.calls[0][0];
     expect(chatMsg.action).toBe("chat");

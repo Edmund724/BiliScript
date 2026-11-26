@@ -5,7 +5,7 @@ import {
   chatSessionState,
   rebuildCurrentContextKeyFromContext
 } from "../chat/chat-state.js";
-import { isPinnedContextStrict } from "../chat/context-policy.js";
+import { isPinnedContextStrict } from "../chat/context-load.js";
 import type { LoadContextStateOptions } from "../chat/conversation-store.js";
 import type { ViewResetIntent } from "../chat/view-intent.js";
 import { confirmDialog as defaultConfirmDialog, type ConfirmDialogOptions } from "../ui/confirm-dialog.js";

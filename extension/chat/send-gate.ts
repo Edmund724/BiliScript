@@ -1,22 +1,73 @@
 import {
   chatSessionState,
   setAsrTranscribingActive,
+  type ChatSessionContextSnapshot,
   type CurrentConversationMeta
 } from "./chat-state.js";
-import { createSubtitleWaiter } from "./subtitle-wait.js";
-import { buildNoSubtitleNotice, type NoSubtitleReason } from "./no-subtitle.js";
-import { canRetryNoSubtitleOnSend } from "../core/asr-failure-notice.js";
-import { buildCanonicalVideoUrl } from "../bilibili/video-id-shared.js";
 import {
-  isNoSubtitleEmpty,
-  isPending,
-  isSubtitleFetchFailed,
-  readinessFromClip,
-  readinessFromSnapshot
-} from "./subtitle-readiness.js";
-import { isPinnedContextStrict } from "./context-policy.js";
+  buildAsrNoSubtitleMessage,
+  canRetryNoSubtitleOnSend,
+  requiresAsrSetup
+} from "../core/asr-failure-notice.js";
+import { buildCanonicalVideoUrl } from "../bilibili/video-id-shared.js";
+import { isPinnedContextStrict } from "./context-load.js";
 import { isPinnedYoutubeCacheEvicted } from "./conversation-store.js";
-import type { ClipState } from "../core/state.js";
+import type { ClipState, NoSubtitleReason, SubtitleFetchState } from "../core/state.js";
+
+interface SubtitleReadiness {
+  hasBody: boolean;
+  fetchState: SubtitleFetchState;
+  asrActive: boolean;
+}
+
+function hasSubtitleBody(body: unknown): boolean {
+  return Array.isArray(body) && body.length > 0;
+}
+
+function normalizeFetchState(value: unknown): SubtitleFetchState {
+  return value === "loading" || value === "ready" || value === "error" || value === "empty" ? value : "idle";
+}
+
+function readinessFromClip(clip: Pick<ClipState, "subtitleBody" | "subtitleFetchState">): SubtitleReadiness {
+  return {
+    hasBody: hasSubtitleBody(clip.subtitleBody),
+    fetchState: normalizeFetchState(clip.subtitleFetchState),
+    asrActive: false
+  };
+}
+
+function readinessFromSnapshot(
+  snapshot: ChatSessionContextSnapshot | null | undefined,
+  { asrTranscribingActive = false }: { asrTranscribingActive?: boolean } = {}
+): SubtitleReadiness | null {
+  if (!snapshot) {
+    return null;
+  }
+  return {
+    hasBody: hasSubtitleBody(snapshot.subtitleBody),
+    fetchState: normalizeFetchState(snapshot.subtitleFetchState),
+    asrActive: asrTranscribingActive === true
+  };
+}
+
+function isPending(view: SubtitleReadiness | null | undefined): boolean {
+  return view != null && !view.hasBody && (view.fetchState === "loading" || view.asrActive);
+}
+
+function isNoSubtitleEmpty(view: SubtitleReadiness | null | undefined): boolean {
+  return view != null && !view.hasBody && view.fetchState === "empty";
+}
+
+function isSubtitleFetchFailed(view: SubtitleReadiness | null | undefined): boolean {
+  return view != null && !view.hasBody && view.fetchState === "error";
+}
+
+function buildNoSubtitleNotice(reason: NoSubtitleReason | undefined): { message: string; openSettings: boolean } {
+  return {
+    message: buildAsrNoSubtitleMessage("sidepanel", reason ?? null),
+    openSettings: requiresAsrSetup(reason ?? null)
+  };
+}
 
 export type GateOutcome =
   | { pass: true }
@@ -105,27 +156,99 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     }
   }
 
-  const subtitleWaiter = createSubtitleWaiter({
-    pollIntervalMs: deps.pollIntervalMs ?? SUBTITLE_WAIT_POLL_MS,
-    pollContext: async () => {
-      if (deps.isSessionClosed()) {
-        return { ok: false, pending: false };
-      }
-      const ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => false);
-      const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
-      const readiness = readinessFromSnapshot(snapshot, {
-        asrTranscribingActive: chatSessionState.asrTranscribingActive
-      });
-      return {
-        ok: Boolean(snapshot),
-        pending: isPending(readiness)
+  const pollIntervalMs = deps.pollIntervalMs ?? SUBTITLE_WAIT_POLL_MS;
+  let waitToken = 0;
+  let activeWaitFinish: ((ok: boolean) => void) | null = null;
+  let kickCurrentWait: (() => void) | null = null;
+
+  async function pollContext(): Promise<{ ok: boolean; pending: boolean }> {
+    if (deps.isSessionClosed()) {
+      return { ok: false, pending: false };
+    }
+    const ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => false);
+    const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
+    const readiness = readinessFromSnapshot(snapshot, {
+      asrTranscribingActive: chatSessionState.asrTranscribingActive
+    });
+    return {
+      ok: Boolean(snapshot),
+      pending: isPending(readiness)
+    };
+  }
+
+  function waitForSubtitles(): Promise<boolean> {
+    if (activeWaitFinish) {
+      activeWaitFinish(false);
+    }
+    return new Promise((resolve) => {
+      let timer: number | null = null;
+      let ticking = false;
+      const currentToken = ++waitToken;
+      const finish = (ok: boolean) => {
+        if (currentToken !== waitToken) {
+          return;
+        }
+        activeWaitFinish = null;
+        kickCurrentWait = null;
+        if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+        clearWaitNotice();
+        resolve(ok);
       };
-    },
-    showWaitingNotice: showWaitNotice,
-    removeNotice: clearWaitNotice,
-    setTimer: (fn, ms) => window.setTimeout(fn, ms),
-    clearTimer: (handle) => window.clearTimeout(handle)
-  });
+      activeWaitFinish = finish;
+      const tick = async () => {
+        if (ticking) {
+          return;
+        }
+        if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+        ticking = true;
+        try {
+          const outcome = await pollContext();
+          if (currentToken !== waitToken) {
+            return;
+          }
+          if (!outcome.ok) {
+            finish(false);
+            return;
+          }
+          if (!outcome.pending) {
+            finish(true);
+            return;
+          }
+          showWaitNotice();
+          timer = window.setTimeout(() => {
+            timer = null;
+            void tick();
+          }, pollIntervalMs);
+        } finally {
+          ticking = false;
+        }
+      };
+      kickCurrentWait = () => {
+        if (currentToken === waitToken) {
+          void tick();
+        }
+      };
+      void tick();
+    });
+  }
+
+  function kickSubtitleWait(): void {
+    kickCurrentWait?.();
+  }
+
+  function cancelSubtitleWait(): void {
+    if (!activeWaitFinish) {
+      return;
+    }
+    activeWaitFinish(false);
+    waitToken += 1;
+  }
 
   function bindStatusBus(): void {
     if (unsubscribeStatusBus) {
@@ -137,7 +260,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
         deps.removeContextNotice();
       } else if (phase === "asr-done" || phase === "asr-failed" || phase === "subtitle-ready") {
         setAsrTranscribingActive(false);
-        subtitleWaiter.kick();
+        kickSubtitleWait();
       }
       if (phase !== "asr-transcribing") {
         asrWaitingActive = false;
@@ -256,7 +379,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       return { pass: false, kind: "read-failed" };
     }
     const currentWaitGeneration = ++waitGeneration;
-    const ready = await subtitleWaiter.wait();
+    const ready = await waitForSubtitles();
     if (!ready) {
       if (cancelledWaitGeneration === currentWaitGeneration) {
         return { pass: false, kind: "cancelled" };
@@ -295,10 +418,10 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
 
   return {
     ensureContextForSend,
-    kickSubtitleWait: () => subtitleWaiter.kick(),
+    kickSubtitleWait,
     cancel: () => {
       cancelledWaitGeneration = waitGeneration;
-      subtitleWaiter.cancel();
+      cancelSubtitleWait();
     },
     bindStatusBus,
     unbindStatusBus,
