@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { initCustomSelect } from "../../extension/ui/custom-select.js";
-import { isDirty } from "../../extension/ui/provider-editor-modal.js";
 import * as projectionModule from "../../extension/ui/provider-editor-projection.js";
 import * as stateModule from "../../extension/ui/provider-editor-state.js";
 import type { EditorDraft } from "../../extension/ui/provider-editor-state.js";
@@ -249,9 +248,14 @@ describe("输入回写与联动（F4/F5，真实设置面板路径）", () => {
     const { host } = await mountPanel();
     const dialog = await openEditor(host, button);
 
-    expect(isDirty()).toBe(false);
-    setFieldValue(dialog.querySelector<HTMLInputElement>(selector)!, value);
-    expect(isDirty()).toBe(true);
+    dialog.querySelector(".provider-editor-cancel")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(document.querySelector(".confirm-dialog-host"), "未改动前取消不应弹放弃确认").toBeNull();
+    expect(document.querySelector(".provider-editor-dialog")).toBeNull();
+
+    const reopened = await openEditor(host, button);
+    setFieldValue(reopened.querySelector<HTMLInputElement>(selector)!, value);
+    reopened.querySelector(".provider-editor-cancel")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(document.querySelector(".confirm-dialog-host"), "输入后取消必须触发未保存放弃确认").not.toBeNull();
   });
 
   it("预设切换走自定义下拉：联动结果写入 draft 并随保存落盘（只改 DOM 会落旧值）", async () => {

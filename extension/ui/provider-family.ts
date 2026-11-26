@@ -278,6 +278,10 @@ export interface FamilyRowsBinding {
 
 export interface CreateFamilyRowsDeps {
   onRowEdit: (kind: ProviderEditorKind, providerId: string) => void;
+  onRowDelete?: (
+    kind: ProviderEditorKind,
+    target: { id: string; baseUrl: string }
+  ) => Promise<{ ok: boolean; error?: string }>;
   getConfirmMountHost?: () => HTMLElement | null;
 }
 
@@ -301,6 +305,7 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         buildTailFields: decl.buildTailFields ?? activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),
+        ...(deps.onRowDelete ? { onRowDelete: (target) => deps.onRowDelete!(kind, target) } : {}),
         getConfirmMountHost: deps.getConfirmMountHost,
         buildDeleteMessage: decl.buildDeleteMessage
       });

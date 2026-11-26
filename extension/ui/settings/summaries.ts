@@ -1,6 +1,5 @@
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
-import { state } from "../../core/state.js";
 import {
   normalizeCustomPanelWidth,
   normalizeDownloadFormat,
@@ -14,11 +13,10 @@ import {
   isChatDisplaySliderAvailable
 } from "../../reader/chat-display-settings.js";
 import { parseModelOptionValue } from "../../shared/selected-provider.js";
-import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import type { AgentBridgeSettingsState } from "../agent-bridge-settings.js";
 import type { ProviderRowItem } from "../provider-row.js";
 import type { ProviderSummarySnapshot } from "../provider-settings-host.js";
-import type { SettingsElements } from "./elements.js";
+import { resolveSettingsCapabilities, type SettingsElements } from "./elements.js";
 
 export interface SettingsSummaryContext {
   providerSnapshot: ProviderSummarySnapshot | null;
@@ -64,7 +62,7 @@ export interface DerivedSettingsSummaries {
   advancedSettings: string;
 }
 
-export function resolveSelectedModelLabel(selectEl: HTMLSelectElement): string {
+function resolveSelectedModelLabel(selectEl: HTMLSelectElement): string {
   const rawValue = selectEl.value;
   if (!rawValue) return "";
   const optionText = selectEl.options[selectEl.selectedIndex]?.textContent?.trim() || "";
@@ -72,7 +70,7 @@ export function resolveSelectedModelLabel(selectEl: HTMLSelectElement): string {
   return parseModelOptionValue(rawValue).model;
 }
 
-export function resolveProviderName(
+function resolveProviderName(
   providers: readonly ProviderRowItem[] | undefined,
   preferredId: string
 ): string {
@@ -154,12 +152,8 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     }
   }
 
-  const site =
-    state.clip.site === "youtube" || detectActiveSite() === "youtube"
-      ? "youtube"
-      : state.clip.site;
   const playerQuickAiAvailable =
-    input.playerQuickAiAvailable ?? getSiteCapabilities(site).supportsPlayerQuickAiButton;
+    input.playerQuickAiAvailable ?? resolveSettingsCapabilities().playerQuickAiAvailable;
   const promptParts: string[] = [];
   if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) promptParts.push("播放器快捷开");
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);

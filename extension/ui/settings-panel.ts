@@ -1,6 +1,5 @@
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { getSettings } from "../core/runtime.js";
-import { state } from "../core/state.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { isChatDisplaySliderAvailable } from "../reader/chat-display-settings.js";
 import { hasReaderSettingsOverlayOpen, stepBackReaderSettings } from "../reader/settings-mode.js";
@@ -12,8 +11,6 @@ import {
   isReaderDetached,
   requestDetachedModeSwitch,
 } from "../shared/active-host.js";
-import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
-import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
 import { closeAgentBridgeInstallDialog } from "./agent-bridge-install-dialog.js";
 import {
@@ -28,17 +25,21 @@ import {
 } from "./provider-settings-host.js";
 import { buildSettingsHtml } from "./settings-panel-html.js";
 import { animateNavFadeIn } from "./nav-motion.js";
-import { applySectionContainment, collectElements, setStatus, type SettingsElements } from "./settings/elements.js";
+import {
+  applySectionContainment,
+  collectElements,
+  resolveSettingsCapabilities,
+  setStatus,
+  type SettingsElements
+} from "./settings/elements.js";
 import { bindModelSelectEvents, renderAiModelSelects } from "./settings/model-selects.js";
 import { createSettingsNavigator } from "./settings/navigation.js";
-import { SCALAR_FIELD_BINDINGS, type ScalarBindingRuntimeHooks } from "./settings/scalar-bindings.js";
 import {
-  bindScalarExternalSync,
-  bindScalarFieldEvents,
-  bindScalarSectionActions,
+  bindScalarSettings,
   disposeScalarBindings,
   loadSettings,
-  saveSettingField
+  saveSettingField,
+  type ScalarBindingRuntimeHooks
 } from "./settings/scalar-engine.js";
 import {
   createSetupFlows,
@@ -80,14 +81,6 @@ const setupFlows = createSetupFlows({
   openView: (view) => navigator.focusSettingsView(view)
 });
 
-function getPanelSiteCapabilities() {
-  const site =
-    state.clip.site === "youtube" || detectActiveSite() === "youtube"
-      ? "youtube"
-      : state.clip.site;
-  return getSiteCapabilities(site);
-}
-
 function setElementGated(el: HTMLElement | null | undefined, gated: boolean): void {
   if (!el) return;
   el.hidden = gated;
@@ -99,21 +92,20 @@ function setElementGated(el: HTMLElement | null | undefined, gated: boolean): vo
 }
 
 function applySiteSettingsGating(host: HTMLElement, elements: SettingsElements): void {
-  const siteCaps = getPanelSiteCapabilities();
-  const liveAvailable = supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+  const { siteCaps, liveAvailable, asrAvailable, agentAvailable } = resolveSettingsCapabilities();
 
   setElementGated(elements.openLiveSettingsBtn, !liveAvailable);
   if (!liveAvailable) {
     elements.subpageLive.hidden = true;
   }
 
-  setElementGated(elements.openAsrSettingsBtn, !siteCaps.supportsAsr);
-  if (!siteCaps.supportsAsr) {
+  setElementGated(elements.openAsrSettingsBtn, !asrAvailable);
+  if (!asrAvailable) {
     elements.subpageAsr.hidden = true;
   }
 
-  setElementGated(elements.openAgentSettingsBtn, !siteCaps.supportsAgentBridge);
-  if (!siteCaps.supportsAgentBridge) {
+  setElementGated(elements.openAgentSettingsBtn, !agentAvailable);
+  if (!agentAvailable) {
     elements.subpageAgent.hidden = true;
     elements.agentBridgeAddressView.hidden = true;
   }
@@ -129,11 +121,11 @@ function applySiteSettingsGating(host: HTMLElement, elements: SettingsElements):
 
 const scalarHooks: ScalarBindingRuntimeHooks = {
   onAgentBridgeSaved: () => {
-    if (!getPanelSiteCapabilities().supportsAgentBridge) return;
+    if (!resolveSettingsCapabilities().agentAvailable) return;
     void agentBridgeSettings?.refresh();
   },
   onAsrAutoFallbackSaved: (val) => {
-    if (!getPanelSiteCapabilities().supportsAsr) return;
+    if (!resolveSettingsCapabilities().asrAvailable) return;
     if (val && peekAsrSetupResumeToken() !== null && settingsHostRef) {
       void setupFlows.continueAsrSetupAfterToggleEnabled(collectElements(settingsHostRef));
     }
@@ -159,10 +151,10 @@ const scalarHooks: ScalarBindingRuntimeHooks = {
 };
 
 function loadPanelSettings(elements: SettingsElements): Promise<void> {
-  const siteCaps = getPanelSiteCapabilities();
+  const { agentAvailable } = resolveSettingsCapabilities();
   return loadSettings(elements, {
     syncAgentBridge: (settings) => {
-      if (siteCaps.supportsAgentBridge) {
+      if (agentAvailable) {
         agentBridgeSettings?.sync(settings);
       }
     },
@@ -195,16 +187,12 @@ function bindSettingsEvents(host: HTMLElement): SettingsElements {
     stepBackReaderSettings();
   });
 
-  for (const binding of SCALAR_FIELD_BINDINGS) {
-    bindScalarFieldEvents(binding, elements, { syncSummaries, hooks: scalarHooks });
-  }
-
   agentBridgeSettings = bindAgentBridgeSettings(
     elements,
     (text, isError) => setStatus(elements, text, isError),
     {
       onOpenAddress: () => {
-        if (!getPanelSiteCapabilities().supportsAgentBridge) return;
+        if (!resolveSettingsCapabilities().agentAvailable) return;
         navigator.navigateSettingsView(host, "agent-address", { focusOnEnter: false });
       },
       onStateChange: (bridgeState) => {
@@ -214,13 +202,12 @@ function bindSettingsEvents(host: HTMLElement): SettingsElements {
     }
   );
 
-  const siteCaps = getPanelSiteCapabilities();
-  const liveAvailable = supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+  const { liveAvailable, asrAvailable } = resolveSettingsCapabilities();
   const mountedFamilies: Array<"ai" | "live" | "asr" | "search"> = ["ai"];
   if (liveAvailable) {
     mountedFamilies.push("live");
   }
-  if (siteCaps.supportsAsr) {
+  if (asrAvailable) {
     mountedFamilies.push("asr");
   }
   mountedFamilies.push("search");
@@ -252,19 +239,16 @@ function bindSettingsEvents(host: HTMLElement): SettingsElements {
     syncSummaries
   });
 
-  bindScalarSectionActions(elements, {
+  bindScalarSettings(host, elements, {
     syncSummaries,
-    reloadSettings: loadPanelSettings
-  });
-
-  bindScalarExternalSync(host, elements, {
-    syncSummaries,
+    reloadSettings: loadPanelSettings,
+    hooks: scalarHooks,
     onAgentBridgeUrlChanged: (newValue) => {
-      if (!getPanelSiteCapabilities().supportsAgentBridge) return;
+      if (!resolveSettingsCapabilities().agentAvailable) return;
       agentBridgeSettings?.updateUrl(newValue);
     },
     onEnableAgentBridgeChanged: () => {
-      if (!getPanelSiteCapabilities().supportsAgentBridge) return;
+      if (!resolveSettingsCapabilities().agentAvailable) return;
       void agentBridgeSettings?.refresh();
     },
     onAiModelsExternalChanged: (currentElements) => {
@@ -340,7 +324,7 @@ export function disposeReaderSettingsPanel(): void {
 }
 
 export function openLiveSettings(target: LiveSettingsTarget): Promise<void> {
-  if (!supportsLiveCompanion() || !getPanelSiteCapabilities().supportsLiveCompanion) {
+  if (!resolveSettingsCapabilities().liveAvailable) {
     return Promise.resolve();
   }
   return navigator.openSettingsTarget(target);
@@ -365,7 +349,7 @@ export function openReaderAiSetup(
 }
 
 export function openReaderAsrSetup(): Promise<void> {
-  if (!getPanelSiteCapabilities().supportsAsr) {
+  if (!resolveSettingsCapabilities().asrAvailable) {
     return Promise.resolve();
   }
   return setupFlows.openReaderAsrSetup();

@@ -1,13 +1,10 @@
 import type { LiveSettingsTarget } from "../../live/fullscreen-live-overlay.js";
-import { state } from "../../core/state.js";
 import {
   registerReaderSettingsBackInterceptor,
   registerReaderSettingsCloseListener
 } from "../../reader/settings-mode.js";
 import { ids } from "../../reader/state.js";
 import { activeById } from "../../shared/active-host.js";
-import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
-import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import type { AiCredentialLinkTarget } from "../ai-credential-link.js";
 import {
   cancelNavTransition,
@@ -16,7 +13,7 @@ import {
   type NavDirection
 } from "../nav-motion.js";
 import { SETTINGS_PANEL_DOM_IDS } from "./dom-ids.js";
-import { collectElements, type SettingsElements } from "./elements.js";
+import { collectElements, resolveSettingsCapabilities, type SettingsElements } from "./elements.js";
 
 export type SettingsSubpageId =
   | "ai-providers"
@@ -33,7 +30,7 @@ export type SettingsViewId = "root" | SettingsSubpageId | "agent-address";
 
 export type SettingsOpenTarget = LiveSettingsTarget | "appearance" | "note-export";
 
-export const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
+const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
   root: "设置",
   "ai-providers": "AI 模型平台",
   live: "实时伴看",
@@ -73,11 +70,11 @@ function getSettingsViewDepth(view: SettingsViewId): number {
   return 1;
 }
 
-export function getScrollContainer(host: HTMLElement): HTMLElement {
+function getScrollContainer(host: HTMLElement): HTMLElement {
   return host.closest<HTMLElement>(`#${ids.readingSettingsPanel}`) ?? host;
 }
 
-export function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLElement {
+function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLElement {
   switch (view) {
     case "root": return elements.settingsRootView;
     case "ai-providers": return elements.subpageAiProviders;
@@ -93,7 +90,7 @@ export function getViewElement(elements: SettingsElements, view: SettingsViewId)
   }
 }
 
-export function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubpageId): HTMLButtonElement {
+function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubpageId): HTMLButtonElement {
   switch (view) {
     case "ai-providers": return elements.openAiProvidersBtn;
     case "live": return elements.openLiveSettingsBtn;
@@ -107,24 +104,16 @@ export function getEntryButtonForSubpage(elements: SettingsElements, view: Setti
   }
 }
 
-function resolveSettingsSiteCapabilities() {
-  const site =
-    state.clip.site === "youtube" || detectActiveSite() === "youtube"
-      ? "youtube"
-      : state.clip.site;
-  return getSiteCapabilities(site);
-}
-
 export function isSettingsViewAllowed(view: SettingsViewId): boolean {
-  const siteCaps = resolveSettingsSiteCapabilities();
+  const caps = resolveSettingsCapabilities();
   if (view === "live") {
-    return supportsLiveCompanion() && siteCaps.supportsLiveCompanion;
+    return caps.liveAvailable;
   }
   if (view === "asr") {
-    return siteCaps.supportsAsr;
+    return caps.asrAvailable;
   }
   if (view === "agent" || view === "agent-address") {
-    return siteCaps.supportsAgentBridge;
+    return caps.agentAvailable;
   }
   return true;
 }

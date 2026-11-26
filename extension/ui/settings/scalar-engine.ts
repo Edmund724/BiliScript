@@ -24,14 +24,22 @@ import {
 import { applyReadingViewTypography } from "../../reader/presentation.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { sendRuntimeMessage } from "../../shared/messaging.js";
-import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
-import { detectActiveSite, getSiteCapabilities } from "../../shared/site.js";
 import { watchStorageKeys } from "../../shared/watch-storage-keys.js";
 import { confirmDialog } from "../confirm-dialog.js";
 import { initCustomSelect, setCustomSelectValue } from "../custom-select.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "../range-slider.js";
 import { initToggleSwitch, syncToggleSwitch } from "../toggle-switch.js";
-import { collectElements, debounce, getStatusVersion, setBusy, setStatus, type SettingsElements } from "./elements.js";
+import {
+  clearStatusClearTimer,
+  collectElements,
+  debounce,
+  getStatusVersion,
+  resolveSettingsCapabilities,
+  scheduleStatusAutoClear,
+  setBusy,
+  setStatus,
+  type SettingsElements
+} from "./elements.js";
 import {
   SCALAR_FIELD_BINDINGS,
   syncScalarSideEffects,
@@ -41,40 +49,26 @@ import {
 } from "./scalar-bindings.js";
 import { collectInitialQuickPrompts } from "./summaries.js";
 
+export { clearStatusClearTimer, type ScalarBindingRuntimeHooks };
+
 export interface ScalarLoadDeps {
   syncAgentBridge?: (settings: Settings) => void;
   loadProviders?: (settings: Settings) => Promise<void>;
   syncSummaries: (elements: SettingsElements) => void;
 }
 
-export interface ScalarFieldEventDeps {
-  syncSummaries: (elements: SettingsElements) => void;
-  hooks?: ScalarBindingRuntimeHooks;
-}
-
-export interface ScalarActionDeps {
+export interface ScalarSettingsBindDeps {
   syncSummaries: (elements: SettingsElements) => void;
   reloadSettings: (elements: SettingsElements) => Promise<void>;
-}
-
-export interface ScalarExternalSyncDeps {
-  syncSummaries: (elements: SettingsElements) => void;
+  hooks?: ScalarBindingRuntimeHooks;
   onAgentBridgeUrlChanged?: (newValue: unknown) => void;
   onEnableAgentBridgeChanged?: () => void;
   onAiModelsExternalChanged?: (elements: SettingsElements) => void;
 }
 
-let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 let unwatchChatDisplay: (() => void) | null = null;
 let unwatchStorageSync: (() => void) | null = null;
 const pendingDebounceCancels = new Set<() => void>();
-
-export function clearStatusClearTimer(): void {
-  if (statusClearTimer) {
-    clearTimeout(statusClearTimer);
-    statusClearTimer = null;
-  }
-}
 
 export function disposeScalarBindings(): void {
   clearStatusClearTimer();
@@ -88,7 +82,7 @@ export function disposeScalarBindings(): void {
   unwatchStorageSync = null;
 }
 
-export function hydrateScalarField(
+function hydrateScalarField(
   binding: ScalarFieldBinding,
   elements: SettingsElements,
   rawValue: unknown
@@ -118,12 +112,8 @@ export function hydrateScalarField(
   syncScalarSideEffects(binding.key, elements);
 }
 
-export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
-  const site =
-    state.clip.site === "youtube" || detectActiveSite() === "youtube"
-      ? "youtube"
-      : state.clip.site;
-  if (!supportsLiveCompanion() || !getSiteCapabilities(site).supportsLiveCompanion) {
+async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
+  if (!resolveSettingsCapabilities().liveAvailable) {
     return;
   }
   const notice = await takeLiveVoiceFallbackNotice();
@@ -132,7 +122,7 @@ export async function syncLiveVoiceFallbackHint(elements: SettingsElements): Pro
   hint.hidden = !notice;
 }
 
-export function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
+function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
   const prompts = Array.isArray(value) ? value : [];
   elements.aiInitialQuickPrompts.forEach((input, index) => {
     input.value = String(prompts[index] || "");
@@ -158,7 +148,7 @@ export async function loadSettings(elements: SettingsElements, deps: ScalarLoadD
   deps.syncSummaries(elements);
 }
 
-export function buildDefaultPreferencePayload() {
+function buildDefaultPreferencePayload() {
   return {
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,
     subtitleSegmentationStrategy: DEFAULT_SETTINGS.subtitleSegmentationStrategy,
@@ -198,7 +188,7 @@ export function buildDefaultPreferencePayload() {
   };
 }
 
-export async function resetPreferences(
+async function resetPreferences(
   elements: SettingsElements,
   deps: { reloadSettings: (elements: SettingsElements) => Promise<void> }
 ): Promise<void> {
@@ -256,13 +246,7 @@ export async function saveSettingField(
     }
     if (getStatusVersion() === statusVerAtStart) {
       setStatus(elements, "已保存");
-      clearStatusClearTimer();
-      statusClearTimer = setTimeout(() => {
-        statusClearTimer = null;
-        if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
-          setStatus(elements, "");
-        }
-      }, 1500);
+      scheduleStatusAutoClear(elements, "已保存", 1500);
     }
     return true;
   } catch (error) {
@@ -271,10 +255,10 @@ export async function saveSettingField(
   }
 }
 
-export function bindScalarFieldEvents(
+function bindScalarFieldEvents(
   binding: ScalarFieldBinding,
   elements: SettingsElements,
-  deps: ScalarFieldEventDeps
+  deps: Pick<ScalarSettingsBindDeps, "syncSummaries" | "hooks">
 ): void {
   switch (binding.kind) {
     case "select": {
@@ -370,9 +354,9 @@ export function bindScalarFieldEvents(
   }
 }
 
-export function bindScalarSectionActions(
+function bindScalarSectionActions(
   elements: SettingsElements,
-  deps: ScalarActionDeps
+  deps: Pick<ScalarSettingsBindDeps, "syncSummaries" | "reloadSettings">
 ): void {
   const saveInitialQuickPrompts = () => {
     const prompts = collectInitialQuickPrompts(elements);
@@ -439,10 +423,13 @@ export function bindScalarSectionActions(
   });
 }
 
-export function bindScalarExternalSync(
+function bindScalarExternalSync(
   host: HTMLElement,
   elements: SettingsElements,
-  deps: ScalarExternalSyncDeps
+  deps: Pick<
+    ScalarSettingsBindDeps,
+    "syncSummaries" | "onAgentBridgeUrlChanged" | "onEnableAgentBridgeChanged" | "onAiModelsExternalChanged"
+  >
 ): void {
   unwatchChatDisplay?.();
   unwatchChatDisplay = watchChatDisplaySettings((patch) => {
@@ -489,4 +476,16 @@ export function bindScalarExternalSync(
       ]
     }
   );
+}
+
+export function bindScalarSettings(
+  host: HTMLElement,
+  elements: SettingsElements,
+  deps: ScalarSettingsBindDeps
+): void {
+  for (const binding of SCALAR_FIELD_BINDINGS) {
+    bindScalarFieldEvents(binding, elements, deps);
+  }
+  bindScalarSectionActions(elements, deps);
+  bindScalarExternalSync(host, elements, deps);
 }

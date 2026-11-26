@@ -5,11 +5,7 @@ import {
   type AiCredentialStatus
 } from "../core/ai-credential-reference.js";
 import type { Settings } from "../core/defaults.js";
-import {
-  permissionRevokeErrorMessage,
-  requestProviderOriginsViaBackground,
-  revokeOrphanOriginViaBackground
-} from "../core/host-permissions.js";
+import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import {
   ASR_PROVIDER_PRESETS,
   PRESETS,
@@ -42,12 +38,11 @@ import type {
   ProviderEditorKind,
   ProviderEditorSave
 } from "./provider-editor.js";
-import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
+import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import {
   createProviderTransactions,
-  loadOriginSharingProviders,
   type ProviderFamilyTable
 } from "./provider-transaction.js";
 import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
@@ -203,8 +198,10 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   let linkedCredentialInFlight = false;
   let deleteRevokeFailureInFlight = false;
   let statusErrorMarked = false;
+  let rerenderedDuringDelete = false;
   let editorModule: EditorModule | null = null;
   let pendingAiConsumerSync: Promise<void> | null = null;
+  let pendingActiveRadioPersist: Promise<void> | null = null;
 
   const reportStatus = (message: string, isError = false): void => {
     if (disposed) return;
@@ -274,7 +271,8 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
 
   const familyRows = createProviderFamilyRows({
     getConfirmMountHost: options.getEditorMountHost,
-    onRowEdit: (kind, providerId) => void openEditor({ kind, providerId })
+    onRowEdit: (kind, providerId) => void openEditor({ kind, providerId }),
+    onRowDelete: (kind, target) => deleteProviderWithStatus(kind, target)
   });
 
   const families: ProviderFamilyTable = {
@@ -319,26 +317,8 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     return aiPresets.length ? aiPresets : PRESETS;
   }
 
-  function getActiveRadioNodes(kind: ActiveRadioFamilyKind): FamilyDomNodes | null {
-    return kind === "live" ? liveNodes : asrNodes;
-  }
-
-  function resolveActiveIdFor(
-    kind: ActiveRadioFamilyKind,
-    items: ReadonlyArray<{ id?: string | null }>,
-    candidate?: string | null
-  ): string {
-    return kind === "live"
-      ? resolveActiveLiveProviderId(items, candidate)
-      : resolveActiveAsrProviderId(items, candidate);
-  }
-
-  function getStoredActiveId(kind: ActiveRadioFamilyKind): string {
-    return kind === "live" ? activeLiveId : activeAsrId;
-  }
-
   function setStoredActiveId(kind: ActiveRadioFamilyKind, nextId: string): void {
-    const key = kind === "live" ? "activeLiveProviderId" : "activeAsrProviderId";
+    const key = activeSettingsKey(kind);
     if (kind === "live") {
       activeLiveId = nextId;
     } else {
@@ -349,6 +329,33 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
 
   function activeSettingsKey(kind: ActiveRadioFamilyKind): "activeLiveProviderId" | "activeAsrProviderId" {
     return kind === "live" ? "activeLiveProviderId" : "activeAsrProviderId";
+  }
+
+  function persistActiveRadioId(
+    kind: ActiveRadioFamilyKind,
+    nextId: string,
+    fallbackError: string
+  ): Promise<void> {
+    setStoredActiveId(kind, nextId);
+    const task = sendRuntimeMessage({
+      type: "save-settings",
+      settings: { [activeSettingsKey(kind)]: nextId }
+    })
+      .then((response) => {
+        if (!disposed && !response?.ok) {
+          reportStatus((response as { error?: string } | undefined)?.error || fallbackError, true);
+        }
+      })
+      .catch((error) => {
+        reportStatus((error as Error)?.message || fallbackError, true);
+      })
+      .finally(() => {
+        if (pendingActiveRadioPersist === task) {
+          pendingActiveRadioPersist = null;
+        }
+      });
+    pendingActiveRadioPersist = task;
+    return task;
   }
 
   function renderLiveProviders(): void {
@@ -365,16 +372,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     );
     options.onGeminiCredentialStatus?.(geminiActive ? geminiCredentialStatus : null);
     if (nextActiveId !== activeLiveId) {
-      setStoredActiveId("live", nextActiveId);
-      void sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: nextActiveId } })
-        .then((response) => {
-          if (!disposed && !response?.ok) {
-            reportStatus((response as { error?: string } | undefined)?.error || "激活平台保存失败", true);
-          }
-        })
-        .catch((error) => {
-          reportStatus((error as Error)?.message || "激活平台保存失败", true);
-        });
+      void persistActiveRadioId("live", nextActiveId, "激活平台保存失败");
     }
     emitSummarySnapshot();
   }
@@ -393,16 +391,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     });
     activeAsrId = nextActiveId;
     if (nextActiveId !== prevActiveId) {
-      setStoredActiveId("asr", nextActiveId);
-      void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } })
-        .then((response) => {
-          if (!disposed && !response?.ok) {
-            reportStatus((response as { error?: string } | undefined)?.error || "保存默认平台失败", true);
-          }
-        })
-        .catch((error) => {
-          reportStatus((error as Error)?.message || "保存默认平台失败", true);
-        });
+      void persistActiveRadioId("asr", nextActiveId, "保存默认平台失败");
     }
     emitSummarySnapshot();
   }
@@ -604,6 +593,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     requestOrigins: requestProviderOriginsViaBackground,
     rerender: (kind, providers) => {
       if (disposed) return;
+      rerenderedDuringDelete = true;
       if (kind === "ai") {
         renderAiProviders(providers);
         options.onAiChanged?.(providers, {});
@@ -641,6 +631,9 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       } else if (kind === "live") {
         await refreshGeminiCredentialStatus();
       }
+      if (pendingActiveRadioPersist) {
+        await pendingActiveRadioPersist;
+      }
       if (!disposed) {
         options.onMutated?.({ kind, action: "save", providerId: String(upsert.id || "") });
       }
@@ -654,12 +647,35 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   ): Promise<MutationResult> {
     deleteRevokeFailureInFlight = false;
     statusErrorMarked = false;
+    rerenderedDuringDelete = false;
     const result = await transactions.deleteProvider(kind, target);
     if (!disposed && result.ok) {
-      if (pendingAiConsumerSync) {
+      if (!rerenderedDuringDelete) {
+        if (kind === "ai") {
+          const latestAi = await loadRows("ai");
+          if (disposed) return result;
+          renderAiProviders(latestAi);
+          options.onAiChanged?.(latestAi, {});
+          await syncConsumerFamiliesAfterAiChange(latestAi, {
+            refreshSettingsForAi: hasFamily("ai")
+          });
+        } else if (kind === "live") {
+          liveProviders = liveProviders.filter((provider) => provider.id !== target.id);
+          renderLiveProviders();
+          await refreshGeminiCredentialStatus();
+        } else if (kind === "asr") {
+          renderAsrProviders(asrProviders.filter((provider) => provider.id !== target.id));
+        } else if (kind === "search") {
+          searchProviders = searchProviders.filter((item) => String(item?.id || "") !== target.id);
+          rerenderSearchProviders(searchProviders, aiProvidersLoaded ? aiProviders : undefined);
+        }
+      } else if (pendingAiConsumerSync) {
         await pendingAiConsumerSync;
       } else if (kind === "live") {
         await refreshGeminiCredentialStatus();
+      }
+      if (pendingActiveRadioPersist) {
+        await pendingActiveRadioPersist;
       }
       if (!disposed && kind === "search" && target.id && target.id === activeSearchProviderId) {
         await clearDeletedActiveSearchProvider();
@@ -679,13 +695,15 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     return result;
   };
 
-  const modalOnDelete: ProviderEditorDelete = async (deleteKind, target) => {
+  const deleteProviderWithStatus: ProviderEditorDelete = async (deleteKind, target) => {
     const result = await deleteProvider(deleteKind, target);
     if (!disposed && result.ok && !deleteRevokeFailureInFlight && !statusErrorMarked) {
       reportMutationText("平台已删除");
     }
     return result;
   };
+
+  const modalOnDelete: ProviderEditorDelete = deleteProviderWithStatus;
 
   async function openEditor(request: OpenProviderEditorRequest): Promise<void> {
     if (disposed) return;
@@ -853,24 +871,8 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     await openLinkedCredentialEditor("gemini-live");
   }
 
-  const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
-    deleteRevokeFailureInFlight = false;
-    statusErrorMarked = false;
-    const providers = await loadOriginSharingProviders(families);
-    const { origins, revoked } = await revokeOrphanOriginViaBackground({ id: providerId, baseUrl }, providers);
-    if (origins.length > 0 && !revoked && !disposed) {
-      deleteRevokeFailureInFlight = true;
-      reportStatus(permissionRevokeErrorMessage(origins), true);
-    }
-  };
-
   function bindActiveRadioFamily(kind: ActiveRadioFamilyKind, nodes: FamilyDomNodes): void {
-    const decl = PROVIDER_FAMILY_ROWS[kind];
-    const radioClass = `${decl.activeRadio!.classPrefix}-provider-active-radio`;
-    const key = activeSettingsKey(kind);
-
     familyRows[kind].controller.setErrorHandler((msg) => reportStatus(msg, true));
-    familyRows[kind].controller.setBeforeDeleteHandler(revokeOriginOnDelete);
     familyRows[kind].setActiveChangeHandler?.((nextId, meta) => {
       if (disposed) return;
       setStoredActiveId(kind, nextId);
@@ -878,47 +880,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         void refreshGeminiCredentialStatus();
       }
       emitSummarySnapshot();
-    });
-    familyRows[kind].controller.setDeleteHandler(async (providerId) => {
-      if (disposed) return;
-      const remainingRows = Array.from(nodes.listNode.querySelectorAll<HTMLElement>(`.${decl.rowClass}`));
-      const prevCheckedId = familyRows[kind].getActiveId?.(nodes.listNode) || "";
-      const prevStoredId = getStoredActiveId(kind);
-      const nextActiveId = resolveActiveIdFor(
-        kind,
-        remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
-        prevCheckedId
-      );
-      if (nextActiveId && nextActiveId !== prevCheckedId) {
-        const targetRadio = remainingRows
-          .find((row) => row.dataset.providerId === nextActiveId)
-          ?.querySelector<HTMLInputElement>(`.${radioClass}`);
-        if (targetRadio) targetRadio.checked = true;
-      }
-      familyRows[kind].syncActiveRendered?.(nodes.listNode);
-      if (nextActiveId !== prevCheckedId || nextActiveId !== prevStoredId || remainingRows.length === 0) {
-        setStoredActiveId(kind, nextActiveId);
-        try {
-          const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [key]: nextActiveId } });
-          if (!resp?.ok) {
-            throw new Error((resp as { error?: string } | undefined)?.error || "保存默认平台失败");
-          }
-        } catch (error) {
-          reportStatus((error as Error)?.message || "保存默认平台失败", true);
-          return;
-        }
-      }
-      if (kind === "live") {
-        liveProviders = liveProviders.filter((provider) => provider.id !== providerId);
-        await refreshGeminiCredentialStatus();
-      } else {
-        asrProviders = asrProviders.filter((provider) => provider.id !== providerId);
-      }
-      emitSummarySnapshot();
-      options.onMutated?.({ kind, action: "delete", providerId });
-      if (!deleteRevokeFailureInFlight) {
-        reportMutationText("平台已删除");
-      }
     });
     nodes.addButton.addEventListener("click", () => void openEditor({ kind, providerId: "" }));
   }
@@ -931,31 +892,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   }
   if (aiNodes) {
     familyRows.ai.controller.setErrorHandler((msg) => reportStatus(msg, true));
-    familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
-    familyRows.ai.controller.setDeleteHandler(async (providerId) => {
-      if (disposed) return;
-      const [latestAi, latestLive, latestSearch, settings] = await Promise.all([
-        loadRows("ai"),
-        hasFamily("live") ? loadRows("live") : Promise.resolve<ProviderRowItem[] | null>(null),
-        hasFamily("search") ? loadRows("search") : Promise.resolve<ProviderRowItem[] | null>(null),
-        getSettings()
-      ]);
-      if (disposed) return;
-      aiProviders = latestAi;
-      aiProvidersLoaded = true;
-      options.onAiChanged?.(latestAi, { settings });
-      if (latestLive !== null) {
-        liveProviders = latestLive;
-        await refreshGeminiCredentialStatus();
-      }
-      if (latestSearch !== null && !disposed) {
-        renderSearchProvidersSync(latestSearch, latestAi);
-      }
-      options.onMutated?.({ kind: "ai", action: "delete", providerId });
-      if (!deleteRevokeFailureInFlight) {
-        reportMutationText("平台已删除");
-      }
-    });
     aiNodes.addButton.addEventListener("click", () => void openEditor({ kind: "ai", providerId: "" }));
   }
   if (searchNodes) {
@@ -971,17 +907,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       }
       syncSearchModeControls();
       emitSummarySnapshot();
-    });
-    familyRows.search.controller.setDeleteHandler(async (providerId) => {
-      if (disposed) return;
-      searchProviders = searchProviders.filter((item) => String(item?.id || "") !== providerId);
-      if (providerId && providerId === activeSearchProviderId) {
-        await clearDeletedActiveSearchProvider();
-        if (statusErrorMarked) return;
-      }
-      emitSummarySnapshot();
-      options.onMutated?.({ kind: "search", action: "delete", providerId });
-      reportMutationText("平台已删除");
     });
     wireProviderRowDrag(searchNodes.listNode, {
       onCommit: async (orderedIds) => {

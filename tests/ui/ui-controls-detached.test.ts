@@ -220,7 +220,7 @@ describe("ui 控件、拖拽、时间戳、切换开关与触发动效的跨 Rea
   it("openProviderEditor(asr) 与 wireModelPicker 在跨 Realm 下可初始化并选择模型而不触发 AbortSignal/Event TypeError", async () => {
     realm = createDetachedRealm();
     const activeHost = await import("../../extension/shared/active-host.js");
-    const editorMod = await import("../../extension/ui/provider-editor-modal.js");
+    const editorMod = await import("../../extension/ui/provider-editor.js");
     const modelPicker = await import("../../extension/ui/model-picker.js");
     const { ids } = await import("../../extension/shared/dom-ids.js");
 

@@ -62,11 +62,11 @@ export function loadAiProviders(providerHost?: ProviderSettingsHost | null): Pro
   return loadProvidersByMessage("ai", "ai-providers-list", providerHost);
 }
 
-export function loadAsrProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
+function loadAsrProviders(providerHost?: ProviderSettingsHost | null): Promise<ProviderRowItem[]> {
   return loadProvidersByMessage("asr", "asr-providers-list", providerHost);
 }
 
-export async function resolveEditableAiProviderId(
+async function resolveEditableAiProviderId(
   providerHost?: ProviderSettingsHost | null
 ): Promise<string> {
   try {
@@ -86,7 +86,7 @@ export async function resolveEditableAiProviderId(
   }
 }
 
-export async function findMissingKeyAiProvider(
+async function findMissingKeyAiProvider(
   preferredProviderId = "",
   providerHost?: ProviderSettingsHost | null
 ): Promise<ProviderRowItem | null> {
@@ -128,7 +128,7 @@ export function resumeAsrSubtitleFetchAfterSetup(): boolean {
   return true;
 }
 
-export async function continueAsrSetupAfterToggleEnabled(
+async function continueAsrSetupAfterToggleEnabled(
   elements: SettingsElements,
   getProviderHost: () => ProviderSettingsHost | null
 ): Promise<void> {
@@ -179,7 +179,7 @@ export async function continueAsrSetupAfterToggleEnabled(
   });
 }
 
-export async function openReaderAiSetup(
+async function openReaderAiSetup(
   errorClass: OverviewSetupErrorClass,
   session: AiSetupSession,
   target: AiSetupTarget = {},
@@ -256,7 +256,7 @@ export async function openReaderAiSetup(
   });
 }
 
-export async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
+async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
   openReaderSettingsMode();
   await deps.ensureRendered();
   await whenReaderSettingsStylesReady();

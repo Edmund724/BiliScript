@@ -1,4 +1,30 @@
+import { state } from "../../core/state.js";
+import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
+import { detectActiveSite, getSiteCapabilities, type SiteCapabilities } from "../../shared/site.js";
 import { SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./dom-ids.js";
+
+export interface SettingsCapabilities {
+  readonly siteCaps: SiteCapabilities;
+  readonly liveAvailable: boolean;
+  readonly asrAvailable: boolean;
+  readonly agentAvailable: boolean;
+  readonly playerQuickAiAvailable: boolean;
+}
+
+export function resolveSettingsCapabilities(): SettingsCapabilities {
+  const site =
+    state.clip.site === "youtube" || detectActiveSite() === "youtube"
+      ? "youtube"
+      : state.clip.site;
+  const siteCaps = getSiteCapabilities(site);
+  return {
+    siteCaps,
+    liveAvailable: supportsLiveCompanion() && siteCaps.supportsLiveCompanion,
+    asrAvailable: siteCaps.supportsAsr,
+    agentAvailable: siteCaps.supportsAgentBridge,
+    playerQuickAiAvailable: siteCaps.supportsPlayerQuickAiButton
+  };
+}
 
 export function applySectionContainment(host: HTMLElement): void {
   host.querySelectorAll<HTMLElement>(".biliscript-set-group").forEach((group) => {
@@ -154,15 +180,38 @@ export function collectElements(host: HTMLElement) {
 export type SettingsElements = ReturnType<typeof collectElements>;
 
 let statusVersion = 0;
+let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function getStatusVersion(): number {
   return statusVersion;
 }
 
+export function clearStatusClearTimer(): void {
+  if (statusClearTimer) {
+    clearTimeout(statusClearTimer);
+    statusClearTimer = null;
+  }
+}
+
 export function setStatus(elements: SettingsElements, text: unknown, isError = false): void {
+  clearStatusClearTimer();
   statusVersion += 1;
   elements.status.textContent = String(text || "");
   elements.status.dataset.error = isError ? "true" : "false";
+}
+
+export function scheduleStatusAutoClear(
+  elements: SettingsElements,
+  expectedText: string,
+  delayMs: number
+): void {
+  clearStatusClearTimer();
+  statusClearTimer = setTimeout(() => {
+    statusClearTimer = null;
+    if (elements.status.dataset.error !== "true" && elements.status.textContent === expectedText) {
+      setStatus(elements, "");
+    }
+  }, delayMs);
 }
 
 export function setBusy(elements: SettingsElements, isBusy: boolean): void {

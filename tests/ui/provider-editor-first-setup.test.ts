@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PRESETS } from "../../extension/core/presets.js";
 import type { ProviderRowItem } from "../../extension/ui/provider-row.js";
 import { closeProviderEditor, openProviderEditor } from "../../extension/ui/provider-editor.js";
-import { save } from "../../extension/ui/provider-editor-modal.js";
 import { resetProviderEditorState, waitForFast } from "../helpers/reset-provider-editor-state.js";
 
 type SaveResult = { ok: boolean; error?: string };
@@ -164,8 +163,9 @@ describe("首配会话回调", () => {
     const onAfterSave = vi.fn();
     await openFirstSetupEditor({ onSave, onAfterSave });
     fillRequiredFields();
-    void save();
-    void save();
+    const saveBtn = document.querySelector('[data-provider-editor-action="save"]')!;
+    fireClick(saveBtn);
+    fireClick(saveBtn);
     await waitForFast(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
       expect(dialog()).toBeNull();

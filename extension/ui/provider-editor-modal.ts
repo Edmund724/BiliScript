@@ -6,7 +6,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { listLiveModels, listLiveVoices, testLiveConnection } from "../live/live-provider-probe.js";
-import { SEARCH_TEST_QUERY, testSearchConnection } from "../search/provider-test.js";
+import { testSearchConnection } from "../search/provider-test.js";
 
 import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
@@ -30,6 +30,7 @@ import {
   runIfCurrent,
   state,
   type EditorDraft,
+  type EditorDraftView,
   type LinkedCredentialAction,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
@@ -40,6 +41,7 @@ import {
   normalizeProtocolValue,
   presetBaseUrlForProtocol,
   presetProtocol,
+  projectEditorFields,
   projectionBlocks,
   renderProjection,
   sessionProjectionContext
@@ -50,7 +52,8 @@ import {
   primeModelCatalogMeta,
   refreshModelCatalogMeta,
   removeModelRow,
-  runModelTest
+  runModelTest,
+  showCatalogError
 } from "./provider-editor-catalog.js";
 import {
   closeFetchDialog,
@@ -69,17 +72,6 @@ import {
   cancelTriggerExit,
   resolveTriggerElement
 } from "./trigger-motion.js";
-import {
-  beginEditorValidation,
-  focusEditorField,
-  isEditorValidationAttempted,
-  revalidateEditorField,
-  renderEditorFieldIssues,
-  resetEditorValidation,
-  validateEditorFields
-} from "./provider-editor-validation.js";
-
-export { SEARCH_TEST_QUERY };
 
 interface PlatformProbeIo {
   readonly preflightOrigin: boolean;
@@ -167,8 +159,198 @@ function unbindCaptureListeners(): void {
 let saveInFlight = false;
 let deleteInFlight = false;
 let testInFlight = false;
+let validationAttempted = false;
 let validationStatusActive = false;
 let reconfirmStatusActive = false;
+
+type EditorFieldKey = "baseUrl" | "apiKey" | "model" | "models";
+
+interface EditorFieldIssue {
+  field: EditorFieldKey;
+  message: string;
+}
+
+const VALIDATION_FIELD_DOM: Record<EditorFieldKey, { control: string; error: string }> = {
+  baseUrl: { control: ".provider-editor-baseurl", error: "provider-editor-error-baseurl" },
+  apiKey: { control: ".provider-editor-apikey", error: "provider-editor-error-apikey" },
+  model: { control: ".provider-editor-model", error: "provider-editor-error-model" },
+  models: { control: '[data-provider-editor-action="add-model"]', error: "provider-editor-error-models" }
+};
+
+const VALIDATION_FIELD_ORDER: readonly EditorFieldKey[] = ["baseUrl", "apiKey", "model", "models"];
+const HTTP_URL_RE = /^https?:\/\/.+/i;
+
+function issueForField(field: EditorFieldKey, draft: EditorDraftView): EditorFieldIssue | null {
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  const preset = family.resolvePreset(state.presets, draft.presetId);
+  if (field === "baseUrl") {
+    const baseUrl = draft.baseUrl.trim();
+    if (!baseUrl) return { field, message: "请填写 API 地址" };
+    if (!HTTP_URL_RE.test(baseUrl)) return { field, message: "API 地址需以 http:// 或 https:// 开头" };
+    try {
+      new URL(baseUrl);
+    } catch {
+      return { field, message: "请输入合法的 API 地址" };
+    }
+    return null;
+  }
+  if (field === "apiKey") {
+    const projection = projectEditorFields(draft, sessionProjectionContext()).apiKey;
+    if (projection.hidden) return null;
+    if (projection.required && !draft.apiKey.trim()) {
+      if (isSavedKeyReconfirmRequired(draft)) {
+        return { field, message: "已切换平台或地址，请重新确认 API Key" };
+      }
+      const name = draft.name.trim() || preset?.name || "自定义";
+      return { field, message: `平台「${name}」需要填写 API Key` };
+    }
+    return null;
+  }
+  if (field === "model") {
+    if (family.editor.modelSource !== "input") return null;
+    if (!draft.model.trim()) return { field, message: "请填写模型名" };
+    return null;
+  }
+  if (state.firstSetup && state.kind === "ai" && normalizeDraftModels(draft.models).length === 0) {
+    return { field, message: "请至少添加一个模型后再保存" };
+  }
+  return null;
+}
+
+function validateEditorFields(): EditorFieldIssue[] {
+  const draft = state.draft;
+  if (!draft) return [];
+  return VALIDATION_FIELD_ORDER.flatMap((field) => {
+    const issue = issueForField(field, draft);
+    return issue ? [issue] : [];
+  });
+}
+
+function controlOfField(field: EditorFieldKey): HTMLElement | null {
+  const dialog = getDialog();
+  if (!dialog) return null;
+  if (field === "models") {
+    const emptyModelInput = Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).find(
+      (input) => !input.value.trim()
+    );
+    if (emptyModelInput) return emptyModelInput;
+  }
+  return dialog.querySelector<HTMLElement>(VALIDATION_FIELD_DOM[field].control) ?? null;
+}
+
+function allControlsOfField(field: EditorFieldKey): HTMLElement[] {
+  const dialog = getDialog();
+  if (!dialog) return [];
+  if (field === "models") {
+    const inputs = Array.from(dialog.querySelectorAll<HTMLElement>(".provider-editor-model-id"));
+    const addBtn = dialog.querySelector<HTMLElement>(VALIDATION_FIELD_DOM.models.control);
+    return addBtn ? [...inputs, addBtn] : inputs;
+  }
+  const control = dialog.querySelector<HTMLElement>(VALIDATION_FIELD_DOM[field].control);
+  return control ? [control] : [];
+}
+
+function errorNodeOfField(field: EditorFieldKey): HTMLElement | null {
+  return getDialog()?.querySelector<HTMLElement>(`#${VALIDATION_FIELD_DOM[field].error}`) ?? null;
+}
+
+function clearFieldControlAttributes(field: EditorFieldKey): void {
+  const errorId = VALIDATION_FIELD_DOM[field].error;
+  for (const control of allControlsOfField(field)) {
+    control.removeAttribute("aria-invalid");
+    if (control.getAttribute("aria-describedby") === errorId) {
+      control.removeAttribute("aria-describedby");
+    }
+  }
+}
+
+function showFieldIssue(issue: EditorFieldIssue): void {
+  clearFieldControlAttributes(issue.field);
+  const control = controlOfField(issue.field);
+  const error = errorNodeOfField(issue.field);
+  if (error) {
+    error.hidden = false;
+    error.textContent = issue.message;
+  }
+  if (control) {
+    control.setAttribute("aria-invalid", "true");
+    control.setAttribute("aria-describedby", VALIDATION_FIELD_DOM[issue.field].error);
+  }
+}
+
+function clearFieldIssue(field: EditorFieldKey): void {
+  const error = errorNodeOfField(field);
+  if (error) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+  clearFieldControlAttributes(field);
+}
+
+function renderEditorFieldIssues(issues: readonly EditorFieldIssue[]): void {
+  for (const field of VALIDATION_FIELD_ORDER) {
+    const issue = issues.find((entry) => entry.field === field);
+    if (issue) showFieldIssue(issue);
+    else clearFieldIssue(field);
+  }
+}
+
+function revalidateEditorField(field: EditorFieldKey): void {
+  if (!validationAttempted) return;
+  const draft = state.draft;
+  if (!draft) return;
+  const issue = issueForField(field, draft);
+  if (issue) showFieldIssue(issue);
+  else clearFieldIssue(field);
+}
+
+function revalidateEditorFields(fields: readonly EditorFieldKey[]): EditorFieldIssue[] {
+  const draft = state.draft;
+  if (!draft) return [];
+  const issues: EditorFieldIssue[] = [];
+  for (const field of fields) {
+    const issue = issueForField(field, draft);
+    if (issue) {
+      showFieldIssue(issue);
+      issues.push(issue);
+    } else {
+      clearFieldIssue(field);
+    }
+  }
+  return issues;
+}
+
+function focusEditorField(field: EditorFieldKey): void {
+  const control = controlOfField(field);
+  const error = errorNodeOfField(field);
+  control?.focus();
+  control?.scrollIntoView?.({ block: "nearest" });
+  error?.scrollIntoView?.({ block: "nearest" });
+}
+
+function resetEditorValidation(): void {
+  validationAttempted = false;
+  renderEditorFieldIssues([]);
+}
+
+function validateBeforeFetchModels(): boolean {
+  const draft = state.draft;
+  if (!draft) return false;
+  validationAttempted = true;
+  const issues = revalidateEditorFields(["baseUrl", "apiKey"]);
+  if (issues.length > 0) {
+    const missingBoth =
+      !draft.baseUrl.trim() &&
+      !draft.apiKey.trim() &&
+      issues.some((issue) => issue.field === "baseUrl") &&
+      issues.some((issue) => issue.field === "apiKey");
+    showCatalogError(missingBoth ? "请先填写 API 地址和 Key" : issues[0].message);
+    focusEditorField(issues[0].field);
+    return false;
+  }
+  showCatalogError("");
+  return true;
+}
 
 function currentLinkedCredential(draft = state.draft): LinkedCredentialAction | null {
   if (state.resolveLinkedCredential && draft) {
@@ -231,7 +413,7 @@ function primeEditorVoices(): void {
   );
 }
 
-export function showStatus(text: string, isError = false): void {
+function showStatus(text: string, isError = false): void {
   validationStatusActive = false;
   reconfirmStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
@@ -256,7 +438,7 @@ function syncReconfirmFeedback(): void {
   if (!draft) return;
   const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
   const needsReconfirm = isSavedKeyReconfirmRequired(draft) && PROVIDER_FAMILY_ROWS[state.kind].editor.isKeyRequired(preset);
-  if (isEditorValidationAttempted()) {
+  if (validationAttempted) {
     return;
   }
   if (needsReconfirm) {
@@ -277,7 +459,7 @@ function syncValidationStatus(): void {
 }
 
 function applyValidationState(): void {
-  if (!isEditorValidationAttempted()) return;
+  if (!validationAttempted) return;
   const issues = validateEditorFields();
   renderEditorFieldIssues(issues);
   if (issues.length > 0) {
@@ -287,7 +469,7 @@ function applyValidationState(): void {
   clearStatus();
 }
 
-export function clearStatus(): void {
+function clearStatus(): void {
   validationStatusActive = false;
   reconfirmStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
@@ -295,6 +477,38 @@ export function clearStatus(): void {
   statusNode.hidden = true;
   statusNode.textContent = "";
   statusNode.dataset.error = "false";
+}
+
+interface DraftChangeSyncOptions {
+  project?: boolean;
+  linkedCredential?: boolean;
+  catalogMeta?: boolean;
+  voices?: boolean;
+  revalidate?: "all" | EditorFieldKey | null;
+  clearStatusWhenIdle?: boolean;
+  reconfirm?: boolean;
+}
+
+function syncAfterDraftChange(options: DraftChangeSyncOptions): void {
+  if (options.project) renderProjection();
+  if (options.linkedCredential) syncLinkedCredentialDom();
+  if (options.catalogMeta) refreshModelCatalogMeta();
+  if (options.revalidate === "all") {
+    if (validationAttempted) {
+      applyValidationState();
+    } else if (options.clearStatusWhenIdle) {
+      clearStatus();
+    }
+  } else if (options.revalidate) {
+    revalidateEditorField(options.revalidate);
+  }
+  if (options.reconfirm) {
+    syncReconfirmFeedback();
+  }
+  if (options.revalidate !== "all") {
+    syncValidationStatus();
+  }
+  if (options.voices) primeEditorVoices();
 }
 
 const BUSY_CONTROL_SELECTOR = [
@@ -319,7 +533,7 @@ const BUSY_CONTROL_SELECTOR = [
   ".provider-editor-gemini-search"
 ].join(", ");
 
-export function setBusy(isBusy: boolean): void {
+function setBusy(isBusy: boolean): void {
   getDialog()
     ?.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(BUSY_CONTROL_SELECTOR)
     .forEach((control) => {
@@ -327,7 +541,7 @@ export function setBusy(isBusy: boolean): void {
     });
 }
 
-export function isDirty(): boolean {
+function isDirty(): boolean {
   return (
     state.open &&
     state.draft !== null &&
@@ -338,6 +552,13 @@ export function isDirty(): boolean {
 
 export function closeProviderEditor(force = false): void {
   if (!state.open && !state.host) {
+    if (force) {
+      try {
+        closeFetchDialog(false);
+      } catch {
+      }
+      resetEditorValidation();
+    }
     return;
   }
   if (state.open && !force && isDirty()) {
@@ -370,11 +591,12 @@ export function closeProviderEditor(force = false): void {
     testInFlight = false;
     validationStatusActive = false;
     reconfirmStatusActive = false;
+    resetEditorValidation();
     endEditorSession();
   }
 }
 
-export function requestClose(): void {
+function requestClose(): void {
   if (!isDirty()) {
     closeProviderEditor(true);
     return;
@@ -382,7 +604,7 @@ export function requestClose(): void {
   void confirmDiscardChanges();
 }
 
-export async function confirmDiscardChanges(): Promise<void> {
+async function confirmDiscardChanges(): Promise<void> {
   const ok = await confirmDialog({
     title: "放弃更改",
     message: "未保存的更改将丢失，确定关闭？",
@@ -395,7 +617,7 @@ export async function confirmDiscardChanges(): Promise<void> {
   }
 }
 
-export function collectUpsert(): { upsert: ProviderRowItem; validationError?: string } {
+function collectUpsert(): { upsert: ProviderRowItem; validationError?: string } {
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   const draft = state.draft!;
   const preset = family.resolvePreset(state.presets, draft.presetId);
@@ -415,9 +637,9 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
   });
 }
 
-export async function save(): Promise<void> {
+async function save(): Promise<void> {
   if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
-  beginEditorValidation();
+  validationAttempted = true;
   const issues = validateEditorFields();
   renderEditorFieldIssues(issues);
   if (issues.length > 0) {
@@ -466,7 +688,7 @@ export async function save(): Promise<void> {
   );
 }
 
-export async function deleteActive(): Promise<void> {
+async function deleteActive(): Promise<void> {
   if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const onDelete = state.onDelete;
   if (!state.editingId || !onDelete) return;
@@ -509,7 +731,7 @@ export async function deleteActive(): Promise<void> {
   );
 }
 
-export async function runTest(): Promise<void> {
+async function runTest(): Promise<void> {
   if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   const probeIo = PLATFORM_PROBE_IO[state.kind];
@@ -586,7 +808,7 @@ export async function runTest(): Promise<void> {
   });
 }
 
-export function editorTitle(kind: ProviderEditorKind, editing: boolean): string {
+function editorTitle(kind: ProviderEditorKind, editing: boolean): string {
   const label = PROVIDER_FAMILY_ROWS[kind].editor.title;
   return editing ? `编辑${label}` : `添加${label}`;
 }
@@ -619,7 +841,7 @@ function linkedCredentialHtml(linkedCredential: LinkedCredentialAction | null): 
         </div>`;
 }
 
-export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
+function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const item = options.item || null;
   const draft = state.draft;
   if (!draft) return "";
@@ -687,7 +909,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   `;
 }
 
-export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
+function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
   const view = mountHost || activeById(ids.readingView);
   if (!view) {
     return null;
@@ -701,7 +923,7 @@ export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
   return host;
 }
 
-export function onDocumentClickCapture(event: MouseEvent): void {
+function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
   if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
   const view = state.host?.parentElement || activeById(ids.readingView);
@@ -712,7 +934,7 @@ export function onDocumentClickCapture(event: MouseEvent): void {
   requestClose();
 }
 
-export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
+function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
   if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
   event.preventDefault();
@@ -724,7 +946,7 @@ export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   requestClose();
 }
 
-export function wireDialog(): void {
+function wireDialog(): void {
   const dialog = getDialog();
   const host = state.host;
   if (!dialog || !host) return;
@@ -751,20 +973,20 @@ export function wireDialog(): void {
     }
     else if (action === "add-model") {
       addModelRow();
-      revalidateEditorField("models");
+      syncAfterDraftChange({ revalidate: "models" });
     }
     else if (action === "remove-model") {
       removeModelRow(target.closest<HTMLElement>(".provider-editor-model-row"));
-      revalidateEditorField("models");
+      syncAfterDraftChange({ revalidate: "models" });
     }
     else if (action === "test-model") void runModelTest(target.closest<HTMLElement>(".provider-editor-model-row"), isDirty());
-    else if (action === "fetch-models") void openFetchDialog();
+    else if (action === "fetch-models") void openFetchDialog(validateBeforeFetchModels);
     else if (action === "close-fetch") closeFetchDialog();
     else if (action === "confirm-fetch") {
       confirmFetchSelection();
-      revalidateEditorField("models");
+      syncAfterDraftChange({ revalidate: "models" });
     }
-    else if (action === "retry-fetch") void openFetchDialog();
+    else if (action === "retry-fetch") void openFetchDialog(validateBeforeFetchModels);
   });
 
   dialog.querySelector<HTMLFormElement>(".provider-editor-form")?.addEventListener("submit", (event) => {
@@ -810,16 +1032,15 @@ export function wireDialog(): void {
         }
       }
     });
-    renderProjection();
-    syncLinkedCredentialDom();
-    if (isEditorValidationAttempted()) {
-      applyValidationState();
-    } else {
-      clearStatus();
-      syncReconfirmFeedback();
-    }
-    refreshModelCatalogMeta();
-    primeEditorVoices();
+    syncAfterDraftChange({
+      project: true,
+      linkedCredential: true,
+      catalogMeta: true,
+      voices: true,
+      revalidate: "all",
+      clearStatusWhenIdle: true,
+      reconfirm: true
+    });
   });
   if (presetSelect) {
     initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
@@ -843,11 +1064,13 @@ export function wireDialog(): void {
           }
         });
       }
-      renderProjection();
-      syncLinkedCredentialDom();
-      applyValidationState();
-      syncReconfirmFeedback();
-      refreshModelCatalogMeta();
+      syncAfterDraftChange({
+        project: true,
+        linkedCredential: true,
+        catalogMeta: true,
+        revalidate: "all",
+        reconfirm: true
+      });
     });
   }
 
@@ -878,20 +1101,13 @@ export function wireDialog(): void {
       editDraft((draft) => {
         draft[field.key] = input.value;
       });
-      if (field.key === "baseUrl") {
-        renderProjection();
-        syncLinkedCredentialDom();
-        refreshModelCatalogMeta();
-      } else if (field.key === "apiKey") {
-        renderProjection();
-      }
-      if (field.key !== "name") {
-        revalidateEditorField(field.key);
-      }
-      if (field.key === "baseUrl" || field.key === "apiKey") {
-        syncReconfirmFeedback();
-      }
-      syncValidationStatus();
+      syncAfterDraftChange({
+        project: field.key === "baseUrl" || field.key === "apiKey",
+        linkedCredential: field.key === "baseUrl",
+        catalogMeta: field.key === "baseUrl",
+        revalidate: field.key !== "name" ? field.key : null,
+        reconfirm: field.key === "baseUrl" || field.key === "apiKey"
+      });
     });
   }
   dialog.querySelector<HTMLElement>(".provider-editor-model-list")?.addEventListener("input", (event) => {
@@ -904,9 +1120,10 @@ export function wireDialog(): void {
         (input) => input.value
       );
     });
-    refreshModelCatalogMeta();
-    revalidateEditorField("models");
-    syncValidationStatus();
+    syncAfterDraftChange({
+      catalogMeta: true,
+      revalidate: "models"
+    });
   });
 
   const probeIo = PLATFORM_PROBE_IO[state.kind];

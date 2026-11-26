@@ -76,6 +76,7 @@ export interface CreateProviderRowConfig {
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
   onRowEdit: (row: ProviderRowElement) => void;
+  onRowDelete?: (target: { id: string; baseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
   getConfirmMountHost?: () => HTMLElement | null;
   buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
 }
@@ -207,6 +208,7 @@ export function createProviderRow({
   buildTailFields,
   wireTailExtras,
   onRowEdit,
+  onRowDelete,
   getConfirmMountHost,
   buildDeleteMessage
 }: CreateProviderRowConfig): ProviderRowController {
@@ -329,23 +331,35 @@ export function createProviderRow({
           if (removeBtn) removeBtn.disabled = true;
           if (editBtn) editBtn.disabled = true;
           const providerId = row.dataset.providerId || "";
-          try {
-            await onBeforeDelete(providerId, row.dataset.baseUrl || "");
-          } catch (error) {
-            logWarn("[BILISCRIPT] onBeforeDelete hook failed", error);
-          }
-          if (providerId) {
-            const resp = (await sendRuntimeMessage(buildDeleteMessage(providerId))) as
-              | { ok?: boolean; error?: string }
-              | undefined;
+          const baseUrl = row.dataset.baseUrl || "";
+          if (onRowDelete) {
+            const resp = await onRowDelete({ id: providerId, baseUrl });
             if (!resp?.ok) {
               throw new Error(resp?.error || "删除平台失败");
             }
-          }
-          row.remove();
-          updateEmptyState(listNode, emptyNode);
-          if (typeof onDelete === "function") {
-            await onDelete(providerId);
+            if (row.isConnected) {
+              row.remove();
+              updateEmptyState(listNode, emptyNode);
+            }
+          } else {
+            try {
+              await onBeforeDelete(providerId, baseUrl);
+            } catch (error) {
+              logWarn("[BILISCRIPT] onBeforeDelete hook failed", error);
+            }
+            if (providerId) {
+              const resp = (await sendRuntimeMessage(buildDeleteMessage(providerId))) as
+                | { ok?: boolean; error?: string }
+                | undefined;
+              if (!resp?.ok) {
+                throw new Error(resp?.error || "删除平台失败");
+              }
+            }
+            row.remove();
+            updateEmptyState(listNode, emptyNode);
+            if (typeof onDelete === "function") {
+              await onDelete(providerId);
+            }
           }
         } catch (error) {
           onError((error as Error)?.message || "删除平台失败");

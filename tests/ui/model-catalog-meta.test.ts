@@ -171,14 +171,17 @@ describe("模型行元数据", () => {
   });
 
   it("只跟着平台身份与模型 id 走：改 baseUrl / 模型 id / 预设都重算", async () => {
-    const { dialog, catalog, state } = await mountDialog({
-      presetId: "custom",
-      baseUrl: "",
-      models: ["mimo-v2.5"]
-    });
-    const { wireDialog } = await import("../../extension/ui/provider-editor-modal.js");
-    wireDialog();
+    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
+    const { openProviderEditor, closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+    openProviderEditor({
+      kind: "ai",
+      item: { id: "p1", presetId: "custom", name: "", baseUrl: "", models: ["mimo-v2.5"] },
+      presets: PRESET_SUBSET,
+      onSave: async () => ({ ok: true })
+    });
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const catalog = await import("../../extension/ui/provider-editor-catalog.js");
     catalog.refreshModelCatalogMeta();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
@@ -200,7 +203,7 @@ describe("模型行元数据", () => {
     presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    state.endEditorSession();
+    closeProviderEditor(true);
     catalog.refreshModelCatalogMeta();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
   });

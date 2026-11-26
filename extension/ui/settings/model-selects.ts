@@ -22,7 +22,7 @@ import {
 import type { ProviderRowItem } from "../provider-row.js";
 import type { SettingsElements } from "./elements.js";
 
-export interface ProviderModelSelectGroup {
+interface ProviderModelSelectGroup {
   provider: ProviderRowItem;
   providerId: string;
   label: string;
@@ -35,7 +35,7 @@ export interface ModelSelectBindDeps {
   syncSummaries: (elements: SettingsElements) => void;
 }
 
-export function buildEnabledModelSelectGroups(aiProviders: ProviderRowItem[]): ProviderModelSelectGroup[] {
+function buildEnabledModelSelectGroups(aiProviders: ProviderRowItem[]): ProviderModelSelectGroup[] {
   return (aiProviders || [])
     .filter((p) => p && p.enabled !== false && String(p.id || "").trim() !== "")
     .map((provider) => ({
@@ -47,7 +47,7 @@ export function buildEnabledModelSelectGroups(aiProviders: ProviderRowItem[]): P
     .filter((g) => g.models.length > 0);
 }
 
-export function renderGroupedModelOptionsHtml(
+function renderGroupedModelOptionsHtml(
   groups: ProviderModelSelectGroup[],
   leadingEmptyOptionLabel: string
 ): string {
@@ -68,7 +68,7 @@ export function renderGroupedModelOptionsHtml(
   );
 }
 
-export function renderProviderModelSelect(
+function renderProviderModelSelect(
   selectEl: HTMLSelectElement | null,
   aiProviders: ProviderRowItem[],
   currentProviderId?: unknown,
@@ -107,7 +107,7 @@ export function renderProviderModelSelect(
   setCustomSelectState(selectEl, { disabled: false });
 }
 
-export function renderIndexTranslateModelSelect(selectEl: HTMLSelectElement | null, currentModel?: unknown): void {
+function renderIndexTranslateModelSelect(selectEl: HTMLSelectElement | null, currentModel?: unknown): void {
   if (!selectEl) return;
   selectEl.disabled = false;
   selectEl.innerHTML = INDEX_TRANSLATE_MODEL_OPTIONS.map((option) => {
@@ -123,7 +123,7 @@ export function renderIndexTranslateModelSelect(selectEl: HTMLSelectElement | nu
   setCustomSelectState(selectEl, { disabled: false });
 }
 
-export function setSubtitleTranslateSourceValue(
+function setSubtitleTranslateSourceValue(
   selectEl: HTMLSelectElement | null,
   value: typeof INDEX_TRANSLATE_PROVIDER_ID | "custom"
 ): void {
@@ -133,7 +133,7 @@ export function setSubtitleTranslateSourceValue(
   initCustomSelect(selectEl, "custom-select-wrapper");
 }
 
-export function renderSubtitleTranslateSelects(
+function renderSubtitleTranslateSelects(
   elements: SettingsElements,
   aiProviders: ProviderRowItem[],
   s: Partial<Settings>
@@ -171,7 +171,23 @@ export function renderAiModelSelects(
   syncSummaries?.(elements);
 }
 
-export function bindProviderModelSelect(
+function commitModelSelection(options: {
+  patch: Record<string, string>;
+  prev: Record<string, string>;
+  elements: SettingsElements;
+  deps: ModelSelectBindDeps;
+  rollback: () => void;
+}): void {
+  state.patchSettings(options.patch);
+  options.deps.syncSummaries(options.elements);
+  void options.deps.savePatch(options.elements, options.patch).then((saved) => {
+    if (saved) return;
+    state.patchSettings(options.prev);
+    options.rollback();
+  });
+}
+
+function bindProviderModelSelect(
   selectEl: HTMLSelectElement | null,
   providerKey: "defaultModel" | "subtitleTranslateProviderId",
   modelKey: "defaultAiModel" | "subtitleTranslateModel",
@@ -184,25 +200,26 @@ export function bindProviderModelSelect(
     if (!providerId || !model) return;
     const prevProviderId = String(state.settings?.[providerKey] || "").trim();
     const prevModel = String(state.settings?.[modelKey] || "").trim();
-    const patch = { [providerKey]: providerId, [modelKey]: model };
-    state.patchSettings(patch);
-    deps.syncSummaries(elements);
-    void deps.savePatch(elements, patch).then((saved) => {
-      if (saved) return;
-      state.patchSettings({ [providerKey]: prevProviderId, [modelKey]: prevModel });
-      void deps.loadAiProviders().then((providers) => {
-        if (onRollback) {
-          onRollback(providers, prevProviderId, prevModel);
-        } else {
-          renderProviderModelSelect(selectEl, providers, prevProviderId, prevModel);
-        }
-        deps.syncSummaries(elements);
-      });
+    commitModelSelection({
+      patch: { [providerKey]: providerId, [modelKey]: model },
+      prev: { [providerKey]: prevProviderId, [modelKey]: prevModel },
+      elements,
+      deps,
+      rollback: () => {
+        void deps.loadAiProviders().then((providers) => {
+          if (onRollback) {
+            onRollback(providers, prevProviderId, prevModel);
+          } else {
+            renderProviderModelSelect(selectEl, providers, prevProviderId, prevModel);
+          }
+          deps.syncSummaries(elements);
+        });
+      }
     });
   });
 }
 
-export function bindSubtitleTranslateSourceSelect(
+function bindSubtitleTranslateSourceSelect(
   elements: SettingsElements,
   deps: ModelSelectBindDeps
 ): void {
@@ -210,25 +227,24 @@ export function bindSubtitleTranslateSourceSelect(
     const source = elements.subtitleTranslateSource.value;
     const prevProviderId = String(state.settings?.subtitleTranslateProviderId || "").trim();
     const prevModel = String(state.settings?.subtitleTranslateModel || "").trim();
+    const prev = { subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel };
 
     if (source === INDEX_TRANSLATE_PROVIDER_ID) {
-      const patch = {
-        subtitleTranslateProviderId: INDEX_TRANSLATE_PROVIDER_ID,
-        subtitleTranslateModel: INDEX_TRANSLATE_DEFAULT_MODEL
-      };
       renderIndexTranslateModelSelect(elements.subtitleTranslateModel, INDEX_TRANSLATE_DEFAULT_MODEL);
-      state.patchSettings(patch);
-      deps.syncSummaries(elements);
-      void deps.savePatch(elements, patch).then((saved) => {
-        if (saved) return;
-        state.patchSettings({ subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel });
-        void deps.loadAiProviders().then((providers) => {
-          renderSubtitleTranslateSelects(elements, providers, {
-            subtitleTranslateProviderId: prevProviderId,
-            subtitleTranslateModel: prevModel
+      commitModelSelection({
+        patch: {
+          subtitleTranslateProviderId: INDEX_TRANSLATE_PROVIDER_ID,
+          subtitleTranslateModel: INDEX_TRANSLATE_DEFAULT_MODEL
+        },
+        prev,
+        elements,
+        deps,
+        rollback: () => {
+          void deps.loadAiProviders().then((providers) => {
+            renderSubtitleTranslateSelects(elements, providers, prev);
+            deps.syncSummaries(elements);
           });
-          deps.syncSummaries(elements);
-        });
+        }
       });
       return;
     }
@@ -242,21 +258,19 @@ export function bindSubtitleTranslateSourceSelect(
       }
       const chosenGroup = groups[0];
       const chosenModel = resolveCatalogModel(chosenGroup.provider);
-      const patch = {
-        subtitleTranslateProviderId: chosenGroup.providerId,
-        subtitleTranslateModel: chosenModel
-      };
       renderProviderModelSelect(elements.subtitleTranslateModel, providers, chosenGroup.providerId, chosenModel);
-      state.patchSettings(patch);
-      deps.syncSummaries(elements);
-      void deps.savePatch(elements, patch).then((saved) => {
-        if (saved) return;
-        state.patchSettings({ subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel });
-        renderSubtitleTranslateSelects(elements, providers, {
-          subtitleTranslateProviderId: prevProviderId,
-          subtitleTranslateModel: prevModel
-        });
-        deps.syncSummaries(elements);
+      commitModelSelection({
+        patch: {
+          subtitleTranslateProviderId: chosenGroup.providerId,
+          subtitleTranslateModel: chosenModel
+        },
+        prev,
+        elements,
+        deps,
+        rollback: () => {
+          renderSubtitleTranslateSelects(elements, providers, prev);
+          deps.syncSummaries(elements);
+        }
       });
     });
   });

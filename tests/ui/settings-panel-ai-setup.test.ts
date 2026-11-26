@@ -20,7 +20,6 @@ import { state } from "../../extension/core/state.js";
 import { registerDebugGate } from "../../extension/shared/logging.js";
 import { closeProviderEditor } from "../../extension/ui/provider-editor.js";
 import * as settingsPanel from "../../extension/ui/settings-panel.js";
-import { loadAiProviders, loadAsrProviders, resolveEditableAiProviderId } from "../../extension/ui/settings/setup-flows.js";
 import { resetSettingsPanelState } from "../helpers/reset-settings-panel-state.js";
 
 function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
@@ -185,18 +184,18 @@ describe("openReaderAiSetup：缺模型 → 无需 Key 平台（如 Ollama）也
   });
 });
 
-describe("setup-flows：配置拉取异常留痕（不静默吞错）", () => {
-  it("loadAiProviders / loadAsrProviders 在通信抛错或返回 !ok 时通过 logWarn 留痕并返回空数组", async () => {
+describe("setup-flows：配置拉取异常留痕（经 settings-panel 公开入口，不静默吞错）", () => {
+  it("未渲染宿主时 resolveEditableAiProviderId 在通信抛错或返回 !ok 时通过 logWarn 留痕并返回空串", async () => {
     registerDebugGate(() => true);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
+      installMessageBus();
       const aiTransportError = new Error("ai channel closed");
-      const asrTransportError = new Error("asr channel closed");
 
       chromeStub().runtime.sendMessage.mockImplementationOnce((_msg, cb) => {
         cb?.({ ok: false, error: "ai list denied" });
       });
-      await expect(loadAiProviders()).resolves.toEqual([]);
+      await expect(settingsPanel.resolveEditableAiProviderId()).resolves.toBe("");
       expect(warnSpy).toHaveBeenCalledWith(
         "[BILISCRIPT] load ai providers returned invalid response",
         { ok: false, error: "ai list denied" }
@@ -205,32 +204,42 @@ describe("setup-flows：配置拉取异常留痕（不静默吞错）", () => {
       chromeStub().runtime.sendMessage.mockImplementationOnce(() => {
         throw aiTransportError;
       });
-      await expect(loadAiProviders()).resolves.toEqual([]);
+      await expect(settingsPanel.resolveEditableAiProviderId()).resolves.toBe("");
       expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] load ai providers failed", aiTransportError);
-
-      chromeStub().runtime.sendMessage.mockImplementationOnce(() => {
-        throw asrTransportError;
-      });
-      await expect(loadAsrProviders()).resolves.toEqual([]);
-      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] load asr providers failed", asrTransportError);
     } finally {
       warnSpy.mockRestore();
     }
   });
 
-  it("resolveEditableAiProviderId 在读取宿主/设置抛错时通过 logWarn 留痕并返回空字符串", async () => {
+  it("openReaderAsrSetup 在未渲染宿主且拉取 ASR 列表异常时通过 logWarn 留痕并回落空列表", async () => {
     registerDebugGate(() => true);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const hostError = new Error("host loadRows failed");
-      const fakeHost = {
-        loadRows: vi.fn(async () => {
-          throw hostError;
-        })
-      } as unknown as Parameters<typeof resolveEditableAiProviderId>[0];
+      document.body.innerHTML = `
+        <div id="biliscript-reading-view">
+          <section id="biliscript-reading-settings-panel">
+            <div id="biliscript-reading-settings-host"></div>
+          </section>
+        </div>`;
+      installMessageBus();
+      const asrTransportError = new Error("asr channel closed");
+      chromeStub().runtime.sendMessage.mockImplementation((msg, cb) => {
+        if (msg?.type === "asr-providers-list") {
+          throw asrTransportError;
+        }
+        if (msg?.type === "get-settings") {
+          cb?.({ ok: true, settings: { asrAutoFallback: false } });
+          return;
+        }
+        cb?.({ ok: true, providers: [] });
+      });
+      const host = document.getElementById("biliscript-reading-settings-host")!;
+      host.dataset.biliscriptSettingsRendered = "1";
+      const { buildSettingsHtml } = await import("../../extension/ui/settings-panel-html.js");
+      host.innerHTML = buildSettingsHtml();
 
-      await expect(resolveEditableAiProviderId(fakeHost)).resolves.toBe("");
-      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] resolveEditableAiProviderId failed", hostError);
+      await settingsPanel.openReaderAsrSetup();
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] load asr providers failed", asrTransportError);
     } finally {
       warnSpy.mockRestore();
     }

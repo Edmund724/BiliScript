@@ -11,7 +11,6 @@ import {
   animateTriggerExit,
   cancelTriggerExit
 } from "./trigger-motion.js";
-import { beginEditorValidation, focusEditorField, revalidateEditorFields } from "./provider-editor-validation.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 
 export type FetchDialogState = "loading" | "ready" | "empty-server" | "error";
@@ -367,23 +366,17 @@ export async function loadFetchModels(
   );
 }
 
-export async function openFetchDialog(): Promise<void> {
+export async function openFetchDialog(validateBeforeFetch?: () => boolean): Promise<void> {
   if (fetchInFlight) return;
   const draft = state.draft;
   if (!draft) return;
+  if (validateBeforeFetch && !validateBeforeFetch()) {
+    return;
+  }
   const baseUrl = draft.baseUrl.trim();
   const apiKey = draft.apiKey.trim();
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   const preset = family.resolvePreset(state.presets, draft.presetId);
-  beginEditorValidation();
-  const issues = revalidateEditorFields(["baseUrl", "apiKey"]);
-  if (issues.length > 0) {
-    const missingBoth =
-      !baseUrl && !apiKey && issues.some((issue) => issue.field === "baseUrl") && issues.some((issue) => issue.field === "apiKey");
-    showCatalogError(missingBoth ? "请先填写 API 地址和 Key" : issues[0].message);
-    focusEditorField(issues[0].field);
-    return;
-  }
   showCatalogError("");
   const reconfirmKey = isSavedKeyReconfirmRequired(draft);
   const providerId = reconfirmKey ? "" : state.editingId;
