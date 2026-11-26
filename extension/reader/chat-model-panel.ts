@@ -18,8 +18,8 @@ import {
   resolveNodeDocument,
   resolveNodeWindow,
   safeRemoveListener,
-  scheduleActiveAnimationFrame,
-  type ActiveAnimationFrameHandle,
+  scheduleMigratingFrame,
+  type MigratingFrameHandle,
 } from "../shared/cross-doc.js";
 import { trySetPointerCapture } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -192,7 +192,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   let isBursting = false;
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
   let renderedWebSearchEnabled: boolean | null = null;
-  let widthRafHandle: ActiveAnimationFrameHandle | null = null;
+  let widthRafHandle: MigratingFrameHandle | null = null;
 
   function getProviderGroups(): ProviderGroup[] {
     return chatSessionState.providers
@@ -347,14 +347,22 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     chip.style.width = `${nextWidth}px`;
   }
 
-  function scheduleChipWidthUpdate(): void {
+  function scheduleChipWidthUpdate(preferredWin?: Window | null): void {
     if (widthRafHandle) {
       return;
     }
-    widthRafHandle = scheduleActiveAnimationFrame(() => {
-      widthRafHandle = null;
-      updateChipWidth();
-    }, chip ? resolveNodeWindow(chip) : getActiveReaderWindow());
+    let fired = false;
+    const handle = scheduleMigratingFrame(
+      () => {
+        fired = true;
+        widthRafHandle = null;
+        updateChipWidth();
+      },
+      { targetNode: chip, preferredWin }
+    );
+    if (!fired) {
+      widthRafHandle = handle;
+    }
   }
 
   function measureModelPanelWidth(): number {
@@ -1061,7 +1069,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     boundResizeWin = ctx.win;
     boundResizeWin?.addEventListener("resize", onChipResize);
     if (chip?.isConnected) {
-      scheduleChipWidthUpdate();
+      scheduleChipWidthUpdate(ctx.win);
     }
   });
 

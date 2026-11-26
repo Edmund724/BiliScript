@@ -1,5 +1,5 @@
-import { getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
-import { isEditableTarget, resolveNodeWindow, scheduleActiveAnimationFrame } from "../shared/cross-doc.js";
+import { getActiveReaderWindow } from "../shared/active-host.js";
+import { isEditableTarget, isNode, scheduleMigratingFrame } from "../shared/cross-doc.js";
 
 export const DEFAULT_FOLLOW_THRESHOLD_PX = 40;
 export const DEFAULT_BUTTON_THRESHOLD_PX = 120;
@@ -21,53 +21,6 @@ export interface ChatScrollFollowController {
   reset: () => void;
   bind: () => void;
   isHolding: () => boolean;
-}
-
-function scheduleDefaultFrame(
-  cb: () => void,
-  targetNode?: unknown,
-  preferredWin?: Window | null
-): () => void {
-  let nodeWin: Window | null | undefined = preferredWin;
-  if (!nodeWin) {
-    try {
-      nodeWin =
-        targetNode && typeof targetNode === "object" && "nodeType" in targetNode
-          ? resolveNodeWindow(targetNode as Node)
-          : getActiveReaderWindow();
-    } catch {
-      nodeWin = getActiveReaderWindow();
-    }
-  }
-  if (typeof nodeWin?.requestAnimationFrame === "function") {
-    const handle = scheduleActiveAnimationFrame(cb, nodeWin);
-    return () => handle.cancel();
-  }
-  let cleared = false;
-  let timerId: ReturnType<typeof setTimeout> | number;
-  let usedWin = false;
-  try {
-    if (typeof nodeWin?.setTimeout === "function") {
-      timerId = nodeWin.setTimeout(cb, 16);
-      usedWin = true;
-    } else {
-      timerId = setTimeout(cb, 16);
-    }
-  } catch {
-    timerId = setTimeout(cb, 16);
-  }
-  return () => {
-    if (cleared) return;
-    cleared = true;
-    if (usedWin) {
-      try {
-        nodeWin?.clearTimeout(timerId as number);
-        return;
-      } catch {
-      }
-    }
-    clearTimeout(timerId);
-  };
 }
 
 export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatScrollFollowController {
@@ -98,7 +51,6 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     : null;
 
   let cancelScheduledFrame: (() => void) | null = null;
-  let stopFrameHostWatch: (() => void) | null = null;
   let scrollBottomHold = false;
 
   function computeDistances(): { nearBottom: boolean; showButton: boolean } {
@@ -134,13 +86,7 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     deps.messages.addEventListener("keydown", releaseScrollBottomHold);
   }
 
-  function clearFrameHostWatch(): void {
-    stopFrameHostWatch?.();
-    stopFrameHostWatch = null;
-  }
-
   function cancelPendingFrame(): void {
-    clearFrameHostWatch();
     if (cancelScheduledFrame !== null) {
       const cancel = cancelScheduledFrame;
       cancelScheduledFrame = null;
@@ -152,7 +98,6 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
   }
 
   function flushScrollAutoScrollSync(): void {
-    clearFrameHostWatch();
     cancelScheduledFrame = null;
     const { nearBottom, showButton } = computeDistances();
     if (!nearBottom && scrollBottomHold) {
@@ -164,24 +109,22 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     setScrollBottomVisible(showButton);
   }
 
-  function schedulePendingFrame(preferredWin?: Window | null): void {
-    cancelScheduledFrame = scheduleCustomFrame
-      ? scheduleCustomFrame(flushScrollAutoScrollSync)
-      : scheduleDefaultFrame(flushScrollAutoScrollSync, deps.messages, preferredWin);
-    if (!scheduleCustomFrame && !stopFrameHostWatch) {
-      stopFrameHostWatch = onActiveHostChange((ctx) => {
-        if (cancelScheduledFrame === null) {
-          clearFrameHostWatch();
-          return;
-        }
-        const cancel = cancelScheduledFrame;
-        cancelScheduledFrame = null;
-        try {
-          cancel();
-        } catch {
-        }
-        schedulePendingFrame(ctx.win);
-      });
+  function schedulePendingFrame(): void {
+    let fired = false;
+    const onFrame = () => {
+      fired = true;
+      flushScrollAutoScrollSync();
+    };
+    const cancel = scheduleCustomFrame
+      ? scheduleCustomFrame(onFrame)
+      : (() => {
+          const handle = scheduleMigratingFrame(onFrame, {
+            targetNode: isNode(deps.messages) ? deps.messages : null
+          });
+          return () => handle.cancel();
+        })();
+    if (!fired) {
+      cancelScheduledFrame = cancel;
     }
   }
 

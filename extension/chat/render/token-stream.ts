@@ -1,13 +1,9 @@
-import {
-  getActiveReaderDocument,
-  getActiveReaderWindow,
-  onActiveHostChange,
-} from "../../shared/active-host.js";
+import { getActiveReaderDocument } from "../../shared/active-host.js";
 import {
   resolveNodeDocument,
-  resolveNodeWindow,
-  scheduleActiveAnimationFrame,
-  type ActiveAnimationFrameHandle,
+  scheduleMigratingFrame,
+  yieldToActiveMainThread,
+  type MigratingFrameHandle,
 } from "../../shared/cross-doc.js";
 import {
   createMarkdownStreamSession,
@@ -68,33 +64,8 @@ function freshTokenStreamState(): TokenStreamState {
   };
 }
 
-function yieldToMain(): Promise<void> {
-  const activeWin = getActiveReaderWindow();
-  try {
-    if (activeWin && !activeWin.closed) {
-      const scheduler = (activeWin as Window & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
-      if (scheduler && typeof scheduler.yield === "function") {
-        return scheduler.yield();
-      }
-    }
-  } catch {
-  }
-  return new Promise((resolve) => {
-    try {
-      if (activeWin && !activeWin.closed && typeof activeWin.setTimeout === "function") {
-        activeWin.setTimeout(resolve, 0);
-        return;
-      }
-    } catch {
-    }
-    setTimeout(resolve, 0);
-  });
-}
-
 export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamController {
-  let tokenFlushCancel: (() => void) | null = null;
-  let pendingTokenNode: HTMLDivElement | null = null;
-  let stopTokenHostWatch: (() => void) | null = null;
+  let tokenFlushFrame: MigratingFrameHandle | null = null;
   let tokenFlushEpoch = 0;
   const tokenStreamStates = new WeakMap<HTMLElement, TokenStreamState>();
 
@@ -139,30 +110,17 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
     return sessionRaw + state.pending.join("") + state.charQueue;
   }
 
-  function clearTokenHostWatch(): void {
-    stopTokenHostWatch?.();
-    stopTokenHostWatch = null;
-  }
-
   function cancelFlush(): void {
     tokenFlushEpoch++;
-    clearTokenHostWatch();
-    pendingTokenNode = null;
-    if (!tokenFlushCancel) {
+    if (!tokenFlushFrame) {
       return;
     }
-    const cancel = tokenFlushCancel;
-    tokenFlushCancel = null;
-    try {
-      cancel();
-    } catch {
-    }
+    const frame = tokenFlushFrame;
+    tokenFlushFrame = null;
+    frame.cancel();
   }
 
   const flush = async (node: HTMLDivElement) => {
-    tokenFlushCancel = null;
-    pendingTokenNode = null;
-    clearTokenHostWatch();
     const epoch = ++tokenFlushEpoch;
     const state = getState(node);
     let delta: string;
@@ -192,7 +150,7 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
         if (epoch !== tokenFlushEpoch) {
           return;
         }
-        await yieldToMain();
+        await yieldToActiveMainThread();
         if (epoch !== tokenFlushEpoch) {
           return;
         }
@@ -212,63 +170,23 @@ export function createTokenStreamController(deps: TokenStreamDeps): TokenStreamC
     }
   };
 
-  function scheduleTokenFlush(node: HTMLDivElement, preferredWin?: Window | null): void {
-    if (tokenFlushCancel) {
+  function scheduleTokenFlush(node: HTMLDivElement): void {
+    if (tokenFlushFrame) {
       return;
     }
-    pendingTokenNode = node;
-    const runFlush = () => {
-      flush(node).catch((err: unknown) => {
-        console.error("[chat-runtime] 流式渲染 flush 失败：", err);
-      });
-    };
-    const win = preferredWin ?? resolveNodeWindow(node);
-    if (typeof win?.requestAnimationFrame === "function") {
-      const handle: ActiveAnimationFrameHandle = scheduleActiveAnimationFrame(runFlush, win);
-      tokenFlushCancel = () => handle.cancel();
-    } else {
-      let cleared = false;
-      let timerId: ReturnType<typeof setTimeout> | number;
-      let usedWin = false;
-      try {
-        if (typeof win?.setTimeout === "function") {
-          timerId = win.setTimeout(runFlush, 16);
-          usedWin = true;
-        } else {
-          timerId = setTimeout(runFlush, 16);
-        }
-      } catch {
-        timerId = setTimeout(runFlush, 16);
-      }
-      tokenFlushCancel = () => {
-        if (cleared) return;
-        cleared = true;
-        if (usedWin) {
-          try {
-            win.clearTimeout(timerId as number);
-            return;
-          } catch {
-          }
-        }
-        clearTimeout(timerId);
-      };
-    }
-    if (!stopTokenHostWatch) {
-      stopTokenHostWatch = onActiveHostChange((ctx) => {
-        if (!tokenFlushCancel || !pendingTokenNode) {
-          clearTokenHostWatch();
-          return;
-        }
-        const nodeToFlush = pendingTokenNode;
-        const cancel = tokenFlushCancel;
-        tokenFlushCancel = null;
-        pendingTokenNode = null;
-        try {
-          cancel();
-        } catch {
-        }
-        scheduleTokenFlush(nodeToFlush, ctx.win);
-      });
+    let fired = false;
+    const frame = scheduleMigratingFrame(
+      () => {
+        fired = true;
+        tokenFlushFrame = null;
+        flush(node).catch((err: unknown) => {
+          console.error("[chat-runtime] 流式渲染 flush 失败：", err);
+        });
+      },
+      { targetNode: node }
+    );
+    if (!fired) {
+      tokenFlushFrame = frame;
     }
   }
 

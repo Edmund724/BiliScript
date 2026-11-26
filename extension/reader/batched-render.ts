@@ -1,11 +1,9 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
 import { clipState, state } from "../core/state.js";
-import { onActiveHostChange } from "../shared/active-host.js";
 import {
-  resolveNodeWindow,
-  scheduleActiveAnimationFrame,
-  type ActiveAnimationFrameHandle,
+  scheduleMigratingFrame,
+  type MigratingFrameHandle,
 } from "../shared/cross-doc.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
@@ -27,39 +25,8 @@ interface SubtitleAppendTask {
 }
 
 let subtitleAppendTask: SubtitleAppendTask | null = null;
-let subtitleAppendRaf: ActiveAnimationFrameHandle | null = null;
-let calibrationRaf: ActiveAnimationFrameHandle | null = null;
-let calibrationListEl: HTMLElement | null = null;
-let stopHostWatch: (() => void) | null = null;
-
-function maybeTeardownHostWatch(): void {
-  if (!subtitleAppendRaf && !calibrationRaf && stopHostWatch) {
-    stopHostWatch();
-    stopHostWatch = null;
-  }
-}
-
-function ensureHostWatch(): void {
-  if (stopHostWatch) {
-    return;
-  }
-  stopHostWatch = onActiveHostChange((ctx) => {
-    if (subtitleAppendRaf) {
-      subtitleAppendRaf.cancel();
-      subtitleAppendRaf = null;
-      if (subtitleAppendTask) {
-        subtitleAppendRaf = scheduleActiveAnimationFrame(appendReadingSubtitleBatch, ctx.win);
-      }
-    }
-    if (calibrationRaf && calibrationListEl) {
-      const targetList = calibrationListEl;
-      calibrationRaf.cancel();
-      calibrationRaf = null;
-      scheduleCalibration(targetList, ctx.win);
-    }
-    maybeTeardownHostWatch();
-  });
-}
+let subtitleAppendRaf: MigratingFrameHandle | null = null;
+let calibrationRaf: MigratingFrameHandle | null = null;
 
 const SECONDARY_LOADING_TEXT = "译文加载中…";
 const SECONDARY_FAIL_TEXT = "译文加载失败";
@@ -181,30 +148,34 @@ export function cancelReadingSubtitleAppend() {
     calibrationRaf.cancel();
     calibrationRaf = null;
   }
-  calibrationListEl = null;
   subtitleAppendTask = null;
-  maybeTeardownHostWatch();
 }
 
 function scheduleReadingSubtitleAppend() {
   if (subtitleAppendRaf) {
     return;
   }
-  ensureHostWatch();
-  const targetWin = resolveNodeWindow(subtitleAppendTask?.listEl);
-  subtitleAppendRaf = scheduleActiveAnimationFrame(appendReadingSubtitleBatch, targetWin);
+  let fired = false;
+  const handle = scheduleMigratingFrame(
+    () => {
+      fired = true;
+      appendReadingSubtitleBatch();
+    },
+    { targetNode: subtitleAppendTask?.listEl }
+  );
+  if (!fired) {
+    subtitleAppendRaf = handle;
+  }
 }
 
 function appendReadingSubtitleBatch() {
   subtitleAppendRaf = null;
   const task = subtitleAppendTask;
   if (!task) {
-    maybeTeardownHostWatch();
     return;
   }
   if (!task.listEl?.isConnected) {
     subtitleAppendTask = null;
-    maybeTeardownHostWatch();
     return;
   }
   const end = Math.min(task.items.length, task.cursor + TRANSCRIPT_APPEND_BATCH);
@@ -216,7 +187,6 @@ function appendReadingSubtitleBatch() {
     scheduleReadingSubtitleAppend();
   } else {
     subtitleAppendTask = null;
-    maybeTeardownHostWatch();
   }
 }
 
@@ -255,39 +225,43 @@ export function startReadingSubtitleAppendTask(task: SubtitleAppendTask) {
 
 const ITEM_ESTIMATE_VAR = "--biliscript-reader-item-estimate";
 
-function scheduleCalibration(listEl: HTMLElement, targetWin?: Window | null): void {
+function scheduleCalibration(listEl: HTMLElement): void {
   if (calibrationRaf) {
     calibrationRaf.cancel();
     calibrationRaf = null;
   }
-  calibrationListEl = listEl;
-  ensureHostWatch();
-  calibrationRaf = scheduleActiveAnimationFrame(() => {
-    calibrationRaf = null;
-    calibrationListEl = null;
-    maybeTeardownHostWatch();
-    if (!listEl.isConnected) {
-      return;
-    }
-    const listRect = listEl.getBoundingClientRect();
-    if (!(listRect.height > 0)) {
-      return;
-    }
-    let total = 0;
-    let count = 0;
-    for (const child of listEl.children) {
-      const rect = child.getBoundingClientRect();
-      if (rect.bottom <= listRect.top || rect.top >= listRect.bottom) {
-        continue;
+  let fired = false;
+  const handle = scheduleMigratingFrame(
+    () => {
+      fired = true;
+      calibrationRaf = null;
+      if (!listEl.isConnected) {
+        return;
       }
-      total += rect.height;
-      count += 1;
-    }
-    if (count < 3) {
-      return;
-    }
-    listEl.style.setProperty(ITEM_ESTIMATE_VAR, `${Math.round(total / count)}px`);
-  }, targetWin ?? resolveNodeWindow(listEl));
+      const listRect = listEl.getBoundingClientRect();
+      if (!(listRect.height > 0)) {
+        return;
+      }
+      let total = 0;
+      let count = 0;
+      for (const child of listEl.children) {
+        const rect = child.getBoundingClientRect();
+        if (rect.bottom <= listRect.top || rect.top >= listRect.bottom) {
+          continue;
+        }
+        total += rect.height;
+        count += 1;
+      }
+      if (count < 3) {
+        return;
+      }
+      listEl.style.setProperty(ITEM_ESTIMATE_VAR, `${Math.round(total / count)}px`);
+    },
+    { targetNode: listEl }
+  );
+  if (!fired) {
+    calibrationRaf = handle;
+  }
 }
 
 export function calibrateReadingSubtitleItemEstimate(listEl: HTMLElement) {

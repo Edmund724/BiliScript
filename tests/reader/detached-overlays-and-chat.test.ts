@@ -350,12 +350,10 @@ describe("reader 独立宿主：划词浮层、解释卡片、金句卡导出、
     expect(onInput).toHaveBeenCalledTimes(1);
   });
 
-  it("token-stream、thinking-buffer 与 replay 在 opener rAF 挂起时切换宿主可取消旧帧并在 detached 窗口完成渲染", async () => {
+  it("chat-model-panel 在 opener 测宽 rAF 挂起期间切换宿主时取消旧帧并在 detached 窗口完成宽度更新", async () => {
     const activeHost = await import("../../extension/shared/active-host.js");
-    const { createTokenStreamController } = await import("../../extension/chat/render/token-stream.js");
-    const { createThinkingBufferController } = await import("../../extension/chat/render/thinking-buffer.js");
-    const { createConversationReplay } = await import("../../extension/chat/replay.js");
-    const { applyConversationIdentity } = await import("../../extension/chat/chat-state.js");
+    const { createReaderChatModelPanel } = await import("../../extension/reader/chat-model-panel.js");
+    const { chatSessionStateForTests } = await import("../../extension/chat/chat-state.js");
 
     const openerRafQueue = new Map<number, FrameRequestCallback>();
     let nextOpenerId = 1;
@@ -368,88 +366,51 @@ describe("reader 独立宿主：划词浮层、解释卡片、金句卡导出、
       openerRafQueue.delete(id);
     });
 
-    const detachedRafQueue = new Map<number, FrameRequestCallback>();
-    let nextDetachedId = 1;
-    const detachedDoc = document.implementation.createHTMLDocument("Detached");
-    const detachedWin = {
-      closed: false,
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis),
-      requestAnimationFrame: vi.fn((cb: FrameRequestCallback) => {
-        const id = nextDetachedId++;
-        detachedRafQueue.set(id, cb);
-        return id;
-      }),
-      cancelAnimationFrame: vi.fn((id: number) => {
-        detachedRafQueue.delete(id);
-      }),
-    } as unknown as Window;
+    realm = createDetachedRealm();
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["AI"], enabled: true }];
+    chatSessionStateForTests.aiThinkingLevel = "off";
 
-    const tokenHost = document.createElement("div");
-    const thinkEl = document.createElement("div");
-    document.body.append(tokenHost, thinkEl);
+    const chip = document.createElement("button");
+    const chipModel = document.createElement("span");
+    const chipLevel = document.createElement("span");
+    chip.append(chipModel, chipLevel);
+    const panelList = document.createElement("div");
+    const panel = document.createElement("div");
+    const thinkingToggle = document.createElement("div");
+    const thinkingRow = document.createElement("div");
+    const thinkingRowValue = document.createElement("span");
+    document.body.append(chip, panel);
 
-    const stream = createTokenStreamController({
-      isSmoothStream: () => false,
-      scrollToBottom: vi.fn(),
-      onBodyStart: vi.fn(),
-    });
-    const thinking = createThinkingBufferController({
-      scrollToBottom: vi.fn(),
+    const modelPanel = createReaderChatModelPanel({
+      chip,
+      chipModel,
+      chipLevel,
+      panelList,
+      panel,
+      thinkingToggle,
+      thinkingRow,
+      thinkingRowValue,
+      hidePanel: vi.fn(),
+      openSettings: vi.fn(),
     });
 
-    applyConversationIdentity({ history: [{ role: "user", content: "hi" }] });
-    const replaySetAutoScroll = vi.fn();
-    const replayScrollToBottom = vi.fn();
-    const replay = createConversationReplay({
-      renderer: {
-        messageArea: {
-          clear: vi.fn(),
-          appendUserMessage: vi.fn(),
-          appendAssistantMessage: vi.fn(),
-        } as never,
-        setAutoScroll: replaySetAutoScroll,
-        scrollToBottom: replayScrollToBottom,
-      },
-      updateLayout: vi.fn(),
-      clearSuggestions: vi.fn(),
-    });
+    modelPanel.renderChip();
+    chip.style.width = "";
 
-    stream.appendToken(tokenHost, "Hello ");
-    thinking.append(thinkEl, "Step 1 ");
-    replay.render();
-    await vi.waitFor(() => {
-      expect(openerRafQueue.size).toBe(3);
-    });
+    window.dispatchEvent(new Event("resize"));
+    expect(openerRafQueue.size).toBe(1);
+    expect(chip.style.width).toBe("");
 
-    detachedDoc.body.appendChild(detachedDoc.adoptNode(tokenHost));
-    detachedDoc.body.appendChild(detachedDoc.adoptNode(thinkEl));
-    activeHost.setActiveReaderHost(detachedDoc, detachedWin);
+    realm.doc.body.appendChild(realm.doc.adoptNode(chip));
+    activeHost.setActiveReaderHost(realm.doc, realm.win);
 
-    expect(openerCancelSpy).toHaveBeenCalledTimes(3);
+    expect(openerCancelSpy).toHaveBeenCalledTimes(1);
     expect(openerRafQueue.size).toBe(0);
-    expect(detachedRafQueue.size).toBe(3);
+    expect(realm.rafQueue.size).toBe(1);
+    expect(chip.style.width).toBe("");
 
-    stream.appendToken(tokenHost, "Detached!");
-    thinking.append(thinkEl, "Step 2");
-
-    const callbacks = Array.from(detachedRafQueue.values());
-    detachedRafQueue.clear();
-    callbacks.forEach((cb) => cb(32));
-
-    await expect(
-      Promise.race([
-        replay.inFlight!.then(() => "settled"),
-        new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 200)),
-      ])
-    ).resolves.toBe("settled");
-
-    await vi.waitFor(() => {
-      expect(tokenHost.textContent).toContain("Hello Detached!");
-    });
-    expect(thinkEl.textContent).toBe("Step 1 Step 2");
-    expect(replaySetAutoScroll).toHaveBeenCalledWith(true);
-    expect(replayScrollToBottom).toHaveBeenCalledWith(true, { instant: true });
+    realm.flushRaf(32);
+    expect(chip.style.width).toMatch(/^\d+px$/);
   });
 
   it("quote-share-modal 在 host.isConnected 与 remove 抛错时仍通过宿主切换安全关闭", async () => {

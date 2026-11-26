@@ -3,11 +3,22 @@ import {
   getActiveReaderDocument,
   getActiveReaderWindow,
   getOpenerWindow,
+  onActiveHostChange,
 } from "./active-host.js";
 
 export interface ActiveAnimationFrameHandle {
   cancel(): void;
   window: Window;
+}
+
+export interface MigratingFrameHandle {
+  cancel(): void;
+}
+
+export interface ScheduleMigratingFrameOptions {
+  targetNode?: Node | null;
+  preferredWin?: Window | null;
+  fallbackMs?: number;
 }
 
 export function isNode(value: unknown): value is Node {
@@ -248,4 +259,229 @@ export function scheduleActiveAnimationFrame(
       }
     },
   };
+}
+
+function isLiveWindow(win: Window | null | undefined): win is Window {
+  if (!win) {
+    return false;
+  }
+  try {
+    return win.closed !== true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveMigratingInitialWindow(options?: ScheduleMigratingFrameOptions): Window | null {
+  if (options?.preferredWin) {
+    return options.preferredWin;
+  }
+  if (options?.targetNode && isNode(options.targetNode)) {
+    try {
+      const nodeWin = resolveNodeWindow(options.targetNode);
+      if (isLiveWindow(nodeWin)) {
+        return nodeWin;
+      }
+    } catch {
+    }
+  }
+  return getActiveReaderWindow();
+}
+
+function currentTimestamp(): number {
+  try {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+  } catch {
+  }
+  return Date.now();
+}
+
+export function scheduleMigratingFrame(
+  callback: FrameRequestCallback,
+  options?: ScheduleMigratingFrameOptions
+): MigratingFrameHandle {
+  const fallbackMs =
+    typeof options?.fallbackMs === "number" && options.fallbackMs >= 0 ? options.fallbackMs : 16;
+  let settled = false;
+  let attemptId = 0;
+  let cancelCurrent: (() => void) | null = null;
+  let stopHostWatch: (() => void) | null = null;
+
+  const cleanup = () => {
+    stopHostWatch?.();
+    stopHostWatch = null;
+    const cancel = cancelCurrent;
+    cancelCurrent = null;
+    if (cancel) {
+      try {
+        cancel();
+      } catch {
+      }
+    }
+  };
+
+  const scheduleOn = (candidateWin: Window | null | undefined) => {
+    if (settled) {
+      return;
+    }
+    const prevCancel = cancelCurrent;
+    cancelCurrent = null;
+    if (prevCancel) {
+      try {
+        prevCancel();
+      } catch {
+      }
+    }
+
+    const token = ++attemptId;
+    const targetWin = isLiveWindow(candidateWin) ? candidateWin : getActiveReaderWindow();
+    const onFire = (time: number) => {
+      if (settled || token !== attemptId) {
+        return;
+      }
+      settled = true;
+      cancelCurrent = null;
+      stopHostWatch?.();
+      stopHostWatch = null;
+      callback(time);
+    };
+
+    let hasWinRaf = false;
+    try {
+      hasWinRaf = isLiveWindow(targetWin) && typeof targetWin.requestAnimationFrame === "function";
+    } catch {
+      hasWinRaf = false;
+    }
+
+    if (hasWinRaf && targetWin) {
+      let rafId: number | null = null;
+      try {
+        rafId = targetWin.requestAnimationFrame(onFire);
+      } catch {
+        rafId = null;
+      }
+      if (rafId !== null) {
+        if (!settled && token === attemptId) {
+          let cancelledAttempt = false;
+          cancelCurrent = () => {
+            if (cancelledAttempt) {
+              return;
+            }
+            cancelledAttempt = true;
+            try {
+              if (typeof targetWin.cancelAnimationFrame === "function") {
+                targetWin.cancelAnimationFrame(rafId!);
+                return;
+              }
+            } catch {
+            }
+            try {
+              cancelAnimationFrame(rafId!);
+            } catch {
+            }
+          };
+        }
+        return;
+      }
+    }
+
+    let timerId: ReturnType<typeof setTimeout> | number;
+    let usedWinTimer = false;
+    const runFallback = () => onFire(currentTimestamp());
+    try {
+      if (isLiveWindow(targetWin) && typeof targetWin.setTimeout === "function") {
+        timerId = targetWin.setTimeout(runFallback, fallbackMs);
+        usedWinTimer = true;
+      } else {
+        timerId = setTimeout(runFallback, fallbackMs);
+      }
+    } catch {
+      timerId = setTimeout(runFallback, fallbackMs);
+    }
+
+    if (!settled && token === attemptId) {
+      let cancelledAttempt = false;
+      cancelCurrent = () => {
+        if (cancelledAttempt) {
+          return;
+        }
+        cancelledAttempt = true;
+        if (usedWinTimer && targetWin) {
+          try {
+            targetWin.clearTimeout(timerId as number);
+            return;
+          } catch {
+          }
+        }
+        try {
+          clearTimeout(timerId);
+        } catch {
+        }
+      };
+    }
+  };
+
+  scheduleOn(resolveMigratingInitialWindow(options));
+
+  if (!settled) {
+    stopHostWatch = onActiveHostChange((ctx) => {
+      if (settled) {
+        stopHostWatch?.();
+        stopHostWatch = null;
+        return;
+      }
+      scheduleOn(ctx.win);
+    });
+  }
+
+  return {
+    cancel() {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      attemptId += 1;
+      cleanup();
+    },
+  };
+}
+
+export function yieldToActiveMainThread(): Promise<void> {
+  const activeWin = getActiveReaderWindow();
+  const liveWin = isLiveWindow(activeWin) ? activeWin : null;
+  if (liveWin) {
+    try {
+      const schedulerApi = (
+        liveWin as Window & { scheduler?: { yield?: () => Promise<void> } }
+      ).scheduler;
+      if (typeof schedulerApi?.yield === "function") {
+        return schedulerApi.yield();
+      }
+    } catch {
+    }
+  } else {
+    try {
+      const globalScheduler = (
+        globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }
+      ).scheduler;
+      if (typeof globalScheduler?.yield === "function") {
+        return globalScheduler.yield();
+      }
+    } catch {
+    }
+  }
+  return new Promise((resolve) => {
+    if (liveWin) {
+      try {
+        if (typeof liveWin.setTimeout === "function") {
+          liveWin.setTimeout(resolve, 0);
+          return;
+        }
+      } catch {
+      }
+    }
+    setTimeout(resolve, 0);
+  });
 }
