@@ -44,10 +44,7 @@ beforeEach(() => {
 describe("LiveChatController AI volume", () => {
   async function setup(options: { initialSpeed?: number } = {}) {
     const port = new FakePort();
-    const volumeControl = document.createElement("details");
     const controller = createLiveChatController({
-      liveButton: document.createElement("button"),
-      volumeControl,
       initialVolume: 0.6,
       initialSpeed: options.initialSpeed,
       connectPort: () => port as any,
@@ -69,15 +66,14 @@ describe("LiveChatController AI volume", () => {
     });
     await controller.start();
     port.emit({ type: "connected" });
-    return { controller, port, volumeControl };
+    return { controller, port };
   }
 
   it("starts with the saved volume and forwards real-time changes", async () => {
-    const { controller, port, volumeControl } = await setup();
+    const { controller, port } = await setup();
     expect(port.postedMessages[0]).toMatchObject({ action: "start", volume: 0.6 });
-    expect(volumeControl.hidden).toBe(false);
+    expect(controller.getState()).toBe("connected");
 
-    volumeControl.open = true;
     controller.setVolume(0.35);
     expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 0.35 });
 
@@ -85,8 +81,7 @@ describe("LiveChatController AI volume", () => {
     expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 2 });
 
     await controller.stop();
-    expect(volumeControl.hidden).toBe(true);
-    expect(volumeControl.open).toBe(false);
+    expect(controller.getState()).toBe("idle");
   });
 
   it("adopts server-confirmed output volume and speed", async () => {
@@ -139,7 +134,6 @@ describe("LiveChatController voice priority and ducking", () => {
     let videoAudioStatus = "已获取音轨";
 
     const controller = createLiveChatController({
-      liveButton: document.createElement("button"),
       initialVolume: options.initialVolume ?? 1,
       initialVoicePriority: options.initialVoicePriority ?? true,
       initialShareVideoAudio: options.initialShareVideoAudio ?? true,
@@ -375,7 +369,6 @@ describe("LiveChatController voice priority and ducking", () => {
     const onStatusChange = vi.fn();
     const port = new FakePort();
     const controller = createLiveChatController({
-      liveButton: document.createElement("button"),
       initialShareVideoAudio: true,
       onVideoAudioStatusChange: onStatusChange,
       connectPort: () => port as any,

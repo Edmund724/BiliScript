@@ -260,7 +260,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
   it("伴看已处于开启状态下再次点击伴看按钮：调用独立会话 stopLiveCompanion 关闭伴看", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
-    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/live-overlay-binding.js");
+    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/player-live-toggle.js");
 
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);

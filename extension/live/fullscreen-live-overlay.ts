@@ -11,7 +11,7 @@ import {
   type ViewportDragOffset
 } from "./viewport-drag.js";
 import { bindAudioPopover, type AudioPopoverHandle } from "./audio-popover.js";
-import { getFullscreenHost } from "./fullscreen-host.js";
+import { getFullscreenHost } from "../bilibili/fullscreen.js";
 import {
   BILI_HOST_SELECTORS,
   biliHostAdapter,

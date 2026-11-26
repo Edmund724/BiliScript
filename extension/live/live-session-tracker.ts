@@ -8,6 +8,7 @@ import {
 import { hasHostPermission } from "../core/host-permissions.js";
 import { getProviderStore, getSettingsSnapshot } from "../core/settings-snapshot.js";
 import {
+  isGeminiLiveProvider,
   resolveActiveLiveProviderId,
   type LiveProvider
 } from "./live-provider-store.js";
@@ -274,8 +275,7 @@ export class LiveSessionTracker {
         };
       }
 
-      const isGeminiLive =
-        activeProvider.type === "gemini-live" || activeProvider.presetId === "gemini-live";
+      const isGeminiLive = isGeminiLiveProvider(activeProvider);
       let apiKey = "";
       if (isGeminiLive) {
         if (!isOfficialAiCredentialEndpoint("gemini-live", activeProvider.baseUrl)) {

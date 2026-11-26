@@ -832,10 +832,11 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
 
   sendDelegationResult(
     delegationId: string,
-    status: "completed" | "failed",
+    status: "in_progress" | "completed" | "failed",
     content: string,
     transport: LiveWireTransport
   ): boolean {
+    if (status === "in_progress") return false;
     if (!supportsGeminiNonBlockingTools(this.model)) {
       const name = this.activeVideoTaskCalls.get(delegationId);
       if (!name) return false;
@@ -904,32 +905,13 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
 }
 
 export class OffscreenGeminiLiveClient extends OffscreenLiveSessionRuntime {
-  private readonly geminiAdapter: GeminiWireAdapter;
-
   constructor(options: GeminiLiveClientOptions = {}) {
-    const adapter = new GeminiWireAdapter({
-      model: options.model,
-      liveGeminiNativeSearch: options.liveGeminiNativeSearch
-    });
-    super(adapter, options);
-    this.geminiAdapter = adapter;
-  }
-
-  handleAction(msg: MossLiveClientAction): void {
-    if (msg.action === "delegation_silent") {
-      this.geminiAdapter.sendDelegationSilent(msg.delegationId, msg.content, this.transport);
-      return;
-    }
-    if (msg.action === "delegation_result") {
-      if (msg.status === "in_progress") return;
-      this.geminiAdapter.sendDelegationResult(
-        msg.delegationId,
-        msg.status,
-        msg.content,
-        this.transport
-      );
-      return;
-    }
-    super.handleAction(msg);
+    super(
+      new GeminiWireAdapter({
+        model: options.model,
+        liveGeminiNativeSearch: options.liveGeminiNativeSearch
+      }),
+      options
+    );
   }
 }

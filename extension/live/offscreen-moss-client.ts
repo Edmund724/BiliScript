@@ -447,42 +447,7 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 }
 
 export class OffscreenMossLiveClient extends OffscreenLiveSessionRuntime {
-  private readonly mossAdapter: MossWireAdapter;
-
   constructor(options: OffscreenMossClientOptions = {}) {
-    const adapter = new MossWireAdapter();
-    super(adapter, options);
-    this.mossAdapter = adapter;
-  }
-
-  handleAction(msg: MossLiveClientAction): void {
-    if (msg.action === "delegation_silent") {
-      this.mossAdapter.sendDelegationSilent(msg.delegationId, msg.content, this.transport);
-      return;
-    }
-    if (msg.action === "delegation_result") {
-      this.mossAdapter.sendDelegationResult(msg.delegationId, msg.status, msg.content, this.transport);
-      return;
-    }
-    super.handleAction(msg);
-  }
-
-  sendAudioPcm(pcmBuffer: ArrayBufferLike | Uint8Array): boolean {
-    if (!this.micEnabled || this.state !== "connected") {
-      return false;
-    }
-    const bytes = pcmBuffer instanceof Uint8Array ? pcmBuffer : new Uint8Array(pcmBuffer);
-    return this.mossAdapter.sendAudio("", bytes as Uint8Array<ArrayBuffer>, this.transport);
-  }
-
-  sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
-    if (this.state !== "connected") {
-      return false;
-    }
-    return this.mossAdapter.sendVideoBuffer(jpegBuffer, this.transport);
-  }
-
-  sendBinary(tag: MossBinaryTag, payload: ArrayBufferLike | Uint8Array): boolean {
-    return this.mossAdapter.sendTaggedBinary(tag, payload, this.transport);
+    super(new MossWireAdapter(), options);
   }
 }

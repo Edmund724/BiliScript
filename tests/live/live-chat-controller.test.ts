@@ -160,9 +160,6 @@ describe("LiveChatController", () => {
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
   } = {}) {
-    const liveButton = document.createElement("button");
-    const muteButton = document.createElement("button");
-    muteButton.hidden = true;
     const showNotice = vi.fn();
     const fakePort = overrides.port || new FakePort();
     const connectPort = vi.fn(() => fakePort as any);
@@ -204,8 +201,6 @@ describe("LiveChatController", () => {
     });
 
     const controller = createLiveChatController({
-      liveButton,
-      muteButton,
       onSpeakingChange: overrides.onSpeakingChange,
       onStateChange: overrides.onStateChange,
       showNotice,
@@ -228,8 +223,6 @@ describe("LiveChatController", () => {
 
     return {
       controller,
-      liveButton,
-      muteButton,
       onSpeakingChange: overrides.onSpeakingChange,
       showNotice,
       fakePort,
@@ -245,15 +238,12 @@ describe("LiveChatController", () => {
     };
   }
 
-  it("initializes with idle state and appropriate attributes", () => {
-    const { controller, liveButton, muteButton } = setupTest();
+  it("initializes with idle state", () => {
+    const { controller } = setupTest();
 
     expect(controller.getState()).toBe("idle");
-    expect(liveButton.dataset.state).toBe("idle");
-    expect(liveButton.getAttribute("aria-pressed")).toBe("false");
-    expect(liveButton.getAttribute("aria-busy")).toBe("false");
-    expect(liveButton.title).toContain("开启实时伴看");
-    expect(muteButton.hidden).toBe(true);
+    expect(controller.isMuted()).toBe(false);
+    expect(controller.isSpeaking()).toBe(false);
   });
 
   it("切换伴看平台保留当前连接，并提示重新连接后生效", async () => {
@@ -420,7 +410,7 @@ describe("LiveChatController", () => {
   });
 
   it("surfaces actionable re-save-in-settings error when background check detects revoked permission", async () => {
-    const { controller, liveButton, showNotice } = setupTest({
+    const { controller, showNotice } = setupTest({
       sendRuntimeMessage: async (msg: any) => {
         if (msg.type === "live-session-prepare") {
           return {
@@ -436,7 +426,6 @@ describe("LiveChatController", () => {
 
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
-    expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(controller.getLastError()).toBe(
       "未授予平台域名权限（https://custom.live.mosi.cn），请在设置中重新保存该平台以授予权限"
     );
@@ -445,7 +434,7 @@ describe("LiveChatController", () => {
 
   it("handles user denial of host permissions with actionable failure state", async () => {
     const onStateChange = vi.fn();
-    const { controller, liveButton, showNotice } = setupTest({
+    const { controller, showNotice } = setupTest({
       onStateChange,
       requestOrigins: async () => ({
         ok: false,
@@ -457,7 +446,6 @@ describe("LiveChatController", () => {
 
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
-    expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(controller.getLastError()).toContain("未授权 https://api.mosi.cn/*");
     expect(controller.getLastFailureKind()).toBe("permission-denied");
     expect(showNotice).not.toHaveBeenCalled();
@@ -470,7 +458,7 @@ describe("LiveChatController", () => {
 
   it("handles microphone permission denial with clear feedback and cleans up session rule", async () => {
     const onStateChange = vi.fn();
-    const { controller, liveButton, showNotice, connectPort, sendRuntimeMessage } = setupTest({
+    const { controller, showNotice, connectPort, sendRuntimeMessage } = setupTest({
       onStateChange,
       startAudioCapture: async () => {
         throw new Error("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
@@ -481,7 +469,6 @@ describe("LiveChatController", () => {
 
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
-    expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(controller.getLastError()).toBe("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
     expect(controller.getLastFailureKind()).toBe("microphone");
     expect(showNotice).not.toHaveBeenCalled();
@@ -525,7 +512,7 @@ describe("LiveChatController", () => {
   });
 
   it("handles preparation failure (e.g. missing API key) without opening microphone", async () => {
-    const { controller, liveButton, showNotice, startAudioCapture } = setupTest({
+    const { controller, showNotice, startAudioCapture } = setupTest({
       sendRuntimeMessage: async (msg: any) => {
         if (msg.type === "live-session-prepare") {
           return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
@@ -538,7 +525,6 @@ describe("LiveChatController", () => {
 
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
-    expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(controller.getLastError()).toBe("未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key");
     expect(showNotice).not.toHaveBeenCalled();
     expect(startAudioCapture).not.toHaveBeenCalled();
@@ -562,11 +548,10 @@ describe("LiveChatController", () => {
   });
 
   it("transitions to connecting, posts start to port, switches to connected, and streams mic audio frames", async () => {
-    const { controller, liveButton, muteButton, fakePort, getAudioCapture } = setupTest();
+    const { controller, fakePort, getAudioCapture } = setupTest();
 
     const startPromise = controller.start();
     expect(controller.getState()).toBe("connecting");
-    expect(liveButton.classList.contains("is-connecting")).toBe(true);
 
     const ok = await startPromise;
     expect(ok).toBe(true);
@@ -583,9 +568,6 @@ describe("LiveChatController", () => {
 
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
-    expect(liveButton.classList.contains("is-connected")).toBe(true);
-    expect(liveButton.getAttribute("aria-pressed")).toBe("true");
-    expect(muteButton.hidden).toBe(false);
 
     const capture = getAudioCapture()!;
     expect(capture).not.toBeNull();
@@ -745,20 +727,17 @@ describe("LiveChatController", () => {
   });
 
   it("toggles microphone mute, syncs mic_state over port, and suppresses upstream audio while muted", async () => {
-    const { controller, muteButton, fakePort, getAudioCapture } = setupTest();
+    const { controller, fakePort, getAudioCapture } = setupTest();
 
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     fakePort.postedMessages.length = 0;
 
     expect(controller.isMuted()).toBe(false);
-    expect(muteButton.getAttribute("aria-pressed")).toBe("false");
 
     controller.toggleMute();
     expect(controller.isMuted()).toBe(true);
     expect(getAudioCapture()?.isMuted()).toBe(true);
-    expect(muteButton.classList.contains("is-muted")).toBe(true);
-    expect(muteButton.getAttribute("aria-pressed")).toBe("true");
     expect(fakePort.postedMessages).toEqual([{ action: "mic_state", enabled: false }]);
 
     getAudioCapture()!.emitFrame(new Uint8Array([1, 2, 3, 4]));
@@ -767,7 +746,6 @@ describe("LiveChatController", () => {
     controller.toggleMute();
     expect(controller.isMuted()).toBe(false);
     expect(getAudioCapture()?.isMuted()).toBe(false);
-    expect(muteButton.classList.contains("is-muted")).toBe(false);
     expect(fakePort.postedMessages).toEqual([
       { action: "mic_state", enabled: false },
       { action: "mic_state", enabled: true }
@@ -833,7 +811,7 @@ describe("LiveChatController", () => {
   });
 
   it("transitions to failure, stops capture, disposes merger, and cleans up rule on port error message", async () => {
-    const { controller, liveButton, muteButton, fakePort, showNotice, sendRuntimeMessage, getAudioCapture, isMergerDisposed } =
+    const { controller, fakePort, showNotice, sendRuntimeMessage, getAudioCapture, isMergerDisposed } =
       setupTest();
 
     await controller.start();
@@ -843,8 +821,6 @@ describe("LiveChatController", () => {
     fakePort.simulateMessage({ type: "error", error: "WebSocket 连接失败" });
 
     expect(controller.getState()).toBe("failure");
-    expect(liveButton.classList.contains("is-failure")).toBe(true);
-    expect(muteButton.hidden).toBe(true);
     expect(getAudioCapture()?.stopped).toBe(true);
     expect(isMergerDisposed()).toBe(true);
     expect(controller.getLastError()).toBe("伴看连接已断开。");
@@ -948,7 +924,7 @@ describe("LiveChatController", () => {
   });
 
   it("stop() closes connection, stops mic capture, calls cleanup, and resets to idle", async () => {
-    const { controller, liveButton, muteButton, fakePort, sendRuntimeMessage, getAudioCapture } = setupTest();
+    const { controller, fakePort, sendRuntimeMessage, getAudioCapture } = setupTest();
 
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
@@ -956,9 +932,7 @@ describe("LiveChatController", () => {
     await controller.stop();
 
     expect(controller.getState()).toBe("idle");
-    expect(liveButton.dataset.state).toBe("idle");
-    expect(liveButton.classList.contains("is-connected")).toBe(false);
-    expect(muteButton.hidden).toBe(true);
+    expect(controller.isMuted()).toBe(false);
     expect(getAudioCapture()?.stopped).toBe(true);
     expect(fakePort.postedMessages).toContainEqual({ action: "stop" });
     expect(fakePort.disconnected).toBe(true);
@@ -977,7 +951,7 @@ describe("LiveChatController", () => {
   });
 
   it("rejects late events from stopped session (generation check)", async () => {
-    const { controller, liveButton, fakePort } = setupTest();
+    const { controller, fakePort } = setupTest();
 
     await controller.start();
     await controller.stop();
@@ -986,7 +960,6 @@ describe("LiveChatController", () => {
     fakePort.simulateMessage({ type: "connected" });
 
     expect(controller.getState()).toBe("idle");
-    expect(liveButton.classList.contains("is-connected")).toBe(false);
   });
 
   it("regression: when stop() races in-flight live-session-prepare, stale return cleans up session rule", async () => {
@@ -1032,12 +1005,10 @@ describe("LiveChatController video context and page tools", () => {
     videoBackendTaskManager?: LiveVideoBackendTaskManager;
     persistTextToolRecord?: (record: import("../../extension/live/live-text-tool-records.js").LiveTextToolRecord) => Promise<void> | void;
   }) {
-    const liveButton = document.createElement("button");
     const fakePort = new FakePort();
     let audioCapture: FakeAudioCapture | null = null;
     let videoCapture: FakeVideoCapture | null = null;
     const controller = createLiveChatController({
-      liveButton,
       connectPort: () => fakePort as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
@@ -1537,9 +1508,7 @@ describe("LiveChatController video context and page tools", () => {
       const fakePort = new FakePort();
       const showNotice = vi.fn();
       const onReconnecting = vi.fn();
-      const liveBtn = document.createElement("button");
       const controller = createLiveChatController({
-        liveButton: liveBtn,
         connectPort: () => fakePort as any,
         requestOrigins: async () => ({ ok: true }),
         sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
@@ -1893,7 +1862,6 @@ describe("LiveChatController 音色选择", () => {
       return { ok: true };
     });
     const controller = createLiveChatController({
-      liveButton: document.createElement("button"),
       showNotice,
       connectPort: () => fakePort as any,
       requestOrigins: async () => ({ ok: true }),

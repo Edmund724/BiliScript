@@ -2,7 +2,7 @@ import { ids } from "../shared/dom-ids.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { ensureLiveRoomSettingsStyles } from "../shared/style-injector.js";
 import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
-import { getFullscreenHost } from "./fullscreen-host.js";
+import { getFullscreenHost } from "../bilibili/fullscreen.js";
 import type { LiveChatState } from "./live-chat-controller.js";
 import {
   createProviderSettingsHost,

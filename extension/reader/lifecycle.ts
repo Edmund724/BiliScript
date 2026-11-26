@@ -3,13 +3,17 @@ import { getCurrentClipScope } from "../shared/content-event-bus.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import {
   activeById,
-  getActiveReaderDocument,
   getOpenerDocument,
   isReaderDetached,
   resetActiveReaderHost
 } from "../shared/active-host.js";
-import { closeDetachedWindowHost, syncDetachedWindowHostTitle } from "./detached-window.js";
-import { clearMirroredStyles } from "../shared/style-injector.js";
+import {
+  blurActiveFocusInside,
+  closeDetachedWindowHost,
+  formatDetachedWindowTitle,
+  reclaimDetachedViewToOpener,
+  syncDetachedWindowHostTitle
+} from "./detached-window.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts, readerPorts } from "./reader-bus.js";
@@ -259,7 +263,7 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
       applyReadingViewPresentation();
       const clipTitle = String(state.clip.title || "").trim();
       if (clipTitle) {
-        syncDetachedWindowHostTitle(`${clipTitle} - 文摘`);
+        syncDetachedWindowHostTitle(formatDetachedWindowTitle(clipTitle));
       }
     } else {
       relayoutScriptHost();
@@ -336,7 +340,7 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent): 
         if (isReaderDetached()) {
           const clipTitle = String(state.clip.title || "").trim();
           if (clipTitle) {
-            syncDetachedWindowHostTitle(`${clipTitle} - 文摘`);
+            syncDetachedWindowHostTitle(formatDetachedWindowTitle(clipTitle));
           }
         }
         renderReadingView();
@@ -499,25 +503,6 @@ function setReadingViewInert(readingView: HTMLElement, inert: boolean): void {
   readingView.toggleAttribute("inert", inert);
 }
 
-function blurActiveFocusInside(container: HTMLElement): boolean {
-  const ownerDoc = container.ownerDocument ?? getActiveReaderDocument();
-  const active = ownerDoc.activeElement;
-  const contained = Boolean(active && container.contains(active as Node));
-  if (contained && typeof (active as HTMLElement | null)?.blur === "function") {
-    (active as HTMLElement).blur();
-  }
-  const openerDoc = getOpenerDocument();
-  if (contained && ownerDoc !== openerDoc) {
-    const openerActive = openerDoc.activeElement as
-      | (HTMLElement & { contentDocument?: Document | null })
-      | null;
-    if (openerActive?.contentDocument === ownerDoc && typeof openerActive.blur === "function") {
-      openerActive.blur();
-    }
-  }
-  return contained;
-}
-
 function openReaderViewShell(
   readingView = requireReadingView(),
   mode: "open" | "restore" = "open"
@@ -574,29 +559,15 @@ export function closeReadingView() {
     readerReturnFocus = null;
   }
   if (readingView && readingView.ownerDocument !== openerDoc) {
-    const detachedDoc = readingView.ownerDocument;
-    if (detachedDoc) {
-      detachedDoc.documentElement?.removeAttribute("data-biliscript-detached");
-      detachedDoc.documentElement?.removeAttribute("data-biliscript-reader-mode");
-      detachedDoc.body?.removeAttribute("data-biliscript-detached");
-      detachedDoc.body?.removeAttribute("data-biliscript-reader-mode");
-      detachedDoc.body?.removeAttribute("data-biliscript-reading-active");
-      clearMirroredStyles(detachedDoc);
-    }
-    let root = openerDoc.getElementById(ids.root);
-    if (!root) {
-      root = openerDoc.createElement("div");
-      root.id = ids.root;
-      openerDoc.body.appendChild(root);
-    }
-    try {
-      readingView = openerDoc.adoptNode(readingView) as HTMLElement;
-    } catch {
-    }
-    root.appendChild(readingView);
+    readingView = reclaimDetachedViewToOpener({
+      readingView,
+      rootId: ids.root,
+      detachedDoc: readingView.ownerDocument
+    });
+  } else {
+    resetActiveReaderHost();
   }
   state.reader.setDetachedMode(null);
-  resetActiveReaderHost();
   closeDetachedWindowHost(true);
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
@@ -670,12 +641,8 @@ export function updateReaderPreferences(next: Partial<Record<string, unknown>>, 
   applyReadingViewPresentation();
   renderReaderPanels();
   if (persist) {
-    persistReaderSettings();
+    persistReaderSettingsThroughSeam();
   }
-}
-
-function persistReaderSettings() {
-  persistReaderSettingsThroughSeam();
 }
 
 function setReadingViewReady(ready: boolean) {

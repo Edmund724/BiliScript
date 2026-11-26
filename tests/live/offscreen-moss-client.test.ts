@@ -12,6 +12,7 @@ import {
   MOSS_DOWNSTREAM_SAMPLE_RATE,
   MossBinaryTag,
   buildMinimalSessionUpdatePayload,
+  encodeBase64Bytes,
   encodeFloat32ToPcmS16LE,
   type MossLiveTranscriptEvent
 } from "../../extension/live/moss-live-protocol.js";
@@ -933,29 +934,30 @@ describe("OffscreenMossLiveClient", () => {
       ws.sentData.length = 0;
 
       const pcm640 = new Uint8Array(640).fill(0x11);
-      expect(client.sendAudioPcm(pcm640.buffer)).toBe(true);
+      const pcm640Base64 = encodeBase64Bytes(pcm640);
+      client.handleAction({ action: "audio", pcmBase64: pcm640Base64 });
       expect(ws.sentData).toHaveLength(1);
       const sentFrame = ws.sentData[0] as Uint8Array;
       expect(sentFrame.byteLength).toBe(641);
       expect(sentFrame[0]).toBe(MossBinaryTag.AudioPcm);
 
-      client.setMicEnabled(false);
+      client.handleAction({ action: "mic_state", enabled: false });
       expect(ws.sentData).toHaveLength(2);
       expect(JSON.parse(ws.sentData[1])).toEqual({
         action: "mic_state",
         enabled: false
       });
 
-      expect(client.sendAudioPcm(pcm640.buffer)).toBe(false);
+      client.handleAction({ action: "audio", pcmBase64: pcm640Base64 });
       expect(ws.sentData).toHaveLength(2);
 
-      client.setMicEnabled(true);
+      client.handleAction({ action: "mic_state", enabled: true });
       expect(ws.sentData).toHaveLength(3);
       expect(JSON.parse(ws.sentData[2])).toEqual({
         action: "mic_state",
         enabled: true
       });
-      expect(client.sendAudioPcm(pcm640.buffer)).toBe(true);
+      client.handleAction({ action: "audio", pcmBase64: pcm640Base64 });
       expect(ws.sentData).toHaveLength(4);
     });
 
@@ -973,7 +975,7 @@ describe("OffscreenMossLiveClient", () => {
       pcm1280.fill(0x11, 0, 640);
       pcm1280.fill(0x22, 640, 1280);
 
-      expect(client.sendAudioPcm(pcm1280.buffer)).toBe(true);
+      client.handleAction({ action: "audio", pcmBase64: encodeBase64Bytes(pcm1280) });
       expect(ws.sentData).toHaveLength(2);
       const frame1 = ws.sentData[0] as Uint8Array;
       const frame2 = ws.sentData[1] as Uint8Array;
@@ -996,7 +998,8 @@ describe("OffscreenMossLiveClient", () => {
       ws.sentData.length = 0;
 
       const jpeg = new Uint8Array([0xff, 0xd8, 0x11, 0xff, 0xd9]);
-      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(true);
+      const jpegBase64 = encodeBase64Bytes(jpeg);
+      client.handleAction({ action: "video", jpegBase64 });
       expect(ws.sentData).toHaveLength(1);
       const sentFrame = ws.sentData[0] as Uint8Array;
       expect(sentFrame[0]).toBe(MossBinaryTag.ScreenJpeg);
@@ -1022,7 +1025,9 @@ describe("OffscreenMossLiveClient", () => {
       expect(Array.from(replayedFrame.subarray(1))).toEqual(Array.from(jpeg));
 
       client.close();
-      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(false);
+      ws.sentData.length = 0;
+      client.handleAction({ action: "video", jpegBase64 });
+      expect(ws.sentData).toHaveLength(0);
     });
 
     it("forwards input/output transcript and response.ended events to onTranscript", () => {

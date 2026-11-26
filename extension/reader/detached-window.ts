@@ -1,6 +1,12 @@
 import { type DetachedWindowMode } from "../core/defaults.js";
 import { clampDetachedWindowBounds, type DetachedWindowBounds } from "../core/detached-bounds-store.js";
-import { getOpenerWindow } from "../shared/active-host.js";
+import {
+  getActiveReaderDocument,
+  getOpenerDocument,
+  getOpenerWindow,
+  resetActiveReaderHost
+} from "../shared/active-host.js";
+import { clearMirroredStyles } from "../shared/style-injector.js";
 
 export type { DetachedWindowMode, DetachedWindowBounds };
 
@@ -467,4 +473,96 @@ export function syncDetachedWindowHostTitle(title: string): void {
     }
   } catch {
   }
+}
+
+export function formatDetachedWindowTitle(
+  clipTitle?: string | null,
+  fallbackDocTitle?: string | null
+): string {
+  const normalizedClip = String(clipTitle || "").trim();
+  if (normalizedClip) {
+    return `${normalizedClip} - 文摘`;
+  }
+  const normalizedDoc = String(fallbackDocTitle || "").trim();
+  return normalizedDoc ? `${normalizedDoc} - 文摘` : "文摘";
+}
+
+export function applyDetachedHostDocumentAttrs(targetDoc: Document): void {
+  try {
+    targetDoc.documentElement?.setAttribute("data-biliscript-reader-mode", "1");
+    targetDoc.documentElement?.setAttribute("data-biliscript-detached", "1");
+    targetDoc.body?.setAttribute("data-biliscript-reader-mode", "1");
+    targetDoc.body?.setAttribute("data-biliscript-reading-active", "1");
+    targetDoc.body?.setAttribute("data-biliscript-detached", "1");
+  } catch {
+  }
+}
+
+export function clearDetachedHostDocument(targetDoc: Document): void {
+  try {
+    targetDoc.documentElement?.removeAttribute("data-biliscript-detached");
+    targetDoc.documentElement?.removeAttribute("data-biliscript-reader-mode");
+    targetDoc.body?.removeAttribute("data-biliscript-detached");
+    targetDoc.body?.removeAttribute("data-biliscript-reader-mode");
+    targetDoc.body?.removeAttribute("data-biliscript-reading-active");
+  } catch {
+  }
+  clearMirroredStyles(targetDoc);
+}
+
+export function blurActiveFocusInside(container: HTMLElement | null): boolean {
+  if (!container) {
+    return false;
+  }
+  const ownerDoc = container.ownerDocument ?? getActiveReaderDocument();
+  const active = ownerDoc.activeElement;
+  const contained = Boolean(active && container.contains(active as Node));
+  if (contained && typeof (active as HTMLElement | null)?.blur === "function") {
+    (active as HTMLElement).blur();
+  }
+  const openerDoc = getOpenerDocument();
+  if (contained && ownerDoc !== openerDoc) {
+    const openerActive = openerDoc.activeElement as
+      | (HTMLElement & { contentDocument?: Document | null })
+      | null;
+    if (openerActive?.contentDocument === ownerDoc && typeof openerActive.blur === "function") {
+      openerActive.blur();
+    }
+  }
+  return contained;
+}
+
+export function reclaimDetachedViewToOpener(options: {
+  readingView: HTMLElement | null;
+  rootId: string;
+  detachedDoc?: Document | null;
+}): HTMLElement | null {
+  const openerDoc = getOpenerDocument();
+  const targetDetachedDoc =
+    options.detachedDoc ??
+    (options.readingView && options.readingView.ownerDocument !== openerDoc
+      ? options.readingView.ownerDocument
+      : null);
+  if (targetDetachedDoc && targetDetachedDoc !== openerDoc) {
+    clearDetachedHostDocument(targetDetachedDoc);
+  }
+  let reclaimed = options.readingView;
+  if (reclaimed) {
+    reclaimed.removeAttribute("data-biliscript-detached");
+    let root = openerDoc.getElementById(options.rootId);
+    if (!root) {
+      root = openerDoc.createElement("div");
+      root.id = options.rootId;
+      openerDoc.body.appendChild(root);
+    }
+    if (reclaimed.ownerDocument !== openerDoc || !root.contains(reclaimed)) {
+      try {
+        reclaimed = openerDoc.adoptNode(reclaimed) as HTMLElement;
+      } catch {
+      }
+      root.appendChild(reclaimed);
+    }
+  }
+  resetActiveReaderHost();
+  return reclaimed;
 }

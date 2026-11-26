@@ -6,17 +6,7 @@ import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { persistLiveAudioSettings, watchLiveAudioSettings } from "./live-audio-settings.js";
-import {
-  PLAYER_LIVE_TOGGLE_THROTTLE_MS,
-  createThrottledLiveToggleHandler,
-  isControlBarLiveToggleMounted,
-  mountControlBarLiveToggle,
-  resolveLiveToggleLabel,
-  syncPlayerLiveQuickActionState,
-  syncPlayerLiveToggleButton,
-  type ControlBarLiveTogglePlacementOptions,
-  type SyncPlayerLiveToggleButtonOptions
-} from "./player-live-toggle.js";
+import { syncPlayerLiveQuickActionState } from "./player-live-toggle.js";
 import {
   createFullscreenLiveOverlay,
   type FullscreenLiveOverlay,
@@ -31,18 +21,6 @@ import {
 } from "./live-chat-controller.js";
 import type { MossLiveSessionContext, MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
-
-export {
-  PLAYER_LIVE_TOGGLE_THROTTLE_MS,
-  createThrottledLiveToggleHandler,
-  isControlBarLiveToggleMounted,
-  mountControlBarLiveToggle,
-  resolveLiveToggleLabel,
-  syncPlayerLiveQuickActionState,
-  syncPlayerLiveToggleButton,
-  type ControlBarLiveTogglePlacementOptions,
-  type SyncPlayerLiveToggleButtonOptions
-};
 
 export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR = ANY_PLAYER_HOST_SELECTOR;
 

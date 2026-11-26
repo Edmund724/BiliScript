@@ -5,18 +5,14 @@ import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedPage } from "../bilibili/video-id-shared.js";
 import { isYoutubeWatchPage } from "../shared/site.js";
 import { openOnboardingPage, runOnInstalled } from "./on-installed.js";
+import { sendMessageToTab, waitForTabComplete } from "../shared/tab-utils.js";
 import {
-  EXPECTED_CONTENT_SCRIPT_VERSION,
-  injectReaderContent,
-  probeContentScriptVersion,
-  triggerReaderModeInTab,
-  triggerReaderModeToggleInTab
-} from "./content-orchestration-wiring.js";
-import { isBenignTabUnavailableError } from "../core/background-content-orchestration.js";
+  createBackgroundContentOrchestrator,
+  isBenignTabUnavailableError
+} from "../core/background-content-orchestration.js";
 import {
   applyUnsupportedPageFeedback,
   clearUnsupportedPageFeedback,
-  isToastEligibleHostPage,
   showUnsupportedPageToast
 } from "./unsupported-page-feedback.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
@@ -101,6 +97,49 @@ import {
   type LiveProviderListEntry,
   type YoutubePageSnapshot
 } from "../shared/messaging-protocol.js";
+
+const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
+
+const {
+  probeContentScriptVersion,
+  injectReaderContent,
+  triggerReaderModeInTab,
+  triggerReaderEntryInTab
+} = createBackgroundContentOrchestrator({
+  probeOnce: async (tabId: number) => {
+    const probe = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => (globalThis as Record<string, unknown>).__BILISCRIPT_CONTENT_SCRIPT_LOADED__ || ""
+    });
+    return String(probe?.[0]?.result || "");
+  },
+  injectAssets: async (tabId: number) => {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["entry/content-resident.iife.js"]
+    });
+  },
+  reloadTab: (tabId: number) => chrome.tabs.reload(tabId),
+  waitForTabComplete,
+  sendMessageToTab,
+  canInject: (tabId: number) => Boolean(chrome.scripting) && Boolean(tabId),
+  expectedVersion: EXPECTED_CONTENT_SCRIPT_VERSION,
+  entryFeedback: {
+    clearUnsupportedPageFeedback,
+    applyUnsupportedPageFeedback,
+    showUnsupportedPageToast,
+    showTriggerFailureBadge: async (tabId: number) => {
+      await Promise.allSettled([
+        chrome.action.setBadgeText({ tabId, text: "!" }),
+        chrome.action.setTitle({
+          tabId,
+          title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
+        })
+      ]);
+    },
+    logWarnAlways
+  }
+});
 
 const saveSettingsWithInvalidate = invalidatingWrite(
   saveSettings,
@@ -843,29 +882,38 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
   };
 }
 
+function resolveYoutubeWatchScriptingTab(
+  sender: MessageSender,
+  missingTabError: string
+): { ok: true; tabId: number } | { ok: false; error: string } {
+  const tabId = Number(sender.tab?.id) || 0;
+  if (!tabId) {
+    return { ok: false, error: missingTabError };
+  }
+  if (!isYoutubeWatchPage(sender.tab?.url)) {
+    return { ok: false, error: "当前网页不是 YouTube 视频页" };
+  }
+  if (typeof chrome.scripting?.executeScript !== "function") {
+    return { ok: false, error: "scripting API 不可用" };
+  }
+  return { ok: true, tabId };
+}
+
 function handleYoutubePageSnapshot(
   _message: Msg<"youtube-page-snapshot">,
   sender: MessageSender,
   sendResponse: Reply<"youtube-page-snapshot">
 ): MessageReplyDecision {
-  const tabId = Number(sender.tab?.id) || 0;
-  if (!tabId) {
-    sendResponse({ ok: false, error: "仅支持标签页内请求 YouTube 页面快照" });
-    return "answered";
-  }
-  if (!isYoutubeWatchPage(sender.tab?.url)) {
-    sendResponse({ ok: false, error: "当前网页不是 YouTube 视频页" });
-    return "answered";
-  }
-  if (typeof chrome.scripting?.executeScript !== "function") {
-    sendResponse({ ok: false, error: "scripting API 不可用" });
+  const resolved = resolveYoutubeWatchScriptingTab(sender, "仅支持标签页内请求 YouTube 页面快照");
+  if (!resolved.ok) {
+    sendResponse(resolved);
     return "answered";
   }
 
   withOkResponse(
     (async () => {
       const results = await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId: resolved.tabId },
         world: "MAIN",
         func: collectYoutubeMainWorldSnapshot
       });
@@ -886,24 +934,16 @@ function handleYoutubeEnsureSabrWorker(
   sender: MessageSender,
   sendResponse: Reply<"youtube-ensure-sabr-worker">
 ): MessageReplyDecision {
-  const tabId = Number(sender.tab?.id) || 0;
-  if (!tabId) {
-    sendResponse({ ok: false, error: "仅支持标签页内注入 YouTube 音频采集模块" });
-    return "answered";
-  }
-  if (!isYoutubeWatchPage(sender.tab?.url)) {
-    sendResponse({ ok: false, error: "当前网页不是 YouTube 视频页" });
-    return "answered";
-  }
-  if (typeof chrome.scripting?.executeScript !== "function") {
-    sendResponse({ ok: false, error: "scripting API 不可用" });
+  const resolved = resolveYoutubeWatchScriptingTab(sender, "仅支持标签页内注入 YouTube 音频采集模块");
+  if (!resolved.ok) {
+    sendResponse(resolved);
     return "answered";
   }
 
   withOkResponse(
     (async () => {
       await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId: resolved.tabId },
         world: "MAIN",
         files: ["entry/youtube-sabr-worker.main.js"]
       });
@@ -1006,48 +1046,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-chrome.action.onClicked.addListener(
-  async (tab) => {
-    const tabId = tab.id ?? 0;
-    if (!tabId) {
-      return;
-    }
-    if (isSupportedPage(tab.url)) {
-      let triggered = false;
-      let triggerError: unknown = null;
-      try {
-        triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
-      } catch (error) {
-        triggerError = error;
-      }
-      if (triggered) {
-        await clearUnsupportedPageFeedback(tabId);
-      } else {
-        if (triggerError) {
-          logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败", triggerError);
-        } else {
-          logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
-        }
-        await Promise.allSettled([
-          chrome.action.setBadgeText({ tabId, text: "!" }),
-          chrome.action.setTitle({
-            tabId,
-            title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
-          })
-        ]);
-      }
-      return;
-    }
-    await applyUnsupportedPageFeedback(tabId);
-    if (isToastEligibleHostPage(tab.url)) {
-      try {
-        await showUnsupportedPageToast(tabId);
-      } catch (error) {
-        logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
-      }
-    }
-  }
-);
+chrome.action.onClicked.addListener(async (tab) => {
+  await triggerReaderEntryInTab({
+    mode: "enter",
+    tabId: tab.id ?? 0,
+    url: tab.url
+  });
+});
 
 const TOGGLE_READER_COMMAND = "toggle-reader";
 
@@ -1060,35 +1065,11 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
     const queried = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
     targetTab = queried?.[0] ?? targetTab;
   }
-  const tabId = targetTab?.id ?? 0;
-  if (!tabId) {
-    return;
-  }
-  if (isSupportedPage(targetTab?.url)) {
-    let triggered = false;
-    let triggerError: unknown = null;
-    try {
-      triggered = await triggerReaderModeToggleInTab(tabId, buildReaderModeUrl(targetTab?.url || ""));
-    } catch (error) {
-      triggerError = error;
-    }
-    if (triggered) {
-      await clearUnsupportedPageFeedback(tabId);
-    } else if (triggerError) {
-      logWarn("[BILISCRIPT] toggle-reader command: reader-toggle 触发失败", triggerError);
-    } else {
-      logWarn("[BILISCRIPT] toggle-reader command: reader-toggle 触发失败（重试耗尽）");
-    }
-    return;
-  }
-  await applyUnsupportedPageFeedback(tabId);
-  if (isToastEligibleHostPage(targetTab?.url)) {
-    try {
-      await showUnsupportedPageToast(tabId);
-    } catch (error) {
-      logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
-    }
-  }
+  await triggerReaderEntryInTab({
+    mode: "toggle",
+    tabId: targetTab?.id ?? 0,
+    url: targetTab?.url
+  });
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

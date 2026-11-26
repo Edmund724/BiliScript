@@ -16,19 +16,26 @@ const STALE_VERSION = "0.9.0";
 const READER_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 
 function makeHarness(overrides = {}) {
+  const entryFeedback = {
+    clearUnsupportedPageFeedback: vi.fn(async () => {}),
+    applyUnsupportedPageFeedback: vi.fn(async () => {}),
+    showUnsupportedPageToast: vi.fn(async () => {}),
+    showTriggerFailureBadge: vi.fn(async () => {}),
+    logWarnAlways: vi.fn()
+  };
   const deps = {
     probeOnce: vi.fn(async () => EXPECTED_VERSION),
     injectAssets: vi.fn(async () => {}),
     reloadTab: vi.fn(async () => {}),
     waitForTabComplete: vi.fn(async () => true),
     sendMessageToTab: vi.fn(async () => ({ ok: true })),
-    isTabReaderModeOff: vi.fn(async () => true),
     canInject: vi.fn(() => true),
     expectedVersion: EXPECTED_VERSION,
+    entryFeedback,
     logWarn: vi.fn(),
     ...overrides
   };
-  return { deps, orch: createBackgroundContentOrchestrator(deps) };
+  return { deps, entryFeedback, orch: createBackgroundContentOrchestrator(deps) };
 }
 
 function makeSpyDelayHarness(overrides = {}) {
@@ -410,88 +417,77 @@ describe("triggerReaderModeToggleInTab", () => {
   });
 });
 
-describe("triggerReaderModeCloseInTab", () => {
-  it("首发即 ok：返回 true，不做 URL 二次确认", async () => {
-    const { orch, deps } = makeHarness();
+describe("triggerReaderEntryInTab", () => {
+  const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
 
-    await expect(orch.triggerReaderModeCloseInTab(TAB_ID)).resolves.toBe(true);
+  it("受支持页 enter 触发成功：派发 reader-enter 并清理非支持页反馈", async () => {
+    const { orch, deps, entryFeedback } = makeHarness();
 
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "enter", tabId: TAB_ID, url: VIDEO_URL })
+    ).resolves.toBe("triggered");
+
     expect(deps.sendMessageToTab).toHaveBeenCalledWith(TAB_ID, {
-      type: "reader-close"
+      type: "reader-enter",
+      readerUrl: READER_URL
     });
-    expect(deps.isTabReaderModeOff).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(entryFeedback.clearUnsupportedPageFeedback).toHaveBeenCalledWith(TAB_ID);
+    expect(entryFeedback.showTriggerFailureBadge).not.toHaveBeenCalled();
   });
 
-  it("ok:false → URL 二次确认已退出：返回 true，零延时", async () => {
-    const { orch, deps } = makeHarness();
-    deps.sendMessageToTab.mockResolvedValue({ ok: false });
-    deps.isTabReaderModeOff.mockResolvedValue(true);
+  it("受支持页 enter 触发失败：记录警告并展示失败徽标；toggle 失败只记警告不写工具栏徽标", async () => {
+    const { orch, deps, entryFeedback } = makeHarness();
+    const fatalError = new Error("Cannot access contents of url");
+    deps.sendMessageToTab.mockRejectedValue(fatalError);
 
-    await expect(orch.triggerReaderModeCloseInTab(TAB_ID)).resolves.toBe(true);
-
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
-    expect(deps.isTabReaderModeOff).toHaveBeenCalledTimes(1);
-    expect(deps.isTabReaderModeOff).toHaveBeenCalledWith(TAB_ID);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("已知端口关闭异常且 URL 二次确认已退出：静默忽略不打 logWarn，返回 true", async () => {
-    const { orch, deps } = makeHarness();
-    deps.sendMessageToTab.mockRejectedValue(new Error("The message port closed"));
-    deps.isTabReaderModeOff.mockResolvedValue(true);
-
-    await expect(orch.triggerReaderModeCloseInTab(TAB_ID)).resolves.toBe(true);
-
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
-    expect(deps.isTabReaderModeOff).toHaveBeenCalledTimes(1);
-    expect(deps.logWarn).not.toHaveBeenCalled();
-  });
-
-  it("已知端口关闭异常但 URL 仍未退出：记录 logWarn 保留诊断信息并继续重试", async () => {
-    const { orch, deps } = makeSpyDelayHarness();
-    const portError = new Error("The message port closed");
-    deps.sendMessageToTab
-      .mockRejectedValueOnce(portError)
-      .mockResolvedValueOnce({ ok: true });
-    deps.isTabReaderModeOff.mockResolvedValueOnce(false);
-
-    const promise = orch.triggerReaderModeCloseInTab(TAB_ID);
-    await vi.advanceTimersByTimeAsync(1_000);
-    await expect(promise).resolves.toBe(true);
-
-    expect(deps.logWarn).toHaveBeenCalledTimes(1);
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "enter", tabId: TAB_ID, url: VIDEO_URL })
+    ).resolves.toBe("trigger-failed");
+    expect(entryFeedback.showTriggerFailureBadge).toHaveBeenCalledWith(TAB_ID);
     expect(deps.logWarn).toHaveBeenCalledWith(
-      "[BILISCRIPT] reader-close transient error while reader mode still active",
-      portError
+      "[BILISCRIPT] toolbar action click: reader-enter 触发失败",
+      fatalError
+    );
+
+    entryFeedback.showTriggerFailureBadge.mockClear();
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "toggle", tabId: TAB_ID, url: VIDEO_URL })
+    ).resolves.toBe("trigger-failed");
+    expect(entryFeedback.showTriggerFailureBadge).not.toHaveBeenCalled();
+    expect(deps.logWarn).toHaveBeenCalledWith(
+      "[BILISCRIPT] toggle-reader command: reader-toggle 触发失败",
+      fatalError
     );
   });
 
-  it("致命标签页错误（非端口关闭/receiving-end）：记 logWarn 并立即透传，不误当瞬时关闭", async () => {
-    const { orch, deps } = makeSpyDelayHarness();
-    const fatalError = new Error("No tab with id: 7.");
-    deps.sendMessageToTab.mockRejectedValue(fatalError);
+  it("非支持页：写徽标反馈；命中可注入主站域时补发页内 toast，站外页不注入", async () => {
+    const { orch, deps, entryFeedback } = makeHarness();
 
-    await expect(orch.triggerReaderModeCloseInTab(TAB_ID)).rejects.toBe(fatalError);
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "enter", tabId: TAB_ID, url: "https://www.bilibili.com/" })
+    ).resolves.toBe("unsupported");
+    expect(deps.sendMessageToTab).not.toHaveBeenCalled();
+    expect(entryFeedback.applyUnsupportedPageFeedback).toHaveBeenCalledWith(TAB_ID);
+    expect(entryFeedback.showUnsupportedPageToast).toHaveBeenCalledWith(TAB_ID);
 
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(1);
-    expect(deps.isTabReaderModeOff).not.toHaveBeenCalled();
-    expect(deps.logWarn).toHaveBeenCalledWith("[BILISCRIPT] reader-close message failed", fatalError);
-    expect(msSeq({ deps })).toEqual([]);
+    entryFeedback.showUnsupportedPageToast.mockClear();
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "toggle", tabId: TAB_ID, url: "https://example.com/" })
+    ).resolves.toBe("unsupported");
+    expect(entryFeedback.showUnsupportedPageToast).not.toHaveBeenCalled();
   });
 
-  it("12 次重试耗尽（URL 始终未退出）→ false，间隔 300ms", async () => {
-    const { orch, deps } = makeSpyDelayHarness();
-    deps.sendMessageToTab.mockResolvedValue({ ok: false });
-    deps.isTabReaderModeOff.mockResolvedValue(false);
+  it("可注入非支持页 toast 失败时通过 logWarnAlways 记录并不上抛", async () => {
+    const { orch, entryFeedback } = makeHarness();
+    const injectError = new Error("script injection blocked");
+    entryFeedback.showUnsupportedPageToast.mockRejectedValueOnce(injectError);
 
-    const promise = orch.triggerReaderModeCloseInTab(TAB_ID);
-    await vi.advanceTimersByTimeAsync(60_000);
-    await expect(promise).resolves.toBe(false);
-
-    expect(deps.sendMessageToTab).toHaveBeenCalledTimes(12);
-    expect(deps.isTabReaderModeOff).toHaveBeenCalledTimes(12);
-    expect(msSeq({ deps })).toEqual(Array.from({ length: 11 }, () => 300));
+    await expect(
+      orch.triggerReaderEntryInTab({ mode: "enter", tabId: TAB_ID, url: "https://www.bilibili.com/" })
+    ).resolves.toBe("unsupported");
+    expect(entryFeedback.logWarnAlways).toHaveBeenCalledWith(
+      "[BILISCRIPT] unsupported-page toast injection failed",
+      injectError
+    );
   });
 });

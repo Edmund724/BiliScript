@@ -15,6 +15,7 @@ import {
 } from "./moss-live-protocol.js";
 import {
   DEFAULT_LIVE_MODEL,
+  isGeminiLiveProvider,
   resolveActiveLiveProviderId,
   type LiveProvider
 } from "./live-provider-store.js";
@@ -98,9 +99,6 @@ export interface LiveVideoBackendTaskManager {
 }
 
 export interface LiveChatControllerDeps {
-  liveButton?: HTMLElement | null;
-  muteButton?: HTMLElement | null;
-  volumeControl?: HTMLDetailsElement | null;
   initialVolume?: number;
   initialSpeed?: number;
   initialVoicePriority?: boolean;
@@ -171,11 +169,8 @@ export interface LiveChatController {
   dispose(): void;
 }
 
-export function createLiveChatController(deps: LiveChatControllerDeps): LiveChatController {
+export function createLiveChatController(deps: LiveChatControllerDeps = {}): LiveChatController {
   const {
-    liveButton = null,
-    muteButton = null,
-    volumeControl = null,
     initialVolume = 1,
     initialSpeed = 1,
     initialVoicePriority = true,
@@ -397,7 +392,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       );
       const active = providers.find((p) => p.id === activeId);
       activeTargetProviderType =
-        active?.type === "gemini-live" || active?.presetId === "gemini-live"
+        active && isGeminiLiveProvider(active)
           ? "gemini-live"
           : "moss-live";
       activeTargetOrigin =
@@ -446,17 +441,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
-  function updateMuteUi(): void {
-    if (!muteButton) return;
-    const isConnected = state === "connected";
-    muteButton.hidden = !isConnected;
-    muteButton.classList.toggle("is-muted", muted);
-    muteButton.setAttribute("aria-pressed", muted ? "true" : "false");
-    const label = muted ? "取消静音麦克风" : "静音麦克风";
-    muteButton.title = label;
-    muteButton.setAttribute("aria-label", label);
-  }
-
   function updateSpeakingUi(): void {
     onSpeakingChange?.(speaking);
   }
@@ -481,31 +465,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       clearLongSummaryControls();
     }
     syncVideoDucking();
-    if (liveButton) {
-      liveButton.dataset.state = nextState;
-      liveButton.classList.toggle("is-connecting", nextState === "connecting");
-      liveButton.classList.toggle("is-connected", nextState === "connected");
-      liveButton.classList.toggle("is-failure", nextState === "failure");
-
-      liveButton.setAttribute("aria-busy", nextState === "connecting" ? "true" : "false");
-      liveButton.setAttribute("aria-pressed", nextState === "connected" ? "true" : "false");
-
-      let tooltip = "开启实时伴看 (MOSS-LIVE)";
-      if (nextState === "connecting") {
-        tooltip = "正在连接 MOSS-LIVE 伴看...";
-      } else if (nextState === "connected") {
-        tooltip = "正在伴看中，点击结束伴看";
-      } else if (nextState === "failure") {
-        tooltip = errorMessage ? `伴看失败：${errorMessage}，点击重试` : "伴看失败，点击重试";
-      }
-      liveButton.title = tooltip;
-      liveButton.setAttribute("aria-label", tooltip);
-    }
-    if (volumeControl) {
-      volumeControl.hidden = nextState !== "connected";
-      if (nextState !== "connected") volumeControl.open = false;
-    }
-    updateMuteUi();
     updateSpeakingUi();
     onStateChange?.(nextState, errorMessage, failureKind);
   }
@@ -1204,7 +1163,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (muted === next) return;
     muted = next;
     activeAudioCapture?.setMuted(muted);
-    updateMuteUi();
     updateSpeakingUi();
     syncVideoDucking();
     if (activePort) {
@@ -1346,13 +1304,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     void stop();
     syncVideoDucking();
   }
-
-  liveButton?.addEventListener("click", () => {
-    void toggle();
-  });
-  muteButton?.addEventListener("click", () => {
-    toggleMute();
-  });
 
   return {
     getState: () => state,

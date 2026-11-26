@@ -181,6 +181,17 @@ export interface LiveWireProtocolAdapter {
     result: unknown,
     transport: LiveWireTransport
   ): boolean;
+  sendDelegationSilent?(
+    delegationId: string,
+    content: string,
+    transport: LiveWireTransport
+  ): boolean;
+  sendDelegationResult?(
+    delegationId: string,
+    status: "in_progress" | "completed" | "failed",
+    content: string,
+    transport: LiveWireTransport
+  ): boolean;
   sendWebSearchResponse?(
     call: { callId: string; name: string },
     outcome:
@@ -602,6 +613,19 @@ export class OffscreenLiveSessionRuntime {
 
       case "tool_result":
         this.sendToolResult(msg.callId, msg.result);
+        break;
+
+      case "delegation_silent":
+        this.adapter.sendDelegationSilent?.(msg.delegationId, msg.content, this.transport);
+        break;
+
+      case "delegation_result":
+        this.adapter.sendDelegationResult?.(
+          msg.delegationId,
+          msg.status,
+          msg.content,
+          this.transport
+        );
         break;
 
       case "audio": {

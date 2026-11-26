@@ -70,6 +70,8 @@ class FakeWireAdapter implements LiveWireProtocolAdapter {
   resets: number[] = [];
   contextUpdates: Array<MossLiveSessionContext | null> = [];
   toolResponses: Array<{ callId: string; name: string; result: unknown }> = [];
+  delegationSilents: Array<{ delegationId: string; content: string }> = [];
+  delegationResults: Array<{ delegationId: string; status: string; content: string }> = [];
 
   onConnectReset(generation: number): void {
     this.resets.push(generation);
@@ -130,6 +132,25 @@ class FakeWireAdapter implements LiveWireProtocolAdapter {
   ): boolean {
     this.toolResponses.push({ ...call, result });
     return transport.sendJson({ type: "tool_response", callId: call.callId, result });
+  }
+
+  sendDelegationSilent(
+    delegationId: string,
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    this.delegationSilents.push({ delegationId, content });
+    return transport.sendJson({ type: "delegation_silent", delegationId, content });
+  }
+
+  sendDelegationResult(
+    delegationId: string,
+    status: "in_progress" | "completed" | "failed",
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    this.delegationResults.push({ delegationId, status, content });
+    return transport.sendJson({ type: "delegation_result", delegationId, status, content });
   }
 }
 
@@ -201,6 +222,38 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     expect(runtime.isSpeaking()).toBe(false);
     expect(duckStates).toEqual([true, false]);
     expect(adapter.contextUpdates).toEqual([nextContext]);
+  });
+
+  it("routes delegation_silent and delegation_result actions through LiveWireProtocolAdapter", () => {
+    const adapter = new FakeWireAdapter();
+    const runtime = new OffscreenLiveSessionRuntime(adapter, { videoContext: sampleContext });
+
+    runtime.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: "ready", sessionId: "fake-sess-2" }));
+    ws.sentData.length = 0;
+
+    runtime.handleAction({
+      action: "delegation_silent",
+      delegationId: "del-1",
+      content: "第一段事实"
+    });
+    runtime.handleAction({
+      action: "delegation_result",
+      delegationId: "del-1",
+      status: "completed",
+      content: "最终口播结论"
+    });
+
+    expect(adapter.delegationSilents).toEqual([{ delegationId: "del-1", content: "第一段事实" }]);
+    expect(adapter.delegationResults).toEqual([
+      { delegationId: "del-1", status: "completed", content: "最终口播结论" }
+    ]);
+    expect(ws.jsonFrames()).toEqual([
+      { type: "delegation_silent", delegationId: "del-1", content: "第一段事实" },
+      { type: "delegation_result", delegationId: "del-1", status: "completed", content: "最终口播结论" }
+    ]);
   });
 });
 

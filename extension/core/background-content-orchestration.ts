@@ -1,5 +1,7 @@
 import { sleep } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
+import { buildReaderModeUrl, isSupportedPage } from "../bilibili/video-id-shared.js";
+import { isToastEligibleHostPage } from "../shared/site.js";
 import {
   DUPLICATE_CLASSIC_INJECTION_SENTINEL,
   RECEIVING_END_MISSING_SENTINEL
@@ -67,15 +69,31 @@ export function isTerminalTabError(error: unknown): boolean {
   );
 }
 
+export interface ReaderEntryFeedbackAdapter {
+  clearUnsupportedPageFeedback: (tabId: number) => Promise<void>;
+  applyUnsupportedPageFeedback: (tabId: number) => Promise<void>;
+  showUnsupportedPageToast: (tabId: number) => Promise<void>;
+  showTriggerFailureBadge?: (tabId: number) => Promise<void>;
+  logWarnAlways?: (message: string, detail?: unknown) => void;
+}
+
+export interface ReaderEntryTriggerOptions {
+  mode: "enter" | "toggle";
+  tabId: number;
+  url?: string;
+}
+
+export type ReaderEntryTriggerOutcome = "triggered" | "trigger-failed" | "unsupported";
+
 export interface BackgroundContentOrchestratorDeps {
   probeOnce: (tabId: number) => Promise<string>;
   injectAssets: (tabId: number) => Promise<void>;
   reloadTab: (tabId: number) => Promise<void>;
   waitForTabComplete: (tabId: number, options: { polls: number }) => Promise<boolean>;
   sendMessageToTab: (tabId: number, message: ContentScriptMessage) => Promise<{ ok?: boolean }>;
-  isTabReaderModeOff: (tabId: number) => Promise<boolean>;
   canInject: (tabId: number) => boolean;
   expectedVersion: string;
+  entryFeedback?: ReaderEntryFeedbackAdapter;
   logWarn?: (message: string, detail?: unknown) => void;
   delay?: (ms: number) => Promise<void>;
   probeAttempts?: number;
@@ -99,13 +117,15 @@ export interface BackgroundContentOrchestrator {
     retries?: number,
     delayMs?: number
   ) => Promise<boolean>;
-  triggerReaderModeCloseInTab: (tabId: number, retries?: number, delayMs?: number) => Promise<boolean>;
   triggerReaderModeToggleInTab: (
     tabId: number,
     readerUrl?: string,
     retries?: number,
     delayMs?: number
   ) => Promise<boolean>;
+  triggerReaderEntryInTab: (
+    options: ReaderEntryTriggerOptions
+  ) => Promise<ReaderEntryTriggerOutcome>;
 }
 
 export function createBackgroundContentOrchestrator(deps: BackgroundContentOrchestratorDeps): BackgroundContentOrchestrator {
@@ -115,9 +135,9 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     reloadTab,
     waitForTabComplete,
     sendMessageToTab,
-    isTabReaderModeOff,
     canInject,
     expectedVersion,
+    entryFeedback,
     logWarn: depsLogWarn = logWarn,
     delay = sleep,
     probeAttempts = 3,
@@ -256,43 +276,6 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     return triggerReaderMessageWithRecovery(tabId, payload, retries, delayMs);
   }
 
-  async function triggerReaderModeCloseInTab(
-    tabId: number,
-    retries = triggerRetries,
-    delayMs = triggerRetryDelayMs
-  ): Promise<boolean> {
-    for (let attempt = 0; attempt < retries; attempt += 1) {
-      if (attempt > 0) {
-        await delay(delayMs);
-      }
-
-      let transientError: unknown = null;
-      try {
-        const response = await sendMessageToTab(tabId, {
-          type: "reader-close"
-        });
-        if (response?.ok) {
-          return true;
-        }
-      } catch (error) {
-        if (!isTransientTabMessagingError(error)) {
-          depsLogWarn("[BILISCRIPT] reader-close message failed", error);
-          throw error;
-        }
-        transientError = error;
-      }
-
-      if (await isTabReaderModeOff(tabId)) {
-        return true;
-      }
-      if (transientError) {
-        depsLogWarn("[BILISCRIPT] reader-close transient error while reader mode still active", transientError);
-      }
-    }
-
-    return false;
-  }
-
   async function triggerReaderModeToggleInTab(
     tabId: number,
     readerUrl = "",
@@ -310,12 +293,64 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     );
   }
 
+  async function triggerReaderEntryInTab({
+    mode,
+    tabId,
+    url
+  }: ReaderEntryTriggerOptions): Promise<ReaderEntryTriggerOutcome> {
+    if (!tabId) {
+      return "unsupported";
+    }
+    if (isSupportedPage(url)) {
+      let triggered = false;
+      let triggerError: unknown = null;
+      const readerUrl = buildReaderModeUrl(url || "");
+      try {
+        triggered =
+          mode === "toggle"
+            ? await triggerReaderModeToggleInTab(tabId, readerUrl)
+            : await triggerReaderModeInTab(tabId, readerUrl);
+      } catch (error) {
+        triggerError = error;
+      }
+      if (triggered) {
+        await entryFeedback?.clearUnsupportedPageFeedback(tabId);
+        return "triggered";
+      }
+      const label =
+        mode === "toggle"
+          ? "toggle-reader command: reader-toggle"
+          : "toolbar action click: reader-enter";
+      if (triggerError) {
+        depsLogWarn(`[BILISCRIPT] ${label} 触发失败`, triggerError);
+      } else {
+        depsLogWarn(`[BILISCRIPT] ${label} 触发失败（重试耗尽）`);
+      }
+      if (mode === "enter") {
+        await entryFeedback?.showTriggerFailureBadge?.(tabId);
+      }
+      return "trigger-failed";
+    }
+    await entryFeedback?.applyUnsupportedPageFeedback(tabId);
+    if (isToastEligibleHostPage(url)) {
+      try {
+        await entryFeedback?.showUnsupportedPageToast(tabId);
+      } catch (error) {
+        (entryFeedback?.logWarnAlways ?? depsLogWarn)(
+          "[BILISCRIPT] unsupported-page toast injection failed",
+          error
+        );
+      }
+    }
+    return "unsupported";
+  }
+
   return {
     ensureReaderContentReady,
     probeContentScriptVersion,
     injectReaderContent,
     triggerReaderModeInTab,
-    triggerReaderModeCloseInTab,
-    triggerReaderModeToggleInTab
+    triggerReaderModeToggleInTab,
+    triggerReaderEntryInTab
   };
 }

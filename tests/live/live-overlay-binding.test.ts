@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { createLiveOverlayBinding } from "../../extension/live/live-overlay-binding.js";
 import {
-  createLiveOverlayBinding,
   createThrottledLiveToggleHandler,
   mountControlBarLiveToggle,
   syncPlayerLiveQuickActionState,
   syncPlayerLiveToggleButton
-} from "../../extension/live/live-overlay-binding.js";
+} from "../../extension/live/player-live-toggle.js";
 import type { LiveChatControllerDeps, LiveChatState } from "../../extension/live/live-chat-controller.js";
 import { createChatLiveStatus } from "../../extension/reader/chat-live-status.js";
 import { state } from "../../extension/core/state.js";

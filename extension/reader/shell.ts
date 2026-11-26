@@ -26,7 +26,6 @@ import {
   getOpenerWindow,
   isReaderDetached,
   registerDetachedModeSwitchHandler,
-  resetActiveReaderHost,
   setActiveReaderHost
 } from "../shared/active-host.js";
 import {
@@ -44,10 +43,15 @@ import { requestUiCommand } from "./reader-bus.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { captureTriggerRect, resolveTriggerElement } from "../ui/trigger-motion.js";
 import {
+  applyDetachedHostDocumentAttrs,
+  blurActiveFocusInside,
+  clearDetachedHostDocument,
   closeDetachedWindowHost,
   focusDetachedWindowHost,
+  formatDetachedWindowTitle,
   getDetachedWindowHost,
   openDetachedWindowHost,
+  reclaimDetachedViewToOpener,
   switchDetachedWindowHostMode,
   syncDetachedWindowHostTitle,
   type DetachedWindowMode
@@ -71,12 +75,7 @@ function isYoutubeSiteActive(): boolean {
 }
 
 function resolveDetachedWindowTitle(): string {
-  const clipTitle = String(state.clip.title || "").trim();
-  if (clipTitle) {
-    return `${clipTitle} - 文摘`;
-  }
-  const openerTitle = String(getOpenerDocument().title || "").trim();
-  return openerTitle ? `${openerTitle} - 文摘` : "文摘";
+  return formatDetachedWindowTitle(state.clip.title, getOpenerDocument().title);
 }
 
 function resolveReaderEntryUrl(readerUrl: string): string {
@@ -251,16 +250,6 @@ function safeAdoptNode(targetDoc: Document, node: HTMLElement): HTMLElement {
   }
 }
 
-function ensureOpenerRoot(openerDoc: Document): HTMLElement {
-  let root = openerDoc.getElementById(ids.root);
-  if (!root) {
-    root = openerDoc.createElement("div");
-    root.id = ids.root;
-    openerDoc.body.appendChild(root);
-  }
-  return root;
-}
-
 function findReadingViewAcrossHosts(): HTMLElement | null {
   return (
     activeById(ids.readingView) ??
@@ -314,50 +303,6 @@ function showDetachedNotice(readingView: HTMLElement | null, text: string): void
   }, DETACHED_NOTICE_DURATION_MS);
 }
 
-function applyDetachedHostDocumentAttrs(targetDoc: Document): void {
-  try {
-    targetDoc.documentElement?.setAttribute("data-biliscript-reader-mode", "1");
-    targetDoc.documentElement?.setAttribute("data-biliscript-detached", "1");
-    targetDoc.body?.setAttribute("data-biliscript-reader-mode", "1");
-    targetDoc.body?.setAttribute("data-biliscript-reading-active", "1");
-    targetDoc.body?.setAttribute("data-biliscript-detached", "1");
-  } catch {
-  }
-}
-
-function clearDetachedHostDocumentAttrs(targetDoc: Document): void {
-  try {
-    targetDoc.documentElement?.removeAttribute("data-biliscript-detached");
-    targetDoc.documentElement?.removeAttribute("data-biliscript-reader-mode");
-    targetDoc.body?.removeAttribute("data-biliscript-detached");
-    targetDoc.body?.removeAttribute("data-biliscript-reader-mode");
-    targetDoc.body?.removeAttribute("data-biliscript-reading-active");
-  } catch {
-  }
-}
-
-function blurActiveFocusInsideDetachedView(readingView: HTMLElement | null): boolean {
-  if (!readingView) {
-    return false;
-  }
-  const ownerDoc = readingView.ownerDocument ?? getActiveReaderDocument();
-  const active = ownerDoc.activeElement;
-  const contained = Boolean(active && readingView.contains(active as Node));
-  if (contained && typeof (active as HTMLElement | null)?.blur === "function") {
-    (active as HTMLElement).blur();
-  }
-  const openerDoc = getOpenerDocument();
-  if (contained && ownerDoc !== openerDoc) {
-    const openerActive = openerDoc.activeElement as
-      | (HTMLElement & { contentDocument?: Document | null })
-      | null;
-    if (openerActive?.contentDocument === ownerDoc && typeof openerActive.blur === "function") {
-      openerActive.blur();
-    }
-  }
-  return contained;
-}
-
 function reclaimDetachedReadingViewToOpener(
   options: { blurFocus?: boolean } = {}
 ): HTMLElement | null {
@@ -369,25 +314,16 @@ function reclaimDetachedReadingViewToOpener(
     (activeDoc !== openerDoc ? activeDoc : null);
   const readingView = findReadingViewAcrossHosts();
   clearDetachedNotice(readingView);
-  if (options.blurFocus && blurActiveFocusInsideDetachedView(readingView)) {
+  if (options.blurFocus && blurActiveFocusInside(readingView)) {
     pendingDetachedExitFocusRestore = true;
   }
-  if (detachedDoc && detachedDoc !== openerDoc) {
-    clearDetachedHostDocumentAttrs(detachedDoc);
-    clearMirroredStyles(detachedDoc);
-  }
-  let reclaimed: HTMLElement | null = readingView;
-  if (readingView) {
-    readingView.removeAttribute("data-biliscript-detached");
-    const root = ensureOpenerRoot(openerDoc);
-    if (readingView.ownerDocument !== openerDoc || !root.contains(readingView)) {
-      reclaimed = safeAdoptNode(openerDoc, readingView);
-      root.appendChild(reclaimed);
-    }
-  }
+  const reclaimed = reclaimDetachedViewToOpener({
+    readingView,
+    rootId: ids.root,
+    detachedDoc
+  });
   activeDetachedDoc = null;
   state.reader.setDetachedMode(null);
-  resetActiveReaderHost();
   return reclaimed;
 }
 
@@ -808,8 +744,7 @@ export function switchDetachedWindowMode(nextMode: DetachedWindowMode): Promise<
         syncDetachedWindowHostTitle(resolveDetachedWindowTitle());
         presentation.applyReadingViewPresentation();
         if (previousDoc !== next.document) {
-          clearDetachedHostDocumentAttrs(previousDoc);
-          clearMirroredStyles(previousDoc);
+          clearDetachedHostDocument(previousDoc);
         }
       }
     });
