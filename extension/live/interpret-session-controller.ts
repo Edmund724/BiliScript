@@ -195,7 +195,15 @@ export function createInterpretSessionController(
     legacy.loadNativePrimaryTrack ??
     (async (target) => {
       const chain = await ensureSummarizeChain();
-      await chain.loadSubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
+      const isYoutube = state.clip.site === "youtube";
+      await chain.loadSubtitle(
+        target.url,
+        target.lang,
+        clipState.fetchRunId,
+        target.id,
+        false,
+        isYoutube ? { preferTimedtextPot: true } : undefined
+      );
     });
   const loadNativeSecondaryTrack =
     ports.media?.loadNativeSecondaryTrack ??
@@ -896,12 +904,26 @@ export function createInterpretSessionController(
           }) ??
           nativeTracks[0];
         const sourceTarget = resolveTrackTarget(sourceTrack, nativeTracks);
+        let shouldUpgradeYoutubeCoarse = false;
+        if (state.clip.site === "youtube" && !ports.media?.loadNativePrimaryTrack && !legacy.loadNativePrimaryTrack) {
+          const chain = await ensureSummarizeChain();
+          shouldUpgradeYoutubeCoarse =
+            (await chain.isYoutubeCoarseTranscriptLoaded?.(state.clip.bvid, sourceTarget.url)) ??
+            false;
+        }
         if (
           !Array.isArray(state.clip.subtitleBody) ||
           state.clip.subtitleBody.length === 0 ||
-          (sourceTarget.id && String(state.clip.selectedSubtitleId || "") !== sourceTarget.id)
+          (sourceTarget.id && String(state.clip.selectedSubtitleId || "") !== sourceTarget.id) ||
+          shouldUpgradeYoutubeCoarse
         ) {
-          await loadNativePrimaryTrack(sourceTarget);
+          try {
+            await loadNativePrimaryTrack(sourceTarget);
+          } catch (upgradeErr) {
+            if (!shouldUpgradeYoutubeCoarse || !Array.isArray(state.clip.subtitleBody) || state.clip.subtitleBody.length === 0) {
+              throw upgradeErr;
+            }
+          }
           if (isSessionStale(currentGeneration)) return false;
         }
 

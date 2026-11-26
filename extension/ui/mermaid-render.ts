@@ -1,7 +1,7 @@
 import mermaid from "mermaid";
 import { isElementNode, resolveNodeDocument } from "../shared/cross-doc.js";
 import { logWarnAlways } from "../shared/logging.js";
-import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR, MERMAID_SOURCE_SELECTOR } from "./markdown.js";
+import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR, MERMAID_SOURCE_SELECTOR } from "./markdown-block-constants.js";
 
 export interface HydrateMermaidOptions {
   theme?: string;

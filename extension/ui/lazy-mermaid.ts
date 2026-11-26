@@ -3,7 +3,7 @@ import { onActiveHostChange } from "../shared/active-host.js";
 import { isNode, resolveNodeDocument, resolveNodeWindow } from "../shared/cross-doc.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
 import { logWarnAlways } from "../shared/logging.js";
-import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR } from "./markdown.js";
+import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR } from "./markdown-block-constants.js";
 import type { HydrateMermaidOptions } from "./mermaid-render.js";
 
 interface MermaidRenderModule {

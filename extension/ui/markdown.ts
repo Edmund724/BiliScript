@@ -9,18 +9,27 @@ import { READING_COPY_ICON } from "./reading-icons.js";
 import { enhanceMarkdownTables, TABLE_SHELL_CLASS } from "./markdown-table.js";
 import { hydrateMermaid } from "./lazy-mermaid.js";
 import { hydrateMath } from "./lazy-math.js";
+import {
+  MATH_BLOCK_ATTR,
+  MATH_BLOCK_SELECTOR,
+  MERMAID_BLOCK_ATTR,
+  MERMAID_BLOCK_SELECTOR,
+  MERMAID_SOURCE_CLASS,
+  MERMAID_SOURCE_SELECTOR,
+} from "./markdown-block-constants.js";
+
+export {
+  MATH_BLOCK_ATTR,
+  MATH_BLOCK_SELECTOR,
+  MERMAID_BLOCK_ATTR,
+  MERMAID_BLOCK_SELECTOR,
+  MERMAID_SOURCE_SELECTOR,
+};
 
 export const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
 const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
 
-export const MATH_BLOCK_ATTR = "data-biliscript-math";
-export const MATH_BLOCK_SELECTOR = `[${MATH_BLOCK_ATTR}]`;
 const MATH_FENCE_LANGS = new Set(["math", "latex", "katex"]);
-
-export const MERMAID_BLOCK_ATTR = "data-biliscript-mermaid";
-export const MERMAID_BLOCK_SELECTOR = `[${MERMAID_BLOCK_ATTR}]`;
-const MERMAID_SOURCE_CLASS = "biliscript-md-mermaid-src";
-export const MERMAID_SOURCE_SELECTOR = `.${MERMAID_SOURCE_CLASS}`;
 const MERMAID_FENCE_LANG = "mermaid";
 
 interface CodeFence {

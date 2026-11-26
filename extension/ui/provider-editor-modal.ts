@@ -13,7 +13,7 @@ import { initCustomSelect } from "./custom-select.js";
 import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
-import { hasReaderSettingsDropdownOpen } from "../reader/settings-mode.js";
+import { hasReaderSettingsDropdownOpen } from "../reader/settings-dropdown-open.js";
 import type { ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {

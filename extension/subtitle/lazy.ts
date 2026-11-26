@@ -12,7 +12,8 @@ export interface SummarizeChain {
     lang: string,
     runId?: number,
     subtitleId?: string,
-    forceRefresh?: boolean
+    forceRefresh?: boolean,
+    options?: { preferTimedtextPot?: boolean }
   ): Promise<void>;
   loadAsrSubtitle(options?: {
     runId?: number;
@@ -24,8 +25,10 @@ export interface SummarizeChain {
     lang: string,
     runId?: number,
     subtitleId?: string,
-    forceRefresh?: boolean
+    forceRefresh?: boolean,
+    options?: { preferTimedtextPot?: boolean }
   ): Promise<void>;
+  isYoutubeCoarseTranscriptLoaded?(videoId: string, url: string): Promise<boolean>;
   resetClipState(options?: { keepFetchState?: boolean }): void;
   ensureAsrTranslation(args: AsrTranslationArgs): Promise<AsrTranslationResult>;
   copySubtitleTranscript(): Promise<boolean>;
@@ -44,6 +47,7 @@ async function loadSummarizeChain(): Promise<SummarizeChain> {
     loadSubtitle: fetcher.loadSubtitle,
     loadAsrSubtitle: fetcher.loadAsrSubtitle,
     loadSecondarySubtitle: fetcher.loadSecondarySubtitle,
+    isYoutubeCoarseTranscriptLoaded: fetcher.isYoutubeCoarseTranscriptLoaded,
     resetClipState: fetcher.resetClipState,
     ensureAsrTranslation: asrTranslation.ensureAsrSecondarySubtitle,
     copySubtitleTranscript: chainUi.copySubtitleTranscript,

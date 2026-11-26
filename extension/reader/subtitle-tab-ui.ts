@@ -301,13 +301,17 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
             sourceLabel: target.lang,
             allowTranscribe: true
           });
-        } else {
+        } else if (state.clip.site === "youtube") {
           await chain.loadSubtitle(
             target.url,
             target.lang,
             expectedRunId,
-            target.id
+            target.id,
+            false,
+            { preferTimedtextPot: true }
           );
+        } else {
+          await chain.loadSubtitle(target.url, target.lang, expectedRunId, target.id);
         }
         switched = true;
       } catch (error) {

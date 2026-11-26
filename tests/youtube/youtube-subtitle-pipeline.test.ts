@@ -35,15 +35,20 @@ let clearYoutubeGatewayCacheForTests: (typeof import("../../extension/youtube/ga
 let fetchYoutubeSubtitleBody: (typeof import("../../extension/youtube/gateway.js"))["fetchYoutubeSubtitleBody"];
 let fetchYoutubeVideoBundle: (typeof import("../../extension/youtube/gateway.js"))["fetchYoutubeVideoBundle"];
 let getCachedYoutubeSnapshot: (typeof import("../../extension/youtube/gateway.js"))["getCachedYoutubeSnapshot"];
+let isYoutubeCoarseTranscriptLoaded: (typeof import("../../extension/youtube/gateway.js"))["isYoutubeCoarseTranscriptLoaded"];
 let readYoutubePageSnapshot: (typeof import("../../extension/youtube/main-world-bridge.js"))["readYoutubePageSnapshot"];
 let setYoutubeMainWorldReaderForTests: (typeof import("../../extension/youtube/main-world-bridge.js"))["setYoutubeMainWorldReaderForTests"];
+let setYoutubePotCapturerForTests: (typeof import("../../extension/youtube/main-world-bridge.js"))["setYoutubePotCapturerForTests"];
 let setYoutubeSameOriginFetchForTests: (typeof import("../../extension/youtube/main-world-bridge.js"))["setYoutubeSameOriginFetchForTests"];
 let YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE"];
 let YoutubeSubtitleError: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["YoutubeSubtitleError"];
+let encodeModernYoutubeTranscriptParams: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["encodeModernYoutubeTranscriptParams"];
+let fetchYoutubeGetPanelTranscript: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeGetPanelTranscript"];
 let fetchYoutubeGetTranscript: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeGetTranscript"];
 let fetchYoutubeSubtitleTrackBody: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["fetchYoutubeSubtitleTrackBody"];
 let hasMatchingYoutubeObservedPot: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["hasMatchingYoutubeObservedPot"];
 let mapYoutubeCaptionTracks: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["mapYoutubeCaptionTracks"];
+let parseYoutubeGetPanelSubtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeGetPanelSubtitles"];
 let parseYoutubeGetTranscriptSubtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeGetTranscriptSubtitles"];
 let parseYoutubeJson3Subtitles: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["parseYoutubeJson3Subtitles"];
 let resolveYoutubeTimedtextRequestUrl: (typeof import("../../extension/youtube/subtitle-fetcher.js"))["resolveYoutubeTimedtextRequestUrl"];
@@ -272,17 +277,25 @@ beforeEach(async () => {
     clearYoutubeGatewayCacheForTests,
     fetchYoutubeSubtitleBody,
     fetchYoutubeVideoBundle,
-    getCachedYoutubeSnapshot
+    getCachedYoutubeSnapshot,
+    isYoutubeCoarseTranscriptLoaded
   } = ytGatewayMod);
-  ({ readYoutubePageSnapshot, setYoutubeMainWorldReaderForTests, setYoutubeSameOriginFetchForTests } =
-    ytBridgeMod);
+  ({
+    readYoutubePageSnapshot,
+    setYoutubeMainWorldReaderForTests,
+    setYoutubePotCapturerForTests,
+    setYoutubeSameOriginFetchForTests
+  } = ytBridgeMod);
   ({
     YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE,
     YoutubeSubtitleError,
+    encodeModernYoutubeTranscriptParams,
+    fetchYoutubeGetPanelTranscript,
     fetchYoutubeGetTranscript,
     fetchYoutubeSubtitleTrackBody,
     hasMatchingYoutubeObservedPot,
     mapYoutubeCaptionTracks,
+    parseYoutubeGetPanelSubtitles,
     parseYoutubeGetTranscriptSubtitles,
     parseYoutubeJson3Subtitles,
     resolveYoutubeTimedtextRequestUrl
@@ -307,6 +320,7 @@ beforeEach(async () => {
 
   clearYoutubeGatewayCacheForTests();
   setYoutubeMainWorldReaderForTests(null);
+  setYoutubePotCapturerForTests(null);
   setYoutubeSameOriginFetchForTests(null);
   configureCommitUi({ setStatus: (message) => state.ui.setStatusText(message) });
   state.setSettings({ ...DEFAULT_SETTINGS });
@@ -455,12 +469,143 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     expect(result.items[2]).toEqual({ from: 6.5, to: 8, content: "[Music]" });
   });
 
-  it("Tier 2：timedtext 返回空正文（PO Token exp=xpe 门控）时同源 POST /youtubei/v1/get_transcript 解析 cueGroups", async () => {
+  it("Tier 2：timedtext 返回空正文时默认优先同源 POST /youtubei/v1/get_panel（零副作用主路）并对齐毫秒时间轴", async () => {
+    expect(encodeModernYoutubeTranscriptParams("aircAruvnKk")).toBe("qgkPCgthaXJjQXJ1dm5LaxgB");
+    expect(encodeModernYoutubeTranscriptParams("zjkBMFhNj_g")).toBe("qgkPCgt6amtCTUZoTmpfZxgB");
+    expect(encodeModernYoutubeTranscriptParams("jNQXAC9IVRw")).toBe("qgkPCgtqTlFYQUM5SVZSdxgB");
+
+    const getPanelFixture = {
+      content: {
+        engagementPanelSectionListRenderer: {
+          content: {
+            sectionListRenderer: {
+              contents: [
+                {
+                  itemSectionRenderer: {
+                    contents: [
+                      {
+                        macroMarkersPanelItemViewModel: {
+                          item: { timelineChapterViewModel: { title: "Intro", timestamp: "0:00" } }
+                        }
+                      },
+                      {
+                        macroMarkersPanelItemViewModel: {
+                          item: {
+                            timelineItemViewModel: {
+                              timestamp: "0:04",
+                              contentItems: [
+                                {
+                                  transcriptSegmentViewModel: {
+                                    simpleText: "Hello everyone welcome back",
+                                    timestamp: "0:04"
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          onTap: { innertubeCommand: { watchEndpoint: { startTimeSeconds: 4 } } }
+                        }
+                      },
+                      {
+                        macroMarkersPanelItemViewModel: {
+                          item: {
+                            timelineItemViewModel: {
+                              timestamp: "0:10",
+                              contentItems: [
+                                {
+                                  transcriptSegmentViewModel: {
+                                    simpleText: "today we test get_panel transcript",
+                                    timestamp: "0:10"
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          onTap: { innertubeCommand: { watchEndpoint: { startTimeSeconds: 10 } } }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      frameworkUpdates: {
+        entityBatchUpdate: {
+          mutations: [
+            {
+              payload: {
+                timedMarkersListSyncEntity: {
+                  timedListData: {
+                    sections: [
+                      {
+                        timedSyncDataList: [
+                          { videoTimeMs: "0", syncItemId: "chapter_0" },
+                          { videoTimeMs: "4000", endTimeMs: "10680", syncItemId: "seg_1" },
+                          { videoTimeMs: "10000", endTimeMs: "18949", syncItemId: "seg_2" }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    };
+
+    const snapshot = buildSnapshotFromFixtures({
+      modernTranscriptParams: "qgkPCgt5dERlbW8wMTIzNBgB"
+    });
+    const capturePot = vi.fn(async () => []);
+    const fetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(getPanelFixture, 200));
+
+    const result = await fetchYoutubeSubtitleTrackBody({
+      trackUrl: `${snapshot.captionTracks[0].baseUrl}&exp=xpe`,
+      videoId: snapshot.videoId,
+      languageCode: "en",
+      snapshot,
+      capturePot,
+      fetchFn: fetchMock
+    });
+
+    expect(result.tier).toBe("get_panel");
+    expect(capturePot).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [postUrl, postInit] = fetchMock.mock.calls[1];
+    expect(postUrl).toBe(
+      `https://www.youtube.com/youtubei/v1/get_panel?key=${encodeURIComponent(snapshot.innertubeApiKey)}`
+    );
+    expect(postInit?.method).toBe("POST");
+    const parsedBody = JSON.parse(String(postInit?.body || "{}")) as {
+      context: { client: { clientName: string; hl?: string } };
+      panelId: string;
+      params: string;
+    };
+    expect(parsedBody.context.client.clientName).toBe("WEB");
+    expect(parsedBody.context.client.hl).toBe("en");
+    expect(parsedBody.panelId).toBe("PAmodern_transcript_view");
+    expect(parsedBody.params).toBe("qgkPCgt5dERlbW8wMTIzNBgB");
+    expect(result.items).toEqual([
+      { from: 4, to: 10.68, content: "Hello everyone welcome back" },
+      { from: 10, to: 18.949, content: "today we test get_panel transcript" }
+    ]);
+    expect(parseYoutubeGetPanelSubtitles({})).toEqual([]);
+  });
+
+  it("Tier 2 兼容回落：get_panel 不可得时同源回退至 /youtubei/v1/get_transcript 解析 cueGroups", async () => {
     const transcriptFixture = readYoutubeFixture<unknown>("get-transcript.json");
     const snapshot = buildSnapshotFromFixtures();
     const fetchMock = vi
       .fn<YoutubeSameOriginFetch>()
       .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 400))
       .mockResolvedValueOnce(makeJsonFetchResponse(transcriptFixture, 200));
 
     const result = await fetchYoutubeSubtitleTrackBody({
@@ -472,8 +617,8 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     });
 
     expect(result.tier).toBe("get_transcript");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [postUrl, postInit] = fetchMock.mock.calls[1];
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [postUrl, postInit] = fetchMock.mock.calls[2];
     expect(postUrl).toBe(
       `https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(snapshot.innertubeApiKey)}`
     );
@@ -489,6 +634,110 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
       { from: 3.6, to: 6, content: "today we test fallback transcript" },
       { from: 180, to: 200, content: "thanks for watching" }
     ]);
+  });
+
+  it("方案 B 按需增强：preferTimedtextPot=true 静默取 pot 后精确拉取 json3 并缓存复用，未起播跳过时平滑回落 get_panel", async () => {
+    setLocationUrl("https://www.youtube.com/watch?v=ytDemo01234");
+    const json3Fixture = readYoutubeFixture<unknown>("timedtext-json3.json");
+    const getPanelFixture = {
+      content: {
+        engagementPanelSectionListRenderer: {
+          content: {
+            sectionListRenderer: {
+              contents: [
+                {
+                  itemSectionRenderer: {
+                    contents: [
+                      {
+                        macroMarkersPanelItemViewModel: {
+                          item: {
+                            timelineItemViewModel: {
+                              timestamp: "0:01",
+                              contentItems: [
+                                { transcriptSegmentViewModel: { simpleText: "Coarse panel cue", timestamp: "0:01" } }
+                              ]
+                            }
+                          },
+                          onTap: { innertubeCommand: { watchEndpoint: { startTimeSeconds: 1 } } }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    };
+    const baseSnapshot = buildSnapshotFromFixtures({ observedTimedtextUrls: [] });
+    setYoutubeMainWorldReaderForTests(vi.fn(async () => baseSnapshot));
+    const potCapturer = vi.fn<
+      (opts: { expectedVideoId?: string; languageCode?: string; kind?: string }) => Promise<string[]>
+    >();
+    setYoutubePotCapturerForTests(potCapturer);
+
+    const fetchMock = vi
+      .fn<YoutubeSameOriginFetch>()
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(getPanelFixture, 200))
+      .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(getPanelFixture, 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200));
+    setYoutubeSameOriginFetchForTests(fetchMock);
+
+    await fetchYoutubeVideoBundle("ytDemo01234", { retryDelayMs: 0 });
+    const defaultItems = await fetchYoutubeSubtitleBody({
+      videoId: "ytDemo01234",
+      trackUrl: baseSnapshot.captionTracks[0].baseUrl,
+      lang: "en"
+    });
+    expect(defaultItems).toHaveLength(1);
+    expect(potCapturer).not.toHaveBeenCalled();
+    expect(isYoutubeCoarseTranscriptLoaded("ytDemo01234", baseSnapshot.captionTracks[0].baseUrl)).toBe(true);
+
+    potCapturer.mockResolvedValueOnce([]);
+    const unstartedSwitchItems = await fetchYoutubeSubtitleBody({
+      videoId: "ytDemo01234",
+      trackUrl: baseSnapshot.captionTracks[1].baseUrl,
+      lang: "中文（简体）",
+      preferTimedtextPot: true
+    });
+    expect(unstartedSwitchItems).toHaveLength(1);
+    expect(potCapturer).toHaveBeenCalledTimes(1);
+    expect(potCapturer).toHaveBeenLastCalledWith({
+      expectedVideoId: "ytDemo01234",
+      languageCode: "zh-Hans",
+      kind: ""
+    });
+    const unstartedPanelReqBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body || "{}"));
+    expect(unstartedPanelReqBody?.context?.client?.hl).toBe("zh-Hans");
+
+    potCapturer.mockResolvedValueOnce([
+      "https://www.youtube.com/api/timedtext?v=ytDemo01234&lang=zh-Hans&pot=ACTIVE_CAPTURED_POT&potc=1&c=WEB"
+    ]);
+    const exactSwitchItems = await fetchYoutubeSubtitleBody({
+      videoId: "ytDemo01234",
+      trackUrl: baseSnapshot.captionTracks[1].baseUrl,
+      lang: "中文（简体）",
+      preferTimedtextPot: true
+    });
+    expect(exactSwitchItems).toHaveLength(4);
+    expect(potCapturer).toHaveBeenCalledTimes(2);
+    expect(isYoutubeCoarseTranscriptLoaded("ytDemo01234", baseSnapshot.captionTracks[1].baseUrl)).toBe(false);
+    expect(new URL(fetchMock.mock.calls[4][0]).searchParams.get("pot")).toBe("ACTIVE_CAPTURED_POT");
+
+    const reusedPotItems = await fetchYoutubeSubtitleBody({
+      videoId: "ytDemo01234",
+      trackUrl: baseSnapshot.captionTracks[0].baseUrl,
+      lang: "en",
+      preferTimedtextPot: true
+    });
+    expect(reusedPotItems).toHaveLength(4);
+    expect(potCapturer).toHaveBeenCalledTimes(2);
+    expect(new URL(fetchMock.mock.calls[5][0]).searchParams.get("pot")).toBe("ACTIVE_CAPTURED_POT");
+    expect(isYoutubeCoarseTranscriptLoaded("ytDemo01234", baseSnapshot.captionTracks[0].baseUrl)).toBe(false);
   });
 
   it("严禁伪装 ANDROID / IOS / MWEB InnerTube 客户端", async () => {
@@ -508,13 +757,25 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
       code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      fetchYoutubeGetPanelTranscript({
+        innertubeContext: { client: { clientName: "IOS", clientVersion: "19.01.1" } },
+        videoId: "ytDemo01234",
+        fetchFn: fetchMock
+      })
+    ).rejects.toMatchObject({
+      code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("Tier 3：timedtext 与 get_transcript 双路均不可得时抛出清晰 YOUTUBE_CAPTIONS_UNAVAILABLE 错误", async () => {
+  it("Tier 3：timedtext、get_panel 与 get_transcript 全路径均不可得时抛出清晰 YOUTUBE_CAPTIONS_UNAVAILABLE 错误", async () => {
     const snapshot = buildSnapshotFromFixtures();
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
       .mockResolvedValueOnce(makeJsonFetchResponse({}, 500));
 
     await expect(
@@ -699,10 +960,12 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
 
     const reader = vi.fn<() => Promise<YoutubePageSnapshot>>().mockResolvedValue(snapshotWithoutPot);
     setYoutubeMainWorldReaderForTests(reader);
+    setYoutubePotCapturerForTests(vi.fn(async () => []));
 
     const fetchMock = vi
       .fn<YoutubeSameOriginFetch>()
       .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
       .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
       .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200))
       .mockResolvedValueOnce(makeJsonFetchResponse(json3Fixture, 200));
@@ -719,7 +982,7 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     expect(getCachedYoutubeSnapshot("ytDemo01234")?.observedTimedtextUrls).toEqual(
       snapshotWithoutPot.observedTimedtextUrls
     );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     reader.mockResolvedValue(snapshotWithPot);
     const readerCallsBeforeRetry = reader.mock.calls.length;
@@ -735,16 +998,16 @@ describe("YouTube 三级字幕采集（timedtext json3 / get_transcript / 失败
     expect(getCachedYoutubeSnapshot("ytDemo01234")?.observedTimedtextUrls).toEqual(
       snapshotWithPot.observedTimedtextUrls
     );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const retryRequestUrl = new URL(fetchMock.mock.calls[2][0]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const retryRequestUrl = new URL(fetchMock.mock.calls[3][0]);
     expect(retryRequestUrl.pathname).toContain("/api/timedtext");
     expect(retryRequestUrl.searchParams.get("pot")).toBe("NEW_RETRY_POT");
 
     await fetcher.refreshClip({ forceRefresh: true });
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.noSubtitleReason).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    const refreshRetryUrl = new URL(fetchMock.mock.calls[3][0]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const refreshRetryUrl = new URL(fetchMock.mock.calls[4][0]);
     expect(refreshRetryUrl.pathname).toContain("/api/timedtext");
     expect(refreshRetryUrl.searchParams.get("pot")).toBe("NEW_RETRY_POT");
   });
@@ -1042,9 +1305,11 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
 
     setLocationUrl("https://www.youtube.com/watch?v=yt31Tracks1");
     setYoutubeMainWorldReaderForTests(async () => snapshot31);
+    setYoutubePotCapturerForTests(vi.fn(async () => []));
     const refreshFetchMock = vi
       .fn<YoutubeSameOriginFetch>()
       .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
       .mockResolvedValueOnce(makeJsonFetchResponse({}, 500));
     setYoutubeSameOriginFetchForTests(refreshFetchMock);
 
@@ -1053,9 +1318,12 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     expect(state.clip.subtitles).toHaveLength(31);
     expect(state.clip.subtitleFetchState).toBe("empty");
     expect(state.clip.noSubtitleReason).toBe("youtube-captions-unavailable");
-    expect(refreshFetchMock).toHaveBeenCalledTimes(2);
+    expect(refreshFetchMock).toHaveBeenCalledTimes(3);
     expect(
       refreshFetchMock.mock.calls.filter(([url]) => url.includes("/api/timedtext"))
+    ).toHaveLength(1);
+    expect(
+      refreshFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_panel"))
     ).toHaveLength(1);
     expect(
       refreshFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_transcript"))
@@ -1064,6 +1332,7 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     const directFetchMock = vi
       .fn<YoutubeSameOriginFetch>()
       .mockResolvedValueOnce(makeTextFetchResponse("", 200))
+      .mockResolvedValueOnce(makeJsonFetchResponse({}, 500))
       .mockResolvedValueOnce(makeJsonFetchResponse({}, 500));
     setYoutubeSameOriginFetchForTests(directFetchMock);
     clipState.setSite("youtube");
@@ -1076,7 +1345,10 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     await expect(fetcher.tryLoadSubtitleCandidates(mapped31, 42, true)).rejects.toMatchObject({
       code: YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE
     });
-    expect(directFetchMock).toHaveBeenCalledTimes(2);
+    expect(directFetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      directFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_panel"))
+    ).toHaveLength(1);
     expect(
       directFetchMock.mock.calls.filter(([url]) => url.includes("/youtubei/v1/get_transcript"))
     ).toHaveLength(1);

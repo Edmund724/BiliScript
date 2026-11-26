@@ -577,6 +577,7 @@ export type YoutubePageSnapshot = {
   innertubeContext: Record<string, unknown> | null;
   innertubeApiKey: string;
   transcriptParams: string;
+  modernTranscriptParams?: string;
   commentsContinuation?: string;
   commentsDisabled?: boolean;
   observedTimedtextUrls: string[];
@@ -588,6 +589,19 @@ export type YoutubePageSnapshotMessage = {
 export type YoutubePageSnapshotResponse = {
   ok: boolean;
   snapshot?: YoutubePageSnapshot;
+  error?: string;
+};
+
+export type YoutubeCaptureTimedtextPotMessage = {
+  type: "youtube-capture-timedtext-pot";
+  expectedVideoId?: string;
+  languageCode?: string;
+  kind?: string;
+};
+export type YoutubeCaptureTimedtextPotResponse = {
+  ok: boolean;
+  observedTimedtextUrls?: string[];
+  skippedReason?: string;
   error?: string;
 };
 
@@ -683,6 +697,7 @@ export type BackgroundMessage =
   | OpenOnboardingMessage
   | PermissionGrantResultMessage
   | YoutubePageSnapshotMessage
+  | YoutubeCaptureTimedtextPotMessage
   | YoutubeEnsureSabrWorkerMessage
   | ContentStyleInsertMessage
   | ContentStyleRemoveMessage
@@ -1115,6 +1130,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "youtube-page-snapshot": registerBackgroundMessage<
     YoutubePageSnapshotMessage,
     YoutubePageSnapshotResponse
+  >({
+    reply: "branch"
+  }),
+  "youtube-capture-timedtext-pot": registerBackgroundMessage<
+    YoutubeCaptureTimedtextPotMessage,
+    YoutubeCaptureTimedtextPotResponse
   >({
     reply: "branch"
   }),

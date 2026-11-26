@@ -30,6 +30,7 @@ export interface YoutubeVideoMetaSnapshot {
   innertubeContext: Record<string, unknown> | null;
   innertubeApiKey: string;
   transcriptParams: string;
+  modernTranscriptParams: string;
   commentsContinuation: string;
   commentsDisabled: boolean;
   observedTimedtextUrls: string[];
@@ -38,6 +39,12 @@ export interface YoutubeVideoMetaSnapshot {
 export type YoutubeMainWorldReader = (
   expectedVideoId?: string
 ) => Promise<YoutubePageSnapshot | null | undefined>;
+
+export type YoutubeTimedtextPotCapturer = (options: {
+  expectedVideoId?: string;
+  languageCode?: string;
+  kind?: string;
+}) => Promise<string[]>;
 
 export type YoutubeFetchResponse = Pick<Response, "ok" | "status" | "text" | "json">;
 
@@ -58,6 +65,8 @@ const TRANSIENT_SNAPSHOT_ERROR = "未读取到 YouTube 页面播放器快照";
 
 let mainWorldReaderForTests: YoutubeMainWorldReader | null = null;
 let sameOriginFetchForTests: YoutubeSameOriginFetch | null = null;
+let potCapturerForTests: YoutubeTimedtextPotCapturer | null = null;
+const potCaptureInFlight = new Map<string, Promise<string[]>>();
 
 export function setYoutubeMainWorldReaderForTests(reader: YoutubeMainWorldReader | null): void {
   mainWorldReaderForTests = reader;
@@ -65,6 +74,50 @@ export function setYoutubeMainWorldReaderForTests(reader: YoutubeMainWorldReader
 
 export function setYoutubeSameOriginFetchForTests(fetcher: YoutubeSameOriginFetch | null): void {
   sameOriginFetchForTests = fetcher;
+}
+
+export function setYoutubePotCapturerForTests(capturer: YoutubeTimedtextPotCapturer | null): void {
+  potCapturerForTests = capturer;
+  potCaptureInFlight.clear();
+}
+
+export async function captureYoutubeTimedtextPot(options: {
+  expectedVideoId?: string;
+  languageCode?: string;
+  kind?: string;
+} = {}): Promise<string[]> {
+  const expectedVideoId = String(options.expectedVideoId || "").trim() || extractYoutubeVideoId();
+  const languageCode = String(options.languageCode || "").trim();
+  const kind = String(options.kind || "").trim();
+  if (potCapturerForTests) {
+    const urls = await potCapturerForTests({ expectedVideoId, languageCode, kind });
+    return Array.isArray(urls) ? urls.filter((u): u is string => typeof u === "string" && u.trim().length > 0) : [];
+  }
+  const dedupeKey = expectedVideoId || "__active__";
+  const existing = potCaptureInFlight.get(dedupeKey);
+  if (existing) {
+    return existing;
+  }
+  const task = (async () => {
+    try {
+      const resp = await sendRuntimeMessage({
+        type: "youtube-capture-timedtext-pot",
+        ...(expectedVideoId ? { expectedVideoId } : {}),
+        ...(languageCode ? { languageCode } : {}),
+        ...(kind ? { kind } : {})
+      });
+      if (!resp?.ok || !Array.isArray(resp.observedTimedtextUrls)) {
+        return [];
+      }
+      return resp.observedTimedtextUrls.filter((u): u is string => typeof u === "string" && u.trim().length > 0);
+    } catch {
+      return [];
+    } finally {
+      potCaptureInFlight.delete(dedupeKey);
+    }
+  })();
+  potCaptureInFlight.set(dedupeKey, task);
+  return task;
 }
 
 export function getYoutubeSameOriginFetch(): YoutubeSameOriginFetch {
@@ -156,6 +209,7 @@ export function normalizeYoutubePageSnapshot(
     innertubeContext: normalizePlainObject(raw.innertubeContext),
     innertubeApiKey: String(raw.innertubeApiKey || "").trim(),
     transcriptParams: String(raw.transcriptParams || "").trim(),
+    modernTranscriptParams: String(raw.modernTranscriptParams || "").trim(),
     commentsContinuation: String(raw.commentsContinuation || "").trim(),
     commentsDisabled: Boolean(raw.commentsDisabled),
     observedTimedtextUrls
@@ -182,7 +236,8 @@ function isYoutubeSnapshotHydrated(raw: YoutubePageSnapshot): boolean {
   const rawDuration = Number(raw.duration);
   const hasDuration = Number.isFinite(rawDuration) && rawDuration > 0;
   const hasTranscriptParams =
-    typeof raw.transcriptParams === "string" && raw.transcriptParams.trim().length > 0;
+    (typeof raw.transcriptParams === "string" && raw.transcriptParams.trim().length > 0) ||
+    (typeof raw.modernTranscriptParams === "string" && raw.modernTranscriptParams.trim().length > 0);
   return hasTracks || hasDuration || hasTranscriptParams;
 }
 

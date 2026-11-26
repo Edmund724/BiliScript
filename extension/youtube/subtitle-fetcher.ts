@@ -697,6 +697,234 @@ export async function fetchTimedtextJson3({
   return { items, requestUrl };
 }
 
+export const YOUTUBE_MODERN_TRANSCRIPT_PANEL_ID = "PAmodern_transcript_view";
+
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_BCP47_LANG_RE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+
+export function encodeModernYoutubeTranscriptParams(videoId: string): string {
+  const cleanId = String(videoId || "").trim();
+  if (!YOUTUBE_VIDEO_ID_RE.test(cleanId)) {
+    return "";
+  }
+  const bytes = new Uint8Array(18);
+  bytes[0] = 0xaa;
+  bytes[1] = 0x09;
+  bytes[2] = 0x0f;
+  bytes[3] = 0x0a;
+  bytes[4] = 0x0b;
+  for (let i = 0; i < 11; i += 1) {
+    bytes[5 + i] = cleanId.charCodeAt(i);
+  }
+  bytes[16] = 0x18;
+  bytes[17] = 0x01;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function parseTimestampTextMs(raw: unknown): number {
+  const text = String(raw ?? "").trim();
+  if (!text) return NaN;
+  const parts = text.split(":").map((part) => Number(part));
+  if (parts.length < 2 || parts.length > 3 || parts.some((n) => !Number.isFinite(n) || n < 0)) {
+    return NaN;
+  }
+  const totalSec =
+    parts.length === 3
+      ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+      : parts[0] * 60 + parts[1];
+  return Math.round(totalSec * 1000);
+}
+
+interface RawPanelSyncTiming {
+  videoTimeMs: number;
+  endTimeMs: number;
+}
+
+export function parseYoutubeGetPanelSubtitles(payload: unknown): SubtitleBodyItem[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const rawSegments: Array<{ text: string; startMs: number }> = [];
+  const syncTimings: RawPanelSyncTiming[] = [];
+  const visited = new WeakSet<object>();
+
+  const visit = (node: unknown, depth: number) => {
+    if (!node || typeof node !== "object" || depth > 22) {
+      return;
+    }
+    if (visited.has(node)) {
+      return;
+    }
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+
+    const record = node as Record<string, unknown>;
+    const markerItem = record.macroMarkersPanelItemViewModel;
+    if (markerItem && typeof markerItem === "object" && !Array.isArray(markerItem)) {
+      const m = markerItem as Record<string, unknown>;
+      const timelineItem = (m.item as Record<string, unknown> | undefined)?.timelineItemViewModel as
+        | Record<string, unknown>
+        | undefined;
+      const contentItems = Array.isArray(timelineItem?.contentItems) ? timelineItem.contentItems : [];
+      for (const ci of contentItems) {
+        const segVm = (ci as Record<string, unknown> | undefined)?.transcriptSegmentViewModel as
+          | Record<string, unknown>
+          | undefined;
+        if (!segVm || typeof segVm !== "object") continue;
+        const content = cleanCueWhitespace(
+          typeof segVm.simpleText === "string"
+            ? segVm.simpleText
+            : readYoutubeTextRuns(segVm.snippet ?? segVm.text)
+        );
+        if (!content) continue;
+        const tapCmd = (m.onTap as Record<string, unknown> | undefined)?.innertubeCommand as
+          | Record<string, unknown>
+          | undefined;
+        const startSec = Number(
+          (tapCmd?.watchEndpoint as Record<string, unknown> | undefined)?.startTimeSeconds
+        );
+        const startMs =
+          Number.isFinite(startSec) && startSec >= 0
+            ? Math.round(startSec * 1000)
+            : parseTimestampTextMs(segVm.timestamp ?? timelineItem?.timestamp);
+        if (Number.isFinite(startMs) && startMs >= 0) {
+          rawSegments.push({ text: content, startMs });
+        }
+      }
+    }
+
+    if (Array.isArray(record.timedSyncDataList)) {
+      for (const rawSync of record.timedSyncDataList) {
+        if (!rawSync || typeof rawSync !== "object") continue;
+        const sync = rawSync as { videoTimeMs?: unknown; endTimeMs?: unknown };
+        const videoTimeMs = Number(sync.videoTimeMs);
+        const endTimeMs = Number(sync.endTimeMs);
+        if (Number.isFinite(videoTimeMs) && videoTimeMs >= 0 && Number.isFinite(endTimeMs) && endTimeMs > videoTimeMs) {
+          syncTimings.push({ videoTimeMs: Math.round(videoTimeMs), endTimeMs: Math.round(endTimeMs) });
+        }
+      }
+    }
+
+    for (const value of Object.values(record)) {
+      if (value && typeof value === "object") {
+        visit(value, depth + 1);
+      }
+    }
+  };
+
+  visit(payload, 0);
+
+  if (rawSegments.length === 0) {
+    return [];
+  }
+
+  let syncCursor = 0;
+  return rawSegments.map((seg, idx) => {
+    let startMs = seg.startMs;
+    let endMs = NaN;
+
+    for (let look = syncCursor; look < Math.min(syncTimings.length, syncCursor + 4); look += 1) {
+      const candidate = syncTimings[look];
+      if (Math.abs(candidate.videoTimeMs - seg.startMs) <= 1500) {
+        startMs = candidate.videoTimeMs;
+        endMs = candidate.endTimeMs;
+        syncCursor = look + 1;
+        break;
+      }
+    }
+
+    if (!Number.isFinite(endMs) || endMs <= startMs) {
+      const nextStartMs = idx + 1 < rawSegments.length ? rawSegments[idx + 1].startMs : null;
+      endMs =
+        nextStartMs !== null && nextStartMs > startMs
+          ? nextStartMs
+          : startMs + DEFAULT_CUE_FALLBACK_DURATION_MS;
+    }
+
+    return {
+      from: msToSec(startMs),
+      to: msToSec(endMs),
+      content: seg.text
+    };
+  });
+}
+
+export async function fetchYoutubeGetPanelTranscript({
+  innertubeContext,
+  innertubeApiKey = "",
+  modernTranscriptParams = "",
+  videoId = "",
+  languageCode = "",
+  fetchFn = getYoutubeSameOriginFetch()
+}: {
+  innertubeContext: Record<string, unknown> | null | undefined;
+  innertubeApiKey?: string;
+  modernTranscriptParams?: string;
+  videoId?: string;
+  languageCode?: string;
+  fetchFn?: YoutubeSameOriginFetch;
+}): Promise<{ items: SubtitleBodyItem[]; requestUrl: string; reason?: string; status?: number }> {
+  const cleanParams =
+    String(modernTranscriptParams || "").trim() || encodeModernYoutubeTranscriptParams(videoId);
+  if (!cleanParams) {
+    return { items: [], requestUrl: "", reason: "缺少 modernTranscriptParams" };
+  }
+  const safeContext = assertWebInnertubeContext(innertubeContext);
+  const cleanLang = String(languageCode || "").trim();
+  let requestContext = safeContext;
+  if (cleanLang && YOUTUBE_BCP47_LANG_RE.test(cleanLang)) {
+    const rawClient = (safeContext as { client?: unknown }).client;
+    if (rawClient && typeof rawClient === "object" && !Array.isArray(rawClient)) {
+      requestContext = {
+        ...safeContext,
+        client: {
+          ...(rawClient as Record<string, unknown>),
+          hl: cleanLang
+        }
+      };
+    }
+  }
+  const cleanKey = String(innertubeApiKey || "").trim();
+  const requestUrl = cleanKey
+    ? `https://www.youtube.com/youtubei/v1/get_panel?key=${encodeURIComponent(cleanKey)}`
+    : "https://www.youtube.com/youtubei/v1/get_panel";
+
+  const response = await fetchFn(requestUrl, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: buildWebInnertubeHeaders(requestContext),
+    body: JSON.stringify({
+      context: requestContext,
+      panelId: YOUTUBE_MODERN_TRANSCRIPT_PANEL_ID,
+      params: cleanParams
+    })
+  });
+  const parsed = await readResponseJsonSafely(response);
+  if (!parsed.ok) {
+    return { items: [], requestUrl, reason: `HTTP ${parsed.status}`, status: parsed.status };
+  }
+  if (parsed.empty) {
+    return { items: [], requestUrl, reason: "get_panel 返回空正文" };
+  }
+  const items = parseYoutubeGetPanelSubtitles(parsed.data);
+  if (items.length === 0) {
+    return { items: [], requestUrl, reason: "get_panel 未解析到有效字幕条目" };
+  }
+  return { items, requestUrl };
+}
+
 export async function fetchYoutubeGetTranscript({
   innertubeContext,
   innertubeApiKey = "",
@@ -742,49 +970,132 @@ export async function fetchYoutubeGetTranscript({
   return { items, requestUrl };
 }
 
-export type YoutubeFetchTier = "timedtext" | "get_transcript";
+export type YoutubeFetchTier = "timedtext" | "get_panel" | "get_transcript";
 
 export interface FetchYoutubeSubtitleTrackResult {
   items: SubtitleBodyItem[];
   tier: YoutubeFetchTier;
   requestUrl: string;
+  capturedTimedtextUrls?: string[];
 }
 
 export type YoutubeSubtitleSnapshotInput = Pick<
   YoutubePageSnapshot,
   "videoId" | "observedTimedtextUrls" | "innertubeContext" | "innertubeApiKey" | "transcriptParams"
->;
+> & {
+  modernTranscriptParams?: string;
+};
+
+function extractTrackKindFromUrl(rawUrl: string): string {
+  const normalized = normalizeYoutubeTimedtextUrl(rawUrl);
+  if (!normalized) return "";
+  try {
+    return (new URL(normalized).searchParams.get("kind") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function trackUrlAlreadyHasPot(rawUrl: string): boolean {
+  const normalized = normalizeYoutubeTimedtextUrl(rawUrl);
+  if (!normalized) return false;
+  try {
+    return Boolean((new URL(normalized).searchParams.get("pot") || "").trim());
+  } catch {
+    return false;
+  }
+}
+
+function mergeUniqueUrls(
+  base: readonly string[] | null | undefined,
+  extra: readonly string[] | null | undefined
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of [base, extra]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const clean = String(item || "").trim();
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        out.push(clean);
+      }
+    }
+  }
+  return out;
+}
 
 export async function fetchYoutubeSubtitleTrackBody({
   trackUrl,
   videoId = "",
   languageCode = "",
   snapshot = null,
+  preferTimedtextPot = false,
+  capturePot,
   fetchFn = getYoutubeSameOriginFetch()
 }: {
   trackUrl: string;
   videoId?: string;
   languageCode?: string;
   snapshot?: YoutubeSubtitleSnapshotInput | null;
+  preferTimedtextPot?: boolean;
+  capturePot?: () => Promise<readonly string[]>;
   fetchFn?: YoutubeSameOriginFetch;
 }): Promise<FetchYoutubeSubtitleTrackResult> {
+  const effectiveVideoId = String(videoId || snapshot?.videoId || "").trim();
+  const trackKind = extractTrackKindFromUrl(trackUrl);
+  let effectiveObservedUrls = mergeUniqueUrls(snapshot?.observedTimedtextUrls, null);
+  let capturedTimedtextUrls: string[] = [];
+  let potCaptureAttempted = false;
+
+  const tryCapturePotOnce = async (): Promise<boolean> => {
+    if (potCaptureAttempted || !capturePot) {
+      return false;
+    }
+    potCaptureAttempted = true;
+    try {
+      const freshUrls = await capturePot();
+      if (!Array.isArray(freshUrls) || freshUrls.length === 0) {
+        return false;
+      }
+      const prevCount = effectiveObservedUrls.length;
+      effectiveObservedUrls = mergeUniqueUrls(effectiveObservedUrls, freshUrls);
+      capturedTimedtextUrls = mergeUniqueUrls(capturedTimedtextUrls, freshUrls);
+      return (
+        effectiveObservedUrls.length > prevCount ||
+        hasMatchingYoutubeObservedPot(freshUrls, effectiveVideoId, languageCode, trackKind)
+      );
+    } catch {
+      return false;
+    }
+  };
+
   let tier1Reason = "缺少 timedtext URL";
   let tier1Status: number | undefined;
+
+  const hasPotReady = (): boolean =>
+    trackUrlAlreadyHasPot(trackUrl) ||
+    hasMatchingYoutubeObservedPot(effectiveObservedUrls, effectiveVideoId, languageCode, trackKind);
+
+  if (preferTimedtextPot && String(trackUrl || "").trim() && !hasPotReady()) {
+    await tryCapturePotOnce();
+  }
 
   if (String(trackUrl || "").trim()) {
     try {
       const tier1 = await fetchTimedtextJson3({
         baseUrl: trackUrl,
-        videoId: videoId || snapshot?.videoId || "",
+        videoId: effectiveVideoId,
         languageCode,
-        observedTimedtextUrls: snapshot?.observedTimedtextUrls ?? [],
+        observedTimedtextUrls: effectiveObservedUrls,
         fetchFn
       });
       if (tier1.items.length > 0) {
         return {
           items: tier1.items,
           tier: "timedtext",
-          requestUrl: tier1.requestUrl
+          requestUrl: tier1.requestUrl,
+          ...(capturedTimedtextUrls.length > 0 ? { capturedTimedtextUrls } : {})
         };
       }
       tier1Reason = tier1.reason || "timedtext 无可用字幕";
@@ -795,6 +1106,36 @@ export async function fetchYoutubeSubtitleTrackBody({
       } else {
         tier1Reason = error instanceof Error ? error.message : String(error);
       }
+    }
+  }
+
+  let getPanelReason = "缺少页面 WEB 上下文或视频标识";
+  let getPanelStatus: number | undefined;
+  const resolvedModernParams =
+    String(snapshot?.modernTranscriptParams || "").trim() ||
+    encodeModernYoutubeTranscriptParams(effectiveVideoId);
+
+  if (snapshot?.innertubeContext && resolvedModernParams) {
+    try {
+      const panelRes = await fetchYoutubeGetPanelTranscript({
+        innertubeContext: snapshot.innertubeContext,
+        innertubeApiKey: snapshot.innertubeApiKey,
+        modernTranscriptParams: resolvedModernParams,
+        videoId: effectiveVideoId,
+        languageCode,
+        fetchFn
+      });
+      if (panelRes.items.length > 0) {
+        return {
+          items: panelRes.items,
+          tier: "get_panel",
+          requestUrl: panelRes.requestUrl
+        };
+      }
+      getPanelReason = panelRes.reason || "get_panel 无可用字幕";
+      getPanelStatus = panelRes.status;
+    } catch (error) {
+      getPanelReason = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -823,9 +1164,33 @@ export async function fetchYoutubeSubtitleTrackBody({
     }
   }
 
+  if (String(trackUrl || "").trim() && !hasPotReady() && (await tryCapturePotOnce())) {
+    try {
+      const retryTier1 = await fetchTimedtextJson3({
+        baseUrl: trackUrl,
+        videoId: effectiveVideoId,
+        languageCode,
+        observedTimedtextUrls: effectiveObservedUrls,
+        fetchFn
+      });
+      if (retryTier1.items.length > 0) {
+        return {
+          items: retryTier1.items,
+          tier: "timedtext",
+          requestUrl: retryTier1.requestUrl,
+          ...(capturedTimedtextUrls.length > 0 ? { capturedTimedtextUrls } : {})
+        };
+      }
+      tier1Reason = retryTier1.reason || tier1Reason;
+      tier1Status = retryTier1.status ?? tier1Status;
+    } catch (error) {
+      tier1Reason = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   throw new YoutubeSubtitleError(
-    `未能获取 YouTube 字幕正文（timedtext：${tier1Reason}；get_transcript：${tier2Reason}）。`,
+    `未能获取 YouTube 字幕正文（timedtext：${tier1Reason}；get_panel：${getPanelReason}；get_transcript：${tier2Reason}）。`,
     YOUTUBE_CAPTIONS_UNAVAILABLE_ERROR_CODE,
-    tier2Status ?? tier1Status
+    getPanelStatus ?? tier2Status ?? tier1Status
   );
 }

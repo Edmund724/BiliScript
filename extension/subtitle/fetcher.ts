@@ -745,11 +745,16 @@ function notifyCacheSaveFailed(): void {
   logWarn(`[BILISCRIPT] ${CACHE_SAVE_FAILED_MESSAGE}`);
 }
 
+export interface LoadSubtitleOptions {
+  preferTimedtextPot?: boolean;
+}
+
 function createTrackBodyLoader(
   site: SiteId,
   videoId: string,
   url: string,
-  lang: string
+  lang: string,
+  options?: LoadSubtitleOptions
 ): (() => Promise<SubtitleBodyItem[]>) | undefined {
   if (site !== "youtube") {
     return undefined;
@@ -758,8 +763,17 @@ function createTrackBodyLoader(
     (await import("../youtube/gateway.js")).fetchYoutubeSubtitleBody({
       videoId,
       trackUrl: url,
-      lang
+      lang,
+      ...(options?.preferTimedtextPot ? { preferTimedtextPot: true } : {})
     });
+}
+
+export async function isYoutubeCoarseTranscriptLoaded(videoId: string, url: string): Promise<boolean> {
+  if (state.clip.site !== "youtube") {
+    return false;
+  }
+  const { isYoutubeCoarseTranscriptLoaded: checkCoarse } = await import("../youtube/gateway.js");
+  return checkCoarse(videoId, url);
 }
 
 export async function loadSubtitle(
@@ -767,7 +781,8 @@ export async function loadSubtitle(
   lang: string,
   runId: number = state.clip.fetchRunId,
   subtitleId: string = "",
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  options?: LoadSubtitleOptions
 ): Promise<void> {
   if (!url) {
     throw new Error("字幕 URL 为空。");
@@ -788,6 +803,11 @@ export async function loadSubtitle(
   }
   const activeSite = state.clip.site;
   const activeVideoId = state.clip.bvid;
+  const effectiveForceRefresh =
+    forceRefresh ||
+    (activeSite === "youtube" &&
+      Boolean(options?.preferTimedtextPot) &&
+      (await isYoutubeCoarseTranscriptLoaded(activeVideoId, url)));
   await loadTrackBody<SubtitleBodyItem>(
     {
       site: activeSite,
@@ -797,9 +817,9 @@ export async function loadSubtitle(
       url,
       lang,
       subtitleId,
-      forceRefresh,
+      forceRefresh: effectiveForceRefresh,
       transport: contentFetchJson,
-      fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
+      fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang, options),
       checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
       onCacheSaveFailed: notifyCacheSaveFailed
     },
@@ -875,7 +895,8 @@ export async function loadSecondarySubtitle(
   lang: string,
   runId: number = state.clip.fetchRunId,
   subtitleId: string = "",
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  options?: LoadSubtitleOptions
 ): Promise<void> {
   if (!url) {
     throw new Error("字幕 URL 为空。");
@@ -902,7 +923,7 @@ export async function loadSecondarySubtitle(
         subtitleId,
         forceRefresh,
         transport: contentFetchJson,
-        fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang),
+        fetchBody: createTrackBodyLoader(activeSite, activeVideoId, url, lang, options),
         checkActive: runId !== undefined ? () => ensureRunActive(runId, state.clip.fetchRunId) : undefined,
         onCacheSaveFailed: notifyCacheSaveFailed
       },

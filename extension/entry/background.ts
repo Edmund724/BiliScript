@@ -730,8 +730,40 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
   }
 
   let transcriptParams = "";
+  let modernTranscriptParams = "";
   let commentsContinuation = "";
   let hasCommentsDisabledMessage = false;
+
+  const extractModernTranscriptParams = (node: unknown, depth = 0): string => {
+    if (!node || typeof node !== "object" || depth > 14) {
+      return "";
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const hit = extractModernTranscriptParams(item, depth + 1);
+        if (hit) return hit;
+      }
+      return "";
+    }
+    const obj = node as JsonObj;
+    const updateCmd = asObj(obj.updateEngagementPanelContentCommand);
+    if (
+      updateCmd &&
+      asObj(updateCmd.contentSourcePanelIdentifier)?.tag === "PAmodern_transcript_view"
+    ) {
+      const p = asObj(updateCmd.globalConfiguration)?.params;
+      if (typeof p === "string" && p.trim()) {
+        return p.trim();
+      }
+    }
+    for (const value of Object.values(obj)) {
+      if (value && typeof value === "object") {
+        const hit = extractModernTranscriptParams(value, depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return "";
+  };
 
   const extractCommentsFromItemSections = (rawSections: unknown) => {
     if (!Array.isArray(rawSections)) return;
@@ -777,6 +809,10 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
       )?.params;
       if (typeof panelParams === "string" && panelParams && !transcriptParams) {
         transcriptParams = panelParams;
+      }
+      if (!modernTranscriptParams) {
+        modernTranscriptParams =
+          extractModernTranscriptParams(content) || extractModernTranscriptParams(section.header);
       }
       const panelId = typeof section.panelIdentifier === "string" ? section.panelIdentifier : "";
       if (!commentsContinuation && panelId === "engagement-panel-comments-section") {
@@ -903,9 +939,259 @@ function collectYoutubeMainWorldSnapshot(): YoutubePageSnapshot | null {
     innertubeContext,
     innertubeApiKey,
     transcriptParams,
+    ...(modernTranscriptParams ? { modernTranscriptParams } : {}),
     commentsContinuation,
     commentsDisabled: !commentsContinuation && hasCommentsDisabledMessage,
     observedTimedtextUrls
+  };
+}
+
+async function captureYoutubeTimedtextPotInMainWorld(
+  expectedVideoId: string,
+  preferredLang: string,
+  preferredKind: string
+): Promise<{ observedTimedtextUrls: string[]; skippedReason?: string }> {
+  type TrackObj = { languageCode?: string; kind?: string; vss_id?: string };
+  type MoviePlayerLike = HTMLElement & {
+    getVideoData?: () => { video_id?: string } | null;
+    getPlayerState?: () => number;
+    loadModule?: (name: string) => void;
+    unloadModule?: (name: string) => void;
+    getOption?: (moduleName: string, option: string) => unknown;
+    setOption?: (moduleName: string, option: string, value: unknown) => void;
+    toggleSubtitles?: () => void;
+  };
+
+  const collectMatchingPotUrls = (targetVideoId: string): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    try {
+      for (const entry of performance.getEntriesByType("resource")) {
+        const name = typeof entry?.name === "string" ? entry.name : "";
+        if (!name || !name.includes("/api/timedtext")) continue;
+        try {
+          const u = new URL(name);
+          if (!u.pathname.includes("/api/timedtext")) continue;
+          const v = (u.searchParams.get("v") || "").trim();
+          const pot = (u.searchParams.get("pot") || "").trim();
+          const c = (u.searchParams.get("c") || "").trim();
+          if (!pot || /\s/.test(pot)) continue;
+          if (c && c !== "WEB") continue;
+          if (targetVideoId && v && v !== targetVideoId) continue;
+          if (!seen.has(name)) {
+            seen.add(name);
+            out.push(name);
+          }
+        } catch {
+        }
+      }
+    } catch {
+    }
+    return out;
+  };
+
+  let urlVideoId = "";
+  try {
+    const v = new URL(location.href).searchParams.get("v") || "";
+    if (/^[A-Za-z0-9_-]{11}$/.test(v)) urlVideoId = v;
+  } catch {
+  }
+  const mp = document.getElementById("movie_player") as MoviePlayerLike | null;
+  let playerVideoId = "";
+  try {
+    playerVideoId = String(mp?.getVideoData?.()?.video_id || "").trim();
+  } catch {
+  }
+  const targetVideoId = String(expectedVideoId || playerVideoId || urlVideoId || "").trim();
+  if (!targetVideoId) {
+    return { observedTimedtextUrls: [], skippedReason: "missing-video-id" };
+  }
+  if (playerVideoId && targetVideoId !== playerVideoId) {
+    return { observedTimedtextUrls: [], skippedReason: "video-id-mismatch" };
+  }
+
+  const already = collectMatchingPotUrls(targetVideoId);
+  if (already.length > 0) {
+    return { observedTimedtextUrls: already };
+  }
+
+  if (!mp || typeof mp.setOption !== "function") {
+    return { observedTimedtextUrls: [], skippedReason: "player-unavailable" };
+  }
+
+  let playerState = -1;
+  try {
+    playerState = typeof mp.getPlayerState === "function" ? Number(mp.getPlayerState()) : -1;
+  } catch {
+    playerState = -1;
+  }
+  if (!Number.isFinite(playerState) || playerState === -1) {
+    return { observedTimedtextUrls: [], skippedReason: "player-unstarted" };
+  }
+
+  const snapStorage = (store: Storage): Record<string, string> => {
+    const res: Record<string, string> = {};
+    try {
+      for (let i = 0; i < store.length; i += 1) {
+        const k = store.key(i);
+        if (k && (k.includes("caption") || k.includes("subtitle"))) {
+          const val = store.getItem(k);
+          if (val !== null) res[k] = val;
+        }
+      }
+    } catch {
+    }
+    return res;
+  };
+  const restoreStorage = (store: Storage, before: Record<string, string>) => {
+    try {
+      const keys = new Set<string>(Object.keys(before));
+      for (let i = 0; i < store.length; i += 1) {
+        const k = store.key(i);
+        if (k && (k.includes("caption") || k.includes("subtitle"))) keys.add(k);
+      }
+      for (const k of keys) {
+        if (Object.prototype.hasOwnProperty.call(before, k)) {
+          if (store.getItem(k) !== before[k]) store.setItem(k, before[k]);
+        } else {
+          store.removeItem(k);
+        }
+      }
+    } catch {
+    }
+  };
+  const readPrefCookie = (): string | null => {
+    try {
+      const m = document.cookie.match(/(?:^|;\s*)PREF=([^;]*)/);
+      return m ? m[1] : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const ccBtn = document.querySelector(".ytp-subtitles-button");
+  const wasCcOn = ccBtn?.getAttribute("aria-pressed") === "true";
+  let prevTrack: TrackObj | null = null;
+  try {
+    const rawPrev = mp.getOption?.("captions", "track");
+    if (rawPrev && typeof rawPrev === "object") prevTrack = rawPrev as TrackObj;
+  } catch {
+  }
+
+  const lsBefore = snapStorage(localStorage);
+  const ssBefore = snapStorage(sessionStorage);
+  const prefBefore = readPrefCookie();
+
+  let hideStyle: HTMLStyleElement | null = null;
+  if (!wasCcOn) {
+    try {
+      hideStyle = document.createElement("style");
+      hideStyle.id = "__biliscript_silent_cc_hide";
+      hideStyle.textContent =
+        ".ytp-caption-window-container { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }";
+      (document.head || document.documentElement).appendChild(hideStyle);
+    } catch {
+      hideStyle = null;
+    }
+  }
+
+  const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const pollForPot = async (maxMs: number): Promise<string[]> => {
+    const deadline = performance.now() + maxMs;
+    while (performance.now() < deadline) {
+      const hits = collectMatchingPotUrls(targetVideoId);
+      if (hits.length > 0) return hits;
+      await sleepMs(35);
+    }
+    return collectMatchingPotUrls(targetVideoId);
+  };
+
+  let captured: string[] = [];
+  let toggled = false;
+  try {
+    try {
+      mp.loadModule?.("captions");
+    } catch {
+    }
+    let tracklist: TrackObj[] = [];
+    const modDeadline = performance.now() + 1200;
+    while (performance.now() < modDeadline) {
+      try {
+        const rawList = mp.getOption?.("captions", "tracklist");
+        if (Array.isArray(rawList) && rawList.length > 0) {
+          tracklist = rawList as TrackObj[];
+          break;
+        }
+      } catch {
+      }
+      captured = collectMatchingPotUrls(targetVideoId);
+      if (captured.length > 0) break;
+      await sleepMs(40);
+    }
+
+    if (captured.length === 0 && tracklist.length > 0) {
+      const wantLang = String(preferredLang || "").trim().toLowerCase();
+      const wantKind = String(preferredKind || "").trim().toLowerCase();
+      const pick =
+        tracklist.find(
+          (t) =>
+            String(t?.languageCode || "").toLowerCase() === wantLang &&
+            String(t?.kind || "").toLowerCase() === wantKind
+        ) ??
+        tracklist.find((t) => String(t?.languageCode || "").toLowerCase() === wantLang) ??
+        tracklist[0];
+      try {
+        mp.setOption("captions", "track", pick);
+      } catch {
+      }
+      captured = await pollForPot(2200);
+    }
+
+    if (
+      captured.length === 0 &&
+      !wasCcOn &&
+      ccBtn?.getAttribute("aria-pressed") === "false" &&
+      typeof mp.toggleSubtitles === "function"
+    ) {
+      try {
+        mp.toggleSubtitles();
+        toggled = true;
+      } catch {
+      }
+      captured = await pollForPot(2000);
+    }
+  } finally {
+    try {
+      if (!wasCcOn) {
+        if (toggled && ccBtn?.getAttribute("aria-pressed") === "true") {
+          mp.toggleSubtitles?.();
+        }
+        mp.setOption?.("captions", "track", {});
+        mp.unloadModule?.("captions");
+      } else if (prevTrack && prevTrack.languageCode) {
+        mp.setOption?.("captions", "track", prevTrack);
+      }
+    } catch {
+    }
+    await sleepMs(60);
+    try {
+      hideStyle?.remove();
+    } catch {
+    }
+    restoreStorage(localStorage, lsBefore);
+    restoreStorage(sessionStorage, ssBefore);
+    const prefAfter = readPrefCookie();
+    if (prefBefore !== null && prefAfter !== prefBefore) {
+      try {
+        document.cookie = `PREF=${prefBefore}; domain=.youtube.com; path=/`;
+      } catch {
+      }
+    }
+  }
+
+  return {
+    observedTimedtextUrls: captured,
+    ...(captured.length === 0 ? { skippedReason: "pot-not-observed" } : {})
   };
 }
 
@@ -949,6 +1235,48 @@ function handleYoutubePageSnapshot(
         return { ok: false, error: "未读取到 YouTube 页面播放器快照" };
       }
       return { ok: true, snapshot };
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return "hold";
+}
+
+function handleYoutubeCaptureTimedtextPot(
+  message: Msg<"youtube-capture-timedtext-pot">,
+  sender: MessageSender,
+  sendResponse: Reply<"youtube-capture-timedtext-pot">
+): MessageReplyDecision {
+  const resolved = resolveYoutubeWatchScriptingTab(sender, "仅支持标签页内请求 YouTube 字幕凭证");
+  if (!resolved.ok) {
+    sendResponse(resolved);
+    return "answered";
+  }
+
+  const expectedVideoId = typeof message.expectedVideoId === "string" ? message.expectedVideoId.trim() : "";
+  const languageCode = typeof message.languageCode === "string" ? message.languageCode.trim() : "";
+  const kind = typeof message.kind === "string" ? message.kind.trim() : "";
+
+  withOkResponse(
+    (async () => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: resolved.tabId },
+        world: "MAIN",
+        func: captureYoutubeTimedtextPotInMainWorld,
+        args: [expectedVideoId, languageCode, kind]
+      });
+      const payload = results?.[0]?.result as
+        | { observedTimedtextUrls?: string[]; skippedReason?: string }
+        | null
+        | undefined;
+      const observedTimedtextUrls = Array.isArray(payload?.observedTimedtextUrls)
+        ? payload.observedTimedtextUrls.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+        : [];
+      return {
+        ok: true,
+        observedTimedtextUrls,
+        ...(payload?.skippedReason ? { skippedReason: payload.skippedReason } : {})
+      };
     })(),
     sendResponse,
     (error) => (error as Error | undefined)?.message || String(error)
@@ -1029,6 +1357,7 @@ const messageHandlerTable = {
   "open-onboarding": handleOpenOnboarding,
   "permission-grant-result": hostPermissionHandlers.permissionGrantResult,
   "youtube-page-snapshot": handleYoutubePageSnapshot,
+  "youtube-capture-timedtext-pot": handleYoutubeCaptureTimedtextPot,
   "youtube-ensure-sabr-worker": handleYoutubeEnsureSabrWorker,
   "content-style-insert": contentStyleHandlers.insert,
   "content-style-remove": contentStyleHandlers.remove,

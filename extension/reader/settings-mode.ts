@@ -2,7 +2,10 @@ import { state } from "../core/state.js";
 import { activeById, getActiveReaderDocument } from "../shared/active-host.js";
 import { isHtmlElement } from "../shared/cross-doc.js";
 import { getReaderActiveScriptTab, ids } from "./state.js";
+import { hasReaderSettingsDropdownOpen } from "./settings-dropdown-open.js";
 import { invalidateReaderSetupFlows } from "./setup-resume.js";
+
+export { hasReaderSettingsDropdownOpen };
 import { closeQuoteShareModal, isQuoteShareModalOpen } from "./quote-share-modal.js";
 import {
   cancelNavTransition,
@@ -173,12 +176,6 @@ export function openReaderSettingsMode(): void {
   state.reader.setSettingsExpanded(true);
   projectReaderSettingsMode();
   focusWithoutScroll(activeById(ids.readingSettingsBackBtn));
-}
-
-export function hasReaderSettingsDropdownOpen(): boolean {
-  return getActiveReaderDocument().querySelector(
-    '.custom-select-dropdown:not([hidden]):not([data-inline="true"]), .ai-provider-model-dropdown:not([hidden])'
-  ) !== null;
 }
 
 export function hasReaderSettingsOverlayOpen(): boolean {

@@ -1,6 +1,6 @@
 import { createLazyLoader } from "../shared/lazy-import.js";
 import { logWarnAlways } from "../shared/logging.js";
-import { MATH_BLOCK_SELECTOR } from "./markdown.js";
+import { MATH_BLOCK_SELECTOR } from "./markdown-block-constants.js";
 import type { MathRenderModule } from "./math-render.js";
 
 const loader = createLazyLoader<MathRenderModule>(() => import("./math-render.js"));

@@ -513,4 +513,160 @@ describe("SW youtube-page-snapshot MAIN 世界桥接", () => {
     perfSpy.mockRestore();
     delete win.ytcfg;
   });
+
+  it("从 engagementPanels 提取 PAmodern_transcript_view 的 modernTranscriptParams", async () => {
+    const watchUrl = "https://www.youtube.com/watch?v=aircAruvnKk";
+    setCrossOriginLocation(watchUrl);
+    const win = window as unknown as { ytInitialData?: unknown; ytcfg?: unknown };
+    win.ytInitialData = {
+      currentVideoEndpoint: { watchEndpoint: { videoId: "aircAruvnKk" } },
+      engagementPanels: [
+        {
+          engagementPanelSectionListRenderer: {
+            panelIdentifier: "engagement-panel-structured-description",
+            content: {
+              structuredDescriptionContentRenderer: {
+                items: [
+                  {
+                    videoDescriptionTranscriptSectionRenderer: {
+                      primaryButton: {
+                        buttonRenderer: {
+                          command: {
+                            commandExecutorCommand: {
+                              commands: [
+                                {
+                                  updateEngagementPanelContentCommand: {
+                                    contentSourcePanelIdentifier: { tag: "PAmodern_transcript_view" },
+                                    globalConfiguration: { params: "qgkPCgthaXJjQXJ1dm5LaxgB" }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    };
+    win.ytcfg = { get: (k: string) => (k === "INNERTUBE_API_KEY" ? "AIzaKey" : undefined) };
+    const perfSpy = vi.spyOn(performance, "getEntriesByType").mockReturnValue([]);
+    executeScript.mockImplementation(async (injection: { func: () => unknown }) => [
+      { result: injection.func() }
+    ]);
+
+    const sendResponse = vi.fn();
+    onMessageListener({ type: "youtube-page-snapshot" }, { tab: { id: 35, url: watchUrl } }, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+
+    const resp = sendResponse.mock.calls[0][0] as {
+      ok: boolean;
+      snapshot: { modernTranscriptParams?: string };
+    };
+    expect(resp.ok).toBe(true);
+    expect(resp.snapshot.modernTranscriptParams).toBe("qgkPCgthaXJjQXJ1dm5LaxgB");
+
+    perfSpy.mockRestore();
+    delete win.ytInitialData;
+    delete win.ytcfg;
+  });
+
+  it("youtube-capture-timedtext-pot：未起播态直接跳过零副作用；已起播态静默取 pot 并完整还原 CC 与本地偏好", async () => {
+    const watchUrl = "https://www.youtube.com/watch?v=aircAruvnKk";
+    setCrossOriginLocation(watchUrl);
+
+    const playerEl = document.createElement("div");
+    playerEl.id = "movie_player";
+    const ccBtn = document.createElement("button");
+    ccBtn.className = "ytp-subtitles-button";
+    ccBtn.setAttribute("aria-pressed", "false");
+    document.body.append(playerEl, ccBtn);
+
+    let playerState = -1;
+    let currentTrack: Record<string, unknown> = {};
+    const loadModule = vi.fn();
+    const unloadModule = vi.fn();
+    const capturedEntries: PerformanceEntry[] = [];
+    const setOption = vi.fn((_mod: string, opt: string, val: unknown) => {
+      if (opt === "track") {
+        currentTrack = (val as Record<string, unknown>) || {};
+        if (currentTrack.languageCode) {
+          ccBtn.setAttribute("aria-pressed", "true");
+          localStorage.setItem("yt-player-caption-sticky-language", JSON.stringify({ data: currentTrack.languageCode }));
+          sessionStorage.setItem("yt-player-caption-language-preferences", JSON.stringify({ data: [currentTrack.languageCode] }));
+          capturedEntries.push({
+            name: "https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&pot=SILENT_POT_123&potc=1&c=WEB"
+          } as PerformanceEntry);
+        } else {
+          ccBtn.setAttribute("aria-pressed", "false");
+        }
+      }
+    });
+
+    Object.assign(playerEl, {
+      getVideoData: () => ({ video_id: "aircAruvnKk" }),
+      getPlayerState: () => playerState,
+      loadModule,
+      unloadModule,
+      getOption: (_mod: string, opt: string) =>
+        opt === "tracklist"
+          ? [
+              { languageCode: "ar", kind: "" },
+              { languageCode: "en", kind: "" }
+            ]
+          : currentTrack,
+      setOption
+    });
+
+    const perfSpy = vi.spyOn(performance, "getEntriesByType").mockImplementation(() => [...capturedEntries]);
+    executeScript.mockImplementation(
+      async (injection: { func: (...args: unknown[]) => unknown; args?: unknown[] }) => [
+        { result: await injection.func(...(injection.args ?? [])) }
+      ]
+    );
+
+    const sendUnstarted = vi.fn();
+    onMessageListener(
+      { type: "youtube-capture-timedtext-pot", expectedVideoId: "aircAruvnKk", languageCode: "en" },
+      { tab: { id: 40, url: watchUrl } },
+      sendUnstarted
+    );
+    await vi.waitFor(() => expect(sendUnstarted).toHaveBeenCalledTimes(1));
+    expect(sendUnstarted.mock.calls[0][0]).toEqual({
+      ok: true,
+      observedTimedtextUrls: [],
+      skippedReason: "player-unstarted"
+    });
+    expect(loadModule).not.toHaveBeenCalled();
+    expect(setOption).not.toHaveBeenCalled();
+
+    playerState = 2;
+    localStorage.setItem("yt-player-caption-persistence", JSON.stringify({ data: "false" }));
+    const sendActive = vi.fn();
+    onMessageListener(
+      { type: "youtube-capture-timedtext-pot", expectedVideoId: "aircAruvnKk", languageCode: "en" },
+      { tab: { id: 40, url: watchUrl } },
+      sendActive
+    );
+    await vi.waitFor(() => expect(sendActive).toHaveBeenCalledTimes(1));
+    expect(sendActive.mock.calls[0][0]).toEqual({
+      ok: true,
+      observedTimedtextUrls: [
+        "https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&pot=SILENT_POT_123&potc=1&c=WEB"
+      ]
+    });
+    expect(ccBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(unloadModule).toHaveBeenCalledWith("captions");
+    expect(localStorage.getItem("yt-player-caption-sticky-language")).toBeNull();
+    expect(sessionStorage.getItem("yt-player-caption-language-preferences")).toBeNull();
+    expect(localStorage.getItem("yt-player-caption-persistence")).toBe(JSON.stringify({ data: "false" }));
+    expect(document.getElementById("__biliscript_silent_cc_hide")).toBeNull();
+
+    perfSpy.mockRestore();
+  });
 });

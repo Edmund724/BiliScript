@@ -53,6 +53,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "get-ai-provider-key": "branch",
   "offload-task": "branch",
   "youtube-page-snapshot": "branch",
+  "youtube-capture-timedtext-pot": "branch",
   "youtube-ensure-sabr-worker": "branch",
   "content-style-insert": "branch",
   "content-style-remove": "branch",

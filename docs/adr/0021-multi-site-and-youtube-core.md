@@ -28,10 +28,11 @@ BiliScript 从 B 站单站扩展演进为多站点视频文摘扩展（`bilibili
 ### 3. YouTube 同源主世界三级采集路线
 
 - **主世界实时读取**：视频元数据、官方/自动章节与字幕轨道列表通过轻量页面主世界（`MAIN` world）桥读取实时播放器对象（`movie_player.getPlayerResponse()` / `ytInitialPlayerResponse` / `ytInitialData`），零额外网络请求、天然跟随 SPA 换片与用户登录态。
-- **字幕正文三级采集链**：
-  1. 优先请求 `timedtext&fmt=json3`（无 `pot` 门控或复用页面自身已产生的合法 `pot`，保留完整起止时间与逐词信息）；
-  2. 命中 `exp=xpe` 返回空正文时，同源回落至携带页面真实 `WEB` 上下文与 `engagementPanels` 参数的 `youtubei/v1/get_transcript`；
-  3. 双路均不可得时给出清晰用户引导（如提示开启页面原生字幕开关后重试），**严禁伪装 `ANDROID` / `IOS` 等移动端 InnerTube 客户端绕过反爬校验**。
+- **字幕正文采集链**：
+  1. 优先请求 `timedtext&fmt=json3`（无 `pot` 门控或复用页面/同视频缓存中已产生的合法 `pot`，保留完整起止时间与逐词信息）；
+  2. CC 关闭态命中 `exp=xpe` 返回空正文时，默认同源回落至携带页面真实 `WEB` 上下文与 `PAmodern_transcript_view` 参数的 `youtubei/v1/get_panel`（零副作用、覆盖冷打开未起播暂停态、SPA 换片与 `kind:"asr"`，若不可得再兼容尝试 `youtubei/v1/get_transcript`）；
+  3. 当用户主动切换具体语种轨道、开启播放器内实时字幕翻译叠层（需细粒度 `json3`），或 `get_panel` 不可用且播放器已起播（`playerState !== -1`）时，通过双端 `world: "MAIN"` 临时隐藏 `.ytp-caption-window-container` 静默触发一次字幕加载捕获 `pot` 并立即复原播放器 CC 状态、`localStorage`/`sessionStorage` 及 `PREF` Cookie，同视频后续切轨直接复用该 `pot` 拉取 `json3`；
+  4. 全路径均不可得时给出清晰用户引导（如提示开启页面原生字幕开关后重试），**严禁伪装 `ANDROID` / `IOS` 等移动端 InnerTube 客户端绕过反爬校验，不引入第三方字幕外发服务**。
 
 ### 4. YouTube 页面呈现、主题同步与提示词去 B 站化
 

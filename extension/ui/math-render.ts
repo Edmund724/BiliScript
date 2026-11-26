@@ -1,6 +1,6 @@
 import katex from "katex";
 import { resolveNodeDocument } from "../shared/cross-doc.js";
-import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown.js";
+import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown-block-constants.js";
 
 const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
 
