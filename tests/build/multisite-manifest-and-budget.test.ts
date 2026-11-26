@@ -200,7 +200,7 @@ describe("常驻内容包瘦身与 45 KB 预算", () => {
 
     expect(buildContentText).toContain('"g-subtitle"');
     expect(buildContentText).toContain("MAX_RESIDENT_BYTES = 46080");
-    expect(buildJsText).toContain('targetPlatform === "firefox" ? 3900000 : 4200000');
+    expect(buildJsText).toContain('targetPlatform === "firefox" ? 4050000 : 4350000');
     expect(buildReleaseText).toContain("MAX_CHROMIUM_ZIP_BYTES = 1_200_000");
     expect(buildReleaseText).toContain("MAX_FIREFOX_ZIP_BYTES = 1_200_000");
   });
