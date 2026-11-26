@@ -1,6 +1,7 @@
 import type { AiContext } from "../ai/types.js";
 import { buildContextKey } from "../ai/conversation.js";
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
+import { clearTurnCapturedFrameCache } from "../notes/turn-frame-cache.js";
 import type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
 
 export type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
@@ -105,7 +106,11 @@ export interface ConversationIdentityInput {
 }
 
 export function applyConversationIdentity({ id, meta, history }: ConversationIdentityInput): void {
+  const prevId = chatSessionStateMutable.currentConversationId;
   if (id !== undefined) {
+    if (id !== prevId && (prevId !== "" || id === "")) {
+      clearTurnCapturedFrameCache();
+    }
     chatSessionStateMutable.currentConversationId = id;
   }
   if (meta !== undefined) {
@@ -117,10 +122,12 @@ export function applyConversationIdentity({ id, meta, history }: ConversationIde
 }
 
 export function detachConversationIdentity(): void {
+  clearTurnCapturedFrameCache();
   applyConversationIdentity({ id: "", meta: null, history: [] });
 }
 
 export function clearConversationIdentity(): void {
+  clearTurnCapturedFrameCache();
   applyConversationIdentity({ id: "", meta: null });
 }
 
@@ -167,6 +174,9 @@ export function applyContextSnapshot(payload: unknown): boolean {
   const contextChanged = Boolean(
     chatSessionStateMutable.currentContextKey && nextKey && nextKey !== chatSessionStateMutable.currentContextKey
   );
+  if (contextChanged) {
+    clearTurnCapturedFrameCache();
+  }
   chatSessionStateMutable.contextData = next;
   chatSessionStateMutable.currentContextKey = nextKey;
   return contextChanged;
@@ -177,6 +187,7 @@ export function pinCurrentContextKey(key: string): void {
 }
 
 export function clearMainContext(): void {
+  clearTurnCapturedFrameCache();
   chatSessionStateMutable.contextData = null;
   chatSessionStateMutable.currentContextKey = "";
 }
@@ -222,5 +233,6 @@ export function resetLiveContext(): void {
 }
 
 export function resetChatSessionStateForTests(): void {
+  clearTurnCapturedFrameCache();
   Object.assign(chatSessionStateMutable, createInitialChatSessionState());
 }

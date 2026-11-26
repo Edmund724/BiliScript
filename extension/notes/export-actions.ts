@@ -13,31 +13,24 @@ import { logWarn } from "../shared/logging.js";
 import { stripThinkBlocks } from "../ui/markdown.js";
 import { loadVideoHighlights, resolveHighlightVideoKey } from "./highlights-store.js";
 import {
+  resolveNoteKeyframes,
+  type NoteKeyframeCandidate,
+  type NoteKeyframeResolveContext,
+  type ResolveNoteKeyframesFn
+} from "./keyframes.js";
+import { getLatestCapturedFrames } from "./turn-frame-cache.js";
+import {
   buildNoteTemplateVariables,
   buildObsidianUri,
   linkifyNoteTimestamps,
   renderNoteTemplate
 } from "./template.js";
 
-export interface NoteKeyframeCandidate {
-  seconds: number;
-  dataUrl: string;
-}
-
-export interface NoteKeyframeResolveContext {
-  site: SiteId;
-  bvid: string;
-  videoId: string;
-  cid: string;
-  pageUrl: string;
-  includeKeyframes: boolean;
-  capturedFrames?: readonly NoteKeyframeCandidate[];
-}
-
-export type ResolveNoteKeyframesFn = (
-  markdown: string,
-  context: NoteKeyframeResolveContext
-) => Promise<string> | string;
+export type {
+  NoteKeyframeCandidate,
+  NoteKeyframeResolveContext,
+  ResolveNoteKeyframesFn
+} from "./keyframes.js";
 
 export interface RenderCurrentVideoNoteOptions {
   aiNoteMarkdown?: string;
@@ -310,8 +303,8 @@ export async function dispatchNoteExport(
   try {
     const rendered = await renderCurrentVideoNoteWithSettings(settings, {
       aiNoteMarkdown: options?.aiNoteMarkdown,
-      resolveKeyframes: options?.resolveKeyframes,
-      capturedFrames: options?.capturedFrames,
+      resolveKeyframes: options?.resolveKeyframes ?? resolveNoteKeyframes,
+      capturedFrames: options?.capturedFrames ?? getLatestCapturedFrames(),
       linkifyTimestamps: true
     });
     if (!rendered.markdown) {

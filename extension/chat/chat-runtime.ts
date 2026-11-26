@@ -23,6 +23,11 @@ import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../cor
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
+import {
+  bindCapturedFramesToMessage,
+  capturedVideoFramesToCandidates,
+  type NoteKeyframeCandidate
+} from "../notes/turn-frame-cache.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 export const STREAM_SLOW_NOTICE_TAG = "stream-slow";
@@ -68,6 +73,14 @@ export interface ChatRuntimeUi {
   onSetupRequired?: (errorClass: OverviewSetupErrorClass, providerId: string) => void;
 }
 
+export interface CommittedChatTurnInfo {
+  raw: string;
+  historyIndex: number;
+  message: ChatSessionMessage;
+  stopped: boolean;
+  capturedFrames: NoteKeyframeCandidate[];
+}
+
 export interface CreateChatRuntimeDeps {
   messages: HTMLElement;
   input: HTMLTextAreaElement;
@@ -90,6 +103,7 @@ export interface CreateChatRuntimeDeps {
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
+  onTurnCommitted?: (info: CommittedChatTurnInfo) => void;
 }
 
 export function createChatRuntime(deps: CreateChatRuntimeDeps) {
@@ -117,6 +131,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activeUserImages: ImagePart[] = [];
   let activeUserContextKey = "";
   let pendingToolMessages: ChatSessionMessage[] = [];
+  let activeTurnCapturedFrames: NoteKeyframeCandidate[] = [];
   let turnTruncatedNotice = "";
   let activeConversationId = "";
   let streamSlowNoticeTimer = 0;
@@ -288,6 +303,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           }
           const captureResult = await deps.captureCurrentVideoFrame(msg.targetTime, controller.signal);
           if (controller.signal.aborted || pendingVideoFrames.get(msg.requestId) !== controller) return;
+          const capturedCandidates = capturedVideoFramesToCandidates(captureResult);
+          if (capturedCandidates.length > 0) {
+            activeTurnCapturedFrames.push(...capturedCandidates);
+          }
           port.postMessage({
             action: "video-frame-result",
             requestId: msg.requestId,
@@ -796,6 +815,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       renderStep(streamTurn);
     }
     pendingToolMessages = [];
+    activeTurnCapturedFrames = [];
     activeBranch = null;
     activeUserPrompt = "";
     activeUserNode = null;
@@ -856,8 +876,22 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const history = activeBranch.originalHistory.slice(0, getBranchSliceEnd(activeBranch));
       history.push(...pendingToolMessages, assistantMsg);
       applyConversationIdentity({ history });
+      const committedIndex = history.length - 1;
+      const boundFrames = bindCapturedFramesToMessage(
+        assistantMsg,
+        activeTurnCapturedFrames,
+        committedIndex
+      );
       void deps.store.persistCurrent();
       pendingToolMessages = [];
+      activeTurnCapturedFrames = [];
+      deps.onTurnCommitted?.({
+        raw: assistantMsg.content,
+        historyIndex: committedIndex,
+        message: assistantMsg,
+        stopped: isStopped,
+        capturedFrames: boundFrames
+      });
       return true;
     }
 
@@ -872,9 +906,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...pendingToolMessages,
         assistantMsg
       );
+      const committedIndex = chatSessionState.chatHistory.length - 1;
+      const boundFrames = bindCapturedFramesToMessage(
+        assistantMsg,
+        activeTurnCapturedFrames,
+        committedIndex
+      );
       void deps.store.persistCurrent();
+      pendingToolMessages = [];
+      activeTurnCapturedFrames = [];
+      deps.onTurnCommitted?.({
+        raw: assistantMsg.content,
+        historyIndex: committedIndex,
+        message: assistantMsg,
+        stopped: isStopped,
+        capturedFrames: boundFrames
+      });
+      return true;
     }
     pendingToolMessages = [];
+    activeTurnCapturedFrames = [];
     return true;
   }
 
@@ -1044,6 +1095,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeBranch?.session.restore();
     activeBranch = null;
     pendingToolMessages = [];
+    activeTurnCapturedFrames = [];
     clearStreamRuntimeState();
     if (activePort) {
       try { activePort.disconnect(); } catch {}

@@ -345,4 +345,121 @@ describe("notes/export-actions dispatchNoteExport 统一导出路由器", () => 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:direct-note");
   });
+
+  it("dispatchNoteExport 默认接入 resolveNoteKeyframes 并在含 Base64 关键帧长文时完整写入 Obsidian 剪贴板", async () => {
+    realm = createDetachedRealm();
+    const activeHost = await import("../../extension/shared/active-host.js");
+    const coreState = await import("../../extension/core/state.js");
+    const { DEFAULT_SETTINGS } = await import("../../extension/core/defaults.js");
+    const {
+      clearTurnCapturedFrameCache,
+      setLatestCapturedFrames
+    } = await import("../../extension/notes/turn-frame-cache.js");
+    const exportActions = await import("../../extension/notes/export-actions.js");
+    clearTurnCapturedFrameCache();
+
+    const clip = coreState.state.clip as unknown as {
+      site: "bilibili" | "youtube";
+      title: string;
+      bvid: string;
+      cid: string;
+      currentUrl: string;
+      subtitleBody: Array<{ from: number; to: number; content: string }>;
+    };
+    clip.site = "bilibili";
+    clip.title = "关键帧单文件导出测试";
+    clip.bvid = "BV1kfexport1";
+    clip.cid = "889900";
+    clip.currentUrl = "https://www.bilibili.com/video/BV1kfexport1/?p=3";
+    clip.subtitleBody = [{ from: 195, to: 200, content: "核心架构" }];
+
+    let includeKeyframesSetting = true;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: vi.fn((msg: { type: string }, callback?: (res: unknown) => void) => {
+          callback?.(
+            msg.type === "get-settings"
+              ? {
+                  ok: true,
+                  settings: {
+                    ...DEFAULT_SETTINGS,
+                    noteExportTarget: "obsidian",
+                    obsidianVaultName: "Vault",
+                    obsidianFolder: "VideoNotes",
+                    noteIncludeKeyframes: includeKeyframesSetting
+                  }
+                }
+              : { ok: true }
+          );
+        }),
+        lastError: null
+      }
+    });
+
+    const largeBase64 = "A".repeat(7200);
+    const createImageBitmapMock = vi.fn(async () => ({
+      width: 1280,
+      height: 720,
+      close: vi.fn()
+    }));
+    vi.stubGlobal("createImageBitmap", createImageBitmapMock);
+
+    const drawImage = vi.fn();
+    const toDataURL = vi.fn(() => `data:image/webp;base64,${largeBase64}`);
+    const canvasProto = (
+      realm.win as unknown as { HTMLCanvasElement: typeof HTMLCanvasElement }
+    ).HTMLCanvasElement.prototype;
+    vi.spyOn(canvasProto, "getContext").mockImplementation(
+      (() => ({ drawImage })) as unknown as typeof canvasProto.getContext
+    );
+    vi.spyOn(canvasProto, "toDataURL").mockImplementation(toDataURL);
+
+    const clickedHrefs: string[] = [];
+    vi.spyOn(
+      (realm.win as unknown as { HTMLAnchorElement: typeof HTMLAnchorElement }).HTMLAnchorElement.prototype,
+      "click"
+    ).mockImplementation(function (this: HTMLAnchorElement) {
+      clickedHrefs.push(this.href);
+    });
+    activeHost.setActiveReaderHost(realm.doc, realm.win);
+
+    setLatestCapturedFrames([
+      { seconds: 196, dataUrl: "data:image/jpeg;base64,AQIDBA==" }
+    ]);
+
+    const res = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "参见 [03:15]。\n\n{{frame:03:15 | [核心] 架构图}}"
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.target).toBe("obsidian");
+    expect(res.method).toBe("obsidian-clipboard");
+    expect(res.usedClipboardFallback).toBe(true);
+    expect(clickedHrefs[0]).toContain("obsidian://new?vault=Vault");
+    expect(clickedHrefs[0]).toContain("clipboard=true");
+    expect(realm.clipboardWriteText).toHaveBeenCalledTimes(1);
+    const writtenMarkdown = realm.clipboardWriteText.mock.calls[0][0] as string;
+    expect(writtenMarkdown).toContain(`![03:15 核心 架构图](data:image/webp;base64,${largeBase64})`);
+    expect(writtenMarkdown).toContain(
+      "*▲ [03:15](https://www.bilibili.com/video/BV1kfexport1/?p=3&t=195) [核心] 架构图*"
+    );
+    expect(writtenMarkdown).toContain(
+      "参见 [03:15](https://www.bilibili.com/video/BV1kfexport1/?p=3&t=195)。"
+    );
+    expect(writtenMarkdown).not.toContain("](https://www.bilibili.com/video/BV1kfexport1/?p=3&t=195)(");
+
+    includeKeyframesSetting = false;
+    createImageBitmapMock.mockClear();
+    const disabledRes = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "{{frame:03:15 | 关闭开关降级}}"
+    });
+
+    expect(disabledRes.ok).toBe(true);
+    expect(createImageBitmapMock).not.toHaveBeenCalled();
+    expect(disabledRes.markdown).not.toContain("data:image/");
+    expect(disabledRes.markdown).toContain(
+      "*▲ [03:15](https://www.bilibili.com/video/BV1kfexport1/?p=3&t=195) 关闭开关降级*"
+    );
+    clearTurnCapturedFrameCache();
+  });
 });
