@@ -65,11 +65,11 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
             <div id="${ids.readingChatInputBar}" class="chat-input-bar">
               <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
                 <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.334 22 16.226 17.523 16.226 12C16.226 6.477 14.334 2 12 2"></path>
-                  <path class="chat-web-search-meridian chat-web-search-meridian-b" d="M12 22C9.666 22 7.774 17.523 7.774 12C7.774 6.477 9.666 2 12 2"></path>
+                  <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.209 22 16 17.523 16 12C16 6.477 14.209 2 12 2"></path>
+                  <path class="chat-web-search-meridian chat-web-search-meridian-b" d="M12 22C9.791 22 8 17.523 8 12C8 6.477 9.791 2 12 2"></path>
                   <path class="chat-web-search-meridian chat-web-search-meridian-c" d="M12 22C6.477 22 2 17.523 2 12C2 6.477 6.477 2 12 2"></path>
                   <circle cx="12" cy="12" r="10"></circle>
-                  <path d="M2.714 12h18.572"></path>
+                  <path d="M2 12h20"></path>
                 </svg>
               </button>
               <div class="chat-model-anchor">
