@@ -1,8 +1,10 @@
 import { concatByteArrays } from "../shared/bytes.js";
 
-export const YOUTUBE_SABR_CHANNEL = "biliscript-yt-sabr-v1" as const;
-export const YOUTUBE_SABR_SNIFFER_SLOT_KEY = "biliscript.ytSabrSniffer.v1" as const;
-export const YOUTUBE_SABR_WORKER_SLOT_KEY = "biliscript.ytSabrWorker.v1" as const;
+export {
+  YOUTUBE_SABR_CHANNEL,
+  YOUTUBE_SABR_SNIFFER_SLOT_KEY,
+  YOUTUBE_SABR_WORKER_SLOT_KEY
+} from "./sabr-channel.js";
 
 export const SABR_BODY_LIMIT = 65536;
 export const SABR_RESPONSE_SNIFF_LIMIT = 8 * 1024 * 1024;

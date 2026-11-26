@@ -10,7 +10,7 @@ import {
   fetchYoutubeVideoWindow,
   type FetchYoutubeVideoWindowOptions,
   type YoutubeVideoWindowPayload
-} from "../youtube/video-frame-source.js";
+} from "../youtube/audio-source.js";
 
 function buildHistoricalPlayurlUrl(bvid: string, cid: string): string {
   return (
@@ -26,6 +26,8 @@ function buildHistoricalPlayurlUrl(bvid: string, cid: string): string {
 
 const MEDIA_TIMEOUT_MS = 45000;
 const SEEK_TOLERANCE_SECONDS = 0.15;
+const HIDDEN_VIDEO_STYLE =
+  "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
 
 interface PlayurlResponse {
   code?: number;
@@ -56,6 +58,24 @@ export interface HistoricalVideoFrameSnapshot extends PageVideoFrameSnapshot {
 
 function abortError(): DOMException {
   return new DOMException("历史帧截取已中止", "AbortError");
+}
+
+function prepareHiddenVideo(
+  openerDoc: Document,
+  createVideo?: () => HTMLVideoElement,
+  crossOrigin?: string
+): HTMLVideoElement {
+  const media = (createVideo ?? (() => openerDoc.createElement("video")))();
+  if (crossOrigin) {
+    media.crossOrigin = crossOrigin;
+  }
+  media.muted = true;
+  media.defaultMuted = true;
+  media.preload = "auto";
+  media.playsInline = true;
+  media.dataset.biliscriptHistoricalFrame = "";
+  media.style.cssText = HIDDEN_VIDEO_STYLE;
+  return media;
 }
 
 function waitForVideo(
@@ -158,6 +178,39 @@ function clampToBufferedRange(video: HTMLVideoElement, timeSec: number): number 
   return best;
 }
 
+async function captureFrameTriplet(
+  media: HTMLVideoElement,
+  frameTimes: readonly number[],
+  timeoutMs: number,
+  signal: AbortSignal,
+  createCanvas?: PageVideoFrameCaptureOptions["createCanvas"]
+): Promise<HistoricalVideoFrameSnapshot[]> {
+  const frames: HistoricalVideoFrameSnapshot[] = [];
+  for (const frameTime of frameTimes) {
+    try {
+      const seeked = waitForVideo(
+        media,
+        "seeked",
+        () => Math.abs(media.currentTime - frameTime) <= SEEK_TOLERANCE_SECONDS && media.readyState >= 2,
+        timeoutMs,
+        signal
+      );
+      media.currentTime = frameTime;
+      await seeked;
+      frames.push({
+        ...(await capturePageVideoFrame({
+          getVideo: () => media,
+          createCanvas
+        })),
+        targetTime: frameTime
+      });
+    } catch {
+      if (signal.aborted) throw abortError();
+    }
+  }
+  return frames;
+}
+
 export function createHistoricalVideoFrameSession(
   { site, bvid, cid }: Omit<HistoricalVideoFrameInput, "targetTime">,
   options: HistoricalVideoFrameOptions = {}
@@ -214,13 +267,7 @@ export function createHistoricalVideoFrameSession(
       ? options.createMediaSource()
       : new MediaSource();
     const openerDoc = getOpenerDocument();
-    const media = (options.createVideo ?? (() => openerDoc.createElement("video")))();
-    media.muted = true;
-    media.defaultMuted = true;
-    media.preload = "auto";
-    media.playsInline = true;
-    media.dataset.biliscriptHistoricalFrame = "";
-    media.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
+    const media = prepareHiddenVideo(openerDoc, options.createVideo);
     const objectUrl = URL.createObjectURL(mediaSource);
 
     try {
@@ -267,34 +314,44 @@ export function createHistoricalVideoFrameSession(
       const frameTimes = [targetTime - 2, targetTime, targetTime + 2].map((time) =>
         clampToBufferedRange(media, Math.min(duration, Math.max(0, time)))
       );
-
-      const frames: HistoricalVideoFrameSnapshot[] = [];
-      for (const frameTime of frameTimes) {
-        try {
-          const seeked = waitForVideo(
-            media,
-            "seeked",
-            () => Math.abs(media.currentTime - frameTime) <= SEEK_TOLERANCE_SECONDS && media.readyState >= 2,
-            timeoutMs,
-            signal
-          );
-          media.currentTime = frameTime;
-          await seeked;
-          frames.push({
-            ...(await capturePageVideoFrame({
-              getVideo: () => media,
-              createCanvas: options.createCanvas
-            })),
-            targetTime: frameTime
-          });
-        } catch {
-          if (signal.aborted) throw abortError();
-        }
-      }
-      return frames;
+      return await captureFrameTriplet(media, frameTimes, timeoutMs, signal, options.createCanvas);
     } finally {
       disposeVideo(media, objectUrl);
     }
+  };
+
+  const captureBilibiliFrames = async (
+    targetTime: number,
+    timeoutMs: number,
+    signal: AbortSignal
+  ): Promise<HistoricalVideoFrameSnapshot[]> => {
+    if (!video) {
+      const transport = options.transport ?? contentFetchJson;
+      const payload = (await transport(buildHistoricalPlayurlUrl(bvid, cid))) as PlayurlResponse | null;
+      if (signal.aborted) throw abortError();
+      if (payload?.code !== 0) {
+        throw new Error(payload?.message || "无法获取视频流地址");
+      }
+      const source = payload.data?.durl?.[0]?.url;
+      if (!source) {
+        throw new Error("视频接口没有返回可直接截帧的 MP4");
+      }
+
+      const openerDoc = getOpenerDocument();
+      video = prepareHiddenVideo(openerDoc, options.createVideo, "anonymous");
+      video.src = source;
+      openerDoc.body.appendChild(video);
+      await waitForVideo(video, "loadedmetadata", () => video!.readyState >= 1, timeoutMs, signal);
+    }
+    const media = video;
+    if (Number.isFinite(media.duration) && targetTime > media.duration) {
+      throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${media.duration} 秒`);
+    }
+    const duration = Number.isFinite(media.duration) ? Math.max(0, media.duration) : Number.POSITIVE_INFINITY;
+    const frameTimes = [targetTime - 2, targetTime, targetTime + 2].map((time) =>
+      Math.min(duration, Math.max(0, time))
+    );
+    return await captureFrameTriplet(media, frameTimes, timeoutMs, signal, options.createCanvas);
   };
 
   const capture = async (
@@ -321,67 +378,10 @@ export function createHistoricalVideoFrameSession(
         controller.abort();
       }, timeoutMs);
     });
-    const run = async (): Promise<HistoricalVideoFrameSnapshot[]> => {
-      if (resolvedSite === "youtube") {
-        return captureYoutubeFrames(targetTime, timeoutMs, controller.signal);
-      }
-      if (!video) {
-        const transport = options.transport ?? contentFetchJson;
-        const payload = await transport(buildHistoricalPlayurlUrl(bvid, cid)) as PlayurlResponse | null;
-        if (controller.signal.aborted) throw abortError();
-        if (payload?.code !== 0) {
-          throw new Error(payload?.message || "无法获取视频流地址");
-        }
-        const source = payload.data?.durl?.[0]?.url;
-        if (!source) {
-          throw new Error("视频接口没有返回可直接截帧的 MP4");
-        }
-
-        const openerDoc = getOpenerDocument();
-        video = (options.createVideo ?? (() => openerDoc.createElement("video")))();
-        video.crossOrigin = "anonymous";
-        video.muted = true;
-        video.defaultMuted = true;
-        video.preload = "auto";
-        video.playsInline = true;
-        video.dataset.biliscriptHistoricalFrame = "";
-        video.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
-        video.src = source;
-        openerDoc.body.appendChild(video);
-        await waitForVideo(video, "loadedmetadata", () => video!.readyState >= 1, timeoutMs, controller.signal);
-      }
-      const media = video;
-      if (Number.isFinite(media.duration) && targetTime > media.duration) {
-        throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${media.duration} 秒`);
-      }
-      const frames: HistoricalVideoFrameSnapshot[] = [];
-      const duration = Number.isFinite(media.duration) ? Math.max(0, media.duration) : Number.POSITIVE_INFINITY;
-      const frameTimes = [targetTime - 2, targetTime, targetTime + 2]
-        .map((time) => Math.min(duration, Math.max(0, time)));
-      for (const frameTime of frameTimes) {
-        try {
-          const seeked = waitForVideo(
-            media,
-            "seeked",
-            () => Math.abs(media.currentTime - frameTime) <= SEEK_TOLERANCE_SECONDS && media.readyState >= 2,
-            timeoutMs,
-            controller.signal
-          );
-          media.currentTime = frameTime;
-          await seeked;
-          frames.push({
-            ...await capturePageVideoFrame({
-              getVideo: () => media,
-              createCanvas: options.createCanvas
-            }),
-            targetTime: frameTime
-          });
-        } catch (error) {
-          if (controller.signal.aborted) throw abortError();
-        }
-      }
-      return frames;
-    };
+    const run = async (): Promise<HistoricalVideoFrameSnapshot[]> =>
+      resolvedSite === "youtube"
+        ? captureYoutubeFrames(targetTime, timeoutMs, controller.signal)
+        : captureBilibiliFrames(targetTime, timeoutMs, controller.signal);
     try {
       return await Promise.race([run(), aborted, timedOut]);
     } finally {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { encodeVideoStorageBvid } from "../../extension/shared/site.js";
 import {
   captureHistoricalVideoFrame,
   createHistoricalVideoFrameSession
@@ -286,5 +287,207 @@ describe("隐藏视频历史帧截取", () => {
     expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining("历史帧截取超时") }));
     expect(media.video.isConnected).toBe(false);
     expect(media.video.getAttribute("src")).toBeNull();
+  });
+});
+
+function makeFakeMediaSource(opts: { autoOpen?: boolean; hangAppend?: boolean } = {}) {
+  const { autoOpen = true, hangAppend = false } = opts;
+  const msTarget = new EventTarget();
+  const sbTarget = new EventTarget();
+  const appended: ArrayBuffer[] = [];
+  let readyState: MediaSource["readyState"] = autoOpen ? "open" : "closed";
+  let ended = false;
+  let addedMimeType = "";
+
+  const sourceBuffer = Object.assign(sbTarget, {
+    updating: false,
+    appendBuffer: vi.fn((data: ArrayBuffer) => {
+      appended.push(data);
+      if (!hangAppend) {
+        queueMicrotask(() => sbTarget.dispatchEvent(new Event("updateend")));
+      }
+    })
+  }) as unknown as SourceBuffer;
+
+  const mediaSource = Object.assign(msTarget, {
+    addSourceBuffer: vi.fn((mimeType: string) => {
+      addedMimeType = mimeType;
+      return sourceBuffer;
+    }),
+    endOfStream: vi.fn(() => {
+      ended = true;
+      readyState = "ended";
+    })
+  }) as unknown as MediaSource;
+  Object.defineProperty(mediaSource, "readyState", {
+    configurable: true,
+    get: () => readyState
+  });
+
+  return {
+    mediaSource,
+    sourceBuffer,
+    appended,
+    get addedMimeType() {
+      return addedMimeType;
+    },
+    get ended() {
+      return ended;
+    },
+    open() {
+      readyState = "open";
+      msTarget.dispatchEvent(new Event("sourceopen"));
+    }
+  };
+}
+
+function makeBufferedRanges(ranges: Array<[number, number]>): TimeRanges {
+  return {
+    length: ranges.length,
+    start: (index: number) => ranges[index][0],
+    end: (index: number) => ranges[index][1]
+  };
+}
+
+describe("YouTube 离屏 MSE/SABR 历史三帧截取", () => {
+  it("解码 yt~ 存储键、按序写入 init 与分片并 endOfStream，截完清理隐藏媒体与 objectURL", async () => {
+    const media = makeVideo(120);
+    media.canPlay();
+    const { canvas, context } = makeCanvas();
+    const fakeMs = makeFakeMediaSource({ autoOpen: false });
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:yt-frame-1");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    const rawVideoId = "ab_cd-12345";
+    const storageBvid = encodeVideoStorageBvid("youtube", rawVideoId);
+    const initSeg = new Uint8Array([1, 2]).buffer;
+    const seg1 = new Uint8Array([3, 4]).buffer;
+    const seg2 = new Uint8Array([5, 6]).buffer;
+    const fetchYoutubeWindow = vi.fn(async () => ({
+      mimeType: 'video/mp4; codecs="avc1.4d401f"',
+      durationMs: 120_000,
+      initSegment: initSeg,
+      mediaSegments: [seg1, seg2]
+    }));
+
+    try {
+      const pending = captureHistoricalVideoFrame(
+        { site: "youtube", bvid: storageBvid, cid: "1", targetTime: 40 },
+        {
+          fetchYoutubeWindow,
+          createMediaSource: () => fakeMs.mediaSource,
+          createVideo: () => media.video,
+          createCanvas: () => canvas
+        }
+      );
+
+      await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+      expect(media.video.src).toBe("blob:yt-frame-1");
+      fakeMs.open();
+
+      const frames = await pending;
+      expect(fetchYoutubeWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ videoId: rawVideoId, startMs: 38_000, endMs: 42_000 })
+      );
+      expect(fakeMs.addedMimeType).toBe('video/mp4; codecs="avc1.4d401f"');
+      expect(fakeMs.appended).toEqual([initSeg, seg1, seg2]);
+      expect(fakeMs.ended).toBe(true);
+      expect(media.seeks).toEqual([38, 40, 42]);
+      expect(frames.map((frame) => frame.targetTime)).toEqual([38, 40, 42]);
+      expect(context.drawImage).toHaveBeenCalledTimes(3);
+      expect(media.video.isConnected).toBe(false);
+      expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:yt-frame-1");
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+    }
+  });
+
+  it("缓冲区间窄于 [t-2, t+2] 时经 clampToBufferedRange 夹紧至最近有效缓冲点", async () => {
+    const media = makeVideo(120);
+    media.canPlay();
+    Object.defineProperty(media.video, "buffered", {
+      configurable: true,
+      get: () => makeBufferedRanges([[39, 41]])
+    });
+    const { canvas } = makeCanvas();
+    const fakeMs = makeFakeMediaSource();
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:yt-frame-2");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    try {
+      const frames = await captureHistoricalVideoFrame(
+        { site: "youtube", bvid: encodeVideoStorageBvid("youtube", "dQw4w9WgXcQ"), cid: "1", targetTime: 40 },
+        {
+          fetchYoutubeWindow: async () => ({
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            durationMs: 120_000,
+            initSegment: new Uint8Array([1]).buffer,
+            mediaSegments: [new Uint8Array([2]).buffer]
+          }),
+          createMediaSource: () => fakeMs.mediaSource,
+          createVideo: () => media.video,
+          createCanvas: () => canvas
+        }
+      );
+
+      expect(media.seeks).toEqual([39, 40, 41]);
+      expect(frames.map((frame) => frame.targetTime)).toEqual([39, 40, 41]);
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+    }
+  });
+
+  it("目标时间超出 YouTube 视频时长时立即抛出可读错误", async () => {
+    await expect(
+      captureHistoricalVideoFrame(
+        { site: "youtube", bvid: encodeVideoStorageBvid("youtube", "dQw4w9WgXcQ"), cid: "1", targetTime: 130 },
+        {
+          fetchYoutubeWindow: async () => ({
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            durationMs: 120_000,
+            initSegment: new Uint8Array([1]).buffer,
+            mediaSegments: [new Uint8Array([2]).buffer]
+          })
+        }
+      )
+    ).rejects.toThrow("目标时间点 130 秒超出视频时长 120.0 秒");
+  });
+
+  it("YouTube MSE 写入阶段中止时抛出 AbortError 并清理隐藏视频与 objectURL", async () => {
+    const media = makeVideo(120);
+    const fakeMs = makeFakeMediaSource({ autoOpen: true, hangAppend: true });
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:yt-frame-abort");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const controller = new AbortController();
+
+    try {
+      const pending = captureHistoricalVideoFrame(
+        { site: "youtube", bvid: encodeVideoStorageBvid("youtube", "dQw4w9WgXcQ"), cid: "1", targetTime: 20 },
+        {
+          fetchYoutubeWindow: async () => ({
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            durationMs: 120_000,
+            initSegment: new Uint8Array([1]).buffer,
+            mediaSegments: [new Uint8Array([2]).buffer]
+          }),
+          createMediaSource: () => fakeMs.mediaSource,
+          createVideo: () => media.video,
+          signal: controller.signal
+        }
+      );
+
+      await vi.waitFor(() => expect(fakeMs.appended).toHaveLength(1));
+      controller.abort();
+
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(media.video.isConnected).toBe(false);
+      expect(media.video.pause).toHaveBeenCalledTimes(1);
+      expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:yt-frame-abort");
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+    }
   });
 });
