@@ -17,7 +17,7 @@ import {
   type StreamInterruptOptions
 } from "./conversation-store.js";
 import { createContextLoad, type ContextLoad } from "./context-load.js";
-import { createSendGate, type SendGate } from "./send-gate.js";
+import { createSendGate, type SendGate, type StartSubtitleFetchOptions } from "./send-gate.js";
 import { createConversationReplay, type ConversationReplay } from "./replay.js";
 
 export {
@@ -58,9 +58,11 @@ export interface CreateChatTabDomainDeps {
   isReaderTranscribing: () => boolean;
   asrNotice: HTMLElement | null;
   pageBvid: () => string | null;
-  startSubtitleFetch: () => Promise<boolean>;
+  startSubtitleFetch: (options?: StartSubtitleFetchOptions) => Promise<boolean>;
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
   onWaitingChange?: (waiting: boolean) => void;
+  removeInputContextNotice?: () => void;
+  onRetrySubtitleReady?: () => boolean | Promise<boolean>;
   getProviderId: () => string;
   getSelectedModel: () => string;
   getInputImages?: () => ImagePart[];
@@ -113,7 +115,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     hydratePinned: (opts) => store.hydratePinned(opts),
     showContextNotice: deps.ui.showConversationContextNotice,
-    removeContextNotice: deps.ui.removeConversationContextNotice,
+    removeContextNotice: deps.removeInputContextNotice ?? deps.ui.removeConversationContextNotice,
     replayInFlight: () => replay?.inFlight ?? null,
     isSessionClosed: deps.isSessionClosed,
     isReaderTranscribing: deps.isReaderTranscribing,
@@ -122,7 +124,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     clip: () => deps.clip() as ClipState,
     startSubtitleFetch: deps.startSubtitleFetch,
     subscribeStatusPhase: deps.subscribeStatusPhase,
-    onWaitingChange: deps.onWaitingChange
+    onWaitingChange: deps.onWaitingChange,
+    onRetrySubtitleReady: deps.onRetrySubtitleReady
   });
   const runtime = createChatRuntime({
     messages: deps.messages,

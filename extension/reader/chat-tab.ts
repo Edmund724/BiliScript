@@ -143,6 +143,7 @@ const feedback = createReaderChatFeedback({
 const {
   showConversationContextNotice,
   removeConversationContextNotice,
+  removeInputContextNotice,
   removePersistentContextNotice,
   showConversationContextError,
   removeCenteredState
@@ -181,6 +182,7 @@ const composer = createReaderChatComposer({
   },
   chatRuntime: {
     sendTurn: (text, options) => {
+      pendingQuickActionRetry = null;
       setupFlow.clearViewHold();
       return chatRuntime.sendTurn(text, options);
     },
@@ -302,6 +304,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     onSetupRequired: setupFlow.showSetupAction
   },
   onConversationChanged: (change) => {
+    pendingQuickActionRetry = null;
     if (change.historyCleared) {
       lists.settlePendingDeletion();
     }
@@ -341,6 +344,20 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
+  removeInputContextNotice,
+  onRetrySubtitleReady: async () => {
+    const pending = pendingQuickActionRetry;
+    if (
+      !pending ||
+      sessionClosed ||
+      pending.clipSignature !== computeCurrentClipSignature() ||
+      chatRuntime.isTurnActive()
+    ) {
+      return false;
+    }
+    pendingQuickActionRetry = null;
+    return composer.sendDetachedPrompt(pending.prompt);
+  },
   getProviderId: () => parseModelOptionValue(modelPanel.getSelectedValue()).providerId,
   getSelectedModel: () => parseModelOptionValue(modelPanel.getSelectedValue()).model,
   getInputImages: () => inputImages.getImages(),
@@ -475,6 +492,7 @@ function activateSessionTriggers(): void {
     }
     clipSignature = nextSignature;
     quickActionGeneration += 1;
+    pendingQuickActionRetry = null;
     setupFlow.invalidate();
     sendGate.cancel();
     deactivateChatTabOverlays();
@@ -671,6 +689,7 @@ export function closeChatSession(): void {
   sessionClosed = true;
   initInFlight = null;
   quickActionGeneration += 1;
+  pendingQuickActionRetry = null;
   setupFlow.invalidate();
   contextOrchestrator.cancelPendingSync();
   liveBridge.closeSession();
@@ -695,6 +714,7 @@ export function closeChatSession(): void {
 
 let quickActionInFlight: Promise<boolean> | null = null;
 let quickActionGeneration = 0;
+let pendingQuickActionRetry: { prompt: string; clipSignature: string } | null = null;
 
 export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
   if (quickActionInFlight) {
@@ -717,7 +737,11 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
-    return composer.sendDetachedPrompt(text);
+    const accepted = await composer.sendDetachedPrompt(text);
+    if (!accepted && !sessionClosed && generation === quickActionGeneration && sendGate.isNoSubtitleBlocked()) {
+      pendingQuickActionRetry = { prompt: text, clipSignature: computeCurrentClipSignature() };
+    }
+    return accepted;
   })();
   try {
     return await quickActionInFlight;
@@ -846,10 +870,14 @@ function updateChatLayoutState(): void {
   }
 }
 
-async function startSubtitleFetch(): Promise<boolean> {
-  return kickSubtitleFetch(() => requestSubtitleRefresh(), {
-    onChainLoadFailed: (error) => logWarn("[BILISCRIPT] subtitle fetch start failed", { error }),
-    awaitRefresh: false,
-    onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle refresh failed", { error })
-  });
+async function startSubtitleFetch(options?: { forceRefresh?: boolean; awaitRefresh?: boolean }): Promise<boolean> {
+  const forceRefresh = options?.forceRefresh === true;
+  return kickSubtitleFetch(
+    () => requestSubtitleRefresh(forceRefresh ? { forceRefresh: true } : undefined),
+    {
+      onChainLoadFailed: (error) => logWarn("[BILISCRIPT] subtitle fetch start failed", { error }),
+      awaitRefresh: options?.awaitRefresh === true,
+      onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle refresh failed", { error })
+    }
+  );
 }

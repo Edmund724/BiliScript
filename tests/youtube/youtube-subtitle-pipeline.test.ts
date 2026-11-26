@@ -994,10 +994,22 @@ describe("YouTube fetcher / body / core / ui / reader 端到端闭环", () => {
     );
     setYoutubeSameOriginFetchForTests(async () => makeTextFetchResponse("", 200));
 
-    await fetcher.refreshClip();
+    const { subscribeReaderPresenter } = await import("../../extension/reader/reader-bus.js");
+    const presenterEvents: Array<{ kind: string }> = [];
+    const unsubscribePresenter = subscribeReaderPresenter((event) => {
+      presenterEvents.push(event);
+    });
+    try {
+      await fetcher.refreshClip();
+    } finally {
+      unsubscribePresenter();
+    }
 
     expect(state.clip.subtitleFetchState).toBe("empty");
     expect(state.clip.noSubtitleReason).toBe("youtube-captions-unavailable");
+    expect(getReadingSubtitlePlaceholderText()).toContain("未能获取该 YouTube 视频的字幕正文");
+    expect(getReadingSubtitlePlaceholderText()).toContain("原生字幕开关");
+    expect(presenterEvents.filter((event) => event.kind === "notice")).toHaveLength(0);
     expect(resolveNoSubtitleNoticeText("youtube-captions-unavailable")).toBe(
       YOUTUBE_CAPTIONS_UNAVAILABLE_NOTICE
     );

@@ -1360,6 +1360,95 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     expect(input.value).toBe("");
   });
 
+  it("一键总结被 YouTube 无字幕拦下后，点重新抓取成功即移除旧提示并自动发出总结提示词", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    let fetchAttempt = 0;
+    const refreshSpy = vi.fn(async (options?: { forceRefresh?: boolean }) => {
+      fetchAttempt += 1;
+      if (options?.forceRefresh) {
+        state.clip.subtitleFetchState = "ready";
+        state.clip.noSubtitleReason = null;
+        state.clip.subtitleBody = [{ from: 0, to: 10, content: "开启原生 CC 后抓到的字幕" }];
+        statusBus.publishSubtitleStatusPhase("subtitle-ready");
+      }
+    });
+    const unsubscribeRefresh = readerBus.subscribeSubtitleRefresh(refreshSpy);
+    try {
+      state.clip.title = "YT 访谈视频";
+      state.clip.bvid = "BV1test000000";
+      state.clip.cid = "101";
+      state.clip.subtitleFetchState = "empty";
+      state.clip.noSubtitleReason = "youtube-captions-unavailable";
+      state.clip.subtitleBody = [];
+
+      const chat = await lazyChat.ensureReaderChatTab();
+      const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+
+      expect(accepted).toBe(false);
+      expect(ports).toHaveLength(0);
+      const inputCard = document.querySelector<HTMLElement>(".chat-input-card")!;
+      const retryLink = inputCard.querySelector<HTMLAnchorElement>(".chat-context-notice a");
+      expect(retryLink?.textContent).toBe("重新抓取");
+
+      retryLink!.click();
+
+      await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+      expect(refreshSpy).toHaveBeenCalledWith({ forceRefresh: true });
+      expect(fetchAttempt).toBeGreaterThanOrEqual(2);
+      expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
+      const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
+      expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
+      const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+      expect(input.value).toBe("");
+    } finally {
+      unsubscribeRefresh();
+    }
+  });
+
+  it("手动发送被无字幕拦下后点重新抓取：成功后移除重新抓取按钮并展示成功反馈，不自动发送草稿", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const refreshSpy = vi.fn(async (options?: { forceRefresh?: boolean }) => {
+      if (options?.forceRefresh) {
+        state.clip.subtitleFetchState = "ready";
+        state.clip.noSubtitleReason = null;
+        state.clip.subtitleBody = [{ from: 0, to: 10, content: "开启原生 CC 后抓到的字幕" }];
+        statusBus.publishSubtitleStatusPhase("subtitle-ready");
+      }
+    });
+    const unsubscribeRefresh = readerBus.subscribeSubtitleRefresh(refreshSpy);
+    try {
+      state.clip.title = "YT 访谈视频";
+      state.clip.bvid = "BV1test000000";
+      state.clip.cid = "101";
+      state.clip.subtitleFetchState = "empty";
+      state.clip.noSubtitleReason = "youtube-captions-unavailable";
+      state.clip.subtitleBody = [];
+
+      const chat = await lazyChat.ensureReaderChatTab();
+      await chat.ensureChatTabActivated();
+      const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+      const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
+      input.value = "手动草稿问题";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      sendBtn.click();
+
+      const inputCard = document.querySelector<HTMLElement>(".chat-input-card")!;
+      await waitFor(() => inputCard.querySelector(".chat-context-notice a")?.textContent === "重新抓取");
+      expect(ports).toHaveLength(0);
+
+      inputCard.querySelector<HTMLAnchorElement>(".chat-context-notice a")!.click();
+
+      await waitFor(() =>
+        Boolean(inputCard.querySelector(".chat-context-notice.is-success")?.textContent?.includes("已获取字幕"))
+      );
+      expect(inputCard.querySelector(".chat-context-notice a")).toBeNull();
+      expect(ports).toHaveLength(0);
+      expect(input.value).toBe("手动草稿问题");
+    } finally {
+      unsubscribeRefresh();
+    }
+  });
+
   it("字幕等待期间取消快捷发送后不残留提示词，转写完成后再次触发可正常发送", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";

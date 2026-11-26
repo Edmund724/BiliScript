@@ -24,6 +24,7 @@ export interface ReaderChatFeedback {
     }
   ) => void;
   removeConversationContextNotice: () => void;
+  removeInputContextNotice: () => void;
   removePersistentContextNotice: () => void;
   showConversationContextError: (message: string) => void;
   removeCenteredState: () => void;
@@ -180,6 +181,7 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
   return {
     showConversationContextNotice,
     removeConversationContextNotice,
+    removeInputContextNotice: removeInputNotice,
     removePersistentContextNotice,
     showConversationContextError,
     removeCenteredState

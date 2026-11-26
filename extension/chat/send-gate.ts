@@ -77,10 +77,17 @@ export const ASR_TRANSCRIBING_NOTICE = "当前视频无字幕，正在进行语�
 export const ASR_WAITING_NOTICE = "当前视频无字幕，正在进行语音转写，完成后自动开始总结…";
 export const SUBTITLE_FETCH_FAILED_NOTICE = "字幕抓取失败，请稍后重试。";
 export const SUBTITLE_READ_FAILED_NOTICE = "字幕读取失败，请重试。";
+export const SUBTITLE_RETRYING_NOTICE = "正在重新抓取字幕…";
+export const SUBTITLE_RETRY_READY_NOTICE = "已获取字幕，可以继续提问。";
 export const YOUTUBE_CACHE_EVICTED_SEND_NOTICE =
   "该 YouTube 视频的本地字幕缓存已清理，当前仅可只读查看历史；请重新打开原 YouTube 视频页重载字幕后再继续提问。";
 
 const SUBTITLE_WAIT_POLL_MS = 4000;
+
+export interface StartSubtitleFetchOptions {
+  forceRefresh?: boolean;
+  awaitRefresh?: boolean;
+}
 
 export interface CreateSendGateDeps {
   loadContextState: (opts: { forceRefresh: boolean; silent: boolean; preserveInput?: boolean }) => Promise<boolean>;
@@ -93,24 +100,27 @@ export interface CreateSendGateDeps {
       spinner?: boolean;
       settingsTarget?: "asr";
       placement?: "input";
+      tone?: "default" | "success";
       action?: { label: string; onClick: () => void };
     }
   ) => void;
   removeContextNotice: () => void;
   onWaitingChange?: (waiting: boolean) => void;
+  onRetrySubtitleReady?: () => boolean | Promise<boolean>;
   replayInFlight: () => Promise<void> | null;
   isSessionClosed: () => boolean;
   isReaderTranscribing: () => boolean;
   asrNotice: HTMLElement | null;
   pageBvid: () => string | null;
   clip: () => ClipState;
-  startSubtitleFetch: () => Promise<boolean>;
+  startSubtitleFetch: (options?: StartSubtitleFetchOptions) => Promise<boolean>;
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
   pollIntervalMs?: number;
 }
 
 export interface SendGate {
   ensureContextForSend: () => Promise<GateOutcome>;
+  isNoSubtitleBlocked: () => boolean;
   kickSubtitleWait: () => void;
   cancel: () => void;
   bindStatusBus: () => void;
@@ -123,6 +133,9 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   let waitingUiActive = false;
   let waitGeneration = 0;
   let cancelledWaitGeneration = -1;
+  let noSubtitleBlocked = false;
+  let retryGeneration = 0;
+  let retryInFlight = false;
   let unsubscribeStatusBus: (() => void) | null = null;
 
   function updateAsrNotice(): void {
@@ -257,8 +270,16 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     unsubscribeStatusBus = deps.subscribeStatusPhase((phase) => {
       if (phase === "asr-transcribing") {
         setAsrTranscribingActive(true);
+        noSubtitleBlocked = false;
         deps.removeContextNotice();
-      } else if (phase === "asr-done" || phase === "asr-failed" || phase === "subtitle-ready") {
+      } else if (phase === "asr-done" || phase === "subtitle-ready") {
+        setAsrTranscribingActive(false);
+        noSubtitleBlocked = false;
+        if (!retryInFlight) {
+          deps.removeContextNotice();
+        }
+        kickSubtitleWait();
+      } else if (phase === "asr-failed") {
         setAsrTranscribingActive(false);
         kickSubtitleWait();
       }
@@ -347,15 +368,108 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     });
   }
 
-  function retrySubtitleFetch(): void {
-    void deps.startSubtitleFetch().then((started) => {
-      if (started) {
-        deps.removeContextNotice();
-      }
+  function showNoSubtitleNotice(reason: NoSubtitleReason | undefined): void {
+    const notice = buildNoSubtitleNotice(reason);
+    deps.showContextNotice(notice.message, 0, {
+      placement: "input",
+      action: { label: "重新抓取", onClick: retrySubtitleFetch },
+      openSettingsAction: notice.openSettings,
+      settingsTarget: "asr"
     });
   }
 
+  function showRetryFetchFailedNotice(): void {
+    deps.showContextNotice(SUBTITLE_FETCH_FAILED_NOTICE, 0, {
+      placement: "input",
+      action: { label: "重新抓取", onClick: retrySubtitleFetch }
+    });
+  }
+
+  function retrySubtitleFetch(): void {
+    if (retryInFlight) {
+      return;
+    }
+    const currentRetryGen = ++retryGeneration;
+    retryInFlight = true;
+    deps.showContextNotice(SUBTITLE_RETRYING_NOTICE, 0, {
+      placement: "input",
+      spinner: true
+    });
+    void (async () => {
+      try {
+        const started = await deps.startSubtitleFetch({ forceRefresh: true, awaitRefresh: true }).catch(() => false);
+        if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
+          return;
+        }
+        if (!started) {
+          showRetryFetchFailedNotice();
+          return;
+        }
+        let ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => false);
+        if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
+          return;
+        }
+        let readiness = ok
+          ? readinessFromSnapshot(chatSessionState.contextData, {
+              asrTranscribingActive: chatSessionState.asrTranscribingActive
+            })
+          : null;
+        if (isPending(readiness)) {
+          const ready = await waitForSubtitles();
+          if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
+            return;
+          }
+          if (!ready) {
+            showReadFailedNotice();
+            return;
+          }
+          ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => false);
+          if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
+            return;
+          }
+          readiness = ok
+            ? readinessFromSnapshot(chatSessionState.contextData, {
+                asrTranscribingActive: chatSessionState.asrTranscribingActive
+              })
+            : null;
+        }
+        if (!ok || !readiness) {
+          showReadFailedNotice();
+          return;
+        }
+        if (isNoSubtitleEmpty(readiness)) {
+          noSubtitleBlocked = true;
+          showNoSubtitleNotice(chatSessionState.contextData?.noSubtitleReason as NoSubtitleReason);
+          return;
+        }
+        if (isSubtitleFetchFailed(readiness)) {
+          noSubtitleBlocked = false;
+          showRetryFetchFailedNotice();
+          return;
+        }
+        noSubtitleBlocked = false;
+        retryInFlight = false;
+        deps.removeContextNotice();
+        const resumed = await Promise.resolve(deps.onRetrySubtitleReady?.()).catch(() => false);
+        if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
+          return;
+        }
+        if (!resumed) {
+          deps.showContextNotice(SUBTITLE_RETRY_READY_NOTICE, 3000, {
+            placement: "input",
+            tone: "success"
+          });
+        }
+      } finally {
+        if (currentRetryGen === retryGeneration) {
+          retryInFlight = false;
+        }
+      }
+    })();
+  }
+
   async function ensureContextForSend(): Promise<GateOutcome> {
+    noSubtitleBlocked = false;
     if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
       await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => null);
       if (!(await deps.hydratePinned({ preserveInput: true }))) {
@@ -396,13 +510,8 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       asrTranscribingActive: chatSessionState.asrTranscribingActive
     });
     if (isNoSubtitleEmpty(finalReadiness)) {
-      const notice = buildNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
-      deps.showContextNotice(notice.message, 0, {
-        placement: "input",
-        action: { label: "重新抓取", onClick: retrySubtitleFetch },
-        openSettingsAction: notice.openSettings,
-        settingsTarget: "asr"
-      });
+      noSubtitleBlocked = true;
+      showNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
       return { pass: false, kind: "no-subtitle" };
     }
     if (isSubtitleFetchFailed(finalReadiness)) {
@@ -418,8 +527,12 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
 
   return {
     ensureContextForSend,
+    isNoSubtitleBlocked: () => noSubtitleBlocked,
     kickSubtitleWait,
     cancel: () => {
+      retryGeneration += 1;
+      retryInFlight = false;
+      noSubtitleBlocked = false;
       cancelledWaitGeneration = waitGeneration;
       cancelSubtitleWait();
     },

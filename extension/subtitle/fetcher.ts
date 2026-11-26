@@ -23,7 +23,6 @@ import {
 } from "../shared/error-helpers.js";
 import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 import { isReaderViewOpen } from "../reader/state.js";
-import { resolveNoSubtitleNoticeText } from "../reader/subtitle-notice.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import {
@@ -392,10 +391,6 @@ async function refreshYoutubeClip({
     ) {
       clipState.setNoSubtitleDetail("");
       await commitNoSubtitle({ noSubtitleReason: "youtube-captions-unavailable", runId });
-      notifyReaderPresenter({
-        kind: "notice",
-        text: resolveNoSubtitleNoticeText("youtube-captions-unavailable")
-      });
       return;
     }
     throw error;

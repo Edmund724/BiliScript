@@ -5,6 +5,8 @@ import {
   type CreateSendGateDeps,
   SUBTITLE_FETCH_FAILED_NOTICE,
   SUBTITLE_READ_FAILED_NOTICE,
+  SUBTITLE_RETRYING_NOTICE,
+  SUBTITLE_RETRY_READY_NOTICE,
   ASR_TRANSCRIBING_NOTICE
 } from "../../extension/chat/send-gate.js";
 import { chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
@@ -430,17 +432,96 @@ describe("发送闸 createSendGate", () => {
       );
     });
 
-    it("无字幕卡的重新抓取只重启抓取，成功后清旧提示且不自动发送", async () => {
+    it("无字幕卡的重新抓取强制刷新并在抓取中/成功后更新反馈（无待续发时不自动发送）", async () => {
       const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: "asr-quota" });
+      chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
+      const startSubtitleFetch = vi.fn(async (opts?: { forceRefresh?: boolean }) => {
+        if (opts?.forceRefresh) {
+          chatSessionStateForTests.contextData = snapshotFromClip(readyClip());
+        }
+        return true;
+      });
+      const h = makeHarness({ clip: () => emptyClip, startSubtitleFetch });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      const options = h.mocks.showContextNotice.mock.calls[0][2];
+      h.mocks.showContextNotice.mockClear();
+      h.mocks.removeContextNotice.mockClear();
+
+      options.action.onClick();
+
+      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(1, SUBTITLE_RETRYING_NOTICE, 0, {
+        placement: "input",
+        spinner: true
+      });
+      await vi.waitFor(() => expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1));
+      expect(startSubtitleFetch).toHaveBeenCalledWith({ forceRefresh: true, awaitRefresh: true });
+      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(2, SUBTITLE_RETRY_READY_NOTICE, 3000, {
+        placement: "input",
+        tone: "success"
+      });
+    });
+
+    it("无字幕卡的重新抓取成功后若 onRetrySubtitleReady 续发成功，清提示且不再弹成功条", async () => {
+      const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: "youtube-captions-unavailable" });
+      chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
+      const onRetrySubtitleReady = vi.fn(async () => true);
+      const startSubtitleFetch = vi.fn(async (opts?: { forceRefresh?: boolean }) => {
+        if (opts?.forceRefresh) {
+          chatSessionStateForTests.contextData = snapshotFromClip(readyClip());
+        }
+        return true;
+      });
+      const h = makeHarness({ clip: () => emptyClip, startSubtitleFetch, onRetrySubtitleReady });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      const options = h.mocks.showContextNotice.mock.calls[0][2];
+      h.mocks.showContextNotice.mockClear();
+      h.mocks.removeContextNotice.mockClear();
+
+      options.action.onClick();
+
+      await vi.waitFor(() => expect(onRetrySubtitleReady).toHaveBeenCalledTimes(1));
+      expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1);
+      expect(h.mocks.showContextNotice).toHaveBeenCalledTimes(1);
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_RETRYING_NOTICE, 0, {
+        placement: "input",
+        spinner: true
+      });
+    });
+
+    it("无字幕卡的重新抓取后仍无字幕：恢复无字幕提示与重新抓取入口", async () => {
+      const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: "youtube-captions-unavailable" });
       chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
       const h = makeHarness({ clip: () => emptyClip });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       const options = h.mocks.showContextNotice.mock.calls[0][2];
+      h.mocks.showContextNotice.mockClear();
 
       options.action.onClick();
 
-      await vi.waitFor(() => expect(h.mocks.removeContextNotice).toHaveBeenCalled());
-      expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(h.mocks.showContextNotice).toHaveBeenCalledTimes(2));
+      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(
+        2,
+        buildAsrNoSubtitleMessage("sidepanel", "youtube-captions-unavailable"),
+        0,
+        expect.objectContaining({
+          placement: "input",
+          action: expect.objectContaining({ label: "重新抓取" })
+        })
+      );
+    });
+
+    it("外部 subtitle-ready 相位到达时清除过期的输入槽无字幕提示", async () => {
+      const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: "youtube-captions-unavailable" });
+      chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
+      const h = makeHarness({ clip: () => emptyClip });
+      h.gate.bindStatusBus();
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      h.mocks.removeContextNotice.mockClear();
+
+      h.firePhase("subtitle-ready");
+
+      expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1);
+      expect(h.gate.isNoSubtitleBlocked()).toBe(false);
     });
 
     it("读取失败卡的重试读取强制刷新，成功后清旧提示", async () => {
