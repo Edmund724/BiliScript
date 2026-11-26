@@ -19,6 +19,7 @@ import {
 const chromiumManifest = JSON.parse(readFileSync("extension/manifest.json", "utf8")) as {
   minimum_chrome_version?: string;
   permissions: string[];
+  optional_permissions?: string[];
   host_permissions: string[];
   background: { service_worker?: string; scripts?: string[]; type?: string };
   content_scripts: Array<{ matches: string[] }>;
@@ -177,6 +178,18 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     });
     expect(derived.content_security_policy.extension_pages).toBe("script-src 'self'");
     expect(derived.content_security_policy.extension_pages).not.toContain("upgrade-insecure-requests");
+  });
+
+  it("双端清单仅在 optional_permissions 中声明 downloads，必选 permissions 不混入 downloads", () => {
+    const derived = deriveFirefoxManifest(chromiumManifest, {
+      presets: PRESETS,
+      asrPresets: ASR_PROVIDER_PRESETS,
+    });
+
+    expect(chromiumManifest.optional_permissions).toContain("downloads");
+    expect(derived.optional_permissions).toContain("downloads");
+    expect(chromiumManifest.permissions).not.toContain("downloads");
+    expect(derived.permissions).not.toContain("downloads");
   });
 });
 

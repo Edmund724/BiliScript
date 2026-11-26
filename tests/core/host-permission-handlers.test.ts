@@ -8,18 +8,20 @@ import {
 } from "../../extension/core/host-permission-handlers.js";
 import { parsePermissionGrantParams } from "../../extension/core/host-permissions.js";
 import type {
+  CheckOptionalPermissionResponse,
   CheckProviderOriginResponse,
   MessageSender,
   PermissionGrantResultResponse,
+  RequestOptionalPermissionResponse,
   RequestProviderOriginsResponse,
   RevokeProviderOriginResponse
 } from "../../extension/shared/messaging-protocol.js";
 
 interface HarnessOptions {
-  requestImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
+  requestImpl?: (permissions: { origins?: string[]; permissions?: string[] }) => Promise<boolean>;
   omitRequest?: boolean;
-  containsImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
-  removeImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
+  containsImpl?: (permissions: { origins?: string[]; permissions?: string[] }) => Promise<boolean>;
+  removeImpl?: (permissions: { origins?: string[]; permissions?: string[] }) => Promise<boolean>;
   staticHostPermissions?: string[];
   createWindowImpl?: (options: Record<string, unknown>) => Promise<{ id?: number }> | { id?: number };
   timeoutMs?: number;
@@ -98,12 +100,24 @@ function createHarness(options: HarnessOptions = {}) {
       handlers.revokeProviderOrigin({ type: "revoke-provider-origin", origin }, CONTENT_SENDER, resolve);
     });
 
+  const checkOptionalPermission = (permission?: unknown): Promise<CheckOptionalPermissionResponse> =>
+    new Promise((resolve) => {
+      handlers.checkOptionalPermission({ type: "check-optional-permission", permission }, CONTENT_SENDER, resolve);
+    });
+
+  const requestOptionalPermission = (permission?: unknown): Promise<RequestOptionalPermissionResponse> =>
+    new Promise((resolve) => {
+      handlers.requestOptionalPermission({ type: "request-optional-permission", permission }, CONTENT_SENDER, resolve);
+    });
+
   return {
     handlers,
     requestOrigins,
     grantResult,
     checkOrigin,
     revokeOrigin,
+    checkOptionalPermission,
+    requestOptionalPermission,
     requestMock,
     containsMock,
     removeMock,
@@ -474,5 +488,131 @@ describe("Firefox 授权小窗 keepalive 端口接管与清理", () => {
       "[BILISCRIPT] rejected keepalive port disconnect failed",
       unexpectedError
     );
+  });
+});
+
+describe("可选 downloads API 权限查询与跨端申请（Chromium 同步 + Firefox 弹窗回退）", () => {
+  it("checkOptionalPermission 查询 downloads 授权状态并拦截白名单之外的权限名", async () => {
+    const h = createHarness({ containsImpl: async () => true });
+    expect(await h.checkOptionalPermission("downloads")).toEqual({ ok: true, granted: true });
+    expect(h.containsMock).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    expect(await h.checkOptionalPermission("tabs")).toEqual({
+      ok: false,
+      granted: false,
+      error: "不支持的可选权限"
+    });
+  });
+
+  it("Chromium 路径：零前置 await 同步调用 permissions.request({ permissions: ['downloads'] }) 并返回 hold", async () => {
+    let requestCalledSync = false;
+    const h = createHarness({
+      requestImpl: (query) => {
+        requestCalledSync = true;
+        expect(query).toEqual({ permissions: ["downloads"] });
+        return Promise.resolve(true);
+      }
+    });
+
+    let response: RequestOptionalPermissionResponse | undefined;
+    const decision = h.handlers.requestOptionalPermission(
+      { type: "request-optional-permission", permission: "downloads" },
+      CONTENT_SENDER,
+      (resp) => {
+        response = resp;
+      }
+    );
+
+    expect(decision).toBe("hold");
+    expect(requestCalledSync).toBe(true);
+    await vi.waitFor(() => expect(response).toEqual({ ok: true }));
+    expect(h.createWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("非法权限名或缺失 permissions.request 时同步返回 answered", () => {
+    const h = createHarness({ omitRequest: true });
+    let invalidResp: RequestOptionalPermissionResponse | undefined;
+    expect(
+      h.handlers.requestOptionalPermission(
+        { type: "request-optional-permission", permission: "history" },
+        CONTENT_SENDER,
+        (resp) => {
+          invalidResp = resp;
+        }
+      )
+    ).toBe("answered");
+    expect(invalidResp).toEqual({ ok: false, error: "不支持的可选权限" });
+
+    let unsupportedResp: RequestOptionalPermissionResponse | undefined;
+    expect(
+      h.handlers.requestOptionalPermission(
+        { type: "request-optional-permission", permission: "downloads" },
+        CONTENT_SENDER,
+        (resp) => {
+          unsupportedResp = resp;
+        }
+      )
+    ).toBe("answered");
+    expect(unsupportedResp).toEqual({ ok: false, error: "当前环境不支持申请权限" });
+  });
+
+  it("Firefox 手势异常且已授权时经 contains 复核静默通过，不拉起弹窗", async () => {
+    const h = createHarness({
+      requestImpl: async () => {
+        throw new Error("permissions.request may only be called from a user input handler");
+      },
+      containsImpl: async () => true
+    });
+
+    expect(await h.requestOptionalPermission("downloads")).toEqual({ ok: true });
+    expect(h.containsMock).toHaveBeenCalledWith({ permissions: ["downloads"] });
+    expect(h.createWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("Firefox 手势异常且未授权时拉起 permission-grant.html 弹窗并由授权页回包完结", async () => {
+    const h = createHarness({
+      requestImpl: async () => {
+        throw new Error("permissions.request may only be called from a user input handler");
+      },
+      containsImpl: async () => false
+    });
+
+    const pending = h.requestOptionalPermission("downloads");
+    await vi.waitFor(() => expect(h.createWindowMock).toHaveBeenCalledTimes(1));
+
+    const createdUrl = String(h.createWindowMock.mock.calls[0][0].url);
+    const parsed = parsePermissionGrantParams(new URL(createdUrl).search);
+    expect(parsed.origins).toEqual([]);
+    expect(parsed.permissions).toEqual(["downloads"]);
+    expect(parsed.reqId).toBeTruthy();
+
+    const ack = h.grantResult(
+      { reqId: parsed.reqId, ok: true },
+      { id: RUNTIME_ID, url: `${RUNTIME_BASE}entry/permission-grant.html?reqId=${parsed.reqId}` }
+    );
+    expect(ack).toEqual({ ok: true });
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  it("Firefox 弹窗被用户直接关闭时按拒绝结束并清理窗口监听", async () => {
+    const h = createHarness({
+      requestImpl: async () => {
+        throw new Error("permissions.request may only be called from a user input handler");
+      },
+      containsImpl: async () => false,
+      createWindowImpl: async () => ({ id: 707 })
+    });
+
+    const pending = h.requestOptionalPermission("downloads");
+    await vi.waitFor(() => expect(h.addRemovedListener).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(h.createWindowMock).toHaveBeenCalledTimes(1));
+
+    const listener = h.addRemovedListener.mock.calls[0][0];
+    listener(707);
+
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("downloads");
+    expect(h.removeRemovedListener).toHaveBeenCalledWith(listener);
   });
 });

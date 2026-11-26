@@ -192,6 +192,17 @@ declare namespace chrome {
     function remove(permissions: { origins?: string[]; permissions?: string[] }): Promise<boolean>;
   }
 
+  namespace downloads {
+    type FilenameConflictAction = "uniquify" | "overwrite" | "prompt";
+    interface DownloadOptions {
+      url: string;
+      filename?: string;
+      saveAs?: boolean;
+      conflictAction?: FilenameConflictAction;
+    }
+    function download(options: DownloadOptions): Promise<number>;
+  }
+
   namespace scripting {
     type ExecutionWorld = "ISOLATED" | "MAIN";
 

@@ -20,6 +20,7 @@ function installMinimalBackgroundStub() {
   const requestMock = vi.fn(async () => true);
   const containsMock = vi.fn(async () => true);
   const removeMock = vi.fn(async () => true);
+  const downloadMock = vi.fn(async () => 321);
   const onConnectListeners: Array<(port: unknown) => void> = [];
 
   vi.stubGlobal("chrome", {
@@ -45,10 +46,13 @@ function installMinimalBackgroundStub() {
       request: requestMock,
       contains: containsMock,
       remove: removeMock
+    },
+    downloads: {
+      download: downloadMock
     }
   });
 
-  return { requestMock, containsMock, removeMock, onConnectListeners };
+  return { requestMock, containsMock, removeMock, downloadMock, onConnectListeners };
 }
 
 function sendToBackground(
@@ -114,6 +118,38 @@ describe("entry/background host 权限消息族接线", () => {
         { url: "https://www.bilibili.com/video/BV1test000000", id: "ext-test-id" }
       )
     ).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
+
+    expect(
+      await sendToBackground(listener, {
+        type: "check-optional-permission",
+        permission: "downloads"
+      })
+    ).toEqual({ ok: true, granted: true });
+    expect(stub.containsMock).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    expect(
+      await sendToBackground(listener, {
+        type: "request-optional-permission",
+        permission: "downloads"
+      })
+    ).toEqual({ ok: true });
+    expect(stub.requestMock).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    expect(
+      await sendToBackground(listener, {
+        type: "download-note-artifact",
+        markdown: "# 笔记正文",
+        fileName: "测试笔记.md",
+        subdir: "BiliScript-Notes"
+      })
+    ).toEqual({ ok: true, downloadId: 321 });
+    expect(stub.downloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "BiliScript-Notes/测试笔记.md",
+        saveAs: false,
+        conflictAction: "uniquify"
+      })
+    );
   });
 
   it("background onConnect 接管 permission-grant-keepalive 端口并在断开后移除监听", async () => {
@@ -339,5 +375,57 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
     window.dispatchEvent(new Event("pagehide"));
     window.dispatchEvent(new Event("beforeunload"));
     expect(portDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("授权页支持可选 downloads 权限展示、点击同步发起 chrome.permissions.request({ permissions }) 并回传结果", async () => {
+    installPermissionGrantDom(PERMISSION_GRANT_HTML);
+    const requestMock = vi.fn(async () => true);
+    const sendMessageMock = vi.fn((_msg: unknown, cb?: (resp: unknown) => void) => {
+      cb?.({ ok: true });
+      return undefined;
+    });
+    const portDisconnect = vi.fn();
+    const connectMock = vi.fn(() => ({
+      name: "permission-grant-keepalive",
+      disconnect: portDisconnect,
+      onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() }
+    }));
+
+    vi.stubGlobal("chrome", {
+      permissions: { request: requestMock },
+      runtime: { connect: connectMock, sendMessage: sendMessageMock, lastError: null }
+    });
+    const closeSpy = vi.spyOn(window, "close").mockImplementation(() => {});
+
+    const { initPermissionGrantPage } = await import("../../extension/entry/permission-grant.js");
+    const search = `?reqId=req-dl&origins=${encodeURIComponent("[]")}&permissions=${encodeURIComponent(
+      JSON.stringify(["downloads"])
+    )}`;
+    initPermissionGrantPage(search);
+
+    expect(document.getElementById("permissionGrantTitle")?.textContent).toContain("扩展权限");
+    expect(document.querySelector(".grant-reason")?.textContent).toContain("可选权限");
+    const items = [...document.querySelectorAll("#permissionGrantOrigins li")];
+    expect(items).toHaveLength(1);
+    expect(items[0]?.textContent).toContain("downloads");
+
+    const allowBtn = document.getElementById("permissionGrantAllowBtn") as HTMLButtonElement;
+    expect(allowBtn.disabled).toBe(false);
+    allowBtn.click();
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    await vi.waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1));
+    expect(portDisconnect).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      {
+        type: "permission-grant-result",
+        reqId: "req-dl",
+        ok: true,
+        error: undefined
+      },
+      expect.any(Function)
+    );
   });
 });

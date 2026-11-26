@@ -16,6 +16,9 @@ import {
 import {
   DEFAULT_SETTINGS,
   type DetachedWindowMode,
+  type NoteExportTarget,
+  type NotePromptPreset,
+  type PlayerAiActionMode,
   type Settings,
   type SubtitleSegmentationStrategy
 } from "./defaults.js";
@@ -120,6 +123,78 @@ export function normalizeObsidianFolder(value: unknown): string {
     .replace(/^\/+|\/+$/g, "")
     .slice(0, MAX_OBSIDIAN_FIELD_LENGTH);
 }
+
+export const MAX_NOTE_CUSTOM_PROMPT_BYTES = 4096;
+export const MAX_NOTE_DOWNLOAD_SUBDIR_LENGTH = 120;
+
+const NOTE_PROMPT_PRESETS: ReadonlySet<NotePromptPreset> = new Set([
+  "general",
+  "tutorial",
+  "course",
+  "opinion",
+  "custom"
+]);
+
+const WINDOWS_RESERVED_PATH_SEGMENT_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+export function normalizePlayerAiActionMode(value: unknown): PlayerAiActionMode {
+  return value === "note" ? "note" : "summary";
+}
+
+export const normalizePlayerAiAutoExportNote = booleanField(false);
+
+export function normalizeNotePromptPreset(value: unknown): NotePromptPreset {
+  const normalized = toString(value).trim() as NotePromptPreset;
+  return NOTE_PROMPT_PRESETS.has(normalized) ? normalized : DEFAULT_SETTINGS.notePromptPreset;
+}
+
+export function normalizeNoteCustomPrompt(value: unknown): string {
+  const normalized = toString(value).replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+  return truncateUtf8ByBytes(normalized, MAX_NOTE_CUSTOM_PROMPT_BYTES);
+}
+
+export function normalizeNoteExportTarget(value: unknown): NoteExportTarget {
+  return value === "obsidian" ? "obsidian" : "download";
+}
+
+export function normalizeNoteDownloadSubdir(value: unknown): string {
+  const raw = toString(value)
+    .replace(/\\/g, "/")
+    .replace(/[\u0000-\u001f\u007f]/g, "");
+  const segments: string[] = [];
+  for (const part of raw.split("/")) {
+    const trimmed = part.trim();
+    if (!trimmed || trimmed === "." || trimmed === "..") {
+      continue;
+    }
+    const withoutDrive = trimmed.replace(/^[a-zA-Z]:/, "");
+    const cleaned = withoutDrive
+      .replace(/[<>:"|?*]/g, "")
+      .replace(/\.{2,}/g, ".")
+      .trim()
+      .replace(/[. ]+$/g, "");
+    if (!cleaned || cleaned === "." || cleaned === ".." || WINDOWS_RESERVED_PATH_SEGMENT_RE.test(cleaned)) {
+      continue;
+    }
+    segments.push(cleaned);
+  }
+  let joined = segments.join("/");
+  if (joined.length > MAX_NOTE_DOWNLOAD_SUBDIR_LENGTH) {
+    joined = joined
+      .slice(0, MAX_NOTE_DOWNLOAD_SUBDIR_LENGTH)
+      .replace(/[/. ]+$/g, "")
+      .split("/")
+      .map((seg) => seg.trim().replace(/[. ]+$/g, ""))
+      .filter((seg) => seg && seg !== "." && seg !== ".." && !WINDOWS_RESERVED_PATH_SEGMENT_RE.test(seg))
+      .join("/");
+  }
+  return joined;
+}
+
+export const normalizeNoteIncludeKeyframes = booleanField(false);
 
 export function parseAgentBridgeUrl(value: unknown): string | null {
   const input = toString(value).trim();

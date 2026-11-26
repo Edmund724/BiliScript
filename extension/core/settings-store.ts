@@ -24,6 +24,13 @@ import {
   normalizeNoteExportTemplate,
   normalizeObsidianVaultName,
   normalizeObsidianFolder,
+  normalizePlayerAiActionMode,
+  normalizePlayerAiAutoExportNote,
+  normalizeNotePromptPreset,
+  normalizeNoteCustomPrompt,
+  normalizeNoteExportTarget,
+  normalizeNoteDownloadSubdir,
+  normalizeNoteIncludeKeyframes,
   normalizeAgentBridgeUrl,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
@@ -163,7 +170,14 @@ const SETTINGS_SCHEMA_SPECS: { readonly [K in KnownSettingKey]: SettingSchemaTup
   enableExtraPlaybackRates: [boolFalse, true],
   noteExportTemplate: [normalizeNoteExportTemplate, DEFAULT_NOTE_TEMPLATE],
   obsidianVaultName: [normalizeObsidianVaultName, true],
-  obsidianFolder: [normalizeObsidianFolder, true]
+  obsidianFolder: [normalizeObsidianFolder, true],
+  playerAiActionMode: [normalizePlayerAiActionMode, true],
+  playerAiAutoExportNote: [normalizePlayerAiAutoExportNote, true],
+  notePromptPreset: [normalizeNotePromptPreset, true],
+  noteCustomPrompt: [normalizeNoteCustomPrompt, true],
+  noteExportTarget: [normalizeNoteExportTarget, true],
+  noteDownloadSubdir: [normalizeNoteDownloadSubdir, true],
+  noteIncludeKeyframes: [normalizeNoteIncludeKeyframes, true]
 };
 
 export const SETTINGS_SCHEMA: {
@@ -229,7 +243,14 @@ export type DefaultPreferenceKey =
   | "reduceTransparency"
   | "noteExportTemplate"
   | "obsidianVaultName"
-  | "obsidianFolder";
+  | "obsidianFolder"
+  | "playerAiActionMode"
+  | "playerAiAutoExportNote"
+  | "notePromptPreset"
+  | "noteCustomPrompt"
+  | "noteExportTarget"
+  | "noteDownloadSubdir"
+  | "noteIncludeKeyframes";
 
 export type DefaultPreferencePatch = Pick<KnownSettings, DefaultPreferenceKey>;
 

@@ -2,12 +2,16 @@ import {
   buildPermissionGrantQuery,
   checkHostPermission,
   collectPermissionMatchPatterns,
+  formatOptionalPermissionRequestError,
   formatPermissionRequestError,
+  normalizeOptionalApiPermission,
+  optionalPermissionDeniedErrorMessage,
   PERMISSION_GRANT_KEEPALIVE_PORT_NAME,
   PERMISSION_GRANT_PAGE_PATH,
   permissionDeniedErrorMessage,
   revokeOriginPermission,
-  toPermissionMatchPattern
+  toPermissionMatchPattern,
+  type OptionalApiPermission
 } from "./host-permissions.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { logWarn as defaultLogWarn } from "../shared/logging.js";
@@ -73,14 +77,30 @@ export interface HostPermissionHandlers {
   permissionGrantResult: BackgroundMessageHandler<"permission-grant-result">;
   checkProviderOrigin: BackgroundMessageHandler<"check-provider-origin">;
   revokeProviderOrigin: BackgroundMessageHandler<"revoke-provider-origin">;
+  checkOptionalPermission: BackgroundMessageHandler<"check-optional-permission">;
+  requestOptionalPermission: BackgroundMessageHandler<"request-optional-permission">;
   attachKeepalivePort: (port: PermissionGrantKeepalivePort | null | undefined) => boolean;
   getActiveKeepalivePortCount: () => number;
 }
 
-type Msg<T extends "request-provider-origins" | "permission-grant-result" | "check-provider-origin" | "revoke-provider-origin"> =
-  Extract<BackgroundMessage, { type: T }>;
-type Reply<T extends "request-provider-origins" | "permission-grant-result" | "check-provider-origin" | "revoke-provider-origin"> =
-  (response: BackgroundResponseOf<T>) => void;
+type HandledPermissionMessageType =
+  | "request-provider-origins"
+  | "permission-grant-result"
+  | "check-provider-origin"
+  | "revoke-provider-origin"
+  | "check-optional-permission"
+  | "request-optional-permission";
+
+type Msg<T extends HandledPermissionMessageType> = Extract<BackgroundMessage, { type: T }>;
+type Reply<T extends HandledPermissionMessageType> = (response: BackgroundResponseOf<T>) => void;
+
+interface PopupPermissionRequestSpec {
+  origins: string[];
+  permissions: OptionalApiPermission[];
+  deniedError: string;
+  timeoutError: string;
+  formatError: (error: unknown) => string;
+}
 
 interface PendingPermissionGrant {
   windowId: number | null;
@@ -129,15 +149,16 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
   }
 
   function requestPermissionViaPopup(
-    origins: string[],
+    spec: PopupPermissionRequestSpec,
     windowsApi: PermissionGrantWindowsAdapter
   ): Promise<BackgroundResponseOf<"request-provider-origins">> {
     if (typeof windowsApi.create !== "function") {
       return Promise.reject(new Error("当前环境不支持弹窗授权"));
     }
     const reqId = nextReqId();
-    const url = host.getRuntimeUrl(`${PERMISSION_GRANT_PAGE_PATH}?${buildPermissionGrantQuery(reqId, origins)}`);
-    const deniedError = permissionDeniedErrorMessage(origins);
+    const query = buildPermissionGrantQuery(reqId, spec.origins, spec.permissions);
+    const url = host.getRuntimeUrl(`${PERMISSION_GRANT_PAGE_PATH}?${query}`);
+    const deniedError = spec.deniedError;
 
     return new Promise((resolve) => {
       let settled = false;
@@ -169,7 +190,7 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
         const winId = entry.windowId;
         entry.settle({
           ok: false,
-          error: `申请域名权限失败：授权超时（${origins.join("、")}）`
+          error: spec.timeoutError
         });
         if (winId !== null && typeof windowsApi.remove === "function") {
           void Promise.resolve(windowsApi.remove(winId)).catch(() => {});
@@ -187,7 +208,7 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
 
       try {
         if (typeof windowsApi.create !== "function") {
-          entry.settle({ ok: false, error: "申请域名权限失败：当前环境不支持弹窗授权" });
+          entry.settle({ ok: false, error: spec.formatError("当前环境不支持弹窗授权") });
           return;
         }
         void Promise.resolve(
@@ -211,14 +232,14 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
           (createError) => {
             entry.settle({
               ok: false,
-              error: formatPermissionRequestError(createError)
+              error: spec.formatError(createError)
             });
           }
         );
       } catch (createError) {
         entry.settle({
           ok: false,
-          error: formatPermissionRequestError(createError)
+          error: spec.formatError(createError)
         });
       }
     });
@@ -241,6 +262,25 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     return checks.filter((origin): origin is string => origin !== null);
   }
 
+  async function filterMissingOptionalPermissions(
+    requested: OptionalApiPermission[]
+  ): Promise<OptionalApiPermission[]> {
+    const permissions = host.permissions;
+    if (typeof permissions?.contains !== "function") {
+      return requested;
+    }
+    const checks = await Promise.all(
+      requested.map(async (permission) => {
+        try {
+          return (await permissions.contains!({ permissions: [permission] })) ? null : permission;
+        } catch {
+          return permission;
+        }
+      })
+    );
+    return checks.filter((permission): permission is OptionalApiPermission => permission !== null);
+  }
+
   async function resolvePermissionAfterGestureError(
     origins: string[],
     originalError: unknown
@@ -253,7 +293,40 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     if (typeof windowsApi?.create !== "function") {
       throw originalError;
     }
-    return await requestPermissionViaPopup(missingOrigins, windowsApi);
+    return await requestPermissionViaPopup(
+      {
+        origins: missingOrigins,
+        permissions: [],
+        deniedError: permissionDeniedErrorMessage(missingOrigins),
+        timeoutError: `申请域名权限失败：授权超时（${missingOrigins.join("、")}）`,
+        formatError: formatPermissionRequestError
+      },
+      windowsApi
+    );
+  }
+
+  async function resolveOptionalPermissionAfterGestureError(
+    requested: OptionalApiPermission[],
+    originalError: unknown
+  ): Promise<BackgroundResponseOf<"request-optional-permission">> {
+    const missingPermissions = await filterMissingOptionalPermissions(requested);
+    if (missingPermissions.length === 0) {
+      return { ok: true };
+    }
+    const windowsApi = host.windows;
+    if (typeof windowsApi?.create !== "function") {
+      throw originalError;
+    }
+    return await requestPermissionViaPopup(
+      {
+        origins: [],
+        permissions: missingPermissions,
+        deniedError: optionalPermissionDeniedErrorMessage(missingPermissions),
+        timeoutError: `申请可选权限失败：授权超时（${missingPermissions.join("、")}）`,
+        formatError: formatOptionalPermissionRequestError
+      },
+      windowsApi
+    );
   }
 
   function handleRequestProviderOrigins(
@@ -357,6 +430,70 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     });
   }
 
+  function handleCheckOptionalPermission(
+    message: Msg<"check-optional-permission">,
+    _sender: MessageSender,
+    sendResponse: Reply<"check-optional-permission">
+  ): void {
+    void (async () => {
+      const permission = normalizeOptionalApiPermission(message.permission);
+      if (!permission) {
+        sendResponse({ ok: false, granted: false, error: "不支持的可选权限" });
+        return;
+      }
+      const permissions = host.permissions;
+      if (typeof permissions?.contains !== "function") {
+        sendResponse({ ok: true, granted: false });
+        return;
+      }
+      try {
+        const granted = await permissions.contains({ permissions: [permission] });
+        sendResponse({ ok: true, granted: Boolean(granted) });
+      } catch (error) {
+        sendResponse({ ok: false, granted: false, error: formatOptionalPermissionRequestError(error) });
+      }
+    })();
+  }
+
+  function handleRequestOptionalPermission(
+    message: Msg<"request-optional-permission">,
+    _sender: MessageSender,
+    sendResponse: Reply<"request-optional-permission">
+  ): MessageReplyDecision {
+    const permission = normalizeOptionalApiPermission(message.permission);
+    if (!permission) {
+      sendResponse({ ok: false, error: "不支持的可选权限" });
+      return "answered";
+    }
+    const permissions = host.permissions;
+    if (!hasPermissionRequest(permissions)) {
+      sendResponse({ ok: false, error: "当前环境不支持申请权限" });
+      return "answered";
+    }
+    withOkResponse(
+      (async () => {
+        try {
+          const requestTask = permissions.request({ permissions: [permission] });
+          const granted = await requestTask;
+          return granted
+            ? { ok: true }
+            : {
+                ok: false,
+                error: optionalPermissionDeniedErrorMessage([permission])
+              };
+        } catch (error) {
+          if (!isUserGesturePermissionError(error)) {
+            throw error;
+          }
+          return await resolveOptionalPermissionAfterGestureError([permission], error);
+        }
+      })(),
+      sendResponse,
+      formatOptionalPermissionRequestError
+    );
+    return "hold";
+  }
+
   function disconnectRejectedPort(port: PermissionGrantKeepalivePort): void {
     try {
       port.disconnect?.();
@@ -393,6 +530,8 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     permissionGrantResult: handlePermissionGrantResult,
     checkProviderOrigin: handleCheckProviderOrigin,
     revokeProviderOrigin: handleRevokeProviderOrigin,
+    checkOptionalPermission: handleCheckOptionalPermission,
+    requestOptionalPermission: handleRequestOptionalPermission,
     attachKeepalivePort,
     getActiveKeepalivePortCount: () => activeKeepalivePorts.size
   };

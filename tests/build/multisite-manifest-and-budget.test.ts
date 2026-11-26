@@ -103,6 +103,8 @@ async function buildBackgroundBundleForBudgetTest() {
 
 describe("多站点 Manifest 与多语言文案", () => {
   const manifest = readJson<{
+    permissions: string[];
+    optional_permissions?: string[];
     host_permissions: string[];
     content_scripts: Array<{ matches: string[]; js: string[]; all_frames?: boolean }>;
     web_accessible_resources: Array<{ resources: string[]; matches: string[] }>;
@@ -152,6 +154,10 @@ describe("多站点 Manifest 与多语言文案", () => {
     expect(derived.host_permissions).not.toContain("https://live.bilibili.com/*");
     expect(derived.content_scripts[0]?.matches).toContain("https://www.youtube.com/watch*");
     expect(derived.web_accessible_resources).toBeUndefined();
+    expect(manifest.optional_permissions).toContain("downloads");
+    expect(derived.optional_permissions).toContain("downloads");
+    expect(manifest.permissions).not.toContain("downloads");
+    expect(derived.permissions).not.toContain("downloads");
   });
 });
 

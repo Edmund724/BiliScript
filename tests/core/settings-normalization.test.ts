@@ -651,3 +651,137 @@ describe("normalizeDetachedWindowMode 与 detachedWindowMode 持久化", () => {
     expect(syncSetMock).toHaveBeenCalledWith({ detachedWindowMode: "pip" });
   });
 });
+
+describe("视频笔记与统一导出 7 个设置字段归一化与重置（#22）", () => {
+  it("DEFAULT_SETTINGS 暴露 7 个视频笔记字段的预期默认值", () => {
+    expect(DEFAULT_SETTINGS.playerAiActionMode).toBe("summary");
+    expect(DEFAULT_SETTINGS.playerAiAutoExportNote).toBe(false);
+    expect(DEFAULT_SETTINGS.notePromptPreset).toBe("general");
+    expect(DEFAULT_SETTINGS.noteCustomPrompt).toBe("");
+    expect(DEFAULT_SETTINGS.noteExportTarget).toBe("download");
+    expect(DEFAULT_SETTINGS.noteDownloadSubdir).toBe("");
+    expect(DEFAULT_SETTINGS.noteIncludeKeyframes).toBe(false);
+  });
+
+  it("playerAiActionMode、notePromptPreset、noteExportTarget 与布尔字段正确放行合法值并回退脏值", async () => {
+    const validators = await import("../../extension/core/validators.js");
+    expect(validators.normalizePlayerAiActionMode("summary")).toBe("summary");
+    expect(validators.normalizePlayerAiActionMode("note")).toBe("note");
+    expect(validators.normalizePlayerAiActionMode("invalid")).toBe("summary");
+    expect(validators.normalizePlayerAiActionMode(null)).toBe("summary");
+
+    expect(validators.normalizePlayerAiAutoExportNote(true)).toBe(true);
+    expect(validators.normalizePlayerAiAutoExportNote(false)).toBe(false);
+    expect(validators.normalizePlayerAiAutoExportNote("true")).toBe(false);
+
+    expect(validators.normalizeNotePromptPreset("general")).toBe("general");
+    expect(validators.normalizeNotePromptPreset("tutorial")).toBe("tutorial");
+    expect(validators.normalizeNotePromptPreset("course")).toBe("course");
+    expect(validators.normalizeNotePromptPreset("opinion")).toBe("opinion");
+    expect(validators.normalizeNotePromptPreset("custom")).toBe("custom");
+    expect(validators.normalizeNotePromptPreset("unknown")).toBe("general");
+    expect(validators.normalizeNotePromptPreset(42)).toBe("general");
+
+    expect(validators.normalizeNoteExportTarget("download")).toBe("download");
+    expect(validators.normalizeNoteExportTarget("obsidian")).toBe("obsidian");
+    expect(validators.normalizeNoteExportTarget("notion")).toBe("download");
+    expect(validators.normalizeNoteExportTarget(undefined)).toBe("download");
+
+    expect(validators.normalizeNoteIncludeKeyframes(true)).toBe(true);
+    expect(validators.normalizeNoteIncludeKeyframes(false)).toBe(false);
+    expect(validators.normalizeNoteIncludeKeyframes(1)).toBe(false);
+  });
+
+  it("noteCustomPrompt 规范化换行并按 UTF-8 4096 字节边界安全截断多字节字符", async () => {
+    const { normalizeNoteCustomPrompt, MAX_NOTE_CUSTOM_PROMPT_BYTES } = await import("../../extension/core/validators.js");
+    expect(MAX_NOTE_CUSTOM_PROMPT_BYTES).toBe(4096);
+    expect(normalizeNoteCustomPrompt(null)).toBe("");
+    expect(normalizeNoteCustomPrompt("  第一行\r\n第二行\r第三行  ")).toBe("第一行\n第二行\n第三行");
+
+    const hugeCjk = "笔记".repeat(1200);
+    const truncated = normalizeNoteCustomPrompt(hugeCjk);
+    const byteLength = new TextEncoder().encode(truncated).length;
+    expect(byteLength).toBeLessThanOrEqual(4096);
+    expect(byteLength).toBeGreaterThan(4080);
+    expect(truncated.endsWith("\uFFFD")).toBe(false);
+  });
+
+  it.each([
+    ["BiliScript-Notes", "BiliScript-Notes"],
+    ["\\BiliScript\\Notes\\2026\\", "BiliScript/Notes/2026"],
+    ["../../etc", "etc"],
+    ["D:\\Notes", "Notes"],
+    ["C:\\Users\\Alice\\Notes", "Users/Alice/Notes"],
+    ["a//b/..", "a/b"],
+    ["a/./b", "a/b"],
+    ["foo/<bad>:name|?*", "foo/badname"],
+    ["foo\u0000\u001f/bar...", "foo/bar"],
+    ["CON/NUL/PRN/COM1/LPT9/valid", "valid"],
+    ["../../../", ""],
+    ["C:", ""],
+    [null, ""],
+    [123, ""]
+  ])("noteDownloadSubdir 路径清洗：%j -> %j", async (input, expected) => {
+    const { normalizeNoteDownloadSubdir } = await import("../../extension/core/validators.js");
+    expect(normalizeNoteDownloadSubdir(input)).toBe(expected);
+  });
+
+  it("noteDownloadSubdir 超长路径截断在 120 字符内且不遗留尾部斜杠或非法段", async () => {
+    const { normalizeNoteDownloadSubdir, MAX_NOTE_DOWNLOAD_SUBDIR_LENGTH } = await import("../../extension/core/validators.js");
+    expect(MAX_NOTE_DOWNLOAD_SUBDIR_LENGTH).toBe(120);
+    const longPath = `${"a".repeat(119)}/sub`;
+    const normalized = normalizeNoteDownloadSubdir(longPath);
+    expect(normalized.length).toBeLessThanOrEqual(120);
+    expect(normalized.endsWith("/")).toBe(false);
+    expect(normalized).toBe("a".repeat(119));
+  });
+
+  it("normalizeSettings、normalizeSettingsPatch 与 buildDefaultPreferencePatch 覆盖全部 7 个字段", async () => {
+    const { normalizeSettings, normalizeSettingsPatch, buildDefaultPreferencePatch } = await loadStoreModule();
+    const normalized = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      playerAiActionMode: "note",
+      playerAiAutoExportNote: true,
+      notePromptPreset: "course",
+      noteCustomPrompt: "  自定义要求  ",
+      noteExportTarget: "obsidian",
+      noteDownloadSubdir: "D:\\BiliScript\\Notes",
+      noteIncludeKeyframes: true
+    });
+    expect(normalized.playerAiActionMode).toBe("note");
+    expect(normalized.playerAiAutoExportNote).toBe(true);
+    expect(normalized.notePromptPreset).toBe("course");
+    expect(normalized.noteCustomPrompt).toBe("自定义要求");
+    expect(normalized.noteExportTarget).toBe("obsidian");
+    expect(normalized.noteDownloadSubdir).toBe("BiliScript/Notes");
+    expect(normalized.noteIncludeKeyframes).toBe(true);
+
+    const patch = normalizeSettingsPatch({
+      playerAiActionMode: "bogus",
+      playerAiAutoExportNote: "yes",
+      notePromptPreset: "invalid",
+      noteCustomPrompt: "ok",
+      noteExportTarget: "bad",
+      noteDownloadSubdir: "../../vault",
+      noteIncludeKeyframes: true
+    });
+    expect(patch).toEqual({
+      playerAiActionMode: "summary",
+      playerAiAutoExportNote: false,
+      notePromptPreset: "general",
+      noteCustomPrompt: "ok",
+      noteExportTarget: "download",
+      noteDownloadSubdir: "vault",
+      noteIncludeKeyframes: true
+    });
+
+    const resetPatch = buildDefaultPreferencePatch();
+    expect(resetPatch.playerAiActionMode).toBe("summary");
+    expect(resetPatch.playerAiAutoExportNote).toBe(false);
+    expect(resetPatch.notePromptPreset).toBe("general");
+    expect(resetPatch.noteCustomPrompt).toBe("");
+    expect(resetPatch.noteExportTarget).toBe("download");
+    expect(resetPatch.noteDownloadSubdir).toBe("");
+    expect(resetPatch.noteIncludeKeyframes).toBe(false);
+  });
+});

@@ -8,6 +8,9 @@ import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
 export type { SubtitleSegmentationStrategy, BilingualDisplayOrder };
 
 export type DetachedWindowMode = "pip" | "popup";
+export type PlayerAiActionMode = "summary" | "note";
+export type NotePromptPreset = "general" | "tutorial" | "course" | "opinion" | "custom";
+export type NoteExportTarget = "download" | "obsidian";
 
 export { BILISCRIPT_VERSION } from "./version.js";
 
@@ -72,6 +75,13 @@ export interface KnownSettings {
   noteExportTemplate: string;
   obsidianVaultName: string;
   obsidianFolder: string;
+  playerAiActionMode: PlayerAiActionMode;
+  playerAiAutoExportNote: boolean;
+  notePromptPreset: NotePromptPreset;
+  noteCustomPrompt: string;
+  noteExportTarget: NoteExportTarget;
+  noteDownloadSubdir: string;
+  noteIncludeKeyframes: boolean;
 }
 
 export interface Settings extends KnownSettings {
@@ -140,5 +150,12 @@ export const DEFAULT_SETTINGS: Settings = {
   enableExtraPlaybackRates: false,
   noteExportTemplate: "",
   obsidianVaultName: "",
-  obsidianFolder: ""
+  obsidianFolder: "",
+  playerAiActionMode: "summary",
+  playerAiAutoExportNote: false,
+  notePromptPreset: "general",
+  noteCustomPrompt: "",
+  noteExportTarget: "download",
+  noteDownloadSubdir: "",
+  noteIncludeKeyframes: false
 };

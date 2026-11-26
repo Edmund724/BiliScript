@@ -19,7 +19,11 @@ import {
   isStaticHostPermission,
   revokeOriginPermission,
   revokeOrphanOriginViaBackground,
-  permissionRevokeErrorMessage
+  permissionRevokeErrorMessage,
+  normalizeOptionalApiPermission,
+  collectOptionalApiPermissions,
+  checkOptionalPermissionViaBackground,
+  requestOptionalPermissionViaBackground
 } from "../../extension/core/host-permissions.js";
 
 beforeEach(() => {
@@ -505,5 +509,65 @@ describe("permissionRevokeErrorMessage", () => {
     expect(msg).toContain("https://api.openai.com/*");
     expect(msg).toContain("浏览器扩展权限设置");
     expect(msg).not.toContain("扩展详情页");
+  });
+});
+
+describe("可选 API 权限（downloads）编解码与客户端代理", () => {
+  it("allowlist 仅放行 downloads 并过滤非法或越权字符串", () => {
+    expect(normalizeOptionalApiPermission("downloads")).toBe("downloads");
+    expect(normalizeOptionalApiPermission("  downloads  ")).toBe("downloads");
+    expect(normalizeOptionalApiPermission("tabs")).toBeNull();
+    expect(normalizeOptionalApiPermission("")).toBeNull();
+    expect(normalizeOptionalApiPermission(null)).toBeNull();
+    expect(collectOptionalApiPermissions(["downloads", "tabs", "downloads", 123])).toEqual(["downloads"]);
+  });
+
+  it("buildPermissionGrantQuery / parsePermissionGrantParams 支持可选 API permissions 往返并过滤非法项", () => {
+    const query = buildPermissionGrantQuery("req-dl", [], ["downloads"]);
+    expect(parsePermissionGrantParams(`?${query}`)).toEqual({
+      reqId: "req-dl",
+      origins: [],
+      permissions: ["downloads"]
+    });
+    expect(parsePermissionGrantParams(`?reqId=req-dl&permissions=${encodeURIComponent(JSON.stringify(["downloads", "history"]))}`)).toEqual({
+      reqId: "req-dl",
+      origins: [],
+      permissions: ["downloads"]
+    });
+    expect(parsePermissionGrantParams("?reqId=req-dl&permissions=not-json")).toEqual({
+      reqId: "req-dl",
+      origins: []
+    });
+  });
+
+  it("extension 语境直接调用 chrome.permissions，content 语境经 background 消息查询与申请 downloads", async () => {
+    const contains = vi.fn(async () => true);
+    const request = vi.fn(async () => true);
+    (globalThis.chrome as unknown as { permissions: unknown }).permissions = { contains, request };
+
+    expect(await checkOptionalPermissionViaBackground("downloads")).toBe(true);
+    expect(contains).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    expect(await requestOptionalPermissionViaBackground("downloads")).toEqual({ ok: true });
+    expect(request).toHaveBeenCalledWith({ permissions: ["downloads"] });
+
+    delete (globalThis.chrome as unknown as { permissions?: unknown }).permissions;
+    const sendMessage = vi.fn((msg: { type: string }, cb?: (resp: unknown) => void) => {
+      cb?.(msg.type === "check-optional-permission" ? { ok: true, granted: true } : { ok: true });
+      return undefined;
+    });
+    (globalThis.chrome.runtime as unknown as { sendMessage: typeof sendMessage }).sendMessage = sendMessage;
+
+    expect(await checkOptionalPermissionViaBackground("downloads")).toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "check-optional-permission", permission: "downloads" },
+      expect.any(Function)
+    );
+
+    expect(await requestOptionalPermissionViaBackground("downloads")).toEqual({ ok: true });
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "request-optional-permission", permission: "downloads" },
+      expect.any(Function)
+    );
   });
 });

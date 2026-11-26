@@ -12,35 +12,87 @@ export type HostPermissionResult =
 export const PERMISSION_GRANT_PAGE_PATH = "entry/permission-grant.html" as const;
 export const PERMISSION_GRANT_KEEPALIVE_PORT_NAME = "permission-grant-keepalive" as const;
 
+export type OptionalApiPermission = "downloads";
+export const ALLOWED_OPTIONAL_API_PERMISSIONS: readonly OptionalApiPermission[] = Object.freeze(["downloads"]);
+
 export interface PermissionGrantParams {
   reqId: string;
   origins: string[];
+  permissions?: OptionalApiPermission[];
+}
+
+export function normalizeOptionalApiPermission(input: unknown): OptionalApiPermission | null {
+  if (typeof input !== "string") {
+    return null;
+  }
+  const normalized = input.trim();
+  return ALLOWED_OPTIONAL_API_PERMISSIONS.includes(normalized as OptionalApiPermission)
+    ? (normalized as OptionalApiPermission)
+    : null;
+}
+
+export function collectOptionalApiPermissions(input: unknown): OptionalApiPermission[] {
+  const list = Array.isArray(input) ? input : [input];
+  const collected: OptionalApiPermission[] = [];
+  for (const item of list) {
+    const normalized = normalizeOptionalApiPermission(item);
+    if (normalized && !collected.includes(normalized)) {
+      collected.push(normalized);
+    }
+  }
+  return collected;
 }
 
 export function formatPermissionRequestError(error: unknown): string {
   return `申请域名权限失败：${(error as Error | undefined)?.message || error}`;
 }
 
-export function buildPermissionGrantQuery(reqId: string, origins: readonly string[]): string {
-  return new URLSearchParams({
+export function formatOptionalPermissionRequestError(error: unknown): string {
+  return `申请可选权限失败：${(error as Error | undefined)?.message || error}`;
+}
+
+export function optionalPermissionDeniedErrorMessage(permissions: readonly string[]): string {
+  return `未授权 ${permissions.join("、")} 权限，操作已中止：请在权限弹窗中选择允许后重试`;
+}
+
+export function buildPermissionGrantQuery(
+  reqId: string,
+  origins: readonly string[],
+  permissions?: readonly OptionalApiPermission[]
+): string {
+  const query = new URLSearchParams({
     reqId,
     origins: JSON.stringify(origins)
-  }).toString();
+  });
+  const validPermissions = collectOptionalApiPermissions(permissions);
+  if (validPermissions.length > 0) {
+    query.set("permissions", JSON.stringify(validPermissions));
+  }
+  return query.toString();
 }
 
 export function parsePermissionGrantParams(search: string): PermissionGrantParams {
   const params = new URLSearchParams(search);
   const reqId = (params.get("reqId") || "").trim();
+  let origins: string[] = [];
   const rawOrigins = params.get("origins");
-  if (!rawOrigins) {
-    return { reqId, origins: [] };
+  if (rawOrigins) {
+    try {
+      origins = collectPermissionMatchPatterns(JSON.parse(rawOrigins));
+    } catch {
+      origins = [];
+    }
   }
-  try {
-    const parsed: unknown = JSON.parse(rawOrigins);
-    return { reqId, origins: collectPermissionMatchPatterns(parsed) };
-  } catch {
-    return { reqId, origins: [] };
+  let permissions: OptionalApiPermission[] = [];
+  const rawPermissions = params.get("permissions");
+  if (rawPermissions) {
+    try {
+      permissions = collectOptionalApiPermissions(JSON.parse(rawPermissions));
+    } catch {
+      permissions = [];
+    }
   }
+  return permissions.length > 0 ? { reqId, origins, permissions } : { reqId, origins };
 }
 
 export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
@@ -132,6 +184,48 @@ export async function requestProviderOriginsViaBackground(baseUrls: string[]): P
     return { ok: result.ok, error: result.error };
   }
   const resp = await sendRuntimeMessage({ type: "request-provider-origins", baseUrls });
+  return { ok: Boolean(resp?.ok), error: resp?.error };
+}
+
+export async function checkOptionalPermissionViaBackground(permission: OptionalApiPermission): Promise<boolean> {
+  const valid = normalizeOptionalApiPermission(permission);
+  if (!valid) {
+    return false;
+  }
+  if (typeof globalThis.chrome?.permissions?.contains === "function") {
+    try {
+      return Boolean(await globalThis.chrome.permissions.contains({ permissions: [valid] }));
+    } catch {
+      return false;
+    }
+  }
+  if (typeof globalThis.chrome?.runtime?.sendMessage !== "function") {
+    return false;
+  }
+  try {
+    const resp = await sendRuntimeMessage({ type: "check-optional-permission", permission: valid });
+    return resp?.granted === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function requestOptionalPermissionViaBackground(
+  permission: OptionalApiPermission
+): Promise<ProviderOriginsProxyResult> {
+  const valid = normalizeOptionalApiPermission(permission);
+  if (!valid) {
+    return { ok: false, error: "不支持的可选权限" };
+  }
+  if (typeof globalThis.chrome?.permissions?.request === "function") {
+    try {
+      const granted = await globalThis.chrome.permissions.request({ permissions: [valid] });
+      return granted ? { ok: true } : { ok: false, error: optionalPermissionDeniedErrorMessage([valid]) };
+    } catch (error) {
+      return { ok: false, error: formatOptionalPermissionRequestError(error) };
+    }
+  }
+  const resp = await sendRuntimeMessage({ type: "request-optional-permission", permission: valid });
   return { ok: Boolean(resp?.ok), error: resp?.error };
 }
 

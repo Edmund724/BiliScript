@@ -69,6 +69,10 @@ import {
   createHostPermissionHandlers,
   type PermissionGrantWindowsAdapter
 } from "../core/host-permission-handlers.js";
+import {
+  createDownloadNoteArtifactHandler,
+  type DownloadsApiLike
+} from "../core/download-handler.js";
 import { createContentStyleHandlers } from "../core/content-style-handlers.js";
 import { createContentChunkHandlers } from "../core/content-chunk-handlers.js";
 import { createYoutubeScriptingHandlers } from "../core/youtube-scripting-handlers.js";
@@ -199,6 +203,15 @@ const hostPermissionHandlers = createHostPermissionHandlers({
   getRuntimeUrl: (path) => chrome.runtime.getURL(path),
   get runtimeId() {
     return (chrome.runtime as unknown as { id?: string } | undefined)?.id;
+  }
+});
+
+const handleDownloadNoteArtifact = createDownloadNoteArtifactHandler({
+  get permissions() {
+    return chrome.permissions;
+  },
+  get downloads() {
+    return (chrome as unknown as { downloads?: DownloadsApiLike }).downloads;
   }
 });
 
@@ -503,6 +516,9 @@ const messageHandlerTable = {
   "request-provider-origins": hostPermissionHandlers.requestProviderOrigins,
   "check-provider-origin": hostPermissionHandlers.checkProviderOrigin,
   "revoke-provider-origin": hostPermissionHandlers.revokeProviderOrigin,
+  "check-optional-permission": hostPermissionHandlers.checkOptionalPermission,
+  "request-optional-permission": hostPermissionHandlers.requestOptionalPermission,
+  "download-note-artifact": handleDownloadNoteArtifact,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
   "player-ai-quick-action": handlePlayerAiQuickAction,
   "fetch-json": handleFetchJson,

@@ -15,6 +15,9 @@
     "tts",
     "declarativeNetRequest"
   ],
+  "optional_permissions": [
+    "downloads"
+  ],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://www.youtube.com/*",

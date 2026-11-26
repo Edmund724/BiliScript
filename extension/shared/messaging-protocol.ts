@@ -138,6 +138,35 @@ export type RevokeProviderOriginResponse = {
   origins: string[];
   revoked: boolean;
 };
+export type CheckOptionalPermissionMessage = {
+  type: "check-optional-permission";
+  permission?: unknown;
+};
+export type CheckOptionalPermissionResponse = {
+  ok: boolean;
+  granted: boolean;
+  error?: string;
+};
+export type RequestOptionalPermissionMessage = {
+  type: "request-optional-permission";
+  permission?: unknown;
+};
+export type RequestOptionalPermissionResponse = {
+  ok: boolean;
+  error?: string;
+};
+export type DownloadNoteArtifactMessage = {
+  type: "download-note-artifact";
+  markdown: string;
+  fileName: string;
+  subdir?: string;
+};
+export type DownloadNoteArtifactResponse = {
+  ok: boolean;
+  downloadId?: number;
+  fallbackRequired?: boolean;
+  error?: string;
+};
 export type EnsureOffscreenChatMessage = { type: "ensure-offscreen-chat" };
 export type EnsureOffscreenChatResponse = {
   ok: boolean;
@@ -660,6 +689,9 @@ export type BackgroundMessage =
   | RequestProviderOriginsMessage
   | CheckProviderOriginMessage
   | RevokeProviderOriginMessage
+  | CheckOptionalPermissionMessage
+  | RequestOptionalPermissionMessage
+  | DownloadNoteArtifactMessage
   | EnsureOffscreenChatMessage
   | PlayerAiQuickActionMessage
   | FetchJsonMessage
@@ -941,6 +973,24 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     RevokeProviderOriginResponse
   >({
     reply: "async"
+  }),
+  "check-optional-permission": registerBackgroundMessage<
+    CheckOptionalPermissionMessage,
+    CheckOptionalPermissionResponse
+  >({
+    reply: "async"
+  }),
+  "request-optional-permission": registerBackgroundMessage<
+    RequestOptionalPermissionMessage,
+    RequestOptionalPermissionResponse
+  >({
+    reply: "branch"
+  }),
+  "download-note-artifact": registerBackgroundMessage<
+    DownloadNoteArtifactMessage,
+    DownloadNoteArtifactResponse
+  >({
+    reply: "branch"
   }),
   "ensure-offscreen-chat": registerBackgroundMessage<
     EnsureOffscreenChatMessage,
