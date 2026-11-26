@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { createDetachedRealm } from "../helpers/detached-realm.js";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 
 let createChatSuggestionsSlot: typeof import("../../extension/reader/chat-suggestions-slot.js").createChatSuggestionsSlot;
@@ -184,5 +185,143 @@ describe("建议区提示词解析（自定义 / 预热缓存 / 固定兜底 / �
     state.clip.setSubtitleBody([{ from: 0, to: 5, content: "上个视频的第一句" }]);
     slot.refresh();
     expect(chipTexts()).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+});
+
+describe("分割视频笔记胶囊：点击生成、预设切换持久化与独立窗口兼容", () => {
+  it("首位渲染分割笔记胶囊而不污染 .chat-chip，点击主按钮触发 onPickVideoNote", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const onPick = vi.fn();
+    const onPickVideoNote = vi.fn();
+    const slot = createChatSuggestionsSlot({
+      messages: container,
+      id: SLOT_ID,
+      onPick,
+      onPickVideoNote
+    });
+
+    slot.reset();
+
+    const sugs = container.querySelector(".chat-hero-sugs")!;
+    const firstChild = sugs.firstElementChild as HTMLElement;
+    expect(firstChild.classList.contains("chat-note-split-pill")).toBe(true);
+    expect([...container.querySelectorAll(".chat-chip")].map((el) => el.textContent)).toEqual(["问题一", "问题二"]);
+
+    const mainBtn = firstChild.querySelector<HTMLButtonElement>(".chat-note-pill-main")!;
+    expect(mainBtn.textContent).toBe("生成视频笔记 · 通用结构化");
+
+    clickOnce(mainBtn);
+    expect(onPickVideoNote).toHaveBeenCalledTimes(1);
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("下拉切换预设立即更新文案与 state 并持久化 save-settings，支持外部点击与 Escape 关闭", async () => {
+    const sentMessages: unknown[] = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        sendMessage: vi.fn((msg: unknown, cb?: (res: unknown) => void) => {
+          sentMessages.push(msg);
+          cb?.({ ok: true });
+        })
+      }
+    });
+
+    const container = document.createElement("div");
+    const outside = document.createElement("button");
+    document.body.append(container, outside);
+    const onPresetChange = vi.fn();
+    const slot = createChatSuggestionsSlot({
+      messages: container,
+      id: SLOT_ID,
+      onPick: vi.fn(),
+      onPresetChange
+    });
+
+    slot.reset();
+
+    const toggle = container.querySelector<HTMLButtonElement>(".chat-note-pill-toggle")!;
+    const menu = container.querySelector<HTMLElement>(".chat-note-preset-menu")!;
+    const mainBtn = container.querySelector<HTMLButtonElement>(".chat-note-pill-main")!;
+    expect(menu.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    clickOnce(toggle);
+    expect(menu.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    const tutorialItem = menu.querySelector<HTMLButtonElement>("[data-note-preset='tutorial']")!;
+    clickOnce(tutorialItem);
+    expect(menu.hidden).toBe(true);
+    expect(mainBtn.textContent).toBe("生成视频笔记 · 教程实操");
+    expect(state.settings.notePromptPreset).toBe("tutorial");
+    expect(onPresetChange).toHaveBeenCalledWith("tutorial");
+    expect(sentMessages).toContainEqual({
+      type: "save-settings",
+      settings: { notePromptPreset: "tutorial" }
+    });
+
+    clickOnce(toggle);
+    expect(menu.hidden).toBe(false);
+    clickOnce(outside);
+    expect(menu.hidden).toBe(true);
+
+    clickOnce(toggle);
+    expect(menu.hidden).toBe(false);
+    slot.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(menu.hidden).toBe(true);
+
+    clickOnce(toggle);
+    const customItem = menu.querySelector<HTMLButtonElement>("[data-note-preset='custom']")!;
+    clickOnce(customItem);
+    expect(mainBtn.textContent).toBe("生成视频笔记 · 自定义");
+    expect(state.settings.notePromptPreset).toBe("custom");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("独立窗口跨文档 Realm 下可正常挂载、展开菜单、切换预设并响应外部点击关闭", () => {
+    const realm = createDetachedRealm();
+    try {
+      const container = realm.doc.createElement("div");
+      const outside = realm.doc.createElement("div");
+      realm.doc.body.append(container, outside);
+      const onPickVideoNote = vi.fn();
+      const slot = createChatSuggestionsSlot({
+        messages: container,
+        id: SLOT_ID,
+        onPick: vi.fn(),
+        onPickVideoNote
+      });
+
+      slot.reset();
+
+      const pill = container.querySelector<HTMLElement>(".chat-note-split-pill")!;
+      expect(pill.ownerDocument).toBe(realm.doc);
+      expect(pill instanceof window.HTMLElement).toBe(false);
+
+      const realmWin = realm.win as unknown as typeof window;
+      const toggle = pill.querySelector<HTMLButtonElement>(".chat-note-pill-toggle")!;
+      const menu = pill.querySelector<HTMLElement>(".chat-note-preset-menu")!;
+      toggle.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(menu.hidden).toBe(false);
+
+      outside.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(menu.hidden).toBe(true);
+
+      toggle.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
+      const courseItem = menu.querySelector<HTMLButtonElement>("[data-note-preset='course']")!;
+      courseItem.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(pill.querySelector(".chat-note-pill-main")?.textContent).toBe("生成视频笔记 · 课程学习");
+      expect(menu.hidden).toBe(true);
+
+      pill.querySelector<HTMLButtonElement>(".chat-note-pill-main")!.dispatchEvent(
+        new realmWin.MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      expect(onPickVideoNote).toHaveBeenCalledTimes(1);
+    } finally {
+      realm.close();
+    }
   });
 });

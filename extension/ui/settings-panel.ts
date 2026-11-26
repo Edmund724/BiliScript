@@ -64,6 +64,7 @@ import {
 } from "./settings/scalar-engine.js";
 import {
   createSetupFlows,
+  ensureDownloadsPermissionForNoteSettings,
   loadAiProviders,
   resumeAsrSubtitleFetchAfterSetup,
   type AiSetupSession,
@@ -202,7 +203,12 @@ function createScalarHooks(ctx: MountedSettingsHost): ScalarBindingRuntimeHooks 
         } catch {
         }
       }
-    }
+    },
+    onDownloadsPermissionNeeded: (elements) =>
+      ensureDownloadsPermissionForNoteSettings(
+        elements,
+        () => mounted === ctx && ctx.host.isConnected
+      )
   };
 }
 

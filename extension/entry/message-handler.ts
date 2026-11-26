@@ -66,7 +66,9 @@ function handleReaderShellEnter(
       await shell.enterReaderShell({
         readerUrl: String(message.readerUrl || ""),
         intent: message.type === "reader-restore" ? "restore" : chat ? "chat" : "open",
-        prompt: chat?.prompt
+        prompt: chat?.prompt,
+        chatMode: chat?.mode,
+        chatTurnKind: chat?.turnKind
       });
       sendResponse({ ok: true });
     } catch (error) {

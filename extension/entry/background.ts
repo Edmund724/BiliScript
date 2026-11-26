@@ -259,7 +259,10 @@ async function triggerReaderChatInTab(
   if (options.requireQuickActionEnabled && !settings.enablePlayerAiQuickAction) {
     throw new Error("AI 按钮未开启");
   }
-  const prompt = normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt || DEFAULT_PLAYER_AI_QUICK_PROMPT);
+  const chatPayload =
+    settings.playerAiActionMode === "note"
+      ? { mode: "note" as const, turnKind: "video-note" as const }
+      : { prompt: normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt || DEFAULT_PLAYER_AI_QUICK_PROMPT) };
   let url = options.readerUrl;
   if (url) {
     if (!isSupportedPage(url)) {
@@ -267,7 +270,7 @@ async function triggerReaderChatInTab(
     }
     url = buildReaderModeUrl(url);
   }
-  const triggered = await triggerReaderModeInTab(tabId, url, { prompt });
+  const triggered = await triggerReaderModeInTab(tabId, url, chatPayload);
   if (!triggered) {
     throw new Error(readerTriggerFailedText);
   }

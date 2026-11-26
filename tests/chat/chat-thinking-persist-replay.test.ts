@@ -243,9 +243,10 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       expect(bodyEl?.innerHTML).toBe(renderMarkdown("卢沟桥事变标志着全面抗战的爆发，时间是1937年7月7日。"));
 
       const actionBtns = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-      expect(actionBtns).toHaveLength(4);
+      expect(actionBtns).toHaveLength(5);
       expect([...actionBtns].map((b) => b.getAttribute("aria-label"))).toEqual([
         "复制回复",
+        "导出视频笔记（.md）",
         "朗读回答",
         "重新生成",
         "导出 Markdown"
@@ -334,7 +335,7 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止生成");
       const actionBtns = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
       expect([...actionBtns].map((button) => button.getAttribute("aria-label"))).toEqual([
-        "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+        "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
       ]);
     });
   });

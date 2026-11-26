@@ -1,4 +1,4 @@
-import type { Settings } from "../core/defaults.js";
+import type { PlayerAiActionMode, Settings } from "../core/defaults.js";
 import type {
   AiProviderPreset,
   AsrProviderPreset,
@@ -27,10 +27,16 @@ import type {
   AgentBridgeTabSnapshot
 } from "../agent-bridge/protocol.js";
 
+export type ReaderEnterChatPayload = {
+  prompt?: string;
+  mode?: PlayerAiActionMode;
+  turnKind?: "player-ai" | "video-note";
+};
+
 export type ReaderEnterMessage = {
   type: "reader-enter";
   readerUrl?: string;
-  chat?: { prompt?: string };
+  chat?: ReaderEnterChatPayload;
 };
 
 export type ReaderEnterResponse = { ok: boolean; error?: string };

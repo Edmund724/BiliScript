@@ -10,3 +10,5 @@ export const READING_RESET_ICON = renderUiIcon("reset");
 export const READING_SHARE_ICON = renderUiIcon("share");
 export const READING_CLOSE_ICON = renderUiIcon("close");
 export const READING_CHEVRON_DOWN_ICON = renderUiIcon("chevronDown");
+export const READING_NOTE_DOWNLOAD_ICON = renderUiIcon("fileDown");
+export const READING_NOTE_OBSIDIAN_ICON = renderUiIcon("bookMarked");

@@ -9,6 +9,8 @@ import {
   READING_CLOSE_ICON,
   READING_COPY_ICON,
   READING_DOWNLOAD_ICON,
+  READING_NOTE_DOWNLOAD_ICON,
+  READING_NOTE_OBSIDIAN_ICON,
   READING_PLAY_ICON,
   READING_RESET_ICON,
   READING_SHARE_ICON,
@@ -54,6 +56,8 @@ describe("UI 统一图标注册表 (icon-registry)", () => {
     expect(READING_SHARE_ICON).toBe(renderUiIcon("share"));
     expect(READING_CLOSE_ICON).toBe(renderUiIcon("close"));
     expect(READING_CHEVRON_DOWN_ICON).toBe(renderUiIcon("chevronDown"));
+    expect(READING_NOTE_DOWNLOAD_ICON).toBe(renderUiIcon("fileDown"));
+    expect(READING_NOTE_OBSIDIAN_ICON).toBe(renderUiIcon("bookMarked"));
 
     expect(READING_HEADER_ICONS.detach).toBe(renderUiIcon("externalLink"));
     expect(READING_HEADER_ICONS.redock).toBe(renderUiIcon("redock"));

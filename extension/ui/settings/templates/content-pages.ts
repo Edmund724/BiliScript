@@ -1,3 +1,4 @@
+import { NOTE_PROMPT_PRESET_OPTIONS } from "../../../notes/note-prompts.js";
 import { NOTE_TEMPLATE_VARIABLES_HELP } from "../../../notes/template-defaults.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../dom-ids.js";
 import { buildSettingsChatDisplayRowHtml } from "./shell-and-root.js";
@@ -36,11 +37,25 @@ export function buildContentPagesHtml(): string {
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.playerAiActionMode}">点击动作</label>
+            <select id="${ids.playerAiActionMode}" class="biliscript-set-select">
+              <option value="summary">当场总结</option>
+              <option value="note">生成视频笔记</option>
+            </select>
+          </div>
           <textarea
             id="${ids.playerAiQuickPrompt}"
             class="biliscript-set-textarea"
             placeholder="例如：整理这期视频的内容，输出结构化总结。"
           ></textarea>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">生成完成后自动导出笔记</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.playerAiAutoExportNote}" type="checkbox" class="biliscript-toggle-input" aria-label="生成完成后自动导出笔记" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
         </div>
       </section>
 
@@ -167,10 +182,56 @@ export function buildContentPagesHtml(): string {
 
       <section class="biliscript-set-group" data-settings-section="note-export">
         <div class="biliscript-set-header-row">
-          <div class="biliscript-set-h">笔记模板与 Obsidian</div>
+          <div class="biliscript-set-h">笔记模板与导出</div>
           <button id="${ids.noteExportResetTemplateBtn}" class="add-property-btn" type="button">恢复默认模板</button>
         </div>
         <div class="biliscript-set-card">
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.noteExportTarget}">笔记导出目标</label>
+            <select id="${ids.noteExportTarget}" class="biliscript-set-select">
+              <option value="download">下载本地 .md</option>
+              <option value="obsidian">写入 Obsidian</option>
+            </select>
+          </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.noteDownloadSubdir}">下载子目录</label>
+            <input
+              id="${ids.noteDownloadSubdir}"
+              class="biliscript-set-input biliscript-note-obsidian-input"
+              type="text"
+              spellcheck="false"
+              placeholder="例如：BiliScript-Notes"
+            />
+          </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.notePromptPreset}">视频笔记预设</label>
+            <select id="${ids.notePromptPreset}" class="biliscript-set-select">
+              ${NOTE_PROMPT_PRESET_OPTIONS.map(
+                (option) => `<option value="${option.value}">${option.label}</option>`
+              ).join("")}
+            </select>
+          </div>
+
+          <div class="biliscript-set-row biliscript-set-row-stack" hidden>
+            <label class="biliscript-set-label" for="${ids.noteCustomPrompt}">自定义笔记提示词</label>
+            <textarea
+              id="${ids.noteCustomPrompt}"
+              class="biliscript-set-textarea biliscript-note-custom-prompt-textarea"
+              rows="4"
+              placeholder="输入自定义视频笔记生成要求…"
+            ></textarea>
+          </div>
+
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">导出笔记内嵌关键画面截图</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.noteIncludeKeyframes}" type="checkbox" class="biliscript-toggle-input" aria-label="导出笔记内嵌关键画面截图" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+
           <div class="biliscript-set-row biliscript-set-row-stack">
             <label class="biliscript-set-label" for="${ids.noteExportTemplate}">Markdown 导出模板</label>
             <textarea

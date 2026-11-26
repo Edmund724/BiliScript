@@ -1,3 +1,4 @@
+import type { NoteExportTarget } from "../core/defaults.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active-host.js";
 import { isTagElement } from "../shared/cross-doc.js";
@@ -21,11 +22,15 @@ import type { GateOutcome } from "./send-gate.js";
 import type { ChatNoticeSlot } from "../reader/chat-notices.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
+import type { SaveNoteActionResult } from "./render/message-actions.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
+import { dispatchNoteExport } from "../notes/export-actions.js";
 import {
   bindCapturedFramesToMessage,
   capturedVideoFramesToCandidates,
+  getCapturedFramesForHistoryIndex,
+  getCapturedFramesForMessage,
   type NoteKeyframeCandidate
 } from "../notes/turn-frame-cache.js";
 
@@ -34,11 +39,15 @@ export const STREAM_SLOW_NOTICE_TAG = "stream-slow";
 
 export type SendVerdict = "accepted" | "blocked" | "ignored";
 
+export type ChatTurnKind = "user" | "player-ai" | "video-note";
+
 export const TURN_SETTLE_FALLBACK_MS = 4000;
 
 export interface SendTurnOptions {
   preserveInputDraft?: boolean;
   interactionAnchor?: InteractionAnchorHint;
+  turnKind?: ChatTurnKind;
+  expectedClipSignature?: string;
 }
 
 export interface ChatPort {
@@ -79,6 +88,8 @@ export interface CommittedChatTurnInfo {
   message: ChatSessionMessage;
   stopped: boolean;
   capturedFrames: NoteKeyframeCandidate[];
+  turnKind: ChatTurnKind;
+  expectedClipSignature: string;
 }
 
 export interface CreateChatRuntimeDeps {
@@ -103,6 +114,12 @@ export interface CreateChatRuntimeDeps {
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
+  onSaveNote?: (
+    historyIndex: number,
+    raw: string,
+    button: HTMLButtonElement
+  ) => Promise<SaveNoteActionResult | boolean | void> | SaveNoteActionResult | boolean | void;
+  getNoteExportTarget?: () => NoteExportTarget;
   onTurnCommitted?: (info: CommittedChatTurnInfo) => void;
 }
 
@@ -128,6 +145,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activeUserPrompt = "";
   let activeUserNode: HTMLDivElement | null = null;
   let activeTurnProviderId = "";
+  let activeTurnKind: ChatTurnKind = "user";
+  let activeExpectedClipSignature = "";
   let activeUserImages: ImagePart[] = [];
   let activeUserContextKey = "";
   let pendingToolMessages: ChatSessionMessage[] = [];
@@ -267,6 +286,39 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     getVolume: deps.getSpeechVolume,
     onError: (message) => deps.ui.messagesNotice.show(message, 4000)
   });
+  async function saveNoteAssistant(
+    historyIndex: number,
+    raw: string,
+    button: HTMLButtonElement
+  ): Promise<SaveNoteActionResult | boolean | void> {
+    if (deps.onSaveNote) {
+      return deps.onSaveNote(historyIndex, raw, button);
+    }
+    const indexedFrames = getCapturedFramesForHistoryIndex(historyIndex);
+    const message = chatSessionState.chatHistory[historyIndex];
+    const capturedFrames = indexedFrames.length ? indexedFrames : getCapturedFramesForMessage(message);
+    const result = await dispatchNoteExport({
+      aiNoteMarkdown: raw,
+      capturedFrames
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error || "导出笔记失败"
+      };
+    }
+    if (result.target === "obsidian") {
+      return {
+        ok: true,
+        label: result.usedClipboardFallback ? "已复制并唤起 Obsidian" : "已唤起 Obsidian"
+      };
+    }
+    return {
+      ok: true,
+      label: "已导出笔记"
+    };
+  }
+
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
     onRegenerate: (historyIndex, node) => startBranch("regenerate", historyIndex, node),
@@ -275,6 +327,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       startBranch("continue", historyIndex, node);
     },
     onExport: exportAssistant,
+    onSaveNote: saveNoteAssistant,
+    getNoteExportTarget: deps.getNoteExportTarget,
     onNotice: (message) => deps.ui.messagesNotice.show(message, 4000),
     onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
@@ -698,6 +752,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeUserImages = images;
       activePreserveInputDraft = preserveInputDraft;
       activeTurnProviderId = providerId;
+      activeTurnKind = branch ? "user" : (sendOptions?.turnKind ?? "user");
+      activeExpectedClipSignature = branch ? "" : String(sendOptions?.expectedClipSignature || "");
       pendingToolMessages = [];
       turnTruncatedNotice = "";
       if (!chatSessionState.currentConversationId) {
@@ -823,6 +879,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activePreserveInputDraft = false;
     activeUserContextKey = "";
     activeTurnProviderId = "";
+    activeTurnKind = "user";
+    activeExpectedClipSignature = "";
     activeToolCalls.clear();
     activeToolGeneration = 0;
     if (activePort) {
@@ -890,7 +948,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         historyIndex: committedIndex,
         message: assistantMsg,
         stopped: isStopped,
-        capturedFrames: boundFrames
+        capturedFrames: boundFrames,
+        turnKind: activeTurnKind,
+        expectedClipSignature: activeExpectedClipSignature
       });
       return true;
     }
@@ -920,7 +980,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         historyIndex: committedIndex,
         message: assistantMsg,
         stopped: isStopped,
-        capturedFrames: boundFrames
+        capturedFrames: boundFrames,
+        turnKind: activeTurnKind,
+        expectedClipSignature: activeExpectedClipSignature
       });
       return true;
     }
@@ -1108,6 +1170,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activePreserveInputDraft = false;
     activeUserContextKey = "";
     activeTurnProviderId = "";
+    activeTurnKind = "user";
+    activeExpectedClipSignature = "";
     activeToolCalls.clear();
     activeToolGeneration = 0;
     sendInFlight = false;

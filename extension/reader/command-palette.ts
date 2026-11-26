@@ -26,7 +26,7 @@ import { jumpReadingTarget } from "./sync.js";
 import { renderUiIcon } from "../ui/icon-registry.js";
 import { ensureReaderShell } from "./lazy-shell.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
-import { isReaderChatTabLoaded } from "./lazy-chat-tab.js";
+import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
 
 const THINKING_LEVEL_LOCAL_KEY = "biliscript_ai_thinking_level";
 const COMMAND_PALETTE_ID = "biliscript-command-palette";
@@ -195,6 +195,18 @@ function buildStaticCommands(): CommandPaletteItem[] {
         await activateScriptTab("overview", { consumeIntent: false });
         const reader = await ensureReaderDomain();
         void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
+      }
+    },
+    {
+      id: "note-generate",
+      group: "AI 与摘要",
+      title: "生成视频笔记",
+      subtitle: "切换至 AI 对话并按当前预设生成结构化视频笔记",
+      keywords: "video note markdown ai summary 生成 视频笔记 笔记 预设",
+      run: async () => {
+        await activateScriptTab("chat", { consumeIntent: false });
+        const chat = await ensureReaderChatTab();
+        await chat.runVideoNotePrompt();
       }
     },
     {

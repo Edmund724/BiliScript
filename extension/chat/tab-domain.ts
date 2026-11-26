@@ -3,7 +3,7 @@ import { findSubtitlePreviewAtTime, type TimestampNavDeps } from "../ui/timestam
 import { confirmDialog as defaultConfirmDialog, type ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
-import type { Settings } from "../core/defaults.js";
+import type { NoteExportTarget, Settings } from "../core/defaults.js";
 import {
   createInProcessContextFetch,
   createInProcessPinnedContextResolver,
@@ -18,9 +18,12 @@ import {
   createChatRuntime,
   type ChatPort,
   type ChatRuntimeUi,
+  type ChatTurnKind,
+  type CommittedChatTurnInfo,
   type SendTurnOptions,
   type SendVerdict
 } from "./chat-runtime.js";
+import type { SaveNoteActionResult } from "./render/message-actions.js";
 import {
   createConversationStore,
   type ConversationChange,
@@ -49,6 +52,8 @@ export {
   readConversationHistory
 } from "./conversation-storage.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
+
+export type { ChatTurnKind, CommittedChatTurnInfo };
 
 export const NON_VIDEO_CONTEXT_MESSAGE = "当前不是视频播放页，<br>无法获取视频信息，<br>仅支持常规对话。";
 
@@ -107,6 +112,13 @@ export interface CreateChatTabDomainDeps {
   getSpeechVolume?: () => number | undefined;
   isLiveActive?: () => boolean;
   syncDebounceMs?: number;
+  onSaveNote?: (
+    historyIndex: number,
+    raw: string,
+    button: HTMLButtonElement
+  ) => Promise<SaveNoteActionResult | boolean | void> | SaveNoteActionResult | boolean | void;
+  getNoteExportTarget?: () => NoteExportTarget;
+  onTurnCommitted?: (info: CommittedChatTurnInfo) => void;
 }
 
 export interface ChatTabDomain {
@@ -392,6 +404,9 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     connectPort: deps.connectPort,
     isCostGuardEnabled: () => deps.settings().enableCostGuard === true,
     getSpeechVolume: deps.getSpeechVolume,
+    onSaveNote: deps.onSaveNote,
+    getNoteExportTarget: deps.getNoteExportTarget,
+    onTurnCommitted: deps.onTurnCommitted,
     smoothStream: true
   });
   const replay = createConversationReplay({

@@ -1,10 +1,11 @@
+import type { NoteExportTarget } from "../core/defaults.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { ImagePart } from "../ai/types.js";
 import { createChatImageViewer } from "./chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import type { ChatSearchSource, HistorySearchTurn } from "./search-sources.js";
 import { createInPlaceTurnController } from "./render/in-place-turn.js";
-import { createMessageActionsController } from "./render/message-actions.js";
+import { createMessageActionsController, type SaveNoteActionResult } from "./render/message-actions.js";
 import { createSourcePreviewController } from "./render/source-preview.js";
 import { createThinkingBufferController } from "./render/thinking-buffer.js";
 import { createThoughtChainController } from "./render/thought-chain.js";
@@ -17,6 +18,12 @@ export interface ChatStreamRendererDeps {
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
+  onSaveNote?: (
+    historyIndex: number,
+    raw: string,
+    button: HTMLButtonElement
+  ) => Promise<SaveNoteActionResult | boolean | void> | SaveNoteActionResult | boolean | void;
+  getNoteExportTarget?: () => NoteExportTarget;
   onSpeak?: (messageId: string, button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
@@ -109,6 +116,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     onRegenerate: deps.onRegenerate,
     onContinue: deps.onContinue,
     onExport: deps.onExport,
+    onSaveNote: deps.onSaveNote,
+    getNoteExportTarget: deps.getNoteExportTarget,
     onSpeak: deps.onSpeak,
     isRegenerationDisabled: deps.isRegenerationDisabled,
     onNotice: deps.onNotice,

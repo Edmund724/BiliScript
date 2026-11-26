@@ -49,7 +49,7 @@ export interface ReaderChatComposer {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   setSubtitleWaitUi: (active: boolean) => void;
   sendViaInputBox: (text: string, options?: SendViaInputBoxOptions) => Promise<boolean>;
-  sendDetachedPrompt: (text: string) => Promise<boolean>;
+  sendDetachedPrompt: (text: string, options?: SendTurnOptions) => Promise<boolean>;
 }
 
 export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderChatComposer {
@@ -209,8 +209,8 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     return true;
   }
 
-  async function sendDetachedPrompt(text: string): Promise<boolean> {
-    const verdict = await chatRuntime.sendTurn(text, { preserveInputDraft: true });
+  async function sendDetachedPrompt(text: string, options?: SendTurnOptions): Promise<boolean> {
+    const verdict = await chatRuntime.sendTurn(text, { ...options, preserveInputDraft: true });
     return verdict === "accepted";
   }
 

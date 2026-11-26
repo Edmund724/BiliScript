@@ -1,4 +1,7 @@
 import type { ImagePart } from "../../ai/types.js";
+import type { NoteExportTarget } from "../../core/defaults.js";
+import { state } from "../../core/state.js";
+import { normalizeNoteExportTarget } from "../../core/validators.js";
 import { getActiveReaderDocument } from "../../shared/active-host.js";
 import {
   resolveNodeDocument,
@@ -7,11 +10,13 @@ import {
 } from "../../shared/cross-doc.js";
 import { getErrorMessage } from "../../shared/error-helpers.js";
 import { supportsTtsSpeech } from "../../shared/runtime-capabilities.js";
-import { flashCopySuccess } from "../../ui/copy-feedback.js";
+import { flashCopyFailure, flashCopySuccess } from "../../ui/copy-feedback.js";
 import { hydrateMarkdownContent, renderMarkdownStripped, stripThinkBlocks } from "../../ui/markdown.js";
 import {
   READING_COPY_ICON,
   READING_DOWNLOAD_ICON,
+  READING_NOTE_DOWNLOAD_ICON,
+  READING_NOTE_OBSIDIAN_ICON,
   READING_PLAY_ICON,
   READING_RESET_ICON,
   READING_SPEAKER_ICON
@@ -24,6 +29,55 @@ import type { ThoughtChainController } from "./thought-chain.js";
 import { CHAT_MARKDOWN_OPTIONS, type TokenStreamController } from "./token-stream.js";
 
 export type MessageSource = "live" | "replay";
+
+export interface SaveNoteActionResult {
+  ok: boolean;
+  error?: string;
+  label?: string;
+}
+
+export interface SaveNoteActionVisual {
+  target: NoteExportTarget;
+  icon: string;
+  label: string;
+  successLabel: string;
+  failedLabel: string;
+}
+
+export function getSaveNoteActionVisual(target?: unknown): SaveNoteActionVisual {
+  const normalized = normalizeNoteExportTarget(target);
+  if (normalized === "obsidian") {
+    return {
+      target: "obsidian",
+      icon: READING_NOTE_OBSIDIAN_ICON,
+      label: "存入 Obsidian",
+      successLabel: "已唤起 Obsidian",
+      failedLabel: "写入失败"
+    };
+  }
+  return {
+    target: "download",
+    icon: READING_NOTE_DOWNLOAD_ICON,
+    label: "导出视频笔记（.md）",
+    successLabel: "已导出笔记",
+    failedLabel: "导出失败"
+  };
+}
+
+export function syncSaveNoteButtons(container: ParentNode | null | undefined, target?: unknown): void {
+  if (!container) {
+    return;
+  }
+  const visual = getSaveNoteActionVisual(target ?? state.settings?.noteExportTarget);
+  container.querySelectorAll<HTMLButtonElement>(".chat-msg-save-note-btn").forEach((button) => {
+    button.dataset.noteTarget = visual.target;
+    if (!button.classList.contains("is-copied") && !button.classList.contains("is-copy-failed")) {
+      button.setAttribute("aria-label", visual.label);
+      button.setAttribute("title", visual.label);
+      button.innerHTML = visual.icon.trim();
+    }
+  });
+}
 
 export interface CreateActionBarOptions {
   stopped?: boolean;
@@ -48,6 +102,12 @@ export interface MessageActionsDeps {
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
+  onSaveNote?: (
+    historyIndex: number,
+    raw: string,
+    button: HTMLButtonElement
+  ) => Promise<SaveNoteActionResult | boolean | void> | SaveNoteActionResult | boolean | void;
+  getNoteExportTarget?: () => NoteExportTarget;
   onSpeak?: (messageId: string, button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   isRegenerationDisabled?: () => boolean;
   onNotice?: (message: string) => void;
@@ -123,6 +183,76 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
     return button;
   }
 
+  function resolveNoteExportTarget(): NoteExportTarget {
+    return normalizeNoteExportTarget(
+      deps.getNoteExportTarget ? deps.getNoteExportTarget() : state.settings?.noteExportTarget
+    );
+  }
+
+  function createSaveNoteButton(
+    historyIndex: number | undefined,
+    getRaw: () => string,
+    doc: Document
+  ): HTMLButtonElement {
+    const initialVisual = getSaveNoteActionVisual(resolveNoteExportTarget());
+    const button = createActionButton("chat-msg-save-note-btn", initialVisual.label, initialVisual.icon, doc);
+    button.dataset.noteTarget = initialVisual.target;
+    button.disabled = historyIndex === undefined || !getRaw().trim() || !deps.onSaveNote;
+    let saving = false;
+
+    button.addEventListener("click", async () => {
+      if (saving || historyIndex === undefined || !deps.onSaveNote) {
+        return;
+      }
+      const raw = getRaw();
+      if (!raw.trim()) {
+        return;
+      }
+      saving = true;
+      const visual = getSaveNoteActionVisual(resolveNoteExportTarget());
+      button.dataset.noteTarget = visual.target;
+      button.disabled = true;
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      try {
+        const result = await deps.onSaveNote(historyIndex, raw, button);
+        const ok = typeof result === "boolean" ? result : result ? result.ok : true;
+        const customLabel = typeof result === "object" && result?.label ? result.label : undefined;
+        const errorText = typeof result === "object" && result?.error ? result.error : "";
+        if (ok) {
+          flashCopySuccess(button, {
+            originalSvg: visual.icon,
+            originalLabel: visual.label,
+            copiedLabel: customLabel || visual.successLabel
+          });
+        } else {
+          button.innerHTML = visual.icon.trim();
+          flashCopyFailure(button, {
+            originalLabel: visual.label,
+            failedLabel: customLabel || visual.failedLabel
+          });
+          if (errorText) {
+            deps.onNotice?.(errorText);
+          }
+        }
+      } catch (error) {
+        button.innerHTML = visual.icon.trim();
+        flashCopyFailure(button, {
+          originalLabel: visual.label,
+          failedLabel: visual.failedLabel
+        });
+        deps.onNotice?.(`存为笔记失败：${getErrorMessage(error)}`);
+      } finally {
+        saving = false;
+        button.classList.remove("is-loading");
+        button.removeAttribute("aria-busy");
+        button.disabled = historyIndex === undefined || !getRaw().trim() || !deps.onSaveNote;
+      }
+    });
+
+    return button;
+  }
+
   function createContinueButton(node: HTMLDivElement, historyIndex?: number): HTMLButtonElement {
     const button = createActionButton(
       "chat-msg-continue-btn",
@@ -171,10 +301,11 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
       return actions;
     }
 
-    actions.appendChild(createCopyButton("复制回复", () => cleanedRaw));
+    actions.appendChild(createCopyButton("复制回复", () => cleanedRaw, doc));
+    actions.appendChild(createSaveNoteButton(historyIndex, () => cleanedRaw, doc));
 
     if (supportsTtsSpeech()) {
-      const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
+      const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON, doc);
       speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
       speakBtn.setAttribute("aria-pressed", "false");
       speakBtn.addEventListener("click", () => {
@@ -190,7 +321,7 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
       actions.appendChild(createContinueButton(node, historyIndex));
     }
 
-    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
+    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON, doc);
     exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
     exportBtn.addEventListener("click", () => {
       if (historyIndex === undefined) {

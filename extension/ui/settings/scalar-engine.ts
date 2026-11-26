@@ -220,7 +220,9 @@ function bindScalarFieldEvents(
         }
         syncScalarSideEffects(binding.key, elements);
         deps.syncSummaries();
-        void saveSettingField(elements, patch);
+        void saveSettingField(elements, patch).then((ok) => {
+          if (ok) binding.onSaved?.(val as never, deps.hooks ?? {}, elements);
+        });
       });
       break;
     }
@@ -284,13 +286,19 @@ function bindScalarFieldEvents(
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
-        void saveSettingField(elements, { [binding.key]: val });
+        void saveSettingField(elements, { [binding.key]: val }).then((ok) => {
+          if (ok) binding.onSaved?.(val, deps.hooks ?? {}, elements);
+        });
       };
       const debouncedSave = debounce(save, 400);
       pendingDebounceCancels.add(debouncedSave.cancel);
       el.addEventListener("input", () => {
         debouncedSave();
         deps.syncSummaries();
+      });
+      el.addEventListener("change", () => {
+        debouncedSave.cancel();
+        save();
       });
       el.addEventListener("blur", () => debouncedSave.flush());
       break;

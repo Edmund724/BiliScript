@@ -117,6 +117,13 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
 export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.freeze([
   "enablePlayerAiQuickAction",
   "playerAiQuickPrompt",
+  "playerAiActionMode",
+  "playerAiAutoExportNote",
+  "notePromptPreset",
+  "noteCustomPrompt",
+  "noteExportTarget",
+  "noteDownloadSubdir",
+  "noteIncludeKeyframes",
   "bilingualSubtitles",
   "secondarySubtitleLang",
   "bilingualDisplayOrder",

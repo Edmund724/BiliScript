@@ -33,6 +33,7 @@ export interface ScalarBindingRuntimeHooks {
   onAgentBridgeSaved?: (val: boolean, elements: SettingsElements) => void;
   onAsrAutoFallbackSaved?: (val: boolean, elements: SettingsElements) => void;
   onDetachedWindowModeChanged?: (val: DetachedWindowMode, elements: SettingsElements) => void;
+  onDownloadsPermissionNeeded?: (elements: SettingsElements) => Promise<void> | void;
 }
 
 export type ScalarFieldPersist = (patch: Record<string, unknown>) => Promise<SaveSettingsResponse>;
@@ -54,6 +55,7 @@ export interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly watchSync?: boolean;
   readonly onApply?: (val: Settings[K] & string) => void;
   readonly onChange?: (val: Settings[K] & string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
+  readonly onSaved?: (val: Settings[K] & string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
 export interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -92,6 +94,7 @@ export interface DebouncedTextFieldBinding<K extends KnownSettingKey = KnownSett
   readonly normalize?: (value: unknown) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
+  readonly onSaved?: (val: string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
 export type ScalarFieldBinding =
@@ -113,6 +116,49 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "select",
     key: "downloadFormat",
     getElement: (el) => el.downloadFormat
+  },
+  {
+    kind: "select",
+    key: "noteExportTarget",
+    getElement: (el) => el.noteExportTarget,
+    watchSync: true,
+    onSaved: (val, hooks, elements) => {
+      if (
+        val === "download"
+        && (Boolean(elements.noteDownloadSubdir.value.trim()) || elements.playerAiAutoExportNote.checked)
+      ) {
+        void hooks.onDownloadsPermissionNeeded?.(elements);
+      }
+    }
+  },
+  {
+    kind: "debounced-text",
+    key: "noteDownloadSubdir",
+    getElement: (el) => el.noteDownloadSubdir,
+    watchSync: true,
+    onSaved: (val, hooks, elements) => {
+      if (val.trim() && normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download") {
+        void hooks.onDownloadsPermissionNeeded?.(elements);
+      }
+    }
+  },
+  {
+    kind: "select",
+    key: "notePromptPreset",
+    getElement: (el) => el.notePromptPreset,
+    watchSync: true
+  },
+  {
+    kind: "debounced-text",
+    key: "noteCustomPrompt",
+    getElement: (el) => el.noteCustomPrompt,
+    watchSync: true
+  },
+  {
+    kind: "toggle",
+    key: "noteIncludeKeyframes",
+    getElement: (el) => el.noteIncludeKeyframes,
+    watchSync: true
   },
   {
     kind: "debounced-text",
@@ -251,9 +297,26 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getElement: (el) => el.enablePlayerAiQuickAction
   },
   {
+    kind: "select",
+    key: "playerAiActionMode",
+    getElement: (el) => el.playerAiActionMode,
+    watchSync: true
+  },
+  {
     kind: "debounced-text",
     key: "playerAiQuickPrompt",
     getElement: (el) => el.playerAiQuickPrompt
+  },
+  {
+    kind: "toggle",
+    key: "playerAiAutoExportNote",
+    getElement: (el) => el.playerAiAutoExportNote,
+    watchSync: true,
+    onSaved: (val, hooks, elements) => {
+      if (val && normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download") {
+        void hooks.onDownloadsPermissionNeeded?.(elements);
+      }
+    }
   },
   {
     kind: "toggle",
@@ -402,7 +465,28 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
 ];
 
 export function syncPlayerQuickPromptVisibility(elements: SettingsElements): void {
-  elements.playerAiQuickPrompt.hidden = !elements.enablePlayerAiQuickAction.checked;
+  const enabled = elements.enablePlayerAiQuickAction.checked;
+  const mode = normalizeSettingField("playerAiActionMode", elements.playerAiActionMode.value);
+  elements.playerAiQuickPrompt.hidden = !enabled || mode === "note";
+}
+
+export function syncNoteCustomPromptVisibility(elements: SettingsElements): void {
+  const isCustom = normalizeSettingField("notePromptPreset", elements.notePromptPreset.value) === "custom";
+  const row = elements.noteCustomPrompt.closest<HTMLElement>(".biliscript-set-row");
+  if (row) {
+    row.hidden = !isCustom;
+  }
+  elements.noteCustomPrompt.hidden = !isCustom;
+}
+
+export function syncNoteExportTargetAvailability(elements: SettingsElements): void {
+  const isDownload = normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download";
+  elements.noteDownloadSubdir.disabled = !isDownload;
+  const row = elements.noteDownloadSubdir.closest<HTMLElement>(".biliscript-set-row");
+  row?.classList.toggle("is-disabled", !isDownload);
+  if (row) {
+    row.title = isDownload ? "" : "仅在导出目标为「下载本地 .md」时生效";
+  }
 }
 
 export function syncChatInputGlowAvailability(elements: SettingsElements): void {
@@ -417,8 +501,12 @@ export function syncChatInputGlowAvailability(elements: SettingsElements): void 
 }
 
 export function syncScalarSideEffects(key: KnownSettingKey, elements: SettingsElements): void {
-  if (key === "enablePlayerAiQuickAction") {
+  if (key === "enablePlayerAiQuickAction" || key === "playerAiActionMode") {
     syncPlayerQuickPromptVisibility(elements);
+  } else if (key === "notePromptPreset") {
+    syncNoteCustomPromptVisibility(elements);
+  } else if (key === "noteExportTarget") {
+    syncNoteExportTargetAvailability(elements);
   } else if (key === "readerPalette") {
     syncChatInputGlowAvailability(elements);
   }

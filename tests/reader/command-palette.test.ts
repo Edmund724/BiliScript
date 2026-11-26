@@ -15,6 +15,14 @@ const mockJump = vi.fn((..._args: unknown[]) => {});
 const mockActivateTab = vi.fn(async (..._args: unknown[]) => {});
 const mockUiCommand = vi.fn((..._args: unknown[]) => {});
 const mockSendRuntime = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+const mockRunVideoNotePrompt = vi.fn(async () => true);
+
+vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
+  isReaderChatTabLoaded: () => false,
+  ensureReaderChatTab: vi.fn(async () => ({
+    runVideoNotePrompt: mockRunVideoNotePrompt
+  }))
+}));
 
 vi.mock("../../extension/reader/sync.js", () => ({
   jumpReadingTarget: (...args: unknown[]) => mockJump(...args)
@@ -67,6 +75,7 @@ describe("command-palette 交互与高频动作", () => {
     mockActivateTab.mockClear();
     mockUiCommand.mockClear();
     mockSendRuntime.mockClear();
+    mockRunVideoNotePrompt.mockClear();
     document.body.innerHTML = `<section id="${ids.readingView}"></section>`;
     transitionReaderShell("open");
     clipState.setSubtitleBody([
@@ -133,5 +142,20 @@ describe("command-palette 交互与高频动作", () => {
     await vi.waitFor(() => {
       expect(mockUiCommand).toHaveBeenCalledWith("open-settings");
     });
+  });
+
+  it("命令面板包含「生成视频笔记」命令，执行后切至 AI 对话并按当前预设生成笔记", async () => {
+    const matched = resolveCommandPaletteItems("生成视频笔记");
+    expect(matched.some((item) => item.id === "note-generate")).toBe(true);
+
+    openCommandPalette();
+    const dialog = document.getElementById("biliscript-command-palette") as HTMLDialogElement;
+    const input = dialog.querySelector<HTMLInputElement>(".biliscript-cmd-input")!;
+    input.value = "生成视频笔记";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    await vi.waitFor(() => expect(mockRunVideoNotePrompt).toHaveBeenCalledTimes(1));
+    expect(mockActivateTab).toHaveBeenCalledWith("chat", { consumeIntent: false });
   });
 });

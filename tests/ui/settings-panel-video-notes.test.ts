@@ -1,0 +1,186 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
+import {
+  flushMicrotasks,
+  resetSettingsPanelState
+} from "../helpers/reset-settings-panel-state.js";
+import { createDetachedRealm } from "../helpers/detached-realm.js";
+import { resetActiveReaderHost, setActiveReaderHost } from "../../extension/shared/active-host.js";
+import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
+import { DOWNLOADS_PERMISSION_DENIED_STATUS } from "../../extension/ui/settings/setup-flows.js";
+import { state } from "../../extension/core/state.js";
+
+async function mountPanel(
+  overrides: Record<string, (message: Record<string, unknown>) => unknown> = {},
+  targetDoc: Document = document
+) {
+  targetDoc.body.innerHTML = '<div id="biliscript-reading-settings-host"></div>';
+  const host = targetDoc.getElementById("biliscript-reading-settings-host")!;
+  const bus = installSettingsPanelBus({
+    "ai-providers-list": () => ({ ok: true, providers: [] }),
+    "live-providers-list": () => ({ ok: true, providers: [] }),
+    "asr-providers-list": () => ({ ok: true, providers: [] }),
+    "search-providers-list": () => ({ ok: true, providers: [] }),
+    ...overrides
+  });
+  await renderReaderSettingsPanel();
+  return { host, bus };
+}
+
+beforeEach(() => {
+  resetSettingsPanelState();
+});
+
+afterEach(() => {
+  resetActiveReaderHost();
+  vi.restoreAllMocks();
+});
+
+describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () => {
+  it("回显与保存全部 7 项视频笔记设置，并联动隐藏/禁用依赖项与摘要", async () => {
+    const savedPatches: Record<string, unknown>[] = [];
+    const { host } = await mountPanel({
+      "get-settings": () => ({
+        ok: true,
+        settings: {
+          enablePlayerAiQuickAction: true,
+          playerAiActionMode: "summary",
+          playerAiAutoExportNote: false,
+          noteExportTarget: "download",
+          noteDownloadSubdir: "",
+          notePromptPreset: "general",
+          noteCustomPrompt: "",
+          noteIncludeKeyframes: false
+        }
+      }),
+      "save-settings": (msg) => {
+        savedPatches.push(msg.settings as Record<string, unknown>);
+        return { ok: true };
+      },
+      "check-optional-permission": () => ({ ok: true, granted: true })
+    });
+
+    const actionMode = host.querySelector<HTMLSelectElement>("#playerAiActionMode")!;
+    const quickPrompt = host.querySelector<HTMLTextAreaElement>("#playerAiQuickPrompt")!;
+    const autoExport = host.querySelector<HTMLInputElement>("#playerAiAutoExportNote")!;
+    const exportTarget = host.querySelector<HTMLSelectElement>("#noteExportTarget")!;
+    const subdir = host.querySelector<HTMLInputElement>("#noteDownloadSubdir")!;
+    const preset = host.querySelector<HTMLSelectElement>("#notePromptPreset")!;
+    const customPrompt = host.querySelector<HTMLTextAreaElement>("#noteCustomPrompt")!;
+    const customPromptRow = customPrompt.closest<HTMLElement>(".biliscript-set-row")!;
+    const keyframes = host.querySelector<HTMLInputElement>("#noteIncludeKeyframes")!;
+
+    expect(quickPrompt.hidden).toBe(false);
+    expect(customPromptRow.hidden).toBe(true);
+    expect(subdir.disabled).toBe(false);
+
+    actionMode.value = "note";
+    actionMode.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(quickPrompt.hidden).toBe(true);
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("播放器快捷·笔记");
+
+    autoExport.click();
+    await flushMicrotasks();
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("自动导出");
+
+    preset.value = "custom";
+    preset.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(customPromptRow.hidden).toBe(false);
+
+    customPrompt.value = "按大纲与例子整理";
+    customPrompt.dispatchEvent(new Event("change", { bubbles: true }));
+
+    keyframes.click();
+
+    exportTarget.value = "obsidian";
+    exportTarget.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(subdir.disabled).toBe(true);
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("笔记 Obsidian");
+
+    await flushMicrotasks();
+
+    expect(savedPatches).toContainEqual({ playerAiActionMode: "note" });
+    expect(savedPatches).toContainEqual({ playerAiAutoExportNote: true });
+    expect(savedPatches).toContainEqual({ notePromptPreset: "custom" });
+    expect(savedPatches).toContainEqual({ noteCustomPrompt: "按大纲与例子整理" });
+    expect(savedPatches).toContainEqual({ noteIncludeKeyframes: true });
+    expect(savedPatches).toContainEqual({ noteExportTarget: "obsidian" });
+    expect(state.settings.noteIncludeKeyframes).toBe(true);
+  });
+
+  it("填写非空下载子目录或开启自动导出且拒绝 downloads 权限时展示回退提示且不被已保存覆盖", async () => {
+    const requestedPermissions: string[] = [];
+    const { host } = await mountPanel({
+      "get-settings": () => ({
+        ok: true,
+        settings: {
+          noteExportTarget: "download",
+          noteDownloadSubdir: "",
+          playerAiAutoExportNote: false
+        }
+      }),
+      "save-settings": () => ({ ok: true }),
+      "check-optional-permission": () => ({ ok: true, granted: false }),
+      "request-optional-permission": (msg) => {
+        requestedPermissions.push(String(msg.permission || ""));
+        return { ok: false, error: "用户拒绝授权" };
+      }
+    });
+
+    const subdir = host.querySelector<HTMLInputElement>("#noteDownloadSubdir")!;
+    const status = host.querySelector<HTMLElement>("#biliscriptSettingsStatus")!;
+
+    subdir.value = "BiliScript-Notes";
+    subdir.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(requestedPermissions).toEqual(["downloads"]));
+    await vi.waitFor(() => expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS));
+    expect(status.dataset.error).toBe("true");
+
+    const autoExport = host.querySelector<HTMLInputElement>("#playerAiAutoExportNote")!;
+    autoExport.click();
+    await vi.waitFor(() => expect(requestedPermissions).toEqual(["downloads", "downloads"]));
+    await vi.waitFor(() => expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS));
+  });
+
+  it("独立窗口跨文档 Realm 下可渲染全部新控件并完成预设切换与持久化", async () => {
+    const realm = createDetachedRealm();
+    try {
+      setActiveReaderHost(realm.doc, realm.win);
+      const savedPatches: Record<string, unknown>[] = [];
+      const { host } = await mountPanel(
+        {
+          "get-settings": () => ({
+            ok: true,
+            settings: {
+              notePromptPreset: "general",
+              noteExportTarget: "download"
+            }
+          }),
+          "save-settings": (msg) => {
+            savedPatches.push(msg.settings as Record<string, unknown>);
+            return { ok: true };
+          }
+        },
+        realm.doc
+      );
+
+      const preset = host.querySelector<HTMLSelectElement>("#notePromptPreset")!;
+      const customPromptRow = host
+        .querySelector<HTMLTextAreaElement>("#noteCustomPrompt")!
+        .closest<HTMLElement>(".biliscript-set-row")!;
+      expect(preset.ownerDocument).toBe(realm.doc);
+      expect(customPromptRow.hidden).toBe(true);
+
+      const realmWin = realm.win as unknown as typeof window;
+      preset.value = "custom";
+      preset.dispatchEvent(new realmWin.Event("change", { bubbles: true }));
+      await flushMicrotasks();
+
+      expect(customPromptRow.hidden).toBe(false);
+      expect(savedPatches).toContainEqual({ notePromptPreset: "custom" });
+    } finally {
+      resetActiveReaderHost();
+      realm.close();
+    }
+  });
+});

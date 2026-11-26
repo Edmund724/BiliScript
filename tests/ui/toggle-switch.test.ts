@@ -10,6 +10,8 @@ const TOGGLE_IDS = [
   "enableCostGuard",
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
+  "playerAiAutoExportNote",
+  "noteIncludeKeyframes",
   "autoOpenReader",
   "enableExtraPlaybackRates",
   "includeDateInFilename",

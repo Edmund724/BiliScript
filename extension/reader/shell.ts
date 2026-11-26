@@ -57,6 +57,7 @@ import {
   type DetachedWindowMode
 } from "./detached-window.js";
 import { closeScriptHost, openScriptHost } from "./script-host.js";
+import type { PlayerAiActionMode } from "../core/defaults.js";
 import { cleanYoutubeWatchUrl, detectActiveSite } from "../shared/site.js";
 
 export { isReaderShellIntact };
@@ -67,6 +68,8 @@ export interface EnterReaderShellOptions {
   readerUrl: string;
   intent: ReaderShellIntent;
   prompt?: string;
+  chatMode?: PlayerAiActionMode;
+  chatTurnKind?: "player-ai" | "video-note";
   settingsTarget?: LiveSettingsTarget;
 }
 
@@ -458,7 +461,7 @@ async function removePlayerAiQuickButtonQuietly(): Promise<void> {
 }
 
 export function enterReaderShell(options: EnterReaderShellOptions): Promise<void> {
-  const { intent } = options;
+  const { intent, chatMode, chatTurnKind } = options;
   const readerUrl = String(options.readerUrl || "").trim();
   const prompt = String(options.prompt || "").trim();
   const onFailed = (error: unknown): void => {
@@ -506,9 +509,16 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
           const reader = await ensureReaderDomain();
           reader.focusReadingView();
         } else if (intent === "chat") {
-          if (prompt) {
+          if (chatMode === "note") {
             const chat = await ensureReaderChatTab();
-            await chat.runQuickActionPrompt(prompt);
+            await chat.runVideoNotePrompt();
+          } else if (prompt) {
+            const chat = await ensureReaderChatTab();
+            if (chatTurnKind) {
+              await chat.runQuickActionPrompt(prompt, { turnKind: chatTurnKind });
+            } else {
+              await chat.runQuickActionPrompt(prompt);
+            }
           } else {
             await activateScriptTab("chat", { consumeIntent: false });
           }
@@ -526,9 +536,16 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       triggerRect: launchTriggerRect
     });
     if (intent === "chat") {
-      if (prompt) {
+      if (chatMode === "note") {
         const chat = await ensureReaderChatTab();
-        await chat.runQuickActionPrompt(prompt);
+        await chat.runVideoNotePrompt();
+      } else if (prompt) {
+        const chat = await ensureReaderChatTab();
+        if (chatTurnKind) {
+          await chat.runQuickActionPrompt(prompt, { turnKind: chatTurnKind });
+        } else {
+          await chat.runQuickActionPrompt(prompt);
+        }
       } else {
         await activateScriptTab("chat", { consumeIntent: false });
       }

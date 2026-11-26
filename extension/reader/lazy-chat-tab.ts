@@ -1,4 +1,5 @@
 import { createLazyLoader } from "../shared/lazy-import.js";
+import type { ChatTurnKind } from "../chat/chat-runtime.js";
 import type { LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 
@@ -7,7 +8,8 @@ export interface ReaderChatTabDomain {
   stopChatSpeech(): void;
   deactivateChatTabOverlays(): void;
   closeChatSession(): void;
-  runQuickActionPrompt(prompt: string): Promise<boolean>;
+  runQuickActionPrompt(prompt: string, opts?: { turnKind?: ChatTurnKind }): Promise<boolean>;
+  runVideoNotePrompt(): Promise<boolean>;
   stopLiveCompanion(): void;
   startLiveCompanion(): Promise<boolean>;
   getLiveController(): LiveChatController | null;

@@ -34,8 +34,11 @@ vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
 describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-enter", () => {
   let onMessageListener: (message: unknown, sender: MessageSender, sendResponse: SendResponse) => boolean | void;
 
+  let syncData: Record<string, unknown> = {};
+
   beforeAll(async () => {
     setupEnvironment();
+    syncData = {};
     vi.stubGlobal("chrome", {
       ...globalThis.chrome,
       runtime: {
@@ -51,7 +54,13 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
       storage: {
         ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
-        sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
+        sync: {
+          get: vi.fn(async () => ({ ...syncData })),
+          set: vi.fn(async (patch: Record<string, unknown>) => {
+            Object.assign(syncData, patch);
+          }),
+          remove: vi.fn(async () => {})
+        },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
       }
     });
@@ -105,6 +114,34 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("playerAiActionMode=note：派发 { mode: note, turnKind: video-note } 而不写死 prompt", async () => {
+    const saveResponse = vi.fn();
+    onMessageListener(
+      { type: "save-settings", settings: { playerAiActionMode: "note" } },
+      { tab: { id: 7 } },
+      saveResponse
+    );
+    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
+
+    const sendResponse = vi.fn();
+    onMessageListener({ type: "player-ai-quick-action", tabId: 7 }, { tab: { id: 7 } }, sendResponse);
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    expect(sendMessageToTab).toHaveBeenCalledWith(7, {
+      type: "reader-enter",
+      readerUrl: "",
+      chat: { mode: "note", turnKind: "video-note" }
+    });
+
+    const resetResponse = vi.fn();
+    onMessageListener(
+      { type: "save-settings", settings: { playerAiActionMode: "summary" } },
+      { tab: { id: 7 } },
+      resetResponse
+    );
+    await vi.waitFor(() => expect(resetResponse).toHaveBeenCalledWith({ ok: true }));
   });
 });
 
@@ -183,6 +220,10 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
         runQuickActionPrompt: vi.fn(async (prompt: string) => {
           await m.activateScriptTab("chat", { consumeIntent: false });
           return Boolean(prompt);
+        }),
+        runVideoNotePrompt: vi.fn(async () => {
+          await m.activateScriptTab("chat", { consumeIntent: false });
+          return true;
         }),
         closeChatSession: vi.fn()
       };
@@ -269,5 +310,35 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     expectTabActive(m.ids, "Overview", true);
     expectTabActive(m.ids, "Subtitle", false);
     expect(m.isReadingSubtitleBodyVisible()).toBe(false);
+  });
+
+  it("chat.mode=note：无需预填 prompt，进入阅读器后直接调用 runVideoNotePrompt 并停在对话 tab", async () => {
+    const runVideoNotePrompt = vi.fn(async () => {
+      await m.activateScriptTab("chat", { consumeIntent: false });
+      return true;
+    });
+    (m.ensureReaderChatTab as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ensureChatTabActivated: vi.fn(async () => {}),
+      runQuickActionPrompt: vi.fn(async () => true),
+      runVideoNotePrompt,
+      closeChatSession: vi.fn()
+    });
+    (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ensureReaderOverviewTab: vi.fn(),
+      enterReaderMode: async () => {
+        m.transitionReaderShell("open");
+        await m.activateScriptTab("overview", { persist: false });
+      }
+    });
+
+    const sendResponse = vi.fn();
+    m.dispatch(
+      { type: "reader-enter", readerUrl: "", chat: { mode: "note", turnKind: "video-note" } },
+      sendResponse
+    );
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    expect(runVideoNotePrompt).toHaveBeenCalledTimes(1);
+    expectTabActive(m.ids, "Chat", true);
   });
 });

@@ -1,4 +1,8 @@
 import { resolveAsrSetupState } from "../../asr/asr-setup.js";
+import {
+  checkOptionalPermissionViaBackground,
+  requestOptionalPermissionViaBackground
+} from "../../core/host-permissions.js";
 import type { OverviewSetupErrorClass } from "../../core/overview-setup-error.js";
 import { getSettings } from "../../core/runtime.js";
 import { requestSubtitleRefresh } from "../../reader/reader-bus.js";
@@ -304,6 +308,36 @@ async function openReaderAsrSetup(deps: SetupFlowDeps): Promise<void> {
     setupContextBanner: banner,
     ...(isMissingKey ? { initialFocusField: "apiKey" as const } : {})
   });
+}
+
+export const DOWNLOADS_PERMISSION_DENIED_STATUS =
+  "未授予「下载管理」权限，导出时将回退至浏览器默认下载目录";
+
+let downloadsPermissionRequestInFlight: Promise<void> | null = null;
+
+export async function ensureDownloadsPermissionForNoteSettings(
+  elements: SettingsElements,
+  isStillMounted: () => boolean = () => true
+): Promise<void> {
+  if (downloadsPermissionRequestInFlight) {
+    return downloadsPermissionRequestInFlight;
+  }
+  const run = (async () => {
+    const granted = await checkOptionalPermissionViaBackground("downloads");
+    if (granted) {
+      return;
+    }
+    const result = await requestOptionalPermissionViaBackground("downloads");
+    if (!result.ok && isStillMounted()) {
+      setStatus(elements, DOWNLOADS_PERMISSION_DENIED_STATUS, true);
+    }
+  })().finally(() => {
+    if (downloadsPermissionRequestInFlight === run) {
+      downloadsPermissionRequestInFlight = null;
+    }
+  });
+  downloadsPermissionRequestInFlight = run;
+  return run;
 }
 
 export function createSetupFlows(deps: SetupFlowDeps) {

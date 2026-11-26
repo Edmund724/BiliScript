@@ -38,7 +38,9 @@ const ICON_SOURCE_MAP = {
   expand: "maximize-2",
   lock: "lock",
   bridge: "arrow-left-right",
-  sparkle: "sparkle"
+  sparkle: "sparkle",
+  fileDown: "file-down",
+  bookMarked: "book-marked"
 };
 
 function extractInnerSvg(filePath) {

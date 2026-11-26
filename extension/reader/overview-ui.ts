@@ -1,6 +1,9 @@
+import { buildContextKey } from "../ai/conversation.js";
+import { chatSessionState } from "../chat/chat-state.js";
 import { state } from "../core/state.js";
 import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
 import {
+  isElementNode,
   requireActiveById,
   resolveNodeWindow,
   writeActiveClipboardText,
@@ -10,7 +13,12 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
+import { captureLiveClipSignature } from "../notes/auto-export-controller.js";
+import { dispatchNoteExport } from "../notes/export-actions.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
+import { findLatestSessionNoteForClip } from "../notes/session-note-state.js";
+import { getCapturedFramesForMessage, type NoteKeyframeCandidate } from "../notes/turn-frame-cache.js";
+import { stripThinkBlocks } from "../ui/markdown.js";
 import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
@@ -107,6 +115,23 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
   syncReadingOverviewActiveChapter();
 }
 
+function buildOverviewReadyStrip(hotNotice: string): string {
+  const actionsHtml =
+    `<span class="biliscript-reading-ov-strip-actions">` +
+    `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="refresh">刷新</button>` +
+    `<button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="export-note">导出笔记</button>` +
+    `</span>`;
+  if (hotNotice) {
+    return (
+      `<div class="biliscript-reading-ov-strip">` +
+      `<span class="biliscript-reading-ov-strip-text">${escapeHtml(hotNotice)}</span>` +
+      actionsHtml +
+      `</div>`
+    );
+  }
+  return `<div class="biliscript-reading-ov-strip is-actions-only">${actionsHtml}</div>`;
+}
+
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
   const hotNotice = String(state.clip.hotCommentsNotice || "").trim();
   const hotNoticeStrip = hotNotice
@@ -124,7 +149,7 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
     case "cancelled":
       return buildCancelledStrip();
     case "ready":
-      return hotNoticeStrip + buildResultSectionsHtml(snapshot);
+      return buildOverviewReadyStrip(hotNotice) + buildResultSectionsHtml(snapshot);
     case "idle":
     default:
       return `
@@ -217,7 +242,10 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
   return `
     <div class="biliscript-reading-ov-strip is-partial" role="status" aria-live="polite">
       <span class="biliscript-reading-ov-strip-text">${messages.join(" ")}</span>
-      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
+      <span class="biliscript-reading-ov-strip-actions">
+        <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
+        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="export-note">导出笔记</button>
+      </span>
     </div>
   `;
 }
@@ -347,11 +375,16 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   const hadSelection = hadSelectionOnOverviewPointerDown;
   hadSelectionOnOverviewPointerDown = false;
   const currentActions = actions || registeredActions;
-  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-overview-action]");
+  const eventTarget = isElementNode(event.target) ? event.target : null;
+  const target = eventTarget?.closest<HTMLElement>("[data-overview-action]");
   if (target) {
     const action = target.dataset.overviewAction || "";
-    if (action === "retry-failed" || action === "retry") {
+    if (action === "retry-failed" || action === "retry" || action === "refresh") {
       currentActions?.retry();
+      return;
+    }
+    if (action === "export-note") {
+      void exportOverviewNote(target);
       return;
     }
     if (action === "cancel") {
@@ -411,6 +444,125 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     return;
   }
   jumpReadingTarget(seekTarget.dataset.seconds ?? 0);
+}
+
+const overviewExportFeedbackTimers = new WeakMap<HTMLElement, number>();
+
+function resolveCurrentOverviewContextKey(): string {
+  const clip = state.clip;
+  const bvid = String(clip.bvid || "").trim();
+  if (!bvid) {
+    return "";
+  }
+  return buildContextKey({
+    site: clip.site,
+    bvid,
+    cid: clip.cid,
+    aid: clip.aid,
+    url: location.href
+  });
+}
+
+function resolveActiveClipChatNote(): {
+  markdown: string;
+  capturedFrames: NoteKeyframeCandidate[];
+} | null {
+  const clipSignature = captureLiveClipSignature();
+  const contextKey = resolveCurrentOverviewContextKey();
+  const recorded = findLatestSessionNoteForClip({ clipSignature, contextKey });
+  if (recorded) {
+    return {
+      markdown: recorded.markdown,
+      capturedFrames: recorded.capturedFrames
+    };
+  }
+
+  const sessionKey = String(
+    chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
+  ).trim();
+  if (contextKey && sessionKey && sessionKey !== contextKey) {
+    return null;
+  }
+  const history = Array.isArray(chatSessionState.chatHistory) ? chatSessionState.chatHistory : [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const message = history[i];
+    if (!message || message.role !== "assistant" || message.stopped) {
+      continue;
+    }
+    const content = typeof message.content === "string" ? message.content : "";
+    if (!stripThinkBlocks(content).trim()) {
+      continue;
+    }
+    return {
+      markdown: content,
+      capturedFrames: getCapturedFramesForMessage(message)
+    };
+  }
+  return null;
+}
+
+function flashOverviewExportButton(
+  button: HTMLElement,
+  {
+    label,
+    ok,
+    originalLabel = "导出笔记",
+    durationMs = 2000
+  }: {
+    label: string;
+    ok: boolean;
+    originalLabel?: string;
+    durationMs?: number;
+  }
+): void {
+  const prevTimer = overviewExportFeedbackTimers.get(button);
+  if (prevTimer !== undefined) {
+    window.clearTimeout(prevTimer);
+  }
+  button.classList.remove("is-copied", "is-copy-failed");
+  button.classList.add(ok ? "is-copied" : "is-copy-failed");
+  button.textContent = label;
+  const timer = window.setTimeout(() => {
+    overviewExportFeedbackTimers.delete(button);
+    button.classList.remove("is-copied", "is-copy-failed");
+    button.textContent = originalLabel;
+  }, durationMs);
+  overviewExportFeedbackTimers.set(button, timer);
+}
+
+async function exportOverviewNote(button: HTMLElement): Promise<void> {
+  if (button.dataset.exporting === "1") {
+    return;
+  }
+  button.dataset.exporting = "1";
+  const btn = button as HTMLButtonElement;
+  btn.disabled = true;
+  button.classList.add("is-loading");
+  button.setAttribute("aria-busy", "true");
+  try {
+    const activeNote = resolveActiveClipChatNote();
+    const result = await dispatchNoteExport(
+      activeNote
+        ? {
+            aiNoteMarkdown: activeNote.markdown,
+            capturedFrames: activeNote.capturedFrames
+          }
+        : undefined
+    );
+    if (result.ok) {
+      const successLabel = result.target === "obsidian" ? "已唤起 Obsidian" : "已导出笔记";
+      flashOverviewExportButton(button, { label: successLabel, ok: true });
+    } else {
+      flashOverviewExportButton(button, { label: "导出失败", ok: false });
+    }
+  } catch {
+    flashOverviewExportButton(button, { label: "导出失败", ok: false });
+  } finally {
+    delete button.dataset.exporting;
+    btn.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+  }
 }
 
 async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {

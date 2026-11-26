@@ -262,7 +262,7 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
   async function triggerReaderModeInTab(
     tabId: number,
     readerUrl = "",
-    chat?: { prompt?: string },
+    chat?: Extract<ContentScriptMessage, { type: "reader-enter" }>["chat"],
     retries = triggerRetries,
     delayMs = triggerRetryDelayMs
   ): Promise<boolean> {

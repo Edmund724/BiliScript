@@ -2063,6 +2063,19 @@ dialog.biliscript-cmd-palette::backdrop {
   color: var(--biliscript-reader-danger);
 }
 
+.biliscript-reading-ov-strip.is-actions-only {
+  justify-content: flex-end;
+  padding: 6px 10px;
+}
+
+.biliscript-reading-ov-strip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .biliscript-reading-ov-strip-text {
   flex: 1 1 180px;
   min-width: 0;

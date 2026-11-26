@@ -170,7 +170,7 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-continue-btn")).toBeNull();
     const actionBtns = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-    expect(actionBtns).toHaveLength(4);
+    expect(actionBtns).toHaveLength(5);
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("为什么程序员总分不清万圣节和圣诞节？因为 Oct 31 == Dec 25。");
     expect(assistantEl.querySelector(".chat-thinking")?.classList.contains("chat-thinking-collapsed")).toBe(true);
   });
@@ -227,7 +227,7 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
 
     expect(assistantEl.querySelector(".chat-msg-stopped")).toBeNull();
     expect(assistantEl.querySelector(".chat-msg-continue-btn")).toBeNull();
-    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(4);
+    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(5);
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.innerHTML).toContain("快速排序");
   });
 
@@ -300,7 +300,7 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("再次中断");
     const actions = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
     expect([...actions].map((button) => button.getAttribute("aria-label"))).toEqual([
-      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
     ]);
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("第一步 -> 第二步");
   });
@@ -369,7 +369,7 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
 
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("初始停止");
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("原部分正文");
-    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(5);
+    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(6);
   });
 
   it("继续生成较早的已停止回答（Branch B）：生成中隐藏后续消息，完成后合并落盘并永久删去后续", async () => {

@@ -143,14 +143,14 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
 
     const actionBtns = node.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
     expect([...actionBtns].map((button) => button.getAttribute("aria-label"))).toEqual([
-      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
     ]);
     expect(actionBtns[0].disabled).toBe(false);
     expect(actionBtns[1].disabled).toBe(false);
-    expect(actionBtns[4].disabled).toBe(false);
+    expect(actionBtns[5].disabled).toBe(false);
   });
 
-  it("正常完成生成：保留复制、朗读、重新生成、导出全部4个按钮，不出现继续生成按钮", () => {
+  it("正常完成生成：保留复制、存为笔记、朗读、重新生成、导出全部5个按钮，不出现继续生成按钮", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -163,9 +163,10 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     expect(node).toBeTruthy();
 
     const actionBtns = node.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-    expect(actionBtns).toHaveLength(4);
+    expect(actionBtns).toHaveLength(5);
     expect([...actionBtns].map((b) => b.getAttribute("aria-label"))).toEqual([
       "复制回复",
+      "导出视频笔记（.md）",
       "朗读回答",
       "重新生成",
       "导出 Markdown"

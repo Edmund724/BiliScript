@@ -1,4 +1,6 @@
 import { state } from "../core/state.js";
+import { normalizeSettingField } from "../core/settings-store.js";
+import { normalizeNoteExportTarget } from "../core/validators.js";
 import { activeById, getActiveReaderWindow, onActiveHostChange } from "../shared/active-host.js";
 import { safeRemoveListener } from "../shared/cross-doc.js";
 import { computeCurrentClipSignature, extractVideoId } from "../bilibili/video-id-shared.js";
@@ -6,6 +8,12 @@ import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { getSiteCapabilities } from "../shared/site.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
+import { buildVideoNotePrompt } from "../notes/note-prompts.js";
+import {
+  captureLiveClipSignature,
+  handleCommittedChatTurnForNotes
+} from "../notes/auto-export-controller.js";
+import { syncSaveNoteButtons } from "../chat/render/message-actions.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   bindChatDisplaySliders,
@@ -23,7 +31,8 @@ import {
   hasExternalizedChatImages,
   parseModelOptionValue,
   readConversationHistory,
-  syncSavedConversationsFromStorage
+  syncSavedConversationsFromStorage,
+  type ChatTurnKind
 } from "../chat/tab-domain.js";
 import { subscribeQuickPromptsChange } from "../chat/quick-prompt-cache.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
@@ -128,6 +137,9 @@ const suggestionsSlot = createChatSuggestionsSlot({
   id: ids.readingChatSuggestions,
   onPick: (prompt) => {
     void composer.sendViaInputBox(prompt);
+  },
+  onPickVideoNote: () => {
+    void runVideoNotePrompt();
   }
 });
 
@@ -324,7 +336,10 @@ const chatDomain = createChatTabDomain({
       return false;
     }
     pendingQuickActionRetry = null;
-    return composer.sendDetachedPrompt(pending.prompt);
+    return composer.sendDetachedPrompt(pending.prompt, {
+      turnKind: pending.turnKind,
+      expectedClipSignature: pending.expectedClipSignature
+    });
   },
   getProviderId: () => parseModelOptionValue(modelPanel.getSelectedValue()).providerId,
   getSelectedModel: () => parseModelOptionValue(modelPanel.getSelectedValue()).model,
@@ -373,7 +388,14 @@ const chatDomain = createChatTabDomain({
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
   },
-  isLiveActive: () => isLiveCompanionAllowed() && liveBridge.isActive()
+  isLiveActive: () => isLiveCompanionAllowed() && liveBridge.isActive(),
+  getNoteExportTarget: () => normalizeNoteExportTarget(state.settings?.noteExportTarget),
+  onTurnCommitted: (info) => {
+    void handleCommittedChatTurnForNotes(info, {
+      isSessionClosed: () => sessionClosed,
+      onNotice: (message, autoHideMs, options) => messagesNotice.show(message, autoHideMs, options)
+    });
+  }
 });
 
 const lists = createReaderChatLists({
@@ -505,7 +527,44 @@ function activateSessionTriggers(): void {
   }, {
     local: [CONVERSATIONS_STORAGE_KEY]
   });
+  const unwatchNoteSettings = watchStorageKeys((changes) => {
+    const patch: Record<string, unknown> = {};
+    const keys = [
+      "notePromptPreset",
+      "noteCustomPrompt",
+      "noteExportTarget",
+      "noteDownloadSubdir",
+      "noteIncludeKeyframes",
+      "playerAiActionMode",
+      "playerAiAutoExportNote"
+    ] as const;
+    for (const key of keys) {
+      if (key in changes) {
+        patch[key] = normalizeSettingField(key, changes[key]?.newValue);
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      state.patchSettings(patch);
+    }
+    if ("notePromptPreset" in patch) {
+      suggestionsSlot.refresh();
+    }
+    if ("noteExportTarget" in patch) {
+      syncSaveNoteButtons(els.messages, patch.noteExportTarget);
+    }
+  }, {
+    sync: [
+      "notePromptPreset",
+      "noteCustomPrompt",
+      "noteExportTarget",
+      "noteDownloadSubdir",
+      "noteIncludeKeyframes",
+      "playerAiActionMode",
+      "playerAiAutoExportNote"
+    ]
+  });
   scope.track(() => {
+    unwatchNoteSettings();
     unwatchConversations();
     unwatchPresentation();
     unwatchProviders();
@@ -520,12 +579,14 @@ function activateSessionTriggers(): void {
 
   setChatTabOutsideClickHandler((event) => {
     popovers.handleDocumentClick(event);
+    suggestionsSlot.handleOutsideClick(event);
   });
   scope.track(() => setChatTabOutsideClickHandler(null));
 
   let boundWin: Window | null = getActiveReaderWindow();
   boundWin.addEventListener("keydown", onWindowEscapeKey);
   const stopHostWatch = onActiveHostChange((ctx) => {
+    suggestionsSlot.closeMenu();
     safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
     boundWin = ctx.win;
     boundWin.addEventListener("keydown", onWindowEscapeKey);
@@ -544,6 +605,7 @@ function deactivateSessionTriggers(): void {
 }
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
+  suggestionsSlot.handleEscapeKey(event);
   popovers.handleEscapeKey(event);
 }
 
@@ -632,6 +694,7 @@ export function stopChatSpeech(): void {
 }
 
 export function deactivateChatTabOverlays(): void {
+  suggestionsSlot.closeMenu();
   popovers.hideMoreMenu();
   popovers.hideModelPanel({ restoreFocus: false });
   popovers.hideHistoryPopover({ focus: "none" });
@@ -662,13 +725,22 @@ export function closeChatSession(): void {
 
 let quickActionInFlight: Promise<boolean> | null = null;
 let quickActionGeneration = 0;
-let pendingQuickActionRetry: { prompt: string; clipSignature: string } | null = null;
+let pendingQuickActionRetry: {
+  prompt: string;
+  clipSignature: string;
+  turnKind: ChatTurnKind;
+  expectedClipSignature: string;
+} | null = null;
 
-export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
+export async function runQuickActionPrompt(
+  prompt: string,
+  opts?: { turnKind?: ChatTurnKind }
+): Promise<boolean> {
   if (quickActionInFlight) {
     return false;
   }
   const generation = quickActionGeneration;
+  const turnKind: ChatTurnKind = opts?.turnKind ?? "player-ai";
   quickActionInFlight = (async () => {
     await activateScriptTab("chat", { consumeIntent: false });
     if (generation !== quickActionGeneration || sessionClosed) {
@@ -685,9 +757,18 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
-    const accepted = await composer.sendDetachedPrompt(text);
+    const expectedClipSignature = captureLiveClipSignature();
+    const accepted = await composer.sendDetachedPrompt(text, {
+      turnKind,
+      expectedClipSignature
+    });
     if (!accepted && !sessionClosed && generation === quickActionGeneration && chatDomain.isNoSubtitleBlocked()) {
-      pendingQuickActionRetry = { prompt: text, clipSignature: computeCurrentClipSignature() };
+      pendingQuickActionRetry = {
+        prompt: text,
+        clipSignature: computeCurrentClipSignature(),
+        turnKind,
+        expectedClipSignature
+      };
     }
     return accepted;
   })();
@@ -696,6 +777,18 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
   } finally {
     quickActionInFlight = null;
   }
+}
+
+export async function runVideoNotePrompt(): Promise<boolean> {
+  const site = state.clip.site;
+  const prompt = buildVideoNotePrompt({
+    preset: state.settings?.notePromptPreset,
+    customPrompt: state.settings?.noteCustomPrompt,
+    site,
+    supportsHotComments: getSiteCapabilities(site).supportsHotComments,
+    includeKeyframes: Boolean(state.settings?.noteIncludeKeyframes)
+  });
+  return runQuickActionPrompt(prompt, { turnKind: "video-note" });
 }
 
 function bindEvents(): void {

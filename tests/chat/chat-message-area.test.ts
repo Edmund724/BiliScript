@@ -288,6 +288,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     ]);
     expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
       "复制回复",
+      "导出视频笔记（.md）",
       "朗读回答",
       "重新生成",
       "导出 Markdown"
@@ -298,7 +299,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     expect(deps.messages.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
     expect(node.querySelector(".chat-msg-continue-btn")).not.toBeNull();
     expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
-      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
     ]);
     expect(deps.messages.querySelector(".chat-msg-truncated")?.previousElementSibling?.className).toBe("chat-msg-actions");
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);

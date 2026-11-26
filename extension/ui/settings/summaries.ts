@@ -2,6 +2,8 @@ import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
 import {
   normalizeDownloadFormat,
+  normalizeNoteExportTarget,
+  normalizePlayerAiActionMode,
   normalizeReaderFontSizeScale,
   normalizeReaderPalette,
   normalizeReaderTheme,
@@ -27,9 +29,12 @@ export interface SettingsSummaryFormValues {
   asrAutoFallback: boolean;
   webSearchMaxToolCalls: unknown;
   enablePlayerAiQuickAction: boolean;
+  playerAiActionMode?: unknown;
+  playerAiAutoExportNote?: boolean;
   initialQuickPromptCount: number;
   speechVoiceVolume: unknown;
   downloadFormat: unknown;
+  noteExportTarget?: unknown;
   subtitleTranslateModelLabel: string;
   subtitleTranslateGlossary: string;
   readerTheme: unknown;
@@ -153,7 +158,11 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   const playerQuickAiAvailable =
     input.playerQuickAiAvailable ?? resolveSettingsCapabilities().playerQuickAiAvailable;
   const promptParts: string[] = [];
-  if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) promptParts.push("播放器快捷开");
+  if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) {
+    const actionMode = normalizePlayerAiActionMode(form.playerAiActionMode);
+    promptParts.push(actionMode === "note" ? "播放器快捷·笔记" : "播放器快捷开");
+  }
+  if (form.playerAiAutoExportNote) promptParts.push("自动导出");
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);
   if (speechVolumeAvailable) {
     promptParts.push(`朗读 ${CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(form.speechVoiceVolume)}%`);
@@ -162,11 +171,16 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
 
   const normalizedFormat = normalizeDownloadFormat(form.downloadFormat);
   const formatLabel = normalizedFormat === "vtt-secondary" ? "VTT（仅副轨）" : normalizedFormat.toUpperCase();
+  const noteTargetLabel =
+    form.noteExportTarget !== undefined
+      ? (normalizeNoteExportTarget(form.noteExportTarget) === "obsidian" ? "笔记 Obsidian" : "笔记 .md")
+      : "";
   const glossaryCount = parseSubtitleGlossary(form.subtitleTranslateGlossary).length;
   const subtitleParts = [
     form.subtitleTranslateModelLabel,
     glossaryCount > 0 ? `${glossaryCount} 条术语` : "",
-    formatLabel
+    formatLabel,
+    noteTargetLabel
   ].filter(Boolean);
   const subtitleSettings = subtitleParts.join(" · ");
 
@@ -209,9 +223,12 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       asrAutoFallback: elements.asrAutoFallback.checked,
       webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value,
       enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
+      playerAiActionMode: elements.playerAiActionMode.value,
+      playerAiAutoExportNote: elements.playerAiAutoExportNote.checked,
       initialQuickPromptCount: collectInitialQuickPrompts(elements).length,
       speechVoiceVolume: elements.speechVoiceVolume.value,
       downloadFormat: elements.downloadFormat.value,
+      noteExportTarget: elements.noteExportTarget.value,
       subtitleTranslateModelLabel: resolveSelectedModelLabel(elements.subtitleTranslateModel),
       subtitleTranslateGlossary: elements.subtitleTranslateGlossary.value,
       readerTheme: elements.readerTheme.value,
