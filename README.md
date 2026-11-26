@@ -34,7 +34,7 @@
 
 - **Edge 商店（推荐）**：从 [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) 直接安装并自动更新。
 - **离线包安装（Chrome / Edge）**：从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新 `Chromium.zip` 并解压到**长期保留**的目录，打开 `chrome://extensions/`（Edge 为 `edge://extensions/`）开启「开发者模式」，点击「加载已解压的扩展程序」选择该目录。
-- **Firefox 桌面端（临时加载试用）**：Firefox 版本待上架 Mozilla Add-ons（AMO）商店，现可从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载 `Firefox.zip` 并解压，打开 `about:debugging#/runtime/this-firefox` 点击「临时载入附加组件」选择解压目录中的 `manifest.json`（浏览器重启后需重新载入）。
+- **Firefox 商店（桌面端）**：可在 Mozilla Add-ons（AMO）商店搜索「BiliScript」安装并自动更新；亦可从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载 `Firefox.zip` 解压后在 `about:debugging#/runtime/this-firefox` 临时载入试用。
 
 <details>
 <summary>零命令行基础？展开复制提示词，让编程 Agent 引导安装</summary>
