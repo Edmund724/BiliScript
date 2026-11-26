@@ -231,6 +231,10 @@ function bindScalarFieldEvents(
       initToggleSwitch(el);
       el.addEventListener("change", () => {
         const val = el.checked;
+        try {
+          binding.onChange?.(val, deps.hooks ?? {}, elements);
+        } catch {
+        }
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
@@ -281,8 +285,8 @@ function bindScalarFieldEvents(
     }
     case "debounced-text": {
       const el = binding.getElement(elements);
-      const save = () => {
-        const val = normalizeScalarBindingValue(binding, el.value);
+      const save = (normalizedVal?: string) => {
+        const val = normalizedVal ?? normalizeScalarBindingValue(binding, el.value);
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
@@ -290,7 +294,7 @@ function bindScalarFieldEvents(
           if (ok) binding.onSaved?.(val, deps.hooks ?? {}, elements);
         });
       };
-      const debouncedSave = debounce(save, 400);
+      const debouncedSave = debounce(() => save(), 400);
       pendingDebounceCancels.add(debouncedSave.cancel);
       el.addEventListener("input", () => {
         debouncedSave();
@@ -298,7 +302,12 @@ function bindScalarFieldEvents(
       });
       el.addEventListener("change", () => {
         debouncedSave.cancel();
-        save();
+        const val = normalizeScalarBindingValue(binding, el.value);
+        try {
+          binding.onChange?.(val, deps.hooks ?? {}, elements);
+        } catch {
+        }
+        save(val);
       });
       el.addEventListener("blur", () => debouncedSave.flush());
       break;

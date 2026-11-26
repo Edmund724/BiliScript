@@ -56,7 +56,7 @@ export const LEGACY_DEFAULT_NOTE_TEMPLATE = DEFAULT_NOTE_TEMPLATE
   .replace("\n\n{{#if ai_note}}\n## 视频笔记\n\n{{ai_note}}\n{{/if}}", "");
 
 export const DEFAULT_YOUTUBE_NOTE_TEMPLATE = DEFAULT_NOTE_TEMPLATE
-  .replace('bvid: "{{bvid}}"', 'videoId: "{{videoId}}"')
+  .replace('\nvideo_id: "{{videoId}}"\nbvid: "{{bvid}}"', '\nvideoId: "{{videoId}}"')
   .replace("- UP主：{{author}}", "- 作者：{{author}}");
 
 export function isDefaultNoteTemplate(template: unknown): boolean {

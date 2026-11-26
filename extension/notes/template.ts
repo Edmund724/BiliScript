@@ -11,6 +11,7 @@ import {
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
+import { scanMarkdownBodyLines } from "./markdown-scan.js";
 import {
   buildSubtitleSectionLines,
   shouldShowHoursInNote,
@@ -314,7 +315,6 @@ export interface NoteTimestampLinkContext {
 const YOUTUBE_RAW_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const BILIBILI_BVID_RE = /^BV[0-9A-Za-z]+$/;
 const CLOCK_TOKEN_RE = /^\d{1,2}:\d{2}(?::\d{2})?$/;
-const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
 const LINE_PREFIX_CLOCK_CODE_RE =
   /^(\s*(?:(?:[-*+]|\d+\.)\s+|>\s+)*)`(\d{1,2}:\d{2}(?::\d{2})?)`(?=\s|$)/;
 
@@ -499,19 +499,6 @@ function linkifyInlineMarkdownLine(line: string, context: NoteTimestampLinkConte
   return out;
 }
 
-function findFrontmatterEndLine(lines: readonly string[]): number {
-  if (lines.length < 3 || lines[0].trim() !== "---") {
-    return -1;
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    const trimmed = lines[i].trim();
-    if (trimmed === "---" || trimmed === "...") {
-      return i;
-    }
-  }
-  return -1;
-}
-
 export function linkifyNoteTimestamps(
   markdown: string,
   context: NoteTimestampLinkContext
@@ -523,37 +510,9 @@ export function linkifyNoteTimestamps(
 
   const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
-  const frontmatterEnd = findFrontmatterEndLine(lines);
-  let activeFenceChar = "";
-  let activeFenceLength = 0;
-
-  const output = lines.map((line, index) => {
-    if (frontmatterEnd !== -1 && index <= frontmatterEnd) {
-      return line;
-    }
-
-    if (activeFenceChar) {
-      const closeMatch = line.match(FENCE_OPEN_RE);
-      if (
-        closeMatch &&
-        closeMatch[1][0] === activeFenceChar &&
-        closeMatch[1].length >= activeFenceLength &&
-        line.slice(closeMatch[0].length).trim() === ""
-      ) {
-        activeFenceChar = "";
-        activeFenceLength = 0;
-      }
-      return line;
-    }
-
-    const openMatch = line.match(FENCE_OPEN_RE);
-    if (openMatch) {
-      activeFenceChar = openMatch[1][0];
-      activeFenceLength = openMatch[1].length;
-      return line;
-    }
-
-    return linkifyInlineMarkdownLine(line, context);
+  const output: string[] = [];
+  scanMarkdownBodyLines(lines, (line, _index, inBody) => {
+    output.push(inBody ? linkifyInlineMarkdownLine(line, context) : line);
   });
 
   return output.join(lineBreak);

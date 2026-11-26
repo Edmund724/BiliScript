@@ -922,19 +922,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       assistantMsg.stopped = true;
     }
 
-    if (activeBranch) {
-      if (!deps.store.isCurrent(activeConversationId)) {
-        pendingToolMessages = [];
-        return false;
-      }
-      if (isStopped && (!activeBranch.hasNewOutput || (!hasContent && !hasThinking))) {
-        pendingToolMessages = [];
-        return false;
-      }
-      const history = activeBranch.originalHistory.slice(0, getBranchSliceEnd(activeBranch));
-      history.push(...pendingToolMessages, assistantMsg);
-      applyConversationIdentity({ history });
-      const committedIndex = history.length - 1;
+    const finalizeCommittedAssistant = (committedIndex: number): true => {
       const boundFrames = bindCapturedFramesToMessage(
         assistantMsg,
         activeTurnCapturedFrames,
@@ -953,6 +941,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         expectedClipSignature: activeExpectedClipSignature
       });
       return true;
+    };
+
+    if (activeBranch) {
+      if (!deps.store.isCurrent(activeConversationId)) {
+        pendingToolMessages = [];
+        return false;
+      }
+      if (isStopped && (!activeBranch.hasNewOutput || (!hasContent && !hasThinking))) {
+        pendingToolMessages = [];
+        return false;
+      }
+      const history = activeBranch.originalHistory.slice(0, getBranchSliceEnd(activeBranch));
+      history.push(...pendingToolMessages, assistantMsg);
+      applyConversationIdentity({ history });
+      return finalizeCommittedAssistant(history.length - 1);
     }
 
     if (activeUserPrompt && deps.store.isCurrent(activeConversationId)) {
@@ -966,25 +969,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...pendingToolMessages,
         assistantMsg
       );
-      const committedIndex = chatSessionState.chatHistory.length - 1;
-      const boundFrames = bindCapturedFramesToMessage(
-        assistantMsg,
-        activeTurnCapturedFrames,
-        committedIndex
-      );
-      void deps.store.persistCurrent();
-      pendingToolMessages = [];
-      activeTurnCapturedFrames = [];
-      deps.onTurnCommitted?.({
-        raw: assistantMsg.content,
-        historyIndex: committedIndex,
-        message: assistantMsg,
-        stopped: isStopped,
-        capturedFrames: boundFrames,
-        turnKind: activeTurnKind,
-        expectedClipSignature: activeExpectedClipSignature
-      });
-      return true;
+      return finalizeCommittedAssistant(chatSessionState.chatHistory.length - 1);
     }
     pendingToolMessages = [];
     activeTurnCapturedFrames = [];

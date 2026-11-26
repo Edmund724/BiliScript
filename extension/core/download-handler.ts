@@ -1,4 +1,7 @@
-import { normalizeNoteDownloadSubdir } from "./validators.js";
+import {
+  normalizeNoteDownloadSubdir,
+  WINDOWS_RESERVED_PATH_SEGMENT_RE
+} from "./validators.js";
 import { withOkResponse } from "./provider-handlers.js";
 import type { PermissionApiLike } from "./host-permission-handlers.js";
 import type {
@@ -12,7 +15,6 @@ import type {
 const DEFAULT_NOTE_ARTIFACT_FILENAME = "video-note.md";
 const MAX_NOTE_ARTIFACT_FILENAME_LENGTH = 120;
 const BASE64_CHUNK_SIZE = 0x4000;
-const WINDOWS_RESERVED_FILENAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 export interface DownloadsApiLike {
   download?: (options: {
@@ -44,7 +46,7 @@ export function sanitizeNoteArtifactFileName(value: unknown): string {
     .replace(/[. ]+$/g, "")
     .slice(0, MAX_NOTE_ARTIFACT_FILENAME_LENGTH - 3)
     .replace(/[. ]+$/g, "");
-  if (!withoutExt || withoutExt === "." || WINDOWS_RESERVED_FILENAME_RE.test(withoutExt)) {
+  if (!withoutExt || withoutExt === "." || WINDOWS_RESERVED_PATH_SEGMENT_RE.test(withoutExt)) {
     return DEFAULT_NOTE_ARTIFACT_FILENAME;
   }
   return `${withoutExt}.md`;

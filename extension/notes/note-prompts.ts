@@ -1,4 +1,5 @@
 import type { NotePromptPreset } from "../core/defaults.js";
+import { normalizeNotePromptPreset } from "../core/validators.js";
 import { normalizeSiteId, type SiteId } from "../shared/site.js";
 
 export interface NotePromptPresetOption {
@@ -14,13 +15,9 @@ export const NOTE_PROMPT_PRESET_OPTIONS: readonly NotePromptPresetOption[] = [
   { value: "custom", label: "自定义" }
 ];
 
-const PRESET_LABEL_MAP: Readonly<Record<NotePromptPreset, string>> = {
-  general: "通用结构化",
-  tutorial: "教程实操",
-  course: "课程学习",
-  opinion: "观点提炼",
-  custom: "自定义"
-};
+const PRESET_LABEL_MAP: Readonly<Record<NotePromptPreset, string>> = Object.fromEntries(
+  NOTE_PROMPT_PRESET_OPTIONS.map((option) => [option.value, option.label])
+) as Record<NotePromptPreset, string>;
 
 export interface BuildVideoNotePromptInput {
   preset: NotePromptPreset | unknown;
@@ -30,16 +27,8 @@ export interface BuildVideoNotePromptInput {
   includeKeyframes: boolean;
 }
 
-function normalizePreset(value: unknown): NotePromptPreset {
-  const raw = String(value ?? "").trim();
-  if (raw === "tutorial" || raw === "course" || raw === "opinion" || raw === "custom") {
-    return raw;
-  }
-  return "general";
-}
-
 export function getNotePromptPresetLabel(preset: NotePromptPreset | unknown): string {
-  return PRESET_LABEL_MAP[normalizePreset(preset)];
+  return PRESET_LABEL_MAP[normalizeNotePromptPreset(preset)];
 }
 
 function buildPresetBody(
@@ -86,7 +75,7 @@ export function buildVideoNotePrompt(input: BuildVideoNotePromptInput): string {
   const site = normalizeSiteId(input.site);
   const platformVideo = site === "youtube" ? "YouTube 视频" : "B 站视频";
   const creatorLabel = site === "youtube" ? "频道作者" : "UP 主";
-  const requestedPreset = normalizePreset(input.preset);
+  const requestedPreset = normalizeNotePromptPreset(input.preset);
   const customText = String(input.customPrompt ?? "").replace(/\r\n?/g, "\n").trim();
 
   const lines: string[] = [
@@ -106,9 +95,9 @@ export function buildVideoNotePrompt(input: BuildVideoNotePromptInput): string {
     "- 关键时间锚点统一使用普通文本 `[MM:SS]`（超过 1 小时用 `[HH:MM:SS]`），不要用反引号包裹，便于自动转为可跳转深链。"
   ];
 
-  if (site === "bilibili" && input.supportsHotComments === true) {
+  if (input.supportsHotComments === true) {
     rules.push(
-      "- 若上下文包含高价值评论纠错或事实补充，可择优吸收并显式注明为评论补充，避免与 UP 主原片观点混淆。"
+      `- 若上下文包含高价值评论纠错或事实补充，可择优吸收并显式注明为评论补充，避免与${creatorLabel}原片观点混淆。`
     );
   }
 

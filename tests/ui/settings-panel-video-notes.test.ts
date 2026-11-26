@@ -57,7 +57,7 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
         savedPatches.push(msg.settings as Record<string, unknown>);
         return { ok: true };
       },
-      "check-optional-permission": () => ({ ok: true, granted: true })
+      "request-optional-permission": () => ({ ok: true })
     });
 
     const actionMode = host.querySelector<HTMLSelectElement>("#playerAiActionMode")!;
@@ -108,8 +108,9 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     expect(state.settings.noteIncludeKeyframes).toBe(true);
   });
 
-  it("填写非空下载子目录或开启自动导出且拒绝 downloads 权限时展示回退提示且不被已保存覆盖", async () => {
+  it("填写非空下载子目录或开启自动导出时在用户手势内同步直发权限申请且拒绝提示不被已保存覆盖", async () => {
     const requestedPermissions: string[] = [];
+    const checkedPermissions: string[] = [];
     const { host } = await mountPanel({
       "get-settings": () => ({
         ok: true,
@@ -120,7 +121,10 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
         }
       }),
       "save-settings": () => ({ ok: true }),
-      "check-optional-permission": () => ({ ok: true, granted: false }),
+      "check-optional-permission": (msg) => {
+        checkedPermissions.push(String(msg.permission || ""));
+        return { ok: true, granted: false };
+      },
       "request-optional-permission": (msg) => {
         requestedPermissions.push(String(msg.permission || ""));
         return { ok: false, error: "用户拒绝授权" };
@@ -132,14 +136,19 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
 
     subdir.value = "BiliScript-Notes";
     subdir.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => expect(requestedPermissions).toEqual(["downloads"]));
-    await vi.waitFor(() => expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS));
+    expect(requestedPermissions).toEqual(["downloads"]);
+    expect(checkedPermissions).toEqual([]);
+    await flushMicrotasks();
+    expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS);
     expect(status.dataset.error).toBe("true");
 
     const autoExport = host.querySelector<HTMLInputElement>("#playerAiAutoExportNote")!;
     autoExport.click();
-    await vi.waitFor(() => expect(requestedPermissions).toEqual(["downloads", "downloads"]));
-    await vi.waitFor(() => expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS));
+    expect(requestedPermissions).toEqual(["downloads", "downloads"]);
+    expect(checkedPermissions).toEqual([]);
+    await flushMicrotasks();
+    expect(status.textContent).toBe(DOWNLOADS_PERMISSION_DENIED_STATUS);
+    expect(status.dataset.error).toBe("true");
   });
 
   it("独立窗口跨文档 Realm 下可渲染全部新控件并完成预设切换与持久化", async () => {

@@ -206,6 +206,7 @@ describe("多站点导出模板、{{videoId}}/{{site}} 与 bilingualDisplayOrder
 
     const defaultRendered = renderNoteTemplate("", ytVars);
     expect(defaultRendered).toContain(`videoId: "${YT_ID_A}"`);
+    expect(defaultRendered).not.toContain("video_id:");
     expect(defaultRendered).toContain("- 作者：Channel Author");
     expect(defaultRendered).not.toContain('bvid: "');
     expect(defaultRendered).not.toContain("- UP主：");

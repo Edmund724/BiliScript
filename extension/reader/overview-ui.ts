@@ -1,4 +1,3 @@
-import { buildContextKey } from "../ai/conversation.js";
 import { chatSessionState } from "../chat/chat-state.js";
 import { state } from "../core/state.js";
 import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
@@ -13,11 +12,14 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
-import { captureLiveClipSignature } from "../notes/auto-export-controller.js";
 import { dispatchNoteExport } from "../notes/export-actions.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { findLatestSessionNoteForClip } from "../notes/session-note-state.js";
-import { getCapturedFramesForMessage, type NoteKeyframeCandidate } from "../notes/turn-frame-cache.js";
+import {
+  getLatestSessionNoteCandidate,
+  resolveCurrentClipContextKey,
+  type SessionNoteCandidate
+} from "../notes/session-note-state.js";
+import { getCapturedFramesForMessage } from "../notes/turn-frame-cache.js";
 import { stripThinkBlocks } from "../ui/markdown.js";
 import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
@@ -448,35 +450,13 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
 
 const overviewExportFeedbackTimers = new WeakMap<HTMLElement, number>();
 
-function resolveCurrentOverviewContextKey(): string {
-  const clip = state.clip;
-  const bvid = String(clip.bvid || "").trim();
-  if (!bvid) {
-    return "";
-  }
-  return buildContextKey({
-    site: clip.site,
-    bvid,
-    cid: clip.cid,
-    aid: clip.aid,
-    url: location.href
-  });
-}
-
-function resolveActiveClipChatNote(): {
-  markdown: string;
-  capturedFrames: NoteKeyframeCandidate[];
-} | null {
-  const clipSignature = captureLiveClipSignature();
-  const contextKey = resolveCurrentOverviewContextKey();
-  const recorded = findLatestSessionNoteForClip({ clipSignature, contextKey });
+function resolveActiveClipChatNote(): SessionNoteCandidate | null {
+  const recorded = getLatestSessionNoteCandidate();
   if (recorded) {
-    return {
-      markdown: recorded.markdown,
-      capturedFrames: recorded.capturedFrames
-    };
+    return recorded;
   }
 
+  const contextKey = resolveCurrentClipContextKey();
   const sessionKey = String(
     chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
   ).trim();

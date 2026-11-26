@@ -12,6 +12,7 @@ import {
   normalizeSiteId,
   type SiteId
 } from "../shared/site.js";
+import { scanMarkdownBodyLines } from "./markdown-scan.js";
 import { buildNoteTimestampDeepLink } from "./template.js";
 import type { NoteKeyframeCandidate } from "./turn-frame-cache.js";
 
@@ -24,7 +25,6 @@ export const NOTE_KEYFRAME_WEBP_QUALITY = 0.72;
 export const NOTE_KEYFRAME_JPEG_QUALITY = 0.75;
 export const DEFAULT_NOTE_KEYFRAME_CAPTION = "查看原片画面";
 
-const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
 const FRAME_MARKER_LINE_RE =
   /^\s*\{\{\s*frame\s*:\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}\s*$/i;
 const BASE64_DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]+)$/i;
@@ -232,55 +232,17 @@ export async function reencodeKeyframeDataUrl(
   }
 }
 
-function findFrontmatterEndLine(lines: readonly string[]): number {
-  if (lines.length < 3 || lines[0].trim() !== "---") {
-    return -1;
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    const trimmed = lines[i].trim();
-    if (trimmed === "---" || trimmed === "...") {
-      return i;
-    }
-  }
-  return -1;
-}
-
 function scanKeyframeMarkers(lines: readonly string[]): ParsedNoteKeyframeMarker[] {
-  const frontmatterEnd = findFrontmatterEndLine(lines);
   const markers: ParsedNoteKeyframeMarker[] = [];
-  let activeFenceChar = "";
-  let activeFenceLength = 0;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    if (frontmatterEnd !== -1 && index <= frontmatterEnd) {
-      continue;
-    }
-    const line = lines[index];
-    if (activeFenceChar) {
-      const closeMatch = line.match(FENCE_OPEN_RE);
-      if (
-        closeMatch &&
-        closeMatch[1][0] === activeFenceChar &&
-        closeMatch[1].length >= activeFenceLength &&
-        line.slice(closeMatch[0].length).trim() === ""
-      ) {
-        activeFenceChar = "";
-        activeFenceLength = 0;
-      }
-      continue;
-    }
-    const openMatch = line.match(FENCE_OPEN_RE);
-    if (openMatch) {
-      activeFenceChar = openMatch[1][0];
-      activeFenceLength = openMatch[1].length;
-      continue;
+  scanMarkdownBodyLines(lines, (line, index, inBody) => {
+    if (!inBody) {
+      return;
     }
     const parsed = parseNoteKeyframeMarkerLine(line);
     if (parsed) {
       markers.push({ lineIndex: index, ...parsed });
     }
-  }
-
+  });
   return markers;
 }
 

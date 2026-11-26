@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { state, clipState, transitionReaderShell } from "../../extension/core/state.js";
+import {
+  captureLiveClipSignature,
+  clearSessionNoteRecords,
+  recordSessionNoteReply,
+  resolveCurrentClipContextKey
+} from "../../extension/notes/session-note-state.js";
 import {
   closeCommandPalette,
   isCommandPaletteOpen,
@@ -70,11 +77,13 @@ describe("command-palette 纯函数：模糊匹配与时间戳解析", () => {
 describe("command-palette 交互与高频动作", () => {
   beforeEach(() => {
     resetModuleState();
+    clearSessionNoteRecords();
     closeCommandPalette();
     mockJump.mockClear();
     mockActivateTab.mockClear();
     mockUiCommand.mockClear();
-    mockSendRuntime.mockClear();
+    mockSendRuntime.mockReset();
+    mockSendRuntime.mockResolvedValue({ ok: true });
     mockRunVideoNotePrompt.mockClear();
     document.body.innerHTML = `<section id="${ids.readingView}"></section>`;
     transitionReaderShell("open");
@@ -157,5 +166,91 @@ describe("command-palette 交互与高频动作", () => {
 
     await vi.waitFor(() => expect(mockRunVideoNotePrompt).toHaveBeenCalledTimes(1));
     expect(mockActivateTab).toHaveBeenCalledWith("chat", { consumeIntent: false });
+  });
+
+  it("note-download 与 note-obsidian 通过 dispatchNoteExport 携带会话笔记、时间戳深链、关键帧与下载子目录", async () => {
+    const clip = state.clip as unknown as {
+      site: "bilibili" | "youtube";
+      title: string;
+      bvid: string;
+      cid: string;
+      currentUrl: string;
+      currentClipSignature: string;
+    };
+    clip.site = "bilibili";
+    clip.title = "命令面板导出测试";
+    clip.bvid = "BV1cmdexp001";
+    clip.cid = "556677";
+    clip.currentUrl = "https://www.bilibili.com/video/BV1cmdexp001/?p=2";
+    clip.currentClipSignature = "BV1cmdexp001|556677";
+
+    recordSessionNoteReply({
+      clipSignature: captureLiveClipSignature(),
+      contextKey: resolveCurrentClipContextKey(),
+      markdown: "<think>内部思考</think>\n核心流程见 [02:20]。\n\n{{frame:02:20 | 核心流程}}",
+      capturedFrames: [{ seconds: 140, dataUrl: "data:image/jpeg;base64,AQIDBA==" }],
+      isVideoNote: true
+    });
+
+    const downloadMessages: Array<{ type: string; subdir?: string; markdown?: string }> = [];
+    mockSendRuntime.mockImplementation(async (raw: unknown) => {
+      const msg = raw as { type: string; subdir?: string; markdown?: string };
+      if (msg.type === "get-settings") {
+        return {
+          ok: true,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            noteExportTarget: "obsidian",
+            noteDownloadSubdir: "CmdNotes",
+            obsidianVaultName: "CmdVault",
+            obsidianFolder: "Videos",
+            noteIncludeKeyframes: false
+          }
+        };
+      }
+      if (msg.type === "download-note-artifact") {
+        downloadMessages.push(msg);
+        return { ok: true, downloadId: 91 };
+      }
+      return { ok: true };
+    });
+
+    const clickedHrefs: string[] = [];
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clickedHrefs.push(this.href);
+      });
+
+    try {
+      const downloadItem = resolveCommandPaletteItems("下载 Markdown").find((item) => item.id === "note-download")!;
+      const downloadNotice = await downloadItem.run();
+      expect(downloadNotice).toBe("已导出 Markdown 文件");
+      expect(downloadMessages).toHaveLength(1);
+      expect(downloadMessages[0].subdir).toBe("CmdNotes");
+      expect(downloadMessages[0].markdown).not.toContain("内部思考");
+      expect(downloadMessages[0].markdown).toContain(
+        "[02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140)"
+      );
+      expect(downloadMessages[0].markdown).toContain(
+        "*▲ [02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140) 核心流程*"
+      );
+
+      const obsidianItem = resolveCommandPaletteItems("Obsidian").find((item) => item.id === "note-obsidian")!;
+      const obsidianNotice = await obsidianItem.run();
+      expect(obsidianNotice).toBe("已唤起 Obsidian 写入笔记");
+      expect(clickedHrefs).toHaveLength(1);
+      expect(clickedHrefs[0]).toContain("obsidian://new?vault=CmdVault");
+      const decodedContent = decodeURIComponent(clickedHrefs[0].split("content=")[1] || "");
+      expect(decodedContent).not.toContain("内部思考");
+      expect(decodedContent).toContain(
+        "[02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140)"
+      );
+      expect(decodedContent).toContain(
+        "*▲ [02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140) 核心流程*"
+      );
+    } finally {
+      clickSpy.mockRestore();
+    }
   });
 });

@@ -67,6 +67,7 @@ export interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey>
   readonly watchSync?: boolean;
   readonly persist?: ScalarFieldPersist;
   readonly onApply?: (val: boolean) => void;
+  readonly onChange?: (val: boolean, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
   readonly onSaved?: (val: boolean, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
@@ -94,6 +95,7 @@ export interface DebouncedTextFieldBinding<K extends KnownSettingKey = KnownSett
   readonly normalize?: (value: unknown) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
+  readonly onChange?: (val: string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
   readonly onSaved?: (val: string, hooks: ScalarBindingRuntimeHooks, elements: SettingsElements) => void;
 }
 
@@ -122,7 +124,7 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "noteExportTarget",
     getElement: (el) => el.noteExportTarget,
     watchSync: true,
-    onSaved: (val, hooks, elements) => {
+    onChange: (val, hooks, elements) => {
       if (
         val === "download"
         && (Boolean(elements.noteDownloadSubdir.value.trim()) || elements.playerAiAutoExportNote.checked)
@@ -136,7 +138,7 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "noteDownloadSubdir",
     getElement: (el) => el.noteDownloadSubdir,
     watchSync: true,
-    onSaved: (val, hooks, elements) => {
+    onChange: (val, hooks, elements) => {
       if (val.trim() && normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download") {
         void hooks.onDownloadsPermissionNeeded?.(elements);
       }
@@ -312,7 +314,7 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "playerAiAutoExportNote",
     getElement: (el) => el.playerAiAutoExportNote,
     watchSync: true,
-    onSaved: (val, hooks, elements) => {
+    onChange: (val, hooks, elements) => {
       if (val && normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download") {
         void hooks.onDownloadsPermissionNeeded?.(elements);
       }

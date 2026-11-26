@@ -2065,7 +2065,7 @@ dialog.biliscript-cmd-palette::backdrop {
 
 .biliscript-reading-ov-strip.is-actions-only {
   justify-content: flex-end;
-  padding: 6px 10px;
+  padding: 8px 12px;
 }
 
 .biliscript-reading-ov-strip-actions {

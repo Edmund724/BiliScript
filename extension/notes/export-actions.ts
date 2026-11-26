@@ -268,6 +268,7 @@ export async function openCurrentVideoInObsidian(
 }
 
 export interface DispatchNoteExportOptions {
+  target?: NoteExportTarget;
   aiNoteMarkdown?: string;
   autoTrigger?: boolean;
   resolveKeyframes?: ResolveNoteKeyframesFn;
@@ -298,7 +299,8 @@ export async function dispatchNoteExport(
 ): Promise<DispatchNoteExportResult> {
   const settings = await getSettings();
   state.setSettings(settings);
-  const target: NoteExportTarget = settings.noteExportTarget === "obsidian" ? "obsidian" : "download";
+  const resolvedTarget = options?.target ?? settings.noteExportTarget;
+  const target: NoteExportTarget = resolvedTarget === "obsidian" ? "obsidian" : "download";
 
   try {
     const rendered = await renderCurrentVideoNoteWithSettings(settings, {
@@ -343,6 +345,7 @@ export async function dispatchNoteExport(
 
     if (shouldTryBackground) {
       let bgError = "";
+      let shouldFallbackToBlob = false;
       try {
         const bgRes = await sendRuntimeMessage({
           type: "download-note-artifact",
@@ -360,32 +363,47 @@ export async function dispatchNoteExport(
             downloadId: bgRes.downloadId
           };
         }
-        bgError = bgRes?.error || "";
+        if (!bgRes || bgRes.fallbackRequired === true) {
+          shouldFallbackToBlob = true;
+          bgError = bgRes?.error || "";
+        } else {
+          return {
+            ok: false,
+            target,
+            method: "background-download",
+            fileName: rendered.fileName,
+            markdown: rendered.markdown,
+            error: bgRes.error || "下载失败"
+          };
+        }
       } catch (error) {
         logWarn("[BILISCRIPT] background download-note-artifact failed, falling back to blob", error);
+        shouldFallbackToBlob = true;
         bgError = (error as Error)?.message || "";
       }
 
-      try {
-        triggerActiveBlobDownload(rendered.markdown, rendered.fileName);
-        return {
-          ok: true,
-          target,
-          method: "blob-download",
-          fileName: rendered.fileName,
-          markdown: rendered.markdown,
-          usedBlobFallback: true
-        };
-      } catch (blobError) {
-        logWarn("[BILISCRIPT] blob fallback download failed", blobError);
-        return {
-          ok: false,
-          target,
-          fileName: rendered.fileName,
-          markdown: rendered.markdown,
-          usedBlobFallback: true,
-          error: (blobError as Error)?.message || bgError || "导出笔记下载失败"
-        };
+      if (shouldFallbackToBlob) {
+        try {
+          triggerActiveBlobDownload(rendered.markdown, rendered.fileName);
+          return {
+            ok: true,
+            target,
+            method: "blob-download",
+            fileName: rendered.fileName,
+            markdown: rendered.markdown,
+            usedBlobFallback: true
+          };
+        } catch (blobError) {
+          logWarn("[BILISCRIPT] blob fallback download failed", blobError);
+          return {
+            ok: false,
+            target,
+            fileName: rendered.fileName,
+            markdown: rendered.markdown,
+            usedBlobFallback: true,
+            error: (blobError as Error)?.message || bgError || "导出笔记下载失败"
+          };
+        }
       }
     }
 

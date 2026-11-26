@@ -460,6 +460,28 @@ async function removePlayerAiQuickButtonQuietly(): Promise<void> {
   }
 }
 
+async function dispatchChatEntryIntent(options: {
+  chatMode?: PlayerAiActionMode;
+  prompt: string;
+  chatTurnKind?: "player-ai" | "video-note";
+}): Promise<void> {
+  if (options.chatMode === "note") {
+    const chat = await ensureReaderChatTab();
+    await chat.runVideoNotePrompt();
+    return;
+  }
+  if (options.prompt) {
+    const chat = await ensureReaderChatTab();
+    if (options.chatTurnKind) {
+      await chat.runQuickActionPrompt(options.prompt, { turnKind: options.chatTurnKind });
+    } else {
+      await chat.runQuickActionPrompt(options.prompt);
+    }
+    return;
+  }
+  await activateScriptTab("chat", { consumeIntent: false });
+}
+
 export function enterReaderShell(options: EnterReaderShellOptions): Promise<void> {
   const { intent, chatMode, chatTurnKind } = options;
   const readerUrl = String(options.readerUrl || "").trim();
@@ -509,19 +531,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
           const reader = await ensureReaderDomain();
           reader.focusReadingView();
         } else if (intent === "chat") {
-          if (chatMode === "note") {
-            const chat = await ensureReaderChatTab();
-            await chat.runVideoNotePrompt();
-          } else if (prompt) {
-            const chat = await ensureReaderChatTab();
-            if (chatTurnKind) {
-              await chat.runQuickActionPrompt(prompt, { turnKind: chatTurnKind });
-            } else {
-              await chat.runQuickActionPrompt(prompt);
-            }
-          } else {
-            await activateScriptTab("chat", { consumeIntent: false });
-          }
+          await dispatchChatEntryIntent({ chatMode, prompt, chatTurnKind });
         }
         if (options.settingsTarget) {
           requestUiCommand("open-settings", { target: options.settingsTarget });
@@ -536,19 +546,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       triggerRect: launchTriggerRect
     });
     if (intent === "chat") {
-      if (chatMode === "note") {
-        const chat = await ensureReaderChatTab();
-        await chat.runVideoNotePrompt();
-      } else if (prompt) {
-        const chat = await ensureReaderChatTab();
-        if (chatTurnKind) {
-          await chat.runQuickActionPrompt(prompt, { turnKind: chatTurnKind });
-        } else {
-          await chat.runQuickActionPrompt(prompt);
-        }
-      } else {
-        await activateScriptTab("chat", { consumeIntent: false });
-      }
+      await dispatchChatEntryIntent({ chatMode, prompt, chatTurnKind });
     }
     if (options.settingsTarget) {
       requestUiCommand("open-settings", { target: options.settingsTarget });

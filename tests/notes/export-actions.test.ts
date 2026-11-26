@@ -282,6 +282,104 @@ describe("notes/export-actions dispatchNoteExport 统一导出路由器", () => 
     expect(detachedAppendSpy).toHaveBeenCalledTimes(1);
     expect(openerAppendSpy).not.toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    downloadResponse = { ok: false, fallbackRequired: false, error: "磁盘写入失败" };
+    const realErrorRes = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "真实下载错误不应静默回退 [01:35]。",
+      autoTrigger: true
+    });
+    expect(realErrorRes.ok).toBe(false);
+    expect(realErrorRes.target).toBe("download");
+    expect(realErrorRes.method).toBe("background-download");
+    expect(realErrorRes.error).toBe("磁盘写入失败");
+    expect(realErrorRes.usedBlobFallback).toBeUndefined();
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    downloadResponse = { ok: false };
+    const defaultErrorRes = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "无 fallbackRequired 默认报错 [01:35]。",
+      autoTrigger: true
+    });
+    expect(defaultErrorRes.ok).toBe(false);
+    expect(defaultErrorRes.target).toBe("download");
+    expect(defaultErrorRes.method).toBe("background-download");
+    expect(defaultErrorRes.error).toBe("下载失败");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatchNoteExport 支持 options.target 显式覆盖默认导出目标", async () => {
+    realm = createDetachedRealm();
+    const activeHost = await import("../../extension/shared/active-host.js");
+    const coreState = await import("../../extension/core/state.js");
+    const { DEFAULT_SETTINGS } = await import("../../extension/core/defaults.js");
+    const exportActions = await import("../../extension/notes/export-actions.js");
+
+    const clip = coreState.state.clip as unknown as {
+      site: "bilibili" | "youtube";
+      title: string;
+      bvid: string;
+      currentUrl: string;
+      subtitleBody: Array<{ from: number; to: number; content: string }>;
+    };
+    clip.site = "bilibili";
+    clip.title = "显式目标覆盖测试";
+    clip.bvid = "BV1override1";
+    clip.currentUrl = "https://www.bilibili.com/video/BV1override1/";
+    clip.subtitleBody = [{ from: 15, to: 20, content: "内容" }];
+
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: vi.fn((msg: { type: string }, callback?: (res: unknown) => void) => {
+          if (msg.type === "get-settings") {
+            callback?.({
+              ok: true,
+              settings: {
+                ...DEFAULT_SETTINGS,
+                noteExportTarget: "download",
+                obsidianVaultName: "VaultA",
+                obsidianFolder: "Inbox",
+                noteDownloadSubdir: "SubNotes"
+              }
+            });
+            return;
+          }
+          if (msg.type === "download-note-artifact") {
+            callback?.({ ok: true, downloadId: 77 });
+            return;
+          }
+          callback?.({ ok: true });
+        }),
+        lastError: null
+      }
+    });
+
+    const clickedHrefs: string[] = [];
+    vi.spyOn(
+      (realm.win as unknown as { HTMLAnchorElement: typeof HTMLAnchorElement }).HTMLAnchorElement.prototype,
+      "click"
+    ).mockImplementation(function (this: HTMLAnchorElement) {
+      clickedHrefs.push(this.href);
+    });
+    activeHost.setActiveReaderHost(realm.doc, realm.win);
+
+    const obRes = await exportActions.dispatchNoteExport({
+      target: "obsidian",
+      aiNoteMarkdown: "切到 Obsidian [00:15]"
+    });
+    expect(obRes.ok).toBe(true);
+    expect(obRes.target).toBe("obsidian");
+    expect(obRes.method).toBe("obsidian");
+    expect(clickedHrefs[0]).toContain("obsidian://new?vault=VaultA");
+
+    const dlRes = await exportActions.dispatchNoteExport({
+      target: "download",
+      aiNoteMarkdown: "切到下载 [00:15]"
+    });
+    expect(dlRes.ok).toBe(true);
+    expect(dlRes.target).toBe("download");
+    expect(dlRes.method).toBe("background-download");
+    expect(dlRes.downloadId).toBe(77);
   });
 
   it("download 模式无子目录且非 autoTrigger 时直接走活跃宿主 Blob 下载不调用后台通道", async () => {

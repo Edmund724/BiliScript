@@ -136,7 +136,7 @@ const NOTE_PROMPT_PRESETS: ReadonlySet<NotePromptPreset> = new Set([
   "custom"
 ]);
 
-const WINDOWS_RESERVED_PATH_SEGMENT_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+export const WINDOWS_RESERVED_PATH_SEGMENT_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 export function normalizePlayerAiActionMode(value: unknown): PlayerAiActionMode {
   return value === "note" ? "note" : "summary";

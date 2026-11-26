@@ -1,4 +1,3 @@
-import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import type { CommittedChatTurnInfo } from "../chat/chat-runtime.js";
 import { chatSessionState } from "../chat/chat-state.js";
 import { state } from "../core/state.js";
@@ -8,7 +7,9 @@ import {
   type DispatchNoteExportOptions,
   type DispatchNoteExportResult
 } from "./export-actions.js";
-import { recordSessionNoteReply } from "./session-note-state.js";
+import { captureLiveClipSignature, recordSessionNoteReply } from "./session-note-state.js";
+
+export { captureLiveClipSignature };
 
 export interface AutoExportNoticeOptions {
   tone?: "default" | "success";
@@ -24,15 +25,6 @@ export interface HandleCommittedTurnForNotesDeps {
 }
 
 const exportedMessages = new WeakSet<object>();
-
-export function captureLiveClipSignature(): string {
-  const stateSig = String(state.clip.currentClipSignature || "").trim();
-  const urlSig = String(computeCurrentClipSignature() || "").trim();
-  if (!stateSig && !urlSig) {
-    return "";
-  }
-  return `${stateSig}||${urlSig}`;
-}
 
 export function formatAutoExportNotice(result: DispatchNoteExportResult): {
   message: string;

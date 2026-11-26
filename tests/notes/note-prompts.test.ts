@@ -73,20 +73,33 @@ describe("notes/note-prompts 站点感知视频笔记提示词预设", () => {
     expect(opinion).toContain("适用边界");
   });
 
-  it("youtube 站点采用中性称呼，绝不注入 B 站专属术语与 B 站热评条款", () => {
-    const prompt = buildVideoNotePrompt({
+  it("youtube 站点采用中性称呼，热评条款按 supportsHotComments 能力门控且绝不注入 B 站术语", () => {
+    const withHotComments = buildVideoNotePrompt({
       preset: "general",
       site: "youtube",
       supportsHotComments: true,
       includeKeyframes: false
     });
-    expect(prompt).toContain("YouTube 视频");
-    expect(prompt).toContain("频道作者");
-    expect(prompt).not.toContain("UP 主");
-    expect(prompt).not.toContain("UP主");
-    expect(prompt).not.toContain("B 站");
-    expect(prompt).not.toContain("B站");
-    expect(prompt).not.toContain("评论区");
+    expect(withHotComments).toContain("YouTube 视频");
+    expect(withHotComments).toContain("频道作者");
+    expect(withHotComments).toContain("评论补充");
+    expect(withHotComments).toContain("频道作者原片观点");
+    expect(withHotComments).not.toContain("UP 主");
+    expect(withHotComments).not.toContain("UP主");
+    expect(withHotComments).not.toContain("B 站");
+    expect(withHotComments).not.toContain("B站");
+
+    const withoutHotComments = buildVideoNotePrompt({
+      preset: "general",
+      site: "youtube",
+      supportsHotComments: false,
+      includeKeyframes: false
+    });
+    expect(withoutHotComments).toContain("YouTube 视频");
+    expect(withoutHotComments).toContain("频道作者");
+    expect(withoutHotComments).not.toContain("评论补充");
+    expect(withoutHotComments).not.toContain("UP 主");
+    expect(withoutHotComments).not.toContain("B 站");
   });
 
   it("custom 预设优先使用非空自定义提示词，空白时回退 general", () => {

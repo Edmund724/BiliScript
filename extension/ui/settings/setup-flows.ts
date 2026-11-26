@@ -1,8 +1,5 @@
 import { resolveAsrSetupState } from "../../asr/asr-setup.js";
-import {
-  checkOptionalPermissionViaBackground,
-  requestOptionalPermissionViaBackground
-} from "../../core/host-permissions.js";
+import { requestOptionalPermissionViaBackground } from "../../core/host-permissions.js";
 import type { OverviewSetupErrorClass } from "../../core/overview-setup-error.js";
 import { getSettings } from "../../core/runtime.js";
 import { requestSubtitleRefresh } from "../../reader/reader-bus.js";
@@ -323,12 +320,14 @@ export async function ensureDownloadsPermissionForNoteSettings(
     return downloadsPermissionRequestInFlight;
   }
   const run = (async () => {
-    const granted = await checkOptionalPermissionViaBackground("downloads");
-    if (granted) {
-      return;
+    let granted = false;
+    try {
+      const result = await requestOptionalPermissionViaBackground("downloads");
+      granted = Boolean(result?.ok);
+    } catch {
+      granted = false;
     }
-    const result = await requestOptionalPermissionViaBackground("downloads");
-    if (!result.ok && isStillMounted()) {
+    if (!granted && isStillMounted()) {
       setStatus(elements, DOWNLOADS_PERMISSION_DENIED_STATUS, true);
     }
   })().finally(() => {

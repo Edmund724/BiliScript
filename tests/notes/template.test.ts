@@ -138,8 +138,9 @@ describe("notes/template 渲染器", () => {
     expect(withOverviewAndAi.summary).toBe("概览提炼摘要");
     const renderedBoth = renderNoteTemplate(DEFAULT_NOTE_TEMPLATE, withOverviewAndAi);
     expect(renderedBoth).toContain('site: "youtube"');
-    expect(renderedBoth).toContain('video_id: "_a-B1234567"');
     expect(renderedBoth).toContain('videoId: "_a-B1234567"');
+    expect(renderedBoth).not.toContain("video_id:");
+    expect(renderedBoth).not.toContain("bvid:");
     expect(renderedBoth).not.toContain("yt~");
     expect(renderedBoth).toContain("## 摘要\n\n概览提炼摘要");
     expect(renderedBoth).toContain("## 视频笔记\n\n详细视频笔记正文 [01:35]。");
