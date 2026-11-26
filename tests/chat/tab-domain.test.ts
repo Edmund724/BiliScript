@@ -15,6 +15,7 @@ import {
 } from "../../extension/chat/chat-state.js";
 import type { ContextFetchOutcome } from "../../extension/core/context-assembly.js";
 import type { ChatPort } from "../../extension/chat/chat-runtime.js";
+import { createReaderChatFeedback } from "../../extension/reader/chat-notices.js";
 
 function makeSnapshot(overrides: Partial<ChatSessionContextSnapshot> = {}): ChatSessionContextSnapshot {
   return {
@@ -72,11 +73,14 @@ interface HarnessOptions {
 
 function makeHarness(options: HarnessOptions = {}) {
   const messages = document.createElement("div");
+  const inputCard = document.createElement("div");
   const input = document.createElement("textarea");
-  document.body.append(messages, input);
+  inputCard.appendChild(input);
+  document.body.append(messages, inputCard);
 
   const storage = makeMemoryStorage();
   const ports: Array<ReturnType<typeof makePort>> = [];
+  let statusListener: ((phase: string) => void) | null = null;
   const fetchContext = vi.fn(async (): Promise<ContextFetchOutcome> => {
     if (options.fetchOutcome) {
       return options.fetchOutcome();
@@ -84,12 +88,24 @@ function makeHarness(options: HarnessOptions = {}) {
     const snapshot = makeSnapshot();
     return { kind: "payload", tabUrl: snapshot.url || "", payload: snapshot };
   });
+  const feedback = createReaderChatFeedback({
+    messages,
+    inputCard,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (handle) => window.clearTimeout(handle),
+    scrollToBottom: vi.fn(),
+    onOpenSettings: vi.fn()
+  });
+  const messagesNoticeShow = vi.spyOn(feedback.messagesNotice, "show");
+  const messagesNoticeClear = vi.spyOn(feedback.messagesNotice, "clear");
+  const inputNoticeShow = vi.spyOn(feedback.inputNotice, "show");
+  const inputNoticeClear = vi.spyOn(feedback.inputNotice, "clear");
   const ui = {
     setStreamingUiState: vi.fn(),
-    showConversationContextNotice: vi.fn(),
-    removeConversationContextNotice: vi.fn(),
+    messagesNotice: feedback.messagesNotice,
+    inputNotice: feedback.inputNotice,
     hideHistoryPopover: vi.fn(),
-    removeCenteredState: vi.fn(),
+    removeCenteredState: feedback.removeCenteredState,
     removeSuggestions: vi.fn(),
     autosizeInput: vi.fn()
   };
@@ -113,7 +129,6 @@ function makeHarness(options: HarnessOptions = {}) {
   const onContextNotice = vi.fn();
   const renderHistoryList = vi.fn();
   const onWaitingChange = vi.fn();
-  const removeInputContextNotice = vi.fn();
 
   const deps: CreateChatTabDomainDeps = {
     messages,
@@ -132,9 +147,13 @@ function makeHarness(options: HarnessOptions = {}) {
     asrNotice: null,
     pageBvid: () => "BV1alpha00001",
     startSubtitleFetch: vi.fn(async () => true),
-    subscribeStatusPhase: () => () => {},
+    subscribeStatusPhase: (listener) => {
+      statusListener = listener;
+      return () => {
+        statusListener = null;
+      };
+    },
     onWaitingChange,
-    removeInputContextNotice,
     getProviderId: options.providerId ?? (() => "p1"),
     getSelectedModel: options.selectedModel ?? (() => "m1"),
     connectPort: vi.fn(async () => {
@@ -149,7 +168,14 @@ function makeHarness(options: HarnessOptions = {}) {
   return {
     domain,
     messages,
+    inputCard,
     input,
+    feedback,
+    messagesNoticeShow,
+    messagesNoticeClear,
+    inputNoticeShow,
+    inputNoticeClear,
+    fireStatusPhase: (phase: string) => statusListener?.(phase),
     ui,
     view,
     fetchContext,
@@ -158,8 +184,7 @@ function makeHarness(options: HarnessOptions = {}) {
     onConversationChanged,
     onContextNotice,
     renderHistoryList,
-    onWaitingChange,
-    removeInputContextNotice
+    onWaitingChange
   };
 }
 
@@ -355,11 +380,10 @@ describe("createChatTabDomain 任务级接口行为", () => {
     expect(verdict).toBe("blocked");
     expect(h.messages.querySelector("#setup-link")?.textContent).toBe("前往设置");
     expect(h.view.focusSetupAction).toHaveBeenCalledTimes(1);
-    expect(h.ui.showConversationContextNotice).toHaveBeenCalledWith(
-      "请先配置平台与模型，点击下方「前往设置」",
-      4000,
-      { placement: "input" }
+    expect(h.inputCard.querySelector(".chat-context-notice")?.textContent).toContain(
+      "请先配置平台与模型，点击下方「前往设置」"
     );
+    expect(h.messages.querySelector(".chat-context-notice")).toBeNull();
   });
 
   it("getTimestampNavDeps 按 liveContextKey 校验上下文有效性并读取字幕预览", async () => {
@@ -433,5 +457,57 @@ describe("createChatTabDomain 任务级接口行为", () => {
     expect(h.view.suggestions.reset).toHaveBeenCalledTimes(1);
     h.domain.closeSession({ resetRuntime: true });
     await restoring.catch(() => false);
+  });
+
+  it("双槽通知联测：sendGate 仅操作 inputCard 槽，subtitle-ready 清理不误删 messages 槽提示", async () => {
+    const emptySnapshot = makeSnapshot({
+      subtitleFetchState: "empty",
+      subtitleBody: [],
+      noSubtitleReason: "youtube-captions-unavailable"
+    });
+    const h = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: emptySnapshot.url || "", payload: emptySnapshot })
+    });
+    const unbind = h.domain.bindStatusBus();
+    h.feedback.messagesNotice.show("保留的消息槽提示", 0, { tone: "success" });
+
+    const verdict = await h.domain.sendTurn("总结一下");
+    expect(verdict).toBe("blocked");
+    expect(h.inputCard.querySelector(".chat-context-notice")).not.toBeNull();
+    expect(h.messages.querySelector(".chat-context-notice")?.textContent).toBe("保留的消息槽提示");
+
+    h.fireStatusPhase("subtitle-ready");
+    expect(h.inputCard.querySelector(".chat-context-notice")).toBeNull();
+    expect(h.messages.querySelector(".chat-context-notice")?.textContent).toBe("保留的消息槽提示");
+    unbind();
+  });
+
+  it("双槽通知联测：首 token 按 tag 仅清慢响应提示，不误删消息槽 toast 与输入槽提示", async () => {
+    vi.useFakeTimers();
+    const h = makeHarness();
+    await h.domain.loadContextState({ silent: true });
+
+    const sending = h.domain.sendTurn("开始回答");
+    await vi.waitFor(() => expect(h.ports).toHaveLength(1));
+    await sending;
+
+    h.feedback.inputNotice.show("输入槽提示", 0);
+    h.feedback.messagesNotice.show("临时消息 toast", 4000);
+    vi.advanceTimersByTime(1000);
+    h.ports[0].messageListeners.forEach((fn) => fn({ type: "token", data: "首字" }));
+    expect(h.messages.querySelector(".chat-context-notice")?.textContent).toBe("临时消息 toast");
+    expect(h.inputCard.querySelector(".chat-context-notice")?.textContent).toBe("输入槽提示");
+    h.ports[0].messageListeners.forEach((fn) => fn({ type: "done" }));
+
+    const sending2 = h.domain.sendTurn("慢响应测试");
+    await vi.waitFor(() => expect(h.ports).toHaveLength(2));
+    await sending2;
+    h.feedback.inputNotice.show("输入槽提示", 0);
+    vi.advanceTimersByTime(15000);
+    expect(h.messages.querySelector(".chat-context-notice")?.textContent).toContain("模型响应较慢");
+
+    h.ports[1].messageListeners.forEach((fn) => fn({ type: "token", data: "迟到首字" }));
+    expect(h.messages.querySelector(".chat-context-notice")).toBeNull();
+    expect(h.inputCard.querySelector(".chat-context-notice")?.textContent).toBe("输入槽提示");
   });
 });

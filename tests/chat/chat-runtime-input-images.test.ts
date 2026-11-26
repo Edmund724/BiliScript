@@ -47,8 +47,8 @@ function makeDeps(overrides: Partial<CreateChatRuntimeDeps> = {}) {
     store: { persistCurrent: vi.fn(async () => {}), isCurrent: () => true },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -171,7 +171,7 @@ describe("等待期间的发送快照", () => {
     expect(takeInputImages).toHaveBeenCalledWith([IMAGE]);
     expect(input.value).toBe("等待期间的新草稿");
     expect(attachments).toEqual([laterImage]);
-    expect(ui.showConversationContextNotice).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
+    expect(ui.messagesNotice.show).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
   });
 
   it("用户取消等待：文本与图片不消费，也不发起 port", async () => {

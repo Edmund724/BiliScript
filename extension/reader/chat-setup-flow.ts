@@ -1,7 +1,7 @@
 import { chatSessionState } from "../chat/chat-state.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import type { ChatSetupTarget } from "./chat-model-panel.js";
-import type { ReaderChatFeedback } from "./chat-notices.js";
+import type { ChatNoticeSlot } from "./chat-notices.js";
 import { closeReaderSettingsMode } from "./settings-mode.js";
 import { beginReaderAiSetupFlow, invalidateReaderSetupFlows } from "./setup-resume.js";
 import { ids } from "./state.js";
@@ -28,7 +28,7 @@ export interface CreateChatSetupFlowDeps {
   renderInitialState: () => void;
   autosizeInput: () => void;
   focusInput: () => void;
-  showNotice: ReaderChatFeedback["showConversationContextNotice"];
+  showNotice: ChatNoticeSlot["show"];
 }
 
 export interface ChatSetupFlow {

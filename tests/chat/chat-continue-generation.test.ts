@@ -15,8 +15,8 @@ interface TestDeps extends CreateChatRuntimeDeps {
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
-    showConversationContextNotice: MockFn;
-    removeConversationContextNotice: MockFn;
+    messagesNotice: { show: MockFn; clear: MockFn };
+    inputNotice: { show: MockFn; clear: MockFn };
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
@@ -63,8 +63,8 @@ function makeDeps(): TestDeps {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -358,7 +358,7 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     continueBtn.click();
 
     await vi.waitFor(() => {
-      expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("继续生成失败：offscreen 端口建立失败", 4000);
+      expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("继续生成失败：offscreen 端口建立失败", 4000);
     });
 
     expect(chatSessionState.chatHistory[1]).toEqual({

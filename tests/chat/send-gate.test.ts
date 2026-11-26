@@ -42,8 +42,8 @@ interface Harness {
   mocks: {
     loadContextState: Mock;
     hydratePinned: Mock;
-    showContextNotice: Mock;
-    removeContextNotice: Mock;
+    showInputNotice: Mock;
+    clearInputNotice: Mock;
     startSubtitleFetch: Mock;
   };
   gate: ReturnType<typeof createSendGate>;
@@ -53,11 +53,14 @@ interface Harness {
 
 function makeHarness(overrides: Partial<CreateSendGateDeps> = {}): Harness {
   const state: Harness["state"] = { listener: null, unsubscribed: false };
+  const inputNotice = overrides.inputNotice ?? {
+    show: vi.fn(),
+    clear: vi.fn()
+  };
   const deps = {
     loadContextState: vi.fn(async () => true),
     hydratePinned: vi.fn(async () => true),
-    showContextNotice: vi.fn(),
-    removeContextNotice: vi.fn(),
+    inputNotice,
     replayInFlight: () => null,
     isSessionClosed: () => false,
     isReaderTranscribing: () => false,
@@ -80,8 +83,8 @@ function makeHarness(overrides: Partial<CreateSendGateDeps> = {}): Harness {
     mocks: {
       loadContextState: deps.loadContextState as unknown as Mock,
       hydratePinned: deps.hydratePinned as unknown as Mock,
-      showContextNotice: deps.showContextNotice as unknown as Mock,
-      removeContextNotice: deps.removeContextNotice as unknown as Mock,
+      showInputNotice: inputNotice.show as unknown as Mock,
+      clearInputNotice: inputNotice.clear as unknown as Mock,
       startSubtitleFetch: deps.startSubtitleFetch as unknown as Mock
     },
     gate: createSendGate(typedDeps),
@@ -130,10 +133,10 @@ describe("发送闸 createSendGate", () => {
     it("loadContextState false → read-failed + 输入区重试通知", async () => {
       const h = makeHarness({ loadContextState: vi.fn(async () => false) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_READ_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
 
@@ -141,10 +144,10 @@ describe("发送闸 createSendGate", () => {
       chatSessionStateForTests.contextData = null;
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_READ_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
   });
@@ -178,10 +181,10 @@ describe("发送闸 createSendGate", () => {
       const h = makeHarness({ startSubtitleFetch: vi.fn(async () => false) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_READ_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
 
@@ -252,8 +255,8 @@ describe("发送闸 createSendGate", () => {
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(polls).toBeGreaterThanOrEqual(3);
       expect(waitingCalls).toEqual([true, false]);
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
-      expect(h.mocks.removeContextNotice).toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
+      expect(h.mocks.clearInputNotice).toHaveBeenCalled();
     });
 
     it("首轮读取尚未确认 pending 时不闪等待态，确认 pending 后才开启", async () => {
@@ -311,7 +314,7 @@ describe("发送闸 createSendGate", () => {
       releasePoll();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(h.mocks.loadContextState).toHaveBeenCalledTimes(2);
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
 
     it("等待 UI 已显示时 cancel() 返回 cancelled 并成对复位", async () => {
@@ -328,13 +331,13 @@ describe("发送闸 createSendGate", () => {
 
       await expect(pending).resolves.toEqual({ pass: false, kind: "cancelled" });
       expect(waitingCalls).toEqual([true, false]);
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
 
     it("clip 已就绪（字幕体非空）→ 不即时出抓取通知（不闪一条又立刻撤）", async () => {
       const h = makeHarness({ clip: () => clip({ subtitleBody: ["x"], subtitleFetchState: "ready" }) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
 
     it("等待闸兑现 false（读取失败）→ read-failed + 输入区重试通知", async () => {
@@ -347,10 +350,10 @@ describe("发送闸 createSendGate", () => {
         })
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_READ_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
   });
@@ -362,11 +365,10 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         expect.stringContaining("语音转写开关已关闭"),
         0,
         expect.objectContaining({
-          placement: "input",
           openSettingsAction: true,
           settingsTarget: "asr",
           action: expect.objectContaining({ label: "重新抓取" })
@@ -380,17 +382,16 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-auth"),
         0,
         expect.objectContaining({
-          placement: "input",
           openSettingsAction: true,
           settingsTarget: "asr",
           action: expect.objectContaining({ label: "重新抓取" })
         })
       );
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         expect.stringContaining("当前视频没有字幕，无法总结。"),
         0,
         expect.anything()
@@ -403,11 +404,10 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-quota"),
         0,
         expect.objectContaining({
-          placement: "input",
           openSettingsAction: false,
           action: expect.objectContaining({ label: "重新抓取" })
         })
@@ -420,11 +420,10 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", null),
         0,
         expect.objectContaining({
-          placement: "input",
           openSettingsAction: true,
           settingsTarget: "asr",
           action: expect.objectContaining({ label: "重新抓取" })
@@ -443,20 +442,18 @@ describe("发送闸 createSendGate", () => {
       });
       const h = makeHarness({ clip: () => emptyClip, startSubtitleFetch });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      const options = h.mocks.showContextNotice.mock.calls[0][2];
-      h.mocks.showContextNotice.mockClear();
-      h.mocks.removeContextNotice.mockClear();
+      const options = h.mocks.showInputNotice.mock.calls[0][2];
+      h.mocks.showInputNotice.mockClear();
+      h.mocks.clearInputNotice.mockClear();
 
       options.action.onClick();
 
-      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(1, SUBTITLE_RETRYING_NOTICE, 0, {
-        placement: "input",
+      expect(h.mocks.showInputNotice).toHaveBeenNthCalledWith(1, SUBTITLE_RETRYING_NOTICE, 0, {
         spinner: true
       });
-      await vi.waitFor(() => expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(h.mocks.clearInputNotice).toHaveBeenCalledTimes(1));
       expect(startSubtitleFetch).toHaveBeenCalledWith({ forceRefresh: true, awaitRefresh: true });
-      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(2, SUBTITLE_RETRY_READY_NOTICE, 3000, {
-        placement: "input",
+      expect(h.mocks.showInputNotice).toHaveBeenNthCalledWith(2, SUBTITLE_RETRY_READY_NOTICE, 3000, {
         tone: "success"
       });
     });
@@ -473,17 +470,16 @@ describe("发送闸 createSendGate", () => {
       });
       const h = makeHarness({ clip: () => emptyClip, startSubtitleFetch, onRetrySubtitleReady });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      const options = h.mocks.showContextNotice.mock.calls[0][2];
-      h.mocks.showContextNotice.mockClear();
-      h.mocks.removeContextNotice.mockClear();
+      const options = h.mocks.showInputNotice.mock.calls[0][2];
+      h.mocks.showInputNotice.mockClear();
+      h.mocks.clearInputNotice.mockClear();
 
       options.action.onClick();
 
       await vi.waitFor(() => expect(onRetrySubtitleReady).toHaveBeenCalledTimes(1));
-      expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1);
-      expect(h.mocks.showContextNotice).toHaveBeenCalledTimes(1);
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_RETRYING_NOTICE, 0, {
-        placement: "input",
+      expect(h.mocks.clearInputNotice).toHaveBeenCalledTimes(1);
+      expect(h.mocks.showInputNotice).toHaveBeenCalledTimes(1);
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(SUBTITLE_RETRYING_NOTICE, 0, {
         spinner: true
       });
     });
@@ -493,18 +489,17 @@ describe("发送闸 createSendGate", () => {
       chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
       const h = makeHarness({ clip: () => emptyClip });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      const options = h.mocks.showContextNotice.mock.calls[0][2];
-      h.mocks.showContextNotice.mockClear();
+      const options = h.mocks.showInputNotice.mock.calls[0][2];
+      h.mocks.showInputNotice.mockClear();
 
       options.action.onClick();
 
-      await vi.waitFor(() => expect(h.mocks.showContextNotice).toHaveBeenCalledTimes(2));
-      expect(h.mocks.showContextNotice).toHaveBeenNthCalledWith(
+      await vi.waitFor(() => expect(h.mocks.showInputNotice).toHaveBeenCalledTimes(2));
+      expect(h.mocks.showInputNotice).toHaveBeenNthCalledWith(
         2,
         buildAsrNoSubtitleMessage("sidepanel", "youtube-captions-unavailable"),
         0,
         expect.objectContaining({
-          placement: "input",
           action: expect.objectContaining({ label: "重新抓取" })
         })
       );
@@ -516,11 +511,11 @@ describe("发送闸 createSendGate", () => {
       const h = makeHarness({ clip: () => emptyClip });
       h.gate.bindStatusBus();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      h.mocks.removeContextNotice.mockClear();
+      h.mocks.clearInputNotice.mockClear();
 
       h.firePhase("subtitle-ready");
 
-      expect(h.mocks.removeContextNotice).toHaveBeenCalledTimes(1);
+      expect(h.mocks.clearInputNotice).toHaveBeenCalledTimes(1);
       expect(h.gate.isNoSubtitleBlocked()).toBe(false);
     });
 
@@ -528,11 +523,11 @@ describe("发送闸 createSendGate", () => {
       const loadContextState = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
       const h = makeHarness({ loadContextState });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      const options = h.mocks.showContextNotice.mock.calls[0][2];
+      const options = h.mocks.showInputNotice.mock.calls[0][2];
 
       options.action.onClick();
 
-      await vi.waitFor(() => expect(h.mocks.removeContextNotice).toHaveBeenCalled());
+      await vi.waitFor(() => expect(h.mocks.clearInputNotice).toHaveBeenCalled());
       expect(loadContextState).toHaveBeenLastCalledWith({ forceRefresh: true, silent: true, preserveInput: true });
     });
 
@@ -540,10 +535,10 @@ describe("发送闸 createSendGate", () => {
       chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "error" }));
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "fetch-error" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_FETCH_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
 
@@ -553,7 +548,7 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
   });
 
@@ -570,9 +565,12 @@ describe("发送闸 createSendGate", () => {
           events.push("fetch");
           return true;
         }),
-        showContextNotice: vi.fn(() => {
-          events.push("notice");
-        }),
+        inputNotice: {
+          show: vi.fn(() => {
+            events.push("notice");
+          }),
+          clear: vi.fn()
+        },
         onWaitingChange: (waiting) => {
           events.push(waiting ? "wait:enter" : "wait:exit");
         },
@@ -733,7 +731,7 @@ describe("发送闸 createSendGate", () => {
       h.gate.bindStatusBus();
       h.firePhase("asr-transcribing");
       expect(chatSessionState.asrTranscribingActive).toBe(true);
-      expect(h.mocks.removeContextNotice).toHaveBeenCalled();
+      expect(h.mocks.clearInputNotice).toHaveBeenCalled();
       h.firePhase("asr-done");
       expect(chatSessionState.asrTranscribingActive).toBe(false);
     });
@@ -807,7 +805,7 @@ describe("发送闸 createSendGate", () => {
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(asrNotice.hidden).toBe(false);
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
   });
 
@@ -823,10 +821,10 @@ describe("发送闸 createSendGate", () => {
         })
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         SUBTITLE_READ_FAILED_NOTICE,
         0,
-        expect.objectContaining({ placement: "input", action: expect.objectContaining({ label: "重试读取" }) })
+        expect.objectContaining({ action: expect.objectContaining({ label: "重试读取" }) })
       );
     });
   });
@@ -941,7 +939,7 @@ describe("发送闸 createSendGate", () => {
       );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
-      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+      expect(h.mocks.showInputNotice).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -964,16 +962,15 @@ describe("发送闸 createSendGate", () => {
       const h = makeHarness({ clip: () => clip({ subtitleFetchState: "ready" }) });
 
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+      expect(h.mocks.showInputNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", reason as never),
         0,
         expect.objectContaining({
-          placement: "input",
           openSettingsAction: expectedOpenSettings,
           settingsTarget: "asr"
         })
       );
-      const shownMessage = h.mocks.showContextNotice.mock.calls[0][0] as string;
+      const shownMessage = h.mocks.showInputNotice.mock.calls[0][0] as string;
       expect(shownMessage).not.toContain("错误详情");
     });
   });

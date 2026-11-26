@@ -657,12 +657,11 @@ describe("YouTube IDB 水合、分P守卫与缓存淘汰只读守卫", () => {
     expect(notices.some((n) => n.kind === "error")).toBe(false);
     expect(isPinnedYoutubeCacheEvicted(chatSessionState.currentConversationMeta)).toBe(true);
 
-    const showContextNotice = vi.fn();
+    const showInputNotice = vi.fn();
     const gate = createSendGate({
       loadContextState: async (opts) => Boolean(await loadContextState(opts)),
       hydratePinned: (opts) => store.hydratePinned(opts),
-      showContextNotice,
-      removeContextNotice: vi.fn(),
+      inputNotice: { show: showInputNotice, clear: vi.fn() },
       replayInFlight: vi.fn(async () => {}),
       isSessionClosed: () => false,
       isReaderTranscribing: () => false,
@@ -676,11 +675,10 @@ describe("YouTube IDB 水合、分P守卫与缓存淘汰只读守卫", () => {
     const outcome = await gate.ensureContextForSend();
     expect(outcome).toEqual({ pass: false, kind: "read-failed" });
     expect(notices.some((n) => n.kind === "error")).toBe(false);
-    expect(showContextNotice).toHaveBeenCalledWith(
+    expect(showInputNotice).toHaveBeenCalledWith(
       YOUTUBE_CACHE_EVICTED_SEND_NOTICE,
       0,
       expect.objectContaining({
-        placement: "input",
         action: expect.objectContaining({ label: "打开原视频" })
       })
     );

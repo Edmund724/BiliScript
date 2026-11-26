@@ -18,12 +18,14 @@ import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
+import type { ChatNoticeSlot } from "../reader/chat-notices.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
+export const STREAM_SLOW_NOTICE_TAG = "stream-slow";
 
 export type SendVerdict = "accepted" | "blocked" | "ignored";
 
@@ -55,18 +57,8 @@ export interface ChatRuntimeStore {
 
 export interface ChatRuntimeUi {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
-  showConversationContextNotice: (
-    message: string,
-    autoHideMs?: number,
-    options?: {
-      openSettingsAction?: boolean;
-      spinner?: boolean;
-      settingsTarget?: "asr";
-      placement?: "input";
-      action?: { label: string; onClick: () => void };
-    }
-  ) => void;
-  removeConversationContextNotice: () => void;
+  messagesNotice: ChatNoticeSlot;
+  inputNotice: ChatNoticeSlot;
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
   removeSuggestions: () => void;
@@ -258,7 +250,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   const speech = createChatSpeechController({
     engine: deps.speechEngine,
     getVolume: deps.getSpeechVolume,
-    onError: (message) => deps.ui.showConversationContextNotice(message, 4000)
+    onError: (message) => deps.ui.messagesNotice.show(message, 4000)
   });
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
@@ -268,7 +260,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       startBranch("continue", historyIndex, node);
     },
     onExport: exportAssistant,
-    onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
+    onNotice: (message) => deps.ui.messagesNotice.show(message, 4000),
     onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
     isRegenerationDisabled: () => isTurnActive() || activeBranch !== null
@@ -367,7 +359,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (msg.code === "truncated") {
         turnTruncatedNotice = String(msg.data || "");
       } else {
-        deps.ui.showConversationContextNotice(msg.data, 4000);
+        deps.ui.messagesNotice.show(msg.data, 4000);
       }
     } else if (msg.type === "tool-status") {
       if (typeof msg.generation === "number" && msg.generation !== activeToolGeneration) {
@@ -377,7 +369,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (msg.status === "searching") {
         activeToolCalls.add(activityId);
         clearStreamSlowNoticeTimer();
-        deps.ui.removeConversationContextNotice();
+        deps.ui.messagesNotice.clear(STREAM_SLOW_NOTICE_TAG);
       } else {
         activeToolCalls.delete(activityId);
         if (!activeToolCalls.size && activePort && !streamFirstTokenReceived) {
@@ -490,7 +482,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     const branchContext = resolveBranchContext(originalHistory, userIndex);
     if (!branchContext) {
-      deps.ui.showConversationContextNotice(
+      deps.ui.messagesNotice.show(
         action === "regenerate"
           ? "原消息的视频或分P上下文不可用，无法重新生成。"
           : "原消息的视频或分P上下文不可用，无法继续生成。",
@@ -697,10 +689,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeToolCalls.clear();
       startStreamSlowNoticeTimer();
       if (preserveSnapshotNotice) {
-        deps.ui.showConversationContextNotice("已发送原文，保留了后来修改的草稿与图片", 4000);
+        deps.ui.messagesNotice.show("已发送原文，保留了后来修改的草稿与图片", 4000);
       }
       if (optIn === "declined") {
-        deps.ui.showConversationContextNotice(SEARCH_OPT_IN_DECLINED_NOTICE, 4000, { placement: "input" });
+        deps.ui.inputNotice.show(SEARCH_OPT_IN_DECLINED_NOTICE, 4000);
       }
       streamFirstTokenReceived = false;
 
@@ -950,7 +942,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       if (activeBranch) {
         const prefix = activeBranch.kind === "regenerate" ? "重新生成失败" : "继续生成失败";
-        deps.ui.showConversationContextNotice(`${prefix}：${message}`, 4000);
+        deps.ui.messagesNotice.show(`${prefix}：${message}`, 4000);
       }
     });
   }
@@ -1004,7 +996,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (!activePort || streamFirstTokenReceived || activeToolCalls.size > 0) {
         return;
       }
-      deps.ui.showConversationContextNotice("模型响应较慢，可能正在思考，请稍候…", 0);
+      deps.ui.messagesNotice.show("模型响应较慢，可能正在思考，请稍候…", 0, { tag: STREAM_SLOW_NOTICE_TAG });
     }, STREAM_SLOW_NOTICE_MS);
   }
 
@@ -1023,7 +1015,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
   function clearStreamRuntimeState(): void {
     clearStreamSlowNoticeTimer();
-    deps.ui.removeConversationContextNotice();
+    deps.ui.messagesNotice.clear(STREAM_SLOW_NOTICE_TAG);
   }
 
   function isStreaming(): boolean {

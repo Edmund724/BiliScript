@@ -29,8 +29,8 @@ function makeDeps() {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -464,7 +464,7 @@ describe("搜索终态、播报与键盘可用性", () => {
     feed(runtime, { type: "notice", data: "联网搜索失败：HTTP 503" });
     feed(runtime, { type: "token", data: "基于已有信息继续回答" });
     feed(runtime, { type: "done" });
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("联网搜索失败：HTTP 503", 4000);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("联网搜索失败：HTTP 503", 4000);
     expect(deps.messages.querySelector(".chat-msg-assistant-body")!.textContent).toContain("基于已有信息继续回答");
     expect(chain.dataset.status).toBe("failed");
   });

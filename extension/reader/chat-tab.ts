@@ -140,10 +140,9 @@ const feedback = createReaderChatFeedback({
   onOpenSettings: (settingsTarget) => liveBridge.openChatSettings(settingsTarget)
 });
 const {
-  showConversationContextNotice,
-  removeConversationContextNotice,
-  removeInputContextNotice,
-  removePersistentContextNotice,
+  messagesNotice,
+  inputNotice,
+  clearAllNotices,
   showConversationContextError,
   removeCenteredState
 } = feedback;
@@ -151,7 +150,7 @@ const {
 const liveBridge = createChatLiveBridge({
   liveStatusRoot: els.liveStatus,
   getTimestampNavDeps: () => chatDomain.getTimestampNavDeps(),
-  showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs),
+  showNotice: (message, autoHideMs) => messagesNotice.show(message, autoHideMs),
   stopSpeech: () => chatDomain.stopSpeech(),
   isTurnActive: () => chatDomain.isTurnActive(),
   stopActiveStream: () => chatDomain.stopActiveStream(),
@@ -163,7 +162,7 @@ const liveBridge = createChatLiveBridge({
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
   isStreaming: () => chatDomain.isStreaming(),
-  onReject: (message) => showConversationContextNotice(message, 4000),
+  onReject: (message) => messagesNotice.show(message, 4000),
   onPendingChange: () => composer.updateSendBtnState(),
   focusInput: () => els.input.focus({ preventScroll: true })
 });
@@ -192,7 +191,7 @@ const composer = createReaderChatComposer({
   },
   onPasteImage: (e) => inputImages.handlePaste(e),
   onCancelSubtitleWait: () => chatDomain.cancelSubtitleWait(),
-  onNotice: showConversationContextNotice,
+  onNotice: messagesNotice.show,
   isImageProcessing: () => inputImages.isPending(),
   hasInputImages: () => inputImages.count() > 0,
   prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
@@ -222,13 +221,13 @@ const explainIntentController = createExplainIntentController({
       ...(options?.interactionAnchor ? { interactionAnchor: options.interactionAnchor } : {})
     }),
   isTurnActive: () => chatDomain.isTurnActive(),
-  onNotice: showConversationContextNotice,
+  onNotice: messagesNotice.show,
   onFocusInput: () => els.input?.focus?.({ preventScroll: true })
 });
 
 const imageSupportGate = createImageSupportGate({
   getSelectedModelValue: () => modelPanel.getSelectedValue(),
-  notify: (message) => showConversationContextNotice(message, 4000)
+  notify: (message) => messagesNotice.show(message, 4000)
 });
 
 const setupFlow = createChatSetupFlow({
@@ -240,7 +239,7 @@ const setupFlow = createChatSetupFlow({
   renderInitialState: () => chatDomain.renderInitialState(),
   autosizeInput: () => composer.autosizeInput(),
   focusInput: () => els.input?.focus?.({ preventScroll: true }),
-  showNotice: showConversationContextNotice
+  showNotice: messagesNotice.show
 });
 
 const chatDomain = createChatTabDomain({
@@ -248,8 +247,8 @@ const chatDomain = createChatTabDomain({
   input: els.input,
   ui: {
     setStreamingUiState: composer.setStreamingUiState,
-    showConversationContextNotice,
-    removeConversationContextNotice: removePersistentContextNotice,
+    messagesNotice,
+    inputNotice,
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions: () => suggestionsSlot.clear(),
@@ -296,9 +295,9 @@ const chatDomain = createChatTabDomain({
   },
   onContextNotice: (notice) => {
     if (notice.kind === "pending") {
-      showConversationContextNotice(notice.message);
+      messagesNotice.show(notice.message);
     } else if (notice.kind === "clear") {
-      removeConversationContextNotice();
+      clearAllNotices();
     } else {
       showConversationContextError(notice.message);
     }
@@ -314,7 +313,6 @@ const chatDomain = createChatTabDomain({
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
-  removeInputContextNotice,
   onRetrySubtitleReady: async () => {
     const pending = pendingQuickActionRetry;
     if (
@@ -657,7 +655,7 @@ export function closeChatSession(): void {
   deactivateChatTabOverlays();
   lists.cancelPendingSwitch();
   lists.settlePendingDeletion();
-  removeConversationContextNotice();
+  clearAllNotices();
   explainIntentController.hide();
   deactivateSessionTriggers();
 }
@@ -683,7 +681,7 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       return false;
     }
     if (chatDomain.isTurnActive()) {
-      showConversationContextNotice("当前对话正在生成或发送，请稍后再试。", 4000);
+      messagesNotice.show("当前对话正在生成或发送，请稍后再试。", 4000);
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
@@ -792,7 +790,7 @@ function bindEvents(): void {
       }
       const imageFiles = files.filter((file) => /^image\//i.test(String(file.type || "")));
       if (!imageFiles.length) {
-        showConversationContextNotice("仅支持拖入图片文件", 4000);
+        messagesNotice.show("仅支持拖入图片文件", 4000);
         return;
       }
       inputImages.addFiles(imageFiles);

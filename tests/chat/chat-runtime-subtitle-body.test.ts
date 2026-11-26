@@ -54,8 +54,8 @@ function makeRuntime() {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),

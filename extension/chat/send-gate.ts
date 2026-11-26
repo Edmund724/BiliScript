@@ -13,6 +13,7 @@ import { buildCanonicalVideoUrl } from "../bilibili/video-id-shared.js";
 import { isPinnedContextStrict } from "./context-load.js";
 import { isPinnedYoutubeCacheEvicted } from "./conversation-store.js";
 import type { ClipState, NoSubtitleReason, SubtitleFetchState } from "../core/state.js";
+import type { ChatNoticeSlot } from "../reader/chat-notices.js";
 
 interface SubtitleReadiness {
   hasBody: boolean;
@@ -92,19 +93,7 @@ export interface StartSubtitleFetchOptions {
 export interface CreateSendGateDeps {
   loadContextState: (opts: { forceRefresh: boolean; silent: boolean; preserveInput?: boolean }) => Promise<boolean>;
   hydratePinned: (opts?: { preserveInput?: boolean }) => Promise<boolean>;
-  showContextNotice: (
-    message: string,
-    durationMs: number,
-    opts?: {
-      openSettingsAction?: boolean;
-      spinner?: boolean;
-      settingsTarget?: "asr";
-      placement?: "input";
-      tone?: "default" | "success";
-      action?: { label: string; onClick: () => void };
-    }
-  ) => void;
-  removeContextNotice: () => void;
+  inputNotice: ChatNoticeSlot;
   onWaitingChange?: (waiting: boolean) => void;
   onRetrySubtitleReady?: () => boolean | Promise<boolean>;
   replayInFlight: () => Promise<void> | null;
@@ -158,7 +147,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   }
 
   function clearWaitNotice(): void {
-    deps.removeContextNotice();
+    deps.inputNotice.clear();
     if (asrWaitingActive) {
       asrWaitingActive = false;
       updateAsrNotice();
@@ -271,12 +260,12 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       if (phase === "asr-transcribing") {
         setAsrTranscribingActive(true);
         noSubtitleBlocked = false;
-        deps.removeContextNotice();
+        deps.inputNotice.clear();
       } else if (phase === "asr-done" || phase === "subtitle-ready") {
         setAsrTranscribingActive(false);
         noSubtitleBlocked = false;
         if (!retryInFlight) {
-          deps.removeContextNotice();
+          deps.inputNotice.clear();
         }
         kickSubtitleWait();
       } else if (phase === "asr-failed") {
@@ -328,7 +317,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
         return;
       }
       if (chatSessionState.contextData) {
-        deps.removeContextNotice();
+        deps.inputNotice.clear();
       }
     })();
   }
@@ -344,8 +333,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
 
   function showYoutubeCacheEvictedNotice(): void {
     const targetUrl = resolveYoutubeWatchUrl(chatSessionState.currentConversationMeta);
-    deps.showContextNotice(YOUTUBE_CACHE_EVICTED_SEND_NOTICE, 0, {
-      placement: "input",
+    deps.inputNotice.show(YOUTUBE_CACHE_EVICTED_SEND_NOTICE, 0, {
       ...(targetUrl
         ? {
             action: {
@@ -362,16 +350,14 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   }
 
   function showReadFailedNotice(): void {
-    deps.showContextNotice(SUBTITLE_READ_FAILED_NOTICE, 0, {
-      placement: "input",
+    deps.inputNotice.show(SUBTITLE_READ_FAILED_NOTICE, 0, {
       action: { label: "重试读取", onClick: retryContextRead }
     });
   }
 
   function showNoSubtitleNotice(reason: NoSubtitleReason | undefined): void {
     const notice = buildNoSubtitleNotice(reason);
-    deps.showContextNotice(notice.message, 0, {
-      placement: "input",
+    deps.inputNotice.show(notice.message, 0, {
       action: { label: "重新抓取", onClick: retrySubtitleFetch },
       openSettingsAction: notice.openSettings,
       settingsTarget: "asr"
@@ -379,8 +365,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   }
 
   function showRetryFetchFailedNotice(): void {
-    deps.showContextNotice(SUBTITLE_FETCH_FAILED_NOTICE, 0, {
-      placement: "input",
+    deps.inputNotice.show(SUBTITLE_FETCH_FAILED_NOTICE, 0, {
       action: { label: "重新抓取", onClick: retrySubtitleFetch }
     });
   }
@@ -391,8 +376,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     }
     const currentRetryGen = ++retryGeneration;
     retryInFlight = true;
-    deps.showContextNotice(SUBTITLE_RETRYING_NOTICE, 0, {
-      placement: "input",
+    deps.inputNotice.show(SUBTITLE_RETRYING_NOTICE, 0, {
       spinner: true
     });
     void (async () => {
@@ -449,14 +433,13 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
         }
         noSubtitleBlocked = false;
         retryInFlight = false;
-        deps.removeContextNotice();
+        deps.inputNotice.clear();
         const resumed = await Promise.resolve(deps.onRetrySubtitleReady?.()).catch(() => false);
         if (deps.isSessionClosed() || currentRetryGen !== retryGeneration) {
           return;
         }
         if (!resumed) {
-          deps.showContextNotice(SUBTITLE_RETRY_READY_NOTICE, 3000, {
-            placement: "input",
+          deps.inputNotice.show(SUBTITLE_RETRY_READY_NOTICE, 3000, {
             tone: "success"
           });
         }
@@ -515,8 +498,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       return { pass: false, kind: "no-subtitle" };
     }
     if (isSubtitleFetchFailed(finalReadiness)) {
-      deps.showContextNotice(SUBTITLE_FETCH_FAILED_NOTICE, 0, {
-        placement: "input",
+      deps.inputNotice.show(SUBTITLE_FETCH_FAILED_NOTICE, 0, {
         action: { label: "重试读取", onClick: retryContextRead }
       });
       return { pass: false, kind: "fetch-error" };

@@ -16,8 +16,8 @@ interface TestDeps extends CreateChatRuntimeDeps {
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
-    showConversationContextNotice: MockFn;
-    removeConversationContextNotice: MockFn;
+    messagesNotice: { show: MockFn; clear: MockFn };
+    inputNotice: { show: MockFn; clear: MockFn };
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
@@ -65,8 +65,8 @@ function makeDeps(): TestDeps {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -505,10 +505,9 @@ describe("联网搜索授权与视图销毁", () => {
     await expect(sending).resolves.toBe("accepted");
     expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ webSearchEnabled: false }));
     expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchEnabled: false } });
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(
+    expect(deps.ui.inputNotice.show).toHaveBeenCalledWith(
       "已关闭联网搜索，可在输入区重新开启",
-      4000,
-      { placement: "input" }
+      4000
     );
   });
 

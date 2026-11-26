@@ -95,7 +95,6 @@ export interface CreateChatTabDomainDeps {
   startSubtitleFetch: (options?: StartSubtitleFetchOptions) => Promise<boolean>;
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
   onWaitingChange?: (waiting: boolean) => void;
-  removeInputContextNotice?: () => void;
   onRetrySubtitleReady?: () => boolean | Promise<boolean>;
   getProviderId: () => string;
   getSelectedModel: () => string;
@@ -190,7 +189,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
   function showSetupBlockedState(): void {
     resetConversationView(deps.view.getSetupStateHtml());
     deps.view.focusSetupAction?.();
-    deps.ui.showConversationContextNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
+    deps.ui.inputNotice.show("请先配置平台与模型，点击下方「前往设置」", 4000);
   }
 
   function detachForContextReset({ preserveInput = false }: { preserveInput?: boolean } = {}): void {
@@ -297,7 +296,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
         }
         return !targetContextKey || !liveKey || targetContextKey === liveKey;
       },
-      notice: (message, autoHideMs) => deps.ui.showConversationContextNotice(message, autoHideMs),
+      notice: (message, autoHideMs) => deps.ui.messagesNotice.show(message, autoHideMs),
       seek: (seconds: number) => deps.view.seekReadingTarget(seconds),
       getSubtitlePreview: (seconds: number) => {
         const body =
@@ -361,8 +360,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
   const sendGate = createSendGate({
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     hydratePinned: (opts) => store.hydratePinned(opts),
-    showContextNotice: deps.ui.showConversationContextNotice,
-    removeContextNotice: deps.removeInputContextNotice ?? deps.ui.removeConversationContextNotice,
+    inputNotice: deps.ui.inputNotice,
     replayInFlight: () => replay?.inFlight ?? null,
     isSessionClosed: deps.isSessionClosed,
     isReaderTranscribing: deps.isReaderTranscribing,

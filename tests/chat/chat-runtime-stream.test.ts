@@ -17,8 +17,8 @@ interface TestDeps extends CreateChatRuntimeDeps {
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
-    showConversationContextNotice: MockFn;
-    removeConversationContextNotice: MockFn;
+    messagesNotice: { show: MockFn; clear: MockFn };
+    inputNotice: { show: MockFn; clear: MockFn };
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
@@ -69,8 +69,8 @@ function makeDeps(): TestDeps {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -337,7 +337,7 @@ describe("sendMessage 建流与协议入口", () => {
     expect(deps.ports).toHaveLength(1);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
     expect(deps.input.value).toBe("第二条");
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
   });
 
   it("空文本 sendMessage：verdict=ignored，输入框保持空、无 port", async () => {
@@ -698,7 +698,7 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
 
     feed(runtime, { type: "notice", data: "上下文提示" });
 
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("上下文提示", 4000);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("上下文提示", 4000);
     expect(runtime.isStreaming()).toBe(true);
   });
 
@@ -712,7 +712,7 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     feed(runtime, { type: "notice", data: "回答被截断（达到模型输出上限）", code: "truncated" });
     feed(runtime, { type: "done" });
 
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalled();
     expect(node.querySelector(".chat-msg-assistant-body")?.innerHTML).toBe(renderMarkdown("半句"));
     expect(node.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
     expect(node.querySelector(".chat-msg-continue-btn")).not.toBeNull();
@@ -840,13 +840,13 @@ describe("慢响应提示计时器（fake timers）", () => {
     const { deps, runtime } = await makeRuntime();
 
     vi.advanceTimersByTime(15000);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0, { tag: "stream-slow" });
 
     feed(runtime, { type: "token", data: "第一帧" });
-    expect(deps.ui.removeConversationContextNotice).toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.clear).toHaveBeenCalled();
 
     vi.advanceTimersByTime(60000);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledTimes(1);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledTimes(1);
   });
 
   it("15s 内收到首 token → 计时器被清，此后再久也不弹慢响应 notice", async () => {
@@ -856,7 +856,7 @@ describe("慢响应提示计时器（fake timers）", () => {
     feed(runtime, { type: "token", data: "很快就来了" });
     vi.advanceTimersByTime(60000);
 
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalled();
   });
 
   it("done 收尾清计时器：收尾后不再弹慢响应 notice", async () => {
@@ -866,14 +866,14 @@ describe("慢响应提示计时器（fake timers）", () => {
     feed(runtime, { type: "done" });
     vi.advanceTimersByTime(30000);
 
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalled();
     expect(session.port.disconnect).toHaveBeenCalled();
   });
 
   it("终态收尾不重置首 token 标志：收尾后迟到的 reasoning 不再触发清理、下一条消息慢响应提示照常", async () => {
     vi.useFakeTimers();
     const { deps, runtime } = await makeRuntime("问题一");
-    const removeSpy = deps.ui.removeConversationContextNotice;
+    const removeSpy = deps.ui.messagesNotice.clear;
 
     feed(runtime, { type: "reasoning", data: "思考" });
     feed(runtime, { type: "done" });
@@ -885,12 +885,12 @@ describe("慢响应提示计时器（fake timers）", () => {
     deps.input.value = "问题二";
     await runtime.sendTurn(deps.input.value);
     vi.advanceTimersByTime(15000);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0, { tag: "stream-slow" });
 
     feed(runtime, { type: "token", data: "回答" });
     expect(removeSpy.mock.calls.length).toBeGreaterThan(3);
     vi.advanceTimersByTime(60000);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledTimes(1);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1014,7 +1014,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     expect(runtime.isStreaming()).toBe(false);
     expect(runtime.hasPendingUserPrompt()).toBe(false);
     expect(deps.ui.setStreamingUiState).toHaveBeenLastCalledWith(false, expect.anything());
-    expect(deps.ui.removeConversationContextNotice).toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.clear).toHaveBeenCalled();
 
     expect(deps.ports).toHaveLength(0);
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
@@ -1579,7 +1579,7 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     const raf = holdRaf();
     const { deps, runtime } = await makeRuntime("问");
     feed(runtime, { type: "tool-status", status: "searching", query: "x", platform: "Tavily" });
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(expect.stringContaining("Tavily · 搜索中"), 4000);
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalledWith(expect.stringContaining("Tavily · 搜索中"), 4000);
     const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
     expect(chain).toBeTruthy();
     expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("联网检索 · x…");
@@ -1905,7 +1905,7 @@ describe("消息操作：重新生成与导出", () => {
     expect(assistants[1].textContent).toContain("第二答");
     expect(assistants[1].hidden).toBe(false);
     expect(deps.messages.querySelector(".chat-thought-chain")).toBeNull();
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("重新生成失败：网络中断", 4000);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("重新生成失败：网络中断", 4000);
   });
 
   it("重新生成后手动停止：已有部分内容则替换旧回答并标记停止", async () => {
@@ -2021,7 +2021,7 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     feed(runtime, searching);
 
     vi.advanceTimersByTime(45000);
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0, { tag: "stream-slow" });
     expect(deps.messages.querySelector(".chat-thought-step-detail")!.textContent).toBe("00:12 附近");
   });
 
@@ -2043,11 +2043,11 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     });
 
     vi.advanceTimersByTime(14999);
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0, { tag: "stream-slow" });
     vi.advanceTimersByTime(1);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0, { tag: "stream-slow" });
     feed(runtime, { type: "token", data: "继续回答" });
-    expect(deps.ui.removeConversationContextNotice).toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.clear).toHaveBeenCalled();
   });
 
   it("旧端口在新回合后的迟到消息与断连不影响新回合", async () => {

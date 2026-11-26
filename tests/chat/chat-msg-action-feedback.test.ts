@@ -30,8 +30,8 @@ function makeDeps() {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -102,7 +102,7 @@ describe("消息操作反馈归属（06 号票）", () => {
 
     expect(copyBtn.getAttribute("aria-label")).toBe("已复制");
     expect(copyBtn.classList.contains("is-copied")).toBe(true);
-    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
+    expect(deps.ui.messagesNotice.show).not.toHaveBeenCalled();
   });
 
   it("复制保留原 Markdown，用户消息也复制原文而不升级标题", async () => {
@@ -134,7 +134,7 @@ describe("消息操作反馈归属（06 号票）", () => {
     const copyBtn = node.querySelector<HTMLButtonElement>(".chat-msg-copy-btn")!;
     copyBtn.click();
 
-    await vi.waitFor(() => expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith(
       "复制失败，请检查浏览器剪贴板权限后重试",
       4000
     ));
@@ -152,8 +152,8 @@ describe("消息操作反馈归属（06 号票）", () => {
     expect(exportBtn.disabled).toBe(false);
     exportBtn.click();
 
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledTimes(1);
-    const notice = deps.ui.showConversationContextNotice.mock.calls[0][0] as string;
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledTimes(1);
+    const notice = deps.ui.messagesNotice.show.mock.calls[0][0] as string;
     expect(notice).toContain("导出失败：");
     expect(notice).toContain("blob 分配失败");
   });

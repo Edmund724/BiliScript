@@ -70,8 +70,8 @@ function makeDeps() {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -436,7 +436,7 @@ describe("重新生成的原上下文与恢复", () => {
     await Promise.resolve();
 
     expect(deps.ports).toHaveLength(1);
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("原消息的视频或分P上下文不可用，无法重新生成。", 4000);
+    expect(deps.ui.messagesNotice.show).toHaveBeenCalledWith("原消息的视频或分P上下文不可用，无法重新生成。", 4000);
     expect(deps.messages.querySelector(".chat-msg-assistant")).toBe(assistant);
     expect(assistant?.textContent).toContain("原回答");
   });

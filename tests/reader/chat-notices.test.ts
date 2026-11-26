@@ -48,23 +48,24 @@ function makeHarness() {
   return { messages, inputCard, deps, feedback, timers, fireTimers };
 }
 
-describe("showConversationContextNotice / removeConversationContextNotice", () => {
-  it("追加通知条到消息区顶部，文本走 textContent（HTML 不被解析）", () => {
+describe("messagesNotice / inputNotice / clearAllNotices", () => {
+  it("messagesNotice 追加通知条到消息区顶部，文本走 textContent（HTML 不被解析）", () => {
     const { messages, feedback } = makeHarness();
 
-    feedback.showConversationContextNotice("<b>加粗</b>", 0);
+    feedback.messagesNotice.show("<b>加粗</b>", 0);
 
     const notice = messages.querySelector(".chat-context-notice")!;
     expect(notice).not.toBeNull();
+    expect(notice.getAttribute("role")).toBe("status");
     expect(notice.textContent).toBe("<b>加粗</b>");
     expect(notice.querySelector("b")).toBeNull();
   });
 
-  it("重复显示去重：旧通知条先移除", () => {
+  it("重复显示去重：同槽旧通知条先移除", () => {
     const { messages, feedback } = makeHarness();
 
-    feedback.showConversationContextNotice("第一条", 0);
-    feedback.showConversationContextNotice("第二条", 0);
+    feedback.messagesNotice.show("第一条", 0);
+    feedback.messagesNotice.show("第二条", 0);
 
     const notices = messages.querySelectorAll(".chat-context-notice");
     expect(notices).toHaveLength(1);
@@ -74,7 +75,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
   it("autoHideMs > 0：挂自动消失定时器，触发后通知条移除", () => {
     const { messages, feedback, timers, deps, fireTimers } = makeHarness();
 
-    feedback.showConversationContextNotice("会自动消失", 4000);
+    feedback.messagesNotice.show("会自动消失", 4000);
 
     expect(timers).toHaveLength(1);
     expect(timers[0].ms).toBe(4000);
@@ -85,11 +86,11 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(timers).toHaveLength(0);
   });
 
-  it("autoHideMs 之前手动 remove：挂起定时器被取消", () => {
+  it("autoHideMs 之前手动 clear：挂起定时器被取消", () => {
     const { messages, feedback, timers, deps } = makeHarness();
 
-    feedback.showConversationContextNotice("先手动移除", 4000);
-    feedback.removeConversationContextNotice();
+    feedback.messagesNotice.show("先手动移除", 4000);
+    feedback.messagesNotice.clear();
 
     expect(deps.clearTimer).toHaveBeenCalledTimes(1);
     expect(timers).toHaveLength(0);
@@ -99,7 +100,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
   it("openSettingsAction：附「前往设置」链接，点击触发 onOpenSettings 回调", () => {
     const { feedback, messages, deps } = makeHarness();
 
-    feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true });
+    feedback.messagesNotice.show("需要配置", 0, { openSettingsAction: true });
 
     const link = messages.querySelector(".chat-context-notice a")!;
     expect(link).not.toBeNull();
@@ -108,10 +109,10 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(deps.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it("openSettingsAction 带目标：点击回传设置分区（ASR 配置类拦截直达 ASR 设置，票 04）", () => {
+  it("openSettingsAction 带目标：点击回传设置分区（ASR 配置类拦截直达 ASR 设置）", () => {
     const { feedback, messages, deps } = makeHarness();
 
-    feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true, settingsTarget: "asr" });
+    feedback.messagesNotice.show("需要配置", 0, { openSettingsAction: true, settingsTarget: "asr" });
 
     messages
       .querySelector(".chat-context-notice a")!
@@ -122,7 +123,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
   it("spinner：插入加载动画 span 在文案最前（aria-hidden 空元素，不改文本）", () => {
     const { feedback, messages } = makeHarness();
 
-    feedback.showConversationContextNotice("正在抓取字幕…", 0, { spinner: true });
+    feedback.messagesNotice.show("正在抓取字幕…", 0, { spinner: true });
 
     const notice = messages.querySelector(".chat-context-notice")!;
     const spinner = notice.querySelector(".chat-notice-spinner")!;
@@ -136,7 +137,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
   it("spinner + openSettingsAction 同用：span 最前、链接照旧在末尾", () => {
     const { feedback, messages } = makeHarness();
 
-    feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true, spinner: true });
+    feedback.messagesNotice.show("需要配置", 0, { openSettingsAction: true, spinner: true });
 
     const notice = messages.querySelector(".chat-context-notice")!;
     expect(notice.firstChild).toBe(notice.querySelector(".chat-notice-spinner"));
@@ -148,18 +149,17 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
   it("缺省不插 spinner（普通通知条保持纯文本节点）", () => {
     const { feedback, messages } = makeHarness();
 
-    feedback.showConversationContextNotice("普通提示", 0);
+    feedback.messagesNotice.show("普通提示", 0);
 
     const notice = messages.querySelector(".chat-context-notice")!;
     expect(notice.querySelector(".chat-notice-spinner")).toBeNull();
   });
 
-  it("输入区拦截卡：同时渲染自定义动作与前往设置，点击分别执行", () => {
+  it("inputNotice：挂载到输入区、role=alert、同时渲染自定义动作与前往设置", () => {
     const { feedback, messages, inputCard, deps } = makeHarness();
     const onRetry = vi.fn();
 
-    feedback.showConversationContextNotice("当前视频无字幕", 0, {
-      placement: "input",
+    feedback.inputNotice.show("当前视频无字幕", 0, {
       action: { label: "重新抓取", onClick: onRetry },
       openSettingsAction: true,
       settingsTarget: "asr"
@@ -175,14 +175,14 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(deps.onOpenSettings).toHaveBeenCalledWith("asr");
 
-    feedback.removeConversationContextNotice();
+    feedback.inputNotice.clear();
     expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
   });
 
   it("tone=success + dismissible=true：挂载成功态修饰与可关闭按钮", () => {
     const { feedback, messages } = makeHarness();
 
-    feedback.showConversationContextNotice("平台已就绪，请确认发送。", 0, {
+    feedback.messagesNotice.show("平台已就绪，请确认发送。", 0, {
       tone: "success",
       dismissible: true
     });
@@ -196,28 +196,32 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
   });
 
-  it("messages 与 input 槽隔离；removePersistentContextNotice 仅清无动作非成功常驻等待提示", () => {
+  it("messagesNotice 与 inputNotice 槽位完全隔离；clear(tag) 仅清匹配标签通知", () => {
     const { feedback, messages, inputCard } = makeHarness();
 
-    feedback.showConversationContextNotice("临时 toast", 4000);
-    feedback.showConversationContextNotice("输入框提示", 4000, { placement: "input" });
+    feedback.messagesNotice.show("临时 toast", 4000);
+    feedback.inputNotice.show("输入框提示", 4000);
     expect(messages.querySelector(".chat-context-notice")?.textContent).toBe("临时 toast");
     expect(inputCard.querySelector(".chat-context-notice")?.textContent).toBe("输入框提示");
 
-    feedback.removePersistentContextNotice();
+    feedback.messagesNotice.clear("stream-slow");
     expect(messages.querySelector(".chat-context-notice")).not.toBeNull();
     expect(inputCard.querySelector(".chat-context-notice")).not.toBeNull();
 
-    feedback.showConversationContextNotice("模型响应较慢，请稍候…", 0);
-    feedback.removePersistentContextNotice();
+    feedback.messagesNotice.show("模型响应较慢，请稍候…", 0, { tag: "stream-slow" });
+    feedback.messagesNotice.clear("stream-slow");
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(inputCard.querySelector(".chat-context-notice")).not.toBeNull();
 
-    feedback.showConversationContextNotice("平台已就绪，请确认发送。", 0, { tone: "success" });
-    feedback.removePersistentContextNotice();
+    feedback.messagesNotice.show("平台已就绪，请确认发送。", 0, { tone: "success" });
+    feedback.messagesNotice.clear("stream-slow");
     expect(messages.querySelector(".chat-context-notice")).not.toBeNull();
 
-    feedback.removeConversationContextNotice();
+    feedback.inputNotice.clear();
+    expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
+    expect(messages.querySelector(".chat-context-notice")).not.toBeNull();
+
+    feedback.clearAllNotices();
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
   });
@@ -233,13 +237,15 @@ describe("showConversationContextError / removeCenteredState", () => {
     expect(deps.scrollToBottom).not.toHaveBeenCalled();
   });
 
-  it("追加居中错误块并滚动到底；先清既有通知条与居中块", () => {
-    const { messages, feedback, deps } = makeHarness();
-    feedback.showConversationContextNotice("旧通知", 0);
+  it("追加居中错误块并滚动到底；先清双槽既有通知条与居中块", () => {
+    const { messages, inputCard, feedback, deps } = makeHarness();
+    feedback.messagesNotice.show("旧消息通知", 0);
+    feedback.inputNotice.show("旧输入通知", 0);
 
     feedback.showConversationContextError("读取失败");
 
     expect(messages.querySelectorAll(".chat-context-notice")).toHaveLength(0);
+    expect(inputCard.querySelectorAll(".chat-context-notice")).toHaveLength(0);
     const error = messages.querySelector(".chat-center-error")!;
     expect(error.textContent).toBe("读取失败");
     expect(deps.scrollToBottom).toHaveBeenCalledTimes(1);

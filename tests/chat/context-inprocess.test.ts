@@ -144,8 +144,8 @@ function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
     },
     ui: {
       setStreamingUiState: vi.fn(),
-      showConversationContextNotice: vi.fn(),
-      removeConversationContextNotice: vi.fn(),
+      messagesNotice: { show: vi.fn(), clear: vi.fn() },
+      inputNotice: { show: vi.fn(), clear: vi.fn() },
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
@@ -256,8 +256,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     const sendGate = createSendGate({
       loadContextState: (opts) => contextLoad.loadContextState(opts),
       hydratePinned: vi.fn(async () => true),
-      showContextNotice: vi.fn(),
-      removeContextNotice: removeNotice,
+      inputNotice: { show: vi.fn(), clear: removeNotice },
       onWaitingChange: (waiting) => waitingCalls.push(waiting),
       replayInFlight: () => null,
       isSessionClosed: () => false,

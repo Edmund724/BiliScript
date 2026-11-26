@@ -13,8 +13,8 @@ interface TestRuntimeDeps extends CreateChatRuntimeDeps {
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
-    showConversationContextNotice: MockFn;
-    removeConversationContextNotice: MockFn;
+    messagesNotice: { show: MockFn; clear: MockFn };
+    inputNotice: { show: MockFn; clear: MockFn };
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
@@ -349,8 +349,8 @@ describe("chat-runtime 流结束的会话身份校验", () => {
       },
       ui: {
         setStreamingUiState: vi.fn(),
-        showConversationContextNotice: vi.fn(),
-        removeConversationContextNotice: vi.fn(),
+        messagesNotice: { show: vi.fn(), clear: vi.fn() },
+        inputNotice: { show: vi.fn(), clear: vi.fn() },
         hideHistoryPopover: vi.fn(),
         removeCenteredState: vi.fn(),
         removeSuggestions: vi.fn(),
