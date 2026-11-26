@@ -4,6 +4,7 @@
   <p>在 B 站与 YouTube 视频页提供字幕精读、AI 概览、多模态对话与实时音画伴看的开源浏览器扩展</p>
   <p>
     <a href="https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn"><img src="https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge" alt="Edge 应用市场立即安装" /></a>
+    <a href="https://addons.mozilla.org/zh-CN/firefox/addon/biliscript/"><img src="https://img.shields.io/badge/Firefox%20AMO-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-FF7139?logo=firefox" alt="Firefox AMO 立即安装" /></a>
     <a href="https://github.com/Edmund724/BiliScript/releases"><img src="https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github" alt="GitHub Releases 下载 zip" /></a>
   </p>
   <p>🎬 <a href="https://www.bilibili.com/video/BV1zwWh61E8D">在 B 站观看演示视频</a></p>
@@ -34,7 +35,7 @@
 
 - **Edge 商店（推荐）**：从 [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) 直接安装并自动更新。
 - **离线包安装（Chrome / Edge）**：从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新 `Chromium.zip` 并解压到**长期保留**的目录，打开 `chrome://extensions/`（Edge 为 `edge://extensions/`）开启「开发者模式」，点击「加载已解压的扩展程序」选择该目录。
-- **Firefox 商店（桌面端）**：可在 Mozilla Add-ons（AMO）商店搜索「BiliScript」安装并自动更新；亦可从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载 `Firefox.zip` 解压后在 `about:debugging#/runtime/this-firefox` 临时载入试用。
+- **Firefox 商店（桌面端，推荐）**：从 [Firefox Add-ons（AMO）商店](https://addons.mozilla.org/zh-CN/firefox/addon/biliscript/) 直接安装并自动更新；亦可从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载 `Firefox.zip` 解压后在 `about:debugging#/runtime/this-firefox` 临时载入试用。
 
 <details>
 <summary>零命令行基础？展开复制提示词，让编程 Agent 引导安装</summary>
