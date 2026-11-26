@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/images/biliscript-logo.svg" width="72" height="72" alt="BiliScript Logo" />
   <h1>BiliScript · B 站视频文摘</h1>
-  <p>在 B 站视频页提供字幕精读、AI 概览、多模态对话与实时音画伴看的开源浏览器扩展</p>
+  <p>在 B 站与 YouTube 视频页提供字幕精读、AI 概览、多模态对话与实时音画伴看的开源浏览器扩展</p>
   <p>
     <a href="https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn"><img src="https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge" alt="Edge 应用市场立即安装" /></a>
     <a href="https://github.com/Edmund724/BiliScript/releases"><img src="https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github" alt="GitHub Releases 下载 zip" /></a>
@@ -12,12 +12,12 @@
 
 ## 核心能力
 
-- **字幕与双语翻译**：逐句时间戳跳播、自动跟随滚动与回位胶囊、搜索与导出（Markdown / SRT / WebVTT / TXT），集成播放器双语字幕叠层与原生风格菜单、内置免 Key `Index-Translate` 字幕翻译、自定义 LLM 语境流式翻译与无字幕语音转写。
+- **字幕与双语翻译**：逐句时间戳跳播、自动跟随滚动与回位胶囊、搜索与导出（Markdown / SRT / WebVTT / TXT），支持 B 站与 YouTube 字幕采集、播放器双语字幕叠层与原生风格菜单、内置免 Key `Index-Translate` 字幕翻译、硅基流动（默认复用 ASR Key）与自定义 LLM 语境流式翻译、双站无字幕语音转写。
 - **章节概览、金句与模板导出**：自动提取时间轴或生成 AI 章节摘要（长视频状态卡接力与章节索引固化），精选金句支持一键复制或导出高清分享图，支持命令面板、全局快捷键与模板化笔记导出。
 - **多模态 AI 对话**：支持章节路由与 BM25 混合召回长视频问答、多视频页并发总结、划词悬浮胶囊解释、粘贴图片与关键帧采样，内置思考强度调节、思维链状态与溯源时间戳、免 Key 联网搜索及语音朗读（Chromium 走 `chrome.tts`，Firefox 走 Web Speech API）。
-- **独立阅读窗口与页面适配**：支持将文摘面板弹出为**置顶画中画**或**普通窗口**（保留视频跳转与在途流式对话），覆盖常规视频页、`/list/*` 播单页与 `/festival/*` 活动专题页。
-- **实时音画伴看（仅 Chromium）**：接入 MOSS Live 与 Gemini Live，支持语音控制播放器（倍速 / 进度 / 音量）、视频原声压低与直播间双向音画互动。
-- **本地 Agent 桥接**：通过本机 WebSocket 供编程 Agent 读取当前视频字幕、热评与关键帧。
+- **独立阅读窗口与页面适配**：支持将文摘面板弹出为**置顶画中画**或**普通窗口**（保留视频跳转与在途流式对话），支持拖动左边缘调整面板宽度与吸附复位；覆盖 B 站常规视频页、`/list/*` 播单页、`/festival/*` 活动专题页及 YouTube 视频页。
+- **实时音画伴看（仅 Chromium）**：接入 MOSS Live 与 Gemini Live，支持语音控制播放器（倍速 / 进度 / 音量）、浮窗播报静音与打断、底部文字提问、视频原声压低与直播间双向音画互动。
+- **本地 Agent 桥接**：通过本机 WebSocket 供编程 Agent 读取当前 B 站或 YouTube 视频的字幕、热评与关键帧。
 
 | 字幕精读与检索 | 金句分享卡片 |
 | :---: | :---: |
@@ -47,10 +47,10 @@
 
 ### 2. 开箱即用与配置 API Key
 
-- **字幕翻译（免 Key 开箱即用）**：字幕翻译已支持内置免 Key 的 `Index-Translate`（默认 `Index-Translate-35B-A3B`，可在设置中切换 `9B` / `2B` 或切回自定义 AI 平台），无需配置任何 API Key 即可直接在视频页使用。
+- **字幕翻译（免 Key 开箱即用）**：字幕翻译已支持内置免 Key 的 `Index-Translate`（默认 `Index-Translate-35B-A3B`，可在设置中切换 `9B` / `2B`、硅基流动翻译或自定义 AI 平台），无需配置任何 API Key 即可直接在视频页使用。
 - **联网搜索（免 Key 开箱即用）**：对话栏点亮地球图标即可启用免 Key 联网搜索。
 
-如需使用 AI 总结、多轮对话或无字幕语音转写，请打开任意 B 站视频页右侧文摘面板，点击右上角齿轮进入「设置」：
+如需使用 AI 总结、多轮对话或无字幕语音转写，请打开任意 B 站或 YouTube 视频页右侧文摘面板，点击右上角齿轮进入「设置」：
 
 1. **总结与对话**：添加 [ModelScope](https://modelscope.cn/)（每日签到免费积分，创建 `ms-` Token）或任意 OpenAI / Anthropic / Gemini 协议平台。
 2. **无字幕转写**：填入 [硅基流动](https://siliconflow.cn/) API Key，推荐选择免费模型 `XingChenAGI/XingChenASR-V3.2`。
@@ -95,5 +95,5 @@ pnpm build:firefox    # 构建桌面端 Firefox 153+ 产物到 dist-firefox/
 ## 免责声明
 
 - **本地数据**：API Key、平台配置、笔记、对话与伴看历史及字幕缓存等保存在本地浏览器扩展存储中（其中 API Key 等敏感配置以明文形式存储在本地设备，本项目无后端服务器且不提供开发者云端同步服务；仅部分非敏感偏好设置可随浏览器账号同步）。请妥善保管您的设备、浏览器配置文件及导出的文件（详见 [PRIVACY.md](PRIVACY.md)）。
-- **用户责任**：请仅在已登录且有访问权限的前提下合规使用，遵守 B 站用户协议、第三方模型服务条款及相关法律法规。因使用本项目而产生的任何后果均由用户个人承担，与开发者无关。
+- **用户责任**：请仅在已登录且有访问权限的前提下合规使用，遵守 B 站、YouTube 用户协议、第三方模型服务条款及相关法律法规。因使用本项目而产生的任何后果均由用户个人承担，与开发者无关。
 - **版权声明**：「哔哩哔哩」及「Bilibili」名称、LOGO 及相关图形是上海幻电信息科技有限公司的注册商标或商标。本项目与哔哩哔哩及其关联公司无任何关联、合作、授权或背书关系。

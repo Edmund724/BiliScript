@@ -1,1 +1,1 @@
-export const BILISCRIPT_VERSION = "2.7.7";
+export const BILISCRIPT_VERSION = "2.8.0";
