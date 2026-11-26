@@ -12,8 +12,7 @@ import {
 import { resolveAiConversationContext, resolveAiConversationPageRef } from "../ai/context-resolver.js";
 import {
   applyLiveContextToMain,
-  chatSessionState,
-  rebuildCurrentContextKeyFromContext
+  chatSessionState
 } from "./chat-state.js";
 import {
   createChatRuntime,
@@ -141,7 +140,7 @@ export interface ChatTabDomain {
 export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomain {
   let urlChangeSyncTimer = 0;
   let suppressInterruptViewResetDepth = 0;
-  let renderInitialStateSeq = 0;
+  let contextLoadRenderSeq = 0;
   const syncDebounceMs = deps.syncDebounceMs ?? 120;
   const confirmPrompt = deps.view.confirmDialog ?? defaultConfirmDialog;
 
@@ -169,7 +168,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
   }
 
   function renderInitialState(): void {
-    renderInitialStateSeq += 1;
     if (!chatSessionState.contextData) {
       resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
       return;
@@ -195,37 +193,23 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     deps.ui.showConversationContextNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
   }
 
-  function restartConversation({
-    keepContext = false,
-    preserveInput = false,
-    deferViewReset = false
-  }: {
-    keepContext?: boolean;
-    preserveInput?: boolean;
-    deferViewReset?: boolean;
-  } = {}): void {
+  function detachForContextReset({ preserveInput = false }: { preserveInput?: boolean } = {}): void {
     suppressInterruptViewResetDepth += 1;
     try {
       store.detachForRestart(preserveInput ? { preserveStream: true } : undefined);
     } finally {
       suppressInterruptViewResetDepth -= 1;
     }
-    if (!keepContext) {
-      rebuildCurrentContextKeyFromContext();
-    }
     if (!preserveInput) {
       deps.input.value = "";
       deps.view.clearInputImages();
     }
-    if (!deferViewReset) {
-      resetConversationView("");
-    }
   }
 
-  async function restoreLatestSilently(opts?: StreamInterruptOptions): Promise<boolean> {
+  function restoreLatestSilently(opts?: StreamInterruptOptions): Promise<boolean> {
     suppressInterruptViewResetDepth += 1;
     try {
-      return await store.restoreLatest(opts);
+      return store.restoreLatest(opts);
     } finally {
       suppressInterruptViewResetDepth -= 1;
     }
@@ -251,12 +235,12 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     if (deps.isSessionClosed()) {
       return;
     }
-    const renderSeqBefore = renderInitialStateSeq;
+    const renderSeqBefore = contextLoadRenderSeq;
     const ok = await contextLoad.loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
     if (deps.isSessionClosed() || isPinnedContextStrict(chatSessionState.currentConversationMeta) || runtime.isTurnActive()) {
       return;
     }
-    if (renderInitialStateSeq > renderSeqBefore) {
+    if (ok && contextLoadRenderSeq > renderSeqBefore) {
       return;
     }
     if (
@@ -293,7 +277,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     if (chatSessionState.liveContextData) {
       applyLiveContextToMain();
     }
-    restartConversation({ keepContext: true, deferViewReset: true });
+    detachForContextReset();
     renderInitialState();
     deps.input?.focus?.({ preventScroll: true });
     return true;
@@ -360,11 +344,14 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
         settings: deps.settings
       }),
     renderHistoryList: deps.renderHistoryList,
-    renderInitialState,
+    renderInitialState: () => {
+      contextLoadRenderSeq += 1;
+      renderInitialState();
+    },
     renderSuggestions: deps.view.suggestions.refresh,
     showStateMessage: (html) => resetConversationView(html),
     onContextChanged: ({ preserveInput }) => {
-      restartConversation({ keepContext: true, preserveInput, deferViewReset: true });
+      detachForContextReset({ preserveInput });
     },
     restoreLatest: (opts) => restoreLatestSilently(opts),
     isStreaming: () => runtime.isStreaming(),

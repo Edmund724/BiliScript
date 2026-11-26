@@ -376,4 +376,62 @@ describe("createChatTabDomain 任务级接口行为", () => {
     chatSessionStateForTests.liveContextKey = "video:BV1other00009|999";
     expect(navDeps.isContextValid?.()).toBe(false);
   });
+
+  it("syncLiveContextState：抓取等待期间即使外部触发 renderInitialState，抓取失败后仍渲染无上下文态", async () => {
+    vi.useFakeTimers();
+    let resolveFetch!: (outcome: ContextFetchOutcome) => void;
+    const h = makeHarness({
+      fetchOutcome: () =>
+        new Promise<ContextFetchOutcome>((resolve) => {
+          resolveFetch = resolve;
+        }) as unknown as ContextFetchOutcome,
+      syncDebounceMs: 20
+    });
+    chatSessionStateForTests.contextData = makeSnapshot();
+
+    h.domain.scheduleLiveContextSync({ forceRefresh: true });
+    vi.advanceTimersByTime(20);
+    h.domain.renderInitialState();
+    expect(h.messages.querySelector(".chat-center-error")).toBeNull();
+
+    resolveFetch({ kind: "error", error: "上下文异常" });
+    await vi.runAllTimersAsync();
+
+    expect(chatSessionState.contextData).toBeNull();
+    expect(h.messages.querySelector(".chat-center-error")?.textContent).toContain("当前页面不是支持的视频页");
+  });
+
+  it("restoreLatestConversation：异步期间不泄漏视图重置抑制，并发 handleHostClipChanged 立即清视图", async () => {
+    const h = makeHarness();
+    await h.domain.loadContextState({ silent: true });
+    chatSessionStateForTests.savedConversations = [
+      {
+        id: "conv-bili",
+        title: "视频甲",
+        createdAt: 1,
+        updatedAt: 1,
+        contextKey: "video:BV1alpha00001|101",
+        contextTitle: "视频甲",
+        contextUrl: "https://www.bilibili.com/video/BV1alpha00001/",
+        isVideoContext: true,
+        contextRef: {
+          site: "bilibili",
+          bvid: "BV1alpha00001",
+          cid: "101",
+          url: "https://www.bilibili.com/video/BV1alpha00001/"
+        },
+        messages: [{ role: "user", content: "问句" }]
+      }
+    ];
+    h.messages.innerHTML = '<div class="chat-msg">旧视频消息</div>';
+    h.view.suggestions.reset.mockClear();
+
+    const restoring = h.domain.restoreLatestConversation();
+    h.domain.handleHostClipChanged();
+
+    expect(h.messages.innerHTML).toBe("");
+    expect(h.view.suggestions.reset).toHaveBeenCalledTimes(1);
+    h.domain.closeSession({ resetRuntime: true });
+    await restoring.catch(() => false);
+  });
 });
