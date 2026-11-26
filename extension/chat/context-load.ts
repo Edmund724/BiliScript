@@ -11,7 +11,6 @@ import {
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
 import type { LoadContextStateOptions, StreamInterruptOptions } from "./conversation-store.js";
-import type { ViewResetIntent } from "./view-intent.js";
 
 export const NO_TAB_MESSAGE = "找不到当前标签页。";
 export const CONTEXT_READ_FAILED_MESSAGE = "当前页面上下文读取失败。";
@@ -27,7 +26,8 @@ export interface CreateContextLoadDeps {
   renderHistoryList: () => void;
   renderInitialState: () => void;
   renderSuggestions: () => void;
-  requestViewReset: (intent: ViewResetIntent) => void;
+  showStateMessage: (html: string) => void;
+  onContextChanged: (opts: { preserveInput: boolean }) => void;
   restoreLatest: (opts?: StreamInterruptOptions) => Promise<boolean>;
   isStreaming: () => boolean;
   hasPendingUserPrompt: () => boolean;
@@ -52,7 +52,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (!silent && !hasPinnedConversation && !isLiveActive) {
-        deps.requestViewReset({ kind: "state", html: NO_TAB_MESSAGE });
+        deps.showStateMessage(NO_TAB_MESSAGE);
       }
       return false;
     }
@@ -71,7 +71,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (!silent && !hasPinnedConversation && !isLiveActive) {
-        deps.requestViewReset({ kind: "state", html: message });
+        deps.showStateMessage(message);
       }
       return false;
     }
@@ -95,12 +95,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       const isVideoSwitch = Boolean(oldKey && nextKey && nextKey !== oldKey);
 
       if (isVideoSwitch) {
-        const contextChanged = applyContextPayload(payload, preserveInput);
-        deps.renderHistoryList();
-        if (contextChanged) {
-          await (preserveInput ? deps.restoreLatest({ preserveStream: true }) : deps.restoreLatest());
-          deps.renderInitialState();
-        }
+        await commitContextPayload(payload, preserveInput);
         return true;
       }
 
@@ -109,24 +104,23 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       return true;
     }
 
-    const contextChanged = applyContextPayload(payload, preserveInput);
+    await commitContextPayload(payload, preserveInput);
+    return true;
+  }
+
+  async function commitContextPayload(payload: ChatSessionContextSnapshot | null, preserveInput: boolean): Promise<void> {
+    const contextChanged = applyContextSnapshot(payload);
+
+    if (contextChanged) {
+      deps.onContextChanged({ preserveInput });
+    } else {
+      deps.renderSuggestions();
+    }
     deps.renderHistoryList();
     if (contextChanged) {
       await (preserveInput ? deps.restoreLatest({ preserveStream: true }) : deps.restoreLatest());
       deps.renderInitialState();
     }
-    return true;
-  }
-
-  function applyContextPayload(payload: ChatSessionContextSnapshot | null, preserveInput: boolean): boolean {
-    const contextChanged = applyContextSnapshot(payload);
-
-    if (contextChanged) {
-      deps.requestViewReset({ kind: "restart", keepContext: true, preserveInput });
-    } else {
-      deps.renderSuggestions();
-    }
-    return contextChanged;
   }
 
   return { loadContextState };

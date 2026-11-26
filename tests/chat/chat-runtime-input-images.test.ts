@@ -52,7 +52,7 @@ function makeDeps(overrides: Partial<CreateChatRuntimeDeps> = {}) {
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
-      requestViewReset: vi.fn(),
+      showSetupBlockedState: vi.fn(),
       autosizeInput: vi.fn()
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),

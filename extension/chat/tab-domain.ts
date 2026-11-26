@@ -1,24 +1,39 @@
-import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
+import { resolveNodeDocument } from "../shared/cross-doc.js";
+import { findSubtitlePreviewAtTime, type TimestampNavDeps } from "../ui/timestamp-nav.js";
+import { confirmDialog as defaultConfirmDialog, type ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
 import type { Settings } from "../core/defaults.js";
 import {
   createInProcessContextFetch,
-  createInProcessPinnedContextResolver
+  createInProcessPinnedContextResolver,
+  type ContextFetch
 } from "../core/context-assembly.js";
 import { resolveAiConversationContext, resolveAiConversationPageRef } from "../ai/context-resolver.js";
-import { createChatRuntime, type ChatPort, type ChatRuntimeUi } from "./chat-runtime.js";
+import {
+  applyLiveContextToMain,
+  chatSessionState,
+  rebuildCurrentContextKeyFromContext
+} from "./chat-state.js";
+import {
+  createChatRuntime,
+  type ChatPort,
+  type ChatRuntimeUi,
+  type SendTurnOptions,
+  type SendVerdict
+} from "./chat-runtime.js";
 import {
   createConversationStore,
   type ConversationChange,
   type ConversationContextNotice,
-  type ConversationStore,
+  type ConversationDeletion,
+  type LoadContextStateOptions,
   type StorageArea,
   type StreamInterruptOptions
 } from "./conversation-store.js";
-import { createContextLoad, type ContextLoad } from "./context-load.js";
-import { createSendGate, type SendGate, type StartSubtitleFetchOptions } from "./send-gate.js";
-import { createConversationReplay, type ConversationReplay } from "./replay.js";
+import { createContextLoad, isPinnedContextStrict } from "./context-load.js";
+import { createSendGate, type StartSubtitleFetchOptions } from "./send-gate.js";
+import { createConversationReplay } from "./replay.js";
 
 export {
   chatSessionState,
@@ -35,25 +50,45 @@ export {
   readConversationHistory
 } from "./conversation-storage.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
-export type { ViewResetIntent } from "./view-intent.js";
+
+export const NON_VIDEO_CONTEXT_MESSAGE = "当前不是视频播放页，<br>无法获取视频信息，<br>仅支持常规对话。";
+
+export interface ScheduleLiveContextSyncOptions {
+  forceRefresh?: boolean;
+  preserveInput?: boolean;
+}
+
+export type ChatTabDomainUi = Omit<ChatRuntimeUi, "showSetupBlockedState">;
+
+export interface ChatTabViewAdapter {
+  hasSelectableModels: () => boolean;
+  getSetupStateHtml: () => string;
+  focusSetupAction?: () => void;
+  getInputImageCount: () => number;
+  clearInputImages: () => void;
+  suggestions: {
+    refresh: () => void;
+    clear: () => void;
+    reset: () => void;
+  };
+  resetScrollFollow: () => void;
+  prepareForNewConversation: () => void;
+  seekReadingTarget: (seconds: number) => number | null;
+  confirmDialog?: (options: ConfirmDialogOptions) => Promise<boolean>;
+}
 
 export interface CreateChatTabDomainDeps {
   messages: HTMLElement;
   input: HTMLTextAreaElement;
-  ui: ChatRuntimeUi;
+  ui: ChatTabDomainUi;
+  view: ChatTabViewAdapter;
   onConversationChanged: (change: ConversationChange) => void;
-  onStreamInterrupted: (opts?: StreamInterruptOptions) => void;
   onContextNotice: (notice: ConversationContextNotice) => void;
   renderHistoryList: () => void;
-  renderInitialState: () => void;
-  suggestions: {
-    render: () => void;
-    clear: () => void;
-  };
-  updateChatLayoutState: () => void;
   storage?: StorageArea;
   clip: () => Partial<ClipState>;
   settings: () => Partial<Settings>;
+  fetchContext?: ContextFetch;
   isSessionClosed: () => boolean;
   isReaderTranscribing: () => boolean;
   asrNotice: HTMLElement | null;
@@ -70,19 +105,226 @@ export interface CreateChatTabDomainDeps {
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getPlaybackCursorSeconds?: () => number | undefined;
-  getTimestampNavDeps: () => TimestampNavDeps;
   connectPort: () => Promise<ChatPort> | ChatPort;
   getSpeechVolume?: () => number | undefined;
   isLiveActive?: () => boolean;
+  syncDebounceMs?: number;
 }
 
-export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
-  runtime: ReturnType<typeof createChatRuntime>;
-  store: ConversationStore;
-  contextLoad: ContextLoad;
-  sendGate: SendGate;
-  replay: ConversationReplay;
-} {
+export interface ChatTabDomain {
+  sendTurn: (text: string, options?: SendTurnOptions) => Promise<SendVerdict>;
+  stopActiveStream: () => void;
+  settleTurn: () => Promise<void>;
+  isTurnActive: () => boolean;
+  isStreaming: () => boolean;
+  cancelSubtitleWait: () => void;
+  isNoSubtitleBlocked: () => boolean;
+  stopSpeech: () => void;
+  closeImageViewer: (opts?: { restoreFocus?: boolean }) => void;
+  setAutoScroll: (autoScroll: boolean) => void;
+  scrollToBottom: (force?: boolean, opts?: { instant?: boolean }) => void;
+  getTimestampNavDeps: () => TimestampNavDeps;
+  loadConversations: () => Promise<void>;
+  restoreLatestConversation: () => Promise<boolean>;
+  loadContextState: (opts?: LoadContextStateOptions) => Promise<boolean>;
+  renderInitialState: () => void;
+  scheduleLiveContextSync: (opts?: ScheduleLiveContextSyncOptions) => void;
+  handleHostClipChanged: () => void;
+  startNewConversation: () => Promise<boolean>;
+  openConversation: (id: string) => void;
+  deleteConversation: (id: string) => Promise<ConversationDeletion | null>;
+  clearConversations: () => Promise<void>;
+  bindStatusBus: () => () => void;
+  closeSession: (opts?: { resetRuntime?: boolean }) => void;
+}
+
+export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomain {
+  let urlChangeSyncTimer = 0;
+  let suppressInterruptViewResetDepth = 0;
+  let renderInitialStateSeq = 0;
+  const syncDebounceMs = deps.syncDebounceMs ?? 120;
+  const confirmPrompt = deps.view.confirmDialog ?? defaultConfirmDialog;
+
+  function cancelPendingSync(): void {
+    if (urlChangeSyncTimer) {
+      window.clearTimeout(urlChangeSyncTimer);
+      urlChangeSyncTimer = 0;
+    }
+  }
+
+  function resetConversationView(stateHtml = ""): void {
+    replay.invalidate();
+    deps.ui.autosizeInput();
+    deps.messages.innerHTML = "";
+    if (stateHtml) {
+      const stateNode = resolveNodeDocument(deps.messages).createElement("div");
+      stateNode.className = "chat-center-error";
+      stateNode.innerHTML = stateHtml;
+      deps.messages.appendChild(stateNode);
+    }
+    deps.view.suggestions.reset();
+    runtime.setAutoScroll(true);
+    runtime.scrollToBottom(true);
+    deps.view.resetScrollFollow();
+  }
+
+  function renderInitialState(): void {
+    renderInitialStateSeq += 1;
+    if (!chatSessionState.contextData) {
+      resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
+      return;
+    }
+    if (!chatSessionState.providers.length || !deps.view.hasSelectableModels()) {
+      resetConversationView(deps.view.getSetupStateHtml());
+      return;
+    }
+    if (chatSessionState.chatHistory.length) {
+      replay.render();
+      return;
+    }
+    if (chatSessionState.contextData.isVideoContext === false) {
+      resetConversationView(NON_VIDEO_CONTEXT_MESSAGE);
+      return;
+    }
+    resetConversationView("");
+  }
+
+  function showSetupBlockedState(): void {
+    resetConversationView(deps.view.getSetupStateHtml());
+    deps.view.focusSetupAction?.();
+    deps.ui.showConversationContextNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
+  }
+
+  function restartConversation({
+    keepContext = false,
+    preserveInput = false,
+    deferViewReset = false
+  }: {
+    keepContext?: boolean;
+    preserveInput?: boolean;
+    deferViewReset?: boolean;
+  } = {}): void {
+    suppressInterruptViewResetDepth += 1;
+    try {
+      store.detachForRestart(preserveInput ? { preserveStream: true } : undefined);
+    } finally {
+      suppressInterruptViewResetDepth -= 1;
+    }
+    if (!keepContext) {
+      rebuildCurrentContextKeyFromContext();
+    }
+    if (!preserveInput) {
+      deps.input.value = "";
+      deps.view.clearInputImages();
+    }
+    if (!deferViewReset) {
+      resetConversationView("");
+    }
+  }
+
+  async function restoreLatestSilently(opts?: StreamInterruptOptions): Promise<boolean> {
+    suppressInterruptViewResetDepth += 1;
+    try {
+      return await store.restoreLatest(opts);
+    } finally {
+      suppressInterruptViewResetDepth -= 1;
+    }
+  }
+
+  function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }: ScheduleLiveContextSyncOptions = {}): void {
+    if (deps.isSessionClosed()) {
+      return;
+    }
+    if (urlChangeSyncTimer) {
+      window.clearTimeout(urlChangeSyncTimer);
+    }
+    urlChangeSyncTimer = window.setTimeout(() => {
+      urlChangeSyncTimer = 0;
+      if (deps.isSessionClosed()) {
+        return;
+      }
+      void syncLiveContextState(forceRefresh, preserveInput);
+    }, syncDebounceMs);
+  }
+
+  async function syncLiveContextState(forceRefresh = false, preserveInput = false): Promise<void> {
+    if (deps.isSessionClosed()) {
+      return;
+    }
+    const renderSeqBefore = renderInitialStateSeq;
+    const ok = await contextLoad.loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
+    if (deps.isSessionClosed() || isPinnedContextStrict(chatSessionState.currentConversationMeta) || runtime.isTurnActive()) {
+      return;
+    }
+    if (renderInitialStateSeq > renderSeqBefore) {
+      return;
+    }
+    if (
+      !ok
+      || !chatSessionState.contextData
+      || !chatSessionState.providers.length
+      || !deps.view.hasSelectableModels()
+      || !chatSessionState.chatHistory.length
+    ) {
+      renderInitialState();
+      return;
+    }
+    deps.view.suggestions.refresh();
+  }
+
+  async function startNewConversation(): Promise<boolean> {
+    const turnActive = runtime.isTurnActive();
+    const hasDraft = Boolean(deps.input.value);
+    const imageCount = deps.view.getInputImageCount();
+    if (turnActive || hasDraft || imageCount > 0) {
+      const risks: string[] = [];
+      if (turnActive) risks.push("中断正在生成的回复");
+      if (hasDraft) risks.push("清空未发送的草稿");
+      if (imageCount > 0) risks.push(`移除 ${imageCount} 张已添加的图片`);
+      const confirmed = await confirmPrompt({
+        title: "新建会话",
+        message: `新建会话会${risks.join("，")}。`,
+        confirmText: "新建会话"
+      });
+      if (!confirmed) return false;
+    }
+    deps.view.prepareForNewConversation();
+    await contextLoad.loadContextState({ forceRefresh: true, silent: true });
+    if (chatSessionState.liveContextData) {
+      applyLiveContextToMain();
+    }
+    restartConversation({ keepContext: true, deferViewReset: true });
+    renderInitialState();
+    deps.input?.focus?.({ preventScroll: true });
+    return true;
+  }
+
+  function getTimestampNavDeps(): TimestampNavDeps {
+    const targetContextKey = String(
+      chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
+    ).trim();
+    return {
+      contextUrl: String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim(),
+      isContextValid: () => {
+        const liveKey = String(chatSessionState.liveContextKey || "").trim();
+        const hasLiveVideo = chatSessionState.liveContextData ? chatSessionState.liveContextData.isVideoContext !== false : true;
+        if (!hasLiveVideo) {
+          return false;
+        }
+        return !targetContextKey || !liveKey || targetContextKey === liveKey;
+      },
+      notice: (message, autoHideMs) => deps.ui.showConversationContextNotice(message, autoHideMs),
+      seek: (seconds: number) => deps.view.seekReadingTarget(seconds),
+      getSubtitlePreview: (seconds: number) => {
+        const body =
+          chatSessionState.contextData?.subtitleBody ??
+          chatSessionState.currentConversationMeta?.resolvedContext?.subtitleBody;
+        return findSubtitlePreviewAtTime(body, seconds);
+      },
+      tooltipContainer: deps.messages
+    };
+  }
+
   const resolveConversationContext = createInProcessPinnedContextResolver({
     clip: deps.clip,
     settings: deps.settings,
@@ -92,21 +334,39 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     resolveAiConversationRef: (contextRef, purpose) =>
       purpose === "page" ? resolveAiConversationPageRef(contextRef) : resolveConversationContext(contextRef),
-    onConversationChanged: deps.onConversationChanged,
-    onStreamInterrupted: deps.onStreamInterrupted,
+    onConversationChanged: (change) => {
+      deps.onConversationChanged(change);
+      if (change.resetView) {
+        renderInitialState();
+      }
+    },
+    onStreamInterrupted: (opts) => {
+      if (!opts?.preserveStream) {
+        runtime.resetStreamState();
+      }
+      deps.ui.setStreamingUiState(false);
+      if (suppressInterruptViewResetDepth === 0) {
+        resetConversationView();
+      }
+    },
     onContextNotice: deps.onContextNotice,
     storage: deps.storage
   });
   const contextLoad = createContextLoad({
-    fetchContext: createInProcessContextFetch({
-      clip: deps.clip,
-      settings: deps.settings
-    }),
+    fetchContext:
+      deps.fetchContext ??
+      createInProcessContextFetch({
+        clip: deps.clip,
+        settings: deps.settings
+      }),
     renderHistoryList: deps.renderHistoryList,
-    renderInitialState: deps.renderInitialState,
-    renderSuggestions: deps.suggestions.render,
-    requestViewReset: deps.ui.requestViewReset,
-    restoreLatest: (opts) => store.restoreLatest(opts),
+    renderInitialState,
+    renderSuggestions: deps.view.suggestions.refresh,
+    showStateMessage: (html) => resetConversationView(html),
+    onContextChanged: ({ preserveInput }) => {
+      restartConversation({ keepContext: true, preserveInput, deferViewReset: true });
+    },
+    restoreLatest: (opts) => restoreLatestSilently(opts),
     isStreaming: () => runtime.isStreaming(),
     hasPendingUserPrompt: () => runtime.hasPendingUserPrompt(),
     isLiveActive: deps.isLiveActive
@@ -131,7 +391,10 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     messages: deps.messages,
     input: deps.input,
     store,
-    ui: deps.ui,
+    ui: {
+      ...deps.ui,
+      showSetupBlockedState
+    },
     ensureCurrentContextForSend: () => sendGate.ensureContextForSend(),
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
@@ -140,7 +403,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     canUseVideoFrameTool: deps.canUseVideoFrameTool,
     captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
     getPlaybackCursorSeconds: deps.getPlaybackCursorSeconds,
-    getTimestampNavDeps: deps.getTimestampNavDeps,
+    getTimestampNavDeps,
     connectPort: deps.connectPort,
     isCostGuardEnabled: () => deps.settings().enableCostGuard === true,
     getSpeechVolume: deps.getSpeechVolume,
@@ -148,8 +411,64 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   });
   const replay = createConversationReplay({
     renderer: runtime,
-    updateLayout: deps.updateChatLayoutState,
-    clearSuggestions: deps.suggestions.clear
+    updateLayout: deps.ui.autosizeInput,
+    clearSuggestions: deps.view.suggestions.clear
   });
-  return { runtime, store, contextLoad, sendGate, replay };
+
+  function openConversation(id: string): void {
+    runtime.stopSpeech();
+    store.applyById(id);
+  }
+
+  function handleHostClipChanged(): void {
+    sendGate.cancel();
+    store.detachForRestart();
+    scheduleLiveContextSync();
+  }
+
+  function bindStatusBus(): () => void {
+    sendGate.bindStatusBus();
+    return () => sendGate.unbindStatusBus();
+  }
+
+  function closeSession({ resetRuntime = true }: { resetRuntime?: boolean } = {}): void {
+    cancelPendingSync();
+    if (!resetRuntime) {
+      return;
+    }
+    runtime.resetStreamState();
+    deps.ui.setStreamingUiState(false);
+    deps.view.resetScrollFollow();
+    sendGate.cancel();
+    deps.onWaitingChange?.(false);
+    replay.invalidate();
+    sendGate.refreshAsrNotice();
+  }
+
+  return {
+    sendTurn: runtime.sendTurn,
+    stopActiveStream: runtime.stopActiveStream,
+    settleTurn: runtime.settleTurn,
+    isTurnActive: runtime.isTurnActive,
+    isStreaming: runtime.isStreaming,
+    cancelSubtitleWait: sendGate.cancel,
+    isNoSubtitleBlocked: sendGate.isNoSubtitleBlocked,
+    stopSpeech: runtime.stopSpeech,
+    closeImageViewer: runtime.closeImageViewer,
+    setAutoScroll: runtime.setAutoScroll,
+    scrollToBottom: runtime.scrollToBottom,
+    getTimestampNavDeps,
+    loadConversations: store.loadAll,
+    restoreLatestConversation: () => restoreLatestSilently(),
+    loadContextState: contextLoad.loadContextState,
+    renderInitialState,
+    scheduleLiveContextSync,
+    handleHostClipChanged,
+    startNewConversation,
+    openConversation,
+    deleteConversation: store.deleteById,
+    clearConversations: store.clearAll,
+    bindStatusBus,
+    closeSession
+  };
 }

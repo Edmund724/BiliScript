@@ -18,7 +18,6 @@ import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
-import type { ViewResetIntent } from "./view-intent.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
@@ -71,7 +70,7 @@ export interface ChatRuntimeUi {
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
   removeSuggestions: () => void;
-  requestViewReset: (intent: ViewResetIntent) => void;
+  showSetupBlockedState: () => void;
   autosizeInput: () => void;
   onTurnFailedRestoreDraft?: (draft: { text: string; images: ImagePart[]; isSetupError: boolean }) => void;
   onSetupRequired?: (errorClass: OverviewSetupErrorClass, providerId: string) => void;
@@ -601,7 +600,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const providerId = deps.getProviderId();
       const selectedModel = deps.getSelectedModel();
       if (!providerId || !selectedModel) {
-        deps.ui.requestViewReset({ kind: "setup" });
+        deps.ui.showSetupBlockedState();
         return "blocked";
       }
 

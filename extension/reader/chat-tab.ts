@@ -37,7 +37,6 @@ import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
 import { createChatSetupFlow } from "./chat-setup-flow.js";
 import { createChatLiveBridge } from "./chat-live-bridge.js";
-import { createChatContextOrchestrator } from "./chat-context-orchestrator.js";
 import { createChatInputImages } from "../chat/chat-input-images.js";
 import { createReaderChatComposer } from "./chat-tab-composer.js";
 import { createScrollFollowController } from "./chat-scroll-follow.js";
@@ -137,7 +136,7 @@ const feedback = createReaderChatFeedback({
   inputCard: els.input.closest(".chat-input-card"),
   setTimer: (fn, ms) => window.setTimeout(fn, ms),
   clearTimer: (handle) => window.clearTimeout(handle),
-  scrollToBottom: () => chatRuntime.scrollToBottom(),
+  scrollToBottom: () => chatDomain.scrollToBottom(),
   onOpenSettings: (settingsTarget) => liveBridge.openChatSettings(settingsTarget)
 });
 const {
@@ -151,11 +150,11 @@ const {
 
 const liveBridge = createChatLiveBridge({
   liveStatusRoot: els.liveStatus,
-  getTimestampNavDeps: () => contextOrchestrator.getTimestampNavDeps(),
+  getTimestampNavDeps: () => chatDomain.getTimestampNavDeps(),
   showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs),
-  stopSpeech: () => chatRuntime.stopSpeech(),
-  isTurnActive: () => chatRuntime.isTurnActive(),
-  stopActiveStream: () => chatRuntime.stopActiveStream(),
+  stopSpeech: () => chatDomain.stopSpeech(),
+  isTurnActive: () => chatDomain.isTurnActive(),
+  stopActiveStream: () => chatDomain.stopActiveStream(),
   updateSendBtnState: () => composer.updateSendBtnState(),
   hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "none" }),
   hideMoreMenu: () => popovers.hideMoreMenu()
@@ -163,7 +162,7 @@ const liveBridge = createChatLiveBridge({
 
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
-  isStreaming: () => chatRuntime.isStreaming(),
+  isStreaming: () => chatDomain.isStreaming(),
   onReject: (message) => showConversationContextNotice(message, 4000),
   onPendingChange: () => composer.updateSendBtnState(),
   focusInput: () => els.input.focus({ preventScroll: true })
@@ -184,15 +183,15 @@ const composer = createReaderChatComposer({
     sendTurn: (text, options) => {
       pendingQuickActionRetry = null;
       setupFlow.clearViewHold();
-      return chatRuntime.sendTurn(text, options);
+      return chatDomain.sendTurn(text, options);
     },
-    isTurnActive: () => chatRuntime.isTurnActive(),
+    isTurnActive: () => chatDomain.isTurnActive(),
     stopActiveStream: () => {
-      chatRuntime.stopActiveStream();
+      chatDomain.stopActiveStream();
     }
   },
   onPasteImage: (e) => inputImages.handlePaste(e),
-  onCancelSubtitleWait: () => sendGate.cancel(),
+  onCancelSubtitleWait: () => chatDomain.cancelSubtitleWait(),
   onNotice: showConversationContextNotice,
   isImageProcessing: () => inputImages.isPending(),
   hasInputImages: () => inputImages.count() > 0,
@@ -222,7 +221,7 @@ const explainIntentController = createExplainIntentController({
       restoreOnReject: true,
       ...(options?.interactionAnchor ? { interactionAnchor: options.interactionAnchor } : {})
     }),
-  isTurnActive: () => chatRuntime.isTurnActive(),
+  isTurnActive: () => chatDomain.isTurnActive(),
   onNotice: showConversationContextNotice,
   onFocusInput: () => els.input?.focus?.({ preventScroll: true })
 });
@@ -238,51 +237,15 @@ const setupFlow = createChatSetupFlow({
   hasSelectableModels: () => modelPanel.hasSelectableModels(),
   resolveSetupTarget: () => modelPanel.resolveSetupTarget(),
   reloadModelPanel: () => modelPanel.reload(),
-  renderInitialState: () => contextOrchestrator.renderInitialState(),
+  renderInitialState: () => chatDomain.renderInitialState(),
   autosizeInput: () => composer.autosizeInput(),
   focusInput: () => els.input?.focus?.({ preventScroll: true }),
   showNotice: showConversationContextNotice
 });
 
-const contextOrchestrator = createChatContextOrchestrator({
-  messagesEl: els.messages,
-  inputEl: els.input,
-  openSettingsId: ids.readingChatOpenSettings,
-  isSessionClosed: () => sessionClosed,
-  loadContextState: (opts) => contextLoad.loadContextState(opts),
-  detachForRestart: (opts) => conversationStore.detachForRestart(opts),
-  isTurnActive: () => chatRuntime.isTurnActive(),
-  setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
-  scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
-  renderReplay: () => conversationReplay.render(),
-  invalidateReplay: () => conversationReplay.invalidate(),
-  updateLayout: updateChatLayoutState,
-  autosizeInput: () => composer.autosizeInput(),
-  setStreamingUiState: (isStreaming) => composer.setStreamingUiState(isStreaming),
-  getInputImageCount: () => inputImages.count(),
-  clearInputImages: () => inputImages.clear(),
-  resetSuggestions: () => suggestionsSlot.reset(),
-  refreshSuggestions: () => suggestionsSlot.refresh(),
-  resetScrollFollow: () => scrollFollow.reset(),
-  hasSelectableModels: () => modelPanel.hasSelectableModels(),
-  getSetupStateHtml: () => setupFlow.setupStateHtml(),
-  invalidateSetupFlow: () => setupFlow.invalidate(),
-  showNotice: showConversationContextNotice,
-  hideOverlaysForNewChat: () => {
-    popovers.hideHistoryPopover({ focus: "none" });
-    popovers.hideModelPanel();
-  },
-  seekReadingTarget: (seconds) => seekReadingTarget(seconds)
-});
-
-const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
+const chatDomain = createChatTabDomain({
   messages: els.messages,
   input: els.input,
-  updateChatLayoutState,
-  suggestions: {
-    render: () => suggestionsSlot.refresh(),
-    clear: () => suggestionsSlot.clear()
-  },
   ui: {
     setStreamingUiState: composer.setStreamingUiState,
     showConversationContextNotice,
@@ -290,7 +253,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions: () => suggestionsSlot.clear(),
-    requestViewReset: contextOrchestrator.requestViewReset,
     autosizeInput: composer.autosizeInput,
     onTurnFailedRestoreDraft: ({ text, images }) => {
       if (els.input.value.trim() === "" && text) {
@@ -303,6 +265,25 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     },
     onSetupRequired: setupFlow.showSetupAction
   },
+  view: {
+    hasSelectableModels: () => modelPanel.hasSelectableModels(),
+    getSetupStateHtml: () => setupFlow.setupStateHtml(),
+    focusSetupAction: () => activeById(ids.readingChatOpenSettings)?.focus({ preventScroll: true }),
+    getInputImageCount: () => inputImages.count(),
+    clearInputImages: () => inputImages.clear(),
+    suggestions: {
+      refresh: () => suggestionsSlot.refresh(),
+      clear: () => suggestionsSlot.clear(),
+      reset: () => suggestionsSlot.reset()
+    },
+    resetScrollFollow: () => scrollFollow.reset(),
+    prepareForNewConversation: () => {
+      setupFlow.invalidate();
+      popovers.hideHistoryPopover({ focus: "none" });
+      popovers.hideModelPanel();
+    },
+    seekReadingTarget: (seconds) => seekReadingTarget(seconds)
+  },
   onConversationChanged: (change) => {
     pendingQuickActionRetry = null;
     if (change.historyCleared) {
@@ -312,16 +293,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     if (change.historyCleared) {
       els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus({ preventScroll: true });
     }
-    if (change.resetView) {
-      contextOrchestrator.renderInitialState();
-    }
-  },
-  onStreamInterrupted: (opts) => {
-    if (!opts?.preserveStream) {
-      chatRuntime.resetStreamState();
-    }
-    contextOrchestrator.resetConversationView();
-    composer.setStreamingUiState(false);
   },
   onContextNotice: (notice) => {
     if (notice.kind === "pending") {
@@ -333,7 +304,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   renderHistoryList: () => lists.renderHistoryList(),
-  renderInitialState: contextOrchestrator.renderInitialState,
   storage: chrome.storage.local,
   clip: () => state.clip,
   settings: () => state.settings,
@@ -351,7 +321,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
       !pending ||
       sessionClosed ||
       pending.clipSignature !== computeCurrentClipSignature() ||
-      chatRuntime.isTurnActive()
+      chatDomain.isTurnActive()
     ) {
       return false;
     }
@@ -397,7 +367,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
       currentTime: frame.currentTime
     }));
   },
-  getTimestampNavDeps: contextOrchestrator.getTimestampNavDeps,
   getSpeechVolume: () => CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(state.settings?.speechVoiceVolume) / 100,
   connectPort: async () => {
     if (sessionClosed) {
@@ -409,22 +378,15 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   isLiveActive: () => isLiveCompanionAllowed() && liveBridge.isActive()
 });
 
-const { loadContextState } = contextLoad;
-
-function openConversationById(id: string): void {
-  chatRuntime.stopSpeech();
-  conversationStore.applyById(id);
-}
-
 const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
-  applyById: openConversationById,
-  settleTurn: () => (chatRuntime.isTurnActive() ? chatRuntime.settleTurn() : undefined),
-  deleteById: (id) => conversationStore.deleteById(id),
-  isTurnActive: () => chatRuntime.isTurnActive(),
+  applyById: (id) => chatDomain.openConversation(id),
+  settleTurn: () => (chatDomain.isTurnActive() ? chatDomain.settleTurn() : undefined),
+  deleteById: (id) => chatDomain.deleteConversation(id),
+  isTurnActive: () => chatDomain.isTurnActive(),
   confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
-  startNewConversation: contextOrchestrator.startNewConversation,
+  startNewConversation: () => chatDomain.startNewConversation(),
   hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
 
@@ -468,8 +430,8 @@ const modelPanel = createReaderChatModelPanel({
 const scrollFollow = createScrollFollowController({
   messages: els.messages,
   scrollBottomBtn: els.scrollBottomBtn,
-  setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
-  scrollToBottom: (smooth) => chatRuntime.scrollToBottom(smooth)
+  setAutoScroll: (autoScroll) => chatDomain.setAutoScroll(autoScroll),
+  scrollToBottom: (smooth) => chatDomain.scrollToBottom(smooth)
 });
 
 let sessionTriggerScope: DisposableContext | null = null;
@@ -481,8 +443,7 @@ function activateSessionTriggers(): void {
   const scope = createDisposableContext();
   sessionTriggerScope = scope;
 
-  sendGate.bindStatusBus();
-  scope.track(() => sendGate.unbindStatusBus());
+  scope.track(chatDomain.bindStatusBus());
 
   let clipSignature = computeCurrentClipSignature();
   scope.track(contentEventBus.on("host:url-change", () => {
@@ -494,17 +455,15 @@ function activateSessionTriggers(): void {
     quickActionGeneration += 1;
     pendingQuickActionRetry = null;
     setupFlow.invalidate();
-    sendGate.cancel();
     deactivateChatTabOverlays();
     dismissConfirmDialog();
     lists.settlePendingDeletion();
-    conversationStore.detachForRestart();
-    contextOrchestrator.scheduleLiveContextSync();
+    chatDomain.handleHostClipChanged();
   }));
 
   scope.track(subscribeReaderPresenter((event) => {
     if (event.kind === "subtitle-ready") {
-      contextOrchestrator.scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
+      chatDomain.scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
     }
   }));
 
@@ -555,7 +514,7 @@ function activateSessionTriggers(): void {
   });
 
   scope.track(subscribeQuickPromptsChange(() => {
-    if (!initialized || chatRuntime.isStreaming()) {
+    if (!initialized || chatDomain.isStreaming()) {
       return;
     }
     suggestionsSlot.refresh();
@@ -600,21 +559,20 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   await Promise.all([
     sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null),
     modelPanel.reload(),
-    conversationStore.loadAll(),
-    loadContextState(),
+    chatDomain.loadConversations(),
+    chatDomain.loadContextState(),
     isLiveCompanionAllowed() ? liveBridge.refreshTarget() : Promise.resolve()
   ]);
   if (isStale()) {
     deactivateSessionTriggers();
     return;
   }
-  await conversationStore.restoreLatest();
+  await chatDomain.restoreLatestConversation();
   if (isStale()) {
     deactivateSessionTriggers();
     return;
   }
-  contextOrchestrator.renderInitialState();
-  composer.autosizeInput();
+  chatDomain.renderInitialState();
   initialized = true;
   if (consumeIntent) {
     await explainIntentController.consumeIfPending();
@@ -634,19 +592,18 @@ async function restoreChatSession(): Promise<void> {
   if (isLiveCompanionAllowed()) {
     void liveBridge.refreshTarget();
   }
-  const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
+  const ok = await chatDomain.loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok || isStale()) {
     return;
   }
-  const restored = await conversationStore.restoreLatest();
+  const restored = await chatDomain.restoreLatestConversation();
   if (isStale()) {
     return;
   }
   if (!restored && chatSessionState.liveContextData) {
     applyLiveContextToMain();
   }
-  contextOrchestrator.renderInitialState();
-  composer.autosizeInput();
+  chatDomain.renderInitialState();
 }
 
 export async function ensureChatTabActivated({ consumeIntent = true }: { consumeIntent?: boolean } = {}): Promise<void> {
@@ -673,14 +630,14 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
 }
 
 export function stopChatSpeech(): void {
-  chatRuntime.stopSpeech();
+  chatDomain.stopSpeech();
 }
 
 export function deactivateChatTabOverlays(): void {
   popovers.hideMoreMenu();
   popovers.hideModelPanel({ restoreFocus: false });
   popovers.hideHistoryPopover({ focus: "none" });
-  chatRuntime.closeImageViewer({ restoreFocus: false });
+  chatDomain.closeImageViewer({ restoreFocus: false });
   inputImages.closeViewer(false);
 }
 
@@ -691,23 +648,16 @@ export function closeChatSession(): void {
   quickActionGeneration += 1;
   pendingQuickActionRetry = null;
   setupFlow.invalidate();
-  contextOrchestrator.cancelPendingSync();
+  chatDomain.closeSession({ resetRuntime: initialized });
   liveBridge.closeSession();
   if (!initialized) {
     deactivateSessionTriggers();
     return;
   }
-  chatRuntime.resetStreamState();
-  composer.setStreamingUiState(false);
-  scrollFollow.reset();
-  sendGate.cancel();
-  composer.setSubtitleWaitUi(false);
-  conversationReplay.invalidate();
   deactivateChatTabOverlays();
   lists.cancelPendingSwitch();
   lists.settlePendingDeletion();
   removeConversationContextNotice();
-  sendGate.refreshAsrNotice();
   explainIntentController.hide();
   deactivateSessionTriggers();
 }
@@ -732,13 +682,13 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
-    if (chatRuntime.isTurnActive()) {
+    if (chatDomain.isTurnActive()) {
       showConversationContextNotice("当前对话正在生成或发送，请稍后再试。", 4000);
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
     const accepted = await composer.sendDetachedPrompt(text);
-    if (!accepted && !sessionClosed && generation === quickActionGeneration && sendGate.isNoSubtitleBlocked()) {
+    if (!accepted && !sessionClosed && generation === quickActionGeneration && chatDomain.isNoSubtitleBlocked()) {
       pendingQuickActionRetry = { prompt: text, clipSignature: computeCurrentClipSignature() };
     }
     return accepted;
@@ -788,17 +738,17 @@ function bindEvents(): void {
   });
   els.newChatBtn?.addEventListener("click", () => {
     popovers.hideMoreMenu();
-    void contextOrchestrator.startNewConversation();
+    void chatDomain.startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
-    chatRuntime.stopSpeech();
+    chatDomain.stopSpeech();
     popovers.toggleHistoryPopover(event);
   });
   els.displaySettingsBtn?.addEventListener("click", () => {
     liveBridge.openChatSettings("appearance");
   });
   els.historyClearBtn?.addEventListener("click", () => {
-    void conversationStore.clearAll();
+    void chatDomain.clearConversations();
   });
   els.historyBackBtn?.addEventListener("click", () => {
     popovers.hideHistoryPopover();
@@ -851,7 +801,7 @@ function bindEvents(): void {
 }
 
 function isConversationViewActive(): boolean {
-  return chatRuntime.isTurnActive();
+  return chatDomain.isTurnActive();
 }
 
 async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
@@ -861,13 +811,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   if (isConversationViewActive() || setupFlow.isViewHeld()) {
     return;
   }
-  contextOrchestrator.renderInitialState();
-}
-
-function updateChatLayoutState(): void {
-  if (els.input) {
-    composer.autosizeInput();
-  }
+  chatDomain.renderInitialState();
 }
 
 async function startSubtitleFetch(options?: { forceRefresh?: boolean; awaitRefresh?: boolean }): Promise<boolean> {

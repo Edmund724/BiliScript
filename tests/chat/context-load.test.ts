@@ -46,7 +46,8 @@ function makeHarness({
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
-    requestViewReset: vi.fn(),
+    showStateMessage: vi.fn(),
+    onContextChanged: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
     hasPendingUserPrompt: vi.fn(() => false),
@@ -57,7 +58,8 @@ function makeHarness({
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
-    requestViewReset: deps.requestViewReset,
+    showStateMessage: deps.showStateMessage,
+    onContextChanged: deps.onContextChanged,
     restoreLatest: deps.restoreLatest,
     isStreaming: deps.isStreaming,
     hasPendingUserPrompt: deps.hasPendingUserPrompt,
@@ -100,7 +102,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(false);
     expect(chatSessionState.liveContextData).toBeNull();
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: "内容脚本未响应" });
+    expect(deps.showStateMessage).toHaveBeenCalledWith("内容脚本未响应");
   });
 
   it("error + 静默：不重置视图（返回值仍 false）", async () => {
@@ -111,7 +113,7 @@ describe("loadContextState 动作分支", () => {
     const ok = await contextLoad.loadContextState({ silent: true });
 
     expect(ok).toBe(false);
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.showStateMessage).not.toHaveBeenCalled();
   });
 
   it("no-tab 信封：清 live 快照（进程内策略不产生该分支，信封语义由 policy 锁定）", async () => {
@@ -127,7 +129,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(false);
     expect(chatSessionState.liveContextData).toBeNull();
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.requestViewReset).toHaveBeenCalledTimes(1);
+    expect(deps.showStateMessage).toHaveBeenCalledTimes(1);
   });
 
   it("apply-pinned：只落地 live 快照（不进主上下文、不触发对话恢复）", async () => {
@@ -163,7 +165,7 @@ describe("loadContextState 动作分支", () => {
     expect(deps.restoreLatest).not.toHaveBeenCalled();
   });
 
-  it("apply-live：主上下文落地；上下文变化时经 requestViewReset(restart) + restoreLatest + renderInitialState", async () => {
+  it("apply-live：主上下文落地；上下文变化时经 onContextChanged + restoreLatest + renderInitialState", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4", title: "新视频" });
@@ -175,17 +177,13 @@ describe("loadContextState 动作分支", () => {
 
     expect(ok).toBe(true);
     expect(chatSessionState.contextData).toEqual(payload);
-    expect(deps.requestViewReset).toHaveBeenCalledWith({
-      kind: "restart",
-      keepContext: true,
-      preserveInput: false
-    });
+    expect(deps.onContextChanged).toHaveBeenCalledWith({ preserveInput: false });
     expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
 
-  it("apply-live：preserveInput 透传到 requestViewReset(restart) 与 restoreLatest(preserveStream)（发送闸调用链不清输入/附件且不拆在途受理）", async () => {
+  it("apply-live：preserveInput 透传到 onContextChanged 与 restoreLatest(preserveStream)（发送闸调用链不清输入/附件且不拆在途受理）", async () => {
     chatSessionStateForTests.currentContextKey = "old-key";
     chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4b", title: "换P后的视频" });
@@ -196,11 +194,7 @@ describe("loadContextState 动作分支", () => {
     const ok = await contextLoad.loadContextState({ silent: true, preserveInput: true });
 
     expect(ok).toBe(true);
-    expect(deps.requestViewReset).toHaveBeenCalledWith({
-      kind: "restart",
-      keepContext: true,
-      preserveInput: true
-    });
+    expect(deps.onContextChanged).toHaveBeenCalledWith({ preserveInput: true });
     expect(deps.restoreLatest).toHaveBeenCalledWith({ preserveStream: true });
   });
 
@@ -231,12 +225,12 @@ describe("loadContextState 动作分支", () => {
     deps.isStreaming.mockReturnValue(true);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(makePayload());
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.onContextChanged).not.toHaveBeenCalled();
 
     deps.isStreaming.mockReturnValue(false);
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(sameVideoPayload);
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.onContextChanged).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
 
@@ -252,11 +246,7 @@ describe("loadContextState 动作分支", () => {
     });
     await contextLoad.loadContextState({ silent: true });
     expect(chatSessionState.contextData).toEqual(switchVideoPayload);
-    expect(deps.requestViewReset).toHaveBeenCalledWith({
-      kind: "restart",
-      keepContext: true,
-      preserveInput: false
-    });
+    expect(deps.onContextChanged).toHaveBeenCalledWith({ preserveInput: false });
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
@@ -274,7 +264,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(true);
     expect(chatSessionState.liveContextData).not.toBeNull();
     expect(chatSessionState.contextData).toEqual(makePayload());
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.onContextChanged).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
   });
 
@@ -303,21 +293,21 @@ describe("loadContextState 动作分支", () => {
       fetchOutcome: () => ({ kind: "error", tabUrl: ACTIVE_TAB.url, error: { code: 7 } as unknown as string })
     });
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
-    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
+    expect(deps.showStateMessage).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
 
-    deps.requestViewReset.mockClear();
+    deps.showStateMessage.mockClear();
     const pinnedContext = makePayload({ signature: "sig-pinned" });
     chatSessionStateForTests.contextData = pinnedContext;
     applyConversationIdentity({ meta: { pinnedContext: true } });
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
     expect(chatSessionState.contextData).toEqual(pinnedContext);
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.showStateMessage).not.toHaveBeenCalled();
 
     applyConversationIdentity({ meta: { pinnedContext: false } });
     deps.isLiveActive.mockReturnValue(true);
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.showStateMessage).not.toHaveBeenCalled();
   });
 
   it("no-tab 边界：pinned 保留主上下文；silent 或伴看中抑制视图重置", async () => {
@@ -330,17 +320,17 @@ describe("loadContextState 动作分支", () => {
 
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
     expect(chatSessionState.contextData).toEqual(initial);
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.showStateMessage).not.toHaveBeenCalled();
 
     applyConversationIdentity({ meta: { pinnedContext: false } });
     deps.isLiveActive.mockReturnValue(true);
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.requestViewReset).not.toHaveBeenCalled();
+    expect(deps.showStateMessage).not.toHaveBeenCalled();
 
     deps.isLiveActive.mockReturnValue(false);
     expect(await contextLoad.loadContextState({ silent: false })).toBe(false);
-    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: NO_TAB_MESSAGE });
+    expect(deps.showStateMessage).toHaveBeenCalledWith(NO_TAB_MESSAGE);
   });
 
   it("hasPendingUserPrompt 冻结主上下文；伴看进行中即使 pinned 也优先跟随页面视频", async () => {
