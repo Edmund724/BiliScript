@@ -1311,13 +1311,17 @@ export async function runYoutubeSmoke({
           const el = document.getElementById(id);
           return Boolean(el && el.hidden && el.getAttribute("aria-hidden") === "true");
         };
+        const isVisible = (id) => {
+          const el = document.getElementById(id);
+          return Boolean(el && !el.hidden && el.getAttribute("aria-hidden") !== "true");
+        };
         return {
           liveGated: isGated("openLiveSettingsBtn") && Boolean(document.getElementById("biliscriptSettingsSubpageLive")?.hidden),
-          asrGated: isGated("openAsrSettingsBtn") && Boolean(document.getElementById("biliscriptSettingsSubpageAsr")?.hidden),
-          agentGated: isGated("openAgentSettingsBtn") && Boolean(document.getElementById("biliscriptSettingsSubpageAgent")?.hidden),
-          subtitleVisible: Boolean(document.getElementById("openSubtitleSettingsBtn") && !document.getElementById("openSubtitleSettingsBtn").hidden),
-          aiPromptVisible: Boolean(document.getElementById("openAiPromptBtn") && !document.getElementById("openAiPromptBtn").hidden),
-          appearanceVisible: Boolean(document.getElementById("openAppearanceBtn") && !document.getElementById("openAppearanceBtn").hidden)
+          asrVisible: isVisible("openAsrSettingsBtn"),
+          agentVisible: isVisible("openAgentSettingsBtn"),
+          subtitleVisible: isVisible("openSubtitleSettingsBtn"),
+          aiPromptVisible: isVisible("openAiPromptBtn"),
+          appearanceVisible: isVisible("openAppearanceBtn")
         };
         `,
         [],
@@ -1425,8 +1429,8 @@ export async function runYoutubeSmoke({
         expectedSpeechRowMatches &&
         chatReplyTtsState?.hasRegenBtn &&
         rootGatingState?.liveGated &&
-        rootGatingState.asrGated &&
-        rootGatingState.agentGated &&
+        rootGatingState.asrVisible &&
+        rootGatingState.agentVisible &&
         rootGatingState.subtitleVisible &&
         rootGatingState.aiPromptVisible &&
         rootGatingState.appearanceVisible &&
