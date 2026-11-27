@@ -1,62 +1,39 @@
+## Commands (agents may run these without asking)
 
+仅用 PATH 上的 `pnpm`（12.x）；禁用 `npm`、`npx` 及 DSH 内置 pnpm 11（触发 `devEngines` 报错）。一次性 CLI 用 `pnpm dlx <pkg>`（非 npx 不可时加 `--force`）。
 
-## 工具链
+- install: `pnpm install`
+- typecheck: `pnpm typecheck`
+- checks: `pnpm lint:comments` / `pnpm icons:check` / `pnpm catalog:check`
+- test (高频迭代，单文件): `pnpm exec vitest run <path>`
+- test (里程碑，unit-node + unit-dom): `pnpm test:unit`
+- test (合入前全量 / 仅 e2e): `pnpm test` / `pnpm test:e2e`
+- test (POSIX 安装脚本，需在沙箱外跑): `pnpm test:installer`
+- build (Chromium / Firefox): `pnpm build` / `pnpm build:firefox`
+- verify (真机 / 静态清单): `pnpm harness:browser` / `pnpm smoke:firefox` / `pnpm dlx web-ext lint -s dist-firefox`
 
-依赖与脚本用 PATH 上的 pnpm（12.x）——`pnpm install` / `pnpm exec vitest run` 直接可用；npm 装依赖会被 `devEngines` 拒（EBADDEVENGINES）。
+## 测试与验证
 
-`npx` 同样过不去 `devEngines`：还没跑到目标 CLI 就报 EBADDEVENGINES。一次性命令行工具用 `pnpm dlx <pkg>`（例如 `pnpm dlx web-ext lint -s dist-firefox`），非 npx 不可时加 `--force`。
-
-DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 ≥12 → 它切到 12.5.1 时生成的 Windows shim 指向无扩展名的 `sh` 占位脚本（生命周期脚本被拦、原生包 `@pnpm/exe.win32-x64` 未装），cmd 报 `'...\node_modules\pnpm\pnpm' is not recognized`。
+- **Vitest 分层**：3 个 project——`unit-node`（默认 `node`，覆盖其余单测）、`unit-dom`（`jsdom`，覆盖 `tests/ui/**`、`tests/reader/**`）、`e2e`（`jsdom`，覆盖 `tests/e2e/**`）。
+- **验证节奏**：高频迭代用 `pnpm typecheck` + 单文件 `vitest run <path>`（禁用 `vitest related`，模块耦合会拉起近似全量）；里程碑跑 `pnpm test:unit`；合入前跑 `pnpm test` + `pnpm build` + 真机验证。
+- **防回退约束**：新增非 UI/Reader/E2E 单测默认 `node` 环境，仅真实依赖 DOM / `window` / `history` / `location` 时在首行加 `// @vitest-environment jsdom`；同模块用例用 `describe` 收拢不拆 1–3 个用例的微文件；组合矩阵与多状态流程放 `tests/e2e/`。
+- **真机验证边界**：jsdom 测不到的（真实 DOM 几何 / B 站真实接口 / MV3 SW 与 Firefox Event Page 生命周期 / offscreen / CSP）走真机（写场景见 `scripts/browser-harness/README.md`），其余留在 `tests/`。
+- **POSIX 安装脚本特例**：`tests/agent-bridge/install-agent-sh.test.ts` 在 Windows 下依赖 Git Bash（`msys-2.0.dll`），默认被 `vitest.config.mjs` 排除；改动 `scripts/install-agent.sh` 或 bridge `status` 输出时在沙箱外执行 `pnpm test:installer`。
 
 ## 浏览器兼容
 
-目标平台为 **Chromium（最低 Chrome 120）** 与 **桌面端 Firefox（最低 Firefox 153，不适配 Android）**，架构边界与功能门控以 `docs/adr/0017-firefox-desktop-compatibility.md` 为准：
+目标平台为 Chromium（≥120）与桌面端 Firefox（≥153，不适配 Android），架构边界与功能门控以 `docs/adr/0017-firefox-desktop-compatibility.md` 为准：
 
-- **构建与清单**：`extension/manifest.json` 保持为 Chromium 单一事实源（`dist/`）；Firefox 构建通过 `--target=firefox`（`pnpm build:firefox`）派生 `dist-firefox/manifest.json`（Event Page `background.scripts`、剔除 `live.bilibili.com/*` 后的 29 个常驻 `host_permissions`、清空 `web_accessible_resources`、`gecko` 与 `data_collection_permissions`）。
-- **Offscreen 宿主**：Chromium 走 `chrome.offscreen`；Firefox 走后台 Event Page 动态挂载隐藏 `iframe`（方案 A，收口于 `extension/core/offscreen-host.ts`），保持跨帧 `runtime.Port` / `runtime.onMessage` 与 256 KB 后台体积守卫不变。
-- **首期范围与样式红线**：Firefox 首期交付核心文摘阅读、双轨翻译、概览、对话、金句导出、Agent 桥接与无字幕 ASR 转写，门控隐藏 `tts` 朗读与 `live` 实时伴看入口；Firefox 滚动条样式必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写 `scrollbar-width` / `scrollbar-color` 破坏 Chrome 121+ 的 `::-webkit-scrollbar`。
+- **清单与产物**：`extension/manifest.json` 为 Chromium 单一事实源（`dist/`）；Firefox 产物与清单通过 `pnpm build:firefox` 派生至 `dist-firefox/`。
+- **Offscreen 与门控**：Offscreen 分叉收口于 `extension/core/offscreen-host.ts`（保持 256 KB 后台体积守卫）；Firefox 门控隐藏 `tts` 朗读与 `live` 实时伴看入口。
+- **样式红线**：Firefox 滚动条样式必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写 `scrollbar-width` / `scrollbar-color` 破坏 Chrome 121+ 的 `::-webkit-scrollbar`。
 
-## 测试分层与防回退
+## Agent docs
 
-Vitest 分为三个 project：`unit-node`（默认 `node` 环境，覆盖 `tests/ui/**`、`tests/reader/**`、`tests/e2e/**` 之外的单测）、`unit-dom`（`jsdom`，覆盖 `tests/ui/**` 与 `tests/reader/**`）、`e2e`（`jsdom`，覆盖 `tests/e2e/**`）。
-
-### 分层验证节奏
-
-- **高频迭代**：`pnpm typecheck` + 指定测试路径（`pnpm exec vitest run <path>`，跨 project 透明路由）。不要对核心模块运行 `vitest related`——模块依赖图高度耦合，会拉起接近全量的测试集。
-- **里程碑门禁**：`pnpm test:unit`（跑 `unit-node` + `unit-dom`，跳过 `tests/e2e/**`）。
-- **合入前门禁**：全量 `pnpm test`（或单独补跑 `pnpm test:e2e`）+ `pnpm build` + 真机验证。
-
-### 防回退约束
-
-- 新增非 UI/Reader/E2E 单测默认运行在 `node` 环境；仅当用例真实依赖 DOM / `window` / `history` / `location` 时，在文件第 1 行显式添加 `// @vitest-environment jsdom`。
-- 同模块相关用例用 `describe` 分组收拢到同一文件，不拆成 1–3 个用例的碎片微文件。
-- 大规模组合矩阵与端到端多状态流程统一放入 `tests/e2e/`，不混入单测目录拖慢 `test:unit`。
-
-## 真机验证
-
-jsdom 够不着的（真实 DOM 几何 / B 站真实接口 / MV3 SW 与 Firefox Event Page 生命周期 / offscreen / CSP）走真机：Chromium 自检跑 `pnpm harness:browser`，写场景见 `scripts/browser-harness/README.md`；Firefox 静态校验跑 `pnpm dlx web-ext lint -s dist-firefox`，真机分叉点冒烟跑 `pnpm smoke:firefox`。其余验证留在 `tests/`。
-
-### POSIX 安装脚本测试
-
-`tests/agent-bridge/install-agent-sh.test.ts` 在 Windows 下依赖 Git Bash（`msys-2.0.dll`），无法在终端沙箱内运行，默认被 `vitest.config.mjs` 排除。改动 `scripts/install-agent.sh` 或 bridge `status` 输出时，需在沙箱外执行 `pnpm test:installer`。
-
-## Agent skills
-
-### Issue tracker
-
-GitHub Issues on `Edmund724/BiliScript` via `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context. See `docs/agents/domain.md`.
-
-### Transitive deps
-
-只处理进产物或随产物分发的传递依赖公告；够不着的记理由，不静默。See `docs/agents/transitive-deps.md`.
+- **Issue tracker**: GitHub Issues on `Edmund724/BiliScript` via `gh` CLI (`docs/agents/issue-tracker.md`)
+- **Triage labels**: Default five-role vocabulary (`docs/agents/triage-labels.md`)
+- **Domain docs**: Single-context (`docs/agents/domain.md`)
+- **Transitive deps**: 只处理进产物或随产物分发的传递依赖公告；够不着的记理由，不静默 (`docs/agents/transitive-deps.md`)
 
 ## 设计与 UI
 
