@@ -39,6 +39,8 @@ const ICON_SOURCE_MAP = {
   lock: "lock",
   bridge: "arrow-left-right",
   sparkle: "sparkle",
+  plus: "plus",
+  notebookPen: "notebook-pen",
   fileDown: "file-down",
   bookMarked: "book-marked"
 };

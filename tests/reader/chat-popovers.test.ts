@@ -31,7 +31,11 @@ function makeHarness() {
   moreBtn.id = ids.readingChatMoreBtn;
   const moreMenu = document.createElement("div");
   moreMenu.id = ids.readingChatMoreMenu;
-  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu, conversationInput);
+  const toolsBtn = document.createElement("button");
+  toolsBtn.id = ids.readingChatToolsBtn;
+  const toolsMenu = document.createElement("div");
+  toolsMenu.id = ids.readingChatToolsMenu;
+  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu, toolsBtn, toolsMenu, conversationInput);
   const deps = {
     historyPopover,
     modelPanel,
@@ -41,6 +45,8 @@ function makeHarness() {
     conversationInput,
     moreBtn,
     moreMenu,
+    toolsBtn,
+    toolsMenu,
     renderHistoryList: vi.fn(),
     settlePendingDeletion: vi.fn(),
     renderModelPanel: vi.fn()
@@ -49,7 +55,8 @@ function makeHarness() {
   historyPopover.hidden = false;
   modelPanel.hidden = false;
   moreMenu.hidden = false;
-  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn, historyBackBtn, conversationInput, moreBtn, moreMenu };
+  toolsMenu.hidden = true;
+  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn, historyBackBtn, conversationInput, moreBtn, moreMenu, toolsBtn, toolsMenu };
 }
 
 describe("toggleHistoryPopover", () => {
@@ -327,5 +334,31 @@ describe("toggleMoreMenu", () => {
     popovers.hideModelPanel({ restoreFocus: false });
     expect(modelPanel.hidden).toBe(true);
     expect(document.activeElement).toBe(outsider);
+  });
+
+  it("toggleToolsMenu：与其他弹层互斥，支持外点关闭与 Esc 归还焦点到 + 按钮", () => {
+    const { popovers, historyPopover, modelPanel, moreMenu, toolsBtn, toolsMenu } = makeHarness();
+    historyPopover.hidden = true;
+    modelPanel.hidden = false;
+    moreMenu.hidden = true;
+    toolsMenu.hidden = true;
+
+    popovers.toggleToolsMenu();
+    expect(toolsMenu.hidden).toBe(false);
+    expect(modelPanel.hidden).toBe(true);
+    expect(toolsBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(toolsBtn.classList.contains("is-open")).toBe(true);
+
+    const outside = document.createElement("div");
+    document.body.appendChild(outside);
+    popovers.handleDocumentClick({ target: outside } as unknown as MouseEvent);
+    expect(toolsMenu.hidden).toBe(true);
+    expect(toolsBtn.getAttribute("aria-expanded")).toBe("false");
+
+    popovers.toggleToolsMenu();
+    expect(toolsMenu.hidden).toBe(false);
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(toolsMenu.hidden).toBe(true);
+    expect(document.activeElement).toBe(toolsBtn);
   });
 });

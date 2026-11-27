@@ -90,6 +90,8 @@ const els = {
   thinkingRow: activeById(ids.readingChatThinkingRow) as HTMLElement,
   thinkingRowValue: activeById(ids.readingChatThinkingRowValue) as HTMLElement,
   webSearchPill: activeById(ids.readingChatWebSearchPill),
+  toolsBtn: activeById<HTMLButtonElement>(ids.readingChatToolsBtn),
+  toolsMenu: activeById(ids.readingChatToolsMenu),
   newChatBtn: activeById<HTMLButtonElement>(ids.readingChatNewBtn) as HTMLButtonElement,
   historyBtn: activeById<HTMLButtonElement>(ids.readingChatHistoryBtn) as HTMLButtonElement,
   moreBtn: activeById<HTMLButtonElement>(ids.readingChatMoreBtn),
@@ -151,6 +153,7 @@ const noteBar = createChatNoteBar({
   onOpenMenu: () => {
     popovers.hideModelPanel({ restoreFocus: false });
     popovers.hideMoreMenu();
+    popovers.hideToolsMenu({ restoreFocus: false });
   }
 });
 
@@ -445,6 +448,8 @@ const popovers = createReaderChatPopovers({
   historyExitFocusEl: els.moreBtn,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
+  toolsBtn: els.toolsBtn,
+  toolsMenu: els.toolsMenu,
   renderHistoryList: (options) => lists.renderHistoryList(options),
   settlePendingDeletion: () => lists.settlePendingDeletion(),
   cancelPendingSwitch: () => lists.cancelPendingSwitch(),
@@ -722,6 +727,7 @@ export function stopChatSpeech(): void {
 
 export function deactivateChatTabOverlays(): void {
   noteBar.closeMenu();
+  popovers.hideToolsMenu({ restoreFocus: false });
   popovers.hideMoreMenu();
   popovers.hideModelPanel({ restoreFocus: false });
   popovers.hideHistoryPopover({ focus: "none" });
@@ -878,6 +884,10 @@ function bindEvents(): void {
   if (isLiveCompanionAllowed()) {
     liveBridge.initEvents();
   }
+  els.toolsBtn?.addEventListener("click", (event) => {
+    noteBar.closeMenu();
+    popovers.toggleToolsMenu(event);
+  });
   els.modelChip.addEventListener("click", (event) => {
     noteBar.closeMenu();
     popovers.toggleModelPanel(event);

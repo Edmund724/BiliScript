@@ -13,6 +13,8 @@ export interface CreateReaderChatPopoversDeps {
   historyExitFocusEl?: HTMLElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
+  toolsBtn?: HTMLElement | null;
+  toolsMenu?: HTMLElement | null;
   renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
   settlePendingDeletion: () => void;
   cancelPendingSwitch?: () => void;
@@ -28,12 +30,14 @@ export interface ReaderChatPopovers {
   hideModelPanel: (options?: { restoreFocus?: boolean }) => void;
   toggleMoreMenu: (event?: Event) => void;
   hideMoreMenu: (options?: { restoreFocus?: boolean }) => void;
+  toggleToolsMenu: (event?: Event) => void;
+  hideToolsMenu: (options?: { restoreFocus?: boolean }) => void;
   handleDocumentClick: (event: MouseEvent) => void;
   handleEscapeKey: (event: KeyboardEvent) => void;
 }
 
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
-  const { historyPopover, modelPanel, moreBtn, moreMenu } = deps;
+  const { historyPopover, modelPanel, moreBtn, moreMenu, toolsBtn, toolsMenu } = deps;
 
   function focusWithoutScroll(element: HTMLElement | null | undefined): void {
     element?.focus({ preventScroll: true });
@@ -63,6 +67,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (historyPopover !== except) setHistoryHidden(true);
     if (modelPanel !== except) setModelPanelHidden(true);
     if (moreMenu && moreMenu !== except) setMoreMenuHidden(true);
+    if (toolsMenu && toolsMenu !== except) setToolsMenuHidden(true);
   }
 
   function setModelPanelHidden(hidden: boolean, restoreFocus = false): void {
@@ -91,6 +96,18 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
       focusWithoutScroll(moreMenu.querySelector<HTMLElement>(".biliscript-reading-chat-more-item, button, input"));
     } else if (wasOpen && restoreFocus) {
       focusWithoutScroll(moreBtn);
+    }
+  }
+
+  function setToolsMenuHidden(hidden: boolean, restoreFocus = false): void {
+    const wasOpen = Boolean(toolsMenu && !toolsMenu.hidden);
+    if (toolsMenu) toolsMenu.hidden = hidden;
+    if (toolsBtn) {
+      toolsBtn.setAttribute("aria-expanded", String(!hidden));
+      toolsBtn.classList.toggle("is-open", !hidden);
+    }
+    if (hidden && wasOpen && restoreFocus) {
+      focusWithoutScroll(toolsBtn);
     }
   }
 
@@ -130,6 +147,18 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     setMoreMenuHidden(true, restoreFocus);
   }
 
+  function toggleToolsMenu(event?: Event): void {
+    event?.stopPropagation();
+    if (!toolsMenu) return;
+    hideOthers(toolsMenu);
+    const willShow = toolsMenu.hidden;
+    setToolsMenuHidden(!willShow, !willShow);
+  }
+
+  function hideToolsMenu({ restoreFocus = false }: { restoreFocus?: boolean } = {}): void {
+    setToolsMenuHidden(true, restoreFocus);
+  }
+
   function handleDocumentClick(event: MouseEvent): void {
     const target = isElementNode(event.target) ? event.target : null;
     if (!historyPopover.hidden) {
@@ -145,6 +174,11 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (moreMenu && !moreMenu.hidden) {
       if (target?.closest(`#${ids.readingChatMoreMenu}, #${ids.readingChatMoreBtn}`)) return;
       hideMoreMenu();
+      return;
+    }
+    if (toolsMenu && !toolsMenu.hidden) {
+      if (target?.closest(`#${ids.readingChatToolsMenu}, #${ids.readingChatToolsBtn}`)) return;
+      hideToolsMenu();
     }
   }
 
@@ -166,6 +200,11 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (moreMenu && !moreMenu.hidden) {
       event.preventDefault();
       hideMoreMenu({ restoreFocus: true });
+      return;
+    }
+    if (toolsMenu && !toolsMenu.hidden) {
+      event.preventDefault();
+      hideToolsMenu({ restoreFocus: true });
     }
   }
 
@@ -176,6 +215,8 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     hideModelPanel,
     toggleMoreMenu,
     hideMoreMenu,
+    toggleToolsMenu,
+    hideToolsMenu,
     handleDocumentClick,
     handleEscapeKey
   };

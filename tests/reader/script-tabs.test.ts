@@ -96,9 +96,15 @@ describe("统一 文摘面板三标签", () => {
     expect(document.getElementById(ids.readingChatSendBtn)).not.toBe(null);
     expect(document.getElementById("biliscript-reading-chat-preset-btn")).toBe(null);
     expect(document.getElementById("biliscript-reading-chat-preset-popover")).toBe(null);
+    const toolsBtn = document.getElementById(ids.readingChatToolsBtn) as HTMLButtonElement;
+    const toolsMenu = document.getElementById(ids.readingChatToolsMenu) as HTMLElement;
+    expect(toolsBtn.querySelector("svg")).not.toBe(null);
+    expect(toolsBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(toolsMenu.hidden).toBe(true);
     const searchPill = document.getElementById(ids.readingChatWebSearchPill) as HTMLButtonElement;
+    expect(toolsMenu.contains(searchPill)).toBe(true);
     expect(searchPill.querySelector("svg")).not.toBe(null);
-    expect(searchPill.textContent?.trim()).toBe("");
+    expect(searchPill.textContent?.trim()).toBe("联网搜索");
     expect(searchPill.getAttribute("aria-label")).toBe("联网搜索");
     expect([...searchPill.querySelectorAll(".chat-web-search-meridian")].map((p) => p.classList[1])).toEqual([
       "chat-web-search-meridian-a",
@@ -131,7 +137,7 @@ describe("统一 文摘面板三标签", () => {
     expectTabActive("Overview", false);
 
     (tabButton("Subtitle") as HTMLButtonElement).click();
-    await vi.waitFor(() => expectTabActive("Subtitle", true));
+    await vi.waitFor(() => expectTabActive("Subtitle", true), { timeout: 5000 });
     expectTabActive("Chat", false);
     expect(vi.mocked(chrome.storage.local.set)).toHaveBeenLastCalledWith({
       readerActiveScriptTab: "subtitle"

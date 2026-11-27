@@ -39,6 +39,8 @@ export const ids = {
   readingChatIntent: "biliscript-reading-chat-intent",
   readingChatRoot: "biliscript-reading-chat",
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
+  readingChatToolsBtn: "biliscript-reading-chat-tools-btn",
+  readingChatToolsMenu: "biliscript-reading-chat-tools-menu",
   readingChatSpeechVolume: "biliscript-reading-chat-speech-volume",
   readingChatSpeechVolumeInput: "biliscript-reading-chat-speech-volume-input",
   readingChatSpeechVolumeValue: "biliscript-reading-chat-speech-volume-value",

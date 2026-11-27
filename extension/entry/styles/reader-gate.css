@@ -721,7 +721,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   transition: box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
 }
 
-#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:has(.chat-model-panel:not([hidden])) {
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:has(.chat-model-panel:not([hidden]), .chat-tools-menu:not([hidden]), .chat-note-preset-menu:not([hidden])) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -903,12 +903,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-model-panel,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-tools-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-note-preset-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-chat-more-menu,
 .biliscript-live-room-settings #biliscript-reading-view .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view .chat-tools-menu,
 .biliscript-live-room-settings #biliscript-reading-view .chat-note-preset-menu,
 .biliscript-live-room-settings #biliscript-reading-view .chat-search-preview,
 .biliscript-live-room-settings #biliscript-reading-view .custom-select-dropdown,
@@ -1003,12 +1005,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-model-panel,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-tools-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-note-preset-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-host .ai-provider-model-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat-more-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-tools-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-note-preset-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-search-preview,
 .biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .custom-select-dropdown,
@@ -1307,6 +1311,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 .biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
 #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
+#biliscript-reading-view[data-palette="editorial"] .chat-tools-menu,
 #biliscript-reading-view[data-palette="editorial"] .chat-note-preset-menu,
 #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
@@ -1316,6 +1321,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-tools-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-note-preset-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
@@ -1325,6 +1331,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-tools-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-note-preset-menu,
 .biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 .biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
@@ -1484,6 +1491,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-model-panel,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-tools-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-note-preset-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
@@ -1496,6 +1504,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .agent-bridge-install-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-md-table-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-model-panel,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-tools-menu,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-note-preset-menu,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-search-preview,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
@@ -1524,6 +1533,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-tools-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-note-preset-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
@@ -1555,6 +1565,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   #biliscript-reading-view .biliscript-reading-chat .chat-input-card,
   #biliscript-reading-view .biliscript-reading-chat .chat-msg-user-body,
   #biliscript-reading-view .chat-model-panel,
+  #biliscript-reading-view .chat-tools-menu,
   #biliscript-reading-view .chat-note-preset-menu,
   #biliscript-reading-view .custom-select-dropdown,
   #biliscript-reading-view .provider-editor-dialog,

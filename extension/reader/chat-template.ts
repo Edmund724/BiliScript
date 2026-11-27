@@ -49,7 +49,6 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
           <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
             ${READING_CHEVRON_DOWN_ICON}
           </button>
-          <div id="${ids.readingChatNoteBar}" class="chat-note-bar" hidden></div>
           <div class="chat-input-card">
             <div class="chat-subtitle-wait" role="status" aria-live="polite" hidden>
               <span class="chat-notice-spinner" aria-hidden="true"></span>
@@ -64,15 +63,25 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
               autocomplete="off"
             ></textarea>
             <div id="${ids.readingChatInputBar}" class="chat-input-bar">
-              <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
-                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.209 22 16 17.523 16 12C16 6.477 14.209 2 12 2"></path>
-                  <path class="chat-web-search-meridian chat-web-search-meridian-b" d="M12 22C9.791 22 8 17.523 8 12C8 6.477 9.791 2 12 2"></path>
-                  <path class="chat-web-search-meridian chat-web-search-meridian-c" d="M12 22C6.477 22 2 17.523 2 12C2 6.477 6.477 2 12 2"></path>
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <path d="M2 12h20"></path>
-                </svg>
-              </button>
+              <div class="chat-tools-anchor">
+                <button id="${ids.readingChatToolsBtn}" type="button" class="chat-tools-btn" title="工具" aria-label="展开工具菜单" aria-haspopup="true" aria-controls="${ids.readingChatToolsMenu}" aria-expanded="false">
+                  ${renderUiIcon("plus")}
+                </button>
+                <div id="${ids.readingChatToolsMenu}" class="chat-tools-menu" hidden>
+                  <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                      <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.209 22 16 17.523 16 12C16 6.477 14.209 2 12 2"></path>
+                      <path class="chat-web-search-meridian chat-web-search-meridian-b" d="M12 22C9.791 22 8 17.523 8 12C8 6.477 9.791 2 12 2"></path>
+                      <path class="chat-web-search-meridian chat-web-search-meridian-c" d="M12 22C6.477 22 2 17.523 2 12C2 6.477 6.477 2 12 2"></path>
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M2 12h20"></path>
+                    </svg>
+                    <span class="chat-tools-item-label">联网搜索</span>
+                    <span class="chat-tools-switch" aria-hidden="true"></span>
+                  </button>
+                </div>
+              </div>
+              <div id="${ids.readingChatNoteBar}" class="chat-note-bar" hidden></div>
               <div class="chat-model-anchor">
                 <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位" aria-haspopup="true" aria-controls="${ids.readingChatModelPanel}" aria-expanded="false">
                   <span class="chat-model-chip-model">未配置平台</span>

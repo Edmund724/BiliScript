@@ -45,7 +45,9 @@ describe("输入框上方视频笔记条：常驻显隐、预设切换、键盘�
     bar.refresh();
     expect(host.hidden).toBe(false);
     const mainBtn = host.querySelector<HTMLButtonElement>(".chat-note-pill-main")!;
-    expect(mainBtn.textContent).toBe("生成视频笔记 · 通用结构化");
+    expect(mainBtn.querySelector(".chat-note-pill-label")?.textContent).toBe("笔记");
+    expect(mainBtn.title).toBe("生成视频笔记 · 通用结构化");
+    expect(mainBtn.getAttribute("aria-label")).toBe("生成视频笔记 · 通用结构化");
 
     applyConversationIdentity({ history: [{ role: "user", content: "hi" }] });
     bar.refresh();
@@ -119,7 +121,8 @@ describe("输入框上方视频笔记条：常驻显隐、预设切换、键盘�
     const tutorialItem = menu.querySelector<HTMLButtonElement>("[data-note-preset='tutorial']")!;
     clickOnce(tutorialItem);
     expect(menu.hidden).toBe(true);
-    expect(mainBtn.textContent).toBe("生成视频笔记 · 教程实操");
+    expect(mainBtn.title).toBe("生成视频笔记 · 教程实操");
+    expect(mainBtn.getAttribute("aria-label")).toBe("生成视频笔记 · 教程实操");
     expect(tutorialItem.getAttribute("aria-checked")).toBe("true");
     expect(state.settings.notePromptPreset).toBe("tutorial");
     expect(onPresetChange).toHaveBeenCalledWith("tutorial");
@@ -188,7 +191,7 @@ describe("输入框上方视频笔记条：常驻显隐、预设切换、键盘�
       toggle.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
       const courseItem = menu.querySelector<HTMLButtonElement>("[data-note-preset='course']")!;
       courseItem.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true, cancelable: true }));
-      expect(pill.querySelector(".chat-note-pill-main")?.textContent).toBe("生成视频笔记 · 课程学习");
+      expect(pill.querySelector<HTMLButtonElement>(".chat-note-pill-main")?.title).toBe("生成视频笔记 · 课程学习");
       expect(menu.hidden).toBe(true);
 
       pill.querySelector<HTMLButtonElement>(".chat-note-pill-main")!.dispatchEvent(

@@ -1871,7 +1871,7 @@
 }
 
 .biliscript-reading-chat .chat-scroll-bottom:focus-visible,
-.biliscript-reading-chat .chat-web-search-pill:focus-visible {
+.biliscript-reading-chat .chat-tools-btn:focus-visible {
   outline: 2px solid var(--biliscript-reader-accent);
   outline-offset: 2px;
 }
@@ -1886,10 +1886,111 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-note-bar {
-  display: flex;
+.biliscript-reading-chat .chat-tools-anchor {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+}
+
+.biliscript-reading-chat .chat-tools-btn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-tools-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.biliscript-reading-chat .chat-tools-btn:hover,
+.biliscript-reading-chat .chat-tools-btn.is-open {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-tools-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-tools-anchor:has(.chat-web-search-pill.is-active) .chat-tools-btn {
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-tools-anchor:has(.chat-web-search-pill.is-active) .chat-tools-btn::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-tools-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  box-sizing: border-box;
+  min-width: 184px;
+  max-width: min(240px, calc(100vw - 32px));
+  padding: 8px;
+  border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  overflow: hidden;
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  box-shadow: var(--biliscript-reader-shadow, 0 8px 24px rgba(var(--biliscript-primitive-color-black-rgb), 0.14));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  transform-origin: bottom left;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 140ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+              transform 140ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+              display 140ms;
+  transition-behavior: allow-discrete;
+}
+
+.biliscript-reading-chat .chat-tools-menu[hidden] {
+  display: none !important;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  transition: opacity 110ms ease-out,
+              transform 110ms ease-out,
+              display 110ms;
+  transition-behavior: allow-discrete;
+}
+
+@starting-style {
+  .biliscript-reading-chat .chat-tools-menu:not([hidden]) {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
+.biliscript-reading-chat .chat-note-bar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
 }
 
@@ -1902,12 +2003,13 @@
   display: inline-flex;
   align-items: stretch;
   max-width: 100%;
-  min-height: 32px;
-  border: 1px solid color-mix(in srgb, var(--biliscript-reader-accent) 18%, transparent);
+  height: 28px;
+  border: 0;
   border-radius: var(--biliscript-radius-pill);
   corner-shape: round;
-  background: var(--biliscript-reader-accent-soft);
-  color: var(--biliscript-reader-accent);
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  transition: background 0.15s ease-out;
 }
 
 .biliscript-reading-chat .chat-note-pill-main,
@@ -1917,7 +2019,7 @@
   color: inherit;
   font: inherit;
   font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
-  line-height: 1.2;
+  line-height: 1;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, transform 100ms ease-out;
 }
@@ -1925,14 +2027,25 @@
 .biliscript-reading-chat .chat-note-pill-main {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   min-width: 0;
-  padding: 6px 10px 6px 12px;
+  padding: 0 8px 0 10px;
   border-radius: var(--biliscript-radius-pill) 0 0 var(--biliscript-radius-pill);
   font-weight: 500;
   text-align: left;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.biliscript-reading-chat .chat-note-pill-main svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--biliscript-reader-muted);
+  transition: color 0.15s;
+}
+
+.biliscript-reading-chat .chat-note-pill-main:hover svg {
+  color: currentColor;
 }
 
 .biliscript-reading-chat .chat-note-pill-toggle {
@@ -1940,10 +2053,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  padding: 0 10px 0 8px;
-  border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  min-width: 24px;
+  padding: 0 6px 0 4px;
   border-radius: 0 var(--biliscript-radius-pill) var(--biliscript-radius-pill) 0;
+  color: var(--biliscript-reader-muted);
 }
 
 .biliscript-reading-chat .chat-note-pill-toggle svg {
@@ -1957,9 +2070,14 @@
 }
 
 .biliscript-reading-chat .chat-note-pill-main:hover,
-.biliscript-reading-chat .chat-note-pill-toggle:hover,
+.biliscript-reading-chat .chat-note-pill-toggle:hover {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
 .biliscript-reading-chat .chat-note-split-pill.is-open .chat-note-pill-toggle {
-  background: color-mix(in srgb, var(--biliscript-reader-accent) 14%, transparent);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-note-pill-main:active,
@@ -1969,7 +2087,8 @@
 
 .biliscript-reading-chat .chat-note-pill-main:focus-visible,
 .biliscript-reading-chat .chat-note-pill-toggle:focus-visible,
-.biliscript-reading-chat .chat-note-preset-item:focus-visible {
+.biliscript-reading-chat .chat-note-preset-item:focus-visible,
+.biliscript-reading-chat .chat-web-search-pill:focus-visible {
   outline: 2px solid var(--biliscript-reader-accent);
   outline-offset: -2px;
 }
@@ -1977,7 +2096,7 @@
 .biliscript-reading-chat .chat-note-preset-menu {
   position: absolute;
   left: 0;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 10px);
   z-index: 30;
   box-sizing: border-box;
   min-width: 172px;
@@ -2064,22 +2183,27 @@
 }
 
 .biliscript-reading-chat .chat-web-search-pill {
-  flex: 0 0 auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-pill);
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
-  color: var(--biliscript-reader-muted);
+  color: var(--biliscript-reader-text);
+  font: inherit;
+  font-size: var(--select-option-font-size, var(--biliscript-font-size-base));
+  line-height: 1.3;
+  text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
 }
 
 .biliscript-reading-chat .chat-web-search-pill svg {
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   fill: none;
@@ -2087,27 +2211,53 @@
   stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
+  color: var(--biliscript-reader-muted);
+  transition: color 0.15s ease-out;
+}
+
+.biliscript-reading-chat .chat-tools-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.biliscript-reading-chat .chat-tools-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill));
+  background: var(--biliscript-reader-border);
+  transition: background 0.16s ease;
+}
+
+.biliscript-reading-chat .chat-tools-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--toggle-thumb-radius, var(--biliscript-radius-circle));
+  background: var(--biliscript-reader-on-fill);
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb), 0.18);
+  transition: transform 0.16s ease;
 }
 
 .biliscript-reading-chat .chat-web-search-pill:hover {
-  background: var(--biliscript-reader-surface-2);
-  color: var(--biliscript-reader-text);
+  background: var(--select-option-hover-bg, var(--biliscript-reader-surface-2));
 }
 
-.biliscript-reading-chat .chat-web-search-pill:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-web-search-pill.is-active {
-  border-color: var(--biliscript-reader-accent);
-  background: var(--biliscript-reader-accent-soft);
+.biliscript-reading-chat .chat-web-search-pill.is-active svg {
   color: var(--biliscript-reader-accent);
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-active:hover {
-  border-color: var(--biliscript-reader-accent);
-  background: var(--biliscript-reader-accent-soft);
-  color: var(--biliscript-reader-accent);
+.biliscript-reading-chat .chat-web-search-pill.is-active .chat-tools-switch {
+  background: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-web-search-pill.is-active .chat-tools-switch::before {
+  transform: translateX(12px);
 }
 
 .biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian-c {
@@ -3779,6 +3929,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 @media (prefers-reduced-motion: reduce) {
   .biliscript-reading-chat .chat-model-panel,
   .biliscript-reading-chat .chat-model-panel[hidden],
+  .biliscript-reading-chat .chat-tools-menu,
+  .biliscript-reading-chat .chat-tools-menu[hidden],
   .biliscript-reading-chat .chat-note-preset-menu,
   .biliscript-reading-chat .chat-note-preset-menu[hidden],
   #biliscript-reading-view .biliscript-reading-chat-more-menu,
@@ -3789,6 +3941,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 
   .biliscript-reading-chat .chat-model-chip svg,
   .biliscript-reading-chat .chat-note-pill-toggle svg,
+  .biliscript-reading-chat .chat-tools-switch,
+  .biliscript-reading-chat .chat-tools-switch::before,
   .biliscript-reading-chat .chat-scroll-bottom,
   .biliscript-reading-chat .chat-thinking-chevron,
   .biliscript-reading-chat .chat-search-card-chevron,

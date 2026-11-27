@@ -6,6 +6,7 @@ import { getNotePromptPresetLabel, NOTE_PROMPT_PRESET_OPTIONS } from "../notes/n
 import { isElementNode, resolveNodeDocument } from "../shared/cross-doc.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { renderUiIcon } from "../ui/icon-registry.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
 
 export interface CreateChatNoteBarDeps {
@@ -29,13 +30,14 @@ function currentNotePreset(): NotePromptPreset {
 
 function buildSplitNotePillHtml(preset: NotePromptPreset, menuId: string): string {
   const label = getNotePromptPresetLabel(preset);
+  const fullLabel = `生成视频笔记 · ${label}`;
   const optionsHtml = NOTE_PROMPT_PRESET_OPTIONS.map((option) => {
     const active = option.value === preset;
     return `<button type="button" class="chat-note-preset-item${active ? " is-active" : ""}" role="menuitemradio" aria-checked="${active ? "true" : "false"}" data-note-preset="${option.value}"><span class="chat-note-preset-item-label">${escapeHtml(option.label)}</span></button>`;
   }).join("");
   return (
     `<div class="chat-note-split-pill">` +
-    `<button type="button" class="chat-note-pill-main">生成视频笔记 · ${escapeHtml(label)}</button>` +
+    `<button type="button" class="chat-note-pill-main" title="${escapeHtml(fullLabel)}" aria-label="${escapeHtml(fullLabel)}">${renderUiIcon("notebookPen")}<span class="chat-note-pill-label">笔记</span></button>` +
     `<button type="button" class="chat-note-pill-toggle" aria-haspopup="menu" aria-controls="${escapeHtml(menuId)}" aria-expanded="false" aria-label="切换视频笔记预设" title="切换视频笔记预设">${READING_CHEVRON_DOWN_ICON}</button>` +
     `<div id="${escapeHtml(menuId)}" class="chat-note-preset-menu" role="menu" aria-label="视频笔记预设" hidden>${optionsHtml}</div>` +
     `</div>`
@@ -139,7 +141,9 @@ export function createChatNoteBar(deps: CreateChatNoteBarDeps): ChatNoteBar {
   function syncPresetDom(preset: NotePromptPreset): void {
     const { mainBtn, items } = getParts();
     if (mainBtn) {
-      mainBtn.textContent = `生成视频笔记 · ${getNotePromptPresetLabel(preset)}`;
+      const fullLabel = `生成视频笔记 · ${getNotePromptPresetLabel(preset)}`;
+      mainBtn.title = fullLabel;
+      mainBtn.setAttribute("aria-label", fullLabel);
     }
     for (const item of items) {
       const active = item.dataset.notePreset === preset;
