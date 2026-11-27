@@ -143,6 +143,34 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
     );
     await vi.waitFor(() => expect(resetResponse).toHaveBeenCalledWith({ ok: true }));
   });
+
+  it("playerAiActionMode=overview：派发 { overview: { manual: true } } 触发单次概览", async () => {
+    const saveResponse = vi.fn();
+    onMessageListener(
+      { type: "save-settings", settings: { playerAiActionMode: "overview" } },
+      { tab: { id: 7 } },
+      saveResponse
+    );
+    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
+
+    const sendResponse = vi.fn();
+    onMessageListener({ type: "player-ai-quick-action", tabId: 7 }, { tab: { id: 7 } }, sendResponse);
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    expect(sendMessageToTab).toHaveBeenCalledWith(7, {
+      type: "reader-enter",
+      readerUrl: "",
+      overview: { manual: true }
+    });
+
+    const resetResponse = vi.fn();
+    onMessageListener(
+      { type: "save-settings", settings: { playerAiActionMode: "summary" } },
+      { tab: { id: 7 } },
+      resetResponse
+    );
+    await vi.waitFor(() => expect(resetResponse).toHaveBeenCalledWith({ ok: true }));
+  });
 });
 
 type Modules = {

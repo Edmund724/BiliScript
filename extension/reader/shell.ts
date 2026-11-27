@@ -63,7 +63,7 @@ import { detectActiveSite } from "../shared/site.js";
 
 export { isReaderShellIntact };
 
-export type ReaderShellIntent = "open" | "restore" | "chat";
+export type ReaderShellIntent = "open" | "restore" | "chat" | "overview";
 
 export interface EnterReaderShellOptions {
   readerUrl: string;
@@ -484,6 +484,12 @@ async function dispatchChatEntryIntent(options: {
   await activateScriptTab("chat", { consumeIntent: false });
 }
 
+async function dispatchOverviewEntryIntent(): Promise<void> {
+  await activateScriptTab("overview", { consumeIntent: false });
+  const reader = await ensureReaderDomain();
+  void reader.triggerReaderOverviewGeneration({ manual: true });
+}
+
 export function enterReaderShell(options: EnterReaderShellOptions): Promise<void> {
   const { intent, chatMode, chatTurnKind } = options;
   const readerUrl = String(options.readerUrl || "").trim();
@@ -494,7 +500,9 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
         ? "[BILISCRIPT] reading mode trigger failed"
         : intent === "restore"
           ? "[BILISCRIPT] reading view restore failed"
-          : "[BILISCRIPT] reading chat trigger failed",
+          : intent === "overview"
+            ? "[BILISCRIPT] reading overview trigger failed"
+            : "[BILISCRIPT] reading chat trigger failed",
       error
     );
   };
@@ -534,6 +542,8 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
           reader.focusReadingView();
         } else if (intent === "chat") {
           await dispatchChatEntryIntent({ chatMode, prompt, chatTurnKind });
+        } else if (intent === "overview") {
+          await dispatchOverviewEntryIntent();
         }
         if (options.settingsTarget) {
           requestUiCommand("open-settings", { target: options.settingsTarget });
@@ -549,6 +559,8 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
     });
     if (intent === "chat") {
       await dispatchChatEntryIntent({ chatMode, prompt, chatTurnKind });
+    } else if (intent === "overview") {
+      await dispatchOverviewEntryIntent();
     }
     if (options.settingsTarget) {
       requestUiCommand("open-settings", { target: options.settingsTarget });

@@ -129,6 +129,7 @@ export function createOverviewCoordinator(
   let inflightAbort: ReaderOverviewInflightAbort | null = null;
   let waitTicker: ReturnType<typeof setInterval> | null = null;
   let cancelRequested = false;
+  let pendingManualOverview = false;
   let taskEpoch = 0;
   const changeListeners = new Set<() => void>();
   let lastNotifiedSignature = "";
@@ -325,6 +326,7 @@ export function createOverviewCoordinator(
   }
 
   function cancelReaderOverview(): void {
+    pendingManualOverview = false;
     if (overview.phase !== "generating") {
       return;
     }
@@ -373,19 +375,23 @@ export function createOverviewCoordinator(
       return overview.inflight;
     }
     if (getClipBody().length === 0) {
+      if (manual) {
+        pendingManualOverview = true;
+      }
       markEmptyPhase();
       renderIfOpen();
       notifyOverviewChanged();
       return Promise.resolve();
     }
+    const effectiveManual = manual || pendingManualOverview;
+    pendingManualOverview = false;
     const clipKey = currentOverviewKey();
     if (
       !forceRefresh &&
       overview.generatedFor === clipKey &&
       (overview.phase === "ready" ||
         overview.phase === "partial" ||
-        overview.phase === "error" ||
-        overview.phase === "cancelled")
+        (!effectiveManual && (overview.phase === "error" || overview.phase === "cancelled")))
     ) {
       return Promise.resolve();
     }
@@ -399,7 +405,7 @@ export function createOverviewCoordinator(
       return Promise.resolve();
     }
 
-    if (!manual && !forceRefresh && !config.autoGenerate) {
+    if (!effectiveManual && !forceRefresh && !config.autoGenerate) {
       renderIfOpen();
       return hydrateCachedOverviewIfAvailable(clipKey, config.sections);
     }
@@ -512,6 +518,7 @@ export function createOverviewCoordinator(
   function resetReaderOverviewState(): void {
     stopWaitTicker();
     cancelRequested = false;
+    pendingManualOverview = false;
     overview.phase = "idle";
     overview.analysis = null;
     overview.aiChapters = false;

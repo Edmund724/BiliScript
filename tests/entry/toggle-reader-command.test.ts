@@ -29,6 +29,14 @@ describe("manifest commands 声明", () => {
     expect(manifest.commands["toggle-reader"].suggested_key?.default).toBe("Alt+B");
     expect(manifest.commands["toggle-reader"].description).toBeTruthy();
   });
+
+  it("extension/manifest.json 注册 generate-overview 且默认建议 Alt+G", () => {
+    const manifestPath = resolve(process.cwd(), "extension", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    expect(manifest.commands?.["generate-overview"]).toBeDefined();
+    expect(manifest.commands["generate-overview"].suggested_key?.default).toBe("Alt+G");
+    expect(manifest.commands["generate-overview"].description).toBeTruthy();
+  });
 });
 
 describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
@@ -125,6 +133,17 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
     });
   });
 
+  it("按下 generate-overview 且当前页为 B 站视频页时派发 reader-enter(overview.manual=true)", async () => {
+    onCommandListener("generate-overview", { id: 14, url: VIDEO_URL });
+
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+    expect(sendMessageToTab).toHaveBeenCalledWith(14, {
+      type: "reader-enter",
+      readerUrl: VIDEO_READER_URL,
+      overview: { manual: true }
+    });
+  });
+
   it("非支持页不派发 reader-toggle，非目标 command 直接忽略", async () => {
     onCommandListener("other-command", { id: 12, url: VIDEO_URL });
     onCommandListener("toggle-reader", { id: 15, url: "https://example.com/page" });
@@ -168,5 +187,24 @@ describe("content 端 reader-toggle 处理器：开/关双向切换", () => {
     });
     expect(closeResp).toEqual({ ok: true, open: false });
     expect(shellMocks.exitReaderShell).toHaveBeenCalledTimes(1);
+  });
+
+  it("收到 reader-enter(overview.manual=true) 时以 intent=overview 进入侧边栏", async () => {
+    const { dispatchContentScriptMessage } = await import("../../extension/entry/message-handler.js");
+
+    const resp = await new Promise<Record<string, unknown>>((resolve) => {
+      dispatchContentScriptMessage(
+        { type: "reader-enter", readerUrl: VIDEO_READER_URL, overview: { manual: true } },
+        (r) => resolve(r as Record<string, unknown>)
+      );
+    });
+    expect(resp).toEqual({ ok: true });
+    expect(shellMocks.enterReaderShell).toHaveBeenCalledWith({
+      readerUrl: VIDEO_READER_URL,
+      intent: "overview",
+      prompt: undefined,
+      chatMode: undefined,
+      chatTurnKind: undefined
+    });
   });
 });

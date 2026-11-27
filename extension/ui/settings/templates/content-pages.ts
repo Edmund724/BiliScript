@@ -37,6 +37,7 @@ export function buildContentPagesHtml(): string {
             </label>
           </div>
         </div>
+        <p class="biliscript-set-hint">快捷键 Alt+G 可随时展开并生成当前视频概览，可在浏览器扩展快捷键页修改。</p>
       </section>
 
       <section class="biliscript-set-group" data-settings-section="system-prompt">
@@ -75,6 +76,7 @@ export function buildContentPagesHtml(): string {
             <select id="${ids.playerAiActionMode}" class="biliscript-set-select">
               <option value="summary">当场总结</option>
               <option value="note">生成视频笔记</option>
+              <option value="overview">生成视频概览</option>
             </select>
           </div>
           <textarea

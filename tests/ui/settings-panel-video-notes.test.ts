@@ -98,6 +98,12 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     expect(actionModeRow.hidden).toBe(false);
     expect(actionMode.disabled).toBe(false);
 
+    actionMode.value = "overview";
+    actionMode.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(quickPrompt.hidden).toBe(true);
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("播放器快捷·概览");
+    expect(host.querySelector("[data-settings-section='overview'] .biliscript-set-hint")?.textContent).toContain("Alt+G");
+
     actionMode.value = "note";
     actionMode.dispatchEvent(new Event("change", { bubbles: true }));
     expect(quickPrompt.hidden).toBe(true);

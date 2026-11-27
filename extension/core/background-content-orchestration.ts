@@ -78,7 +78,7 @@ export interface ReaderEntryFeedbackAdapter {
 }
 
 export interface ReaderEntryTriggerOptions {
-  mode: "enter" | "toggle";
+  mode: "enter" | "toggle" | "overview";
   tabId: number;
   url?: string;
 }
@@ -113,9 +113,10 @@ export interface BackgroundContentOrchestrator {
   triggerReaderModeInTab: (
     tabId: number,
     readerUrl?: string,
-    chat?: { prompt?: string },
+    chat?: Extract<ContentScriptMessage, { type: "reader-enter" }>["chat"],
     retries?: number,
-    delayMs?: number
+    delayMs?: number,
+    overview?: Extract<ContentScriptMessage, { type: "reader-enter" }>["overview"]
   ) => Promise<boolean>;
   triggerReaderModeToggleInTab: (
     tabId: number,
@@ -264,7 +265,8 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     readerUrl = "",
     chat?: Extract<ContentScriptMessage, { type: "reader-enter" }>["chat"],
     retries = triggerRetries,
-    delayMs = triggerRetryDelayMs
+    delayMs = triggerRetryDelayMs,
+    overview?: Extract<ContentScriptMessage, { type: "reader-enter" }>["overview"]
   ): Promise<boolean> {
     const payload: Extract<ContentScriptMessage, { type: "reader-enter" }> = {
       type: "reader-enter",
@@ -272,6 +274,9 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     };
     if (chat) {
       payload.chat = chat;
+    }
+    if (overview) {
+      payload.overview = overview;
     }
     return triggerReaderMessageWithRecovery(tabId, payload, retries, delayMs);
   }
@@ -309,7 +314,9 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
         triggered =
           mode === "toggle"
             ? await triggerReaderModeToggleInTab(tabId, readerUrl)
-            : await triggerReaderModeInTab(tabId, readerUrl);
+            : mode === "overview"
+              ? await triggerReaderModeInTab(tabId, readerUrl, undefined, undefined, undefined, { manual: true })
+              : await triggerReaderModeInTab(tabId, readerUrl);
       } catch (error) {
         triggerError = error;
       }
@@ -320,7 +327,9 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
       const label =
         mode === "toggle"
           ? "toggle-reader command: reader-toggle"
-          : "toolbar action click: reader-enter";
+          : mode === "overview"
+            ? "generate-overview command"
+            : "toolbar action click: reader-enter";
       if (triggerError) {
         depsLogWarn(`[BILISCRIPT] ${label} 触发失败`, triggerError);
       } else {

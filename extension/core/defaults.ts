@@ -8,7 +8,7 @@ import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
 export type { SubtitleSegmentationStrategy, BilingualDisplayOrder };
 
 export type DetachedWindowMode = "pip" | "popup";
-export type PlayerAiActionMode = "summary" | "note";
+export type PlayerAiActionMode = "summary" | "note" | "overview";
 export type NotePromptPreset = "general" | "tutorial" | "course" | "opinion" | "custom";
 export type NoteExportTarget = "download" | "obsidian";
 export type ChatHistoryMaxCount = 0 | 20 | 50 | 100 | 200;

@@ -35,10 +35,15 @@ export type ReaderEnterChatPayload = {
   turnKind?: "player-ai" | "video-note";
 };
 
+export type ReaderEnterOverviewPayload = {
+  manual?: boolean;
+};
+
 export type ReaderEnterMessage = {
   type: "reader-enter";
   readerUrl?: string;
   chat?: ReaderEnterChatPayload;
+  overview?: ReaderEnterOverviewPayload;
 };
 
 export type ReaderEnterResponse = { ok: boolean; error?: string };

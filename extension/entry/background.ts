@@ -264,10 +264,6 @@ async function triggerReaderChatInTab(
   if (options.requireQuickActionEnabled && !settings.enablePlayerAiQuickAction) {
     throw new Error("AI 按钮未开启");
   }
-  const chatPayload =
-    settings.playerAiActionMode === "note"
-      ? { mode: "note" as const, turnKind: "video-note" as const }
-      : { prompt: normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt || DEFAULT_PLAYER_AI_QUICK_PROMPT) };
   let url = options.readerUrl;
   if (url) {
     if (!isSupportedPage(url)) {
@@ -275,7 +271,16 @@ async function triggerReaderChatInTab(
     }
     url = buildReaderModeUrl(url);
   }
-  const triggered = await triggerReaderModeInTab(tabId, url, chatPayload);
+  const triggered =
+    settings.playerAiActionMode === "overview"
+      ? await triggerReaderModeInTab(tabId, url, undefined, undefined, undefined, { manual: true })
+      : await triggerReaderModeInTab(
+          tabId,
+          url,
+          settings.playerAiActionMode === "note"
+            ? { mode: "note" as const, turnKind: "video-note" as const }
+            : { prompt: normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt || DEFAULT_PLAYER_AI_QUICK_PROMPT) }
+        );
   if (!triggered) {
     throw new Error(readerTriggerFailedText);
   }
@@ -626,9 +631,16 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 const TOGGLE_READER_COMMAND = "toggle-reader";
+const GENERATE_OVERVIEW_COMMAND = "generate-overview";
 
 chrome.commands.onCommand.addListener(async (command, commandTab) => {
-  if (command !== TOGGLE_READER_COMMAND) {
+  const mode =
+    command === TOGGLE_READER_COMMAND
+      ? "toggle"
+      : command === GENERATE_OVERVIEW_COMMAND
+        ? "overview"
+        : null;
+  if (!mode) {
     return;
   }
   let targetTab = commandTab;
@@ -637,7 +649,7 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
     targetTab = queried?.[0] ?? targetTab;
   }
   await triggerReaderEntryInTab({
-    mode: "toggle",
+    mode,
     tabId: targetTab?.id ?? 0,
     url: targetTab?.url
   });

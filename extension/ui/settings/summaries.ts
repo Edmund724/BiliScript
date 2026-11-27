@@ -184,7 +184,13 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   }
   if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) {
     const actionMode = normalizePlayerAiActionMode(form.playerAiActionMode);
-    promptParts.push(actionMode === "note" ? "播放器快捷·笔记" : "播放器快捷开");
+    promptParts.push(
+      actionMode === "note"
+        ? "播放器快捷·笔记"
+        : actionMode === "overview"
+          ? "播放器快捷·概览"
+          : "播放器快捷开"
+    );
   }
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);
   const aiPrompt = promptParts.length > 0 ? promptParts.join(" · ") : "默认";

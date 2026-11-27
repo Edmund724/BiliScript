@@ -508,7 +508,7 @@ export function syncPlayerQuickPromptVisibility(elements: SettingsElements): voi
     modeRow.hidden = !enabled;
   }
   elements.playerAiActionMode.disabled = !enabled;
-  elements.playerAiQuickPrompt.hidden = !enabled || mode === "note";
+  elements.playerAiQuickPrompt.hidden = !enabled || mode === "note" || mode === "overview";
 }
 
 export function syncNoteCustomPromptVisibility(elements: SettingsElements): void {

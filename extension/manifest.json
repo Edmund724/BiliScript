@@ -101,6 +101,13 @@
         "mac": "Alt+B"
       },
       "description": "展开或收起 BiliScript 文摘侧边栏"
+    },
+    "generate-overview": {
+      "suggested_key": {
+        "default": "Alt+G",
+        "mac": "Alt+G"
+      },
+      "description": "展开文摘侧边栏并生成当前视频概览"
     }
   }
 }

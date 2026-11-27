@@ -712,6 +712,53 @@ describe("自动生成开关与本地缓存复用", () => {
     expect(coordinator.getPhase()).toBe("ready");
   });
 
+  it("关闭自动生成且字幕未就绪时提前手动触发会挂起，字幕就绪后自动续跑且切视频 reset 不串片", async () => {
+    const clip = seedClip();
+    clip.subtitleBody = [];
+    const runOverviewAnalysis = vi.fn(async (_args?: RunArgs) => SAMPLE_ANALYSIS);
+    const loadCachedOverviewAnalysis = vi.fn(async () => null);
+    const resolveProvider = vi.fn(async () => PROVIDER);
+    const coordinator = createOverviewCoordinator({
+      getClip: () => clip,
+      getOverviewConfig: () => ({
+        autoGenerate: false,
+        sections: { summary: true, chapters: true, quotes: true }
+      }),
+      isReadingViewOpen: () => false,
+      resolveProvider,
+      loadAnalysis: async () =>
+        ({
+          runOverviewAnalysis,
+          loadCachedOverviewAnalysis
+        }) as unknown as typeof import("../../extension/ai/analysis.js"),
+      confirm: async () => true,
+      registerUiActions: () => {},
+      now: () => 0,
+      setInterval: (() => 1) as unknown as typeof setInterval,
+      clearInterval: (() => {}) as unknown as typeof clearInterval
+    });
+
+    await coordinator.trigger({ manual: true });
+    expect(coordinator.getPhase()).toBe("empty");
+    expect(runOverviewAnalysis).not.toHaveBeenCalled();
+
+    clip.subtitleBody = [...BODY];
+    await coordinator.trigger();
+    expect(runOverviewAnalysis).toHaveBeenCalledTimes(1);
+    expect(coordinator.getPhase()).toBe("ready");
+
+    clip.bvid = "BV1next000001";
+    clip.cid = "2002";
+    clip.subtitleBody = [];
+    coordinator.reset();
+    await coordinator.trigger({ manual: true });
+    coordinator.reset();
+    clip.subtitleBody = [...BODY];
+    await coordinator.trigger();
+    expect(runOverviewAnalysis).toHaveBeenCalledTimes(1);
+    expect(coordinator.getPhase()).toBe("idle");
+  });
+
   it("全部 AI 概览模块关闭时，即使触发也不调用 AI", async () => {
     const clip = seedClip();
     const runOverviewAnalysis = vi.fn();

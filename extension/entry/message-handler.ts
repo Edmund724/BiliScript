@@ -64,9 +64,17 @@ function handleReaderShellEnter(
     try {
       const shell = await ensureReaderShell();
       const chat = message.type === "reader-enter" ? message.chat : undefined;
+      const overview = message.type === "reader-enter" ? message.overview : undefined;
       await shell.enterReaderShell({
         readerUrl: String(message.readerUrl || ""),
-        intent: message.type === "reader-restore" ? "restore" : chat ? "chat" : "open",
+        intent:
+          message.type === "reader-restore"
+            ? "restore"
+            : overview?.manual
+              ? "overview"
+              : chat
+                ? "chat"
+                : "open",
         prompt: chat?.prompt,
         chatMode: chat?.mode,
         chatTurnKind: chat?.turnKind
