@@ -33,6 +33,7 @@ export interface SettingsSummaryFormValues {
   aiDefaultModelLabel: string;
   asrAutoFallback: boolean;
   webSearchMaxToolCalls: unknown;
+  enableAiOverview?: boolean;
   autoGenerateOverview?: boolean;
   overviewAiSummary?: boolean;
   overviewAiChapters?: boolean;
@@ -175,7 +176,9 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     (form.overviewAiSummary !== false ? 1 : 0) +
     (form.overviewAiChapters !== false ? 1 : 0) +
     (form.overviewAiQuotes !== false ? 1 : 0);
-  if (overviewAiCount === 0) {
+  if (form.enableAiOverview === false) {
+    promptParts.push("概览按需生成");
+  } else if (overviewAiCount === 0) {
     promptParts.push("概览 AI 已关");
   } else if (form.autoGenerateOverview === false) {
     promptParts.push("概览手动生成");
@@ -264,6 +267,7 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       aiDefaultModelLabel: resolveSelectedModelLabel(elements.aiDefaultModel),
       asrAutoFallback: elements.asrAutoFallback.checked,
       webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value,
+      enableAiOverview: elements.enableAiOverview.checked,
       autoGenerateOverview: elements.autoGenerateOverview.checked,
       overviewAiSummary: elements.overviewAiSummary.checked,
       overviewAiChapters: elements.overviewAiChapters.checked,

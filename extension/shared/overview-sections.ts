@@ -8,6 +8,7 @@ export interface OverviewAiSections {
 }
 
 export interface OverviewGenerationConfig {
+  enabled?: boolean;
   autoGenerate: boolean;
   sections: OverviewAiSections;
 }
@@ -19,6 +20,7 @@ export const DEFAULT_OVERVIEW_AI_SECTIONS: Readonly<OverviewAiSections> = Object
 });
 
 export const DEFAULT_OVERVIEW_GENERATION_CONFIG: Readonly<OverviewGenerationConfig> = Object.freeze({
+  enabled: true,
   autoGenerate: true,
   sections: DEFAULT_OVERVIEW_AI_SECTIONS
 });
@@ -36,8 +38,10 @@ export function normalizeOverviewAiSections(
 export function resolveOverviewConfigFromSettings(
   settings?: Record<string, unknown> | null
 ): OverviewGenerationConfig {
+  const enabled = settings?.enableAiOverview !== false;
   return {
-    autoGenerate: settings?.autoGenerateOverview !== false,
+    enabled,
+    autoGenerate: enabled && settings?.autoGenerateOverview !== false,
     sections: {
       summary: settings?.overviewAiSummary !== false,
       chapters: settings?.overviewAiChapters !== false,

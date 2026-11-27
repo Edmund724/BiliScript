@@ -1218,5 +1218,22 @@ describe("手动生成开关与 AI 模块选择", () => {
     expect(overviewText()).not.toContain("没有可用的章节");
     expect(overviewText()).not.toContain("没有可用的金句");
   });
+
+  it("关闭总开关 enableAiOverview 时不自动调 AI，但概览页仍保留生成按钮供按需触发", async () => {
+    seedClip();
+    bindOverviewDelegation();
+    state.settings.enableAiOverview = false;
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    reader.ensureReaderOverviewTab();
+    await vi.waitFor(() => expect(loadCachedOverviewMock).toHaveBeenCalledTimes(1));
+    expect(runOverviewMock).not.toHaveBeenCalled();
+    const generateBtn = overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='generate']");
+    expect(generateBtn?.textContent).toContain("生成概览");
+
+    generateBtn!.click();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(overviewText()).toContain("开场"));
+  });
 });
 

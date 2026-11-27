@@ -1,6 +1,7 @@
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import {
+  DEFAULT_OVERVIEW_AI_SECTIONS,
   DEFAULT_OVERVIEW_GENERATION_CONFIG,
   hasAnyOverviewAiSection,
   normalizeOverviewAiSections,
@@ -38,6 +39,7 @@ export interface ReaderOverviewSnapshot {
   readonly errorText: string;
   readonly stripText: string;
   readonly generatedFor: string;
+  readonly aiEnabled?: boolean;
   readonly autoGenerate?: boolean;
   readonly sections?: OverviewAiSections;
 }
@@ -178,18 +180,28 @@ export function createOverviewCoordinator(
     return resolveChapterSource(clip.description, supportsHotComments ? clip.hotComments : [], clip.chapters);
   }
 
-  function currentOverviewConfig(): OverviewGenerationConfig {
+  function currentOverviewConfig(): Required<OverviewGenerationConfig> {
     const raw = deps.getOverviewConfig?.();
     if (!raw) {
       return {
+        enabled: true,
         autoGenerate: DEFAULT_OVERVIEW_GENERATION_CONFIG.autoGenerate,
         sections: { ...DEFAULT_OVERVIEW_GENERATION_CONFIG.sections }
       };
     }
+    const enabled = raw.enabled !== false;
     return {
-      autoGenerate: raw.autoGenerate !== false,
+      enabled,
+      autoGenerate: enabled && raw.autoGenerate !== false,
       sections: normalizeOverviewAiSections(raw.sections)
     };
+  }
+
+  function effectiveManualSections(config: Required<OverviewGenerationConfig>): OverviewAiSections {
+    if (hasAnyOverviewAiSection(config.sections)) {
+      return config.sections;
+    }
+    return config.enabled ? config.sections : { ...DEFAULT_OVERVIEW_AI_SECTIONS };
   }
 
   function currentOverviewKey(): string {
@@ -393,15 +405,17 @@ export function createOverviewCoordinator(
       dropOverviewProduct();
     }
 
-    if (!hasAnyOverviewAiSection(config.sections)) {
+    const effectiveSections = manual || forceRefresh ? effectiveManualSections(config) : config.sections;
+
+    if (!hasAnyOverviewAiSection(effectiveSections)) {
       renderIfOpen();
       notifyOverviewChanged();
       return Promise.resolve();
     }
 
-    if (!manual && !forceRefresh && !config.autoGenerate) {
+    if (!manual && !forceRefresh && (!config.enabled || !config.autoGenerate)) {
       renderIfOpen();
-      return hydrateCachedOverviewIfAvailable(clipKey, config.sections);
+      return hydrateCachedOverviewIfAvailable(clipKey, effectiveSections);
     }
 
     let slot = inflightAbort;
@@ -412,7 +426,7 @@ export function createOverviewCoordinator(
     cancelRequested = false;
     taskEpoch += 1;
     overview.generatedFor = clipKey;
-    overview.aiChapters = config.sections.chapters && currentChapterSource().kind === "auto";
+    overview.aiChapters = effectiveSections.chapters && currentChapterSource().kind === "auto";
     overview.phase = "generating";
     overview.progressText = "";
     overview.errorText = "";
@@ -420,7 +434,7 @@ export function createOverviewCoordinator(
     renderIfOpen();
     notifyOverviewChanged();
 
-    const run = startOverviewRun(clipKey, forceRefresh, slot, config.sections);
+    const run = startOverviewRun(clipKey, forceRefresh, slot, effectiveSections);
     overview.inflight = run;
     const cleanup = () => {
       if (overview.inflight === run) {
@@ -538,6 +552,7 @@ export function createOverviewCoordinator(
       errorText: overview.errorText,
       stripText: stripText(),
       generatedFor: overview.generatedFor,
+      aiEnabled: config.enabled,
       autoGenerate: config.autoGenerate,
       sections: config.sections
     };

@@ -295,6 +295,17 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   },
   {
     kind: "toggle",
+    key: "enableAiOverview",
+    getElement: (el) => el.enableAiOverview,
+    watchSync: true,
+    onChange: () => {
+      if (state.reader.readingViewOpen) {
+        withReader("overview settings change", (reader) => reader.renderReadingOverview());
+      }
+    }
+  },
+  {
+    kind: "toggle",
     key: "autoGenerateOverview",
     getElement: (el) => el.autoGenerateOverview,
     watchSync: true,
@@ -550,8 +561,44 @@ export function syncChatInputGlowAvailability(elements: SettingsElements): void 
   }
 }
 
+export function syncOverviewSettingsVisibility(elements: SettingsElements): void {
+  const aiEnabled = elements.enableAiOverview.checked;
+  const hasAnySection =
+    elements.overviewAiSummary.checked ||
+    elements.overviewAiChapters.checked ||
+    elements.overviewAiQuotes.checked;
+  const childSections: HTMLInputElement[] = [
+    elements.overviewAiSummary,
+    elements.overviewAiChapters,
+    elements.overviewAiQuotes
+  ];
+  for (const input of childSections) {
+    const row = input.closest<HTMLElement>(".biliscript-toggle-row");
+    if (row) {
+      row.hidden = !aiEnabled;
+    }
+    input.disabled = !aiEnabled;
+    syncToggleSwitch(input);
+  }
+  const autoVisible = aiEnabled && hasAnySection;
+  const autoRow = elements.autoGenerateOverview.closest<HTMLElement>(".biliscript-toggle-row");
+  if (autoRow) {
+    autoRow.hidden = !autoVisible;
+  }
+  elements.autoGenerateOverview.disabled = !autoVisible;
+  syncToggleSwitch(elements.autoGenerateOverview);
+}
+
 export function syncScalarSideEffects(key: KnownSettingKey, elements: SettingsElements): void {
-  if (key === "enablePlayerAiQuickAction" || key === "playerAiActionMode") {
+  if (
+    key === "enableAiOverview" ||
+    key === "overviewAiSummary" ||
+    key === "overviewAiChapters" ||
+    key === "overviewAiQuotes" ||
+    key === "autoGenerateOverview"
+  ) {
+    syncOverviewSettingsVisibility(elements);
+  } else if (key === "enablePlayerAiQuickAction" || key === "playerAiActionMode") {
     syncPlayerQuickPromptVisibility(elements);
   } else if (key === "notePromptPreset") {
     syncNoteCustomPromptVisibility(elements);

@@ -74,6 +74,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   webSearchMaxToolCalls: "webSearchMaxToolCalls",
   webSearchMaxToolCallsValue: "webSearchMaxToolCallsValue",
   webSearchMaxToolCallsResetBtn: "webSearchMaxToolCallsResetBtn",
+  enableAiOverview: "enableAiOverview",
   autoGenerateOverview: "autoGenerateOverview",
   overviewAiSummary: "overviewAiSummary",
   overviewAiChapters: "overviewAiChapters",

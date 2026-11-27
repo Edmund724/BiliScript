@@ -9,6 +9,7 @@ const TOGGLE_IDS = [
   "asrAutoFallback",
   "enableCostGuard",
   "allowPaidSearchProviders",
+  "enableAiOverview",
   "autoGenerateOverview",
   "overviewAiSummary",
   "overviewAiChapters",

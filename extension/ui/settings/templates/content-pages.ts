@@ -9,9 +9,9 @@ export function buildContentPagesHtml(): string {
         <div class="biliscript-set-h">视频概览</div>
         <div class="biliscript-set-card">
           <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">进入视频自动生成概览</span>
+            <span class="biliscript-toggle-text">启用 AI 概览</span>
             <label class="biliscript-toggle-switch">
-              <input id="${ids.autoGenerateOverview}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频自动生成概览" />
+              <input id="${ids.enableAiOverview}" type="checkbox" class="biliscript-toggle-input" aria-label="启用 AI 概览" />
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>
@@ -33,6 +33,13 @@ export function buildContentPagesHtml(): string {
             <span class="biliscript-toggle-text">AI 精选金句</span>
             <label class="biliscript-toggle-switch">
               <input id="${ids.overviewAiQuotes}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 精选金句" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">进入视频自动生成概览</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.autoGenerateOverview}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频自动生成概览" />
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>
