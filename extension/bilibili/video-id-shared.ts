@@ -61,6 +61,13 @@ export function isFestivalPage(url: string = defaultHref()): boolean {
   }
 }
 
+export function supportsReaderModeUrlSync(url: string = defaultHref()): boolean {
+  if (detectSiteFromUrl(url) === "youtube") {
+    return false;
+  }
+  return !isPlaylistPage(url) && !isFestivalPage(url);
+}
+
 export function isAutoOpenEligible(url: string = defaultHref()): boolean {
   if (detectSiteFromUrl(url) === "youtube") {
     return isYoutubeAutoOpenEligible(url);

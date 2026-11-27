@@ -248,16 +248,33 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     );
   });
 
-  it("稍后再看页空 readerUrl → 保留 /list/watchlater 与 oid/p 参数并剥离追踪参数", async () => {
-    setLocationUrl(
-      "https://www.bilibili.com/list/watchlater/?bvid=BV1test000000&oid=170001&p=2&spm_id_from=x"
-    );
-
-    await enterReaderShell({ readerUrl: "", intent: "open" });
-
-    expect(replaceReaderModeUrl).toHaveBeenCalledWith(
+  it.each([
+    [
+      "稍后再看页",
+      "https://www.bilibili.com/list/watchlater/?bvid=BV1test000000&oid=170001&p=2&spm_id_from=x",
       "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=170001&p=2&biliscript_reader=1"
-    );
+    ],
+    [
+      "收藏夹播单页",
+      "https://www.bilibili.com/list/ml4110522184?oid=117323927129038&bvid=BV1RWaw6jEay",
+      ""
+    ],
+    [
+      "活动专题页",
+      "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f",
+      "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1pNyWzAE2f&biliscript_reader=1"
+    ]
+  ])("%s进入阅读视图：不改写地址栏，仍挂样式并进入阅读模式", async (_label, pageUrl, readerUrl) => {
+    setLocationUrl(pageUrl);
+    const reader = makeReaderStub();
+    ensureReaderDomain.mockResolvedValue(reader);
+
+    await enterReaderShell({ readerUrl, intent: "open" });
+
+    expect(replaceReaderModeUrl).not.toHaveBeenCalled();
+    expectReaderStylesMounted(true);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
   });
 
   it("空 readerUrl 且视图已开 → 纯聚焦语义：不改写、不翻属性、不重进", async () => {

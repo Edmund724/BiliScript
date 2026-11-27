@@ -91,6 +91,42 @@ describe("SPA URL 变化的阅读壳分支", () => {
     });
     expect(shellMocks.enterReaderShellOnUrlNavigation).toHaveBeenCalledTimes(1);
   });
+
+  it("稍后再看页关闭面板后切下一个视频，即便 URL 残留 biliscript_reader=1 也不重新打开面板", async () => {
+    setLocationUrl("https://www.bilibili.com/list/watchlater?bvid=BV1wl000001&oid=101");
+    seedFetchedClip();
+    messageHandler.bindUrlChangeHandler();
+
+    history.pushState(
+      history.state,
+      "",
+      "https://www.bilibili.com/list/watchlater?bvid=BV1wl000002&oid=102&biliscript_reader=1"
+    );
+
+    await vi.waitFor(() => {
+      expect(clipState.currentClipSignature).toBe("BV1wl000002|1");
+    });
+    expect(shellMocks.enterReaderShellOnUrlNavigation).not.toHaveBeenCalled();
+    expect(shellMocks.exitReaderShell).not.toHaveBeenCalled();
+  });
+
+  it("活动专题页关闭面板后切下一个视频，即便 URL 残留 biliscript_reader=1 也不重新打开面板", async () => {
+    setLocationUrl("https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1fest00001");
+    seedFetchedClip();
+    messageHandler.bindUrlChangeHandler();
+
+    history.pushState(
+      history.state,
+      "",
+      "https://www.bilibili.com/festival/27kaoyanshangan?bvid=BV1fest00002&biliscript_reader=1"
+    );
+
+    await vi.waitFor(() => {
+      expect(clipState.currentClipSignature).toBe("BV1fest00002|1");
+    });
+    expect(shellMocks.enterReaderShellOnUrlNavigation).not.toHaveBeenCalled();
+    expect(shellMocks.exitReaderShell).not.toHaveBeenCalled();
+  });
 });
 
 describe("replaceState 补丁与章节清空（5be8f39 嫌疑路径）", () => {

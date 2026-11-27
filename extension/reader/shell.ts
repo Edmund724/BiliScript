@@ -2,7 +2,8 @@ import { suppressUntil } from "../ai/player-ai-state.js";
 import { buildReaderModeUrl, replaceReaderModeUrl } from "../bilibili/reader-url.js";
 import {
   isReaderMode,
-  stripReaderModeUrl
+  stripReaderModeUrl,
+  supportsReaderModeUrlSync
 } from "../bilibili/video-id-shared.js";
 import { ensureReaderChatTab } from "./lazy-chat-tab.js";
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -58,7 +59,7 @@ import {
 } from "./detached-window.js";
 import { closeScriptHost, openScriptHost } from "./script-host.js";
 import type { PlayerAiActionMode } from "../core/defaults.js";
-import { cleanYoutubeWatchUrl, detectActiveSite } from "../shared/site.js";
+import { detectActiveSite } from "../shared/site.js";
 
 export { isReaderShellIntact };
 
@@ -77,14 +78,15 @@ function isYoutubeSiteActive(): boolean {
   return state.clip.site === "youtube" || detectActiveSite() === "youtube";
 }
 
+function shouldSyncReaderModeUrl(url: string = location.href): boolean {
+  return !isYoutubeSiteActive() && supportsReaderModeUrlSync(url);
+}
+
 function resolveDetachedWindowTitle(): string {
   return formatDetachedWindowTitle(state.clip.title, getOpenerDocument().title);
 }
 
 function resolveReaderEntryUrl(readerUrl: string): string {
-  if (isYoutubeSiteActive()) {
-    return readerUrl || cleanYoutubeWatchUrl(location.href) || location.href;
-  }
   if (readerUrl || isReaderViewOpen()) {
     return readerUrl;
   }
@@ -130,10 +132,10 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
   if (isReaderViewOpen() && !options.intent) {
     return;
   }
-  const isYoutube = isYoutubeSiteActive();
-  const readerUrl = resolveReaderEntryUrl(options.readerUrl);
-  if (isYoutube || readerUrl) {
-    if (!isYoutube && readerUrl) {
+  const syncUrl = shouldSyncReaderModeUrl();
+  const readerUrl = syncUrl ? resolveReaderEntryUrl(options.readerUrl) : "";
+  if ((!syncUrl && !isReaderViewOpen()) || (syncUrl && readerUrl)) {
+    if (syncUrl && readerUrl) {
       replaceReaderModeUrl(readerUrl);
     }
     await ensureReaderStyles();

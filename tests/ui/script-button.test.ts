@@ -352,6 +352,29 @@ describe("script-button 幂等与自查", () => {
     expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   });
 
+  it("稍后再看页残留 biliscript_reader=1 且面板已关闭时，不触发 reader-restore 且按钮可点击打开", async () => {
+    document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
+    const watchlaterUrl =
+      "https://www.bilibili.com/list/watchlater?bvid=BV1test000001&oid=170001&biliscript_reader=1";
+    setLocationUrl(watchlaterUrl);
+    const { registerContentScriptDispatcher } = await import("../../extension/shared/messaging.js");
+    const dispatcher = vi.fn(() => true);
+    registerContentScriptDispatcher(dispatcher);
+
+    await loadModule();
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(dispatcher).not.toHaveBeenCalled();
+
+    const button = document.getElementById("biliscript-script-button") as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    button.click();
+    expect(dispatcher).toHaveBeenCalledWith(
+      { type: "reader-enter", readerUrl: watchlaterUrl },
+      expect.any(Function)
+    );
+  });
+
   it("自查周期：收藏夹播单页（/list/ml...?bvid=）挂载在 .video-complaint 左侧且不摘按钮", async () => {
     document.body.innerHTML = `
       <div id="playlistToolbar" class="video-toolbar-container">

@@ -25,6 +25,7 @@ import {
   isReaderMode,
   isSupportedVideoPage,
   isAutoOpenEligible,
+  supportsReaderModeUrlSync,
   computeCurrentClipSignature
 } from "../bilibili/video-id-shared.js";
 import type {
@@ -278,7 +279,7 @@ export function bindUrlChangeHandler() {
     },
     enforceNormalPageStateIfNeeded,
     isReaderViewOpen,
-    isReaderMode,
+    isReaderMode: (url: string) => supportsReaderModeUrlSync(url) && isReaderMode(url),
     isSupportedVideoPage,
     shouldAutoOpen: (url: string) => Boolean(state.settings?.autoOpenReader && isAutoOpenEligible(url)),
     isPlayerAiLoaded: () => getSiteCapabilities(state.clip.site).supportsPlayerQuickAiButton && isPlayerAiLoaded(),

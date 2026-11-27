@@ -1,4 +1,8 @@
-import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
+import {
+  isReaderMode,
+  isSupportedVideoPage,
+  supportsReaderModeUrlSync
+} from "../bilibili/video-id-shared.js";
 import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
 import { isReaderViewOpen } from "../reader/state.js";
@@ -43,6 +47,9 @@ function isYoutubeSiteActive(): boolean {
 function resolveActionReaderUrl(): string {
   if (isYoutubeSiteActive()) {
     return cleanYoutubeWatchUrl(location.href) || location.href;
+  }
+  if (!supportsReaderModeUrlSync(location.href)) {
+    return location.href;
   }
   return buildReaderModeUrl(location.href);
 }
@@ -145,7 +152,7 @@ function syncScriptButton(): void {
     unwatchYoutubeTheme();
   }
   const viewOpen = isReaderViewOpen();
-  const readerUrlMode = !isYoutubeSiteActive() && isReaderMode();
+  const readerUrlMode = !isYoutubeSiteActive() && supportsReaderModeUrlSync() && isReaderMode();
   if (viewOpen && isReaderShellIntact()) {
     brokenTicks = 0;
     setTickInterval(PAUSED_INTERVAL_MS);
@@ -503,7 +510,10 @@ function styleScriptButton(
 function handleScriptButtonClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
-  if (!isReaderDetached() && (isReaderViewOpen() || (!isYoutubeSiteActive() && isReaderMode()))) {
+  if (
+    !isReaderDetached() &&
+    (isReaderViewOpen() || (!isYoutubeSiteActive() && supportsReaderModeUrlSync() && isReaderMode()))
+  ) {
     return;
   }
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
