@@ -18,6 +18,7 @@ export const ids = {
   readingTabBodyOverview: "biliscript-reading-tabbody-overview",
   readingTabBodyChat: "biliscript-reading-tabbody-chat",
   readingOverviewBody: "biliscript-reading-overview-body",
+  readingOverviewExportBtn: "biliscript-reading-overview-export-btn",
   readingSubtitleSelect: "biliscript-reading-subtitle-select",
   readingSecondarySubtitleSelect: "biliscript-reading-secondary-subtitle-select",
   readingSearchInput: "biliscript-reading-search-input",

@@ -222,7 +222,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("开场");
   });
 
-  it("热评提示条：字段为空（拉取成功）时 ready 产物不挂热评提示文案，保留动作条与导出笔记入口", async () => {
+  it("热评提示条：字段为空（拉取成功）时 ready 产物不挂顶部提示条，文末保留重新生成入口且 Tab 导出按钮可见", async () => {
     seedClip();
     state.clip.hotCommentsNotice = "";
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
@@ -230,11 +230,11 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     await reader.triggerReaderOverviewGeneration();
 
     const strips = overviewBody().querySelectorAll<HTMLElement>(".biliscript-reading-ov-strip");
-    expect(strips.length).toBe(1);
-    expect(strips[0].classList.contains("is-actions-only")).toBe(true);
-    expect(strips[0].querySelector(".biliscript-reading-ov-strip-text")).toBeNull();
-    expect(strips[0].querySelector("[data-overview-action='refresh']")).not.toBeNull();
-    expect(strips[0].querySelector("[data-overview-action='export-note']")).not.toBeNull();
+    expect(strips.length).toBe(0);
+    expect(overviewBody().querySelector(".biliscript-reading-ov-footer [data-overview-action='refresh']")).not.toBeNull();
+    const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement | null;
+    expect(exportBtn).not.toBeNull();
+    expect(exportBtn?.hidden).toBe(false);
   });
 
   it("presetId 穿线：解析链带回记录的 presetId（preset 词表键），随 provider 进入概览管线", async () => {

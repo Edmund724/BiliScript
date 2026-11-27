@@ -16,6 +16,7 @@ vi.mock("../../extension/notes/export-actions.js", async (importOriginal) => {
   };
 });
 
+let buildOverviewExportButtonHtml: typeof import("../../extension/reader/overview-ui.js").buildOverviewExportButtonHtml;
 let renderReadingOverview: typeof import("../../extension/reader/overview-ui.js").renderReadingOverview;
 let onReadingOverviewClick: typeof import("../../extension/reader/overview-ui.js").onReadingOverviewClick;
 let state: typeof import("../../extension/core/state.js").state;
@@ -49,7 +50,7 @@ beforeEach(async () => {
   ({ resetActiveReaderHost, setActiveReaderHost } = await import("../../extension/shared/active-host.js"));
   ({ clearSessionNoteRecords, recordSessionNoteReply } = await import("../../extension/notes/session-note-state.js"));
   ({ captureLiveClipSignature } = await import("../../extension/notes/auto-export-controller.js"));
-  ({ renderReadingOverview, onReadingOverviewClick } = await import("../../extension/reader/overview-ui.js"));
+  ({ buildOverviewExportButtonHtml, renderReadingOverview, onReadingOverviewClick } = await import("../../extension/reader/overview-ui.js"));
   clearSessionNoteRecords();
   dispatchNoteExportMock.mockReset();
   dispatchNoteExportMock.mockResolvedValue({
@@ -58,7 +59,7 @@ beforeEach(async () => {
     method: "blob-download",
     fileName: "测试视频.md"
   });
-  document.body.innerHTML = `<div id="${ids.readingOverviewBody}"></div>`;
+  document.body.innerHTML = `${buildOverviewExportButtonHtml()}<div id="${ids.readingOverviewBody}"></div>`;
   state.clip.setBvid("BV1test000000");
   state.clip.setCid("1");
   state.clip.setTitle("测试视频");
@@ -71,16 +72,21 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("概览顶栏「导出笔记」入口", () => {
-  it("ready 与 partial 状态均渲染导出笔记按钮，点击刷新触发 retry", () => {
+describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
+  it("ready 与 partial 状态显示 Tab 导出图标，文末重新生成触发 retry，非就绪态隐藏导出图标", () => {
     const retry = vi.fn();
+    renderReadingOverview({ ...READY_SNAPSHOT, phase: "generating", analysis: null });
+    const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
+    expect(exportBtn.hidden).toBe(true);
+
     renderReadingOverview(READY_SNAPSHOT);
 
     const body = document.getElementById(ids.readingOverviewBody)!;
-    const refreshBtn = body.querySelector<HTMLButtonElement>("[data-overview-action='refresh']")!;
-    const exportBtn = body.querySelector<HTMLButtonElement>("[data-overview-action='export-note']")!;
+    const refreshBtn = body.querySelector<HTMLButtonElement>(".biliscript-reading-ov-footer [data-overview-action='refresh']")!;
     expect(refreshBtn).not.toBeNull();
-    expect(exportBtn).not.toBeNull();
+    expect(refreshBtn.textContent).toContain("重新生成概览");
+    expect(body.querySelector("[data-overview-action='export-note']")).toBeNull();
+    expect(exportBtn.hidden).toBe(false);
 
     onReadingOverviewClick({ target: refreshBtn } as unknown as MouseEvent, {
       retry,
@@ -99,10 +105,12 @@ describe("概览顶栏「导出笔记」入口", () => {
       }
     });
     expect(body.querySelector("[data-overview-action='retry-failed']")).not.toBeNull();
-    expect(body.querySelector("[data-overview-action='export-note']")).not.toBeNull();
+    expect(body.querySelector("[data-overview-action='export-note']")).toBeNull();
+    expect(body.querySelector(".biliscript-reading-ov-footer")).toBeNull();
+    expect(exportBtn.hidden).toBe(false);
   });
 
-  it("无活跃对话视频笔记时直接调用 dispatchNoteExport()，并展示成功回执与防重入锁", async () => {
+  it("无活跃对话视频笔记时直接调用 dispatchNoteExport()，并展示图标回执与防重入锁", async () => {
     let resolveExport!: (res: DispatchNoteExportResult) => void;
     dispatchNoteExportMock.mockImplementationOnce(
       () =>
@@ -112,7 +120,7 @@ describe("概览顶栏「导出笔记」入口", () => {
     );
 
     renderReadingOverview(READY_SNAPSHOT);
-    const exportBtn = document.querySelector<HTMLButtonElement>("[data-overview-action='export-note']")!;
+    const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
 
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
@@ -124,7 +132,8 @@ describe("概览顶栏「导出笔记」入口", () => {
 
     resolveExport({ ok: true, target: "download", fileName: "测试视频.md" });
     await vi.waitFor(() => expect(exportBtn.classList.contains("is-copied")).toBe(true));
-    expect(exportBtn.textContent).toBe("已导出笔记");
+    expect(exportBtn.getAttribute("aria-label")).toBe("已导出笔记");
+    expect(exportBtn.title).toBe("已导出笔记");
     expect(exportBtn.disabled).toBe(false);
   });
 
@@ -146,7 +155,7 @@ describe("概览顶栏「导出笔记」入口", () => {
     });
 
     renderReadingOverview(READY_SNAPSHOT);
-    const exportBtn = document.querySelector<HTMLButtonElement>("[data-overview-action='export-note']")!;
+    const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
 
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
     await vi.waitFor(() => expect(dispatchNoteExportMock).toHaveBeenCalledTimes(1));
@@ -161,7 +170,7 @@ describe("概览顶栏「导出笔记」入口", () => {
     const realm = createDetachedRealm();
     try {
       setActiveReaderHost(realm.doc, realm.win);
-      realm.doc.body.innerHTML = `<div id="${ids.readingOverviewBody}"></div>`;
+      realm.doc.body.innerHTML = `${buildOverviewExportButtonHtml()}<div id="${ids.readingOverviewBody}"></div>`;
       dispatchNoteExportMock.mockResolvedValueOnce({
         ok: true,
         target: "obsidian",
@@ -169,13 +178,15 @@ describe("概览顶栏「导出笔记」入口", () => {
       });
 
       renderReadingOverview(READY_SNAPSHOT);
-      const exportBtn = realm.doc.querySelector<HTMLButtonElement>("[data-overview-action='export-note']")!;
+      const exportBtn = realm.doc.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
       expect(exportBtn).not.toBeNull();
+      expect(exportBtn.hidden).toBe(false);
       expect(exportBtn.ownerDocument).toBe(realm.doc);
 
       onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
       await vi.waitFor(() => expect(exportBtn.classList.contains("is-copied")).toBe(true));
-      expect(exportBtn.textContent).toBe("已唤起 Obsidian");
+      expect(exportBtn.getAttribute("aria-label")).toBe("已唤起 Obsidian");
+      expect(exportBtn.title).toBe("已唤起 Obsidian");
     } finally {
       resetActiveReaderHost();
       realm.close();

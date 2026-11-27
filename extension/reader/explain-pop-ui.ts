@@ -410,7 +410,7 @@ export function bindReadingExplainEvents(): void {
     if (!startEl || !endEl || !currentOverviewBody.contains(startEl) || !currentOverviewBody.contains(endEl)) {
       return null;
     }
-    const disallowed = ".biliscript-reading-ov-strip, .biliscript-reading-placeholder, .biliscript-reading-ov-quote-actions, .biliscript-reading-time";
+    const disallowed = ".biliscript-reading-ov-strip, .biliscript-reading-ov-footer, .biliscript-reading-placeholder, .biliscript-reading-ov-quote-actions, .biliscript-reading-time";
     if (startEl.closest(disallowed) || endEl.closest(disallowed)) {
       return null;
     }

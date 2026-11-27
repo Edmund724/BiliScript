@@ -21,7 +21,8 @@ import {
 } from "../notes/session-note-state.js";
 import { getCapturedFramesForMessage } from "../notes/turn-frame-cache.js";
 import { stripThinkBlocks } from "../ui/markdown.js";
-import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
+import { getNoteExportActionVisual, syncNoteExportIconButton } from "../ui/note-export-visual.js";
+import { READING_COPY_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
@@ -67,6 +68,22 @@ export function onReadingOverviewKeyDown(event: KeyboardEvent): void {
   actionTarget.click();
 }
 
+export function buildOverviewExportButtonHtml(): string {
+  const visual = getNoteExportActionVisual(state.settings?.noteExportTarget);
+  return `<button id="${ids.readingOverviewExportBtn}" type="button" class="biliscript-reading-icon-btn" data-overview-action="export-note" data-note-target="${visual.target}" title="${visual.label}" aria-label="${visual.label}" hidden>${visual.icon}</button>`;
+}
+
+export function syncOverviewExportButton(options: { visible?: boolean; target?: unknown } = {}): void {
+  const button = activeById<HTMLButtonElement>(ids.readingOverviewExportBtn);
+  if (!button) {
+    return;
+  }
+  if (typeof options.visible === "boolean") {
+    button.hidden = !options.visible;
+  }
+  syncNoteExportIconButton(button, options.target ?? state.settings?.noteExportTarget);
+}
+
 export function buildOverviewTabBodyHtml(): string {
   return `
               <div id="${ids.readingOverviewBody}" class="biliscript-reading-overview">
@@ -87,6 +104,10 @@ export function bindReadingOverviewEvents(): void {
   });
   readingOverviewBody.addEventListener("click", (event) => {
     withReader("overview click", (reader) => reader.onReadingOverviewClick(event));
+  });
+  const exportBtn = activeById<HTMLButtonElement>(ids.readingOverviewExportBtn);
+  exportBtn?.addEventListener("click", (event) => {
+    withReader("overview export click", (reader) => reader.onReadingOverviewClick(event));
   });
 }
 
@@ -114,24 +135,10 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
     return;
   }
   body.innerHTML = buildOverviewBodyHtml(snapshot);
+  syncOverviewExportButton({
+    visible: snapshot.phase === "ready" || snapshot.phase === "partial"
+  });
   syncReadingOverviewActiveChapter();
-}
-
-function buildOverviewReadyStrip(hotNotice: string): string {
-  const actionsHtml =
-    `<span class="biliscript-reading-ov-strip-actions">` +
-    `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="refresh">刷新</button>` +
-    `<button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="export-note">导出笔记</button>` +
-    `</span>`;
-  if (hotNotice) {
-    return (
-      `<div class="biliscript-reading-ov-strip">` +
-      `<span class="biliscript-reading-ov-strip-text">${escapeHtml(hotNotice)}</span>` +
-      actionsHtml +
-      `</div>`
-    );
-  }
-  return `<div class="biliscript-reading-ov-strip is-actions-only">${actionsHtml}</div>`;
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
@@ -151,7 +158,7 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
     case "cancelled":
       return buildCancelledStrip();
     case "ready":
-      return buildOverviewReadyStrip(hotNotice) + buildResultSectionsHtml(snapshot);
+      return hotNoticeStrip + buildResultSectionsHtml(snapshot);
     case "idle":
     default:
       return `
@@ -244,10 +251,7 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
   return `
     <div class="biliscript-reading-ov-strip is-partial" role="status" aria-live="polite">
       <span class="biliscript-reading-ov-strip-text">${messages.join(" ")}</span>
-      <span class="biliscript-reading-ov-strip-actions">
-        <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
-        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="export-note">导出笔记</button>
-      </span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
     </div>
   `;
 }
@@ -300,6 +304,15 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     </section>
   `;
 
+  const footerHtml = snapshot.phase === "ready"
+    ? `
+    <div class="biliscript-reading-ov-footer">
+      <button type="button" class="biliscript-reading-ov-regen-btn" data-overview-action="refresh">
+        ${READING_RESET_ICON}<span>重新生成概览</span>
+      </button>
+    </div>`
+    : "";
+
   if (chapters.length === 0) {
     return `
       ${summarySection}
@@ -308,6 +321,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
         <div class="biliscript-reading-ov-empty">没有可用的章节。</div>
       </section>
       ${quotesSection}
+      ${footerHtml}
     `;
   }
 
@@ -327,6 +341,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
       ${missingStrip}${chapterBlocks}
     </section>
     ${quotesSection}
+    ${footerHtml}
   `;
 }
 
@@ -448,8 +463,6 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   jumpReadingTarget(seekTarget.dataset.seconds ?? 0);
 }
 
-const overviewExportFeedbackTimers = new WeakMap<HTMLElement, number>();
-
 function resolveActiveClipChatNote(): SessionNoteCandidate | null {
   const recorded = getLatestSessionNoteCandidate();
   if (recorded) {
@@ -481,35 +494,6 @@ function resolveActiveClipChatNote(): SessionNoteCandidate | null {
   return null;
 }
 
-function flashOverviewExportButton(
-  button: HTMLElement,
-  {
-    label,
-    ok,
-    originalLabel = "导出笔记",
-    durationMs = 2000
-  }: {
-    label: string;
-    ok: boolean;
-    originalLabel?: string;
-    durationMs?: number;
-  }
-): void {
-  const prevTimer = overviewExportFeedbackTimers.get(button);
-  if (prevTimer !== undefined) {
-    window.clearTimeout(prevTimer);
-  }
-  button.classList.remove("is-copied", "is-copy-failed");
-  button.classList.add(ok ? "is-copied" : "is-copy-failed");
-  button.textContent = label;
-  const timer = window.setTimeout(() => {
-    overviewExportFeedbackTimers.delete(button);
-    button.classList.remove("is-copied", "is-copy-failed");
-    button.textContent = originalLabel;
-  }, durationMs);
-  overviewExportFeedbackTimers.set(button, timer);
-}
-
 async function exportOverviewNote(button: HTMLElement): Promise<void> {
   if (button.dataset.exporting === "1") {
     return;
@@ -519,6 +503,7 @@ async function exportOverviewNote(button: HTMLElement): Promise<void> {
   btn.disabled = true;
   button.classList.add("is-loading");
   button.setAttribute("aria-busy", "true");
+  const visual = getNoteExportActionVisual(state.settings?.noteExportTarget);
   try {
     const activeNote = resolveActiveClipChatNote();
     const result = await dispatchNoteExport(
@@ -530,13 +515,23 @@ async function exportOverviewNote(button: HTMLElement): Promise<void> {
         : undefined
     );
     if (result.ok) {
-      const successLabel = result.target === "obsidian" ? "已唤起 Obsidian" : "已导出笔记";
-      flashOverviewExportButton(button, { label: successLabel, ok: true });
+      const successVisual = getNoteExportActionVisual(result.target ?? visual.target);
+      flashCopySuccess(button, {
+        originalSvg: successVisual.icon,
+        originalLabel: successVisual.label,
+        copiedLabel: successVisual.successLabel
+      });
     } else {
-      flashOverviewExportButton(button, { label: "导出失败", ok: false });
+      flashCopyFailure(button, {
+        originalLabel: visual.label,
+        failedLabel: visual.failedLabel
+      });
     }
   } catch {
-    flashOverviewExportButton(button, { label: "导出失败", ok: false });
+    flashCopyFailure(button, {
+      originalLabel: visual.label,
+      failedLabel: visual.failedLabel
+    });
   } finally {
     delete button.dataset.exporting;
     btn.disabled = false;

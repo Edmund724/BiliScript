@@ -93,6 +93,14 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   tabChat.className = "biliscript-reading-tab";
   scriptPanel.appendChild(tabChat);
 
+  const overviewExportBtn = doc.createElement("button");
+  overviewExportBtn.type = "button";
+  overviewExportBtn.id = ids.readingOverviewExportBtn;
+  overviewExportBtn.className = "biliscript-reading-icon-btn";
+  overviewExportBtn.dataset.overviewAction = "export-note";
+  overviewExportBtn.hidden = true;
+  scriptPanel.appendChild(overviewExportBtn);
+
   const tabBodySubtitle = doc.createElement("div");
   tabBodySubtitle.id = ids.readingTabBodySubtitle;
   tabBodySubtitle.className = "biliscript-reading-tab-body is-active";

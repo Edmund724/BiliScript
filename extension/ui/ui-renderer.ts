@@ -35,7 +35,7 @@ import { reportTabIntent, subscribeUiCommand } from "../reader/reader-bus.js";
 import { buildChatTabBodyHtml } from "../reader/chat-template.js";
 import { buildSubtitleTabBodyHtml, bindSubtitleTabEvents } from "../reader/subtitle-tab-ui.js";
 import { buildExplainPopHtml, buildExplainCardHostHtml, bindReadingExplainEvents } from "../reader/explain-pop-ui.js";
-import { buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/overview-ui.js";
+import { buildOverviewExportButtonHtml, buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/overview-ui.js";
 
 export const DETACH_BTN_ID = "biliscript-reading-detach-btn";
 export const DETACHED_NOTICE_ID = "biliscript-reading-detached-notice";
@@ -113,6 +113,7 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
               </div>
               <div class="biliscript-reading-tabs-tools">
+                ${buildOverviewExportButtonHtml()}
                 <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="true" aria-controls="${ids.readingChatMoreMenu}" aria-expanded="false">
                   ${renderUiIcon("moreVertical")}
                 </button>

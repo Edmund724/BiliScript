@@ -132,6 +132,7 @@
   .biliscript-reading-chat-intent-cancel:active,
   .biliscript-reading-ov-chapter:active,
   .biliscript-reading-ov-quote:active,
+  .biliscript-reading-ov-regen-btn:active,
   #biliscript-reading-view .confirm-dialog-cancel:active,
   #biliscript-reading-view .confirm-dialog-confirm:active {
     transform: none;
@@ -186,6 +187,11 @@
 .biliscript-reading-icon-btn.is-copy-failed,
 .biliscript-reading-ov-quote-copy.is-copy-failed {
   color: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-icon-btn.is-loading {
+  color: var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-500));
+  opacity: 0.72;
 }
 
 .biliscript-reading-icon-btn.is-copied svg,
@@ -267,7 +273,18 @@
   z-index: 20;
 }
 
-.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
+.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active, #biliscript-reading-tab-overview.is-active)) .biliscript-reading-tabs-tools {
+  display: none;
+  pointer-events: none;
+}
+
+.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) #biliscript-reading-chat-more-btn,
+.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) #biliscript-reading-chat-more-menu {
+  display: none;
+  pointer-events: none;
+}
+
+.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-overview.is-active)) #biliscript-reading-overview-export-btn {
   display: none;
   pointer-events: none;
 }
@@ -1747,6 +1764,55 @@ dialog.biliscript-cmd-palette::backdrop {
   margin-bottom: 20px;
 }
 
+.biliscript-reading-ov-section:has(+ .biliscript-reading-ov-footer) {
+  margin-bottom: 12px;
+}
+
+.biliscript-reading-ov-footer {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+
+.biliscript-reading-ov-regen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-faint);
+  font-family: inherit;
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 0.15s ease-out, background 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-ov-regen-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.biliscript-reading-ov-regen-btn:hover {
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
+}
+
+.biliscript-reading-ov-regen-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-ov-regen-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
 .biliscript-reading-ov-h {
   display: flex;
   align-items: center;
@@ -2063,19 +2129,6 @@ dialog.biliscript-cmd-palette::backdrop {
 
 .biliscript-reading-ov-strip.is-error .biliscript-reading-ov-strip-text {
   color: var(--biliscript-reader-danger);
-}
-
-.biliscript-reading-ov-strip.is-actions-only {
-  justify-content: flex-end;
-  padding: 8px 12px;
-}
-
-.biliscript-reading-ov-strip-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  flex-shrink: 0;
 }
 
 .biliscript-reading-ov-strip-text {

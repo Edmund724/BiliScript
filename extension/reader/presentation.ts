@@ -24,6 +24,7 @@ import {
 export { applyPrePaintReaderTheme };
 import { ids } from "./state.js";
 import { refreshThemeButton, themeButtonView } from "../ui/theme-button.js";
+import { syncNoteExportIconButton } from "../ui/note-export-visual.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { READER_APPLY_FIELDS } from "./presentation-fields.js";
 
@@ -204,6 +205,10 @@ export function applyReadingViewPresentation() {
   applyChatInputGlow(readingView);
   applyReduceTransparency(readingView);
   refreshThemeButton();
+  syncNoteExportIconButton(
+    activeById<HTMLButtonElement>(ids.readingOverviewExportBtn),
+    state.settings?.noteExportTarget
+  );
   if (activeDoc !== openerDoc) {
     syncDetachedThemeButton();
   }

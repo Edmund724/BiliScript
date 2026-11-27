@@ -177,6 +177,7 @@ describe("组合根装配与懒加载边界", () => {
     expect(chatSessionState.contextData?.title).toContain("测试视频");
     const tools = document.querySelector(".biliscript-reading-tabs-tools")!;
     expect(Array.from(tools.children).map((node) => (node as HTMLElement).id)).toEqual([
+      ids.readingOverviewExportBtn,
       ids.readingChatMoreBtn,
       ids.readingChatMoreMenu
     ]);

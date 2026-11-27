@@ -13,9 +13,12 @@ import { supportsTtsSpeech } from "../../shared/runtime-capabilities.js";
 import { flashCopyFailure, flashCopySuccess } from "../../ui/copy-feedback.js";
 import { hydrateMarkdownContent, renderMarkdownStripped, stripThinkBlocks } from "../../ui/markdown.js";
 import {
+  getNoteExportActionVisual,
+  syncNoteExportIconButton,
+  type NoteExportActionVisual
+} from "../../ui/note-export-visual.js";
+import {
   READING_COPY_ICON,
-  READING_NOTE_DOWNLOAD_ICON,
-  READING_NOTE_OBSIDIAN_ICON,
   READING_PLAY_ICON,
   READING_RESET_ICON,
   READING_SPEAKER_ICON
@@ -35,46 +38,19 @@ export interface SaveNoteActionResult {
   label?: string;
 }
 
-export interface SaveNoteActionVisual {
-  target: NoteExportTarget;
-  icon: string;
-  label: string;
-  successLabel: string;
-  failedLabel: string;
-}
+export type SaveNoteActionVisual = NoteExportActionVisual;
 
 export function getSaveNoteActionVisual(target?: unknown): SaveNoteActionVisual {
-  const normalized = normalizeNoteExportTarget(target);
-  if (normalized === "obsidian") {
-    return {
-      target: "obsidian",
-      icon: READING_NOTE_OBSIDIAN_ICON,
-      label: "存入 Obsidian",
-      successLabel: "已唤起 Obsidian",
-      failedLabel: "写入失败"
-    };
-  }
-  return {
-    target: "download",
-    icon: READING_NOTE_DOWNLOAD_ICON,
-    label: "导出视频笔记（.md）",
-    successLabel: "已导出笔记",
-    failedLabel: "导出失败"
-  };
+  return getNoteExportActionVisual(target);
 }
 
 export function syncSaveNoteButtons(container: ParentNode | null | undefined, target?: unknown): void {
   if (!container) {
     return;
   }
-  const visual = getSaveNoteActionVisual(target ?? state.settings?.noteExportTarget);
+  const resolvedTarget = target ?? state.settings?.noteExportTarget;
   container.querySelectorAll<HTMLButtonElement>(".chat-msg-save-note-btn").forEach((button) => {
-    button.dataset.noteTarget = visual.target;
-    if (!button.classList.contains("is-copied") && !button.classList.contains("is-copy-failed")) {
-      button.setAttribute("aria-label", visual.label);
-      button.setAttribute("title", visual.label);
-      button.innerHTML = visual.icon.trim();
-    }
+    syncNoteExportIconButton(button, resolvedTarget);
   });
 }
 
