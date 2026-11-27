@@ -110,15 +110,15 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     expect(actionBtns[1].classList.contains("chat-msg-continue-btn")).toBe(true);
 
     expect(node.querySelector(".chat-msg-copy-btn")).toBeNull();
+    expect(node.querySelector(".chat-msg-save-note-btn")).toBeNull();
     expect(node.querySelector(".chat-msg-speak-btn")).toBeNull();
-    expect(node.querySelector(".chat-msg-export-btn")).toBeNull();
 
     actionBtns[1].click();
     expect(deps.onContinue).toHaveBeenCalledTimes(1);
     expect(deps.onContinue).toHaveBeenCalledWith(0, node);
   });
 
-  it("有部分正文时中断：正文渲染，思考折叠，保留复制、朗读、重试、继续与导出", () => {
+  it("有部分正文时中断：正文渲染，思考折叠，保留复制、存为笔记、朗读、重试与继续", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -143,14 +143,14 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
 
     const actionBtns = node.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
     expect([...actionBtns].map((button) => button.getAttribute("aria-label"))).toEqual([
-      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成"
     ]);
     expect(actionBtns[0].disabled).toBe(false);
     expect(actionBtns[1].disabled).toBe(false);
-    expect(actionBtns[5].disabled).toBe(false);
+    expect(actionBtns[4].disabled).toBe(false);
   });
 
-  it("正常完成生成：保留复制、存为笔记、朗读、重新生成、导出全部5个按钮，不出现继续生成按钮", () => {
+  it("正常完成生成：保留复制、存为笔记、朗读、重新生成全部4个按钮，不出现继续生成按钮", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -163,13 +163,12 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     expect(node).toBeTruthy();
 
     const actionBtns = node.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-    expect(actionBtns).toHaveLength(5);
+    expect(actionBtns).toHaveLength(4);
     expect([...actionBtns].map((b) => b.getAttribute("aria-label"))).toEqual([
       "复制回复",
       "导出视频笔记（.md）",
       "朗读回答",
-      "重新生成",
-      "导出 Markdown"
+      "重新生成"
     ]);
 
     expect(node.querySelector(".chat-msg-continue-btn")).toBeNull();

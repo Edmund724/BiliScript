@@ -1,6 +1,5 @@
 import type { NoteExportTarget } from "../core/defaults.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import { getActiveReaderDocument, getActiveReaderWindow } from "../shared/active-host.js";
 import { isTagElement } from "../shared/cross-doc.js";
 import type { AiContext, CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
@@ -16,7 +15,6 @@ import {
   type ChatSessionMessage
 } from "./chat-state.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
-import { sanitizeFileName } from "../shared/string-utils.js";
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ChatNoticeSlot } from "../reader/chat-notices.js";
@@ -326,7 +324,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.onContinue?.(historyIndex, node);
       startBranch("continue", historyIndex, node);
     },
-    onExport: exportAssistant,
     onSaveNote: saveNoteAssistant,
     getNoteExportTarget: deps.getNoteExportTarget,
     onNotice: (message) => deps.ui.messagesNotice.show(message, 4000),
@@ -601,38 +598,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeBranch = null;
       messageArea.setRegenerationDisabled(false);
     });
-  }
-
-  function exportAssistant(historyIndex: number, raw: string): void {
-    const answerNumber = chatSessionState.chatHistory.slice(0, historyIndex + 1).filter((message) => (
-      message.role === "assistant" && !(Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())
-    )).length || 1;
-    const videoTitle = String(chatSessionState.currentConversationMeta?.contextTitle || chatSessionState.contextData?.title || "");
-    const safeTitle = sanitizeFileName(videoTitle) || "BiliScript";
-    const filename = `${safeTitle}-回答-${answerNumber}.md`;
-    const activeDoc = getActiveReaderDocument();
-    const activeWin = getActiveReaderWindow() as Window & {
-      URL?: typeof URL;
-      Blob?: typeof Blob;
-    };
-    const BlobCtor = activeWin?.Blob ?? Blob;
-    const urlApi =
-      activeWin?.URL && typeof activeWin.URL.createObjectURL === "function" ? activeWin.URL : URL;
-    const blob = new BlobCtor([raw], { type: "text/markdown;charset=utf-8" });
-    const url = urlApi.createObjectURL(blob);
-    const anchor = activeDoc.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    (activeDoc.body ?? activeDoc.documentElement)?.appendChild(anchor);
-    try {
-      anchor.click();
-      anchor.remove();
-    } finally {
-      try {
-        urlApi.revokeObjectURL(url);
-      } catch {
-      }
-    }
   }
 
   function imagesEqual(a: readonly ImagePart[], b: readonly ImagePart[]): boolean {

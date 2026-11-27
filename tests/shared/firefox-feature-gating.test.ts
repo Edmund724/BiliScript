@@ -166,7 +166,6 @@ describe("TTS 后台防御判空与界面门控", () => {
         getTimestampNavDeps: () => ({}),
         onSpeak: vi.fn(),
         onRegenerate: vi.fn(),
-        onExport: vi.fn(),
         onNotice: vi.fn()
       });
       const turn = renderer.messageArea.appendAssistantMessage({ source: "live" });

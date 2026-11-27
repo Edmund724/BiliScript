@@ -1938,41 +1938,6 @@ describe("消息操作：重新生成与导出", () => {
     expect(deps.messages.querySelector(".chat-msg-stopped")).toBeNull();
   });
 
-  it("导出：下载与复制口径一致的 Markdown，文件名包含视频标题和回答序号", async () => {
-    const { deps } = await makeTwoTurnConversation();
-    chatSessionStateForTests.currentConversationMeta = { contextTitle: "视频: 标题" };
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    let exportedBlob: Blob | undefined;
-    let clickedAnchor: HTMLAnchorElement | null = null;
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn((blob: Blob) => {
-        exportedBlob = blob;
-        return "blob:chat-answer";
-      })
-    });
-    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-      clickedAnchor = this;
-    });
-
-    try {
-      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[0].click();
-
-      expect(clickedAnchor!.download).toBe("视频_ 标题-回答-1.md");
-      expect(exportedBlob?.type).toBe("text/markdown;charset=utf-8");
-      expect(await exportedBlob?.text()).toBe("第一答");
-
-      chatSessionStateForTests.currentConversationMeta = null;
-      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[1].click();
-      expect(clickedAnchor!.download).toBe("BiliScript-回答-2.md");
-      expect(await exportedBlob?.text()).toBe("第二答");
-    } finally {
-      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
-      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
-    }
-  });
 });
 
 describe("历史截帧的回合生命周期与慢响应守卫", () => {

@@ -14,7 +14,6 @@ import { flashCopyFailure, flashCopySuccess } from "../../ui/copy-feedback.js";
 import { hydrateMarkdownContent, renderMarkdownStripped, stripThinkBlocks } from "../../ui/markdown.js";
 import {
   READING_COPY_ICON,
-  READING_DOWNLOAD_ICON,
   READING_NOTE_DOWNLOAD_ICON,
   READING_NOTE_OBSIDIAN_ICON,
   READING_PLAY_ICON,
@@ -101,7 +100,6 @@ export interface MessageActionsDeps {
   getTimestampNavDeps: () => TimestampNavDeps;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
-  onExport?: (historyIndex: number, raw: string) => void;
   onSaveNote?: (
     historyIndex: number,
     raw: string,
@@ -321,20 +319,6 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
       actions.appendChild(createContinueButton(node, historyIndex));
     }
 
-    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON, doc);
-    exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
-    exportBtn.addEventListener("click", () => {
-      if (historyIndex === undefined) {
-        return;
-      }
-      try {
-        deps.onExport?.(historyIndex, cleanedRaw);
-      } catch (error) {
-        deps.onNotice?.(`导出失败：${getErrorMessage(error)}`);
-      }
-    });
-    actions.appendChild(exportBtn);
-
     return actions;
   }
 
@@ -460,7 +444,7 @@ export function createMessageActionsController(deps: MessageActionsDeps): Messag
   function markTruncated(node: HTMLDivElement, text: string, historyIndex?: number): void {
     const actions = node.querySelector(".chat-msg-actions");
     if (actions && !actions.querySelector(".chat-msg-continue-btn")) {
-      actions.insertBefore(createContinueButton(node, historyIndex), actions.querySelector(".chat-msg-export-btn"));
+      actions.appendChild(createContinueButton(node, historyIndex));
     }
     appendBadge(node, "chat-msg-truncated", text);
   }

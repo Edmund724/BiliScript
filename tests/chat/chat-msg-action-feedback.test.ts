@@ -149,23 +149,6 @@ describe("消息操作反馈归属（06 号票）", () => {
     ));
     expect(copyBtn.disabled).toBe(false);
   });
-
-  it("导出 Markdown 失败：onNotice 落到对话 tab 通知通道，文案带病因", async () => {
-    const deps = makeDeps();
-    const { node } = await makeFinishedAssistant(deps);
-    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
-      throw new Error("blob 分配失败");
-    });
-
-    const exportBtn = node.querySelector<HTMLButtonElement>(".chat-msg-export-btn")!;
-    expect(exportBtn.disabled).toBe(false);
-    exportBtn.click();
-
-    expect(deps.ui.messagesNotice.show).toHaveBeenCalledTimes(1);
-    const notice = deps.ui.messagesNotice.show.mock.calls[0][0] as string;
-    expect(notice).toContain("导出失败：");
-    expect(notice).toContain("blob 分配失败");
-  });
 });
 
 describe("AI 回复底栏动态「存为笔记」按钮", () => {
@@ -251,10 +234,10 @@ describe("AI 回复底栏动态「存为笔记」按钮", () => {
 
       const copyBtn = node.querySelector<HTMLButtonElement>(".chat-msg-copy-btn")!;
       const saveNoteBtn = node.querySelector<HTMLButtonElement>(".chat-msg-save-note-btn")!;
-      const exportBtn = node.querySelector<HTMLButtonElement>(".chat-msg-export-btn")!;
+      const regenerateBtn = node.querySelector<HTMLButtonElement>(".chat-msg-regenerate-btn")!;
       expect(copyBtn.ownerDocument).toBe(realm.doc);
       expect(saveNoteBtn.ownerDocument).toBe(realm.doc);
-      expect(exportBtn.ownerDocument).toBe(realm.doc);
+      expect(regenerateBtn.ownerDocument).toBe(realm.doc);
 
       const realmWin = realm.win as unknown as typeof window;
       saveNoteBtn.dispatchEvent(new realmWin.MouseEvent("click", { bubbles: true }));

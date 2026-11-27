@@ -290,8 +290,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
       "复制回复",
       "导出视频笔记（.md）",
       "朗读回答",
-      "重新生成",
-      "导出 Markdown"
+      "重新生成"
     ]);
 
     expect(node.querySelector(".chat-msg-continue-btn")).toBeNull();
@@ -299,13 +298,13 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     expect(deps.messages.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
     expect(node.querySelector(".chat-msg-continue-btn")).not.toBeNull();
     expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
-      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      "复制回复", "导出视频笔记（.md）", "朗读回答", "重新生成", "继续生成"
     ]);
     expect(deps.messages.querySelector(".chat-msg-truncated")?.previousElementSibling?.className).toBe("chat-msg-actions");
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);
   });
 
-  it("空回答：允许重新生成，禁用朗读和导出", () => {
+  it("空回答：允许重新生成，禁用朗读和存为笔记", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const turn = areaOf(runtime).appendAssistantMessage({ source: "live" });
@@ -314,7 +313,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
 
     expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-regenerate-btn")?.disabled).toBe(false);
     expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-speak-btn")?.disabled).toBe(true);
-    expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-export-btn")?.disabled).toBe(true);
+    expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-save-note-btn")?.disabled).toBe(true);
   });
 
   it("朗读按钮把清洗正文交给语音引擎，消息区清场停止朗读", async () => {

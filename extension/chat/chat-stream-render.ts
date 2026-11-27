@@ -17,7 +17,6 @@ export interface ChatStreamRendererDeps {
   smoothStream?: boolean;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
-  onExport?: (historyIndex: number, raw: string) => void;
   onSaveNote?: (
     historyIndex: number,
     raw: string,
@@ -115,7 +114,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     getTimestampNavDeps: deps.getTimestampNavDeps,
     onRegenerate: deps.onRegenerate,
     onContinue: deps.onContinue,
-    onExport: deps.onExport,
     onSaveNote: deps.onSaveNote,
     getNoteExportTarget: deps.getNoteExportTarget,
     onSpeak: deps.onSpeak,
