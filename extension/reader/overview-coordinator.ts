@@ -1,5 +1,13 @@
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
+import {
+  DEFAULT_OVERVIEW_GENERATION_CONFIG,
+  hasAnyOverviewAiSection,
+  normalizeOverviewAiSections,
+  overviewSectionsCacheSuffix,
+  type OverviewAiSections,
+  type OverviewGenerationConfig
+} from "../shared/overview-sections.js";
 import { getSiteCapabilities, normalizeSiteId, YOUTUBE_UNIT_CID, type SiteId } from "../shared/site.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiContext, AiProvider, ChapterItem, HotComment } from "../ai/types.js";
@@ -30,10 +38,12 @@ export interface ReaderOverviewSnapshot {
   readonly errorText: string;
   readonly stripText: string;
   readonly generatedFor: string;
+  readonly autoGenerate?: boolean;
+  readonly sections?: OverviewAiSections;
 }
 
 export interface ReaderOverviewCoordinator {
-  trigger(options?: { forceRefresh?: boolean }): Promise<void>;
+  trigger(options?: { forceRefresh?: boolean; manual?: boolean }): Promise<void>;
   cancel(): void;
   subscribe(listener: () => void): () => void;
   reset(): void;
@@ -68,6 +78,7 @@ interface OverviewClipSource {
 
 export interface CreateOverviewCoordinatorDeps {
   getClip(): OverviewClipSource;
+  getOverviewConfig?(): OverviewGenerationConfig;
   isReadingViewOpen(): boolean;
   resolveProvider(): Promise<AiProvider>;
   loadAnalysis(): Promise<typeof import("../ai/analysis.js")>;
@@ -77,6 +88,7 @@ export interface CreateOverviewCoordinatorDeps {
     begin(request: OverviewSetupRequest): void;
   };
   openTranscribeSettings?: () => void;
+  openOverviewSettings?: () => void;
   now(): number;
   setInterval: typeof setInterval;
   clearInterval: typeof clearInterval;
@@ -166,9 +178,24 @@ export function createOverviewCoordinator(
     return resolveChapterSource(clip.description, supportsHotComments ? clip.hotComments : [], clip.chapters);
   }
 
+  function currentOverviewConfig(): OverviewGenerationConfig {
+    const raw = deps.getOverviewConfig?.();
+    if (!raw) {
+      return {
+        autoGenerate: DEFAULT_OVERVIEW_GENERATION_CONFIG.autoGenerate,
+        sections: { ...DEFAULT_OVERVIEW_GENERATION_CONFIG.sections }
+      };
+    }
+    return {
+      autoGenerate: raw.autoGenerate !== false,
+      sections: normalizeOverviewAiSections(raw.sections)
+    };
+  }
+
   function currentOverviewKey(): string {
     const clip = deps.getClip();
     const chapterSource = currentChapterSource();
+    const config = currentOverviewConfig();
     const signature = buildSubtitleSignature({
       lang: clip.selectedSubtitleLang,
       subtitleId: clip.selectedSubtitleId,
@@ -177,7 +204,7 @@ export function createOverviewCoordinator(
       chapters: chapterSource.signatureChapters,
       chapterOutline: chapterSource.chapters
     });
-    return `${clip.bvid}|${clip.cid}|${signature}`;
+    return `${clip.bvid}|${clip.cid}|${signature}${overviewSectionsCacheSuffix(config.sections)}`;
   }
 
   function buildOverviewContext(): AiContext {
@@ -310,9 +337,38 @@ export function createOverviewCoordinator(
     notifyOverviewChanged();
   }
 
-  function triggerReaderOverviewGeneration(
-    { forceRefresh = false }: { forceRefresh?: boolean } = {}
+  async function hydrateCachedOverviewIfAvailable(
+    clipKey: string,
+    sections: OverviewAiSections
   ): Promise<void> {
+    try {
+      const analysisMod = await deps.loadAnalysis();
+      if (typeof analysisMod.loadCachedOverviewAnalysis !== "function") {
+        return;
+      }
+      const cached = await analysisMod.loadCachedOverviewAnalysis(buildOverviewContext(), sections);
+      if (!cached || currentOverviewKey() !== clipKey || overview.phase === "generating") {
+        return;
+      }
+      overview.generatedFor = clipKey;
+      overview.aiChapters = sections.chapters && currentChapterSource().kind === "auto";
+      overview.analysis = cached;
+      overview.phase =
+        (Array.isArray(cached.failedRanges) && cached.failedRanges.length > 0) || cached.summaryFailed
+          ? "partial"
+          : "ready";
+      overview.progressText = "";
+      overview.errorText = "";
+      renderIfOpen();
+      notifyOverviewChanged();
+    } catch {
+    }
+  }
+
+  function triggerReaderOverviewGeneration(
+    { forceRefresh = false, manual = false }: { forceRefresh?: boolean; manual?: boolean } = {}
+  ): Promise<void> {
+    const config = currentOverviewConfig();
     if (overview.inflight && overview.generatedFor === currentOverviewKey()) {
       return overview.inflight;
     }
@@ -337,6 +393,17 @@ export function createOverviewCoordinator(
       dropOverviewProduct();
     }
 
+    if (!hasAnyOverviewAiSection(config.sections)) {
+      renderIfOpen();
+      notifyOverviewChanged();
+      return Promise.resolve();
+    }
+
+    if (!manual && !forceRefresh && !config.autoGenerate) {
+      renderIfOpen();
+      return hydrateCachedOverviewIfAvailable(clipKey, config.sections);
+    }
+
     let slot = inflightAbort;
     if (!slot || slot.key !== clipKey || slot.controller.signal.aborted) {
       slot = { key: clipKey, controller: new AbortController(), startedAt: deps.now(), lastActivityAt: 0 };
@@ -345,7 +412,7 @@ export function createOverviewCoordinator(
     cancelRequested = false;
     taskEpoch += 1;
     overview.generatedFor = clipKey;
-    overview.aiChapters = currentChapterSource().kind === "auto";
+    overview.aiChapters = config.sections.chapters && currentChapterSource().kind === "auto";
     overview.phase = "generating";
     overview.progressText = "";
     overview.errorText = "";
@@ -353,7 +420,7 @@ export function createOverviewCoordinator(
     renderIfOpen();
     notifyOverviewChanged();
 
-    const run = startOverviewRun(clipKey, forceRefresh, slot);
+    const run = startOverviewRun(clipKey, forceRefresh, slot, config.sections);
     overview.inflight = run;
     const cleanup = () => {
       if (overview.inflight === run) {
@@ -375,7 +442,8 @@ export function createOverviewCoordinator(
   async function startOverviewRun(
     clipKey: string,
     forceRefresh: boolean,
-    slot: ReaderOverviewInflightAbort
+    slot: ReaderOverviewInflightAbort,
+    sections: OverviewAiSections
   ): Promise<void> {
     try {
       const { runOverviewAnalysis } = await deps.loadAnalysis();
@@ -385,6 +453,7 @@ export function createOverviewCoordinator(
           provider,
           context: buildOverviewContext(),
           forceRefresh,
+          sections,
           thinkingLevel: "off",
           signal: slot.controller.signal
         },
@@ -460,6 +529,7 @@ export function createOverviewCoordinator(
 
   function getReaderOverviewSnapshot(): ReaderOverviewSnapshot {
     syncOverviewPhaseToClip();
+    const config = currentOverviewConfig();
     return {
       phase: overview.phase,
       analysis: overview.analysis,
@@ -467,7 +537,9 @@ export function createOverviewCoordinator(
       progressText: overview.progressText,
       errorText: overview.errorText,
       stripText: stripText(),
-      generatedFor: overview.generatedFor
+      generatedFor: overview.generatedFor,
+      autoGenerate: config.autoGenerate,
+      sections: config.sections
     };
   }
 
@@ -477,8 +549,11 @@ export function createOverviewCoordinator(
   }
 
   deps.registerUiActions({
+    generate: () => {
+      void triggerReaderOverviewGeneration({ manual: true });
+    },
     retry: () => {
-      void triggerReaderOverviewGeneration({ forceRefresh: true });
+      void triggerReaderOverviewGeneration({ forceRefresh: true, manual: true });
     },
     cancel: () => {
       cancelReaderOverview();
@@ -492,11 +567,14 @@ export function createOverviewCoordinator(
           getClipBody().length > 0 &&
           snapshotKey === currentOverviewKey() &&
           snapshotEpoch === taskEpoch,
-        onResume: () => triggerReaderOverviewGeneration({ forceRefresh: true })
+        onResume: () => triggerReaderOverviewGeneration({ forceRefresh: true, manual: true })
       });
     },
     openTranscribeSettings: () => {
       deps.openTranscribeSettings?.();
+    },
+    openOverviewSettings: () => {
+      deps.openOverviewSettings?.();
     }
   });
 

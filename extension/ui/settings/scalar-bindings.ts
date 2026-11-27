@@ -26,6 +26,7 @@ import {
 } from "../../shared/host-theme.js";
 import type { SaveSettingsResponse } from "../../shared/messaging-protocol.js";
 import { syncToggleSwitch } from "../toggle-switch.js";
+import { withReader } from "../reader-gate.js";
 import type { SettingsElements } from "./elements.js";
 
 export interface ScalarBindingRuntimeHooks {
@@ -291,6 +292,50 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     kind: "toggle",
     key: "includeDateInFilename",
     getElement: (el) => el.includeDateInFilename
+  },
+  {
+    kind: "toggle",
+    key: "autoGenerateOverview",
+    getElement: (el) => el.autoGenerateOverview,
+    watchSync: true,
+    onChange: () => {
+      if (state.reader.readingViewOpen) {
+        withReader("overview settings change", (reader) => reader.renderReadingOverview());
+      }
+    }
+  },
+  {
+    kind: "toggle",
+    key: "overviewAiSummary",
+    getElement: (el) => el.overviewAiSummary,
+    watchSync: true,
+    onChange: () => {
+      if (state.reader.readingViewOpen) {
+        withReader("overview settings change", (reader) => reader.renderReadingOverview());
+      }
+    }
+  },
+  {
+    kind: "toggle",
+    key: "overviewAiChapters",
+    getElement: (el) => el.overviewAiChapters,
+    watchSync: true,
+    onChange: () => {
+      if (state.reader.readingViewOpen) {
+        withReader("overview settings change", (reader) => reader.renderReadingOverview());
+      }
+    }
+  },
+  {
+    kind: "toggle",
+    key: "overviewAiQuotes",
+    getElement: (el) => el.overviewAiQuotes,
+    watchSync: true,
+    onChange: () => {
+      if (state.reader.readingViewOpen) {
+        withReader("overview settings change", (reader) => reader.renderReadingOverview());
+      }
+    }
   },
   {
     kind: "toggle",

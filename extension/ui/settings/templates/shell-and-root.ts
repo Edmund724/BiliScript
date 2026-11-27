@@ -77,7 +77,7 @@ export function buildSettingsRootViewHtml(): string {
         <div class="biliscript-set-h">内容与阅读体验</div>
         <div class="biliscript-set-card">
           <button id="${ids.openAiPromptBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
-            <span class="biliscript-set-label">AI 对话与快捷动作</span>
+            <span class="biliscript-set-label">AI 概览与对话</span>
             <span class="biliscript-entry-summary">
               <span id="${ids.aiPromptSummary}" class="biliscript-entry-summary-text"></span>
               ${CHEVRON_RIGHT_SVG}

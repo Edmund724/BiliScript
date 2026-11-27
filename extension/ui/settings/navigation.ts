@@ -36,7 +36,7 @@ const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
   live: "实时伴看",
   asr: "语音转写",
   search: "联网搜索",
-  "ai-prompt": "AI 对话与快捷动作",
+  "ai-prompt": "AI 概览与对话",
   subtitle: "字幕翻译与导出",
   notes: "视频笔记",
   appearance: "阅读器与播放器",

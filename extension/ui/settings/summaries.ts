@@ -33,6 +33,10 @@ export interface SettingsSummaryFormValues {
   aiDefaultModelLabel: string;
   asrAutoFallback: boolean;
   webSearchMaxToolCalls: unknown;
+  autoGenerateOverview?: boolean;
+  overviewAiSummary?: boolean;
+  overviewAiChapters?: boolean;
+  overviewAiQuotes?: boolean;
   enablePlayerAiQuickAction: boolean;
   playerAiActionMode?: unknown;
   playerAiAutoExportNote?: boolean;
@@ -167,6 +171,17 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   const playerQuickAiAvailable =
     input.playerQuickAiAvailable ?? resolveSettingsCapabilities().playerQuickAiAvailable;
   const promptParts: string[] = [];
+  const overviewAiCount =
+    (form.overviewAiSummary !== false ? 1 : 0) +
+    (form.overviewAiChapters !== false ? 1 : 0) +
+    (form.overviewAiQuotes !== false ? 1 : 0);
+  if (overviewAiCount === 0) {
+    promptParts.push("概览 AI 已关");
+  } else if (form.autoGenerateOverview === false) {
+    promptParts.push("概览手动生成");
+  } else if (overviewAiCount < 3) {
+    promptParts.push(`概览 ${overviewAiCount}/3 项 AI`);
+  }
   if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) {
     const actionMode = normalizePlayerAiActionMode(form.playerAiActionMode);
     promptParts.push(actionMode === "note" ? "播放器快捷·笔记" : "播放器快捷开");
@@ -249,6 +264,10 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       aiDefaultModelLabel: resolveSelectedModelLabel(elements.aiDefaultModel),
       asrAutoFallback: elements.asrAutoFallback.checked,
       webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value,
+      autoGenerateOverview: elements.autoGenerateOverview.checked,
+      overviewAiSummary: elements.overviewAiSummary.checked,
+      overviewAiChapters: elements.overviewAiChapters.checked,
+      overviewAiQuotes: elements.overviewAiQuotes.checked,
       enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
       playerAiActionMode: elements.playerAiActionMode.value,
       playerAiAutoExportNote: elements.playerAiAutoExportNote.checked,

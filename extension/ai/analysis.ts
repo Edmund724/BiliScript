@@ -28,6 +28,7 @@ export { parseChapterOutline, resolveChapterSource } from "../shared/chapter-out
 export {
   buildAnalysisFinalCacheKey,
   buildAnalysisSegmentCacheKey,
+  loadCachedOverviewAnalysis,
   runOverviewAnalysis,
 } from "./analysis-orchestrate.js";
 export {

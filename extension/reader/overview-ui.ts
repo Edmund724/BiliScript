@@ -12,6 +12,13 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
+import { resolveChapterSource } from "../shared/chapter-outline.js";
+import {
+  buildLocalOutlineChapters,
+  hasAnyOverviewAiSection,
+  normalizeOverviewAiSections
+} from "../shared/overview-sections.js";
+import { getSiteCapabilities, normalizeSiteId, YOUTUBE_UNIT_CID } from "../shared/site.js";
 import { dispatchNoteExport } from "../notes/export-actions.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import {
@@ -34,10 +41,12 @@ import type { AnalysisChapter, AnalysisQuote } from "../ai/analysis.js";
 import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 
 export interface OverviewUiActions {
+  generate?: () => void;
   retry: () => void;
   cancel: () => void;
   setup: (errorClass: OverviewSetupErrorClass) => void;
   openTranscribeSettings: () => void;
+  openOverviewSettings?: () => void;
 }
 
 let registeredActions: OverviewUiActions | null = null;
@@ -148,7 +157,7 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
     : "";
   switch (snapshot.phase) {
     case "empty":
-      return buildEmptyStateHtml();
+      return buildEmptyStateHtml(snapshot);
     case "generating":
       return buildGeneratingStrip(snapshot) + buildResultSectionsHtml(snapshot);
     case "partial":
@@ -161,26 +170,85 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
       return hotNoticeStrip + buildResultSectionsHtml(snapshot);
     case "idle":
     default:
-      return `
-        <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
-          <div class="biliscript-reading-placeholder-title">概览还未生成</div>
-        </div>
-      `;
+      return hotNoticeStrip + buildIdleStateHtml(snapshot);
   }
 }
 
-function buildEmptyStateHtml(): string {
+function getLocalOutlineChapters(): AnalysisChapter[] {
+  const site = normalizeSiteId(state.clip.site ?? (state.clip.cid === YOUTUBE_UNIT_CID ? "youtube" : undefined));
+  const supportsHotComments = getSiteCapabilities(site).supportsHotComments;
+  const chapterSource = resolveChapterSource(
+    state.clip.description,
+    supportsHotComments ? state.clip.hotComments : [],
+    state.clip.chapters
+  );
+  return buildLocalOutlineChapters(chapterSource, state.clip.videoDuration, getClipBody());
+}
+
+function buildIdleStateHtml(snapshot: ReaderOverviewSnapshot): string {
+  const sections = normalizeOverviewAiSections(snapshot.sections);
+  const hasAnyAi = hasAnyOverviewAiSection(sections);
+  const localChapters = getLocalOutlineChapters();
+
+  if (!hasAnyAi) {
+    if (localChapters.length > 0) {
+      const withHours = shouldShowHoursInNote(state.clip, getClipBody());
+      const chapterBlocks = localChapters.map((item) => chapterCardHtml(item, withHours)).join("");
+      return `
+        <section class="biliscript-reading-ov-section">
+          <div class="biliscript-reading-ov-h">章节</div>
+          ${chapterBlocks}
+        </section>
+      `;
+    }
+    return `
+      <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
+        <div class="biliscript-reading-placeholder-title">已关闭全部 AI 概览内容</div>
+        <div class="biliscript-reading-empty-actions">
+          <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="open-overview-settings">前往设置</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (localChapters.length > 0) {
+    const withHours = shouldShowHoursInNote(state.clip, getClipBody());
+    const chapterBlocks = localChapters.map((item) => chapterCardHtml(item, withHours)).join("");
+    return `
+      <div class="biliscript-reading-ov-strip">
+        <span class="biliscript-reading-ov-strip-text">AI 概览未生成</span>
+        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="generate">生成 AI 概览</button>
+      </div>
+      <section class="biliscript-reading-ov-section">
+        <div class="biliscript-reading-ov-h">章节</div>
+        ${chapterBlocks}
+      </section>
+    `;
+  }
+
+  return `
+    <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
+      <div class="biliscript-reading-placeholder-title">概览还未生成</div>
+      <div class="biliscript-reading-empty-actions">
+        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="generate">生成概览</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildEmptyStateHtml(snapshot: ReaderOverviewSnapshot): string {
+  const autoGenerate = snapshot.autoGenerate !== false;
   if (isReaderTranscribing()) {
     return `
       <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
-        <div class="biliscript-reading-placeholder-title">概览等字幕就绪后自动生成</div>
+        <div class="biliscript-reading-placeholder-title">${autoGenerate ? "概览等字幕就绪后自动生成" : "字幕转写中，就绪后可手动生成概览"}</div>
       </div>
     `;
   }
   if (state.clip.subtitleFetchState === "loading") {
     return `
       <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
-        <div class="biliscript-reading-placeholder-title">字幕抓取中，就绪后自动生成概览</div>
+        <div class="biliscript-reading-placeholder-title">${autoGenerate ? "字幕抓取中，就绪后自动生成概览" : "字幕抓取中，就绪后可手动生成概览"}</div>
       </div>
     `;
   }
@@ -282,6 +350,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     return "";
   }
 
+  const sections = normalizeOverviewAiSections(snapshot.sections);
   const withHours = shouldShowHoursInNote(state.clip, getClipBody());
   const chapters = (Array.isArray(analysis.chapters) ? analysis.chapters : []).filter(
     (item) => item && String(item.title || "").trim()
@@ -290,21 +359,27 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     (item) => item && String(item?.content || "").trim()
   );
   const summary = String(analysis.summary || "").trim();
-  const summarySection = `
+  const showSummary = sections.summary || Boolean(summary);
+  const summarySection = showSummary
+    ? `
     <section class="biliscript-reading-ov-section">
       <p class="biliscript-reading-ov-summary${summary ? "" : " is-empty"}">${escapeHtml(summary || "简介暂未生成")}</p>
     </section>
-  `;
-  const chapterBadge = snapshot.aiChapters ? '<span class="biliscript-reading-ov-badge">AI 生成</span>' : "";
+  `
+    : "";
+  const chapterBadge = sections.chapters && snapshot.aiChapters ? '<span class="biliscript-reading-ov-badge">AI 生成</span>' : "";
+  const showQuotes = sections.quotes || quotes.length > 0;
   const quotesEmptyNote = quotes.length === 0 ? '<div class="biliscript-reading-ov-empty">没有可用的金句。</div>' : "";
-  const quotesSection = `
+  const quotesSection = showQuotes
+    ? `
     <section class="biliscript-reading-ov-section">
       <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
       ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
     </section>
-  `;
+  `
+    : "";
 
-  const footerHtml = snapshot.phase === "ready"
+  const footerHtml = snapshot.phase === "ready" && hasAnyOverviewAiSection(sections)
     ? `
     <div class="biliscript-reading-ov-footer">
       <button type="button" class="biliscript-reading-ov-regen-btn" data-overview-action="refresh">
@@ -313,33 +388,38 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     </div>`
     : "";
 
-  if (chapters.length === 0) {
-    return `
-      ${summarySection}
+  const showChapters = sections.chapters || chapters.length > 0;
+  let chaptersSection = "";
+  if (showChapters) {
+    if (chapters.length === 0) {
+      chaptersSection = `
       <section class="biliscript-reading-ov-section">
         <div class="biliscript-reading-ov-h">章节</div>
         <div class="biliscript-reading-ov-empty">没有可用的章节。</div>
       </section>
-      ${quotesSection}
-      ${footerHtml}
     `;
-  }
-
-  const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
-  const missingCount = chapters.filter((item) => item.missingSummary).length;
-  const missingStrip = missingCount
-    ? `
+    } else {
+      const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
+      const missingCount = sections.chapters ? chapters.filter((item) => item.missingSummary).length : 0;
+      const missingStrip = missingCount
+        ? `
     <div class="biliscript-reading-ov-strip is-partial">
       <span class="biliscript-reading-ov-strip-text">有 ${missingCount} 个章节缺少小结。</span>
       <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重新生成</button>
     </div>`
-    : "";
-  return `
-    ${summarySection}
+        : "";
+      chaptersSection = `
     <section class="biliscript-reading-ov-section">
       <div class="biliscript-reading-ov-h">章节${chapterBadge}</div>
       ${missingStrip}${chapterBlocks}
     </section>
+  `;
+    }
+  }
+
+  return `
+    ${summarySection}
+    ${chaptersSection}
     ${quotesSection}
     ${footerHtml}
   `;
@@ -396,6 +476,14 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   const target = eventTarget?.closest<HTMLElement>("[data-overview-action]");
   if (target) {
     const action = target.dataset.overviewAction || "";
+    if (action === "generate") {
+      if (currentActions?.generate) {
+        currentActions.generate();
+      } else {
+        currentActions?.retry();
+      }
+      return;
+    }
     if (action === "retry-failed" || action === "retry" || action === "refresh") {
       currentActions?.retry();
       return;
@@ -437,6 +525,10 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "open-transcribe-settings") {
       currentActions?.openTranscribeSettings();
+      return;
+    }
+    if (action === "open-overview-settings") {
+      currentActions?.openOverviewSettings?.();
       return;
     }
     if (action === "copy-quote") {

@@ -41,9 +41,12 @@ import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
 import {
   projectReaderSettingsMode,
+  openReaderSettingsMode,
   closeReaderSettingsMode,
   focusWithoutScroll
 } from "./settings-mode.js";
+import { resolveOverviewConfigFromSettings } from "../shared/overview-sections.js";
+import { SETTINGS_PANEL_DOM_IDS } from "../ui/settings/dom-ids.js";
 import { captureTriggerRect, computeRelativeOrigin } from "../ui/trigger-motion.js";
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
 import {
@@ -126,6 +129,7 @@ export function clearReadingSubtitleSearch(): void {
 
 const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator({
   getClip: () => state.clip,
+  getOverviewConfig: () => resolveOverviewConfigFromSettings(state.settings),
   isReadingViewOpen: () => state.reader.readingViewOpen,
   resolveProvider: () => resolveActiveProvider(),
   loadAnalysis: () => import("../ai/analysis.js"),
@@ -165,6 +169,10 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   openTranscribeSettings: () => {
     void beginReaderAsrSetupFlow();
   },
+  openOverviewSettings: () => {
+    openReaderSettingsMode();
+    activeById<HTMLButtonElement>(SETTINGS_PANEL_DOM_IDS.openAiPromptBtn)?.click();
+  },
   now: () => Date.now(),
   setInterval: (...args) => setInterval(...args),
   clearInterval: (...args) => clearInterval(...args)
@@ -175,14 +183,14 @@ registerReaderOverviewSource({
   getSnapshot: () => overviewCoordinator.getSnapshot(),
   subscribe: (listener) => overviewCoordinator.subscribe(listener),
   ensureOverview: async (options) => {
-    await overviewCoordinator.trigger(options);
+    await overviewCoordinator.trigger({ ...options, manual: true });
     return overviewCoordinator.getSnapshot();
   },
   cancel: () => overviewCoordinator.cancel()
 });
 
 export const triggerReaderOverviewGeneration = (
-  options?: { forceRefresh?: boolean }
+  options?: { forceRefresh?: boolean; manual?: boolean }
 ): Promise<void> => overviewCoordinator.trigger(options);
 export const cancelReaderOverview = (): void => overviewCoordinator.cancel();
 export const resetReaderOverviewState = (): void => overviewCoordinator.reset();

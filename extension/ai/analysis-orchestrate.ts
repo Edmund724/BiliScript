@@ -20,7 +20,15 @@ import { buildProgressNotice } from "./map-reduce.js";
 import { budgetScaleSuffix } from "./segment-cache.js";
 import { segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
 import { estimateTokensFromChars } from "./usage-stats.js";
-import { validateAnalysis, type OverviewAnalysis } from "./analysis-validate.js";
+import { validateAnalysis, type AnalysisChapter, type OverviewAnalysis } from "./analysis-validate.js";
+import {
+  buildLocalOutlineChapters,
+  hasAnyOverviewAiSection,
+  isFullOverviewAiSections,
+  normalizeOverviewAiSections,
+  overviewSectionsCacheSuffix,
+  type OverviewAiSections
+} from "../shared/overview-sections.js";
 import {
   buildAnalysisPrompt,
   buildStateRelayFinalSummaryPrompt,
@@ -112,6 +120,7 @@ export interface RunOverviewAnalysisArgs {
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh?: boolean;
+  sections?: Partial<OverviewAiSections>;
 }
 
 interface RunOverviewAnalysisDeps {
@@ -238,20 +247,138 @@ function resolveOverviewSite(ctx: AiContext): SiteId {
   );
 }
 
-function selectOverviewSystemPrompt(chapterPlan: ChapterPlan, site: SiteId): string {
-  return getOverviewSystemPrompt({
-    site,
-    hasGivenChapters: chapterPlan.hasGivenChapters,
-    titlesOnly: chapterPlan.titlesOnly
-  });
+function appendOverviewSectionsDirective(prompt: string, sections: OverviewAiSections): string {
+  if (isFullOverviewAiSections(sections)) {
+    return prompt;
+  }
+  const skipped: string[] = [];
+  if (!sections.summary) {
+    skipped.push('顶层 "summary" 留空字符串 ""');
+  }
+  if (!sections.chapters) {
+    skipped.push('"chapters" 返回空数组 []');
+  }
+  if (!sections.quotes) {
+    skipped.push('"keyQuotes" / "quotes" 返回空数组 []');
+  }
+  return `${prompt}\n\n⚠️ 本次生成范围约束 ⚠️\n用户仅需要部分概览模块，请严格遵守：${skipped.join("；")}，不要为上述省略模块消耗输出。`;
 }
 
-function selectRelaySystemPrompt(chapterPlan: ChapterPlan, site: SiteId): string {
-  return getStateRelaySystemPrompt({
+function selectOverviewSystemPrompt(
+  chapterPlan: ChapterPlan,
+  site: SiteId,
+  sections: OverviewAiSections
+): string {
+  const base = getOverviewSystemPrompt({
     site,
     hasGivenChapters: chapterPlan.hasGivenChapters,
     titlesOnly: chapterPlan.titlesOnly
   });
+  return appendOverviewSectionsDirective(base, sections);
+}
+
+function selectRelaySystemPrompt(
+  chapterPlan: ChapterPlan,
+  site: SiteId,
+  sections: OverviewAiSections
+): string {
+  const base = getStateRelaySystemPrompt({
+    site,
+    hasGivenChapters: chapterPlan.hasGivenChapters,
+    titlesOnly: chapterPlan.titlesOnly
+  });
+  return appendOverviewSectionsDirective(base, sections);
+}
+
+function applyOverviewSections(
+  analysis: OverviewAnalysis,
+  sections: OverviewAiSections,
+  localChapters: AnalysisChapter[]
+): OverviewAnalysis {
+  const summary = sections.summary ? String(analysis.summary || "") : "";
+  const chapters = sections.chapters
+    ? Array.isArray(analysis.chapters)
+      ? analysis.chapters
+      : []
+    : localChapters;
+  const quotes = sections.quotes ? (Array.isArray(analysis.quotes) ? analysis.quotes : []) : [];
+  const next: OverviewAnalysis = {
+    ...analysis,
+    summary,
+    chapters,
+    quotes
+  };
+  if (!sections.summary) {
+    next.summaryFailed = false;
+  }
+  return next;
+}
+
+function hasRequestedOverviewContent(analysis: OverviewAnalysis, sections: OverviewAiSections): boolean {
+  return (
+    (sections.summary && Boolean(String(analysis.summary || "").trim())) ||
+    (sections.chapters && analysis.chapters.length > 0) ||
+    (sections.quotes && analysis.quotes.length > 0)
+  );
+}
+
+function normalizeOverviewContext(context: AiContext | undefined | null): { ctx: AiContext; site: SiteId } {
+  const rawCtx = context || {};
+  const site = resolveOverviewSite(rawCtx);
+  const ctx: AiContext = getSiteCapabilities(site).supportsHotComments
+    ? { ...rawCtx, site }
+    : { ...rawCtx, site, hotComments: [] };
+  return { ctx, site };
+}
+
+export async function loadCachedOverviewAnalysis(
+  context: AiContext,
+  rawSections?: Partial<OverviewAiSections>
+): Promise<OverviewAnalysis | null> {
+  const sections = normalizeOverviewAiSections(rawSections);
+  if (!hasAnyOverviewAiSection(sections)) {
+    return null;
+  }
+  const { ctx } = normalizeOverviewContext(context);
+  const identity = buildClipOverviewIdentity(ctx);
+  const normalizedItems = normalizeSubtitleItems(identity.body);
+  if (normalizedItems.length === 0) {
+    return null;
+  }
+  const l0Lines = normalizeL0SubtitleLines(normalizedItems);
+  const chapterPlan = resolveChapterPlan({ chapterSource: identity.chapterSource, context: ctx, body: identity.body });
+  const expectsChapterSummaries = sections.chapters && chapterPlan.hasGivenChapters && !chapterPlan.titlesOnly;
+  const localChapters = buildLocalOutlineChapters(identity.chapterSource, ctx.videoDuration, normalizedItems);
+  const sectionSuffix = overviewSectionsCacheSuffix(sections);
+  const effectiveFinalKey = `${identity.finalKey}${sectionSuffix}`;
+
+  const tryValidateCached = async (cached: OverviewAnalysis | null, fromFullCache: boolean): Promise<OverviewAnalysis | null> => {
+    if (!cached) {
+      return null;
+    }
+    const shaped = fromFullCache ? applyOverviewSections(cached, sections, localChapters) : cached;
+    const allSummariesEmpty =
+      expectsChapterSummaries &&
+      shaped.chapters.length > 0 &&
+      shaped.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
+    if (allSummariesEmpty) {
+      return null;
+    }
+    const result = expectsChapterSummaries ? flagMissingChapterSummaries(shaped) : shaped;
+    if (isFullOverviewAiSections(sections)) {
+      await ensureL1IndexOnCacheHit({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis: result });
+    }
+    return result;
+  };
+
+  const direct = await tryValidateCached(await loadAnalysisFinal(effectiveFinalKey), false);
+  if (direct) {
+    return direct;
+  }
+  if (!isFullOverviewAiSections(sections)) {
+    return tryValidateCached(await loadAnalysisFinal(identity.finalKey), true);
+  }
+  return null;
 }
 
 async function persistL1IndexForOverview({
@@ -312,27 +439,28 @@ async function ensureL1IndexOnCacheHit({
 }
 
 export function runOverviewAnalysis(
-  { provider, context, signal, thinkingLevel, forceRefresh = false }: RunOverviewAnalysisArgs,
+  { provider, context, signal, thinkingLevel, forceRefresh = false, sections: rawSections }: RunOverviewAnalysisArgs,
   deps: RunOverviewAnalysisDeps = {}
 ): Promise<OverviewAnalysis> {
-  const rawCtx = context || {};
-  const site = resolveOverviewSite(rawCtx);
-  const ctx: AiContext = getSiteCapabilities(site).supportsHotComments
-    ? { ...rawCtx, site }
-    : { ...rawCtx, site, hotComments: [] };
+  const { ctx, site } = normalizeOverviewContext(context);
+  const sections = normalizeOverviewAiSections(rawSections);
   const identity = buildClipOverviewIdentity(ctx);
-  const { finalKey } = identity;
+  const sectionSuffix = overviewSectionsCacheSuffix(sections);
+  const effectiveFinalKey = `${identity.finalKey}${sectionSuffix}`;
 
-  const inflight = forceRefresh ? undefined : inflightOverviews.get(finalKey);
+  const inflight = forceRefresh ? undefined : inflightOverviews.get(effectiveFinalKey);
   if (inflight) {
     return inflight;
   }
-  const runProvider = { ...provider, sessionId: finalKey };
+  const runProvider = { ...provider, sessionId: effectiveFinalKey };
   const promise = executeOverviewRun({
     provider: runProvider,
     ctx,
     site,
     identity,
+    sections,
+    sectionSuffix,
+    effectiveFinalKey,
     signal,
     thinkingLevel,
     forceRefresh,
@@ -341,10 +469,10 @@ export function runOverviewAnalysis(
     onProgress: deps.onProgress
   });
   if (!forceRefresh) {
-    inflightOverviews.set(finalKey, promise);
+    inflightOverviews.set(effectiveFinalKey, promise);
     const cleanup = () => {
-      if (inflightOverviews.get(finalKey) === promise) {
-        inflightOverviews.delete(finalKey);
+      if (inflightOverviews.get(effectiveFinalKey) === promise) {
+        inflightOverviews.delete(effectiveFinalKey);
       }
     };
     void promise.then(cleanup, cleanup);
@@ -357,6 +485,9 @@ interface ExecuteOverviewRunArgs {
   ctx: AiContext;
   site: SiteId;
   identity: ClipOverviewIdentity;
+  sections: OverviewAiSections;
+  sectionSuffix: string;
+  effectiveFinalKey: string;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh: boolean;
@@ -370,6 +501,9 @@ async function executeOverviewRun({
   ctx,
   site,
   identity,
+  sections,
+  sectionSuffix,
+  effectiveFinalKey,
   signal,
   thinkingLevel,
   forceRefresh,
@@ -377,27 +511,26 @@ async function executeOverviewRun({
   askCostGuard,
   onProgress
 }: ExecuteOverviewRunArgs): Promise<OverviewAnalysis> {
-  const { body, chapterSource, signature, finalKey } = identity;
+  const { body, chapterSource, signature } = identity;
   const normalizedItems = normalizeSubtitleItems(body);
   if (normalizedItems.length === 0) {
     throw new Error("没有可用的字幕");
   }
+  const localChapters = buildLocalOutlineChapters(chapterSource, ctx.videoDuration, normalizedItems);
+  if (!hasAnyOverviewAiSection(sections)) {
+    return {
+      summary: "",
+      chapters: localChapters,
+      quotes: []
+    };
+  }
   const l0Lines = normalizeL0SubtitleLines(normalizedItems);
   const chapterPlan = resolveChapterPlan({ chapterSource, context: ctx, body });
-  const expectsChapterSummaries = chapterPlan.hasGivenChapters && !chapterPlan.titlesOnly;
 
   if (!forceRefresh) {
-    const cached = await loadAnalysisFinal(finalKey);
+    const cached = await loadCachedOverviewAnalysis(ctx, sections);
     if (cached) {
-      const allSummariesEmpty =
-        expectsChapterSummaries &&
-        cached.chapters.length > 0 &&
-        cached.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
-      if (!allSummariesEmpty) {
-        const result = expectsChapterSummaries ? flagMissingChapterSummaries(cached) : cached;
-        await ensureL1IndexOnCacheHit({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis: result });
-        return result;
-      }
+      return cached;
     }
   }
 
@@ -419,7 +552,7 @@ async function executeOverviewRun({
     });
     const text = await requestStreamedAnalysisText({
       provider,
-      systemPrompt: selectOverviewSystemPrompt(chapterPlan, site),
+      systemPrompt: selectOverviewSystemPrompt(chapterPlan, site, sections),
       built,
       thinkingLevel,
       signal,
@@ -432,20 +565,26 @@ async function executeOverviewRun({
       built.timing.maxTimestampSeconds,
       chapterPlan.hasGivenChapters ? 0 : startSeconds
     );
-    const analysis: OverviewAnalysis = { ...part, chapters: chapterPlan.graft(part.chapters) };
-    analysis.summaryFailed = !analysis.summary;
-    if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
+    const rawAnalysis: OverviewAnalysis = {
+      ...part,
+      chapters: sections.chapters ? chapterPlan.graft(part.chapters) : localChapters
+    };
+    const analysis = applyOverviewSections(rawAnalysis, sections, localChapters);
+    analysis.summaryFailed = sections.summary ? !analysis.summary : false;
+    if (!hasRequestedOverviewContent(analysis, sections)) {
       throw makeEmptyAnalysisError();
     }
-    await saveAnalysisFinal(finalKey, analysis);
-    await persistL1IndexForOverview({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis });
+    await saveAnalysisFinal(effectiveFinalKey, analysis);
+    if (isFullOverviewAiSections(sections)) {
+      await persistL1IndexForOverview({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis });
+    }
     return analysis;
   }
 
   const windows = relayDecision.windows;
   if (typeof askCostGuard === "function") {
     await runCostGuard({
-      estimatedCalls: windows.length + 1,
+      estimatedCalls: windows.length + (sections.summary ? 1 : 0),
       estimatedTokens: estimateTokensFromChars(provider, relayDecision.totalChars),
       taskLabel: "当前视频较长，生成「全片概览」",
       precheck: () => {
@@ -460,7 +599,7 @@ async function executeOverviewRun({
     });
   }
 
-  const relaySystemPrompt = selectRelaySystemPrompt(chapterPlan, site);
+  const relaySystemPrompt = selectRelaySystemPrompt(chapterPlan, site, sections);
   const totalWindows = windows.length;
   const stepOutcomes: Array<{ ok: true; data: RawRelayStepData } | { ok: false; from: number; to: number; error: unknown }> = [];
   let previousStateCard: StateRelayCard | null = null;
@@ -470,7 +609,7 @@ async function executeOverviewRun({
     if (signal?.aborted) {
       throw makeAbortedError();
     }
-    const segKey = buildAnalysisSegmentCacheKey(ctx, win.windowIndex + 1, signature);
+    const segKey = buildAnalysisSegmentCacheKey(ctx, win.windowIndex + 1, `${signature}${sectionSuffix}`);
     try {
       const cachedSeg = await analysisSegmentFamily.load(segKey);
       if (isRelaySegmentCacheEntry(cachedSeg)) {
@@ -569,51 +708,57 @@ async function executeOverviewRun({
 
   const analysis: OverviewAnalysis = {
     summary: "",
-    chapters: merged.chapters,
-    quotes: merged.quotes,
+    chapters: sections.chapters ? merged.chapters : localChapters,
+    quotes: sections.quotes ? merged.quotes : [],
     ...(failedRanges.length > 0 ? { failedRanges } : {})
   };
 
-  onProgress?.("正在生成全片简介…");
-  try {
-    const summaryBuilt = buildStateRelayFinalSummaryPrompt({
-      title: ctx.title,
-      videoDuration: endSeconds,
-      chapters: merged.l1Chapters,
-      finalStateCard: merged.finalStateCard
-    });
-    const summaryText = await requestStreamedAnalysisText({
-      provider,
-      systemPrompt: STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
-      built: summaryBuilt,
-      thinkingLevel,
-      signal,
-      retries: 2,
-      chatCompletionImpl
-    });
-    const parsedSummary = parseRelayFinalSummary(summaryText);
-    analysis.summary = parsedSummary || merged.finalStateCard?.rollingSummary || "";
-    analysis.summaryFailed = !analysis.summary;
-  } catch (error) {
-    if (isAbortedMarkerError(error) || signal?.aborted) {
-      throw error;
+  if (sections.summary) {
+    onProgress?.("正在生成全片简介…");
+    try {
+      const summaryBuilt = buildStateRelayFinalSummaryPrompt({
+        title: ctx.title,
+        videoDuration: endSeconds,
+        chapters: merged.l1Chapters,
+        finalStateCard: merged.finalStateCard
+      });
+      const summaryText = await requestStreamedAnalysisText({
+        provider,
+        systemPrompt: STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
+        built: summaryBuilt,
+        thinkingLevel,
+        signal,
+        retries: 2,
+        chatCompletionImpl
+      });
+      const parsedSummary = parseRelayFinalSummary(summaryText);
+      analysis.summary = parsedSummary || merged.finalStateCard?.rollingSummary || "";
+      analysis.summaryFailed = !analysis.summary;
+    } catch (error) {
+      if (isAbortedMarkerError(error) || signal?.aborted) {
+        throw error;
+      }
+      analysis.summaryFailed = true;
     }
-    analysis.summaryFailed = true;
+  } else {
+    analysis.summaryFailed = false;
   }
 
-  if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
+  if (!hasRequestedOverviewContent(analysis, sections)) {
     throw makeEmptyAnalysisError();
   }
 
-  await saveAnalysisFinal(finalKey, analysis);
-  await persistL1IndexForOverview({
-    identity,
-    videoDuration: ctx.videoDuration,
-    l0Lines,
-    analysis,
-    l1Chapters: merged.l1Chapters,
-    l1Quotes: merged.l1Quotes,
-    fallbackGlobalSummary: merged.finalStateCard?.rollingSummary
-  });
+  await saveAnalysisFinal(effectiveFinalKey, analysis);
+  if (isFullOverviewAiSections(sections)) {
+    await persistL1IndexForOverview({
+      identity,
+      videoDuration: ctx.videoDuration,
+      l0Lines,
+      analysis,
+      l1Chapters: merged.l1Chapters,
+      l1Quotes: merged.l1Quotes,
+      fallbackGlobalSummary: merged.finalStateCard?.rollingSummary
+    });
+  }
   return analysis;
 }

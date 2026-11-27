@@ -5,6 +5,40 @@ import { SETTINGS_PANEL_DOM_IDS } from "../dom-ids.js";
 export function buildContentPagesHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
   return `    <div id="${ids.subpageAiPrompt}" class="biliscript-settings-view" hidden>
+      <section class="biliscript-set-group" data-settings-section="overview">
+        <div class="biliscript-set-h">视频概览</div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">进入视频自动生成概览</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.autoGenerateOverview}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频自动生成概览" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">AI 生成全片简介</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.overviewAiSummary}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 生成全片简介" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">AI 生成章节与小结</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.overviewAiChapters}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 生成章节与小结" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">AI 精选金句</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.overviewAiQuotes}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 精选金句" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
       <section class="biliscript-set-group" data-settings-section="system-prompt">
         <div class="biliscript-set-header-row">
           <div class="biliscript-set-h">系统提示词</div>

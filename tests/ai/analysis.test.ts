@@ -1438,3 +1438,52 @@ describe("buildAnalysisPrompt 变量装配", () => {
     expect(withContext.prompt).toContain("前情回顾（上一段的结尾，只用来理解本段承接什么，不要为它开章节或挑金句）：\n[0:40] 上一段结尾");
   });
 });
+
+describe("sections 按模块选择与完整缓存裁剪复用", () => {
+  it("仅开启全片简介时：提示词带省略约束、输出过滤金句与 AI 章节、保留本地章节", async () => {
+    const body = makeSubtitleBody(20, 5);
+    const { chatCompletion, calls } = buildCompletionFake();
+    const context = makeContext({
+      subtitleBody: body,
+      videoDescription: "简介\n00:00 本地开场\n00:40 本地核心"
+    });
+
+    const result = await mod.runOverviewAnalysis(
+      {
+        provider: makeProvider(),
+        context,
+        sections: { summary: true, chapters: false, quotes: false }
+      },
+      { chatCompletion }
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].messages[0]?.content).toContain("本次生成范围约束");
+    expect(result.summary).toBe("第 1 段概述。");
+    expect(result.quotes).toEqual([]);
+    expect(result.chapters.map((c) => c.title)).toEqual(["本地开场", "本地核心"]);
+    expect(result.chapters.every((c) => c.summary === "")).toBe(true);
+  });
+
+  it("已有完整版缓存时：切换为仅需金句，loadCachedOverviewAnalysis 直接裁剪复用不调 AI", async () => {
+    const body = makeSubtitleBody(20, 5);
+    const { chatCompletion } = buildCompletionFake();
+    const context = makeContext({ subtitleBody: body });
+
+    await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context },
+      { chatCompletion }
+    );
+    expect(chatCompletion).toHaveBeenCalledTimes(1);
+
+    const sliced = await mod.loadCachedOverviewAnalysis(context, {
+      summary: false,
+      chapters: false,
+      quotes: true
+    });
+    expect(sliced).not.toBeNull();
+    expect(sliced?.summary).toBe("");
+    expect(sliced?.chapters).toEqual([]);
+    expect(sliced?.quotes.length).toBeGreaterThan(0);
+  });
+});

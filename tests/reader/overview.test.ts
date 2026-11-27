@@ -7,7 +7,7 @@ import type { TestState } from "./reader-test-env.d.ts";
 
 vi.mock("../../extension/ai/analysis.js", async (importActual) => {
   const actual = await importActual<typeof import("../../extension/ai/analysis.js")>();
-  return { ...actual, runOverviewAnalysis: vi.fn() };
+  return { ...actual, runOverviewAnalysis: vi.fn(), loadCachedOverviewAnalysis: vi.fn(async () => null) };
 });
 
 let state: TestState;
@@ -16,6 +16,7 @@ let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
 let runOverviewMock: Mock;
+let loadCachedOverviewMock: Mock;
 
 interface ChromeStub {
   runtime: { sendMessage: Mock };
@@ -36,6 +37,7 @@ async function loadModules() {
   ids = (await import("../../extension/reader/state.js")).ids;
   const analysis = await import("../../extension/ai/analysis.js");
   runOverviewMock = vi.mocked(analysis.runOverviewAnalysis);
+  loadCachedOverviewMock = vi.mocked(analysis.loadCachedOverviewAnalysis);
 }
 
 function stubRuntimeMessages(extra?: (message: Record<string, unknown>) => unknown | undefined) {
@@ -850,7 +852,9 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
 
     state.clip.description = "视频简介\n00:00 评论区开场\n01:40 评论区正题";
     reader.renderReadingOverview();
-    expect(overviewText()).toContain("概览还未生成");
+    expect(overviewText()).toContain("AI 概览未生成");
+    expect(overviewText()).toContain("评论区开场");
+    expect(overviewBody().querySelector("button[data-overview-action='generate']")).not.toBeNull();
 
     runOverviewMock.mockClear();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
@@ -1162,6 +1166,57 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     });
     await vi.waitFor(() => expect(chapterTitles()).toContain("第二轮章节"));
     expect(chapterTitles()).not.toContain("开场");
+  });
+});
+
+describe("手动生成开关与 AI 模块选择", () => {
+  it("关闭自动生成且无本地章节时，进入概览不调 AI，点击「生成概览」按钮后才触发生成", async () => {
+    seedClip();
+    bindOverviewDelegation();
+    state.settings.autoGenerateOverview = false;
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    reader.ensureReaderOverviewTab();
+    await vi.waitFor(() => expect(loadCachedOverviewMock).toHaveBeenCalledTimes(1));
+    expect(runOverviewMock).not.toHaveBeenCalled();
+    expect(overviewText()).toContain("概览还未生成");
+    const generateBtn = overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='generate']");
+    expect(generateBtn?.textContent).toContain("生成概览");
+
+    generateBtn!.click();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(overviewText()).toContain("开场"));
+  });
+
+  it("关闭自动生成且视频自带本地章节时，先展示本地章节与「生成 AI 概览」按钮", async () => {
+    seedClip();
+    state.clip.description = "视频简介\n00:00 本地开场\n01:20 本地核心";
+    state.settings.autoGenerateOverview = false;
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    reader.ensureReaderOverviewTab();
+    await vi.waitFor(() => expect(loadCachedOverviewMock).toHaveBeenCalledTimes(1));
+    expect(runOverviewMock).not.toHaveBeenCalled();
+    expect(overviewText()).toContain("本地开场");
+    expect(overviewText()).toContain("本地核心");
+    expect(overviewBody().querySelector("button[data-overview-action='generate']")?.textContent).toContain("生成 AI 概览");
+  });
+
+  it("关闭金句与章节 AI 后，结果页隐藏未启用的空白区块", async () => {
+    seedClip();
+    state.settings.overviewAiSummary = true;
+    state.settings.overviewAiChapters = false;
+    state.settings.overviewAiQuotes = false;
+    runOverviewMock.mockResolvedValue({
+      summary: "只要这一段简介。",
+      chapters: [],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration({ manual: true });
+    expect(overviewText()).toContain("只要这一段简介。");
+    expect(overviewText()).not.toContain("没有可用的章节");
+    expect(overviewText()).not.toContain("没有可用的金句");
   });
 });
 

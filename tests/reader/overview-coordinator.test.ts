@@ -37,6 +37,7 @@ interface RunArgs {
   provider?: unknown;
   context?: Record<string, unknown>;
   forceRefresh?: boolean;
+  sections?: unknown;
   thinkingLevel?: string;
   signal?: AbortSignal;
 }
@@ -635,5 +636,110 @@ describe("变更订阅（伴看上下文同步）", () => {
     expect(listener).toHaveBeenCalledTimes(3);
     h.coordinator.reset();
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("自动生成开关与本地缓存复用", () => {
+  it("关闭自动生成时，若已有本地缓存直接展示缓存且不调用 AI", async () => {
+    const clip = seedClip();
+    const runOverviewAnalysis = vi.fn();
+    const loadCachedOverviewAnalysis = vi.fn(async () => SAMPLE_ANALYSIS);
+    const resolveProvider = vi.fn(async () => PROVIDER);
+    const coordinator = createOverviewCoordinator({
+      getClip: () => clip,
+      getOverviewConfig: () => ({
+        autoGenerate: false,
+        sections: { summary: true, chapters: true, quotes: true }
+      }),
+      isReadingViewOpen: () => false,
+      resolveProvider,
+      loadAnalysis: async () =>
+        ({
+          runOverviewAnalysis,
+          loadCachedOverviewAnalysis
+        }) as unknown as typeof import("../../extension/ai/analysis.js"),
+      confirm: async () => true,
+      registerUiActions: () => {},
+      now: () => 0,
+      setInterval: (() => 1) as unknown as typeof setInterval,
+      clearInterval: (() => {}) as unknown as typeof clearInterval
+    });
+
+    await coordinator.trigger();
+    expect(loadCachedOverviewAnalysis).toHaveBeenCalledTimes(1);
+    expect(resolveProvider).not.toHaveBeenCalled();
+    expect(runOverviewAnalysis).not.toHaveBeenCalled();
+    expect(coordinator.getPhase()).toBe("ready");
+    expect(coordinator.getSnapshot().analysis).toEqual(SAMPLE_ANALYSIS);
+  });
+
+  it("关闭自动生成且无缓存时停在 idle；手动触发才调用 AI", async () => {
+    const clip = seedClip();
+    const runOverviewAnalysis = vi.fn(async (_args?: RunArgs) => SAMPLE_ANALYSIS);
+    const loadCachedOverviewAnalysis = vi.fn(async () => null);
+    const resolveProvider = vi.fn(async () => PROVIDER);
+    const coordinator = createOverviewCoordinator({
+      getClip: () => clip,
+      getOverviewConfig: () => ({
+        autoGenerate: false,
+        sections: { summary: true, chapters: false, quotes: true }
+      }),
+      isReadingViewOpen: () => false,
+      resolveProvider,
+      loadAnalysis: async () =>
+        ({
+          runOverviewAnalysis,
+          loadCachedOverviewAnalysis
+        }) as unknown as typeof import("../../extension/ai/analysis.js"),
+      confirm: async () => true,
+      registerUiActions: () => {},
+      now: () => 0,
+      setInterval: (() => 1) as unknown as typeof setInterval,
+      clearInterval: (() => {}) as unknown as typeof clearInterval
+    });
+
+    await coordinator.trigger();
+    expect(coordinator.getPhase()).toBe("idle");
+    expect(runOverviewAnalysis).not.toHaveBeenCalled();
+
+    await coordinator.trigger({ manual: true });
+    expect(runOverviewAnalysis).toHaveBeenCalledTimes(1);
+    expect(runOverviewAnalysis.mock.calls[0]?.[0]?.sections).toEqual({
+      summary: true,
+      chapters: false,
+      quotes: true
+    });
+    expect(coordinator.getPhase()).toBe("ready");
+  });
+
+  it("全部 AI 概览模块关闭时，即使触发也不调用 AI", async () => {
+    const clip = seedClip();
+    const runOverviewAnalysis = vi.fn();
+    const resolveProvider = vi.fn(async () => PROVIDER);
+    const coordinator = createOverviewCoordinator({
+      getClip: () => clip,
+      getOverviewConfig: () => ({
+        autoGenerate: true,
+        sections: { summary: false, chapters: false, quotes: false }
+      }),
+      isReadingViewOpen: () => false,
+      resolveProvider,
+      loadAnalysis: async () =>
+        ({
+          runOverviewAnalysis,
+          loadCachedOverviewAnalysis: async () => null
+        }) as unknown as typeof import("../../extension/ai/analysis.js"),
+      confirm: async () => true,
+      registerUiActions: () => {},
+      now: () => 0,
+      setInterval: (() => 1) as unknown as typeof setInterval,
+      clearInterval: (() => {}) as unknown as typeof clearInterval
+    });
+
+    await coordinator.trigger();
+    await coordinator.trigger({ manual: true });
+    expect(resolveProvider).not.toHaveBeenCalled();
+    expect(runOverviewAnalysis).not.toHaveBeenCalled();
+    expect(coordinator.getPhase()).toBe("idle");
   });
 });

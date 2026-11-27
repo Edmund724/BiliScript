@@ -33,7 +33,7 @@ const SUBPAGE_CASES = [
   { entryId: "openLiveSettingsBtn", subpageId: "biliscriptSettingsSubpageLive", title: "实时伴看" },
   { entryId: "openAsrSettingsBtn", subpageId: "biliscriptSettingsSubpageAsr", title: "语音转写" },
   { entryId: "openSearchSettingsBtn", subpageId: "biliscriptSettingsSubpageSearch", title: "联网搜索" },
-  { entryId: "openAiPromptBtn", subpageId: "biliscriptSettingsSubpageAiPrompt", title: "AI 对话与快捷动作" },
+  { entryId: "openAiPromptBtn", subpageId: "biliscriptSettingsSubpageAiPrompt", title: "AI 概览与对话" },
   { entryId: "openSubtitleSettingsBtn", subpageId: "biliscriptSettingsSubpageSubtitle", title: "字幕翻译与导出" },
   { entryId: "openNotesSettingsBtn", subpageId: "biliscriptSettingsSubpageNotes", title: "视频笔记" },
   { entryId: "openAppearanceBtn", subpageId: "biliscriptSettingsSubpageAppearance", title: "阅读器与播放器" },

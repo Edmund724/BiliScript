@@ -180,7 +180,11 @@ const SETTINGS_SCHEMA_SPECS: { readonly [K in KnownSettingKey]: SettingSchemaTup
   noteCustomPrompt: [normalizeNoteCustomPrompt, true],
   noteExportTarget: [normalizeNoteExportTarget, true],
   noteDownloadSubdir: [normalizeNoteDownloadSubdir, true],
-  noteIncludeKeyframes: [normalizeNoteIncludeKeyframes, true]
+  noteIncludeKeyframes: [normalizeNoteIncludeKeyframes, true],
+  autoGenerateOverview: [booleanField(true), true],
+  overviewAiSummary: [booleanField(true), true],
+  overviewAiChapters: [booleanField(true), true],
+  overviewAiQuotes: [booleanField(true), true]
 };
 
 export const SETTINGS_SCHEMA: {
@@ -253,7 +257,11 @@ export type DefaultPreferenceKey =
   | "noteCustomPrompt"
   | "noteExportTarget"
   | "noteDownloadSubdir"
-  | "noteIncludeKeyframes";
+  | "noteIncludeKeyframes"
+  | "autoGenerateOverview"
+  | "overviewAiSummary"
+  | "overviewAiChapters"
+  | "overviewAiQuotes";
 
 export type DefaultPreferencePatch = Pick<KnownSettings, DefaultPreferenceKey>;
 

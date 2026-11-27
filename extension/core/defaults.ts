@@ -85,6 +85,10 @@ export interface KnownSettings {
   noteExportTarget: NoteExportTarget;
   noteDownloadSubdir: string;
   noteIncludeKeyframes: boolean;
+  autoGenerateOverview: boolean;
+  overviewAiSummary: boolean;
+  overviewAiChapters: boolean;
+  overviewAiQuotes: boolean;
 }
 
 export interface Settings extends KnownSettings {
@@ -161,5 +165,9 @@ export const DEFAULT_SETTINGS: Settings = {
   noteCustomPrompt: "",
   noteExportTarget: "download",
   noteDownloadSubdir: "",
-  noteIncludeKeyframes: false
+  noteIncludeKeyframes: false,
+  autoGenerateOverview: true,
+  overviewAiSummary: true,
+  overviewAiChapters: true,
+  overviewAiQuotes: true
 };
