@@ -1935,7 +1935,7 @@
   bottom: calc(100% + 10px);
   z-index: 30;
   box-sizing: border-box;
-  min-width: 184px;
+  width: max-content;
   max-width: min(240px, calc(100vw - 32px));
   padding: 8px;
   border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
@@ -2213,26 +2213,24 @@
 .biliscript-reading-chat .chat-web-search-pill::after {
   content: "";
   flex: 0 0 auto;
+  min-width: 14px;
+  margin-left: 4px;
+  text-align: center;
   font-size: var(--biliscript-font-size-sm);
   line-height: 1;
 }
 
 .biliscript-reading-chat .chat-web-search-pill[aria-pressed="true"]::after {
   content: "✓";
+  color: var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-web-search-pill:hover {
   background: var(--select-option-hover-bg, var(--biliscript-reader-surface-2));
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-active {
-  background: var(--select-option-selected-bg, var(--biliscript-reader-accent-soft));
-  color: var(--select-option-selected-text, var(--biliscript-reader-accent));
-  font-weight: 600;
-}
-
 .biliscript-reading-chat .chat-web-search-pill.is-active svg {
-  color: currentColor;
+  color: var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian-c {
