@@ -346,7 +346,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
     if (!current) return;
     const view: SettingsSubpageId =
-      target === "appearance" ? "ai-prompt" : target === "note-export" ? "notes" : "live";
+      target === "appearance" ? "appearance" : target === "note-export" ? "notes" : "live";
     navigateView(current.host, current.elements, view, { focusOnEnter: false, animate: false });
     const sectionHeading = target === "appearance"
       ? current.elements.chatPreferencesHeading

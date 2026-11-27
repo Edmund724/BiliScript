@@ -927,15 +927,6 @@
   max-width: 196px;
 }
 
-#biliscript-reading-view .biliscript-set-row.is-disabled {
-  opacity: 0.56;
-}
-
-#biliscript-reading-view .biliscript-note-export-actions {
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden] {

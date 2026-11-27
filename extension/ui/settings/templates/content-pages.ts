@@ -1,7 +1,6 @@
 import { NOTE_PROMPT_PRESET_OPTIONS } from "../../../notes/note-prompts.js";
 import { NOTE_TEMPLATE_VARIABLES_HELP } from "../../../notes/template-defaults.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../dom-ids.js";
-import { buildSettingsChatDisplayRowHtml } from "./shell-and-root.js";
 
 export function buildContentPagesHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
@@ -49,33 +48,6 @@ export function buildContentPagesHtml(): string {
             class="biliscript-set-textarea"
             placeholder="例如：整理这期视频的内容，输出结构化总结。"
           ></textarea>
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">生成完成后自动导出笔记</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.playerAiAutoExportNote}" type="checkbox" class="biliscript-toggle-input" aria-label="生成完成后自动导出笔记" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="biliscript-set-group" data-settings-section="chat-reading" data-settings-subgroup="chat" aria-labelledby="${ids.chatPreferencesHeading}">
-        <div class="biliscript-set-header-row">
-          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-h">阅读与朗读</div>
-        </div>
-        <div class="biliscript-set-card">${buildSettingsChatDisplayRowHtml("chatLineHeight", {
-          inputId: ids.chatLineHeight,
-          valueId: ids.chatLineHeightValue,
-          resetBtnId: ids.chatLineHeightResetBtn
-        })}${buildSettingsChatDisplayRowHtml("chatParagraphSpacing", {
-          inputId: ids.chatParagraphSpacing,
-          valueId: ids.chatParagraphSpacingValue,
-          resetBtnId: ids.chatParagraphSpacingResetBtn
-        })}${buildSettingsChatDisplayRowHtml("speechVoiceVolume", {
-          inputId: ids.speechVoiceVolume,
-          valueId: ids.speechVoiceVolumeValue,
-          resetBtnId: ids.speechVoiceVolumeResetBtn
-        })}
         </div>
       </section>
     </div>
@@ -182,9 +154,49 @@ export function buildContentPagesHtml(): string {
     </div>
 
     <div id="${ids.subpageNotes}" class="biliscript-settings-view" hidden>
+      <section class="biliscript-set-group" data-settings-section="note-generation">
+        <div class="biliscript-set-h">笔记生成</div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.notePromptPreset}">视频笔记预设</label>
+            <select id="${ids.notePromptPreset}" class="biliscript-set-select">
+              ${NOTE_PROMPT_PRESET_OPTIONS.map(
+                (option) => `<option value="${option.value}">${option.label}</option>`
+              ).join("")}
+            </select>
+          </div>
+
+          <div class="biliscript-set-row biliscript-set-row-stack" hidden>
+            <label class="biliscript-set-label" for="${ids.noteCustomPrompt}">自定义笔记提示词</label>
+            <textarea
+              id="${ids.noteCustomPrompt}"
+              class="biliscript-set-textarea biliscript-note-custom-prompt-textarea"
+              rows="4"
+              placeholder="输入自定义视频笔记生成要求…"
+            ></textarea>
+          </div>
+
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">生成完成后自动导出笔记</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.playerAiAutoExportNote}" type="checkbox" class="biliscript-toggle-input" aria-label="生成完成后自动导出笔记" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">导出笔记内嵌关键画面截图</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.noteIncludeKeyframes}" type="checkbox" class="biliscript-toggle-input" aria-label="导出笔记内嵌关键画面截图" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
       <section class="biliscript-set-group" data-settings-section="note-export">
         <div class="biliscript-set-header-row">
-          <div class="biliscript-set-h">笔记模板与导出</div>
+          <div class="biliscript-set-h">模板与导出</div>
           <button id="${ids.noteExportResetTemplateBtn}" class="add-property-btn" type="button">恢复默认模板</button>
         </div>
         <div class="biliscript-set-card">
@@ -207,31 +219,26 @@ export function buildContentPagesHtml(): string {
             />
           </div>
 
-          <div class="biliscript-set-row">
-            <label class="biliscript-set-label" for="${ids.notePromptPreset}">视频笔记预设</label>
-            <select id="${ids.notePromptPreset}" class="biliscript-set-select">
-              ${NOTE_PROMPT_PRESET_OPTIONS.map(
-                (option) => `<option value="${option.value}">${option.label}</option>`
-              ).join("")}
-            </select>
+          <div class="biliscript-set-row" hidden>
+            <label class="biliscript-set-label" for="${ids.obsidianVaultName}">Obsidian Vault</label>
+            <input
+              id="${ids.obsidianVaultName}"
+              class="biliscript-set-input biliscript-note-obsidian-input"
+              type="text"
+              spellcheck="false"
+              placeholder="留空写入默认库"
+            />
           </div>
 
-          <div class="biliscript-set-row biliscript-set-row-stack" hidden>
-            <label class="biliscript-set-label" for="${ids.noteCustomPrompt}">自定义笔记提示词</label>
-            <textarea
-              id="${ids.noteCustomPrompt}"
-              class="biliscript-set-textarea biliscript-note-custom-prompt-textarea"
-              rows="4"
-              placeholder="输入自定义视频笔记生成要求…"
-            ></textarea>
-          </div>
-
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">导出笔记内嵌关键画面截图</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.noteIncludeKeyframes}" type="checkbox" class="biliscript-toggle-input" aria-label="导出笔记内嵌关键画面截图" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
+          <div class="biliscript-set-row" hidden>
+            <label class="biliscript-set-label" for="${ids.obsidianFolder}">Obsidian 文件夹</label>
+            <input
+              id="${ids.obsidianFolder}"
+              class="biliscript-set-input biliscript-note-obsidian-input"
+              type="text"
+              spellcheck="false"
+              placeholder="例如：Clippings/Bilibili"
+            />
           </div>
 
           <div class="biliscript-set-row biliscript-set-row-stack">
@@ -248,33 +255,6 @@ export function buildContentPagesHtml(): string {
                 .map((token) => `<code>${token}</code>`)
                 .join(" ")}
             </div>
-          </div>
-
-          <div class="biliscript-set-row">
-            <label class="biliscript-set-label" for="${ids.obsidianVaultName}">Obsidian Vault</label>
-            <input
-              id="${ids.obsidianVaultName}"
-              class="biliscript-set-input biliscript-note-obsidian-input"
-              type="text"
-              spellcheck="false"
-              placeholder="留空写入默认库"
-            />
-          </div>
-
-          <div class="biliscript-set-row">
-            <label class="biliscript-set-label" for="${ids.obsidianFolder}">Obsidian 文件夹</label>
-            <input
-              id="${ids.obsidianFolder}"
-              class="biliscript-set-input biliscript-note-obsidian-input"
-              type="text"
-              spellcheck="false"
-              placeholder="例如：Clippings/Bilibili"
-            />
-          </div>
-
-          <div class="biliscript-set-row biliscript-note-export-actions">
-            <button id="${ids.noteExportCopyBtn}" class="biliscript-reading-mini-btn" type="button">复制当前笔记</button>
-            <button id="${ids.noteExportObsidianBtn}" class="biliscript-reading-mini-btn is-primary" type="button">写入 Obsidian</button>
           </div>
         </div>
       </section>

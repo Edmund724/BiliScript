@@ -13,6 +13,10 @@ export function buildProvidersPagesHtml(): string {
           <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
         </div>
+      </section>
+
+      <section class="biliscript-set-group" data-settings-section="llm-preferences">
+        <div class="biliscript-set-h">默认模型与用量</div>
         <div class="biliscript-set-card">
           <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.aiDefaultModel}">概览与解释模型</label>
@@ -40,18 +44,11 @@ export function buildProvidersPagesHtml(): string {
         <div class="biliscript-set-card biliscript-provider-group">
           <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">低带宽画面采集</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.liveLowBandwidth}" type="checkbox" class="biliscript-toggle-input" aria-label="低带宽画面采集" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
         </div>
       </section>
 
       <section class="biliscript-set-group" data-settings-section="live-audio">
-        <div class="biliscript-set-h">伴看语音与混音</div>
+        <div class="biliscript-set-h">伴看语音与画面</div>
         <div class="biliscript-set-card">
           <div class="biliscript-set-row biliscript-slider-row">
             <label class="biliscript-set-label" for="${ids.liveVoiceVolume}">伴看音量</label>
@@ -83,6 +80,13 @@ export function buildProvidersPagesHtml(): string {
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">低带宽画面采集</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.liveLowBandwidth}" type="checkbox" class="biliscript-toggle-input" aria-label="低带宽画面采集" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
         </div>
         <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
       </section>
@@ -97,6 +101,12 @@ export function buildProvidersPagesHtml(): string {
         <div class="biliscript-set-card biliscript-provider-group">
           <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+        </div>
+      </section>
+
+      <section class="biliscript-set-group" data-settings-section="asr-preferences">
+        <div class="biliscript-set-h">转写策略</div>
+        <div class="biliscript-set-card">
           <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
             <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
             <label class="biliscript-toggle-switch">
@@ -122,7 +132,12 @@ export function buildProvidersPagesHtml(): string {
           <div class="search-chain-footer-bar">
             <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
           </div>
+        </div>
+      </section>
 
+      <section class="biliscript-set-group" data-settings-section="search-preferences">
+        <div class="biliscript-set-h">搜索策略</div>
+        <div class="biliscript-set-card">
           <div class="biliscript-set-check biliscript-toggle-row">
             <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
             <label class="biliscript-toggle-switch">

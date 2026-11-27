@@ -166,11 +166,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     const actionMode = normalizePlayerAiActionMode(form.playerAiActionMode);
     promptParts.push(actionMode === "note" ? "播放器快捷·笔记" : "播放器快捷开");
   }
-  if (form.playerAiAutoExportNote) promptParts.push("自动导出");
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);
-  if (speechVolumeAvailable) {
-    promptParts.push(`朗读 ${CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(form.speechVoiceVolume)}%`);
-  }
   const aiPrompt = promptParts.length > 0 ? promptParts.join(" · ") : "默认";
 
   const normalizedFormat = normalizeDownloadFormat(form.downloadFormat);
@@ -188,6 +184,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   const notesParts = [
     notePresetLabel,
     noteTargetLabel,
+    form.playerAiAutoExportNote ? "自动导出" : "",
     form.noteIncludeKeyframes ? "含截图" : ""
   ].filter(Boolean);
   const notesSettings = notesParts.join(" · ");
@@ -195,7 +192,16 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随当前站点";
   const paletteLabel = normalizeReaderPalette(form.readerPalette) === "editorial" ? "数字刊物" : "蓝雾玻璃";
   const fontScale = normalizeReaderFontSizeScale(form.readerFontSizeScale);
-  const appearanceSettings = `${themeLabel} · ${paletteLabel} · ${fontScale}%`;
+  const speechVolume = CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(form.speechVoiceVolume);
+  const appearanceParts = [
+    themeLabel,
+    paletteLabel,
+    `${fontScale}%`,
+    speechVolumeAvailable && speechVolume !== CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.defaultValue
+      ? `朗读 ${speechVolume}%`
+      : ""
+  ].filter(Boolean);
+  const appearanceSettings = appearanceParts.join(" · ");
 
   let agentSettings: string;
   if (agentBridgeState?.connected) {

@@ -60,19 +60,43 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
       "request-optional-permission": () => ({ ok: true })
     });
 
+    const quickActionToggle = host.querySelector<HTMLInputElement>("#enablePlayerAiQuickAction")!;
     const actionMode = host.querySelector<HTMLSelectElement>("#playerAiActionMode")!;
+    const actionModeRow = actionMode.closest<HTMLElement>(".biliscript-set-row")!;
     const quickPrompt = host.querySelector<HTMLTextAreaElement>("#playerAiQuickPrompt")!;
     const autoExport = host.querySelector<HTMLInputElement>("#playerAiAutoExportNote")!;
     const exportTarget = host.querySelector<HTMLSelectElement>("#noteExportTarget")!;
     const subdir = host.querySelector<HTMLInputElement>("#noteDownloadSubdir")!;
+    const subdirRow = subdir.closest<HTMLElement>(".biliscript-set-row")!;
+    const obsidianVault = host.querySelector<HTMLInputElement>("#obsidianVaultName")!;
+    const obsidianVaultRow = obsidianVault.closest<HTMLElement>(".biliscript-set-row")!;
+    const obsidianFolder = host.querySelector<HTMLInputElement>("#obsidianFolder")!;
+    const obsidianFolderRow = obsidianFolder.closest<HTMLElement>(".biliscript-set-row")!;
     const preset = host.querySelector<HTMLSelectElement>("#notePromptPreset")!;
     const customPrompt = host.querySelector<HTMLTextAreaElement>("#noteCustomPrompt")!;
     const customPromptRow = customPrompt.closest<HTMLElement>(".biliscript-set-row")!;
     const keyframes = host.querySelector<HTMLInputElement>("#noteIncludeKeyframes")!;
 
+    expect(host.querySelector("#noteExportCopyBtn")).toBeNull();
+    expect(host.querySelector("#noteExportObsidianBtn")).toBeNull();
+    expect(actionModeRow.hidden).toBe(false);
+    expect(actionMode.disabled).toBe(false);
     expect(quickPrompt.hidden).toBe(false);
     expect(customPromptRow.hidden).toBe(true);
     expect(subdir.disabled).toBe(false);
+    expect(subdirRow.hidden).toBe(false);
+    expect(obsidianVault.disabled).toBe(true);
+    expect(obsidianVaultRow.hidden).toBe(true);
+    expect(obsidianFolder.disabled).toBe(true);
+    expect(obsidianFolderRow.hidden).toBe(true);
+
+    quickActionToggle.click();
+    expect(actionModeRow.hidden).toBe(true);
+    expect(actionMode.disabled).toBe(true);
+    expect(quickPrompt.hidden).toBe(true);
+    quickActionToggle.click();
+    expect(actionModeRow.hidden).toBe(false);
+    expect(actionMode.disabled).toBe(false);
 
     actionMode.value = "note";
     actionMode.dispatchEvent(new Event("change", { bubbles: true }));
@@ -81,7 +105,8 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
 
     autoExport.click();
     await flushMicrotasks();
-    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("自动导出");
+    expect(host.querySelector("#notesSettingsSummary")?.textContent).toContain("自动导出");
+    expect(host.querySelector("#aiPromptSummary")?.textContent).not.toContain("自动导出");
 
     preset.value = "custom";
     preset.dispatchEvent(new Event("change", { bubbles: true }));
@@ -95,7 +120,12 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     exportTarget.value = "obsidian";
     exportTarget.dispatchEvent(new Event("change", { bubbles: true }));
     expect(subdir.disabled).toBe(true);
-    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("自定义 · Obsidian · 含截图");
+    expect(subdirRow.hidden).toBe(true);
+    expect(obsidianVault.disabled).toBe(false);
+    expect(obsidianVaultRow.hidden).toBe(false);
+    expect(obsidianFolder.disabled).toBe(false);
+    expect(obsidianFolderRow.hidden).toBe(false);
+    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("自定义 · Obsidian · 自动导出 · 含截图");
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).not.toContain("Obsidian");
 
     await flushMicrotasks();

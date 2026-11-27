@@ -97,8 +97,6 @@ export function collectElements(host: HTMLElement) {
     noteIncludeKeyframes: byIdIn<HTMLInputElement>(dom.noteIncludeKeyframes),
     obsidianVaultName: byIdIn<HTMLInputElement>(dom.obsidianVaultName),
     obsidianFolder: byIdIn<HTMLInputElement>(dom.obsidianFolder),
-    noteExportCopyBtn: byIdIn<HTMLButtonElement>(dom.noteExportCopyBtn),
-    noteExportObsidianBtn: byIdIn<HTMLButtonElement>(dom.noteExportObsidianBtn),
     readerTheme: byIdIn<HTMLSelectElement>(dom.readerTheme),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),

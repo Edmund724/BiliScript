@@ -498,12 +498,12 @@ describe("主题：只剩明暗一轴", () => {
     await vi.waitFor(() => {
       expect(host.dataset.biliscriptSettingsRendered).toBe("1");
     });
-    const aiPromptSubpage = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAiPrompt")!;
+    const appearanceSubpage = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAppearance")!;
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     const heading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
     const subgroup = heading.closest("[data-settings-subgroup]")!;
-    expect(aiPromptSubpage.hidden).toBe(false);
-    expect(title.textContent?.trim()).toBe("AI 对话与快捷动作");
+    expect(appearanceSubpage.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("阅读器与播放器");
     expect(subgroup.getAttribute("data-settings-subgroup")).toBe("chat");
     expect(scrollSpy.mock.instances).toContain(subgroup);
     expect(document.activeElement).toBe(heading);

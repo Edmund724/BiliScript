@@ -1,7 +1,7 @@
 import { READING_RESET_ICON } from "../../reading-icons.js";
 import { renderUiIcon } from "../../icon-registry.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../dom-ids.js";
-import { CHEVRON_RIGHT_SVG } from "./shell-and-root.js";
+import { buildSettingsChatDisplayRowHtml, CHEVRON_RIGHT_SVG } from "./shell-and-root.js";
 
 export function buildSystemPagesHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
@@ -68,6 +68,26 @@ export function buildSystemPagesHtml(): string {
               <option value="popup">普通窗口</option>
             </select>
           </div>
+        </div>
+      </section>
+
+      <section class="biliscript-set-group" data-settings-section="chat-reading" data-settings-subgroup="chat" aria-labelledby="${ids.chatPreferencesHeading}">
+        <div class="biliscript-set-header-row">
+          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-h">阅读与朗读</div>
+        </div>
+        <div class="biliscript-set-card">${buildSettingsChatDisplayRowHtml("chatLineHeight", {
+          inputId: ids.chatLineHeight,
+          valueId: ids.chatLineHeightValue,
+          resetBtnId: ids.chatLineHeightResetBtn
+        })}${buildSettingsChatDisplayRowHtml("chatParagraphSpacing", {
+          inputId: ids.chatParagraphSpacing,
+          valueId: ids.chatParagraphSpacingValue,
+          resetBtnId: ids.chatParagraphSpacingResetBtn
+        })}${buildSettingsChatDisplayRowHtml("speechVoiceVolume", {
+          inputId: ids.speechVoiceVolume,
+          valueId: ids.speechVoiceVolumeValue,
+          resetBtnId: ids.speechVoiceVolumeResetBtn
+        })}
         </div>
       </section>
 

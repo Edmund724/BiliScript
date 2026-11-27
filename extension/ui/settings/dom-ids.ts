@@ -113,8 +113,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   noteIncludeKeyframes: "noteIncludeKeyframes",
   obsidianVaultName: "obsidianVaultName",
   obsidianFolder: "obsidianFolder",
-  noteExportCopyBtn: "noteExportCopyBtn",
-  noteExportObsidianBtn: "noteExportObsidianBtn",
   enableDebugLogs: "enableDebugLogs",
   enableAgentBridge: "enableAgentBridge",
   agentBridgeConnectBtn: "agentBridgeConnectBtn",

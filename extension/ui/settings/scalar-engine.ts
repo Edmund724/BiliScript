@@ -4,7 +4,6 @@ import { resetDetachedWindowBounds } from "../../core/detached-bounds-store.js";
 import { buildDefaultPreferencePatch, normalizeSettingField } from "../../core/settings-store.js";
 import { state } from "../../core/state.js";
 import { applyLiveAudioSettings } from "../../live/live-audio-settings.js";
-import { copyCurrentVideoNote, openCurrentVideoInObsidian } from "../../notes/export-actions.js";
 import { DEFAULT_NOTE_TEMPLATE } from "../../notes/template-defaults.js";
 import {
   CHAT_DISPLAY_SETTING_KEYS,
@@ -346,37 +345,6 @@ function bindScalarSectionActions(
     elements.noteExportTemplate.value = DEFAULT_NOTE_TEMPLATE;
     state.patchSettings({ noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
     void saveSettingField(elements, { noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
-  });
-  elements.noteExportCopyBtn.addEventListener("click", () => {
-    void (async () => {
-      const normalizedTemplate = normalizeSettingField("noteExportTemplate", elements.noteExportTemplate.value);
-      state.patchSettings({ noteExportTemplate: normalizedTemplate });
-      const ok = await copyCurrentVideoNote();
-      setStatus(elements, ok ? "已复制当前视频笔记" : "复制失败：请检查剪贴板权限或内容", !ok);
-    })();
-  });
-  elements.noteExportObsidianBtn.addEventListener("click", () => {
-    void (async () => {
-      const normalizedTemplate = normalizeSettingField("noteExportTemplate", elements.noteExportTemplate.value);
-      const vault = normalizeSettingField("obsidianVaultName", elements.obsidianVaultName.value);
-      const folder = normalizeSettingField("obsidianFolder", elements.obsidianFolder.value);
-      state.patchSettings({
-        noteExportTemplate: normalizedTemplate,
-        obsidianVaultName: vault,
-        obsidianFolder: folder
-      });
-      const result = await openCurrentVideoInObsidian();
-      if (!result.ok) {
-        setStatus(elements, result.error || "写入 Obsidian 失败", true);
-        return;
-      }
-      setStatus(
-        elements,
-        result.usedClipboardFallback
-          ? "笔记较长，已复制并唤起 Obsidian 粘贴写入"
-          : "已唤起 Obsidian 写入笔记"
-      );
-    })();
   });
   elements.openOnboardingBtn.addEventListener("click", () => {
     void sendRuntimeMessage({ type: "open-onboarding" }).then((resp) => {

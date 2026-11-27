@@ -97,12 +97,6 @@ export function buildSettingsRootViewHtml(): string {
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
-        </div>
-      </section>
-
-      <section class="biliscript-set-group" data-settings-root-card="appearance">
-        <div class="biliscript-set-h">外观与交互</div>
-        <div class="biliscript-set-card">
           <button id="${ids.openAppearanceBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">阅读器与播放器</span>
             <span class="biliscript-entry-summary">

@@ -469,6 +469,11 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
 export function syncPlayerQuickPromptVisibility(elements: SettingsElements): void {
   const enabled = elements.enablePlayerAiQuickAction.checked;
   const mode = normalizeSettingField("playerAiActionMode", elements.playerAiActionMode.value);
+  const modeRow = elements.playerAiActionMode.closest<HTMLElement>(".biliscript-set-row");
+  if (modeRow) {
+    modeRow.hidden = !enabled;
+  }
+  elements.playerAiActionMode.disabled = !enabled;
   elements.playerAiQuickPrompt.hidden = !enabled || mode === "note";
 }
 
@@ -484,10 +489,19 @@ export function syncNoteCustomPromptVisibility(elements: SettingsElements): void
 export function syncNoteExportTargetAvailability(elements: SettingsElements): void {
   const isDownload = normalizeSettingField("noteExportTarget", elements.noteExportTarget.value) === "download";
   elements.noteDownloadSubdir.disabled = !isDownload;
-  const row = elements.noteDownloadSubdir.closest<HTMLElement>(".biliscript-set-row");
-  row?.classList.toggle("is-disabled", !isDownload);
-  if (row) {
-    row.title = isDownload ? "" : "仅在导出目标为「下载本地 .md」时生效";
+  const subdirRow = elements.noteDownloadSubdir.closest<HTMLElement>(".biliscript-set-row");
+  if (subdirRow) {
+    subdirRow.hidden = !isDownload;
+  }
+  elements.obsidianVaultName.disabled = isDownload;
+  const vaultRow = elements.obsidianVaultName.closest<HTMLElement>(".biliscript-set-row");
+  if (vaultRow) {
+    vaultRow.hidden = isDownload;
+  }
+  elements.obsidianFolder.disabled = isDownload;
+  const folderRow = elements.obsidianFolder.closest<HTMLElement>(".biliscript-set-row");
+  if (folderRow) {
+    folderRow.hidden = isDownload;
   }
 }
 

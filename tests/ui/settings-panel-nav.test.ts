@@ -42,7 +42,7 @@ const SUBPAGE_CASES = [
 ] as const;
 
 describe("设置抽屉三级总览与子页导航", () => {
-  it("首次渲染默认停在设置总览，4 张总览卡片与 10 个子页入口完整且子页隐藏", async () => {
+  it("首次渲染默认停在设置总览，3 张总览卡片与 10 个子页入口完整且子页隐藏", async () => {
     const host = await mountPanel();
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
@@ -50,7 +50,7 @@ describe("设置抽屉三级总览与子页导航", () => {
 
     expect(title.textContent?.trim()).toBe("设置");
     expect(rootView.hidden).toBe(false);
-    expect(rootView.querySelectorAll("[data-settings-root-card]")).toHaveLength(4);
+    expect(rootView.querySelectorAll("[data-settings-root-card]")).toHaveLength(3);
     expect(rootView.querySelectorAll(".biliscript-entry-row")).toHaveLength(10);
     expect(resetBtn.hidden).toBe(false);
     expect(host.querySelector("#agentBridgeAddressView")?.hasAttribute("hidden")).toBe(true);
@@ -145,7 +145,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     });
   });
 
-  it("伴看语音与混音在实时伴看子页内直接平铺展示，无折叠触发器", async () => {
+  it("伴看语音与画面在实时伴看子页内直接平铺展示，无折叠触发器", async () => {
     const host = await mountPanel();
     host.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!.click();
 
@@ -155,8 +155,8 @@ describe("设置抽屉三级总览与子页导航", () => {
 
     const audioSection = host.querySelector<HTMLElement>('[data-settings-section="live-audio"]')!;
     expect(audioSection).not.toBeNull();
-    expect(audioSection.querySelector(".biliscript-set-h")?.textContent?.trim()).toBe("伴看语音与混音");
-    for (const id of ["liveVoiceVolume", "liveVoiceSpeed", "liveShareVideoAudio", "liveVoicePriority"]) {
+    expect(audioSection.querySelector(".biliscript-set-h")?.textContent?.trim()).toBe("伴看语音与画面");
+    for (const id of ["liveVoiceVolume", "liveVoiceSpeed", "liveShareVideoAudio", "liveVoicePriority", "liveLowBandwidth"]) {
       const el = audioSection.querySelector<HTMLElement>(`#${id}`)!;
       expect(el).not.toBeNull();
       expect(el.closest("[hidden]")).toBeNull();
@@ -284,7 +284,7 @@ describe("设置抽屉三级总览与子页导航", () => {
   it("openAppearanceSettings 与 openNoteExportSettings 复用已挂载元素定位到对应子页与分区标题", async () => {
     const host = await mountPanel();
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
-    const aiPromptView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAiPrompt")!;
+    const appearanceView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAppearance")!;
     const subtitleView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageSubtitle")!;
     const notesView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageNotes")!;
     const chatHeading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
@@ -293,14 +293,14 @@ describe("设置抽屉三级总览与子页导航", () => {
     )!;
 
     await openAppearanceSettings();
-    expect(aiPromptView.hidden).toBe(false);
-    expect(title.textContent?.trim()).toBe("AI 对话与快捷动作");
+    expect(appearanceView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("阅读器与播放器");
     expect(document.activeElement).toBe(chatHeading);
 
     await openNoteExportSettings();
     expect(notesView.hidden).toBe(false);
     expect(subtitleView.hidden).toBe(true);
-    expect(aiPromptView.hidden).toBe(true);
+    expect(appearanceView.hidden).toBe(true);
     expect(title.textContent?.trim()).toBe("视频笔记");
     expect(document.activeElement).toBe(noteExportHeading);
   });

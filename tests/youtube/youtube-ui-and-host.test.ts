@@ -494,7 +494,7 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     requestUiCommand("open-settings", { target: "appearance" });
     await vi.waitFor(() => {
       expect(settingsPanelEl.hidden).toBe(false);
-      expect(document.getElementById("biliscriptSettingsSubpageAiPrompt")!.hidden).toBe(false);
+      expect(document.getElementById("biliscriptSettingsSubpageAppearance")!.hidden).toBe(false);
     });
     await ensureReaderDomain();
 

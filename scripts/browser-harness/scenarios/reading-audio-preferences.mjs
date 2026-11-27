@@ -212,8 +212,8 @@ await withBrowser({ muted: true }, async (ctx) => {
       panelBottom: panelRect.bottom,
       visible: rect.top >= panelRect.top && rect.top >= navRect.bottom && rect.bottom <= panelRect.bottom,
       subpageOpen:
-        document.getElementById('biliscriptSettingsSubpageAiPrompt')?.hidden === false &&
-        document.getElementById('biliscriptSettingsTitle')?.textContent?.trim() === 'AI 对话与快捷动作'
+        document.getElementById('biliscriptSettingsSubpageAppearance')?.hidden === false &&
+        document.getElementById('biliscriptSettingsTitle')?.textContent?.trim() === '阅读器与播放器'
     };
   })()`);
   check("R1-appearance-deep-link-scrolls-without-sticky-occlusion",

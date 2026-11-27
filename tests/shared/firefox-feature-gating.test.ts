@@ -194,14 +194,15 @@ describe("TTS 后台防御判空与界面门控", () => {
     const ffSettingsHost = await mountSettingsPanelInScheme("moz-extension");
     expect(ffSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(true);
     expect(ffSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("对话阅读");
-    expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).not.toContain("朗读");
+    expect(ffSettingsHost.querySelector("#appearanceSettingsSummary")?.textContent).not.toContain("朗读");
 
     installSettingsPanelBus({
       "get-settings": () => ({
         ok: true,
         settings: {
           enablePlayerAiQuickAction: false,
-          aiInitialQuickPrompts: []
+          aiInitialQuickPrompts: [],
+          speechVoiceVolume: 80
         }
       }),
       "live-providers-list": () => ({ ok: true, providers: [] })
@@ -209,6 +210,7 @@ describe("TTS 后台防御判空与界面门控", () => {
     const panel = await import("../../extension/ui/settings-panel.js");
     await panel.renderReaderSettingsPanel();
     expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
+    expect(ffSettingsHost.querySelector("#appearanceSettingsSummary")?.textContent).not.toContain("朗读");
 
     vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });
     stubRuntimeScheme("moz-extension");
@@ -218,7 +220,12 @@ describe("TTS 后台防御判空与界面门控", () => {
     const ffSpeechSettingsHost = await mountSettingsPanelInScheme("moz-extension");
     expect(ffSpeechSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(false);
     expect(ffSpeechSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("阅读与朗读");
-    expect(ffSpeechSettingsHost.querySelector("#aiPromptSummary")?.textContent).toContain("朗读 100%");
+    installSettingsPanelBus({
+      "get-settings": () => ({ ok: true, settings: { speechVoiceVolume: 80 } }),
+      "live-providers-list": () => ({ ok: true, providers: [] })
+    });
+    await panel.renderReaderSettingsPanel();
+    expect(ffSpeechSettingsHost.querySelector("#appearanceSettingsSummary")?.textContent).toContain("朗读 80%");
 
     vi.stubGlobal("speechSynthesis", undefined);
     stubRuntimeScheme("chrome-extension");
@@ -228,7 +235,12 @@ describe("TTS 后台防御判空与界面门控", () => {
     const chromeSettingsHost = await mountSettingsPanelInScheme("chrome-extension");
     expect(chromeSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(false);
     expect(chromeSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("阅读与朗读");
-    expect(chromeSettingsHost.querySelector("#aiPromptSummary")?.textContent).toContain("朗读 100%");
+    installSettingsPanelBus({
+      "get-settings": () => ({ ok: true, settings: { speechVoiceVolume: 80 } }),
+      "live-providers-list": () => ({ ok: true, providers: [] })
+    });
+    await panel.renderReaderSettingsPanel();
+    expect(chromeSettingsHost.querySelector("#appearanceSettingsSummary")?.textContent).toContain("朗读 80%");
   });
 });
 
