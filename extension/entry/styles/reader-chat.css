@@ -2919,6 +2919,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   position: sticky;
   bottom: 0;
   flex-shrink: 0;
+  border-radius: var(--biliscript-radius-md);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
