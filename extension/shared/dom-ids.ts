@@ -59,6 +59,7 @@ export const ids = {
   readingChatMessages: "biliscript-reading-chat-messages",
   readingChatSuggestions: "biliscript-reading-chat-suggestions",
   readingChatScrollBottomBtn: "biliscript-reading-chat-scroll-bottom-btn",
+  readingChatNoteBar: "biliscript-reading-chat-note-bar",
   readingChatModelChip: "biliscript-reading-chat-model-chip",
   readingChatModelPanel: "biliscript-reading-chat-model-panel",
   readingChatModelList: "biliscript-reading-chat-model-list",

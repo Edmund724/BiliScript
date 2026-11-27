@@ -41,6 +41,7 @@ import { isReaderTranscribing } from "./transcribe-banner.js";
 import { createExplainIntentController } from "./explain-intent.js";
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
+import { createChatNoteBar } from "./chat-note-bar.js";
 import { createChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
@@ -106,6 +107,7 @@ const els = {
   historyBackBtn: activeById<HTMLButtonElement>(ids.readingChatHistoryBackBtn),
   messages: activeById(ids.readingChatMessages) as HTMLElement,
   scrollBottomBtn: activeById<HTMLButtonElement>(ids.readingChatScrollBottomBtn) as HTMLButtonElement,
+  noteBar: activeById(ids.readingChatNoteBar),
   input: activeById<HTMLTextAreaElement>(ids.readingChatInput) as HTMLTextAreaElement,
   imageStrip: activeById(ids.readingChatImageStrip),
   sendBtn: activeById<HTMLButtonElement>(ids.readingChatSendBtn) as HTMLButtonElement,
@@ -137,9 +139,18 @@ const suggestionsSlot = createChatSuggestionsSlot({
   id: ids.readingChatSuggestions,
   onPick: (prompt) => {
     void composer.sendViaInputBox(prompt);
-  },
+  }
+});
+
+const noteBar = createChatNoteBar({
+  host: els.noteBar,
+  hasSelectableModels: () => modelPanel.hasSelectableModels(),
   onPickVideoNote: () => {
     void runVideoNotePrompt();
+  },
+  onOpenMenu: () => {
+    popovers.hideModelPanel({ restoreFocus: false });
+    popovers.hideMoreMenu();
   }
 });
 
@@ -263,7 +274,10 @@ const chatDomain = createChatTabDomain({
     inputNotice,
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
-    removeSuggestions: () => suggestionsSlot.clear(),
+    removeSuggestions: () => {
+      suggestionsSlot.clear();
+      noteBar.refresh();
+    },
     autosizeInput: composer.autosizeInput,
     onTurnFailedRestoreDraft: ({ text, images }) => {
       if (els.input.value.trim() === "" && text) {
@@ -283,15 +297,25 @@ const chatDomain = createChatTabDomain({
     getInputImageCount: () => inputImages.count(),
     clearInputImages: () => inputImages.clear(),
     suggestions: {
-      refresh: () => suggestionsSlot.refresh(),
-      clear: () => suggestionsSlot.clear(),
-      reset: () => suggestionsSlot.reset()
+      refresh: () => {
+        suggestionsSlot.refresh();
+        noteBar.refresh();
+      },
+      clear: () => {
+        suggestionsSlot.clear();
+        noteBar.refresh();
+      },
+      reset: () => {
+        suggestionsSlot.reset();
+        noteBar.refresh();
+      }
     },
     resetScrollFollow: () => scrollFollow.reset(),
     prepareForNewConversation: () => {
       setupFlow.invalidate();
       popovers.hideHistoryPopover({ focus: "none" });
       popovers.hideModelPanel();
+      noteBar.closeMenu();
     },
     seekReadingTarget: (seconds) => seekReadingTarget(seconds)
   },
@@ -301,6 +325,7 @@ const chatDomain = createChatTabDomain({
       lists.settlePendingDeletion();
     }
     lists.renderHistoryList();
+    noteBar.refresh();
     if (change.historyCleared) {
       els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus({ preventScroll: true });
     }
@@ -547,7 +572,7 @@ function activateSessionTriggers(): void {
       state.patchSettings(patch);
     }
     if ("notePromptPreset" in patch) {
-      suggestionsSlot.refresh();
+      noteBar.refresh();
     }
     if ("noteExportTarget" in patch) {
       syncSaveNoteButtons(els.messages, patch.noteExportTarget);
@@ -579,14 +604,14 @@ function activateSessionTriggers(): void {
 
   setChatTabOutsideClickHandler((event) => {
     popovers.handleDocumentClick(event);
-    suggestionsSlot.handleOutsideClick(event);
+    noteBar.handleOutsideClick(event);
   });
   scope.track(() => setChatTabOutsideClickHandler(null));
 
   let boundWin: Window | null = getActiveReaderWindow();
   boundWin.addEventListener("keydown", onWindowEscapeKey);
   const stopHostWatch = onActiveHostChange((ctx) => {
-    suggestionsSlot.closeMenu();
+    noteBar.closeMenu();
     safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
     boundWin = ctx.win;
     boundWin.addEventListener("keydown", onWindowEscapeKey);
@@ -605,7 +630,7 @@ function deactivateSessionTriggers(): void {
 }
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
-  suggestionsSlot.handleEscapeKey(event);
+  noteBar.handleEscapeKey(event);
   popovers.handleEscapeKey(event);
 }
 
@@ -633,6 +658,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     return;
   }
   chatDomain.renderInitialState();
+  noteBar.refresh();
   initialized = true;
   if (consumeIntent) {
     await explainIntentController.consumeIfPending();
@@ -664,6 +690,7 @@ async function restoreChatSession(): Promise<void> {
     applyLiveContextToMain();
   }
   chatDomain.renderInitialState();
+  noteBar.refresh();
 }
 
 export async function ensureChatTabActivated({ consumeIntent = true }: { consumeIntent?: boolean } = {}): Promise<void> {
@@ -694,7 +721,7 @@ export function stopChatSpeech(): void {
 }
 
 export function deactivateChatTabOverlays(): void {
-  suggestionsSlot.closeMenu();
+  noteBar.closeMenu();
   popovers.hideMoreMenu();
   popovers.hideModelPanel({ restoreFocus: false });
   popovers.hideHistoryPopover({ focus: "none" });
@@ -824,14 +851,17 @@ function bindEvents(): void {
   syncMoreMenuSlidersPatch = (patch) => chatDisplaySliders.syncPatch(patch);
 
   els.moreBtn?.addEventListener("click", (event) => {
+    noteBar.closeMenu();
     syncMoreMenuSlidersFromState();
     popovers.toggleMoreMenu(event);
   });
   els.newChatBtn?.addEventListener("click", () => {
+    noteBar.closeMenu();
     popovers.hideMoreMenu();
     void chatDomain.startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
+    noteBar.closeMenu();
     chatDomain.stopSpeech();
     popovers.toggleHistoryPopover(event);
   });
@@ -848,7 +878,10 @@ function bindEvents(): void {
   if (isLiveCompanionAllowed()) {
     liveBridge.initEvents();
   }
-  els.modelChip.addEventListener("click", popovers.toggleModelPanel);
+  els.modelChip.addEventListener("click", (event) => {
+    noteBar.closeMenu();
+    popovers.toggleModelPanel(event);
+  });
   els.root.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
@@ -899,6 +932,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   const previousProviderId = String(modelPanel.getSelectedValue() || "").trim();
   await modelPanel.reload({ preferredProviderId: previousProviderId || undefined });
   lists.renderHistoryList();
+  noteBar.refresh();
   if (isConversationViewActive() || setupFlow.isViewHeld()) {
     return;
   }

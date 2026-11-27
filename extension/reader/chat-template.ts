@@ -49,6 +49,7 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
           <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
             ${READING_CHEVRON_DOWN_ICON}
           </button>
+          <div id="${ids.readingChatNoteBar}" class="chat-note-bar" hidden></div>
           <div class="chat-input-card">
             <div class="chat-subtitle-wait" role="status" aria-live="polite" hidden>
               <span class="chat-notice-spinner" aria-hidden="true"></span>
