@@ -187,10 +187,10 @@ function getLocalOutlineChapters(): AnalysisChapter[] {
 
 function buildIdleStateHtml(snapshot: ReaderOverviewSnapshot): string {
   const sections = normalizeOverviewAiSections(snapshot.sections);
-  const canManualGenerate = snapshot.aiEnabled === false || hasAnyOverviewAiSection(sections);
+  const hasAnyAi = hasAnyOverviewAiSection(sections);
   const localChapters = getLocalOutlineChapters();
 
-  if (!canManualGenerate) {
+  if (!hasAnyAi) {
     if (localChapters.length > 0) {
       const withHours = shouldShowHoursInNote(state.clip, getClipBody());
       const chapterBlocks = localChapters.map((item) => chapterCardHtml(item, withHours)).join("");
@@ -379,7 +379,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   `
     : "";
 
-  const footerHtml = snapshot.phase === "ready" && (snapshot.aiEnabled === false || hasAnyOverviewAiSection(sections))
+  const footerHtml = snapshot.phase === "ready" && hasAnyOverviewAiSection(sections)
     ? `
     <div class="biliscript-reading-ov-footer">
       <button type="button" class="biliscript-reading-ov-regen-btn" data-overview-action="refresh">

@@ -181,7 +181,6 @@ const SETTINGS_SCHEMA_SPECS: { readonly [K in KnownSettingKey]: SettingSchemaTup
   noteExportTarget: [normalizeNoteExportTarget, true],
   noteDownloadSubdir: [normalizeNoteDownloadSubdir, true],
   noteIncludeKeyframes: [normalizeNoteIncludeKeyframes, true],
-  enableAiOverview: [booleanField(true), true],
   autoGenerateOverview: [booleanField(true), true],
   overviewAiSummary: [booleanField(true), true],
   overviewAiChapters: [booleanField(true), true],
@@ -259,7 +258,6 @@ export type DefaultPreferenceKey =
   | "noteExportTarget"
   | "noteDownloadSubdir"
   | "noteIncludeKeyframes"
-  | "enableAiOverview"
   | "autoGenerateOverview"
   | "overviewAiSummary"
   | "overviewAiChapters"

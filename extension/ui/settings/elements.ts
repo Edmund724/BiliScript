@@ -127,7 +127,6 @@ export function collectElements(host: HTMLElement) {
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
     enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
-    enableAiOverview: byIdIn<HTMLInputElement>(dom.enableAiOverview),
     autoGenerateOverview: byIdIn<HTMLInputElement>(dom.autoGenerateOverview),
     overviewAiSummary: byIdIn<HTMLInputElement>(dom.overviewAiSummary),
     overviewAiChapters: byIdIn<HTMLInputElement>(dom.overviewAiChapters),

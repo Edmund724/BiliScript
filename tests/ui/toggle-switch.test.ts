@@ -9,7 +9,6 @@ const TOGGLE_IDS = [
   "asrAutoFallback",
   "enableCostGuard",
   "allowPaidSearchProviders",
-  "enableAiOverview",
   "autoGenerateOverview",
   "overviewAiSummary",
   "overviewAiChapters",
@@ -390,5 +389,24 @@ describe("设置面板集成：接线与水合", () => {
     expect(onThumb.style.transform).toBe("translateX(16px)");
     const offThumb = host.querySelector<HTMLElement>("#enableDebugLogs ~ .biliscript-toggle-track .biliscript-toggle-thumb")!;
     expect(offThumb.style.transform).toBe("none");
+
+    const autoInput = host.querySelector<HTMLInputElement>("#autoGenerateOverview")!;
+    const autoRow = autoInput.closest<HTMLElement>(".biliscript-toggle-row")!;
+    const summaryInput = host.querySelector<HTMLInputElement>("#overviewAiSummary")!;
+    const chaptersInput = host.querySelector<HTMLInputElement>("#overviewAiChapters")!;
+    const quotesInput = host.querySelector<HTMLInputElement>("#overviewAiQuotes")!;
+    expect(autoInput.disabled).toBe(false);
+
+    for (const input of [summaryInput, chaptersInput, quotesInput]) {
+      input.checked = false;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    expect(autoInput.disabled).toBe(true);
+    expect(autoRow.classList.contains("is-disabled")).toBe(true);
+
+    summaryInput.checked = true;
+    summaryInput.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(autoInput.disabled).toBe(false);
+    expect(autoRow.classList.contains("is-disabled")).toBe(false);
   });
 });
