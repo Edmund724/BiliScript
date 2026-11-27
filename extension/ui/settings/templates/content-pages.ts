@@ -179,7 +179,9 @@ export function buildContentPagesHtml(): string {
           </div>
         </div>
       </section>
+    </div>
 
+    <div id="${ids.subpageNotes}" class="biliscript-settings-view" hidden>
       <section class="biliscript-set-group" data-settings-section="note-export">
         <div class="biliscript-set-header-row">
           <div class="biliscript-set-h">笔记模板与导出</div>

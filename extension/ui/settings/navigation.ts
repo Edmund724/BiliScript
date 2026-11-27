@@ -21,6 +21,7 @@ export type SettingsSubpageId =
   | "search"
   | "ai-prompt"
   | "subtitle"
+  | "notes"
   | "appearance"
   | "agent"
   | "advanced";
@@ -37,6 +38,7 @@ const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
   search: "联网搜索",
   "ai-prompt": "AI 对话与快捷动作",
   subtitle: "字幕翻译与导出",
+  notes: "视频笔记",
   appearance: "阅读器与播放器",
   agent: "本地 Agent 连接",
   "agent-address": "连接地址",
@@ -81,6 +83,7 @@ function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLE
     case "search": return elements.subpageSearch;
     case "ai-prompt": return elements.subpageAiPrompt;
     case "subtitle": return elements.subpageSubtitle;
+    case "notes": return elements.subpageNotes;
     case "appearance": return elements.subpageAppearance;
     case "agent": return elements.subpageAgent;
     case "agent-address": return elements.agentBridgeAddressView;
@@ -96,6 +99,7 @@ function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubp
     case "search": return elements.openSearchSettingsBtn;
     case "ai-prompt": return elements.openAiPromptBtn;
     case "subtitle": return elements.openSubtitleSettingsBtn;
+    case "notes": return elements.openNotesSettingsBtn;
     case "appearance": return elements.openAppearanceBtn;
     case "agent": return elements.openAgentSettingsBtn;
     case "advanced": return elements.openAdvancedSettingsBtn;
@@ -169,6 +173,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       "search",
       "ai-prompt",
       "subtitle",
+      "notes",
       "appearance",
       "agent",
       "agent-address",
@@ -274,6 +279,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       [elements.openSearchSettingsBtn, "search"],
       [elements.openAiPromptBtn, "ai-prompt"],
       [elements.openSubtitleSettingsBtn, "subtitle"],
+      [elements.openNotesSettingsBtn, "notes"],
       [elements.openAppearanceBtn, "appearance"],
       [elements.openAgentSettingsBtn, "agent"],
       [elements.openAdvancedSettingsBtn, "advanced"]
@@ -340,7 +346,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
     if (!current) return;
     const view: SettingsSubpageId =
-      target === "appearance" ? "ai-prompt" : target === "note-export" ? "subtitle" : "live";
+      target === "appearance" ? "ai-prompt" : target === "note-export" ? "notes" : "live";
     navigateView(current.host, current.elements, view, { focusOnEnter: false, animate: false });
     const sectionHeading = target === "appearance"
       ? current.elements.chatPreferencesHeading

@@ -90,6 +90,13 @@ export function buildSettingsRootViewHtml(): string {
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
+          <button id="${ids.openNotesSettingsBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
+            <span class="biliscript-set-label">视频笔记</span>
+            <span class="biliscript-entry-summary">
+              <span id="${ids.notesSettingsSummary}" class="biliscript-entry-summary-text">通用结构化 · 本地 .md</span>
+              ${CHEVRON_RIGHT_SVG}
+            </span>
+          </button>
         </div>
       </section>
 

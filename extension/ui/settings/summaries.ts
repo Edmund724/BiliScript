@@ -1,5 +1,6 @@
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
+import { getNotePromptPresetLabel } from "../../notes/note-prompts.js";
 import {
   normalizeDownloadFormat,
   normalizeNoteExportTarget,
@@ -35,6 +36,8 @@ export interface SettingsSummaryFormValues {
   speechVoiceVolume: unknown;
   downloadFormat: unknown;
   noteExportTarget?: unknown;
+  notePromptPreset?: unknown;
+  noteIncludeKeyframes?: boolean;
   subtitleTranslateModelLabel: string;
   subtitleTranslateGlossary: string;
   readerTheme: unknown;
@@ -60,6 +63,7 @@ export interface DerivedSettingsSummaries {
   searchSettings: string | null;
   aiPrompt: string;
   subtitleSettings: string;
+  notesSettings: string;
   appearanceSettings: string;
   agentSettings: string;
   advancedSettings: string;
@@ -171,18 +175,22 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
 
   const normalizedFormat = normalizeDownloadFormat(form.downloadFormat);
   const formatLabel = normalizedFormat === "vtt-secondary" ? "VTT（仅副轨）" : normalizedFormat.toUpperCase();
-  const noteTargetLabel =
-    form.noteExportTarget !== undefined
-      ? (normalizeNoteExportTarget(form.noteExportTarget) === "obsidian" ? "笔记 Obsidian" : "笔记 .md")
-      : "";
   const glossaryCount = parseSubtitleGlossary(form.subtitleTranslateGlossary).length;
   const subtitleParts = [
     form.subtitleTranslateModelLabel,
     glossaryCount > 0 ? `${glossaryCount} 条术语` : "",
-    formatLabel,
-    noteTargetLabel
+    formatLabel
   ].filter(Boolean);
   const subtitleSettings = subtitleParts.join(" · ");
+
+  const notePresetLabel = getNotePromptPresetLabel(form.notePromptPreset);
+  const noteTargetLabel = normalizeNoteExportTarget(form.noteExportTarget) === "obsidian" ? "Obsidian" : "本地 .md";
+  const notesParts = [
+    notePresetLabel,
+    noteTargetLabel,
+    form.noteIncludeKeyframes ? "含截图" : ""
+  ].filter(Boolean);
+  const notesSettings = notesParts.join(" · ");
 
   const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随当前站点";
   const paletteLabel = normalizeReaderPalette(form.readerPalette) === "editorial" ? "数字刊物" : "蓝雾玻璃";
@@ -210,6 +218,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     searchSettings,
     aiPrompt,
     subtitleSettings,
+    notesSettings,
     appearanceSettings,
     agentSettings,
     advancedSettings
@@ -229,6 +238,8 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       speechVoiceVolume: elements.speechVoiceVolume.value,
       downloadFormat: elements.downloadFormat.value,
       noteExportTarget: elements.noteExportTarget.value,
+      notePromptPreset: elements.notePromptPreset.value,
+      noteIncludeKeyframes: elements.noteIncludeKeyframes.checked,
       subtitleTranslateModelLabel: resolveSelectedModelLabel(elements.subtitleTranslateModel),
       subtitleTranslateGlossary: elements.subtitleTranslateGlossary.value,
       readerTheme: elements.readerTheme.value,
@@ -249,6 +260,7 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
 
   elements.aiPromptSummary.textContent = derived.aiPrompt;
   elements.subtitleSettingsSummary.textContent = derived.subtitleSettings;
+  elements.notesSettingsSummary.textContent = derived.notesSettings;
   elements.appearanceSettingsSummary.textContent = derived.appearanceSettings;
   elements.agentSettingsSummary.textContent = derived.agentSettings;
   elements.advancedSettingsSummary.textContent = derived.advancedSettings;

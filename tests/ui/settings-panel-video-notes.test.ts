@@ -95,7 +95,8 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     exportTarget.value = "obsidian";
     exportTarget.dispatchEvent(new Event("change", { bubbles: true }));
     expect(subdir.disabled).toBe(true);
-    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("笔记 Obsidian");
+    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("自定义 · Obsidian · 含截图");
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).not.toContain("Obsidian");
 
     await flushMicrotasks();
 
