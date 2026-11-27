@@ -145,12 +145,31 @@ export function buildSystemPagesHtml(): string {
       <section class="biliscript-set-group" data-settings-section="advanced">
         <div class="biliscript-set-h">数据与诊断</div>
         <div class="biliscript-set-card">
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">自动清理 30 天以前的历史会话记录</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.cleanConversationsOlderThan30Days}" type="checkbox" class="biliscript-toggle-input" aria-label="自动清理 30 天以前的历史会话记录" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.chatHistoryMaxCount}">保留聊天记录</label>
+            <select id="${ids.chatHistoryMaxCount}" class="biliscript-set-select">
+              <option value="0">无限制</option>
+              <option value="20">最近 20 条</option>
+              <option value="50">最近 50 条</option>
+              <option value="100">最近 100 条</option>
+              <option value="200">最近 200 条</option>
+            </select>
+          </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.videoCacheMaxMb}">视频字幕与概览缓存</label>
+            <select id="${ids.videoCacheMaxMb}" class="biliscript-set-select">
+              <option value="50">50 MB</option>
+              <option value="150">150 MB</option>
+              <option value="300">300 MB</option>
+              <option value="500">500 MB</option>
+              <option value="1024">1 GB</option>
+            </select>
+          </div>
+
+          <div class="biliscript-set-row">
+            <span class="biliscript-set-label">当前缓存占用</span>
+            <span id="${ids.videoCacheUsage}" class="biliscript-entry-summary-text">计算中…</span>
           </div>
 
           <div class="biliscript-set-check biliscript-toggle-row">

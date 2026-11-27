@@ -256,7 +256,7 @@ describe("出口二 deleteById 当前会话", () => {
 
     expect(log).toEqual([
       ["interrupt"],
-      ["persist", ["biliscript_ai_conversations_v1"]],
+      ["persist", ["biliscript_ai_conversations_sync_v2"]],
       ["change", {}],
       ["change", { resetView: true }]
     ]);
@@ -292,6 +292,7 @@ describe("出口三 clearAll", () => {
     expect(log).toEqual([
       ["interrupt"],
       ["persist", ["biliscript_ai_conversations_v1"]],
+      ["persist", ["biliscript_ai_conversations_sync_v2"]],
       ["change", {}],
       ["change", { historyCleared: true, resetView: true }]
     ]);

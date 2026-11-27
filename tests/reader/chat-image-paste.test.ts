@@ -54,7 +54,8 @@ function stubChromeByType(): void {
     };
   };
   chromeStub.runtime.sendMessage = callbackStyleSendMessage({
-    "ai-providers-list": () => ({ ok: true, providers: providersPayload })
+    "ai-providers-list": () => ({ ok: true, providers: providersPayload }),
+    "subtitle-cache": () => ({ handled: false })
   });
   chromeStub.runtime.connect = vi.fn(() => {
     const port: FakePort = {

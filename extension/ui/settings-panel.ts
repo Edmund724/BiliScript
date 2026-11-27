@@ -51,6 +51,10 @@ import {
   SILICONFLOW_TRANSLATE_PROVIDER_ID,
   hasSavedSiliconFlowAsrKey
 } from "../ai/subtitle-translate-config.js";
+import {
+  bindDataRetentionSettings,
+  type DataRetentionSettingsController
+} from "./settings/data-retention-settings.js";
 import { createSettingsNavigator } from "./settings/navigation.js";
 import {
   WATCHED_SCALAR_SYNC_KEYS,
@@ -87,6 +91,7 @@ interface MountedSettingsHost {
   readonly elements: SettingsElements;
   capabilities: SettingsCapabilities;
   agentBridge: AgentBridgeSettingsController | null;
+  dataRetention: DataRetentionSettingsController | null;
   providerHost: ProviderSettingsHost | null;
   lastProviderSnapshot: ProviderSummarySnapshot | null;
   lastAgentBridgeState: AgentBridgeSettingsState | null;
@@ -109,6 +114,11 @@ const navigator = createSettingsNavigator({
   getMounted: () => mounted,
   ensureRendered: () => renderReaderSettingsPanel(),
   onAgentAddressClosed: (options) => mounted?.agentBridge?.onAddressViewClosed(options),
+  onViewEntered: (view) => {
+    if (view === "advanced") {
+      void mounted?.dataRetention?.refreshUsage();
+    }
+  },
   openLinkedCredentialEditor: (target) => mounted?.providerHost?.openLinkedCredentialEditor(target)
 });
 
@@ -217,6 +227,7 @@ async function loadPanelSettings(ctx: MountedSettingsHost): Promise<void> {
   if (mounted !== ctx) return;
 
   hydrateScalarSettings(ctx.elements, settings);
+  ctx.dataRetention?.sync(settings);
   if (ctx.capabilities.agentAvailable) {
     ctx.agentBridge?.sync(settings);
   }
@@ -240,6 +251,7 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
     (changes) => {
       if (mounted !== ctx || !ctx.host.isConnected) return;
       applyScalarStorageChanges(ctx.elements, changes);
+      ctx.dataRetention?.applyStorageChanges(changes);
       if (changes.agentBridgeUrl && ctx.capabilities.agentAvailable) {
         ctx.agentBridge?.updateUrl(changes.agentBridgeUrl.newValue);
       }
@@ -257,6 +269,8 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
     {
       sync: [
         ...WATCHED_SCALAR_SYNC_KEYS,
+        "chatHistoryMaxCount",
+        "videoCacheMaxMb",
         "agentBridgeUrl",
         ...AI_MODEL_EXTERNAL_SYNC_KEYS
       ]
@@ -275,6 +289,8 @@ function teardownMountedHost(): void {
   prev.unwatchStorageSync = null;
   prev.agentBridge?.dispose();
   prev.agentBridge = null;
+  prev.dataRetention?.dispose();
+  prev.dataRetention = null;
   prev.providerHost?.dispose();
   prev.providerHost = null;
   prev.lastProviderSnapshot = null;
@@ -291,6 +307,7 @@ function mountSettingsHost(host: HTMLElement): MountedSettingsHost {
     elements,
     capabilities,
     agentBridge: null,
+    dataRetention: null,
     providerHost: null,
     lastProviderSnapshot: null,
     lastAgentBridgeState: null,
@@ -298,6 +315,10 @@ function mountSettingsHost(host: HTMLElement): MountedSettingsHost {
     unwatchChatDisplay: null
   };
   mounted = ctx;
+
+  ctx.dataRetention = bindDataRetentionSettings(elements, {
+    syncSummaries: () => syncSummaries(ctx)
+  });
 
   navigator.bindSettingsNavigation(host, elements);
   applySiteSettingsGating(host, elements, capabilities);
@@ -436,6 +457,7 @@ export function renderReaderSettingsPanel(): Promise<void> {
       elements: collectElements(host),
       capabilities,
       agentBridge: null,
+      dataRetention: null,
       providerHost: null,
       lastProviderSnapshot: null,
       lastAgentBridgeState: null,

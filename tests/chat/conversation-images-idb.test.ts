@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { MAX_SAVED_CONVERSATIONS, normalizeConversations } from "../../extension/ai/conversation.js";
+import { normalizeConversations } from "../../extension/ai/conversation.js";
 import {
   CHAT_IMAGES_IDB_STORE,
   CHAT_IMAGES_INDEX_CONVERSATION_ID,
@@ -345,8 +345,8 @@ afterEach(() => {
 });
 
 describe("阶段 2B：对话图片外置与水合", () => {
-  it("不修改 SUBTITLE_IDB_VERSION 且保留 ai/conversation.ts 同步数据结构契约", () => {
-    expect(SUBTITLE_IDB_VERSION).toBe(2);
+  it("升级 SUBTITLE_IDB_VERSION 至 v3 且保留 ai/conversation.ts 同步数据结构契约", () => {
+    expect(SUBTITLE_IDB_VERSION).toBe(3);
     const conv = makeConversation("conv-sync", {
       messages: [
         { role: "user", content: "看图", images: [IMG_A] },
@@ -376,7 +376,7 @@ describe("阶段 2B：对话图片外置与水合", () => {
     const saved = await updateConversationHistory(storage, () => [conv]);
     expect((saved[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A, IMG_B]);
 
-    const rawPersisted = storage.data.get(HISTORY_STORAGE_KEY) as Array<{
+    const rawPersisted = (await remoteStore.listConversations()) as unknown as Array<{
       id: string;
       messages: Array<{ images?: Array<Record<string, unknown>> }>;
     }>;
@@ -524,7 +524,7 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(recoveredConv1.messages[0].images).toEqual([IMG_A]);
   });
 
-  it("c) IDB 写入失败时安全回退为原内联 base64，绝不写入悬空 idbRef；写盘先写 IDB 后写 storage.local", async () => {
+  it("c) IDB 图片写入失败时安全回退为原内联 base64，绝不写入悬空 idbRef；写盘先写图片再写会话", async () => {
     const store = createSubtitleIdbStore({ indexedDB: null });
     configureSubtitleCacheStoreForTests(store);
     const storage = makeMemoryStorage();
@@ -541,10 +541,10 @@ describe("阶段 2B：对话图片外置与水合", () => {
         }
       }
     });
-    const origSet = storage.set;
-    storage.set = vi.fn(async (items: Record<string, unknown>) => {
-      order.push("storage.set");
-      return origSet(items);
+    const origPutMany = store.putConversationsMany.bind(store);
+    store.putConversationsMany = vi.fn(async (records) => {
+      order.push("idb:putConversationsMany");
+      return origPutMany(records);
     });
 
     const conv = makeConversation("conv-fallback", {
@@ -556,9 +556,9 @@ describe("阶段 2B：对话图片外置与水合", () => {
 
     await updateConversationHistory(storage, () => [conv]);
 
-    expect(order).toEqual([`idb:${idA}`, `idb:${idB}`, "storage.set"]);
+    expect(order).toEqual([`idb:${idA}`, `idb:${idB}`, "idb:putConversationsMany"]);
 
-    const persisted = storage.data.get(HISTORY_STORAGE_KEY) as Array<{
+    const persisted = (await store.listConversations()) as unknown as Array<{
       messages: Array<{ images?: Array<Record<string, unknown>> }>;
     }>;
     expect(persisted[0].messages[0].images).toEqual([
@@ -574,23 +574,23 @@ describe("阶段 2B：对话图片外置与水合", () => {
     expect(await store.getChatImage(idB)).not.toBeNull();
   });
 
-  it("c2) storage.set 写盘失败时回滚本次新写入的 IDB 图片，不留无主孤儿", async () => {
+  it("c2) 会话写盘失败时回滚本次新写入的 IDB 图片，不留无主孤儿", async () => {
     const store = createSubtitleIdbStore({ indexedDB: null });
     configureSubtitleCacheStoreForTests(store);
     const storage = makeMemoryStorage();
-    storage.set = vi.fn(async () => {
-      throw new Error("storage.local write failed");
+    store.putConversationsMany = vi.fn(async () => {
+      throw new Error("conversations idb write failed");
     });
 
     const conv = makeConversation("conv-set-fail", {
       messages: [{ role: "user", content: "失败回滚", images: [IMG_A] }]
     });
 
-    await expect(updateConversationHistory(storage, () => [conv])).rejects.toThrow("storage.local write failed");
+    await expect(updateConversationHistory(storage, () => [conv])).rejects.toThrow("conversations idb write failed");
     expect(await store.listAllChatImages()).toEqual([]);
   });
 
-  it("d) 旧版内联 base64 读路径自动懒迁移回填 chat_images（幂等且先写后删）", async () => {
+  it("d) 旧版内联 base64 读路径自动迁移进 IDB 并懒外置回填 chat_images（幂等）", async () => {
     const store = createSubtitleIdbStore({ indexedDB: null });
     configureSubtitleCacheStoreForTests(store);
     const storage = makeMemoryStorage();
@@ -604,27 +604,24 @@ describe("阶段 2B：对话图片外置与水合", () => {
       ]
     });
     await storage.set({ [HISTORY_STORAGE_KEY]: [legacyConv] });
-    storage.set.mockClear();
 
     store.setWriteInterceptorForTests(() => {
       throw new Error("temporary idb write error");
     });
     const firstRead = await readConversationHistory(storage);
     expect((firstRead[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A]);
-    expect(storage.set).not.toHaveBeenCalled();
     expect(
-      (storage.data.get(HISTORY_STORAGE_KEY) as Array<{ messages: Array<{ images?: unknown }> }>)[0]
+      ((await store.listConversations()) as unknown as Array<{ messages: Array<{ images?: unknown }> }>)[0]
         .messages[0].images
     ).toEqual([IMG_A]);
 
     store.setWriteInterceptorForTests(null);
     const secondRead = await readConversationHistory(storage);
     expect((secondRead[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A]);
-    expect(storage.set).toHaveBeenCalledTimes(1);
 
     const expectedRef = computeChatImageId("conv-legacy", IMG_A.mime, IMG_A.data);
     expect(
-      (storage.data.get(HISTORY_STORAGE_KEY) as Array<{ messages: Array<{ images?: unknown }> }>)[0]
+      ((await store.listConversations()) as unknown as Array<{ messages: Array<{ images?: unknown }> }>)[0]
         .messages[0].images
     ).toEqual([{ mime: IMG_A.mime, idbRef: expectedRef }]);
     expect(await store.getChatImage(expectedRef)).toMatchObject({
@@ -635,13 +632,13 @@ describe("阶段 2B：对话图片外置与水合", () => {
       data: IMG_A.data
     });
 
-    storage.set.mockClear();
+    const putSpy = vi.spyOn(store, "putConversationsMany");
     const thirdRead = await readConversationHistory(storage);
     expect((thirdRead[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A]);
-    expect(storage.set).not.toHaveBeenCalled();
+    expect(putSpy).not.toHaveBeenCalled();
   });
 
-  it("e) 删除单条会话（含 undo）、覆盖移除图片、清空全部与超 60 条上限淘汰后 chat_images 零孤儿残留", async () => {
+  it("e) 删除单条会话（含 undo）、覆盖移除图片、清空全部与超上限裁剪后 chat_images 零孤儿残留", async () => {
     const fakeIdb = createFakeIdbWithIndexSpy();
     const store = createSubtitleIdbStore({ indexedDB: fakeIdb.factory, dbName: "test-orphan-reclaim" });
     configureSubtitleCacheStoreForTests(store);
@@ -665,7 +662,7 @@ describe("阶段 2B：对话图片外置与水合", () => {
       onStreamInterrupted: vi.fn(),
       onContextNotice: vi.fn(),
       storage,
-      isCleanEnabled: () => false
+      getMaxCount: () => 0
     };
     const convStore = createConversationStore(deps);
     await convStore.loadAll();
@@ -717,7 +714,8 @@ describe("阶段 2B：对话图片外置与水合", () => {
       updatedAt: 1000,
       messages: [{ role: "user", content: "最旧带图会话", images: [IMG_A] }]
     });
-    const fillerConvs = Array.from({ length: MAX_SAVED_CONVERSATIONS - 1 }, (_, idx) =>
+    const maxTestLimit = 5;
+    const fillerConvs = Array.from({ length: maxTestLimit - 1 }, (_, idx) =>
       makeConversation(`conv-fill-${idx}`, { updatedAt: 2000 + idx })
     );
     await updateConversationHistory(storage, () => [...fillerConvs, oldestConv]);
@@ -728,8 +726,12 @@ describe("阶段 2B：对话图片外置与水合", () => {
       updatedAt: 99_999,
       messages: [{ role: "user", content: "最新带图会话", images: [IMG_B] }]
     });
-    const afterEvict = await updateConversationHistory(storage, (curr) => [newestConv, ...curr]);
-    expect(afterEvict).toHaveLength(MAX_SAVED_CONVERSATIONS);
+    const afterEvict = await updateConversationHistory(
+      storage,
+      (curr) => [newestConv, ...curr],
+      { maxCount: maxTestLimit }
+    );
+    expect(afterEvict).toHaveLength(maxTestLimit);
     expect(afterEvict.some((c) => c.id === "conv-oldest")).toBe(false);
     expect(
       fakeIdb.indexGetAllCalls.some(

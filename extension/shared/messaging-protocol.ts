@@ -16,9 +16,11 @@ import type {
   AiArtifactFamily,
   AiArtifactRecord,
   ChatImageRecord,
+  PersistedConversationRecord,
   PutChatImageInput,
   SubtitlePageRecord,
-  SubtitleTrackStorageKind
+  SubtitleTrackStorageKind,
+  VideoCacheUsage
 } from "../subtitle/idb-store.js";
 import type {
   AgentBridgeContentCommentsResult,
@@ -332,7 +334,17 @@ export type SubtitleCacheOp =
   | "delete-chat-images"
   | "delete-chat-images-by-conversations"
   | "prune-chat-images"
-  | "clear-chat-images";
+  | "clear-chat-images"
+  | "get-video-cache-usage"
+  | "set-video-cache-limit"
+  | "get-conversation"
+  | "list-conversations"
+  | "count-conversations"
+  | "put-conversation"
+  | "put-conversations"
+  | "delete-conversations"
+  | "clear-conversations"
+  | "prune-conversations";
 
 export type SubtitleCacheMessage = {
   type: "subtitle-cache";
@@ -365,6 +377,10 @@ export type SubtitleCacheMessage = {
   lastUsedAt?: number;
   items?: readonly SubtitleBodyItem[];
   replaceRange?: SubtitleTimeRange;
+  maxBytes?: number;
+  maxCount?: number;
+  conversation?: PersistedConversationRecord;
+  conversations?: PersistedConversationRecord[];
 };
 
 export type SubtitleCacheResponse = {
@@ -376,6 +392,12 @@ export type SubtitleCacheResponse = {
   artifacts?: Array<AiArtifactRecord | null>;
   chatImage?: ChatImageRecord | null;
   chatImages?: Array<ChatImageRecord | null>;
+  conversation?: PersistedConversationRecord | null;
+  conversations?: PersistedConversationRecord[];
+  count?: number;
+  keptCount?: number;
+  usage?: VideoCacheUsage;
+  evictedPageIds?: string[];
   deleted?: boolean;
   removedKeys?: string[];
   removedIds?: string[];

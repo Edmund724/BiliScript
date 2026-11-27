@@ -1,15 +1,19 @@
 import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
+import { DEFAULT_SETTINGS } from "../../core/defaults.js";
 import { getNotePromptPresetLabel } from "../../notes/note-prompts.js";
 import {
+  normalizeChatHistoryMaxCount,
   normalizeDownloadFormat,
   normalizeNoteExportTarget,
   normalizePlayerAiActionMode,
   normalizeReaderFontSizeScale,
   normalizeReaderPalette,
   normalizeReaderTheme,
+  normalizeVideoCacheMaxMb,
   normalizeWebSearchMaxToolCalls
 } from "../../core/validators.js";
+import { formatCacheLimitMb } from "./data-retention-settings.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   isChatDisplaySliderAvailable
@@ -44,7 +48,8 @@ export interface SettingsSummaryFormValues {
   readerPalette: unknown;
   readerFontSizeScale: unknown;
   enableAgentBridge: boolean;
-  cleanConversationsOlderThan30Days: boolean;
+  chatHistoryMaxCount?: unknown;
+  videoCacheMaxMb?: unknown;
   enableDebugLogs: boolean;
 }
 
@@ -213,7 +218,14 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   }
 
   const advancedParts: string[] = [];
-  if (form.cleanConversationsOlderThan30Days) advancedParts.push("30 天自动清理");
+  const chatHistoryMaxCount = normalizeChatHistoryMaxCount(form.chatHistoryMaxCount);
+  if (chatHistoryMaxCount > 0) {
+    advancedParts.push(`保留 ${chatHistoryMaxCount} 条对话`);
+  }
+  const videoCacheMaxMb = normalizeVideoCacheMaxMb(form.videoCacheMaxMb);
+  if (videoCacheMaxMb !== DEFAULT_SETTINGS.videoCacheMaxMb) {
+    advancedParts.push(`缓存 ${formatCacheLimitMb(videoCacheMaxMb)}`);
+  }
   if (form.enableDebugLogs) advancedParts.push("调试日志已开");
   const advancedSettings = advancedParts.length > 0 ? advancedParts.join(" · ") : "默认";
 
@@ -252,7 +264,8 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       readerPalette: elements.readerPalette.value,
       readerFontSizeScale: elements.readerFontSizeScale.value,
       enableAgentBridge: elements.enableAgentBridge.checked,
-      cleanConversationsOlderThan30Days: elements.cleanConversationsOlderThan30Days.checked,
+      chatHistoryMaxCount: elements.chatHistoryMaxCount.value,
+      videoCacheMaxMb: elements.videoCacheMaxMb.value,
       enableDebugLogs: elements.enableDebugLogs.checked
     },
     providerSnapshot: context.providerSnapshot,

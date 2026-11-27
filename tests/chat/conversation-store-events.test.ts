@@ -513,13 +513,14 @@ describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
     await storage.set({ biliscript_ai_conversations_v1: conversations });
     storage.set.mockClear();
 
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
     const deletion = await store.deleteById("c2");
     expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c3"]);
-    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c3"]);
+    expect((await resolveActiveSubtitleStore().listConversations()).map((item) => item.id)).toEqual(["c1", "c3"]);
 
     await deletion!.undo();
     expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c2", "c3"]);
-    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c2", "c3"]);
+    expect((await resolveActiveSubtitleStore().listConversations()).map((item) => item.id)).toEqual(["c1", "c2", "c3"]);
     expect(chatSessionState.currentConversationId).toBe("c1");
     const writesAfterUndo = storage.set.mock.calls.length;
     await deletion!.undo();
@@ -527,6 +528,7 @@ describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
   });
 
   it("当前会话撤销：存储、顺序、当前身份与消息历史一并恢复", async () => {
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
     const { store, storage } = makeHarness();
     const conversations = [makeConversation("c1"), makeConversation("c2")];
     setSavedConversations(conversations);
@@ -541,6 +543,6 @@ describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
     expect(chatSessionState.currentConversationId).toBe("c1");
     expect(chatSessionState.chatHistory.map((message) => message.content)).toEqual(["hi", "hello"]);
     expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c2"]);
-    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c2"]);
+    expect((await resolveActiveSubtitleStore().listConversations()).map((item) => item.id)).toEqual(["c1", "c2"]);
   });
 });

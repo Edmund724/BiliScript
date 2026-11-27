@@ -294,10 +294,13 @@ export async function persistLiveTextToolRecord(
   storage?: StorageArea
 ): Promise<void> {
   const target = storage || (typeof chrome !== "undefined" ? (chrome.storage?.local as StorageArea) : undefined);
-  if (!target || (record.status !== "completed" && record.status !== "failed") || !record.video) return;
-  const { updateConversationHistory } = await import("../chat/conversation-storage.js");
-  await updateConversationHistory(target, (current) =>
-    upsertLiveTextToolHistoryEntry(current, record) as StoredConversation[]
+  if ((record.status !== "completed" && record.status !== "failed") || !record.video) return;
+  const { resolveChatHistoryMaxCount, updateConversationHistory } = await import("../chat/conversation-storage.js");
+  const maxCount = await resolveChatHistoryMaxCount();
+  await updateConversationHistory(
+    target,
+    (current) => upsertLiveTextToolHistoryEntry(current, record) as StoredConversation[],
+    { maxCount }
   );
 }
 

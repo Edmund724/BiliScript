@@ -15,12 +15,14 @@ import {
 } from "./default-prompts.js";
 import {
   DEFAULT_SETTINGS,
+  type ChatHistoryMaxCount,
   type DetachedWindowMode,
   type NoteExportTarget,
   type NotePromptPreset,
   type PlayerAiActionMode,
   type Settings,
-  type SubtitleSegmentationStrategy
+  type SubtitleSegmentationStrategy,
+  type VideoCacheMaxMb
 } from "./defaults.js";
 import {
   DEFAULT_NOTE_TEMPLATE,
@@ -399,6 +401,38 @@ export function normalizeSubtitleSegmentationStrategy(value: unknown): SubtitleS
   return SUBTITLE_SEGMENTATION_STRATEGIES.has(normalized)
     ? normalized
     : DEFAULT_SETTINGS.subtitleSegmentationStrategy;
+}
+
+export const CHAT_HISTORY_MAX_COUNT_OPTIONS: readonly ChatHistoryMaxCount[] = [0, 20, 50, 100, 200];
+export const VIDEO_CACHE_MAX_MB_OPTIONS: readonly VideoCacheMaxMb[] = [50, 150, 300, 500, 1024];
+
+const CHAT_HISTORY_MAX_COUNT_SET: ReadonlySet<number> = new Set(CHAT_HISTORY_MAX_COUNT_OPTIONS);
+const VIDEO_CACHE_MAX_MB_SET: ReadonlySet<number> = new Set(VIDEO_CACHE_MAX_MB_OPTIONS);
+
+export function normalizeChatHistoryMaxCount(value: unknown): ChatHistoryMaxCount {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_SETTINGS.chatHistoryMaxCount;
+  }
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && CHAT_HISTORY_MAX_COUNT_SET.has(parsed)) {
+    return parsed as ChatHistoryMaxCount;
+  }
+  return DEFAULT_SETTINGS.chatHistoryMaxCount;
+}
+
+export function normalizeVideoCacheMaxMb(value: unknown): VideoCacheMaxMb {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_SETTINGS.videoCacheMaxMb;
+  }
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && VIDEO_CACHE_MAX_MB_SET.has(parsed)) {
+    return parsed as VideoCacheMaxMb;
+  }
+  return DEFAULT_SETTINGS.videoCacheMaxMb;
+}
+
+export function videoCacheMaxMbToBytes(mb: VideoCacheMaxMb | number): number {
+  return normalizeVideoCacheMaxMb(mb) * 1024 * 1024;
 }
 
 interface ValidationResult {

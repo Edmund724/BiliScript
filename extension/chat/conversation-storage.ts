@@ -1,5 +1,6 @@
 import { normalizeConversations } from "../ai/conversation.js";
 import type { ImagePart } from "../ai/types.js";
+import { normalizeChatHistoryMaxCount } from "../core/validators.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { logWarn } from "../shared/logging.js";
 import {
@@ -10,13 +11,31 @@ import {
   resolveVideoStorageKey
 } from "../shared/site.js";
 import { fnv1a32 } from "../shared/text-primitives.js";
-import type { ChatImageRecord, SubtitleIdbStore } from "../subtitle/idb-store.js";
+import type {
+  ChatImageRecord,
+  PersistedConversationRecord,
+  PruneConversationsResult,
+  SubtitleIdbStore
+} from "../subtitle/idb-store.js";
 import { resolveActiveSubtitleStore } from "../subtitle/store-client.js";
-import { setSavedConversations } from "./chat-state.js";
+import {
+  applyLiveContextToMain,
+  chatSessionState,
+  detachConversationIdentity,
+  setSavedConversations
+} from "./chat-state.js";
 import type { StorageArea } from "./conversation-store.js";
 
 export type StoredConversation = ReturnType<typeof normalizeConversations>[number];
 export const HISTORY_STORAGE_KEY = "biliscript_ai_conversations_v1";
+export const CONVERSATIONS_SYNC_SIGNAL_KEY = "biliscript_ai_conversations_sync_v2";
+
+export interface ConversationSyncSignal {
+  rev: number;
+  op: "put" | "delete" | "clear" | "prune" | "replace";
+  id?: string;
+  ids?: string[];
+}
 
 export interface PersistedImageRef {
   mime: string;
@@ -25,15 +44,23 @@ export interface PersistedImageRef {
 
 export type PersistedImageEntry = ImagePart | PersistedImageRef;
 
-const queues = new WeakMap<StorageArea, Promise<unknown>>();
+const storeQueues = new WeakMap<SubtitleIdbStore, Promise<unknown>>();
+let syncSignalSeq = 0;
 
-function isBrowserLocalStorage(storage: StorageArea): boolean {
-  return typeof chrome !== "undefined" && storage === chrome.storage?.local;
+function resolveDefaultLocalStorage(storage?: StorageArea): StorageArea | undefined {
+  if (storage) {
+    return storage;
+  }
+  return typeof chrome !== "undefined" ? (chrome.storage?.local as StorageArea | undefined) : undefined;
 }
 
-function runWithCrossTabLock<T>(storage: StorageArea, task: () => Promise<T>): Promise<T> {
+function isBrowserLocalStorage(storage?: StorageArea): boolean {
+  return Boolean(storage) && typeof chrome !== "undefined" && storage === chrome.storage?.local;
+}
+
+function runWithCrossTabLock<T>(storage: StorageArea | undefined, task: () => Promise<T>): Promise<T> {
   if (
-    isBrowserLocalStorage(storage) &&
+    (!storage || isBrowserLocalStorage(storage)) &&
     typeof navigator !== "undefined" &&
     typeof navigator.locks?.request === "function"
   ) {
@@ -42,13 +69,34 @@ function runWithCrossTabLock<T>(storage: StorageArea, task: () => Promise<T>): P
   return task();
 }
 
-function enqueue<T>(storage: StorageArea, task: () => Promise<T>): Promise<T> {
-  const previous = queues.get(storage) || Promise.resolve();
+function enqueue<T>(
+  store: SubtitleIdbStore,
+  storage: StorageArea | undefined,
+  task: () => Promise<T>
+): Promise<T> {
+  const previous = storeQueues.get(store) || Promise.resolve();
   const next = previous.catch(() => {}).then(() => runWithCrossTabLock(storage, task));
-  queues.set(storage, next);
+  storeQueues.set(store, next);
   return next.finally(() => {
-    if (queues.get(storage) === next) queues.delete(storage);
+    if (storeQueues.get(store) === next) {
+      storeQueues.delete(store);
+    }
   });
+}
+
+export async function resolveChatHistoryMaxCount(syncStorage?: StorageArea): Promise<number> {
+  const sync =
+    syncStorage ||
+    (typeof chrome !== "undefined" ? (chrome.storage?.sync as StorageArea | undefined) : undefined);
+  if (!sync?.get) {
+    return 0;
+  }
+  try {
+    const res = await sync.get(["chatHistoryMaxCount"]);
+    return normalizeChatHistoryMaxCount(res?.chatHistoryMaxCount);
+  } catch {
+    return 0;
+  }
 }
 
 export function isPersistedImageRef(value: unknown): value is PersistedImageRef {
@@ -154,7 +202,7 @@ interface VerifiedChatImage {
 }
 
 interface HydrationScanResult {
-  hydratedRaw: unknown;
+  hydratedRaw: unknown[];
   verifiedRefs: Map<string, VerifiedChatImage>;
   preservedRefsOnRpcFailure: Map<string, PersistedImageRef[]>;
   rawConversationIds: Set<string>;
@@ -180,7 +228,7 @@ async function hydrateRawConversations(
 
   if (!Array.isArray(rawValue)) {
     return {
-      hydratedRaw: rawValue,
+      hydratedRaw: [],
       verifiedRefs,
       preservedRefsOnRpcFailure,
       rawConversationIds,
@@ -380,126 +428,8 @@ async function putChatImageSafe(
   }
 }
 
-async function lazyMigrateLegacyInlineImages(
-  rawValue: unknown,
-  normalizedConversations: readonly StoredConversation[],
-  storage: StorageArea,
-  store: SubtitleIdbStore
-): Promise<void> {
-  if (!Array.isArray(rawValue) || typeof storage.set !== "function") {
-    return;
-  }
-
-  const validConvIds = new Set<string>();
-  for (const conv of normalizedConversations) {
-    if (!isLiveTextToolHistoryEntry(conv) && conv.id) {
-      validConvIds.add(conv.id);
-    }
-  }
-  if (validConvIds.size === 0) {
-    return;
-  }
-
-  const now = Date.now();
-  let migratedCount = 0;
-  const migratedRaw: unknown[] = [];
-
-  for (const item of rawValue) {
-    if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
-      migratedRaw.push(item);
-      continue;
-    }
-    const obj = item as {
-      id?: unknown;
-      createdAt?: unknown;
-      updatedAt?: unknown;
-      messages?: unknown;
-      [key: string]: unknown;
-    };
-    const convId = String(obj.id || "").trim();
-    if (!convId || !validConvIds.has(convId) || !Array.isArray(obj.messages)) {
-      migratedRaw.push(item);
-      continue;
-    }
-
-    const bvid = extractConversationStorageBvid(obj);
-    const createdAt = Number(obj.createdAt) || now;
-    const updatedAt = Number(obj.updatedAt) || createdAt;
-    let convChanged = false;
-    const nextMessages: unknown[] = [];
-
-    for (const msg of obj.messages) {
-      if (!msg || typeof msg !== "object") {
-        nextMessages.push(msg);
-        continue;
-      }
-      const msgObj = msg as { images?: unknown; [key: string]: unknown };
-      if (!Array.isArray(msgObj.images)) {
-        nextMessages.push(msg);
-        continue;
-      }
-
-      let msgChanged = false;
-      const nextImages: unknown[] = [];
-      for (const entry of msgObj.images) {
-        if (isPersistedImageRef(entry)) {
-          nextImages.push(entry);
-          continue;
-        }
-        if (isInlineImagePart(entry)) {
-          const mime = entry.mime.trim();
-          const idbRef = computeChatImageId(convId, mime, entry.data);
-          const writeRes = await putChatImageSafe(store, {
-            id: idbRef,
-            conversationId: convId,
-            bvid,
-            mime,
-            data: entry.data,
-            createdAt,
-            updatedAt,
-            lastUsedAt: now
-          });
-          if (writeRes.ok) {
-            nextImages.push({ mime, idbRef } satisfies PersistedImageRef);
-            msgChanged = true;
-            migratedCount += 1;
-          } else {
-            logWarn(
-              "[BILISCRIPT] failed to lazily migrate inline chat image to IndexedDB; keeping inline base64",
-              { conversationId: convId, imageId: idbRef, error: writeRes.error }
-            );
-            nextImages.push(entry);
-          }
-          continue;
-        }
-        nextImages.push(entry);
-      }
-
-      if (msgChanged) {
-        convChanged = true;
-        nextMessages.push({ ...msgObj, images: nextImages });
-      } else {
-        nextMessages.push(msg);
-      }
-    }
-
-    migratedRaw.push(convChanged ? { ...obj, messages: nextMessages } : item);
-  }
-
-  if (migratedCount > 0) {
-    try {
-      await storage.set({ [HISTORY_STORAGE_KEY]: migratedRaw });
-    } catch (error) {
-      logWarn("[BILISCRIPT] failed to persist lazily migrated chat image references", {
-        migratedCount,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-}
-
 interface ExternalizeResult {
-  persisted: unknown[];
+  persisted: PersistedConversationRecord[];
   activeImageIds: Set<string>;
   newlyWrittenImageIds: string[];
   externalizedCount: number;
@@ -516,11 +446,11 @@ async function externalizeConversationsForStorage(
   const writtenInBatch = new Set<string>();
   let externalizedCount = 0;
   const now = Date.now();
-  const persisted: unknown[] = [];
+  const persisted: PersistedConversationRecord[] = [];
 
   for (const conv of conversations) {
     if (isLiveTextToolHistoryEntry(conv)) {
-      persisted.push(conv);
+      persisted.push(conv as unknown as PersistedConversationRecord);
       continue;
     }
 
@@ -607,7 +537,8 @@ async function externalizeConversationsForStorage(
       }
     }
 
-    persisted.push(convChanged ? { ...conv, messages: nextMessages } : conv);
+    const record = convChanged ? { ...conv, messages: nextMessages } : conv;
+    persisted.push(record as unknown as PersistedConversationRecord);
   }
 
   return {
@@ -616,6 +547,111 @@ async function externalizeConversationsForStorage(
     newlyWrittenImageIds,
     externalizedCount
   };
+}
+
+async function emitConversationSyncSignal(
+  storage: StorageArea | undefined,
+  signal: Omit<ConversationSyncSignal, "rev">
+): Promise<void> {
+  if (!storage?.set) {
+    return;
+  }
+  const payload: ConversationSyncSignal = {
+    rev: Date.now() * 1000 + (++syncSignalSeq % 1000),
+    ...signal
+  };
+  try {
+    await storage.set({ [CONVERSATIONS_SYNC_SIGNAL_KEY]: payload });
+  } catch (error) {
+    logWarn("[BILISCRIPT] failed to broadcast conversation sync signal", {
+      op: signal.op,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function clearLegacyLocalHistoryKey(storage: StorageArea | undefined): Promise<void> {
+  if (!storage) {
+    return;
+  }
+  try {
+    if (typeof storage.remove === "function") {
+      await storage.remove(HISTORY_STORAGE_KEY);
+    } else if (typeof storage.set === "function") {
+      await storage.set({ [HISTORY_STORAGE_KEY]: [] });
+    }
+  } catch (error) {
+    logWarn("[BILISCRIPT] failed to clear legacy local conversation history key", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function migrateLegacyLocalHistoryIfNeeded(
+  storage: StorageArea | undefined,
+  store: SubtitleIdbStore
+): Promise<void> {
+  if (!storage?.get) {
+    return;
+  }
+  const data = await storage.get([HISTORY_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
+  const rawLegacy = data?.[HISTORY_STORAGE_KEY];
+  if (!Array.isArray(rawLegacy) || rawLegacy.length === 0) {
+    return;
+  }
+
+  const hydration = await hydrateRawConversations(rawLegacy, store);
+  const legacyNormalized = normalizeConversations(hydration.hydratedRaw);
+  if (legacyNormalized.length === 0) {
+    await clearLegacyLocalHistoryKey(storage);
+    return;
+  }
+
+  const existingList = await store.listConversations();
+  const existingById = new Map(existingList.map((item) => [item.id, item]));
+  const toImport: StoredConversation[] = [];
+  for (const conv of legacyNormalized) {
+    const existing = existingById.get(conv.id);
+    if (!existing || (Number(conv.updatedAt) || 0) > (Number(existing.updatedAt) || 0)) {
+      toImport.push(conv);
+    }
+  }
+
+  if (toImport.length > 0) {
+    const externalized = await externalizeConversationsForStorage(
+      toImport,
+      hydration.verifiedRefs,
+      hydration.preservedRefsOnRpcFailure,
+      store
+    );
+    await store.putConversationsMany(externalized.persisted);
+  }
+
+  await clearLegacyLocalHistoryKey(storage);
+}
+
+async function lazyMigrateInlineImagesInIdb(
+  conversations: readonly StoredConversation[],
+  verifiedRefs: ReadonlyMap<string, VerifiedChatImage>,
+  preservedRefsOnRpcFailure: ReadonlyMap<string, PersistedImageRef[]>,
+  store: SubtitleIdbStore
+): Promise<void> {
+  const externalized = await externalizeConversationsForStorage(
+    conversations,
+    verifiedRefs,
+    preservedRefsOnRpcFailure,
+    store
+  );
+  if (externalized.externalizedCount > 0) {
+    try {
+      await store.putConversationsMany(externalized.persisted);
+    } catch (error) {
+      logWarn("[BILISCRIPT] failed to persist lazily migrated chat image references to IndexedDB", {
+        migratedCount: externalized.externalizedCount,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 }
 
 async function reclaimOrphanChatImagesAfterWrite(options: {
@@ -685,32 +721,232 @@ async function reclaimOrphanChatImagesAfterWrite(options: {
   }
 }
 
-export function readConversationHistory(storage: StorageArea): Promise<StoredConversation[]> {
-  return enqueue(storage, async () => {
-    const store = resolveActiveSubtitleStore();
-    const data = await storage.get([HISTORY_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
-    const rawValue = data?.[HISTORY_STORAGE_KEY];
+export function readConversationHistory(storage?: StorageArea): Promise<StoredConversation[]> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const rawValue = await store.listConversations();
     const hydration = await hydrateRawConversations(rawValue, store);
     const conversations = normalizeConversations(hydration.hydratedRaw);
     if (hydration.hasLegacyInlineImages) {
-      await lazyMigrateLegacyInlineImages(rawValue, conversations, storage, store);
+      await lazyMigrateInlineImagesInIdb(
+        conversations,
+        hydration.verifiedRefs,
+        hydration.preservedRefsOnRpcFailure,
+        store
+      );
     }
     setSavedConversations(conversations);
     return conversations;
   });
 }
 
+export function readConversationById(
+  id: string,
+  storage?: StorageArea
+): Promise<StoredConversation | null> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const raw = await store.getConversation(id);
+    if (!raw) {
+      return null;
+    }
+    const hydration = await hydrateRawConversations([raw], store);
+    const normalized = normalizeConversations(hydration.hydratedRaw);
+    return normalized[0] ?? null;
+  });
+}
+
+export function countConversationHistory(storage?: StorageArea): Promise<number> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    return store.countConversations();
+  });
+}
+
+export interface SaveConversationEntryOptions {
+  storage?: StorageArea;
+  maxCount?: number;
+}
+
+export function saveConversationEntry(
+  conversation: StoredConversation,
+  options: SaveConversationEntryOptions = {}
+): Promise<{ conversation: StoredConversation | null; prunedIds: string[] }> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(options.storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const normalizedList = normalizeConversations([conversation]);
+    const normalized = normalizedList[0];
+    if (!normalized) {
+      return { conversation: null, prunedIds: [] };
+    }
+
+    const existing = await store.getConversation(normalized.id);
+    const existingHydration = existing
+      ? await hydrateRawConversations([existing], store)
+      : {
+          hydratedRaw: [],
+          verifiedRefs: new Map<string, VerifiedChatImage>(),
+          preservedRefsOnRpcFailure: new Map<string, PersistedImageRef[]>(),
+          rawConversationIds: new Set<string>(),
+          rawImageRefs: new Set<string>(),
+          hasLegacyInlineImages: false,
+          readRpcFailed: false
+        };
+
+    const externalized = await externalizeConversationsForStorage(
+      [normalized],
+      existingHydration.verifiedRefs,
+      existingHydration.preservedRefsOnRpcFailure,
+      store
+    );
+    const persisted = externalized.persisted[0];
+    if (!persisted) {
+      return { conversation: null, prunedIds: [] };
+    }
+
+    try {
+      await store.putConversation(persisted);
+    } catch (error) {
+      if (externalized.newlyWrittenImageIds.length > 0) {
+        await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
+      }
+      throw error;
+    }
+
+    if (!existingHydration.readRpcFailed && existingHydration.rawImageRefs.size > 0) {
+      const removedImgIds: string[] = [];
+      for (const oldRef of existingHydration.rawImageRefs) {
+        if (!externalized.activeImageIds.has(oldRef)) {
+          removedImgIds.push(oldRef);
+        }
+      }
+      if (removedImgIds.length > 0) {
+        await store.deleteChatImages(removedImgIds).catch(() => {});
+      }
+    }
+
+    const maxCount = Math.floor(Number(options.maxCount ?? 0));
+    let prunedIds: string[] = [];
+    if (Number.isFinite(maxCount) && maxCount > 0) {
+      const pruneRes = await store.pruneConversationsToLimit(maxCount);
+      prunedIds = pruneRes.removedIds;
+    }
+
+    const prunedSet = new Set(prunedIds);
+    const nextMemory = [
+      normalized,
+      ...chatSessionState.savedConversations.filter(
+        (item) => item.id !== normalized.id && !prunedSet.has(item.id)
+      )
+    ].sort((a, b) => {
+      const bUpdated = Number(b.updatedAt) || 0;
+      const aUpdated = Number(a.updatedAt) || 0;
+      if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+      const bCreated = Number(b.createdAt) || 0;
+      const aCreated = Number(a.createdAt) || 0;
+      if (bCreated !== aCreated) return bCreated - aCreated;
+      return a.id.localeCompare(b.id);
+    });
+    const boundedMemory =
+      Number.isFinite(maxCount) && maxCount > 0 && nextMemory.length > maxCount
+        ? nextMemory.slice(0, maxCount)
+        : nextMemory;
+    setSavedConversations(boundedMemory);
+
+    await emitConversationSyncSignal(targetStorage, {
+      op: prunedIds.length > 0 ? "prune" : "put",
+      id: normalized.id,
+      ...(prunedIds.length > 0 ? { ids: prunedIds } : {})
+    });
+
+    return { conversation: normalized, prunedIds };
+  });
+}
+
+export function deleteConversationEntry(
+  id: string,
+  options: { storage?: StorageArea } = {}
+): Promise<string[]> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(options.storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const cleanId = String(id || "").trim();
+    if (!cleanId) {
+      return [];
+    }
+    const removedIds = await store.deleteConversations([cleanId]);
+    await store.deleteChatImagesByConversationIds([cleanId]).catch(() => {});
+    setSavedConversations(chatSessionState.savedConversations.filter((item) => item.id !== cleanId));
+    await emitConversationSyncSignal(targetStorage, { op: "delete", ids: [cleanId] });
+    return removedIds;
+  });
+}
+
+export function clearConversationHistory(
+  options: { storage?: StorageArea } = {}
+): Promise<string[]> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(options.storage);
+  return enqueue(store, targetStorage, async () => {
+    await clearLegacyLocalHistoryKey(targetStorage);
+    const removedIds = await store.clearAllConversations();
+    await store.clearAllChatImages().catch(() => {});
+    setSavedConversations([]);
+    await emitConversationSyncSignal(targetStorage, { op: "clear" });
+    return removedIds;
+  });
+}
+
+export function pruneConversationHistoryToLimit(
+  maxCount: number,
+  options: { storage?: StorageArea } = {}
+): Promise<PruneConversationsResult> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(options.storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const result = await store.pruneConversationsToLimit(maxCount);
+    if (result.removedIds.length > 0) {
+      const removedSet = new Set(result.removedIds);
+      const nextMemory = chatSessionState.savedConversations.filter((item) => !removedSet.has(item.id));
+      setSavedConversations(nextMemory);
+      if (chatSessionState.currentConversationId && removedSet.has(chatSessionState.currentConversationId)) {
+        detachConversationIdentity();
+        applyLiveContextToMain();
+      }
+      await emitConversationSyncSignal(targetStorage, {
+        op: "prune",
+        ids: result.removedIds
+      });
+    }
+    return result;
+  });
+}
+
 export function updateConversationHistory(
-  storage: StorageArea,
-  update: (current: StoredConversation[]) => StoredConversation[]
+  storage: StorageArea | undefined,
+  update: (current: StoredConversation[]) => StoredConversation[],
+  options: { maxCount?: number } = {}
 ): Promise<StoredConversation[]> {
-  return enqueue(storage, async () => {
-    const store = resolveActiveSubtitleStore();
-    const data = await storage.get([HISTORY_STORAGE_KEY]);
-    const rawCurrent = data?.[HISTORY_STORAGE_KEY];
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const rawCurrent = await store.listConversations();
     const hydration = await hydrateRawConversations(rawCurrent, store);
     const current = normalizeConversations(hydration.hydratedRaw);
-    const next = normalizeConversations(update(current));
+    const next = normalizeConversations(update(current), {
+      ...(options.maxCount !== undefined ? { maxCount: options.maxCount } : {})
+    });
     const externalized = await externalizeConversationsForStorage(
       next,
       hydration.verifiedRefs,
@@ -718,8 +954,23 @@ export function updateConversationHistory(
       store
     );
 
+    const nextIds = new Set(externalized.persisted.map((item) => item.id));
+    const removedIds: string[] = [];
+    for (const prev of rawCurrent) {
+      if (prev.id && !nextIds.has(prev.id)) {
+        removedIds.push(prev.id);
+      }
+    }
+
     try {
-      await storage.set({ [HISTORY_STORAGE_KEY]: externalized.persisted });
+      if (externalized.persisted.length === 0) {
+        await store.clearAllConversations();
+      } else {
+        await store.putConversationsMany(externalized.persisted);
+        if (removedIds.length > 0) {
+          await store.deleteConversations(removedIds);
+        }
+      }
     } catch (error) {
       if (externalized.newlyWrittenImageIds.length > 0) {
         await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
@@ -738,41 +989,43 @@ export function updateConversationHistory(
     });
 
     setSavedConversations(next);
+    await emitConversationSyncSignal(targetStorage, {
+      op: externalized.persisted.length === 0 ? "clear" : "replace"
+    });
     return next;
   });
 }
 
-export function pruneOrphanChatImages(storage: StorageArea): Promise<string[]> {
-  return enqueue(storage, async () => {
-    const store = resolveActiveSubtitleStore();
-    const data = await storage.get([HISTORY_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
-    const rawValue = data?.[HISTORY_STORAGE_KEY];
+export function pruneOrphanChatImages(storage?: StorageArea): Promise<string[]> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  return enqueue(store, targetStorage, async () => {
+    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+    const rawValue = await store.listConversations();
     const validConversationIds: string[] = [];
     const keepImageIds: string[] = [];
 
-    if (Array.isArray(rawValue)) {
-      for (const item of rawValue) {
-        if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
+    for (const item of rawValue) {
+      if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
+        continue;
+      }
+      const convId = String(item.id || "").trim();
+      if (!convId) {
+        continue;
+      }
+      validConversationIds.push(convId);
+      const messages = (item as { messages?: unknown }).messages;
+      if (!Array.isArray(messages)) {
+        continue;
+      }
+      for (const msg of messages) {
+        const images = (msg as { images?: unknown } | null)?.images;
+        if (!Array.isArray(images)) {
           continue;
         }
-        const convId = String((item as { id?: unknown }).id || "").trim();
-        if (!convId) {
-          continue;
-        }
-        validConversationIds.push(convId);
-        const messages = (item as { messages?: unknown }).messages;
-        if (!Array.isArray(messages)) {
-          continue;
-        }
-        for (const msg of messages) {
-          const images = (msg as { images?: unknown } | null)?.images;
-          if (!Array.isArray(images)) {
-            continue;
-          }
-          for (const entry of images) {
-            if (isPersistedImageRef(entry)) {
-              keepImageIds.push(entry.idbRef.trim());
-            }
+        for (const entry of images) {
+          if (isPersistedImageRef(entry)) {
+            keepImageIds.push(entry.idbRef.trim());
           }
         }
       }

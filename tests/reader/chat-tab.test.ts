@@ -86,7 +86,8 @@ function stubChromeByType(): void {
   };
   chromeStub.runtime.sendMessage = callbackStyleSendMessage({
     "ai-providers-list": () => ({ ok: true, providers: providerList }),
-    "get-settings": () => ({ ok: true, settings: {} })
+    "get-settings": () => ({ ok: true, settings: {} }),
+    "subtitle-cache": () => ({ handled: false })
   });
   chromeStub.runtime.connect = vi.fn(() => {
     const messageListeners: Array<(msg: unknown) => void> = [];
@@ -1783,14 +1784,13 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
       "原会话的新问题",
       "部分正文"
     ]);
-    const chromeStub = window.chrome as unknown as {
-      storage: { local: { set: ReturnType<typeof vi.fn> } };
-    };
-    const writes = chromeStub.storage.local.set.mock.calls
-      .map((call) => (call[0] as Record<string, unknown>).biliscript_ai_conversations_v1)
-      .filter(Boolean) as Array<Array<{ id: string; messages: Array<{ content: string }> }>>;
-    expect(writes.length).toBeGreaterThan(0);
-    expect(writes[writes.length - 1].find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
+    const persisted = (await resolveActiveSubtitleStore().listConversations()) as unknown as Array<{
+      id: string;
+      messages: Array<{ content: string }>;
+    }>;
+    expect(persisted.length).toBeGreaterThan(0);
+    expect(persisted.find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
       .toContain("部分正文");
 
     await waitFor(() => messages.textContent!.includes("B 的历史答案") && scrollTo.mock.calls.length > 0);

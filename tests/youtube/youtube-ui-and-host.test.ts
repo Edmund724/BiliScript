@@ -326,7 +326,8 @@ describe("宿主主题 <html dark> 与主题文案通用化", () => {
         readerPalette: "flyme",
         readerFontSizeScale: 100,
         enableAgentBridge: false,
-        cleanConversationsOlderThan30Days: false,
+        chatHistoryMaxCount: 0,
+        videoCacheMaxMb: 150,
         enableDebugLogs: false
       },
       providerSnapshot: null,

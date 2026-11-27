@@ -24,7 +24,9 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { createDisposableContext, type DisposableContext } from "../shared/typed-event-bus.js";
 import {
   CONVERSATIONS_STORAGE_KEY,
+  CONVERSATIONS_SYNC_SIGNAL_KEY,
   OFFSCREEN_CHAT_PORT_NAME,
+  applyConversationSyncSignal,
   applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
@@ -540,10 +542,25 @@ function activateSessionTriggers(): void {
     syncMoreMenuSlidersPatch(patch);
   });
   const unwatchConversations = watchStorageKeys((changes) => {
+    if (CONVERSATIONS_SYNC_SIGNAL_KEY in changes) {
+      const signal = changes[CONVERSATIONS_SYNC_SIGNAL_KEY]?.newValue;
+      const local = typeof chrome !== "undefined" ? chrome.storage?.local : undefined;
+      void applyConversationSyncSignal(signal, local)
+        .then((changed) => {
+          if (changed) {
+            lists.renderHistoryList();
+          }
+        })
+        .catch(() => {});
+      return;
+    }
     if (!(CONVERSATIONS_STORAGE_KEY in changes)) {
       return;
     }
     const rawNext = changes[CONVERSATIONS_STORAGE_KEY]?.newValue;
+    if (!Array.isArray(rawNext) || rawNext.length === 0) {
+      return;
+    }
     if (syncSavedConversationsFromStorage(rawNext)) {
       lists.renderHistoryList();
       if (hasExternalizedChatImages(rawNext) && typeof chrome !== "undefined" && chrome.storage?.local) {
@@ -555,7 +572,7 @@ function activateSessionTriggers(): void {
       }
     }
   }, {
-    local: [CONVERSATIONS_STORAGE_KEY]
+    local: [CONVERSATIONS_SYNC_SIGNAL_KEY, CONVERSATIONS_STORAGE_KEY]
   });
   const unwatchNoteSettings = watchStorageKeys((changes) => {
     const patch: Record<string, unknown> = {};

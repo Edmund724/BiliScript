@@ -16,7 +16,8 @@ export const SETTINGS_PANEL_BUS_REPLIES: RuntimeReplies = {
   "agent-bridge-connect": () => ({ ok: true, connected: false }),
   "agent-bridge-test": () => ({ ok: true, connected: false }),
   "revoke-provider-origin": () => ({ origins: [], revoked: false }),
-  "save-settings": () => ({ ok: true })
+  "save-settings": () => ({ ok: true }),
+  "subtitle-cache": () => ({ handled: false })
 };
 
 export type MessageBusHost<M extends BusMessage = BusMessage> = SendMessageHost<M>;

@@ -1,4 +1,3 @@
-import { cleanExpiredConversations } from "../../chat/conversation-store.js";
 import { DEFAULT_SETTINGS, type DetachedWindowMode, type KnownSettingKey, type Settings } from "../../core/defaults.js";
 import { normalizeSettingField } from "../../core/settings-store.js";
 import { state } from "../../core/state.js";
@@ -338,16 +337,6 @@ export const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     watchSync: true,
     onSaved: (val, hooks, elements) => {
       hooks.onAgentBridgeSaved?.(val, elements);
-    }
-  },
-  {
-    kind: "toggle",
-    key: "cleanConversationsOlderThan30Days",
-    getElement: (el) => el.cleanConversationsOlderThan30Days,
-    onApply: async (val) => {
-      if (val) {
-        await cleanExpiredConversations();
-      }
     }
   },
   {

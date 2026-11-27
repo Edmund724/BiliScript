@@ -298,9 +298,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
-  it("从 v1 升级到 v2：保留历史 subtitle_pages 与 by_lastUsed，增量补 by_bvid 并建好 ai_artifacts 与 chat_images", async () => {
-    expect(SUBTITLE_IDB_VERSION).toBe(2);
+describe("IndexedDB v1 → v3 零损升级与新仓库结构", () => {
+  it("从 v1 升级到 v3：保留历史 subtitle_pages 与 by_lastUsed，增量补 by_bvid 并建好 ai_artifacts、chat_images 与 conversations", async () => {
+    expect(SUBTITLE_IDB_VERSION).toBe(3);
     const { factory, databases } = createVersionedFakeIdbFactory();
     const dbName = "biliscript-upgrade-test";
 
@@ -346,7 +346,7 @@ describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
     expect(legacyTrack).toEqual([{ from: 0, to: 2, content: "历史字幕保留验证" }]);
 
     const dbState = databases.get(dbName)!;
-    expect(dbState.version).toBe(2);
+    expect(dbState.version).toBe(3);
 
     const subStore = dbState.stores.get(SUBTITLE_IDB_STORE)!;
     expect(subStore.indexes.get(SUBTITLE_IDB_LAST_USED_INDEX)).toBe("lastUsed");
@@ -365,6 +365,11 @@ describe("IndexedDB v1 → v2 零损升级与新仓库结构", () => {
     expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_CONVERSATION_ID)).toBe("conversationId");
     expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_BVID)).toBe("bvid");
     expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_LAST_USED)).toBe("lastUsedAt");
+
+    const convStore = dbState.stores.get("conversations")!;
+    expect(convStore.keyPath).toBe("id");
+    expect(convStore.records.size).toBe(0);
+    expect(convStore.indexes.get("by_updatedAt")).toBe("updatedAt");
   });
 
   it("ai_artifacts 按族视频数上限（默认 100 / 100 / 20 / 20）执行 LRU 淘汰且读命中刷新 lastUsedAt", async () => {

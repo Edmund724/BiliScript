@@ -49,6 +49,7 @@ export interface SettingsNavigatorDeps {
   getMounted: () => { host: HTMLElement; elements: SettingsElements } | null;
   ensureRendered: () => Promise<void>;
   onAgentAddressClosed?: (options: { focusButton: boolean }) => void;
+  onViewEntered?: (view: SettingsViewId) => void;
   openLinkedCredentialEditor?: (target: AiCredentialLinkTarget) => Promise<void> | void;
 }
 
@@ -184,6 +185,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
 
     activeSettingsView = targetView;
+    deps.onViewEntered?.(targetView);
     elements.settingsTitle.textContent = SETTINGS_VIEW_TITLES[targetView];
     elements.resetBtn.hidden = targetView !== "root";
     elements.backBtn.setAttribute(

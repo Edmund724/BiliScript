@@ -17,7 +17,9 @@ import {
   type LiveTextToolHistoryEntry
 } from "../live/live-text-tool-history.js";
 
-export const MAX_SAVED_CONVERSATIONS = 60;
+export interface NormalizeConversationsOptions {
+  maxCount?: number;
+}
 
 interface BuildContextKeyPayload {
   site?: unknown;
@@ -117,11 +119,14 @@ export function retainLatestImage<T extends object>(messages: T[]): T[] {
   });
 }
 
-export function normalizeConversations(value: unknown): Array<OrdinaryConversation | LiveTextToolHistoryEntry> {
+export function normalizeConversations(
+  value: unknown,
+  options: NormalizeConversationsOptions = {}
+): Array<OrdinaryConversation | LiveTextToolHistoryEntry> {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
+  const sorted = value
     .map((item) => {
       if (isLiveTextToolHistoryEntry(item)) {
         return normalizeLiveTextToolHistoryEntry(item);
@@ -177,8 +182,13 @@ export function normalizeConversations(value: unknown): Array<OrdinaryConversati
       return normalized;
     })
     .filter((item): item is OrdinaryConversation | LiveTextToolHistoryEntry => Boolean(item))
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, MAX_SAVED_CONVERSATIONS);
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  const maxCount = Math.floor(Number(options.maxCount ?? 0));
+  if (Number.isFinite(maxCount) && maxCount > 0 && sorted.length > maxCount) {
+    return sorted.slice(0, maxCount);
+  }
+  return sorted;
 }
 
 export function resolveConversationStorageKey(rawKey: unknown, contextRef: AiContext, contextUrl = ""): string {

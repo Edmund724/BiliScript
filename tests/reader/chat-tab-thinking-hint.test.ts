@@ -65,7 +65,8 @@ function stubChromeByType(): void {
   };
   chromeStub.runtime.sendMessage = callbackStyleSendMessage({
     "ai-providers-list": () => ({ ok: true, providers: providersPayload }),
-    "get-settings": () => ({ ok: true, settings: settingsPayload })
+    "get-settings": () => ({ ok: true, settings: settingsPayload }),
+    "subtitle-cache": () => ({ handled: false })
   });
   chromeStub.runtime.connect = vi.fn(() => ({
     name: "offscreen-chat",

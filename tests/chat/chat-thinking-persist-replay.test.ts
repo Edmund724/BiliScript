@@ -163,10 +163,10 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       );
       applyConversationIdentity({ id: "conv-test", meta: { id: "conv-test", title: "测试" } });
 
+      const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
       await store.persistCurrent();
 
-      expect(fakeStorage.set).toHaveBeenCalled();
-      const savedList = (fakeStorage.set.mock.calls[0][0] as Record<string, any>)[CONVERSATIONS_STORAGE_KEY];
+      const savedList = (await resolveActiveSubtitleStore().listConversations()) as Array<Record<string, any>>;
       expect(savedList[0].messages[1]).toMatchObject({
         role: "assistant",
         content: "",

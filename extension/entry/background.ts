@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
-import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
+import { normalizePlayerAiQuickPrompt, videoCacheMaxMbToBytes } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedPage } from "../bilibili/video-id-shared.js";
 import { openOnboardingPage, runOnInstalled } from "./on-installed.js";
 import { sendMessageToTab, waitForTabComplete } from "../shared/tab-utils.js";
@@ -62,6 +62,7 @@ import {
 import { SILICONFLOW_TRANSLATE_KEY_STORAGE } from "../ai/subtitle-translate-config.js";
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
 import { createSubtitleCacheHandler } from "../subtitle/subtitle-cache-handler.js";
+import { defaultSubtitleIdbStore } from "../subtitle/idb-store.js";
 import { migrateLegacyLocalStorageToIdb } from "../subtitle/storage-migration.js";
 import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
@@ -190,7 +191,11 @@ const handleSaveSettings = createSaveSettingsHandler({
   saveSettingsWithInvalidate,
   getSettingsSnapshot,
   onSearchOptOut: createSearchOptOutHook({ logWarn }),
-  onSettingsSaved: agentBridge.sync
+  onSettingsSaved: async () => {
+    const settings = await getSettingsSnapshot();
+    defaultSubtitleIdbStore.syncVideoCacheMaxBytes(videoCacheMaxMbToBytes(settings.videoCacheMaxMb));
+    await agentBridge.sync();
+  }
 });
 
 const hostPermissionHandlers = createHostPermissionHandlers({
@@ -430,7 +435,12 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
 });
 
 const handleSegmentCache = createSegmentCacheHandler();
-const handleSubtitleCache = createSubtitleCacheHandler();
+const handleSubtitleCache = createSubtitleCacheHandler(defaultSubtitleIdbStore, {
+  resolveVideoCacheMaxBytes: async () => {
+    const settings = await getSettingsSnapshot();
+    return videoCacheMaxMbToBytes(settings.videoCacheMaxMb);
+  }
+});
 
 const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
   loadProviders: liveProviderStore.loadProviders,

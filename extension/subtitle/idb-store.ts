@@ -10,7 +10,7 @@ import {
 import { isAsrVariantSourceKey } from "./source-key.js";
 
 export const SUBTITLE_IDB_NAME = "biliscript-subtitle-store";
-export const SUBTITLE_IDB_VERSION = 2;
+export const SUBTITLE_IDB_VERSION = 3;
 
 export const SUBTITLE_IDB_STORE = "subtitle_pages";
 export const SUBTITLE_IDB_LAST_USED_INDEX = "by_lastUsed";
@@ -26,6 +26,9 @@ export const CHAT_IMAGES_IDB_STORE = "chat_images";
 export const CHAT_IMAGES_INDEX_CONVERSATION_ID = "by_conversationId";
 export const CHAT_IMAGES_INDEX_BVID = "by_bvid";
 export const CHAT_IMAGES_INDEX_LAST_USED = "by_lastUsedAt";
+
+export const CONVERSATIONS_IDB_STORE = "conversations";
+export const CONVERSATIONS_INDEX_UPDATED_AT = "by_updatedAt";
 
 export const DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES = 100;
 export const DEFAULT_SUBTITLE_CACHE_MAX_BYTES = 150 * 1024 * 1024;
@@ -293,6 +296,33 @@ export type SubtitleStoreWriteInterceptor = (
   ctx: SubtitleStoreWriteContext
 ) => Promise<void> | void;
 
+export interface VideoCacheUsage {
+  totalBytes: number;
+  subtitleBytes: number;
+  artifactBytes: number;
+  subtitlePageCount: number;
+  artifactCount: number;
+  maxBytes: number;
+}
+
+export interface VideoCacheLimitUpdateResult {
+  evictedPageIds: string[];
+  evictedArtifactKeys: string[];
+  usage: VideoCacheUsage;
+}
+
+export interface PersistedConversationRecord {
+  id: string;
+  updatedAt: number;
+  createdAt?: number;
+  [key: string]: unknown;
+}
+
+export interface PruneConversationsResult {
+  removedIds: string[];
+  keptCount: number;
+}
+
 export interface SubtitleIdbStoreOptions {
   indexedDB?: IDBFactory | null;
   dbName?: string;
@@ -360,6 +390,19 @@ export interface SubtitleIdbStore {
   clearAllChatImages(): Promise<string[]>;
   listChatImagesByConversationId(conversationId: string): Promise<ChatImageRecord[]>;
   listAllChatImages(): Promise<ChatImageRecord[]>;
+
+  getVideoCacheUsage(): Promise<VideoCacheUsage>;
+  syncVideoCacheMaxBytes(maxBytes: number): void;
+  setVideoCacheMaxBytes(maxBytes: number): Promise<VideoCacheLimitUpdateResult>;
+
+  getConversation(id: string): Promise<PersistedConversationRecord | null>;
+  listConversations(): Promise<PersistedConversationRecord[]>;
+  countConversations(): Promise<number>;
+  putConversation(record: PersistedConversationRecord): Promise<void>;
+  putConversationsMany(records: PersistedConversationRecord[]): Promise<void>;
+  deleteConversations(ids: string[]): Promise<string[]>;
+  clearAllConversations(): Promise<string[]>;
+  pruneConversationsToLimit(maxCount: number): Promise<PruneConversationsResult>;
 
   clearAll(): Promise<void>;
   setWriteInterceptorForTests(interceptor: SubtitleStoreWriteInterceptor | null): void;
@@ -499,26 +542,13 @@ function estimateJsonBytes(value: unknown): number {
   return json.length * 2;
 }
 
-export function estimateSubtitleRecordBytes(record: SubtitlePageRecord): number {
-  return estimateJsonBytes({
-    ...record,
-    estimatedBytes: 0
-  });
+function estimateRecordBytes(record: object): number {
+  return estimateJsonBytes({ ...record, estimatedBytes: 0 });
 }
 
-export function estimateAiArtifactRecordBytes(record: AiArtifactRecord): number {
-  return estimateJsonBytes({
-    ...record,
-    estimatedBytes: 0
-  });
-}
-
-export function estimateChatImageRecordBytes(record: ChatImageRecord): number {
-  return estimateJsonBytes({
-    ...record,
-    estimatedBytes: 0
-  });
-}
+export const estimateSubtitleRecordBytes = (record: SubtitlePageRecord): number => estimateRecordBytes(record);
+export const estimateAiArtifactRecordBytes = (record: AiArtifactRecord): number => estimateRecordBytes(record);
+export const estimateChatImageRecordBytes = (record: ChatImageRecord): number => estimateRecordBytes(record);
 
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -718,6 +748,14 @@ interface StorageBackend {
   getAllRawChatImageRefs(): Promise<RawChatImageRef[]>;
   clearChatImages(): Promise<void>;
 
+  getConversation(id: string): Promise<PersistedConversationRecord | null>;
+  getAllConversations(): Promise<PersistedConversationRecord[]>;
+  countConversations(): Promise<number>;
+  putConversation(record: PersistedConversationRecord): Promise<void>;
+  putConversationsMany(records: PersistedConversationRecord[]): Promise<void>;
+  deleteConversations(ids: string[]): Promise<void>;
+  clearConversations(): Promise<void>;
+
   clearAll(): Promise<void>;
 }
 
@@ -725,6 +763,7 @@ interface SharedMemoryBacking {
   pages: Map<string, SubtitlePageRecord>;
   artifacts: Map<string, AiArtifactRecord>;
   chatImages: Map<string, ChatImageRecord>;
+  conversations: Map<string, PersistedConversationRecord>;
 }
 
 type SubtitleIdbMemoryGlobal = typeof globalThis & {
@@ -738,176 +777,134 @@ function getSharedMemoryBacking(): SharedMemoryBacking {
     backing = {
       pages: new Map<string, SubtitlePageRecord>(),
       artifacts: new Map<string, AiArtifactRecord>(),
-      chatImages: new Map<string, ChatImageRecord>()
+      chatImages: new Map<string, ChatImageRecord>(),
+      conversations: new Map<string, PersistedConversationRecord>()
     };
     globals[DEFAULT_MEMORY_BACKING_SYMBOL] = backing;
-  } else if (!backing.chatImages) {
-    backing.chatImages = new Map<string, ChatImageRecord>();
+  } else {
+    if (!backing.chatImages) {
+      backing.chatImages = new Map<string, ChatImageRecord>();
+    }
+    if (!backing.conversations) {
+      backing.conversations = new Map<string, PersistedConversationRecord>();
+    }
   }
   return backing;
 }
 
+function normalizePersistedConversationRecord(raw: unknown): PersistedConversationRecord | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as Partial<PersistedConversationRecord>;
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  if (!id) {
+    return null;
+  }
+  const updatedAt = Number.isFinite(Number(candidate.updatedAt))
+    ? Number(candidate.updatedAt)
+    : Number.isFinite(Number(candidate.createdAt))
+      ? Number(candidate.createdAt)
+      : 0;
+  return {
+    ...(cloneValue(raw) as Record<string, unknown>),
+    id,
+    updatedAt
+  };
+}
+
+function normalizePersistedConversationList(rawAll: unknown): PersistedConversationRecord[] {
+  const list: PersistedConversationRecord[] = [];
+  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+    const normalized = normalizePersistedConversationRecord(raw);
+    if (normalized) {
+      list.push(normalized);
+    }
+  }
+  list.sort((a, b) => {
+    if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+    const bCreated = Number(b.createdAt) || 0;
+    const aCreated = Number(a.createdAt) || 0;
+    if (bCreated !== aCreated) return bCreated - aCreated;
+    return a.id.localeCompare(b.id);
+  });
+  return list;
+}
+
 function createMemoryBackend(shared = false): StorageBackend {
-  const backing: SharedMemoryBacking = shared
+  const b: SharedMemoryBacking = shared
     ? getSharedMemoryBacking()
-    : {
-        pages: new Map<string, SubtitlePageRecord>(),
-        artifacts: new Map<string, AiArtifactRecord>(),
-        chatImages: new Map<string, ChatImageRecord>()
-      };
+    : { pages: new Map(), artifacts: new Map(), chatImages: new Map(), conversations: new Map() };
+  const mapGet = <T>(m: Map<string, T>, k: string): T | null => {
+    const hit = m.get(k);
+    return hit ? cloneValue(hit) : null;
+  };
+  const mapFilter = <T>(m: Map<string, T>, fn: (v: T) => boolean): T[] => {
+    const out: T[] = [];
+    for (const v of m.values()) if (fn(v)) out.push(cloneValue(v));
+    return out;
+  };
+  const mapDelete = <T>(m: Map<string, T>, keys: readonly string[]): void => {
+    for (const k of keys) m.delete(k);
+  };
+  const mapPutMany = <T>(m: Map<string, T>, items: readonly T[], keyOf: (v: T) => string): void => {
+    for (const v of items) m.set(keyOf(v), cloneValue(v));
+  };
 
   return {
-    async getAllPages() {
-      return Array.from(backing.pages.values()).map(cloneValue);
-    },
-    async getPage(id) {
-      const hit = backing.pages.get(id);
-      return hit ? cloneValue(hit) : null;
-    },
-    async getPagesByBvid(bvid) {
-      const out: SubtitlePageRecord[] = [];
-      for (const rec of backing.pages.values()) {
-        if (rec.bvid === bvid) {
-          out.push(cloneValue(rec));
-        }
-      }
-      return out;
-    },
-    async putPage(record) {
-      backing.pages.set(record.id, cloneValue(record));
-    },
-    async deletePages(ids) {
-      for (const id of ids) {
-        backing.pages.delete(id);
-      }
-    },
+    getAllPages: async () => Array.from(b.pages.values(), cloneValue),
+    getPage: async (id) => mapGet(b.pages, id),
+    getPagesByBvid: async (bvid) => mapFilter(b.pages, (r) => r.bvid === bvid),
+    putPage: async (r) => { b.pages.set(r.id, cloneValue(r)); },
+    deletePages: async (ids) => mapDelete(b.pages, ids),
 
-    async getArtifact(key) {
-      const hit = backing.artifacts.get(key);
-      return hit ? cloneValue(hit) : null;
-    },
-    async getArtifactsMany(keys) {
-      return keys.map((key) => {
-        const hit = backing.artifacts.get(key);
-        return hit ? cloneValue(hit) : null;
-      });
-    },
-    async putArtifact(record) {
-      backing.artifacts.set(record.key, cloneValue(record));
-    },
-    async putArtifactsMany(records) {
-      for (const record of records) {
-        backing.artifacts.set(record.key, cloneValue(record));
-      }
-    },
-    async deleteArtifacts(keys) {
-      for (const key of keys) {
-        backing.artifacts.delete(key);
-      }
-    },
-    async getArtifactsByFamily(family) {
-      const out: AiArtifactRecord[] = [];
-      for (const rec of backing.artifacts.values()) {
-        if (rec.family === family) {
-          out.push(cloneValue(rec));
-        }
-      }
-      return out;
-    },
-    async getArtifactsByFamilyBvid(family, bvid) {
-      const out: AiArtifactRecord[] = [];
-      for (const rec of backing.artifacts.values()) {
-        if (rec.family === family && rec.bvid === bvid) {
-          out.push(cloneValue(rec));
-        }
-      }
-      return out;
-    },
-    async getArtifactsByBvid(bvid) {
-      const out: AiArtifactRecord[] = [];
-      for (const rec of backing.artifacts.values()) {
-        if (rec.bvid === bvid) {
-          out.push(cloneValue(rec));
-        }
-      }
-      return out;
-    },
-    async getAllArtifacts() {
-      return Array.from(backing.artifacts.values()).map(cloneValue);
-    },
+    getArtifact: async (key) => mapGet(b.artifacts, key),
+    getArtifactsMany: async (keys) => keys.map((k) => mapGet(b.artifacts, k)),
+    putArtifact: async (r) => { b.artifacts.set(r.key, cloneValue(r)); },
+    putArtifactsMany: async (rs) => mapPutMany(b.artifacts, rs, (r) => r.key),
+    deleteArtifacts: async (keys) => mapDelete(b.artifacts, keys),
+    getArtifactsByFamily: async (family) => mapFilter(b.artifacts, (r) => r.family === family),
+    getArtifactsByFamilyBvid: async (family, bvid) => mapFilter(b.artifacts, (r) => r.family === family && r.bvid === bvid),
+    getArtifactsByBvid: async (bvid) => mapFilter(b.artifacts, (r) => r.bvid === bvid),
+    getAllArtifacts: async () => Array.from(b.artifacts.values(), cloneValue),
 
-    async getChatImage(id) {
-      const hit = backing.chatImages.get(id);
+    getChatImage: async (id) => {
+      const hit = b.chatImages.get(id);
       return hit ? normalizeChatImageRecord(cloneValue(hit)) : null;
     },
-    async getChatImagesMany(ids) {
-      return ids.map((id) => {
-        const hit = backing.chatImages.get(id);
+    getChatImagesMany: async (ids) =>
+      ids.map((id) => {
+        const hit = b.chatImages.get(id);
         return hit ? normalizeChatImageRecord(cloneValue(hit)) : null;
-      });
-    },
-    async putChatImage(record) {
-      backing.chatImages.set(record.id, cloneValue(record));
-    },
-    async putChatImagesMany(records) {
-      for (const record of records) {
-        backing.chatImages.set(record.id, cloneValue(record));
-      }
-    },
-    async deleteChatImages(ids) {
-      for (const id of ids) {
-        backing.chatImages.delete(id);
-      }
-    },
-    async getChatImagesByConversationId(conversationId) {
-      const out: ChatImageRecord[] = [];
-      for (const rec of backing.chatImages.values()) {
-        if (rec.conversationId === conversationId) {
-          const normalized = normalizeChatImageRecord(cloneValue(rec));
-          if (normalized) {
-            out.push(normalized);
-          }
-        }
-      }
-      return out;
-    },
-    async getRawChatImageIdsByConversationId(conversationId) {
-      const ids: string[] = [];
-      for (const rec of backing.chatImages.values()) {
-        if (rec.conversationId === conversationId && rec.id) {
-          ids.push(rec.id);
-        }
-      }
-      return ids;
-    },
-    async getAllChatImages() {
-      const out: ChatImageRecord[] = [];
-      for (const rec of backing.chatImages.values()) {
-        const normalized = normalizeChatImageRecord(cloneValue(rec));
-        if (normalized) {
-          out.push(normalized);
-        }
-      }
-      return out;
-    },
-    async getAllRawChatImageRefs() {
-      const out: RawChatImageRef[] = [];
-      for (const rec of backing.chatImages.values()) {
-        const ref = extractRawChatImageRef(rec);
-        if (ref) {
-          out.push(ref);
-        }
-      }
-      return out;
-    },
-    async clearChatImages() {
-      backing.chatImages.clear();
-    },
+      }),
+    putChatImage: async (r) => { b.chatImages.set(r.id, cloneValue(r)); },
+    putChatImagesMany: async (rs) => mapPutMany(b.chatImages, rs, (r) => r.id),
+    deleteChatImages: async (ids) => mapDelete(b.chatImages, ids),
+    getChatImagesByConversationId: async (cid) =>
+      normalizeChatImageList(mapFilter(b.chatImages, (r) => r.conversationId === cid)),
+    getRawChatImageIdsByConversationId: async (cid) =>
+      Array.from(b.chatImages.values()).filter((r) => r.conversationId === cid && r.id).map((r) => r.id),
+    getAllChatImages: async () => normalizeChatImageList(Array.from(b.chatImages.values(), cloneValue)),
+    getAllRawChatImageRefs: async () =>
+      Array.from(b.chatImages.values()).map(extractRawChatImageRef).filter((r): r is RawChatImageRef => Boolean(r)),
+    clearChatImages: async () => { b.chatImages.clear(); },
 
-    async clearAll() {
-      backing.pages.clear();
-      backing.artifacts.clear();
-      backing.chatImages.clear();
+    getConversation: async (id) => {
+      const hit = b.conversations.get(id);
+      return hit ? normalizePersistedConversationRecord(cloneValue(hit)) : null;
+    },
+    getAllConversations: async () => normalizePersistedConversationList(Array.from(b.conversations.values())),
+    countConversations: async () => b.conversations.size,
+    putConversation: async (r) => { b.conversations.set(r.id, cloneValue(r)); },
+    putConversationsMany: async (rs) => mapPutMany(b.conversations, rs, (r) => r.id),
+    deleteConversations: async (ids) => mapDelete(b.conversations, ids),
+    clearConversations: async () => { b.conversations.clear(); },
+
+    clearAll: async () => {
+      b.pages.clear();
+      b.artifacts.clear();
+      b.chatImages.clear();
+      b.conversations.clear();
     }
   };
 }
@@ -927,89 +924,43 @@ function idbTransactionToPromise(tx: IDBTransaction): Promise<void> {
   });
 }
 
-function normalizePageList(rawAll: unknown): SubtitlePageRecord[] {
-  const list: SubtitlePageRecord[] = [];
+function mapDefined<T>(rawAll: unknown, normalize: (raw: unknown) => T | null): T[] {
+  const list: T[] = [];
   for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-    const normalized = normalizePageRecord(raw);
-    if (normalized) {
-      list.push(normalized);
-    }
+    const normalized = normalize(raw);
+    if (normalized) list.push(normalized);
   }
   return list;
 }
 
-function normalizeArtifactList(rawAll: unknown): AiArtifactRecord[] {
-  const list: AiArtifactRecord[] = [];
-  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-    const normalized = normalizeAiArtifactRecord(raw);
-    if (normalized) {
-      list.push(normalized);
-    }
-  }
-  return list;
-}
+const normalizePageList = (rawAll: unknown): SubtitlePageRecord[] => mapDefined(rawAll, normalizePageRecord);
+const normalizeArtifactList = (rawAll: unknown): AiArtifactRecord[] => mapDefined(rawAll, normalizeAiArtifactRecord);
+const normalizeChatImageList = (rawAll: unknown): ChatImageRecord[] => mapDefined(rawAll, normalizeChatImageRecord);
 
-function normalizeChatImageList(rawAll: unknown): ChatImageRecord[] {
-  const list: ChatImageRecord[] = [];
-  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-    const normalized = normalizeChatImageRecord(raw);
-    if (normalized) {
-      list.push(normalized);
-    }
-  }
-  return list;
-}
+const IDB_STORE_SCHEMAS: ReadonlyArray<readonly [string, string, ReadonlyArray<readonly [string, string | string[]]>]> = [
+  [SUBTITLE_IDB_STORE, "id", [[SUBTITLE_IDB_LAST_USED_INDEX, "lastUsed"], [SUBTITLE_IDB_BVID_INDEX, "bvid"]]],
+  [AI_ARTIFACTS_IDB_STORE, "key", [[AI_ARTIFACTS_INDEX_FAMILY_BVID, ["family", "bvid"]], [AI_ARTIFACTS_INDEX_FAMILY_LAST_USED, ["family", "lastUsedAt"]], [AI_ARTIFACTS_INDEX_BVID, "bvid"], [AI_ARTIFACTS_INDEX_LAST_USED, "lastUsedAt"]]],
+  [CHAT_IMAGES_IDB_STORE, "id", [[CHAT_IMAGES_INDEX_CONVERSATION_ID, "conversationId"], [CHAT_IMAGES_INDEX_BVID, "bvid"], [CHAT_IMAGES_INDEX_LAST_USED, "lastUsedAt"]]],
+  [CONVERSATIONS_IDB_STORE, "id", [[CONVERSATIONS_INDEX_UPDATED_AT, "updatedAt"]]]
+];
 
 function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBackend {
   let dbPromise: Promise<IDBDatabase> | null = null;
 
   function openDb(): Promise<IDBDatabase> {
-    if (dbPromise) {
-      return dbPromise;
-    }
+    if (dbPromise) return dbPromise;
     dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
       const req = idbFactory.open(dbName, SUBTITLE_IDB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
-        const upgradeTx = req.transaction!;
-
-        const subtitleStore = db.objectStoreNames.contains(SUBTITLE_IDB_STORE)
-          ? upgradeTx.objectStore(SUBTITLE_IDB_STORE)
-          : db.createObjectStore(SUBTITLE_IDB_STORE, { keyPath: "id" });
-        if (!subtitleStore.indexNames.contains(SUBTITLE_IDB_LAST_USED_INDEX)) {
-          subtitleStore.createIndex(SUBTITLE_IDB_LAST_USED_INDEX, "lastUsed", { unique: false });
-        }
-        if (!subtitleStore.indexNames.contains(SUBTITLE_IDB_BVID_INDEX)) {
-          subtitleStore.createIndex(SUBTITLE_IDB_BVID_INDEX, "bvid", { unique: false });
-        }
-
-        const aiStore = db.objectStoreNames.contains(AI_ARTIFACTS_IDB_STORE)
-          ? upgradeTx.objectStore(AI_ARTIFACTS_IDB_STORE)
-          : db.createObjectStore(AI_ARTIFACTS_IDB_STORE, { keyPath: "key" });
-        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_BVID)) {
-          aiStore.createIndex(AI_ARTIFACTS_INDEX_FAMILY_BVID, ["family", "bvid"], { unique: false });
-        }
-        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED)) {
-          aiStore.createIndex(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED, ["family", "lastUsedAt"], { unique: false });
-        }
-        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_BVID)) {
-          aiStore.createIndex(AI_ARTIFACTS_INDEX_BVID, "bvid", { unique: false });
-        }
-        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_LAST_USED)) {
-          aiStore.createIndex(AI_ARTIFACTS_INDEX_LAST_USED, "lastUsedAt", { unique: false });
-        }
-
-        const chatImagesStore = db.objectStoreNames.contains(CHAT_IMAGES_IDB_STORE)
-          ? upgradeTx.objectStore(CHAT_IMAGES_IDB_STORE)
-          : db.createObjectStore(CHAT_IMAGES_IDB_STORE, { keyPath: "id" });
-        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)) {
-          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_CONVERSATION_ID, "conversationId", { unique: false });
-        }
-        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_BVID)) {
-          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_BVID, "bvid", { unique: false });
-        }
-        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_LAST_USED)) {
-          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_LAST_USED, "lastUsedAt", { unique: false });
+        const tx = req.transaction!;
+        for (const [name, keyPath, indexes] of IDB_STORE_SCHEMAS) {
+          const store = db.objectStoreNames.contains(name)
+            ? tx.objectStore(name)
+            : db.createObjectStore(name, { keyPath });
+          for (const [idxName, idxPath] of indexes) {
+            if (!store.indexNames.contains(idxName)) store.createIndex(idxName, idxPath, { unique: false });
+          }
         }
       };
       req.onsuccess = () => {
@@ -1031,291 +982,218 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
     return dbPromise;
   }
 
+  async function withRead<T>(
+    storeName: string,
+    fallback: T,
+    run: (store: IDBObjectStore) => Promise<T>
+  ): Promise<T> {
+    const db = await openDb();
+    if (!db.objectStoreNames.contains(storeName)) return fallback;
+    const tx = db.transaction(storeName, "readonly");
+    const result = await run(tx.objectStore(storeName));
+    await idbTransactionToPromise(tx);
+    return result;
+  }
+
+  async function withWrite(
+    storeName: string,
+    run: (store: IDBObjectStore) => void,
+    optional = false
+  ): Promise<void> {
+    const db = await openDb();
+    if (optional && !db.objectStoreNames.contains(storeName)) return;
+    const tx = db.transaction(storeName, "readwrite");
+    run(tx.objectStore(storeName));
+    await idbTransactionToPromise(tx);
+  }
+
+  async function getAllByIndex(
+    storeName: string,
+    indexName: string,
+    query: IDBValidKey | IDBKeyRange,
+    predicate: (item: unknown) => boolean
+  ): Promise<unknown[]> {
+    return withRead<unknown[]>(storeName, [], async (store) =>
+      typeof store.index === "function" && store.indexNames.contains(indexName)
+        ? ((await idbRequestToPromise(store.index(indexName).getAll(query))) as unknown[])
+        : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(predicate)
+    );
+  }
+
+  function putOne(storeName: string, record: unknown): Promise<void> {
+    return withWrite(storeName, (store) => {
+      store.put(cloneValue(record));
+    });
+  }
+
+  function putMany(storeName: string, records: readonly unknown[]): Promise<void> {
+    if (records.length === 0) return Promise.resolve();
+    return withWrite(storeName, (store) => {
+      for (const record of records) store.put(cloneValue(record));
+    });
+  }
+
+  function deleteKeys(storeName: string, keys: readonly string[], optional = false): Promise<void> {
+    if (keys.length === 0) return Promise.resolve();
+    return withWrite(
+      storeName,
+      (store) => {
+        for (const key of keys) store.delete(key);
+      },
+      optional
+    );
+  }
+
   return {
     async getAllPages() {
-      const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      const rawAll = await idbRequestToPromise(store.getAll());
-      await idbTransactionToPromise(tx);
-      return normalizePageList(rawAll);
+      return normalizePageList(await withRead(SUBTITLE_IDB_STORE, [], (s) => idbRequestToPromise(s.getAll())));
     },
     async getPage(id) {
-      const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      const raw = await idbRequestToPromise(store.get(id));
-      await idbTransactionToPromise(tx);
-      return normalizePageRecord(raw);
+      return normalizePageRecord(await withRead(SUBTITLE_IDB_STORE, null, (s) => idbRequestToPromise(s.get(id))));
     },
     async getPagesByBvid(bvid) {
-      const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      const rawAll =
-        typeof store.index === "function" && store.indexNames.contains(SUBTITLE_IDB_BVID_INDEX)
-          ? await idbRequestToPromise(store.index(SUBTITLE_IDB_BVID_INDEX).getAll(bvid))
-          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
-              (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
-            );
-      await idbTransactionToPromise(tx);
-      return normalizePageList(rawAll);
+      return normalizePageList(
+        await getAllByIndex(
+          SUBTITLE_IDB_STORE,
+          SUBTITLE_IDB_BVID_INDEX,
+          bvid,
+          (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
+        )
+      );
     },
-    async putPage(record) {
-      const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readwrite");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      store.put(cloneValue(record));
-      await idbTransactionToPromise(tx);
-    },
-    async deletePages(ids) {
-      if (ids.length === 0) {
-        return;
-      }
-      const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readwrite");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      for (const id of ids) {
-        store.delete(id);
-      }
-      await idbTransactionToPromise(tx);
-    },
+    putPage: (record) => putOne(SUBTITLE_IDB_STORE, record),
+    deletePages: (ids) => deleteKeys(SUBTITLE_IDB_STORE, ids),
 
     async getArtifact(key) {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const raw = await idbRequestToPromise(store.get(key));
-      await idbTransactionToPromise(tx);
-      return normalizeAiArtifactRecord(raw);
+      return normalizeAiArtifactRecord(
+        await withRead(AI_ARTIFACTS_IDB_STORE, null, (s) => idbRequestToPromise(s.get(key)))
+      );
     },
     async getArtifactsMany(keys) {
-      if (keys.length === 0) {
-        return [];
-      }
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const rawResults = await Promise.all(keys.map((key) => idbRequestToPromise(store.get(key))));
-      await idbTransactionToPromise(tx);
+      if (keys.length === 0) return [];
+      const rawResults = await withRead<unknown[]>(AI_ARTIFACTS_IDB_STORE, [], (s) =>
+        Promise.all(keys.map((k) => idbRequestToPromise(s.get(k))))
+      );
       return rawResults.map((raw) => normalizeAiArtifactRecord(raw));
     },
-    async putArtifact(record) {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      store.put(cloneValue(record));
-      await idbTransactionToPromise(tx);
-    },
-    async putArtifactsMany(records) {
-      if (records.length === 0) {
-        return;
-      }
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      for (const record of records) {
-        store.put(cloneValue(record));
-      }
-      await idbTransactionToPromise(tx);
-    },
-    async deleteArtifacts(keys) {
-      if (keys.length === 0) {
-        return;
-      }
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      for (const key of keys) {
-        store.delete(key);
-      }
-      await idbTransactionToPromise(tx);
-    },
+    putArtifact: (record) => putOne(AI_ARTIFACTS_IDB_STORE, record),
+    putArtifactsMany: (records) => putMany(AI_ARTIFACTS_IDB_STORE, records),
+    deleteArtifacts: (keys) => deleteKeys(AI_ARTIFACTS_IDB_STORE, keys),
     async getArtifactsByFamily(family) {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const rawAll =
+      const rawAll = await withRead<unknown[]>(AI_ARTIFACTS_IDB_STORE, [], async (store) =>
         typeof store.index === "function" &&
         store.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED) &&
         typeof IDBKeyRange !== "undefined" &&
         typeof IDBKeyRange.bound === "function"
-          ? await idbRequestToPromise(
+          ? ((await idbRequestToPromise(
               store
                 .index(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED)
                 .getAll(IDBKeyRange.bound([family, Number.NEGATIVE_INFINITY], [family, Number.POSITIVE_INFINITY]))
-            )
+            )) as unknown[])
           : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
               (item) => (item as { family?: unknown } | null)?.family === family
-            );
-      await idbTransactionToPromise(tx);
+            )
+      );
       return normalizeArtifactList(rawAll);
     },
     async getArtifactsByFamilyBvid(family, bvid) {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const rawAll =
-        typeof store.index === "function" && store.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_BVID)
-          ? await idbRequestToPromise(store.index(AI_ARTIFACTS_INDEX_FAMILY_BVID).getAll([family, bvid]))
-          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
-              (item) =>
-                (item as { family?: unknown } | null)?.family === family &&
-                (item as { bvid?: unknown } | null)?.bvid === bvid
-            );
-      await idbTransactionToPromise(tx);
-      return normalizeArtifactList(rawAll);
+      return normalizeArtifactList(
+        await getAllByIndex(
+          AI_ARTIFACTS_IDB_STORE,
+          AI_ARTIFACTS_INDEX_FAMILY_BVID,
+          [family, bvid],
+          (item) =>
+            (item as { family?: unknown } | null)?.family === family &&
+            (item as { bvid?: unknown } | null)?.bvid === bvid
+        )
+      );
     },
     async getArtifactsByBvid(bvid) {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const rawAll =
-        typeof store.index === "function" && store.indexNames.contains(AI_ARTIFACTS_INDEX_BVID)
-          ? await idbRequestToPromise(store.index(AI_ARTIFACTS_INDEX_BVID).getAll(bvid))
-          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
-              (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
-            );
-      await idbTransactionToPromise(tx);
-      return normalizeArtifactList(rawAll);
+      return normalizeArtifactList(
+        await getAllByIndex(
+          AI_ARTIFACTS_IDB_STORE,
+          AI_ARTIFACTS_INDEX_BVID,
+          bvid,
+          (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
+        )
+      );
     },
     async getAllArtifacts() {
-      const db = await openDb();
-      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
-      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
-      const rawAll = await idbRequestToPromise(store.getAll());
-      await idbTransactionToPromise(tx);
-      return normalizeArtifactList(rawAll);
+      return normalizeArtifactList(await withRead(AI_ARTIFACTS_IDB_STORE, [], (s) => idbRequestToPromise(s.getAll())));
     },
 
     async getChatImage(id) {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const raw = await idbRequestToPromise(store.get(id));
-      await idbTransactionToPromise(tx);
-      return normalizeChatImageRecord(raw);
+      return normalizeChatImageRecord(
+        await withRead(CHAT_IMAGES_IDB_STORE, null, (s) => idbRequestToPromise(s.get(id)))
+      );
     },
     async getChatImagesMany(ids) {
-      if (ids.length === 0) {
-        return [];
-      }
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const rawResults = await Promise.all(ids.map((id) => idbRequestToPromise(store.get(id))));
-      await idbTransactionToPromise(tx);
+      if (ids.length === 0) return [];
+      const rawResults = await withRead<unknown[]>(CHAT_IMAGES_IDB_STORE, [], (s) =>
+        Promise.all(ids.map((id) => idbRequestToPromise(s.get(id))))
+      );
       return rawResults.map((raw) => normalizeChatImageRecord(raw));
     },
-    async putChatImage(record) {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      store.put(cloneValue(record));
-      await idbTransactionToPromise(tx);
-    },
-    async putChatImagesMany(records) {
-      if (records.length === 0) {
-        return;
-      }
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      for (const record of records) {
-        store.put(cloneValue(record));
-      }
-      await idbTransactionToPromise(tx);
-    },
-    async deleteChatImages(ids) {
-      if (ids.length === 0) {
-        return;
-      }
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      for (const id of ids) {
-        store.delete(id);
-      }
-      await idbTransactionToPromise(tx);
-    },
+    putChatImage: (record) => putOne(CHAT_IMAGES_IDB_STORE, record),
+    putChatImagesMany: (records) => putMany(CHAT_IMAGES_IDB_STORE, records),
+    deleteChatImages: (ids) => deleteKeys(CHAT_IMAGES_IDB_STORE, ids),
     async getChatImagesByConversationId(conversationId) {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const rawAll =
-        typeof store.index === "function" && store.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)
-          ? await idbRequestToPromise(store.index(CHAT_IMAGES_INDEX_CONVERSATION_ID).getAll(conversationId))
-          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
-              (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
-            );
-      await idbTransactionToPromise(tx);
-      return normalizeChatImageList(rawAll);
+      return normalizeChatImageList(
+        await getAllByIndex(
+          CHAT_IMAGES_IDB_STORE,
+          CHAT_IMAGES_INDEX_CONVERSATION_ID,
+          conversationId,
+          (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
+        )
+      );
     },
     async getRawChatImageIdsByConversationId(conversationId) {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const rawAll =
-        typeof store.index === "function" && store.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)
-          ? await idbRequestToPromise(store.index(CHAT_IMAGES_INDEX_CONVERSATION_ID).getAll(conversationId))
-          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
-              (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
-            );
-      await idbTransactionToPromise(tx);
-      const ids: string[] = [];
-      for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-        const ref = extractRawChatImageRef(raw);
-        if (ref?.id) {
-          ids.push(ref.id);
-        }
-      }
-      return ids;
+      const rawAll = await getAllByIndex(
+        CHAT_IMAGES_IDB_STORE,
+        CHAT_IMAGES_INDEX_CONVERSATION_ID,
+        conversationId,
+        (item) => (item as { conversationId?: unknown } | null)?.conversationId === conversationId
+      );
+      return rawAll.map(extractRawChatImageRef).filter((ref): ref is RawChatImageRef => Boolean(ref?.id)).map((r) => r.id);
     },
     async getAllChatImages() {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const rawAll = await idbRequestToPromise(store.getAll());
-      await idbTransactionToPromise(tx);
-      return normalizeChatImageList(rawAll);
+      return normalizeChatImageList(await withRead(CHAT_IMAGES_IDB_STORE, [], (s) => idbRequestToPromise(s.getAll())));
     },
     async getAllRawChatImageRefs() {
-      const db = await openDb();
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readonly");
-      const store = tx.objectStore(CHAT_IMAGES_IDB_STORE);
-      const rawAll = await idbRequestToPromise(store.getAll());
-      await idbTransactionToPromise(tx);
-      const refs: RawChatImageRef[] = [];
-      for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-        const ref = extractRawChatImageRef(raw);
-        if (ref) {
-          refs.push(ref);
-        }
-      }
-      return refs;
+      const rawAll = await withRead<unknown[]>(CHAT_IMAGES_IDB_STORE, [], (s) => idbRequestToPromise(s.getAll()));
+      return rawAll.map(extractRawChatImageRef).filter((ref): ref is RawChatImageRef => Boolean(ref));
     },
-    async clearChatImages() {
-      const db = await openDb();
-      if (!db.objectStoreNames.contains(CHAT_IMAGES_IDB_STORE)) {
-        return;
-      }
-      const tx = db.transaction(CHAT_IMAGES_IDB_STORE, "readwrite");
-      tx.objectStore(CHAT_IMAGES_IDB_STORE).clear();
-      await idbTransactionToPromise(tx);
+    clearChatImages: () => withWrite(CHAT_IMAGES_IDB_STORE, (s) => s.clear(), true),
+
+    async getConversation(id) {
+      return normalizePersistedConversationRecord(
+        await withRead(CONVERSATIONS_IDB_STORE, null, (s) => idbRequestToPromise(s.get(id)))
+      );
     },
+    async getAllConversations() {
+      return normalizePersistedConversationList(
+        await withRead(CONVERSATIONS_IDB_STORE, [], (s) => idbRequestToPromise(s.getAll()))
+      );
+    },
+    async countConversations() {
+      return Number(await withRead(CONVERSATIONS_IDB_STORE, 0, (s) => idbRequestToPromise(s.count()))) || 0;
+    },
+    putConversation: (record) => putOne(CONVERSATIONS_IDB_STORE, record),
+    putConversationsMany: (records) => putMany(CONVERSATIONS_IDB_STORE, records),
+    deleteConversations: (ids) => deleteKeys(CONVERSATIONS_IDB_STORE, ids, true),
+    clearConversations: () => withWrite(CONVERSATIONS_IDB_STORE, (s) => s.clear(), true),
 
     async clearAll() {
       const db = await openDb();
-      const storesToClear = [SUBTITLE_IDB_STORE, AI_ARTIFACTS_IDB_STORE, CHAT_IMAGES_IDB_STORE].filter((name) =>
-        db.objectStoreNames.contains(name)
-      );
-      if (storesToClear.length === 0) {
-        return;
-      }
+      const storesToClear = [
+        SUBTITLE_IDB_STORE,
+        AI_ARTIFACTS_IDB_STORE,
+        CHAT_IMAGES_IDB_STORE,
+        CONVERSATIONS_IDB_STORE
+      ].filter((name) => db.objectStoreNames.contains(name));
+      if (storesToClear.length === 0) return;
       const tx = db.transaction(storesToClear, "readwrite");
-      for (const storeName of storesToClear) {
-        tx.objectStore(storeName).clear();
-      }
+      for (const storeName of storesToClear) tx.objectStore(storeName).clear();
       await idbTransactionToPromise(tx);
     }
   };
@@ -1350,20 +1228,31 @@ function selectBackend(options: SubtitleIdbStoreOptions): StorageBackend {
 }
 
 export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): SubtitleIdbStore {
-  const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES));
-  const maxBytes = Math.max(1, Math.floor(options.maxBytes ?? DEFAULT_SUBTITLE_CACHE_MAX_BYTES));
+  const hasExplicitMaxEntries = options.maxEntries !== undefined;
+  const maxEntries = hasExplicitMaxEntries
+    ? Math.max(1, Math.floor(options.maxEntries!))
+    : Number.POSITIVE_INFINITY;
+  const initialMaxBytes = Math.max(1, Math.floor(options.maxBytes ?? DEFAULT_SUBTITLE_CACHE_MAX_BYTES));
+  let currentMaxBytes = initialMaxBytes;
   const maxChatImageBytes = Math.max(
     1,
     Math.floor(options.maxChatImageBytes ?? DEFAULT_CHAT_IMAGES_MAX_BYTES)
   );
   const now = options.now ?? (() => Date.now());
   const backend = selectBackend(options);
-  const keepVideosMap: Record<AiArtifactFamily, number> = {
-    ...AI_ARTIFACT_FAMILY_KEEP_VIDEOS,
-    ...(options.aiArtifactKeepVideos ?? {})
-  };
+  const explicitKeepVideosMap: Partial<Record<AiArtifactFamily, number>> | null = options.aiArtifactKeepVideos
+    ? { ...options.aiArtifactKeepVideos }
+    : null;
   let writeInterceptor: SubtitleStoreWriteInterceptor | null = null;
   let opQueue: Promise<unknown> = Promise.resolve();
+
+  const cleanIdList = (ids: unknown): string[] =>
+    Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || "").trim()).filter(Boolean)));
+  const posTs = (value: unknown, fallback: number): number => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const toErr = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
 
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
     const next = opQueue.then(task, task);
@@ -1374,56 +1263,96 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     return next;
   }
 
-  async function evictSubtitlePagesIfNeeded(
-    protectedId: string
+  async function computeVideoCacheUsage(): Promise<VideoCacheUsage> {
+    const [allPages, allArtifacts] = await Promise.all([
+      backend.getAllPages(),
+      backend.getAllArtifacts()
+    ]);
+    const subtitleBytes = allPages.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+    const artifactBytes = allArtifacts.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+    return {
+      totalBytes: subtitleBytes + artifactBytes,
+      subtitleBytes,
+      artifactBytes,
+      subtitlePageCount: allPages.length,
+      artifactCount: allArtifacts.length,
+      maxBytes: currentMaxBytes
+    };
+  }
+
+  async function evictVideoCacheIfNeeded(
+    protectedTarget: { pageId?: string; artifactKey?: string } = {}
   ): Promise<{ evictedIds: string[]; evictedArtifactKeys: string[] }> {
-    const all = await backend.getAllPages();
-    let totalCount = all.length;
-    let totalBytes = all.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
-    if (totalCount <= maxEntries && totalBytes <= maxBytes) {
+    const [allPages, allArtifacts] = await Promise.all([
+      backend.getAllPages(),
+      backend.getAllArtifacts()
+    ]);
+    let remainingPageCount = allPages.length;
+    let totalBytes =
+      allPages.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0) +
+      allArtifacts.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+
+    if (totalBytes <= currentMaxBytes && remainingPageCount <= maxEntries) {
       return { evictedIds: [], evictedArtifactKeys: [] };
     }
 
-    const candidates = all
-      .filter((item) => item.id !== protectedId)
-      .sort((a, b) => {
-        if (a.lastUsed !== b.lastUsed) return a.lastUsed - b.lastUsed;
-        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-        return a.id.localeCompare(b.id);
-      });
-
-    const evictedRecords: SubtitlePageRecord[] = [];
-    for (const candidate of candidates) {
-      if (totalCount <= maxEntries && totalBytes <= maxBytes) {
-        break;
+    const pagesPerBvid = new Map<string, number>();
+    const artifactsByBvid = new Map<string, AiArtifactRecord[]>();
+    const candidates: Array<{ isPage: boolean; id: string; bvid: string; bytes: number; lastUsed: number; createdAt: number }> = [];
+    for (const p of allPages) {
+      if (p.bvid) pagesPerBvid.set(p.bvid, (pagesPerBvid.get(p.bvid) ?? 0) + 1);
+      if (p.id !== protectedTarget.pageId) {
+        candidates.push({ isPage: true, id: p.id, bvid: p.bvid, bytes: Number(p.estimatedBytes) || 0, lastUsed: p.lastUsed, createdAt: p.createdAt });
       }
-      evictedRecords.push(candidate);
-      totalCount -= 1;
-      totalBytes -= Number(candidate.estimatedBytes) || 0;
     }
-
-    const evictedIds = evictedRecords.map((item) => item.id);
-    if (evictedIds.length === 0) {
-      return { evictedIds: [], evictedArtifactKeys: [] };
-    }
-
-    await backend.deletePages(evictedIds);
-
-    const evictedBvids = new Set(evictedRecords.map((item) => item.bvid).filter(Boolean));
-    const evictedArtifactKeys: string[] = [];
-    for (const evictedBvid of evictedBvids) {
-      const remainingPages = await backend.getPagesByBvid(evictedBvid);
-      if (remainingPages.length > 0) {
-        continue;
+    for (const a of allArtifacts) {
+      if (a.bvid) {
+        const list = artifactsByBvid.get(a.bvid);
+        if (list) list.push(a);
+        else artifactsByBvid.set(a.bvid, [a]);
       }
-      const artifacts = await backend.getArtifactsByBvid(evictedBvid);
-      if (artifacts.length > 0) {
-        const keys = artifacts.map((art) => art.key);
-        await backend.deleteArtifacts(keys);
-        evictedArtifactKeys.push(...keys);
+      if (a.key !== protectedTarget.artifactKey) {
+        candidates.push({ isPage: false, id: a.key, bvid: a.bvid, bytes: Number(a.estimatedBytes) || 0, lastUsed: a.lastUsedAt, createdAt: a.createdAt });
       }
     }
 
+    candidates.sort((a, b) => a.lastUsed - b.lastUsed || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+
+    const deletedPageIds = new Set<string>();
+    const deletedArtifactKeys = new Set<string>();
+    const evictPage = (c: (typeof candidates)[number]): void => {
+      if (deletedPageIds.has(c.id)) return;
+      deletedPageIds.add(c.id);
+      remainingPageCount -= 1;
+      totalBytes -= c.bytes;
+      if (!c.bvid) return;
+      const left = (pagesPerBvid.get(c.bvid) ?? 0) - 1;
+      pagesPerBvid.set(c.bvid, Math.max(0, left));
+      if (left > 0) return;
+      for (const art of artifactsByBvid.get(c.bvid) ?? []) {
+        if (art.key === protectedTarget.artifactKey || deletedArtifactKeys.has(art.key)) continue;
+        deletedArtifactKeys.add(art.key);
+        totalBytes -= Number(art.estimatedBytes) || 0;
+      }
+    };
+
+    for (const c of candidates) {
+      if (totalBytes <= currentMaxBytes) break;
+      if (c.isPage) evictPage(c);
+      else if (!deletedArtifactKeys.has(c.id)) {
+        deletedArtifactKeys.add(c.id);
+        totalBytes -= c.bytes;
+      }
+    }
+    for (const c of candidates) {
+      if (remainingPageCount <= maxEntries) break;
+      if (c.isPage) evictPage(c);
+    }
+
+    const evictedIds = Array.from(deletedPageIds);
+    const evictedArtifactKeys = Array.from(deletedArtifactKeys);
+    if (evictedIds.length > 0) await backend.deletePages(evictedIds);
+    if (evictedArtifactKeys.length > 0) await backend.deleteArtifacts(evictedArtifactKeys);
     return { evictedIds, evictedArtifactKeys };
   }
 
@@ -1431,7 +1360,11 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     family: AiArtifactFamily,
     protectedBvid: string
   ): Promise<string[]> {
-    const keepVideos = Math.max(1, Math.floor(Number(keepVideosMap[family]) || AI_ARTIFACT_FAMILY_KEEP_VIDEOS[family]));
+    const rawLimit = explicitKeepVideosMap?.[family];
+    if (rawLimit === undefined) {
+      return [];
+    }
+    const keepVideos = Math.max(1, Math.floor(Number(rawLimit) || AI_ARTIFACT_FAMILY_KEEP_VIDEOS[family]));
     const all = await backend.getArtifactsByFamily(family);
     const byBvid = new Map<string, { maxLastUsedAt: number; maxCreatedAt: number; keys: string[] }>();
     for (const item of all) {
@@ -1544,17 +1477,19 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         existing.updatedAt = ts;
         existing.lastUsed = ts;
         existing.estimatedBytes = estimateSubtitleRecordBytes(existing);
-        if (existing.estimatedBytes > maxBytes) {
+        if (existing.estimatedBytes > currentMaxBytes) {
           return {
             ok: false,
             evictedIds: [],
             error: new Error(
-              `Subtitle page ${pageId} (${existing.estimatedBytes} B) exceeds maxBytes (${maxBytes} B)`
+              `Subtitle page ${pageId} (${existing.estimatedBytes} B) exceeds maxBytes (${currentMaxBytes} B)`
             )
           };
         }
         await backend.putPage(existing);
-        const { evictedIds, evictedArtifactKeys } = await evictSubtitlePagesIfNeeded(existing.id);
+        const { evictedIds, evictedArtifactKeys } = await evictVideoCacheIfNeeded({
+          pageId: existing.id
+        });
         return {
           ok: true,
           evictedIds,
@@ -1984,20 +1919,9 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
           }
           const ts = now();
           const existing = await backend.getArtifact(cleanKey);
-          const createdAt =
-            Number.isFinite(Number(input.createdAt)) && Number(input.createdAt) > 0
-              ? Number(input.createdAt)
-              : existing?.createdAt && existing.createdAt > 0
-                ? existing.createdAt
-                : ts;
-          const updatedAt =
-            Number.isFinite(Number(input.updatedAt)) && Number(input.updatedAt) > 0
-              ? Number(input.updatedAt)
-              : ts;
-          const lastUsedAt =
-            Number.isFinite(Number(input.lastUsedAt)) && Number(input.lastUsedAt) > 0
-              ? Number(input.lastUsedAt)
-              : ts;
+          const createdAt = posTs(input.createdAt, posTs(existing?.createdAt, ts));
+          const updatedAt = posTs(input.updatedAt, ts);
+          const lastUsedAt = posTs(input.lastUsedAt, ts);
           const record: AiArtifactRecord<TPayload> = {
             key: cleanKey,
             family,
@@ -2010,19 +1934,15 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
             lastUsedAt
           };
           record.estimatedBytes = estimateAiArtifactRecordBytes(record);
+          if (record.estimatedBytes > currentMaxBytes) {
+            return { ok: false, evictedKeys: [], error: new Error(`AI artifact ${cleanKey} (${record.estimatedBytes} B) exceeds maxBytes (${currentMaxBytes} B)`) };
+          }
           await backend.putArtifact(record);
-          const evictedKeys = await evictAiArtifactsForFamily(family, bvid);
-          return {
-            ok: true,
-            evictedKeys,
-            estimatedBytes: record.estimatedBytes
-          };
+          const familyEvictedKeys = await evictAiArtifactsForFamily(family, bvid);
+          const { evictedArtifactKeys } = await evictVideoCacheIfNeeded({ artifactKey: cleanKey });
+          return { ok: true, evictedKeys: Array.from(new Set([...familyEvictedKeys, ...evictedArtifactKeys])), estimatedBytes: record.estimatedBytes };
         } catch (err) {
-          return {
-            ok: false,
-            evictedKeys: [],
-            error: err instanceof Error ? err : new Error(String(err))
-          };
+          return { ok: false, evictedKeys: [], error: toErr(err) };
         }
       });
     },
@@ -2194,20 +2114,6 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
           }
           const ts = now();
           const existing = await backend.getChatImage(cleanId);
-          const createdAt =
-            Number.isFinite(Number(input.createdAt)) && Number(input.createdAt) > 0
-              ? Number(input.createdAt)
-              : existing?.createdAt && existing.createdAt > 0
-                ? existing.createdAt
-                : ts;
-          const updatedAt =
-            Number.isFinite(Number(input.updatedAt)) && Number(input.updatedAt) > 0
-              ? Number(input.updatedAt)
-              : ts;
-          const lastUsedAt =
-            Number.isFinite(Number(input.lastUsedAt)) && Number(input.lastUsedAt) > 0
-              ? Number(input.lastUsedAt)
-              : ts;
           const record: ChatImageRecord = {
             id: cleanId,
             conversationId: cleanConvId,
@@ -2215,134 +2121,129 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
             mime: cleanMime,
             data: cleanData,
             estimatedBytes: 0,
-            createdAt,
-            updatedAt,
-            lastUsedAt
+            createdAt: posTs(input.createdAt, posTs(existing?.createdAt, ts)),
+            updatedAt: posTs(input.updatedAt, ts),
+            lastUsedAt: posTs(input.lastUsedAt, ts)
           };
           record.estimatedBytes = estimateChatImageRecordBytes(record);
           if (record.estimatedBytes > maxChatImageBytes) {
-            return {
-              ok: false,
-              evictedIds: [],
-              error: new Error(
-                `Chat image ${cleanId} (${record.estimatedBytes} B) exceeds maxChatImageBytes (${maxChatImageBytes} B)`
-              )
-            };
+            return { ok: false, evictedIds: [], error: new Error(`Chat image ${cleanId} (${record.estimatedBytes} B) exceeds maxChatImageBytes (${maxChatImageBytes} B)`) };
           }
           await backend.putChatImage(record);
-          const evictedIds = await evictChatImagesIfNeeded(cleanId);
-          return {
-            ok: true,
-            evictedIds,
-            estimatedBytes: record.estimatedBytes
-          };
+          return { ok: true, evictedIds: await evictChatImagesIfNeeded(cleanId), estimatedBytes: record.estimatedBytes };
         } catch (err) {
-          return {
-            ok: false,
-            evictedIds: [],
-            error: err instanceof Error ? err : new Error(String(err))
-          };
+          return { ok: false, evictedIds: [], error: toErr(err) };
         }
       });
     },
 
-    async deleteChatImages(ids: string[]): Promise<string[]> {
-      return enqueue(async () => {
-        const uniqueIds = Array.from(
-          new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || "").trim()).filter(Boolean))
-        );
-        if (uniqueIds.length === 0) {
-          return [];
-        }
-        await backend.deleteChatImages(uniqueIds);
+    deleteChatImages: (ids) =>
+      enqueue(async () => {
+        const uniqueIds = cleanIdList(ids);
+        if (uniqueIds.length > 0) await backend.deleteChatImages(uniqueIds);
         return uniqueIds;
-      });
-    },
+      }),
 
-    async deleteChatImagesByConversationIds(conversationIds: string[]): Promise<string[]> {
-      return enqueue(async () => {
-        const uniqueConvIds = Array.from(
-          new Set(
-            (Array.isArray(conversationIds) ? conversationIds : [])
-              .map((id) => String(id || "").trim())
-              .filter(Boolean)
-          )
-        );
-        if (uniqueConvIds.length === 0) {
-          return [];
-        }
+    deleteChatImagesByConversationIds: (conversationIds) =>
+      enqueue(async () => {
+        const uniqueConvIds = cleanIdList(conversationIds);
+        if (uniqueConvIds.length === 0) return [];
         const idsToDelete = new Set<string>();
         for (const convId of uniqueConvIds) {
-          const matchedIds = await backend.getRawChatImageIdsByConversationId(convId);
-          for (const id of matchedIds) {
-            idsToDelete.add(id);
-          }
+          for (const id of await backend.getRawChatImageIdsByConversationId(convId)) idsToDelete.add(id);
         }
         const removedIds = Array.from(idsToDelete);
-        if (removedIds.length > 0) {
-          await backend.deleteChatImages(removedIds);
-        }
+        if (removedIds.length > 0) await backend.deleteChatImages(removedIds);
         return removedIds;
-      });
-    },
+      }),
 
-    async pruneChatImages(input: PruneChatImagesInput): Promise<string[]> {
-      return enqueue(async () => {
-        const validConvIds = new Set(
-          (Array.isArray(input?.validConversationIds) ? input.validConversationIds : [])
-            .map((id) => String(id || "").trim())
-            .filter(Boolean)
-        );
-        const hasKeepIds = Array.isArray(input?.keepImageIds);
-        const keepIds = hasKeepIds
-          ? new Set(
-              (input.keepImageIds ?? [])
-                .map((id) => String(id || "").trim())
-                .filter(Boolean)
-            )
-          : null;
-
-        const allRefs = await backend.getAllRawChatImageRefs();
-        const orphanIds: string[] = [];
-        for (const ref of allRefs) {
-          const convInvalid = !ref.conversationId || !validConvIds.has(ref.conversationId);
-          const refInvalid = keepIds !== null && !keepIds.has(ref.id);
-          if (convInvalid || refInvalid) {
-            orphanIds.push(ref.id);
-          }
-        }
-        if (orphanIds.length > 0) {
-          await backend.deleteChatImages(orphanIds);
-        }
+    pruneChatImages: (input) =>
+      enqueue(async () => {
+        const validConvIds = new Set(cleanIdList(input?.validConversationIds));
+        const keepIds = Array.isArray(input?.keepImageIds) ? new Set(cleanIdList(input.keepImageIds)) : null;
+        const orphanIds = (await backend.getAllRawChatImageRefs())
+          .filter((ref) => !ref.conversationId || !validConvIds.has(ref.conversationId) || (keepIds !== null && !keepIds.has(ref.id)))
+          .map((ref) => ref.id);
+        if (orphanIds.length > 0) await backend.deleteChatImages(orphanIds);
         return orphanIds;
-      });
-    },
+      }),
 
-    async clearAllChatImages(): Promise<string[]> {
-      return enqueue(async () => {
-        const allRefs = await backend.getAllRawChatImageRefs();
-        const removedIds = allRefs.map((ref) => ref.id);
+    clearAllChatImages: () =>
+      enqueue(async () => {
+        const removedIds = (await backend.getAllRawChatImageRefs()).map((ref) => ref.id);
         await backend.clearChatImages();
         return removedIds;
-      });
-    },
+      }),
 
-    async listChatImagesByConversationId(conversationId: string): Promise<ChatImageRecord[]> {
-      return enqueue(async () => {
+    listChatImagesByConversationId: (conversationId) =>
+      enqueue(async () => {
         const cleanConvId = String(conversationId || "").trim();
-        if (!cleanConvId) {
-          return [];
-        }
-        return backend.getChatImagesByConversationId(cleanConvId);
-      });
-    },
+        return cleanConvId ? backend.getChatImagesByConversationId(cleanConvId) : [];
+      }),
 
-    async listAllChatImages(): Promise<ChatImageRecord[]> {
-      return enqueue(() => backend.getAllChatImages());
+    listAllChatImages: () => enqueue(() => backend.getAllChatImages()),
+    getVideoCacheUsage: () => enqueue(() => computeVideoCacheUsage()),
+
+    syncVideoCacheMaxBytes(maxBytes) {
+      const n = Math.floor(Number(maxBytes));
+      if (Number.isFinite(n) && n > 0) currentMaxBytes = n;
     },
+    setVideoCacheMaxBytes: (maxBytes) =>
+      enqueue(async () => {
+        const n = Math.floor(Number(maxBytes));
+        if (Number.isFinite(n) && n > 0) currentMaxBytes = n;
+        const { evictedIds, evictedArtifactKeys } = await evictVideoCacheIfNeeded();
+        return { evictedPageIds: evictedIds, evictedArtifactKeys, usage: await computeVideoCacheUsage() };
+      }),
+    getConversation: (id) =>
+      enqueue(async () => {
+        const cleanId = String(id || "").trim();
+        return cleanId ? backend.getConversation(cleanId) : null;
+      }),
+    listConversations: () => enqueue(() => backend.getAllConversations()),
+    countConversations: () => enqueue(() => backend.countConversations()),
+    putConversation: (record) =>
+      enqueue(async () => {
+        const normalized = normalizePersistedConversationRecord(record);
+        if (normalized) await backend.putConversation(normalized);
+      }),
+    putConversationsMany: (records) =>
+      enqueue(async () => {
+        const normalized = normalizePersistedConversationList(records);
+        if (normalized.length > 0) await backend.putConversationsMany(normalized);
+      }),
+    deleteConversations: (ids) =>
+      enqueue(async () => {
+        const cleanIds = cleanIdList(ids);
+        if (cleanIds.length > 0) await backend.deleteConversations(cleanIds);
+        return cleanIds;
+      }),
+    clearAllConversations: () =>
+      enqueue(async () => {
+        const removedIds = (await backend.getAllConversations()).map((item) => item.id);
+        await backend.clearConversations();
+        return removedIds;
+      }),
+    pruneConversationsToLimit: (maxCount) =>
+      enqueue(async () => {
+        const limit = Math.floor(Number(maxCount));
+        const all = await backend.getAllConversations();
+        if (!Number.isFinite(limit) || limit <= 0 || all.length <= limit) {
+          return { removedIds: [], keptCount: all.length };
+        }
+        const removedIds = all.slice(limit).map((item) => item.id);
+        await backend.deleteConversations(removedIds);
+        const imageIds = new Set<string>();
+        for (const convId of removedIds) {
+          for (const imgId of await backend.getRawChatImageIdsByConversationId(convId)) imageIds.add(imgId);
+        }
+        if (imageIds.size > 0) await backend.deleteChatImages(Array.from(imageIds));
+        return { removedIds, keptCount: all.length - removedIds.length };
+      }),
 
     async clearAll() {
       writeInterceptor = null;
+      currentMaxBytes = initialMaxBytes;
       return enqueue(async () => {
         await backend.clearAll();
       });

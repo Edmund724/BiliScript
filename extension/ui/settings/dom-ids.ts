@@ -124,7 +124,9 @@ export const SETTINGS_PANEL_DOM_IDS = {
   agentBridgeTestBtn: "agentBridgeTestBtn",
   agentBridgeSaveBtn: "agentBridgeSaveBtn",
   agentBridgeAddressStatus: "agentBridgeAddressStatus",
-  cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
+  chatHistoryMaxCount: "chatHistoryMaxCount",
+  videoCacheMaxMb: "videoCacheMaxMb",
+  videoCacheUsage: "videoCacheUsage",
   status: "biliscriptSettingsStatus",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;

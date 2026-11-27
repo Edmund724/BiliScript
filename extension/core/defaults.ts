@@ -11,6 +11,8 @@ export type DetachedWindowMode = "pip" | "popup";
 export type PlayerAiActionMode = "summary" | "note";
 export type NotePromptPreset = "general" | "tutorial" | "course" | "opinion" | "custom";
 export type NoteExportTarget = "download" | "obsidian";
+export type ChatHistoryMaxCount = 0 | 20 | 50 | 100 | 200;
+export type VideoCacheMaxMb = 50 | 150 | 300 | 500 | 1024;
 
 export { BILISCRIPT_VERSION } from "./version.js";
 
@@ -70,7 +72,8 @@ export interface KnownSettings {
   customPanelWidth: number;
   detachedWindowMode: DetachedWindowMode;
   autoOpenReader: boolean;
-  cleanConversationsOlderThan30Days: boolean;
+  chatHistoryMaxCount: ChatHistoryMaxCount;
+  videoCacheMaxMb: VideoCacheMaxMb;
   enableExtraPlaybackRates: boolean;
   noteExportTemplate: string;
   obsidianVaultName: string;
@@ -146,7 +149,8 @@ export const DEFAULT_SETTINGS: Settings = {
   customPanelWidth: 540,
   detachedWindowMode: "pip",
   autoOpenReader: false,
-  cleanConversationsOlderThan30Days: false,
+  chatHistoryMaxCount: 0,
+  videoCacheMaxMb: 150,
   enableExtraPlaybackRates: false,
   noteExportTemplate: "",
   obsidianVaultName: "",

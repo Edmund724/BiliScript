@@ -38,7 +38,7 @@ function makeStore(
     onStreamInterrupted: vi.fn(),
     onContextNotice: vi.fn(),
     storage,
-    isCleanEnabled: () => false,
+    getMaxCount: () => 0,
     ...overrides
   };
   return { store: createConversationStore(deps), deps };
@@ -127,8 +127,10 @@ describe("跨标签页并发会话持久化与外部同步", () => {
 
     await storeA.persistCurrent();
 
-    const storedIds = (storage.data.get(CONVERSATIONS_STORAGE_KEY) as Array<{ id: string }>).map((c) => c.id);
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
+    const storedIds = (await resolveActiveSubtitleStore().listConversations()).map((c) => c.id);
     expect(storedIds).toEqual(["conv-a", "conv-b", "conv-0"]);
+    await storeA.loadAll();
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-a", "conv-b", "conv-0"]);
   });
 
@@ -155,7 +157,8 @@ describe("跨标签页并发会话持久化与外部同步", () => {
 
     await expect(storeA.restoreLatest()).resolves.toBe(true);
 
-    const stored = storage.data.get(CONVERSATIONS_STORAGE_KEY) as Array<{ id: string; title: string }>;
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
+    const stored = (await resolveActiveSubtitleStore().listConversations()) as unknown as Array<{ id: string; title: string }>;
     expect(stored.map((c) => c.id)).toEqual(["conv-b", "conv-a"]);
     expect(stored.find((c) => c.id === "conv-a")?.title).toContain("-P2");
   });
@@ -186,8 +189,9 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     const conv = makeStoredConversation("conv-lock", "BVL", "1", 1000);
     await updateConversationHistory(storage, () => [conv as any]);
 
+    const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
     expect(requestLock).toHaveBeenCalledTimes(1);
     expect(requestLock).toHaveBeenCalledWith(CONVERSATIONS_STORAGE_KEY, expect.any(Function));
-    expect((storage.data.get(CONVERSATIONS_STORAGE_KEY) as Array<{ id: string }>).map((c) => c.id)).toEqual(["conv-lock"]);
+    expect((await resolveActiveSubtitleStore().listConversations()).map((c) => c.id)).toEqual(["conv-lock"]);
   });
 });

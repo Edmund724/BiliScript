@@ -51,12 +51,15 @@ function makeRecord(overrides: Partial<LiveTextToolRecord> = {}): LiveTextToolRe
   };
 }
 
-function storedEntries(storage: ReturnType<typeof makeStorage>) {
-  return normalizeConversations(storage.data.get(KEY));
+import { resolveActiveSubtitleStore } from "../../extension/subtitle/store-client.js";
+
+async function storedEntries() {
+  return normalizeConversations(await resolveActiveSubtitleStore().listConversations());
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetChatSessionStateForTests();
+  await resolveActiveSubtitleStore().clearAll();
 });
 
 describe("伴看文本工具历史留档", () => {
@@ -83,7 +86,7 @@ describe("伴看文本工具历史留档", () => {
       endedAt: 300
     }), storage);
 
-    let entries = storedEntries(storage);
+    let entries = await storedEntries();
     expect(entries).toHaveLength(1);
     const entry = entries[0];
     expect(isLiveTextToolHistoryEntry(entry)).toBe(true);
@@ -114,7 +117,7 @@ describe("伴看文本工具历史留档", () => {
       startedAt: 400,
       endedAt: 500
     }), storage);
-    entries = storedEntries(storage);
+    entries = await storedEntries();
     expect(entries).toHaveLength(1);
     if (!isLiveTextToolHistoryEntry(entries[0])) throw new Error("expected live entry");
     expect(entries[0].records).toHaveLength(2);
@@ -206,7 +209,12 @@ describe("伴看文本工具历史留档", () => {
       updatedAt: index + 1,
       records: [makeRecord({ callId: `call-${index}`, endedAt: index + 1 })]
     }));
-    const capped = normalizeConversations(many);
+    const unlimited = normalizeConversations(many);
+    expect(unlimited).toHaveLength(65);
+    expect(unlimited[0].updatedAt).toBe(65);
+    expect(unlimited.at(-1)?.updatedAt).toBe(1);
+
+    const capped = normalizeConversations(many, { maxCount: 60 });
     expect(capped).toHaveLength(60);
     expect(capped[0].updatedAt).toBe(65);
     expect(capped.at(-1)?.updatedAt).toBe(6);

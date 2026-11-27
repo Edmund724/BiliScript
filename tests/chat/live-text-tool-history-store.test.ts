@@ -66,7 +66,7 @@ function makeStore(storage: StorageArea) {
     onStreamInterrupted: vi.fn(),
     onContextNotice: vi.fn(),
     storage,
-    isCleanEnabled: () => false,
+    getMaxCount: () => 0,
     confirmClearAll: () => true
   };
   return { store: createConversationStore(deps), deps };
@@ -83,12 +83,15 @@ function seedCurrentConversation() {
   });
 }
 
-function stored(storage: ReturnType<typeof makeStorage>) {
-  return (storage.data.get(KEY) || []) as Array<Record<string, unknown>>;
+import { resolveActiveSubtitleStore } from "../../extension/subtitle/store-client.js";
+
+async function stored() {
+  return (await resolveActiveSubtitleStore().listConversations()) as Array<Record<string, unknown>>;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetChatSessionStateForTests();
+  await resolveActiveSubtitleStore().clearAll();
   document.body.innerHTML = "";
 });
 
@@ -107,7 +110,7 @@ describe("伴看记录与普通会话共享历史事务", () => {
     expect(deps.onConversationChanged).not.toHaveBeenCalled();
     expect(chatSessionState.currentConversationId).toBe(currentId);
     expect(chatSessionState.chatHistory).toEqual(currentHistory);
-    expect(stored(storage)).toHaveLength(2);
+    expect(await stored()).toHaveLength(2);
 
     const reopened = makeStore(storage);
     await reopened.store.loadAll();
@@ -125,14 +128,14 @@ describe("伴看记录与普通会话共享历史事务", () => {
     expect(chatSessionState.chatHistory).toEqual(currentHistory);
 
     await reopened.store.deleteById(liveEntry!.id);
-    expect(stored(storage)).toHaveLength(1);
+    expect(await stored()).toHaveLength(1);
     expect(chatSessionState.currentConversationId).toBe(currentId);
     expect(reopened.deps.onStreamInterrupted).not.toHaveBeenCalled();
 
     await persistLiveTextToolRecord(makeRecord(), storage);
     await reopened.store.loadAll();
     await reopened.store.clearAll();
-    expect(stored(storage)).toEqual([]);
+    expect(await stored()).toEqual([]);
     expect(chatSessionState.savedConversations).toEqual([]);
     expect(chatSessionState.chatHistory).toEqual([]);
   });
@@ -153,7 +156,7 @@ describe("伴看记录与普通会话共享历史事务", () => {
     releaseFirstGet();
     await Promise.all([first, second]);
 
-    const entries = stored(storage);
+    const entries = await stored();
     expect(entries).toHaveLength(2);
     expect(entries.some((entry) => entry.kind === "live-text-tool")).toBe(true);
     expect(entries.some((entry) => entry.kind !== "live-text-tool")).toBe(true);

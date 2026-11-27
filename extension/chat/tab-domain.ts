@@ -45,6 +45,8 @@ export {
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
 export {
   CONVERSATIONS_STORAGE_KEY,
+  CONVERSATIONS_SYNC_SIGNAL_KEY,
+  applyConversationSyncSignal,
   syncSavedConversationsFromStorage
 } from "./conversation-store.js";
 export {

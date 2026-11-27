@@ -16,7 +16,6 @@ const TOGGLE_IDS = [
   "enableExtraPlaybackRates",
   "includeDateInFilename",
   "includeTimestampInBody",
-  "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
   "enableAgentBridge",
   "chatInputGlow",

@@ -8,8 +8,7 @@ import {
   retainLatestImage,
   resolveConversationStorageKey,
   normalizeConversationTitle,
-  doesConversationMatchCurrentContext,
-  MAX_SAVED_CONVERSATIONS
+  doesConversationMatchCurrentContext
 } from "../ai/conversation.js";
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import {
@@ -21,9 +20,15 @@ import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { detectSiteFromUrl, normalizeSiteId } from "../shared/site.js";
 import {
+  CONVERSATIONS_SYNC_SIGNAL_KEY,
   HISTORY_STORAGE_KEY,
+  clearConversationHistory,
+  deleteConversationEntry,
+  readConversationById,
   readConversationHistory,
-  updateConversationHistory
+  resolveChatHistoryMaxCount,
+  saveConversationEntry,
+  type ConversationSyncSignal
 } from "./conversation-storage.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
@@ -118,6 +123,7 @@ export interface ConversationMeta {
 export interface StorageArea {
   get(keys: string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
+  remove?(keys: string | string[]): Promise<void>;
 }
 
 export interface LoadContextStateOptions {
@@ -156,7 +162,7 @@ export interface CreateConversationStoreDeps {
   onContextNotice: (notice: ConversationContextNotice) => void;
   storage?: StorageArea;
   syncStorage?: StorageArea;
-  isCleanEnabled?: () => Promise<boolean> | boolean;
+  getMaxCount?: () => Promise<number> | number;
   confirmClearAll?: (message: string) => boolean | Promise<boolean>;
 }
 
@@ -202,90 +208,7 @@ export function needsConversationPageHydration(conversation: Conversation | null
 }
 
 export const CONVERSATIONS_STORAGE_KEY = HISTORY_STORAGE_KEY;
-export const CONVERSATION_RETENTION_MS = 30 * 86400 * 1000;
-
-export function getConversationTimestamp(conversation: {
-  updatedAt?: unknown;
-  createdAt?: unknown;
-}): number {
-  const updatedAt =
-    typeof conversation?.updatedAt === "number" && !Number.isNaN(conversation.updatedAt)
-      ? conversation.updatedAt
-      : Number(conversation?.updatedAt);
-  if (!Number.isNaN(updatedAt) && updatedAt > 0) {
-    return updatedAt;
-  }
-  const createdAt =
-    typeof conversation?.createdAt === "number" && !Number.isNaN(conversation.createdAt)
-      ? conversation.createdAt
-      : Number(conversation?.createdAt);
-  if (!Number.isNaN(createdAt) && createdAt > 0) {
-    return createdAt;
-  }
-  return 0;
-}
-
-export function isConversationOlderThanRetention(
-  conversation: { updatedAt?: unknown; createdAt?: unknown },
-  now: number = Date.now(),
-  retentionMs: number = CONVERSATION_RETENTION_MS
-): boolean {
-  const ts = getConversationTimestamp(conversation);
-  return ts < now - retentionMs;
-}
-
-export function filterExpiredConversations<T extends { updatedAt?: unknown; createdAt?: unknown }>(
-  conversations: T[],
-  now: number = Date.now(),
-  retentionMs: number = CONVERSATION_RETENTION_MS
-): { kept: T[]; pruned: T[]; prunedCount: number } {
-  const cutoff = now - retentionMs;
-  const kept: T[] = [];
-  const pruned: T[] = [];
-  for (const item of conversations) {
-    const ts = getConversationTimestamp(item);
-    if (ts < cutoff) {
-      pruned.push(item);
-    } else {
-      kept.push(item);
-    }
-  }
-  return { kept, pruned, prunedCount: pruned.length };
-}
-
-export interface CleanExpiredConversationsResult {
-  prunedCount: number;
-  kept: Conversation[];
-}
-
-export async function cleanExpiredConversations(
-  storage?: StorageArea,
-  now: number = Date.now(),
-  retentionMs: number = CONVERSATION_RETENTION_MS
-): Promise<CleanExpiredConversationsResult> {
-  const targetStorage = storage || (typeof chrome !== "undefined" && (chrome?.storage?.local as StorageArea)) || undefined;
-  if (!targetStorage) {
-    return { prunedCount: 0, kept: [] };
-  }
-  const list = await readConversationHistory(targetStorage);
-  const initial = filterExpiredConversations(list, now, retentionMs);
-  let kept = initial.kept;
-  let prunedCount = initial.prunedCount;
-  if (initial.prunedCount > 0) {
-    let prunedIds = new Set(initial.pruned.map((conversation) => conversation.id));
-    kept = await updateConversationHistory(targetStorage, (current) => {
-      const filtered = filterExpiredConversations(current, now, retentionMs);
-      prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
-      prunedCount = filtered.prunedCount;
-      return filtered.kept;
-    });
-    if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
-      detachConversationIdentity();
-      applyLiveContextToMain();
-    }
-  }
-  return { prunedCount, kept };
-}
+export { CONVERSATIONS_SYNC_SIGNAL_KEY };
 
 export function createConversationStore(deps: CreateConversationStoreDeps): ConversationStore {
   for (const key of [
@@ -300,10 +223,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
   }
   const { loadContextState, resolveAiConversationRef, onConversationChanged, onStreamInterrupted, onContextNotice } = deps;
-  const storage = deps.storage || (typeof chrome !== "undefined" && chrome?.storage?.local) || undefined;
+  const storage = deps.storage || (typeof chrome !== "undefined" && (chrome?.storage?.local as StorageArea)) || undefined;
   const confirmClearAll = deps.confirmClearAll || ((message: string) => confirmDialog({ message, confirmText: "清空", danger: true }));
-  const conversationsStorageKey = CONVERSATIONS_STORAGE_KEY;
-  const maxSavedConversations = MAX_SAVED_CONVERSATIONS;
 
   function emitChange(change: ConversationChange = {}): void {
     onConversationChanged(change);
@@ -325,40 +246,16 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     applyLiveContextToMain();
   }
 
-  async function checkCleanOlderThan30DaysEnabled(): Promise<boolean> {
-    if (typeof deps.isCleanEnabled === "function") {
-      return Boolean(await deps.isCleanEnabled());
+  async function resolveMaxCount(): Promise<number> {
+    if (typeof deps.getMaxCount === "function") {
+      const value = Math.floor(Number(await deps.getMaxCount()));
+      return Number.isFinite(value) && value > 0 ? value : 0;
     }
-    const sync = deps.syncStorage || (typeof chrome !== "undefined" && (chrome?.storage?.sync as StorageArea)) || undefined;
-    if (!sync?.get) {
-      return false;
-    }
-    try {
-      const res = await sync.get(["cleanConversationsOlderThan30Days"]);
-      return Boolean(res?.cleanConversationsOlderThan30Days);
-    } catch {
-      return false;
-    }
+    return resolveChatHistoryMaxCount(deps.syncStorage);
   }
 
   async function loadAll(): Promise<void> {
-    let normalized = storage ? await readConversationHistory(storage) : [];
-    const isCleanEnabled = await checkCleanOlderThan30DaysEnabled();
-    if (isCleanEnabled) {
-      const initial = filterExpiredConversations(normalized);
-      if (initial.prunedCount > 0) {
-        let prunedIds = new Set(initial.pruned.map((conversation) => conversation.id));
-        normalized = storage ? await updateConversationHistory(storage, (current) => {
-          const filtered = filterExpiredConversations(current);
-          prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
-          return filtered.kept;
-        }) : initial.kept;
-        if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
-          detachCurrent();
-          repopulateLive();
-        }
-      }
-    }
+    const normalized = await readConversationHistory(storage);
     commitSaved(normalized);
     emitChange({});
   }
@@ -421,38 +318,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   async function saveHydratedConversation(hydrated: OrdinaryConversation): Promise<void> {
-    if (storage) {
-      await updateConversationHistory(storage, (current) => {
-        const hasTarget = current.some((item) => !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id);
-        if (hasTarget) {
-          return current.map((item) =>
-            !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id ? hydrated : item
-          );
-        }
-        const localOrdinary = saved().filter((item) => !isLiveTextToolHistoryEntry(item));
-        const localIds = new Set(localOrdinary.map((item) => item.id));
-        const extraCurrentOrdinary = current.filter(
-          (item) => !isLiveTextToolHistoryEntry(item) && !localIds.has(item.id)
-        );
-        const mergedOrdinary = [...localOrdinary, ...extraCurrentOrdinary].slice(0, maxSavedConversations);
-        return [...mergedOrdinary, ...current.filter(isLiveTextToolHistoryEntry)];
-      });
-    }
+    const maxCount = await resolveMaxCount();
+    await saveConversationEntry(hydrated, { storage, maxCount });
     emitChange({});
   }
 
   async function savePersistedConversation(nextConversation: OrdinaryConversation): Promise<void> {
-    if (storage) {
-      await updateConversationHistory(storage, (current) => {
-        const currentOrdinary = current.filter((item) => !isLiveTextToolHistoryEntry(item));
-        const liveEntries = current.filter(isLiveTextToolHistoryEntry);
-        const mergedOrdinary = [
-          nextConversation,
-          ...currentOrdinary.filter((item) => item.id !== nextConversation.id)
-        ].slice(0, maxSavedConversations);
-        return [...mergedOrdinary, ...liveEntries];
-      });
-    }
+    const maxCount = await resolveMaxCount();
+    await saveConversationEntry(nextConversation, { storage, maxCount });
     emitChange({});
   }
 
@@ -534,9 +407,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     const next = saved().filter((item) => item.id !== id);
     commitSaved(next);
-    if (storage) {
-      await updateConversationHistory(storage, (current) => current.filter((item) => item.id !== id));
-    }
+    await deleteConversationEntry(id, { storage });
     emitChange({});
     if (wasCurrent) {
       repopulateLive();
@@ -554,13 +425,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         const restored = saved().filter((item) => item.id !== id);
         restored.splice(Math.min(index, restored.length), 0, conversation);
         commitSaved(restored);
-        if (storage) {
-          await updateConversationHistory(storage, (current) => {
-            const next = current.filter((item) => item.id !== id);
-            next.splice(Math.min(index, next.length), 0, conversation);
-            return next;
-          });
-        }
+        const maxCount = await resolveMaxCount();
+        await saveConversationEntry(conversation, { storage, maxCount });
         emitChange({});
         if (wasCurrent) {
           applyById(id);
@@ -582,9 +448,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     commitSaved([]);
     detachCurrent();
-    if (storage) {
-      await updateConversationHistory(storage, () => []);
-    }
+    await clearConversationHistory({ storage });
     emitChange({});
     repopulateLive();
     emitChange({ historyCleared: true, resetView: true });
@@ -637,7 +501,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item)))
     };
     const filtered = saved().filter((item) => item.id !== currentId);
-    commitSaved([nextConversation, ...filtered].slice(0, maxSavedConversations));
+    commitSaved([nextConversation, ...filtered]);
     applyConversationIdentity({
       meta: {
         id: nextConversation.id,
@@ -811,4 +675,81 @@ export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
   }
   setSavedConversations(next);
   return true;
+}
+
+export async function applyConversationSyncSignal(
+  rawSignal: unknown,
+  storage?: StorageArea
+): Promise<boolean> {
+  if (!rawSignal || typeof rawSignal !== "object") {
+    return false;
+  }
+  const signal = rawSignal as Partial<ConversationSyncSignal>;
+  switch (signal.op) {
+    case "clear": {
+      if (chatSessionState.savedConversations.length === 0) {
+        return false;
+      }
+      setSavedConversations([]);
+      if (chatSessionState.currentConversationId) {
+        detachConversationIdentity();
+        applyLiveContextToMain();
+      }
+      return true;
+    }
+    case "delete": {
+      const ids = Array.isArray(signal.ids)
+        ? signal.ids.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      if (ids.length === 0) {
+        return false;
+      }
+      const removedSet = new Set(ids);
+      const next = chatSessionState.savedConversations.filter((item) => !removedSet.has(item.id));
+      if (next.length === chatSessionState.savedConversations.length) {
+        return false;
+      }
+      setSavedConversations(next);
+      if (chatSessionState.currentConversationId && removedSet.has(chatSessionState.currentConversationId)) {
+        detachConversationIdentity();
+        applyLiveContextToMain();
+      }
+      return true;
+    }
+    case "put": {
+      const id = String(signal.id || "").trim();
+      if (!id) {
+        await readConversationHistory(storage);
+        return true;
+      }
+      const updated = await readConversationById(id, storage);
+      if (!updated) {
+        return false;
+      }
+      const next = [
+        updated,
+        ...chatSessionState.savedConversations.filter((item) => item.id !== updated.id)
+      ].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
+        return false;
+      }
+      setSavedConversations(next);
+      return true;
+    }
+    case "prune":
+    case "replace": {
+      const prev = chatSessionState.savedConversations;
+      const next = await readConversationHistory(storage);
+      if (
+        chatSessionState.currentConversationId &&
+        !next.some((item) => item.id === chatSessionState.currentConversationId)
+      ) {
+        detachConversationIdentity();
+        applyLiveContextToMain();
+      }
+      return !areSavedConversationsEquivalent(prev, next);
+    }
+    default:
+      return false;
+  }
 }

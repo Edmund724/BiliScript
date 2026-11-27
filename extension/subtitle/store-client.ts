@@ -553,6 +553,149 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
       return fallbackStore.listAllChatImages();
     },
 
+    getVideoCacheUsage() {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-video-cache-usage"
+        },
+        (response) =>
+          response.usage ?? {
+            totalBytes: 0,
+            subtitleBytes: 0,
+            artifactBytes: 0,
+            subtitlePageCount: 0,
+            artifactCount: 0,
+            maxBytes: 0
+          },
+        () => fallbackStore.getVideoCacheUsage(),
+        "读取缓存占用失败"
+      );
+    },
+    syncVideoCacheMaxBytes(maxBytes) {
+      fallbackStore.syncVideoCacheMaxBytes(maxBytes);
+    },
+    setVideoCacheMaxBytes(maxBytes) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "set-video-cache-limit",
+          maxBytes
+        },
+        (response) => ({
+          evictedPageIds: response.evictedPageIds ?? [],
+          evictedArtifactKeys: response.evictedKeys ?? [],
+          usage: response.usage ?? {
+            totalBytes: 0,
+            subtitleBytes: 0,
+            artifactBytes: 0,
+            subtitlePageCount: 0,
+            artifactCount: 0,
+            maxBytes
+          }
+        }),
+        () => fallbackStore.setVideoCacheMaxBytes(maxBytes),
+        "更新缓存上限失败"
+      );
+    },
+
+    getConversation(id) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "get-conversation",
+          id
+        },
+        (response) => response.conversation ?? null,
+        () => fallbackStore.getConversation(id),
+        "读取历史对话失败"
+      );
+    },
+    listConversations() {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "list-conversations"
+        },
+        (response) => response.conversations ?? [],
+        () => fallbackStore.listConversations(),
+        "读取历史对话列表失败"
+      );
+    },
+    countConversations() {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "count-conversations"
+        },
+        (response) => Number(response.count) || 0,
+        () => fallbackStore.countConversations(),
+        "统计历史对话数量失败"
+      );
+    },
+    putConversation(record) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "put-conversation",
+          conversation: record
+        },
+        () => undefined,
+        () => fallbackStore.putConversation(record),
+        "保存历史对话失败"
+      );
+    },
+    putConversationsMany(records) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "put-conversations",
+          conversations: records
+        },
+        () => undefined,
+        () => fallbackStore.putConversationsMany(records),
+        "批量保存历史对话失败"
+      );
+    },
+    deleteConversations(ids) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "delete-conversations",
+          ids
+        },
+        (response) => response.removedIds ?? [],
+        () => fallbackStore.deleteConversations(ids),
+        "删除历史对话失败"
+      );
+    },
+    clearAllConversations() {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "clear-conversations"
+        },
+        (response) => response.removedIds ?? [],
+        () => fallbackStore.clearAllConversations(),
+        "清空历史对话失败"
+      );
+    },
+    pruneConversationsToLimit(maxCount) {
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "prune-conversations",
+          maxCount
+        },
+        (response) => ({
+          removedIds: response.removedIds ?? [],
+          keptCount: Number(response.keptCount) || 0
+        }),
+        () => fallbackStore.pruneConversationsToLimit(maxCount),
+        "裁剪历史对话失败"
+      );
+    },
+
     clearAll() {
       return fallbackStore.clearAll();
     },
