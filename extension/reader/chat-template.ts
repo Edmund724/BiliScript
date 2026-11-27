@@ -77,7 +77,6 @@ export function buildChatTabBodyHtml(site: SiteId = state.clip.site): string {
                       <path d="M2 12h20"></path>
                     </svg>
                     <span class="chat-tools-item-label">联网搜索</span>
-                    <span class="chat-tools-switch" aria-hidden="true"></span>
                   </button>
                 </div>
               </div>

@@ -1929,17 +1929,6 @@
   color: var(--biliscript-reader-accent);
 }
 
-.biliscript-reading-chat .chat-tools-anchor:has(.chat-web-search-pill.is-active) .chat-tools-btn::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--biliscript-radius-circle);
-  background: var(--biliscript-reader-accent);
-}
-
 .biliscript-reading-chat .chat-tools-menu {
   position: absolute;
   left: 0;
@@ -2221,43 +2210,29 @@
   white-space: nowrap;
 }
 
-.biliscript-reading-chat .chat-tools-switch {
-  position: relative;
+.biliscript-reading-chat .chat-web-search-pill::after {
+  content: "";
   flex: 0 0 auto;
-  width: 30px;
-  height: 18px;
-  border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill));
-  background: var(--biliscript-reader-border);
-  transition: background 0.16s ease;
+  font-size: var(--biliscript-font-size-sm);
+  line-height: 1;
 }
 
-.biliscript-reading-chat .chat-tools-switch::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--toggle-thumb-radius, var(--biliscript-radius-circle));
-  background: var(--biliscript-reader-on-fill);
-  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb), 0.18);
-  transition: transform 0.16s ease;
+.biliscript-reading-chat .chat-web-search-pill[aria-pressed="true"]::after {
+  content: "✓";
 }
 
 .biliscript-reading-chat .chat-web-search-pill:hover {
   background: var(--select-option-hover-bg, var(--biliscript-reader-surface-2));
 }
 
+.biliscript-reading-chat .chat-web-search-pill.is-active {
+  background: var(--select-option-selected-bg, var(--biliscript-reader-accent-soft));
+  color: var(--select-option-selected-text, var(--biliscript-reader-accent));
+  font-weight: 600;
+}
+
 .biliscript-reading-chat .chat-web-search-pill.is-active svg {
-  color: var(--biliscript-reader-accent);
-}
-
-.biliscript-reading-chat .chat-web-search-pill.is-active .chat-tools-switch {
-  background: var(--biliscript-reader-accent);
-}
-
-.biliscript-reading-chat .chat-web-search-pill.is-active .chat-tools-switch::before {
-  transform: translateX(12px);
+  color: currentColor;
 }
 
 .biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian-c {
@@ -3941,8 +3916,6 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 
   .biliscript-reading-chat .chat-model-chip svg,
   .biliscript-reading-chat .chat-note-pill-toggle svg,
-  .biliscript-reading-chat .chat-tools-switch,
-  .biliscript-reading-chat .chat-tools-switch::before,
   .biliscript-reading-chat .chat-scroll-bottom,
   .biliscript-reading-chat .chat-thinking-chevron,
   .biliscript-reading-chat .chat-search-card-chevron,
