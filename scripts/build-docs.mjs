@@ -65,8 +65,7 @@ const FORBIDDEN_PATHS = [
   "AGENTS.md",
   ".scratch/",
   "docs/adr/",
-  "docs/UX_AUDIT_",
-  "docs/state-contract.md"
+  "docs/UX_AUDIT_"
 ];
 
 function parseBasePath() {

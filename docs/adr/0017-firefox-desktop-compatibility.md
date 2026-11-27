@@ -13,12 +13,11 @@
 
 ### 2. Manifest 纯函数派生与显式 `extension_pages` CSP（`scripts/firefox-manifest.js`）
 
-`extension/manifest.json` 保持为 Chromium 单一事实源；`pnpm build:firefox`（`--target=firefox`）纯函数派生 `dist-firefox/manifest.json`：
+`extension/manifest.json` 保持为 Chromium 单一事实源；`pnpm build:firefox` 通过 `scripts/firefox-manifest.js` 纯函数派生 `dist-firefox/manifest.json`（具体字段转换由单测 `tests/build/firefox-manifest.test.ts` 锁死），核心边界如下：
 
-- 将 `background.service_worker` 转为 Event Page `{ "scripts": ["entry/background.js"], "type": "module" }`；
-- 移除 `"offscreen"`、`"tts"`、顶层 `"minimum_chrome_version"`、`https://live.bilibili.com/*`（含 `host_permissions` 与内容脚本）以及 `entry/chunks/pcm-capture-worklet.mjs` 后清空 `web_accessible_resources`；
-- 从 `extension/core/presets.ts` 的 `PRESETS`（含 `protocolBaseUrls`）与 `ASR_PROVIDER_PRESETS` 自动提取全部官方 HTTPS 域名并入常驻 `host_permissions`（剔除 `live.bilibili.com/*` 后共 **29 个常驻域**，不含 `localhost` 与空 `custom`）；
-- **显式声明 `content_security_policy: { extension_pages: "script-src 'self'" }`**：Firefox MV3 默认 `extension_pages` CSP 隐含 `upgrade-insecure-requests`，若不显式覆盖，会把后台 Event Page 连往本机 Agent Bridge（`ws://127.0.0.1`）与本地推理服务（`http://localhost` Ollama / Whisper）的明文连接强升为 `wss://` / `https://` 导致握手失败。
+- 后台改为 Event Page（`scripts` + `type: "module"`），剔除 Firefox 不支持的 `offscreen` / `tts` / `live.bilibili.com/*` 与全部 `web_accessible_resources`；
+- 从 `extension/core/presets.ts` 官方 HTTPS 预设自动派生 **29 个常驻 `host_permissions` 域**（不含 `localhost` 与空 `custom`），消除常驻预设在 Firefox 非手势链路下的授权失败；
+- **显式声明 `content_security_policy: { extension_pages: "script-src 'self'" }`**：Firefox MV3 默认 `extension_pages` CSP 隐含 `upgrade-insecure-requests`，若不显式覆盖，会把后台 Event Page 连往本机 Agent Bridge（`ws://127.0.0.1`）与本地服务（`http://localhost` Ollama / Whisper）的明文连接强升为 `wss://` / `https://` 导致握手失败。
 
 ### 3. Event Page 隐藏 `iframe` 承载 Offscreen 与 DNR 源适配（`extension/core/offscreen-host.ts`）
 

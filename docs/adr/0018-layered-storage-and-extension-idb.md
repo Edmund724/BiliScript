@@ -2,7 +2,7 @@
 
 > 状态：有效
 
-扩展的持久化数据按跨端同步配额、明文密钥安全边界与数据体量划分为三层，配合后台只读设置快照双通道失效保障高并发读写一致性（具体 IndexedDB 表结构与淘汰阈值见 [`docs/state-contract.md`](../state-contract.md)）。
+扩展的持久化数据按跨端同步配额、明文密钥安全边界与数据体量划分为三层，配合后台只读设置快照双通道失效保障高并发读写一致性。
 
 ## 已定决策
 
@@ -18,10 +18,10 @@
 
 ### 3. 后台扩展源 IndexedDB v2 单点托管与写后删迁移（`extension/subtitle/idb-store.ts`）
 
-- 大体积字幕轨（`subtitle_pages`）、长视频 L1 目录与分段产物（`ai_artifacts`，见 [ADR-0012](0012-long-video-state-relay-and-hybrid-retrieval.md)）及外部化对话附图（`chat_images`）统一存储在后台持有的**扩展源 IndexedDB v2** 中，Content Script（`subtitle/store-client.ts`）与 Offscreen（`ai/segment-cache-proxy.ts`）一律经消息 RPC 访问，后台内部直调（`directStore: true`）。
+- 大体积字幕轨（`subtitle_pages`，双阈值 LRU `100` 页 / `150 MB`，末页淘汰时按视频键级联清理 `ai_artifacts`）、长视频 L1 目录与分段产物（`ai_artifacts`，分族视频数上限 `100` / `20`，见 [ADR-0012](0012-long-video-state-relay-and-hybrid-retrieval.md)）及外部化对话附图（`chat_images`，`80 MB` 字节 LRU + 按会话同步回收孤儿记录）统一存储在后台持有的**扩展源 IndexedDB v2**（`biliscript-subtitle-store`，跨站存储键规则见 [ADR-0021](0021-multi-site-and-youtube-core.md)）中；Content Script（`subtitle/store-client.ts`）与 Offscreen（`ai/segment-cache-proxy.ts`）一律经消息 RPC 访问，后台内部直调（`directStore: true`）。
 - 历史 `chrome.storage.local` 缓存键与历史会话内联 base64 图片均执行**「先写入 IDB 并确认 `ok: true`，再删除旧键或替换为 `{ mime, idbRef }` 引用」**的幂等迁移顺序；IDB 写入失败则保留内联/旧键或回滚新写记录，绝不产生悬空引用或静默丢数据。
 
 ## 考虑过的方案
 
-- **将大体积缓存写入网页源 IndexedDB 或留在 `chrome.storage.local`**：网页源 IDB 按 B 站子域（`www` / `bangumi` 等）分桶隔离、跨上下文不可达且易被清理站点数据波及；`storage.local` 混存数 MB 图片与字幕会拖慢全量键值反序列化。
+- **将大体积缓存写入网页源 IndexedDB 或留在 `chrome.storage.local`**：网页源 IDB 按站点与子域分桶隔离、跨上下文不可达且易被清理站点数据波及；`storage.local` 混存数 MB 图片与字幕会拖慢全量键值反序列化。
 - **后台设置快照仅依赖 `storage.onChanged` 失效或做 write-through**：前者在后台连续写后读时必命中陈旧快照，后者在并发更新时存在覆盖竞态。

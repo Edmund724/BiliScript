@@ -2,14 +2,14 @@
 
 > 状态：有效
 
-围绕原生字幕获取与无字幕语音识别（ASR）回退全链路，我们确立**进视频页即预抓取原生字幕（禁自动进 ASR）**、**发送闸失败重试与拦截**、**在途 ASR 任务与导航代次解耦保活**，以及 **Offscreen 内音频分段流式解码闭环**四项机制。
+围绕原生字幕获取与无字幕语音识别（ASR）回退全链路，我们确立**进视频页即预抓取原生字幕（确认真无字幕且开启自动回退时触发 ASR）**、**发送闸失败重试与拦截**、**在途 ASR 任务与导航代次解耦保活**，以及 **Offscreen 内音频分段流式解码闭环**四项机制。
 
 ## 已定决策
 
-### 1. 进视频页即预抓取原生字幕（`extension/subtitle/kick-subtitle-fetch.ts`）
+### 1. 进视频页即预抓取字幕（`extension/subtitle/kick-subtitle-fetch.ts`）
 
-- Content Script 首载（`entry/content.ts`）与 SPA 换片（`entry/clip-switch-transaction.ts`）立即起跑预抓取，不设独立设置开关。经共享守卫 `isSubtitleInHandOrInFlight`（字幕在手且视频身份匹配，或相位处于 `loading` / `ready` 时跳过防并发重抓）判定后，先等待 `waitForVideoMetadata(5000)`，再加载总结链并复用 `refreshClip` 唯一接受事务（后台静默执行，失败不弹页面提示）。
-- B 站 `x/player/wbi/v2` 字幕列表请求兼作最早可用性探测（解析轨道严格优先取字符串 `id_str` 规避 19 位整数 `Number.MAX_SAFE_INTEGER` 精度丢失，缓存签名剥离轮换 `auth_key`）；**无原生字幕视频只多这一次列表探测，绝不在预抓取中自动触发分钟级付费 ASR**（ASR 维持用户显式触发）。
+- Content Script 首载（`entry/content.ts`）与 SPA 换片（`entry/clip-switch-transaction.ts`）立即起跑预抓取，不设独立设置开关。经共享守卫 `isSubtitleInHandOrInFlight`（字幕在手且视频身份匹配，或相位处于 `loading` / `ready` 时跳过防并发重抓）判定后，先等待 `waitForLightweightVideoMetadata(5000)`，再加载总结链并复用 `refreshClip` 唯一接受事务（后台静默执行，失败不弹页面提示）。
+- B 站 `x/player/wbi/v2` 字幕列表请求（解析轨道严格优先取字符串 `id_str` 规避 19 位整数精度丢失，缓存签名剥离轮换 `auth_key`）与 YouTube 主世界轨道读取兼作最早可用性探测：**仅在确认视频真无原生字幕（且非页面提取异常，见 [ADR-0022](0022-youtube-sabr-asr-pipeline.md)）、`asrAutoFallback === true` 且已配置 ASR 时自动回退转写**；已有原生字幕或平台自动字幕时绝不自动触发付费 ASR。
 
 ### 2. 发送闸 `error` 重试拦截与即时等待反馈（`extension/chat/send-gate.ts`）
 
@@ -18,7 +18,7 @@
 
 ### 3. 在途 ASR 任务与 `fetchRunId` 导航代次解耦（`extension/asr/fallback.ts`）
 
-- 用户显式触发的在途 ASR 任务按 `videoKey` 登记在页面内存 `activeAsrTranscribes` 中，与随换片/侧栏刷新递增的 `fetchRunId` 解耦：用户短时切换分P、点击推荐视频或侧栏触发重刷时，仅通过接受事务的 `STALE_RUN` 门控屏蔽对失配 UI 的写入，**后台在途 ASR 任务继续跑完并将结果写入扩展源 IndexedDB**（见 [ADR-0018](0018-layered-storage-and-extension-idb.md)），防止误触导航销毁已付费运行数分钟的音频转写。
+- 在途 ASR 任务（含自动回退与手动触发）按 `videoKey` 登记在页面内存 `activeAsrTranscribes` 中，与随换片/侧栏刷新递增的 `fetchRunId` 解耦：用户短时切换分P、点击推荐视频或侧栏触发重刷时，仅通过接受事务的 `STALE_RUN` 门控屏蔽对失配 UI 的写入，**后台在途 ASR 任务继续跑完并将结果写入扩展源 IndexedDB**（见 [ADR-0018](0018-layered-storage-and-extension-idb.md)），防止误触导航销毁已付费运行数分钟的音频转写。
 
 ### 4. Offscreen 二进制闭环与分段流式 ADTS 解码防 OOM（`extension/entry/offscreen-asr.ts`）
 
@@ -34,4 +34,4 @@
 
 ## 后果
 
-- 每个视频页后台固定承担一次 `view` 与一次 `player/wbi/v2` 请求（有字幕再拉正文与热评）；重开条件为触发 B 站接口限流或出现更早的无请求字幕存在信号。
+- 每个 B 站视频页后台固定承担一次 `view` 与一次 `player/wbi/v2` 请求（有字幕再拉正文与热评），YouTube 通过主世界零网络探测轨道；重开条件为触发站点接口限流或出现更早的无请求字幕存在信号。

@@ -6,7 +6,7 @@
 
 | 域 | 生成产物 | 消费方式与隔离边界 |
 | --- | --- | --- |
-| UI 目录 | `extension/ai/catalog/models-dev-catalog.generated.ts` | 只读展示元数据；仅经 `ui/lazy-model-catalog.ts` 动态 `import()` 按需加载 |
+| UI 目录 | `extension/ai/catalog/models-dev-catalog.generated.ts` | 只读展示元数据；经 `ui/lazy-model-catalog.ts` 门面归入 `g-shared` 交集组（见 [ADR-0004](0004-content-two-round-build-and-reader-gate.md)），不进入常驻包与后台静态图 |
 | 请求塑形事实 | `extension/ai/catalog/models-dev-thinking.generated.ts` | 值集表 `VALUESETS` 与指派表 `ASSIGNMENTS`；供 `ai/thinking-profiles.ts` 解析，线格式落点仍归 [ADR-0008](0008-thinking-tiers-and-wire-maps.md) |
 
 `scripts/build.js` 的 `assertBackgroundStaticGraphSlim` 将上述两份产物与 `ai/model-catalog.ts` 一并列入后台静态图禁区（对齐 [ADR-0001](0001-background-no-runtime-lazy.md)）。

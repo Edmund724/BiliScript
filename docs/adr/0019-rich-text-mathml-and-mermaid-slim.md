@@ -2,7 +2,7 @@
 
 > 状态：有效
 
-文摘面板直接挂载于 B 站网页 Light DOM（[ADR-0003](0003-light-dom-script-panel.md)），同时受宿主页面严格 CSP、`web_accessible_resources` 最小暴露面与整包 `DIST_RUNTIME_MAX_BYTES = 3,900,000` 体积上限约束。数学公式与 Mermaid 图表渲染采用**纯原生 MathML 零字体输出**与**构建期源码副本按锚点裁剪配最小替身**方案。
+文摘面板直接挂载于视频页 Light DOM（[ADR-0003](0003-light-dom-script-panel.md)），同时受宿主页面严格 CSP、`web_accessible_resources` 最小暴露面与双端运行时体积预算（[ADR-0004](0004-content-two-round-build-and-reader-gate.md)）约束。数学公式与 Mermaid 图表渲染采用**纯原生 MathML 零字体输出**与**构建期源码副本按锚点裁剪配最小替身**方案。
 
 ## 已定决策
 
@@ -13,12 +13,11 @@
 
 ### 2. Mermaid 12 构建期副本裁剪与最小依赖替身
 
-- **不污染 `node_modules` 的构建区副本裁剪**：`scripts/vendor-mermaid-slim.mjs` 将 Mermaid chunk 复制到构建临时区，按源码内容锚点（不依赖易变哈希文件名）剥离未使用的图类、重型布局引擎（`cose-bilkent`、`ELK`）与重复 `katex` 副本；`scripts/build-content.js` 锁定 Mermaid 版本号与源码哈希，并在分包轮（[ADR-0004](0004-content-two-round-build-and-reader-gate.md)）通过 sourcemap `inputs` 守卫防止重型依赖回流或产生双实例。
-- **最小构建期替身（`iconify` / `marked` / `d3-slim`）**：由 `scripts/vendor-iconify-stub.mjs`、`vendor-marked-stub.mjs` 与 `vendor-d3-slim.mjs` 在打包期替换重型传递依赖。其中 `vendor-d3-slim.mjs` 的 `transition().style(k, v)` **必须同步立即写入样式而非做成空操作**（Mermaid 节点提示层初始为 `opacity: 0`，空操作会导致元素永久透明不可见），且仅放行经校验的终态 setter 子集（`duration`/`style`/`attr`/`text`/`html`/`remove`/`selection`）；对生命周期回调（如 `on("end")`）、插值/延迟、getter 误用、具名过渡及 `interrupt()` 在运行时立即抛错，并由 `scripts/vendor-mermaid-slim.mjs` 在构建期对裁剪后 Mermaid 闭包静态审计全部 `.transition()` / `.interrupt()` 调用点。
-- **运行时宿主隔离**（`extension/ui/mermaid-render.ts`）：在调用 `detectType()` 前必须先执行 `initialize()` 完成图表探测注册，按图类型显式补齐 Mermaid 12 `look` 配置（全局配置在 Mermaid 12 中不生效），重写产出 SVG 的根 ID 与内部引用以防与宿主同页多图冲突，且仅在渲染确认成功后才隐藏源码 `<pre>` 兜底。
-- **换 ID 前缀契约与 CSSOM 校验边界**：`extension/ui/mermaid-render.ts` 的 `mountDiagram` 通过 `diagram.svg.split(diagram.id).join(freshId)` 复用缓存 SVG 并隔离同页多图，该机制依赖的隐含契约是**所有被引用的 SVG 内部 ID（`url(#…)`、`href="#…"`、`xlink:href="#…"`）及全部内嵌 `<style>` 规则选择器均以根 ID 为前缀**；`sequenceDiagram` 产出的未引用裸 ID（`actor<N>` / `root-<N>`）属于 Mermaid 11/12 上游既有输出，不纳入前缀契约。校验或处理内嵌 `<style>` 选择器前缀时必须走浏览器 CSSOM（筛选 `CSSStyleRule`），严禁做纯文本或正则切分以免误伤 `@keyframes` 等 at-rule（由 `scripts/mermaid-smoke/harness.html` 冒烟断言常驻守卫）。
+- **不污染 `node_modules` 的构建区副本裁剪**：`scripts/vendor-mermaid-slim.mjs` 将 Mermaid chunk 复制到构建临时区，按源码内容锚点剥离未使用的图类、重型布局引擎（`cose-bilkent`、`ELK`）与重复 `katex` 副本；`scripts/build-content.js` 锁定 Mermaid 版本号与源码哈希，并通过 sourcemap `inputs` 守卫防止重型依赖回流或双实例。
+- **四项最小构建期替身（`iconify` / `marked` / `lodash-root` / `d3-slim`）**：打包期分别由 `scripts/vendor-{iconify,marked,lodash-root,d3-slim}-stub.mjs`（以及 `vendor-d3-slim.mjs`）替换重型传递依赖。其中 `vendor-d3-slim.mjs` 的 `transition().style(k, v)` **必须同步立即写入样式而非空操作**（否则初始 `opacity: 0` 的节点提示层将永久不可见），仅放行经审计的终态 setter 子集，对未支持过渡接口在运行期抛错并由构建期静态审计全部 `.transition()` / `.interrupt()` 调用点。
+- **运行时宿主隔离与 CSSOM 前缀契约**（`extension/ui/mermaid-render.ts`）：调用 `detectType()` 前须先 `initialize()` 并按图类型补齐 Mermaid 12 `look` 配置；复用缓存 SVG 换 ID 依赖「所有被引用内部 ID 与内嵌 `<style>` 规则选择器均以根 ID 为前缀」的契约（未引用裸 ID 不纳入），校验或处理 `<style>` 前缀必须经浏览器 CSSOM（`CSSStyleRule`），严禁纯文本或正则切分以免破坏 `@keyframes` 等 at-rule（由 `scripts/mermaid-smoke/harness.html` 冒烟断言守卫）。
 
 ## 考虑过的方案
 
 - **全量打包 KaTeX 字体并暴露至 `web_accessible_resources`**：增加数百 KB 字体体积、引入宿主 CSP 冲突并扩大扩展可被网页探测的静态资源面。
-- **直接 bundle 原始 `mermaid` 或用 patch-package 原地改写 `node_modules`**：前者单包膨胀数 MB 直接击穿 3.9MB 运行时总预算，后者破坏依赖树幂等性且跨机器易漂移。
+- **直接 bundle 原始 `mermaid` 或用 patch-package 原地改写 `node_modules`**：前者单包膨胀数 MB 直接击穿双端运行时总预算，后者破坏依赖树幂等性且跨机器易漂移。

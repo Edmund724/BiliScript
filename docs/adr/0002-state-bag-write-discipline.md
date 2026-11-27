@@ -2,7 +2,12 @@
 
 > 状态：有效
 
-内容脚本侧的核心状态袋 `extension/core/state.ts`（`reader` / `clip` / `ui` 命名空间 + `settings`）、单写者内聚切片 `extension/ai/player-ai-state.ts` 与对话会话状态袋 `extension/chat/chat-state.ts` 统一采用 **模块级页面单例 + 公开类型 `Readonly` + 意图级 setter / 原语门禁**（完整字段清单、白名单与生命周期归属见 [`docs/state-contract.md`](../state-contract.md)）。我们决定：**除完全内聚且仅单一业务写者的切片（如 `playerAiState`）外，状态袋不做散字段跨目录搬迁或全域收敛，也不将模块级单例改为构造注入（DI）**。
+内容脚本侧的核心状态袋 `extension/core/state.ts`（`reader` / `clip` / `ui` 命名空间 + `settings`，并导出 `clipState` / `uiState` 写入口）、单写者内聚切片 `extension/ai/player-ai-state.ts`（跨模块写入经意图级 `suppressUntil` 收口）与对话会话状态袋 `extension/chat/chat-state.ts` 统一采用 **模块级页面单例 + 公开类型 `Readonly` + 意图级 setter / 原语门禁**，字段清单与签名以对应 TypeScript 类型为单一事实源。我们决定：**除完全内聚且仅单一业务写者的切片（如 `playerAiState`）外，状态袋不做散字段跨目录搬迁或全域收敛，也不将模块级单例改为构造注入（DI）**。
+
+## 编译期外不变量与上下文归属
+
+- **内部白名单与壳状态机**：`state.reader` 仅 `readingVideoEl`、`readingDocumentClickBound`、`readingShellState` 三个内部状态字段无 setter 允许直接读写；其中 `readingShellState`（`closed | entering | open | exiting`）唯一合法写入口为 `transitionReaderShell(to)`（校验边转移，`readingViewOpen` 为只读派生投影）。
+- **运行时生命周期**：上述状态袋均属于页面上下文单例，随页面刷新自然重置（不做 `chrome.storage.session` 持久化），不受 MV3 Service Worker 休眠影响；SW 侧仅只读默认配置（如 `state.settings?.enableDebugLogs`），不写任何业务字段。SW 侧唯一可变内存态为 DNR 会话规则账本（`extension/core/offscreen-host.ts` / `extension/asr/session-rule-manager.ts`），冷启动首分配前须先与 `declarativeNetRequest.getSessionRules()` 对账。
 
 ## 理由与考虑过的方案
 

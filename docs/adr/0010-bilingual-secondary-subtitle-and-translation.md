@@ -15,10 +15,10 @@
 
 ### 2. 跨语种原生配对与 AI 译文副轨三判据
 
-- **原生多轨优先零 Token 配对**：匹配副轨时完整 `lan` 精确命中优先，未命中按 `getLangFamily` 语种族回退（`manual-cc` 人工轨优先于 `bili-ai` 机器轨），**严格剔除同语种族轨道**防止繁简配成假双语。
-- **AI 译文副轨触发与协议分流**：当命中**「单语种原生轨 ∨ ASR 伪轨（无跨语种真轨）∨ 跨语种多轨用户显式开启 AI 精翻覆盖」**三判据之一时，第二路进入独立懒加载目标 `subtitle/asr-translation.ts`（须登记于 `build-content.js` `lazyTargets`，见 [ADR-0004](0004-content-two-round-build-and-reader-gate.md)）。除全量缓存命中零请求直挂外，**必须经用户显式动作才发起付费翻译请求**。
+- **原生多轨优先零 Token 配对**：匹配副轨时完整 `lan` 精确命中优先，未命中按 `getLangFamily` 语种族回退（`manual-cc` 人工轨优先于 `bili-ai` 机器轨），**严格剔除同语种族轨道**防止繁简配成假双语（YouTube 站点禁用原生双轨配对，统一走 AI 译文副轨，见 [ADR-0021](0021-multi-site-and-youtube-core.md)）。
+- **AI 译文副轨触发与协议分流**：当命中**「单语种原生轨 ∨ ASR 伪轨（无跨语种真轨）∨ 跨语种多轨用户显式开启 AI 精翻覆盖」**三判据之一时，第二路进入 `subtitle/asr-translation.ts`（归属 `g-subtitle` 经典 IIFE 分组，见 [ADR-0004](0004-content-two-round-build-and-reader-gate.md)）。除全量缓存命中零请求直挂外，**必须经用户显式动作才发起付费翻译请求**。
   - 人工 CC 源轨走 JSON 数组严格 ID 对齐流式协议，缓存键 `${sourceTrackKey}_translate-<CanonicalBCP47>`；
-  - `bili-ai` 与 `asr` 源轨走**禁传时间戳的 `boundary-v3` 联合断句翻译协议**（仅传 `{ id, text, pauseMs? }`，严禁模型输出时间戳以根绝时间漂移幻觉，由前端按原始事件序列精确重建时间轴；ASR 译文键 `id_translate-<lang>` 在新 ASR 原文落盘时定向清理）。
+  - 平台自动字幕（`bili-ai` / YouTube `kind: "asr"`）与 `asr` 源轨走**禁传时间戳的 `boundary-v3` 联合断句翻译协议**（仅传 `{ id, text, pauseMs? }`，严禁模型输出时间戳以根绝时间漂移幻觉，由前端按原始事件序列精确重建时间轴；ASR 译文键 `id_translate-<lang>` 在新 ASR 原文落盘时定向清理）。
 
 ### 3. 90 秒播放游标优先调度与防抖持久化
 

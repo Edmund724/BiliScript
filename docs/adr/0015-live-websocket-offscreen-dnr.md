@@ -7,7 +7,7 @@
 ## 已定决策
 
 1. **WebSocket 连接固定承载于 Offscreen 文档**：客户端（`extension/live/offscreen-moss-client.ts`、`offscreen-gemini-live-client.ts`）统一在 `entry/offscreen.ts` 内发起并持有连接。`shared/offscreen-constants.ts` 将 `OFFSCREEN_CREATE_REASONS` 锁定为 `["BLOBS"]`——Chromium 运行时拒收非法的 `"WEBSOCKET"` 原因，而 `"AUDIO_PLAYBACK"` 在无音频输出满 30 秒时会被浏览器强杀断连。
-2. **后台按会话代际注入 DNR 握手规则（固定 `ruleId: 9002`）**：建连前由后台 `LiveSessionTracker.prepare`（`live/live-session-tracker.ts`）写入 `declarativeNetRequest` 会话规则（`MOSS_LIVE_WS_RULE_ID = 9002`，`resourceTypes: ["websocket"]`，与 ASR 动态规则池 `32001..32999` 及内置翻译请求头规则 `9003` 互不冲突），对目标域名同步覆写鉴权头（MOSS `Authorization: Bearer` / Gemini `x-goog-api-key`）与目标 `http(s)://` `Origin` 请求头，并按代际防并发建连与迟到清理互相踩踏。
+2. **后台按会话代际注入 DNR 握手规则（固定 `ruleId: 9002`）**：建连前由后台 `LiveSessionTracker.prepare`（`live/live-session-tracker.ts`）写入 `declarativeNetRequest` 会话规则（`MOSS_LIVE_WS_RULE_ID = 9002`，`resourceTypes: ["websocket"]`，与 ASR 动态规则池 `32001..32100` 及内置翻译请求头规则 `9003` 互不冲突），对目标域名同步覆写鉴权头（MOSS `Authorization: Bearer` / Gemini `x-goog-api-key`）与目标 `http(s)://` `Origin` 请求头，并按代际防并发建连与迟到清理互相踩踏。
 3. **`http(s)://` 与 `ws(s)://` 主机权限成对声明与预检**：Chromium DNR `modifyHeaders` 拦截改写 `wss://` 握手要求扩展显式持有对应 `ws://` / `wss://` 主机权限（仅持 `https://` 会静默跳过头改写）。因此 `manifest.json` 的 `optional_host_permissions`、点击手势权限请求与 `LiveSessionTracker.prepare` 预检一律成对覆盖两种协议。
 
 ## 考虑过的方案

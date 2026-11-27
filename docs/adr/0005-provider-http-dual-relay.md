@@ -2,7 +2,7 @@
 
 > 状态：有效
 
-在 B 站页面源（`https://www.bilibili.com`）直接向第三方 AI 平台发起跨域 `fetch` 会受制于平台网关单方面固定的 CORS 预检白名单（如阿里云 ModelScope 的 Anthropic 端点预检头不含 `x-api-key` 与 `anthropic-version`，页面直发必败）。我们决定：**Content Script 发起的第三方平台 HTTP 请求一律由扩展上下文代发，严禁回落页面源直发**，并按请求时长与流式需求静态装配两条代发通道。
+在宿主页面源（如 `https://www.bilibili.com`、`https://www.youtube.com`）直接向第三方 AI 平台发起跨域 `fetch` 会受制于平台网关单方面固定的 CORS 预检白名单（如阿里云 ModelScope 的 Anthropic 端点预检头不含 `x-api-key` 与 `anthropic-version`，页面直发必败）。我们决定：**Content Script 发起的第三方平台 HTTP 请求一律由扩展上下文代发，严禁回落页面源直发**，并按请求时长与流式需求静态装配两条代发通道。
 
 ## 已定决策
 
@@ -16,7 +16,7 @@
 ### 2. Offscreen 代发端口 2s 活性确认（防死通道空挂）
 
 - 当新请求与 Offscreen 闲置回收窗口撞车时，`runtime.connect` 建出的端口可能落到后台保活 `onConnect` 空监听上，既不回吐也不断连。
-- Offscreen 收到 `provider-http` 消息后先于校验与 `fetch` 立即回传 `{ ok: true, accepted: true }` 派发确认；Content 侧若在 `DISPATCH_ACK_TIMEOUT_MS`（2s）内未收到确认或首包前即断连，立即断端口、等待 `DISPATCH_RETRY_DELAY_MS`（400ms）待旧文档关闭收尾后重跑 `ensure` 并重连一次，仍失败则报可读错误，杜绝界面永久静默挂起。
+- Offscreen 收到 `provider-http` 消息后先于校验与 `fetch` 立即回传 `{ ok: true, accepted: true }` 派发确认；Content 侧若在 `DISPATCH_ACK_TIMEOUT_MS`（2s）内未收到确认或首包前即断连，立即断端口并重跑 `ensure` 重连一次（`DISPATCH_MAX_ATTEMPTS = 2`），仍失败则报可读错误，杜绝界面永久静默挂起。
 
 ### 3. 宿主权限统一经后台真门预检
 

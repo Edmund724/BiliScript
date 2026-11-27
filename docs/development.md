@@ -21,7 +21,7 @@ pnpm run build:release  # 生成 Chromium / Firefox / Source 三份发布压缩�
 
 ## 二次开发与验证
 
-你可以配合编程 Agent 按个人需求定制功能（如调整概览提示词、扩展导出格式或接入私有模型）。提交改动前请执行完整静态检查与测试，并在真实 B 站视频页核验行为：
+你可以配合编程 Agent 按个人需求定制功能（如调整概览提示词、扩展导出格式或接入私有模型）。提交改动前请执行完整静态检查与测试，并在真实 B 站 / YouTube 视频页核验行为：
 
 ```bash
 pnpm test
@@ -47,18 +47,19 @@ extension/
 ├── _locales/              # 多语言文案资源
 ├── entry/                 # 运行时入口（background、content、offscreen、onboarding、permission-grant 及样式）
 ├── agent-bridge/          # 本地 Agent WebSocket 桥接、多实例路由与视频采集
-├── ai/                    # AI 客户端、多协议适配、长视频 L0/L1 索引与两阶段混合召回、SSE 流式解析与播放器快捷按钮
+├── ai/                    # AI 客户端、多协议适配、长视频索引与混合召回、流式解析
 ├── asr/                   # 语音识别（音频分片、并发转写、WAV 编码）
 ├── bilibili/              # B 站 API 网关与视频 ID 解析
+├── youtube/               # YouTube 站点适配器、字幕提取与主世界 SABR 采集
 ├── chat/                  # 对话运行时与本地会话存储
 ├── live/                  # 实时伴看（MOSS Live / Gemini Live 会话、音画同步与浮窗）
-├── search/                # 联网搜索（多平台适配器、智能回退链与缓存执行器）
+├── search/                # 联网搜索（多平台适配器、回退链与缓存执行器）
 ├── core/                  # 核心状态管理、运行时与消息分发
 ├── notes/                 # 导出渲染（Markdown、SRT、WebVTT、TXT）
 ├── subtitle/              # 字幕抓取、双语轨道事务、翻译与缓存
-├── reader/                # 文摘面板视图生命周期、跟随同步与布局
+├── reader/                # 文摘面板视图生命周期、独立窗口与布局
 ├── ui/                    # 通用 UI 组件、Markdown / 公式 / 图表渲染与时间戳导航
-├── shared/                # 跨模块基础工具（DOM、日志、字符串处理等）
+├── shared/                # 跨模块基础工具（站点抽象、DOM、日志、字符串处理等）
 └── icons/                 # 扩展图标资源
 ```
 

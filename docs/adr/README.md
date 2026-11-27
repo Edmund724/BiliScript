@@ -16,7 +16,7 @@
 | [0008](0008-thinking-tiers-and-wire-maps.md) | 思考档位双词表、协议无关事实层与三协议线格式出口表 | `default`（不干预）与 7 档强度阶梯分表隔离；档位事实协议无关；Messages 侧三张显式出口表且禁自造 `budget_tokens` |
 | [0009](0009-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 `generateContent`） | 手写零依赖原生 SSE 适配器保 `thoughtSignature` 与函数配对；仅落离散 `thinkingLevel`，不做数值预算轨 |
 | [0010](0010-bilingual-secondary-subtitle-and-translation.md) | 双语副轨独立槽、并列接受事务与 AI 译文游标调度 | `clip.secondarySubtitle` 与 `secondary-subtitle-ready` 隔离副作用；原生去同族配对，AI 译文走 `boundary-v3` 与 90s 游标优先调度 |
-| [0011](0011-subtitle-prefetch-and-asr-isolation.md) | 视频页字幕预抓取、发送闸重试与 ASR 跨导航/分段流式隔离 | 进视频页即预抓原生字幕（禁自动 ASR）；发送闸重试拦截 `error`；在途 ASR 与 `fetchRunId` 解耦；Offscreen 10-moof 分段解码防 OOM |
+| [0011](0011-subtitle-prefetch-and-asr-isolation.md) | 视频页字幕预抓取、发送闸重试与 ASR 跨导航/分段流式隔离 | 进视频页即预抓原生字幕（确认真无字幕且开启自动回退时触发 ASR）；发送闸重试拦截 `error`；在途 ASR 与 `fetchRunId` 解耦；Offscreen 10-moof 分段解码防 OOM |
 | [0012](0012-long-video-state-relay-and-hybrid-retrieval.md) | 长视频阶梯预算、滑动状态接力总结、单跳混合召回与 Map-Reduce 兜底 | 200k 阶梯与三级溢出回落；零向量/分词依赖；概览超预算走状态接力，对话优先 L1+BM25 单跳召回，Map-Reduce 仅作冷兜底 |
 | [0013](0013-chat-turn-dag-and-dual-context.md) | 对话回合单向等待 DAG、延迟停止看门狗与双轨上下文隔离 | `settled <- switch`、`replay <- sendGate`、`replay` 零等待防死锁；建连延迟 `stop` + 4s 看门狗；`contextData` 与 `liveContextData` 分离 |
 | [0014](0014-web-search-privacy-gate-and-cooldown.md) | 联网搜索隐私授权闸、哈希缓存跨上下文共享与 SW 持久化冷却 | 显式授权与 `true -> false` 退订清缓存；哈希缓存开放给页面划词卡与 Offscreen 共享；冷却账本持久化防 SW 休眠清零 |
@@ -24,10 +24,10 @@
 | [0016](0016-live-companion-overlay-hosts.md) | 实时伴看浮窗主承载架构：视频页与直播间双宿主边界 | 双端共用跨全屏吸附浮窗；视频页会话独立于面板并保留状态条与只读记录；直播间走独立 `live-room` 懒包且禁页面工具 |
 | [0017](0017-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 清单派生 Event Page、29 常驻域（剔除 `live`）、清空 WAR 与显式 CSP（防本机连接强升 HTTPS）；隐藏 `iframe` 承载 Offscreen；禁裸写标准滚动条 |
 | [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
-| [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + `d3-slim` 同步落样式控死 3.9MB 预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
-| [0020](0020-detached-reader-window.md) | 文摘面板独立窗口双模式承载与跨文档 DOM 搬移边界 | 同源跨文档搬移整棵面板；置顶画中画（Document PiP）与普通窗口（`window.open`）双模式；固定 4 键位与系统 `×` 关壳；尺寸记本机 `local`；禁跨进程扩展页与搬移宿主 `<video>` |
-| [0021](0021-multi-site-and-youtube-core.md) | 多站点抽象边界、YouTube 首期能力范围与跨站存储键兼容策略 | 显式 `site` + 编码安全键零迁移兼容；站点适配器懒加载守 40KB 常驻与 256KB 后台上限；YouTube 同源主世界 + `timedtext`/`get_transcript` 三级采集；首期门控收窄核心闭环 |
-| [0022](0022-youtube-sabr-asr-pipeline.md) | YouTube 无字幕 ASR 的主世界 SABR/UMP 采集、离屏推流解码与门控边界 | 2–3KB 静态主世界模板嗅探 + 按需 SABR/UMP 拉流（零新增 `googlevideo` 权限）；`itag 140` 音轨严格匹配与广告三重门禁；离屏推流复用 16kHz WAV 双端交付；真无字幕自动回退与手动触发分离 |
+| [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + 4 项最小替身守双端运行时总预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
+| [0020](0020-detached-reader-window.md) | 文摘面板独立窗口双模式承载与跨文档 DOM 搬移边界 | 同源跨文档搬移整棵面板；置顶画中画（Document PiP）与普通窗口（`window.open`）双模式；独立窗口隐藏退出键且系统 `×` 统一归位；尺寸记本机 `local`；禁跨进程扩展页与搬移宿主 `<video>` |
+| [0021](0021-multi-site-and-youtube-core.md) | 多站点抽象边界、YouTube 能力门控与跨站存储键兼容策略 | 显式 `site` + 编码安全键零迁移兼容；站点适配器归入按需经典 IIFE 守 45KB 常驻与 256KB 后台上限；YouTube 同源主世界三级采集；`SiteCapabilities` 显式门控 |
+| [0022](0022-youtube-sabr-asr-pipeline.md) | YouTube 主世界 SABR/UMP 采集、离屏推流解码与 ASR 门控边界 | 2–3KB 静态主世界模板嗅探 + 按需 SABR/UMP 拉流（零新增 `googlevideo` 权限，复用音频 ASR 与历史三帧短窗）；`itag 140` 音轨严格匹配与广告三重门禁；离屏推流复用 16kHz WAV 双端交付；真无字幕自动回退与手动触发分离 |
 
 ## 审查红线
 
@@ -41,9 +41,9 @@
 - **ADR-0012：不得引入本地向量库、Embedding 模型或第三方分词词典依赖，也不得将长视频字幕召回构建为多轮自主检索 Agent 循环**。
 - **ADR-0015：不得将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script**（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017：不得将 `<all_urls>` 或 `https://*/*` 移入任一端常驻 `host_permissions`；不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`；二期立项前不得在 Firefox 暴露未验收的 `live` 或 `tts` 入口**。
-- **ADR-0020：不得为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像同步）或将 B 站 `<video>` 宿主节点搬入独立窗口；独立窗口像素宽高记忆不得写入 `chrome.storage.sync`**。
-- **ADR-0021：不得将未编码的原始 YouTube 视频 ID（含 `_`）直接拼入以下划线/冒号切分的存储键或将内部转义键泄漏至 UI/导出；不得将 YouTube `kind: "asr"` 平台自动字幕归入本扩展 `asr` 伪轨；不得伪装 `ANDROID` / `IOS` 客户端绕过 YouTube `timedtext` PO Token 校验；二期立项前不得在 YouTube 暴露未验收的实时伴看、扩展倍速或历史三帧截帧入口**。
-- **ADR-0022：不得在清单新增 `https://*.googlevideo.com/*` 常驻权限或伪装 `ANDROID` / `IOS` 客户端绕过 SABR 校验；不得在 `youtube-captions-unavailable` 或存在 YouTube 官方 `kind=asr` 时静默自动触发付费 ASR；不得将完整 SABR 协议逻辑打入 40KB 常驻内容包或 256KB 后台包**。
+- **ADR-0020：不得为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像同步）或将宿主 `<video>` 节点搬入独立窗口；独立窗口像素宽高记忆不得写入 `chrome.storage.sync`**。
+- **ADR-0021：不得将未编码的原始 YouTube 视频 ID（含 `_`）直接拼入以下划线/冒号切分的存储键或将内部转义键泄漏至 UI/导出；不得将 YouTube `kind: "asr"` 平台自动字幕归入本扩展 `asr` 伪轨；不得伪装 `ANDROID` / `IOS` 客户端绕过 YouTube `timedtext` PO Token 校验；二期立项前不得在 YouTube 暴露未验收的实时伴看或 3x/4x 扩展倍速入口**。
+- **ADR-0022：不得在清单新增 `https://*.googlevideo.com/*` 常驻权限或伪装 `ANDROID` / `IOS` 客户端绕过 SABR 校验；不得在 `youtube-captions-unavailable` 或存在 YouTube 官方 `kind=asr` 时静默自动触发付费 ASR；不得将完整 SABR 协议逻辑打入 45KB 常驻内容包或 256KB 后台包**。
 
 红线只覆盖已被否决过的方向，未裁决事项按常规架构评审走。
 

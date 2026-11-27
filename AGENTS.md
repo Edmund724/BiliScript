@@ -33,6 +33,7 @@
 - **Issue tracker**: GitHub Issues on `Edmund724/BiliScript` via `gh` CLI (`docs/agents/issue-tracker.md`)
 - **Triage labels**: Default five-role vocabulary (`docs/agents/triage-labels.md`)
 - **Domain docs**: Single-context (`docs/agents/domain.md`)
+- **UI design**: 双主题、视觉 token 与交互规范 (`docs/agents/design.md`)
 - **Transitive deps**: 只处理进产物或随产物分发的传递依赖公告；够不着的记理由，不静默 (`docs/agents/transitive-deps.md`)
 
 ## 设计与 UI
