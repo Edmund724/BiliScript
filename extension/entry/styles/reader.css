@@ -678,19 +678,21 @@
   background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
 }
 
-#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {
-  color: var(--biliscript-reader-text);
-  font-family: var(--biliscript-reader-font-sans-medium);
-  font-weight: 600;
-  min-width: 0;
-}
-
 #biliscript-reading-view .biliscript-reading-text {
   font-size: var(--biliscript-reader-subtitle-font-size);
   line-height: var(--biliscript-reader-subtitle-line-height);
   letter-spacing: var(--biliscript-reader-letter-spacing);
-  color: var(--biliscript-reader-text);
+  color: color-mix(in oklch, var(--biliscript-reader-text) 72%, transparent);
+  min-width: 0;
   transition: color 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text,
+#biliscript-reading-view .biliscript-reading-item:hover .biliscript-reading-text,
+#biliscript-reading-view .biliscript-reading-item:focus-visible .biliscript-reading-text,
+#biliscript-reading-view .biliscript-reading-item.search-current .biliscript-reading-text,
+#biliscript-reading-view .biliscript-reading-item.is-note-highlighted .biliscript-reading-text {
+  color: var(--biliscript-reader-text);
 }
 
 @container (max-width: 560px) {
