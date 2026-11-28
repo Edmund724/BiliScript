@@ -183,27 +183,25 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
     stream = true
   } = requestProfile;
 
+  const initialFrameTools = captureCurrentVideoFrame
+    ? includeHistoricalFrameTool
+      ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL]
+      : [CAPTURE_CURRENT_VIDEO_FRAME_TOOL]
+    : [];
+  const initialTools: ChatToolDefinition[] = [
+    ...(includeWebSearchTool && maxToolCalls > 0 ? [toolDefinition] : []),
+    ...initialFrameTools,
+    ...(fetchHotComments ? [FETCH_HOT_COMMENTS_TOOL] : [])
+  ];
+
   let toolCallCount = 0;
-  let quotaNoticeInjected = false;
   let retriedWithoutTools = false;
   let captureUsed = false;
   let hotCommentsUsed = false;
   let finalText = "";
 
   while (true) {
-    const searchAvailable = includeWebSearchTool && !retriedWithoutTools && toolCallCount < maxToolCalls;
-    const captureAvailable = Boolean(captureCurrentVideoFrame) && !captureUsed && !retriedWithoutTools;
-    const hotCommentsAvailable = Boolean(fetchHotComments) && !hotCommentsUsed && !retriedWithoutTools;
-    const frameTools = captureAvailable
-      ? includeHistoricalFrameTool
-        ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL]
-        : [CAPTURE_CURRENT_VIDEO_FRAME_TOOL]
-      : [];
-    const tools = [
-      ...(searchAvailable ? [toolDefinition] : []),
-      ...frameTools,
-      ...(hotCommentsAvailable ? [FETCH_HOT_COMMENTS_TOOL] : [])
-    ];
+    const tools = retriedWithoutTools ? [] : initialTools;
     const withTools = tools.length > 0;
 
     let result: ChatCompletionResult;
@@ -359,9 +357,13 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
       }
 
       if (call.function.name === FETCH_HOT_COMMENTS_TOOL_NAME) {
-        hotCommentsUsed = true;
-        let toolContent = "当前对话没有可获取的视频评论。";
-        if (fetchHotComments) {
+        let toolContent: string;
+        if (!fetchHotComments) {
+          toolContent = "当前对话没有可获取的视频评论。";
+        } else if (hotCommentsUsed) {
+          toolContent = "本轮已获取过视频热门评论，请基于已有评论内容作答。";
+        } else {
+          hotCommentsUsed = true;
           try {
             toolContent = serializeHotComments(await fetchHotComments());
           } catch (e) {
@@ -376,6 +378,24 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
         toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
         continue;
       }
+
+      if (!includeWebSearchTool) {
+        toolMessages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: "本轮未启用联网搜索，请基于已有内容作答。"
+        });
+        continue;
+      }
+      if (toolCallCount >= maxToolCalls) {
+        toolMessages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: `本轮的搜索次数已达上限（${maxToolCalls} 次），请基于已有搜索结果作答。`
+        });
+        continue;
+      }
+      toolCallCount += 1;
 
       const query = parseToolArgs(call.function.arguments).query;
       onToolStatus?.({ status: "searching", query, callId: call.id });
@@ -412,23 +432,10 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     }
     messages.push(assistantMessage, ...toolMessages, ...frameMessages);
-    toolCallCount += toolCalls.filter((call) =>
-      call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME &&
-      call.function.name !== CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME &&
-      call.function.name !== FETCH_HOT_COMMENTS_TOOL_NAME
-    ).length;
 
     onToolTurn?.([
       assistantMessage,
       ...toolMessages.map((m) => ({ ...m, content: m.content.slice(0, TOOL_MESSAGE_MAX_CHARS) }))
     ]);
-
-    if (includeWebSearchTool && toolCallCount >= maxToolCalls && !quotaNoticeInjected) {
-      messages.push({
-        role: "system",
-        content: `本轮的搜索次数已达上限（${maxToolCalls} 次），请基于已有搜索结果作答。`
-      });
-      quotaNoticeInjected = true;
-    }
   }
 }

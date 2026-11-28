@@ -67,7 +67,7 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
     expect(init.headers["anthropic-version"]).toBe("2023-06-01");
     expect(init.headers.Authorization).toBeUndefined();
     const body = JSON.parse(init.body);
-    expect(body.system).toBe("sys");
+    expect(body.system).toEqual([{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }]);
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
     expect(body.max_tokens).toBe(32768);
     expect(body.stream).toBe(false);

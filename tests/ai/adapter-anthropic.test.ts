@@ -83,7 +83,7 @@ describe("endpoint / authHeaders", () => {
 describe("buildBody（请求映射，research §2/§4）", () => {
   const base = { model: "claude-x", stream: false, probe: false, baseUrl: "https://api.anthropic.com" };
 
-  it("system 剥为顶层参数；多条按出现顺序 \\n\\n 拼接（限制点 2）", () => {
+  it("system 剥为顶层结构化块并挂 ephemeral 断点；多条按出现顺序 \\n\\n 拼接（限制点 2）", () => {
     const body = anthropicBody({
       ...base,
       messages: [
@@ -92,7 +92,9 @@ describe("buildBody（请求映射，research §2/§4）", () => {
         { role: "system", content: "s2" }
       ]
     });
-    expect(body.system).toBe("s1\n\ns2");
+    expect(body.system).toEqual([
+      { type: "text", text: "s1\n\ns2", cache_control: { type: "ephemeral" } }
+    ]);
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
@@ -158,7 +160,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
         { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "not-json" } },
         { type: "tool_use", id: "tu_2", name: "web_search", input: { query: "abc" } },
         { type: "tool_use", id: "tu_3", name: "capture_video_frame_at_time", input: { targetTime: 12.5 } },
-        { type: "tool_use", id: "tu_4", name: "fetch_hot_comments", input: {} }
+        { type: "tool_use", id: "tu_4", name: "fetch_hot_comments", input: {}, cache_control: { type: "ephemeral" } }
       ] },
       { role: "user", content: [
         { type: "tool_result", tool_use_id: "tu_1", content: "r1" },
@@ -387,7 +389,7 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
   const base = { model: "claude-x", stream: false, probe: false, baseUrl: "https://api.anthropic.com" };
   const IMAGE = { mime: "image/webp", data: "QUJD" };
 
-  it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
+  it("无图消息：images 字段不上线，多消息时仅在倒数第二条附加滚动缓存断点", () => {
     const body = anthropicBody({
       ...base,
       messages: [
@@ -396,7 +398,7 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
       ]
     });
     expect(JSON.stringify(body)).toBe(
-      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":32768}'
+      '{"model":"claude-x","messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":32768}'
     );
   });
 
@@ -464,11 +466,176 @@ describe("preserved thinking / signature 回放（buildBody / drainStream / pars
           { type: "thinking", thinking: "第一步先检索", signature: "sig_abc_1" },
           { type: "redacted_thinking", data: "redacted_blob_xyz" },
           { type: "text", text: "我先搜索一下" },
-          { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "test" } }
+          { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "test" }, cache_control: { type: "ephemeral" } }
         ]
       },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: "[]" }] }
     ]);
+  });
+
+  describe("Prompt Caching 显式 cache_control 断点（#28）", () => {
+    function countCacheControlBlocks(body: Record<string, unknown>): number {
+      let count = 0;
+      const walk = (node: unknown) => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+          for (const item of node) walk(item);
+          return;
+        }
+        const record = node as Record<string, unknown>;
+        if (record.cache_control) count += 1;
+        for (const value of Object.values(record)) walk(value);
+      };
+      walk(body);
+      return count;
+    }
+
+    it("单轮首问仅在顶层 system 挂载 1 个断点，单条 user 消息保持纯字符串不挂断点", () => {
+      const body = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "静态系统指令" },
+          { role: "user", content: "第一轮问题" }
+        ]
+      });
+
+      expect(body.system).toEqual([
+        { type: "text", text: "静态系统指令", cache_control: { type: "ephemeral" } }
+      ]);
+      expect(body.messages).toEqual([{ role: "user", content: "第一轮问题" }]);
+      expect(countCacheControlBlocks(body)).toBe(1);
+    });
+
+    it("多轮对话在 system 与 anthropicMessages[len - 2] 挂 2 个断点，纯文本转为结构化块", () => {
+      const body = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "静态系统指令" },
+          { role: "user", content: "第一轮问题" },
+          { role: "assistant", content: "第一轮回答" },
+          { role: "user", content: "第二轮追问" }
+        ]
+      });
+
+      expect(body.system).toEqual([
+        { type: "text", text: "静态系统指令", cache_control: { type: "ephemeral" } }
+      ]);
+      expect(body.messages).toEqual([
+        { role: "user", content: "第一轮问题" },
+        { role: "assistant", content: [{ type: "text", text: "第一轮回答", cache_control: { type: "ephemeral" } }] },
+        { role: "user", content: "第二轮追问" }
+      ]);
+      expect(countCacheControlBlocks(body)).toBe(2);
+    });
+
+    it("连续多条 role: tool 合并为单条 user 后，断点精准落在合并后目标数组倒数第二条的最后一个 tool_result 块", () => {
+      const body = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "静态系统指令" },
+          { role: "user", content: "查画面和搜索" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              { id: "tu_1", type: "function", function: { name: "web_search", arguments: '{"query":"a"}' } },
+              { id: "tu_2", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }
+            ]
+          },
+          { role: "tool", tool_call_id: "tu_1", content: "search-result" },
+          { role: "tool", tool_call_id: "tu_2", content: "已截取画面" },
+          { role: "user", content: "附带截图", images: [{ mime: "image/jpeg", data: "QUJD" }] }
+        ]
+      });
+
+      const msgs = body.messages as Array<{ role: string; content: unknown }>;
+      expect(msgs).toHaveLength(4);
+      expect(msgs[2]).toEqual({
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_1", content: "search-result" },
+          { type: "tool_result", tool_use_id: "tu_2", content: "已截取画面", cache_control: { type: "ephemeral" } }
+        ]
+      });
+      expect(countCacheControlBlocks(body)).toBe(2);
+    });
+
+    it("含 thinkingBlocks 的历史 assistant 消息绝不在 thinking / redacted_thinking 块上挂 cache_control", () => {
+      const withText = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "q1" },
+          {
+            role: "assistant",
+            content: "a1",
+            thinkingBlocks: [
+              { type: "thinking", thinking: "先思考", signature: "sig_1" },
+              { type: "redacted_thinking", data: "opaque_1" }
+            ]
+          },
+          { role: "user", content: "q2" }
+        ]
+      });
+      expect(withText.messages).toEqual([
+        { role: "user", content: "q1" },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "先思考", signature: "sig_1" },
+            { type: "redacted_thinking", data: "opaque_1" },
+            { type: "text", text: "a1", cache_control: { type: "ephemeral" } }
+          ]
+        },
+        { role: "user", content: "q2" }
+      ]);
+      expect(countCacheControlBlocks(withText)).toBe(2);
+
+      const onlyThinking = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "q1" },
+          {
+            role: "assistant",
+            content: "",
+            thinkingBlocks: [
+              { type: "thinking", thinking: "仅思考", signature: "sig_2" },
+              { type: "redacted_thinking", data: "opaque_2" }
+            ]
+          },
+          { role: "user", content: "q2" }
+        ]
+      });
+      const onlyThinkingMsgs = onlyThinking.messages as Array<{ role: string; content: Array<Record<string, unknown>> }>;
+      expect(onlyThinkingMsgs[1].content.every((block) => block.cache_control === undefined)).toBe(true);
+      expect(countCacheControlBlocks(onlyThinking)).toBe(1);
+    });
+
+    it("倒数第二条为图片消息时在最后一个 image 块挂断点，总断点数恒 <= 2", () => {
+      const body = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "", images: [{ mime: "image/webp", data: "QUJD" }] },
+          { role: "assistant", content: "看到了" }
+        ]
+      });
+      expect(body.messages).toEqual([
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/webp", data: "QUJD" },
+              cache_control: { type: "ephemeral" }
+            }
+          ]
+        },
+        { role: "assistant", content: "看到了" }
+      ]);
+      expect(countCacheControlBlocks(body)).toBe(2);
+    });
   });
 
   it("drainStream: 收集 thinking_delta / signature_delta 与 redacted_thinking，按块 index 顺序返回 thinkingBlocks", async () => {

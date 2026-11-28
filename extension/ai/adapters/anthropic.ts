@@ -22,11 +22,45 @@ function parseToolInput(rawArguments: string): Record<string, unknown> {
   return { query: rawArguments };
 }
 
-function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
-  const out: unknown[] = [];
+const EPHEMERAL_CACHE_CONTROL = { type: "ephemeral" } as const;
+
+const CACHEABLE_BLOCK_TYPES = new Set(["text", "tool_result", "tool_use", "image"]);
+
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  cache_control?: { type: "ephemeral" };
+  [key: string]: unknown;
+}
+
+interface AnthropicMessage {
+  role: string;
+  content: string | AnthropicContentBlock[];
+}
+
+function attachRollingCacheBreakpoint(messages: AnthropicMessage[]): void {
+  if (messages.length < 2) return;
+  const target = messages[messages.length - 2];
+  if (typeof target.content === "string") {
+    if (!target.content) return;
+    target.content = [{ type: "text", text: target.content, cache_control: { ...EPHEMERAL_CACHE_CONTROL } }];
+    return;
+  }
+  if (!Array.isArray(target.content)) return;
+  for (let i = target.content.length - 1; i >= 0; i -= 1) {
+    const block = target.content[i];
+    if (!block || !CACHEABLE_BLOCK_TYPES.has(block.type)) continue;
+    if (block.type === "text" && !block.text) continue;
+    block.cache_control = { ...EPHEMERAL_CACHE_CONTROL };
+    return;
+  }
+}
+
+function toAnthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
+  const out: AnthropicMessage[] = [];
   for (const message of messages) {
-    if (message.role === "assistant" && message.tool_calls?.length) {
-      const blocks: unknown[] = [];
+    if (message.role === "assistant" && (message.tool_calls?.length || message.thinkingBlocks?.length)) {
+      const blocks: AnthropicContentBlock[] = [];
       if (message.thinkingBlocks?.length) {
         for (const block of message.thinkingBlocks) {
           if (block.type === "thinking" && block.signature) {
@@ -37,24 +71,24 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
         }
       }
       if (message.content) blocks.push({ type: "text", text: message.content });
-      for (const call of message.tool_calls) {
+      for (const call of message.tool_calls ?? []) {
         blocks.push({ type: "tool_use", id: call.id, name: call.function.name, input: parseToolInput(call.function.arguments) });
       }
-      out.push({ role: "assistant", content: blocks });
+      out.push({ role: "assistant", content: blocks.length ? blocks : message.content });
     } else if (message.role === "tool") {
-      const resultBlock = { type: "tool_result", tool_use_id: message.tool_call_id ?? "", content: message.content };
-      const last = out[out.length - 1] as { role?: string; content?: unknown[] } | undefined;
+      const resultBlock: AnthropicContentBlock = { type: "tool_result", tool_use_id: message.tool_call_id ?? "", content: message.content };
+      const last = out[out.length - 1];
       if (
         last?.role === "user" &&
         Array.isArray(last.content) &&
-        last.content.some((b) => (b as { type?: string }).type === "tool_result")
+        last.content.some((b) => b.type === "tool_result")
       ) {
         last.content.push(resultBlock);
       } else {
         out.push({ role: "user", content: [resultBlock] });
       }
     } else if (message.images?.length) {
-      const blocks: unknown[] = [];
+      const blocks: AnthropicContentBlock[] = [];
       if (message.content) blocks.push({ type: "text", text: message.content });
       for (const image of message.images) {
         blocks.push({ type: "image", source: { type: "base64", media_type: image.mime, data: image.data } });
@@ -159,13 +193,17 @@ export const anthropicAdapter: ProtocolAdapter = {
     const { system, rest } = extractSystem(request.messages);
     const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS;
     const wire = request.thinkingWire;
+    const anthropicMessages = toAnthropicMessages(rest);
+    attachRollingCacheBreakpoint(anthropicMessages);
     const body: Record<string, unknown> = {
       model: request.model,
-      messages: toAnthropicMessages(rest),
+      messages: anthropicMessages,
       stream: request.stream,
       [wire.tokenParam]: maxTokens
     };
-    if (system) body.system = system;
+    if (system) {
+      body.system = [{ type: "text", text: system, cache_control: { ...EPHEMERAL_CACHE_CONTROL } }];
+    }
     const tools = toAnthropicTools(request.tools);
     if (tools) {
       body.tools = tools;

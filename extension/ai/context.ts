@@ -148,6 +148,25 @@ function replaceEarlierImages(historyMessages: ChatMessage[], hasCurrentImages: 
   });
 }
 
+export function formatDynamicTurnUserContent(input: {
+  hybridRetrievalMarkdown?: string;
+  frameContextNote?: string;
+  userPrompt: string;
+}): string {
+  const blocks: string[] = [];
+  if (input.hybridRetrievalMarkdown?.trim()) {
+    blocks.push(`<retrieved_subtitles>\n${input.hybridRetrievalMarkdown.trim()}\n</retrieved_subtitles>`);
+  }
+  if (input.frameContextNote?.trim()) {
+    blocks.push(`<video_frame_context>\n${input.frameContextNote.trim()}\n</video_frame_context>`);
+  }
+  const trimmedPrompt = input.userPrompt.trim();
+  if (trimmedPrompt || blocks.length === 0) {
+    blocks.push(trimmedPrompt);
+  }
+  return blocks.join("\n\n");
+}
+
 export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory, images }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
   const site = resolveContextSite(ctx);
@@ -160,25 +179,26 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
   );
 
-  const hybridRetrieval = String(ctx.hybridRetrievalMarkdown || "");
-  const compressedSummary = String(ctx.compressedSummaryMarkdown || "");
-  const subtitleText =
-    hybridRetrieval ||
-    compressedSummary ||
-    buildSubtitlePrompt({
-      body: ctx.subtitleBody,
-      chapters: ctx.chapters,
-      videoDuration: ctx.videoDuration,
-      includeTimestampInBody: ctx.includeTimestampInBody
-    });
-  if (subtitleText) {
-    sections.push(
-      hybridRetrieval
-        ? `以下是本视频的章节目录与按需召回的原始字幕片段（含精确时间戳，非全片逐字全文）：\n\n${subtitleText}`
-        : compressedSummary
-          ? `以下是本视频此前的整理成果（分段小结与成稿笔记，非逐字字幕）：\n\n${subtitleText}`
-          : `以下是视频的字幕全文：\n\n${subtitleText}`
-    );
+  const staticDirectory = String(ctx.staticDirectoryMarkdown || "").trim();
+  const compressedSummary = String(ctx.compressedSummaryMarkdown || "").trim();
+  const hybridRetrieval = String(ctx.hybridRetrievalMarkdown || "").trim();
+  const fullSubtitleText =
+    !staticDirectory && !compressedSummary
+      ? buildSubtitlePrompt({
+          body: ctx.subtitleBody,
+          chapters: ctx.chapters,
+          videoDuration: ctx.videoDuration,
+          includeTimestampInBody: ctx.includeTimestampInBody
+        })
+      : "";
+  if (staticDirectory) {
+    sections.push(`以下是本视频的静态章节目录（按需召回的原始字幕片段将随每轮提问附在用户消息中）：\n\n${staticDirectory}`);
+  } else if (compressedSummary) {
+    sections.push(`以下是本视频此前的整理成果（分段小结与成稿笔记，非逐字字幕）：\n\n${compressedSummary}`);
+  } else if (fullSubtitleText) {
+    sections.push(`以下是视频的字幕全文：\n\n${fullSubtitleText}`);
+  } else if (hybridRetrieval) {
+    sections.push("本视频为长视频，按需召回的原始字幕片段将随每轮提问附在用户消息中。");
   } else {
     sections.push("（暂无字幕）");
   }
@@ -192,11 +212,13 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
 
   historyMessages = replaceEarlierImages(historyMessages, Boolean(images?.length));
 
-  const frameContextNote = String(ctx.frameContextNote || "").trim();
-  const promptText = String(userPrompt || "");
   const userMessage: ChatMessage = {
     role: "user",
-    content: frameContextNote ? `${promptText}\n\n${frameContextNote}` : promptText
+    content: formatDynamicTurnUserContent({
+      hybridRetrievalMarkdown: hybridRetrieval,
+      frameContextNote: String(ctx.frameContextNote || ""),
+      userPrompt: String(userPrompt || "")
+    })
   };
   if (images?.length) {
     userMessage.images = images;

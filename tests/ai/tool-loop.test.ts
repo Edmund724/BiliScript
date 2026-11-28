@@ -154,14 +154,34 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai", callId: "call_1" });
   });
 
-  it("本轮次数达上限：摘除 tools + system 次数提示注入，不向用户发 notice，后续轮无工具", async () => {
+  it("本轮次数达上限：冻结 tools 不删改且不插入 role: system，超限调用由 role: tool 软拦截", async () => {
     capture = makeCapture();
-    await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    const secondSearchChunks = [
+      sseData({ tool_calls: [{ index: 0, id: "call_2", type: "function", function: { name: "web_search", arguments: '{"query":"second"}' } }] }),
+      sseData({}, "tool_calls")
+    ];
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      if (capture.calls.length === 1) return sseResponse(TOOL_ROUND_CHUNKS);
+      if (capture.calls.length === 2) return sseResponse(secondSearchChunks);
+      return sseResponse(FINAL_ROUND_CHUNKS);
+    });
+    const executeSearch = vi.fn(async () => ({ results: [], platform: "Tavily" }));
+    await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, maxToolCalls: 1, executeSearch }));
 
-    expect(capture.calls.length).toBe(2);
-    expect(capture.calls[1].tools).toBeUndefined();
-    const followup = capture.calls[1].messages;
-    expect(followup.some((m) => m.role === "system" && m.content === "本轮的搜索次数已达上限（1 次），请基于已有搜索结果作答。")).toBe(true);
+    expect(capture.calls.length).toBe(3);
+    expect(executeSearch).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(capture.calls[1].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(JSON.stringify(capture.calls[2].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(capture.calls[1].messages.some((m) => m.role === "system")).toBe(false);
+    expect(capture.calls[2].messages.some((m) => m.role === "system")).toBe(false);
+    expect(capture.calls[2].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "call_2",
+        content: "本轮的搜索次数已达上限（1 次），请基于已有搜索结果作答。"
+      })
+    ]));
     expect(capture.notices).toEqual([]);
   });
 
@@ -693,7 +713,7 @@ describe("当前视频截帧工具", () => {
     expect(JSON.stringify(followup)).not.toContain("undefined");
   });
 
-  it("每轮最多截图一次：后续请求不再提供工具，重复调用只回填提示", async () => {
+  it("每轮最多截图一次：后续跳保持 tools 一致，重复调用由 role: tool 软拦截", async () => {
     capture = makeCapture();
     useCaptureRounds([captureRound("frame_1"), captureRound("frame_2")]);
     const captureCurrentVideoFrame = vi.fn(async () => ({
@@ -708,8 +728,8 @@ describe("当前视频截帧工具", () => {
 
     expect(capture.calls).toHaveLength(3);
     expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
-    expect(capture.calls[1].tools).toBeUndefined();
-    expect(capture.calls[2].tools).toBeUndefined();
+    expect(JSON.stringify(capture.calls[1].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(JSON.stringify(capture.calls[2].tools)).toBe(JSON.stringify(capture.calls[0].tools));
     expect(capture.calls[2].messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: "tool",
@@ -982,12 +1002,13 @@ describe("tool-loop: Anthropic preserved thinking / signature 跨轮回放", () 
     expect(loopResult).toEqual({ done: true, finishReason: "stop" });
     expect(rawBodies).toHaveLength(2);
     const r2Messages = rawBodies[1].messages as Array<{ role: string; content: unknown }>;
+    expect(JSON.stringify(rawBodies[1].tools)).toBe(JSON.stringify(rawBodies[0].tools));
     expect(r2Messages[1]).toEqual({
       role: "assistant",
       content: [
         { type: "thinking", thinking: "先查文档", signature: "sig_ant_stream_1" },
         { type: "redacted_thinking", data: "redacted_stream_1" },
-        { type: "tool_use", id: "tu_ant_1", name: "web_search", input: { query: "preserved thinking" } }
+        { type: "tool_use", id: "tu_ant_1", name: "web_search", input: { query: "preserved thinking" }, cache_control: { type: "ephemeral" } }
       ]
     });
     expect(r2Messages[2]).toMatchObject({
@@ -1040,12 +1061,13 @@ describe("tool-loop: Anthropic preserved thinking / signature 跨轮回放", () 
     expect(result).toBe("非流式最终回答");
     expect(rawBodies).toHaveLength(2);
     const r2Messages = rawBodies[1].messages as Array<{ role: string; content: unknown }>;
+    expect(JSON.stringify(rawBodies[1].tools)).toBe(JSON.stringify(rawBodies[0].tools));
     expect(r2Messages[1]).toEqual({
       role: "assistant",
       content: [
         { type: "thinking", thinking: "需要检索验证", signature: "sig_ant_json_2" },
         { type: "redacted_thinking", data: "redacted_json_2" },
-        { type: "tool_use", id: "tu_ant_2", name: "web_search", input: { query: "claude" } }
+        { type: "tool_use", id: "tu_ant_2", name: "web_search", input: { query: "claude" }, cache_control: { type: "ephemeral" } }
       ]
     });
   });
@@ -1065,9 +1087,24 @@ describe("热门评论工具", () => {
     });
   }
 
-  it("联网关闭也可独立调用：评论回填后续答，本轮不再提供评论工具", async () => {
+  it("联网关闭也可独立调用：评论回填后续答，后续跳保持 tools 一致且重复调用软拦截", async () => {
     capture = makeCapture();
-    useCommentToolRound();
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      if (capture.calls.length === 1) {
+        return sseResponse([
+          sseData({ tool_calls: [{ index: 0, id: "comment_1", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }] }),
+          sseData({}, "tool_calls")
+        ]);
+      }
+      if (capture.calls.length === 2) {
+        return sseResponse([
+          sseData({ tool_calls: [{ index: 0, id: "comment_2", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }] }),
+          sseData({}, "tool_calls")
+        ]);
+      }
+      return sseResponse(FINAL_ROUND_CHUNKS);
+    });
     const fetchHotComments = vi.fn(async () => [
       { uname: "观众甲", like: 99, message: "评论正文", subMessages: ["不进工具结果"] }
     ]);
@@ -1078,9 +1115,12 @@ describe("热门评论工具", () => {
     }));
 
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
+    expect(capture.calls).toHaveLength(3);
     expect(capture.calls[0].tools).toEqual([
       expect.objectContaining({ function: expect.objectContaining({ name: "fetch_hot_comments" }) })
     ]);
+    expect(JSON.stringify(capture.calls[1].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(JSON.stringify(capture.calls[2].tools)).toBe(JSON.stringify(capture.calls[0].tools));
     expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: "tool",
@@ -1088,23 +1128,45 @@ describe("热门评论工具", () => {
         content: JSON.stringify([{ uname: "观众甲", like: 99, message: "评论正文" }])
       })
     ]));
-    expect(capture.calls[1].tools).toBeUndefined();
+    expect(capture.calls[2].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "comment_2",
+        content: "本轮已获取过视频热门评论，请基于已有评论内容作答。"
+      })
+    ]));
+    expect(capture.calls[2].messages.some((m) => m.role === "system")).toBe(false);
     expect(capture.statuses).toEqual([]);
     expect(capture.notices).toEqual([]);
   });
 
-  it("评论调用不占搜索配额", async () => {
+  it("评论调用不占搜索配额且多跳保持完整静态 tools 表", async () => {
     capture = makeCapture();
-    useCommentToolRound();
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      if (capture.calls.length === 1) {
+        return sseResponse([
+          sseData({ tool_calls: [{ index: 0, id: "comment_1", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }] }),
+          sseData({}, "tool_calls")
+        ]);
+      }
+      if (capture.calls.length === 2) {
+        return sseResponse(TOOL_ROUND_CHUNKS);
+      }
+      return sseResponse(FINAL_ROUND_CHUNKS);
+    });
+    const executeSearch = vi.fn(async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" }));
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: true },
       maxToolCalls: 1,
+      executeSearch,
       fetchHotComments: async () => []
     }));
 
-    expect(capture.calls[1].tools).toEqual([
-      expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })
-    ]);
+    expect(executeSearch).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(capture.calls[1].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(JSON.stringify(capture.calls[2].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+    expect(capture.calls[1].tools?.map((t) => t.function.name)).toEqual(["web_search", "fetch_hot_comments"]);
     expect(capture.notices).toEqual([]);
   });
 

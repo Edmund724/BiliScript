@@ -115,6 +115,7 @@ export interface AiContext {
   isVideoContext?: boolean;
   signature?: string;
   compressedSummaryMarkdown?: string;
+  staticDirectoryMarkdown?: string;
   hybridRetrievalMarkdown?: string;
   frameContextNote?: string;
   l1Index?: L1VideoIndexCacheRecord | null;

@@ -897,6 +897,7 @@ export interface ResolveLongVideoHybridContextInput {
 export interface LongVideoHybridResolution {
   mode: HybridChatMode;
   anchorKind?: InteractionAnchorKind;
+  staticDirectoryMarkdown: string;
   hybridRetrievalMarkdown: string;
   windows: readonly L0ContextWindow[];
   injectedChars: number;
@@ -917,17 +918,18 @@ function classifyRouterErrorReason(error: unknown): "router-timeout" | "router-r
   return "router-error";
 }
 
-function buildHybridMarkdown(input: {
-  l1DirectoryPrompt: string;
+function buildStaticDirectoryMarkdown(l1DirectoryPrompt: string): string {
+  const trimmed = l1DirectoryPrompt.trim();
+  return trimmed ? `## 视频 L1 章节目录\n${trimmed}` : "";
+}
+
+function buildDynamicHybridMarkdown(input: {
   compressedSummaryMarkdown: string;
   windows: readonly L0ContextWindow[];
   videoDuration: number;
   noteText?: string;
 }): string {
   const sections: string[] = [];
-  if (input.l1DirectoryPrompt) {
-    sections.push(`## 视频 L1 章节目录\n${input.l1DirectoryPrompt}`);
-  }
   if (input.compressedSummaryMarkdown) {
     const maxCompressed = input.windows.length > 0 ? 18_000 : 40_000;
     const summaryBlock =
@@ -968,6 +970,8 @@ export async function resolveLongVideoHybridContext(
     Number(l1Index?.videoDuration) || 0,
     l0Lines.length > 0 ? Math.ceil(l0Lines[l0Lines.length - 1].to) : 0
   );
+  const l1DirectoryPrompt = l1Index ? serializeL1DirectoryPrompt(l1Index) : "";
+  const staticDirectoryMarkdown = buildStaticDirectoryMarkdown(l1DirectoryPrompt);
 
   const fastPathPlan = detectInteractionAnchorPlan({
     userPrompt,
@@ -987,6 +991,7 @@ export async function resolveLongVideoHybridContext(
     return {
       mode: "interaction-anchor",
       anchorKind: fastPathPlan.anchorKind,
+      staticDirectoryMarkdown,
       hybridRetrievalMarkdown: fast.hybridRetrievalMarkdown,
       windows: fast.windows,
       injectedChars: fast.injectedChars,
@@ -995,13 +1000,11 @@ export async function resolveLongVideoHybridContext(
     };
   }
 
-  const l1DirectoryPrompt = l1Index ? serializeL1DirectoryPrompt(l1Index) : "";
-
   if (isSimpleGreetingPrompt(userPrompt)) {
     return {
       mode: "direct-answer",
-      hybridRetrievalMarkdown: buildHybridMarkdown({
-        l1DirectoryPrompt,
+      staticDirectoryMarkdown,
+      hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
         windows: [],
         videoDuration
@@ -1028,8 +1031,8 @@ export async function resolveLongVideoHybridContext(
     });
     return {
       mode: "degraded-bm25",
-      hybridRetrievalMarkdown: buildHybridMarkdown({
-        l1DirectoryPrompt,
+      staticDirectoryMarkdown,
+      hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
         windows: degradedMerged.windows,
         videoDuration
@@ -1095,8 +1098,8 @@ export async function resolveLongVideoHybridContext(
     });
     return {
       mode: "degraded-bm25",
-      hybridRetrievalMarkdown: buildHybridMarkdown({
-        l1DirectoryPrompt,
+      staticDirectoryMarkdown,
+      hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
         windows: degradedMerged.windows,
         videoDuration
@@ -1112,8 +1115,8 @@ export async function resolveLongVideoHybridContext(
   if (parsedRoute.plan.mode === "direct-answer") {
     return {
       mode: "direct-answer",
-      hybridRetrievalMarkdown: buildHybridMarkdown({
-        l1DirectoryPrompt,
+      staticDirectoryMarkdown,
+      hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
         windows: [],
         videoDuration
@@ -1138,8 +1141,8 @@ export async function resolveLongVideoHybridContext(
 
   return {
     mode: "hybrid-single-hop",
-    hybridRetrievalMarkdown: buildHybridMarkdown({
-      l1DirectoryPrompt,
+    staticDirectoryMarkdown,
+    hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
       compressedSummaryMarkdown,
       windows: merged.windows,
       videoDuration

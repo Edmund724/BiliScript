@@ -10,12 +10,14 @@ import {
   resolveLongVideoHybridContext,
   STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
 } from "../../extension/ai/chat-hybrid-retrieval.js";
+import { buildMessages, formatDynamicTurnUserContent } from "../../extension/ai/context.js";
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
 import { normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
 import { runLadderChat, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { createExplainIntentController, setPendingExplainIntent } from "../../extension/reader/explain-intent.js";
 import type { L0ContextWindow, L1VideoIndexCacheRecord } from "../../extension/ai/long-video-hybrid-types.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
+import type { ChatMessage } from "../../extension/ai/types.js";
 
 function buildLongVideoFixture() {
   const rawBody: Array<{ from: number; to: number; content: string }> = [];
@@ -286,10 +288,11 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     expect(routeSpy).not.toHaveBeenCalled();
     expect(result.mode).toBe("direct-answer");
     expect(result.windows).toEqual([]);
-    expect(result.hybridRetrievalMarkdown).toContain("视频 L1 章节目录");
+    expect(result.staticDirectoryMarkdown).toContain("视频 L1 章节目录");
+    expect(result.hybridRetrievalMarkdown).toBe("");
   });
 
-  it("阶段 A 宏观问题标记 direct-answer 时不展开 L0，直接附 L1 目录生成回答", async () => {
+  it("阶段 A 宏观问题标记 direct-answer 时不展开 L0，静态 L1 目录与动态召回块分离", async () => {
     const { rawBody, l1Index } = buildLongVideoFixture();
     const routeSpy = vi.fn(async (req: ChatCompletionInput) => {
       expect(req.stream).toBe(false);
@@ -309,8 +312,8 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     expect(result.mode).toBe("direct-answer");
     expect(result.degraded).toBe(false);
     expect(result.windows).toEqual([]);
-    expect(result.hybridRetrievalMarkdown).toContain("视频 L1 章节目录");
-    expect(result.hybridRetrievalMarkdown).not.toContain("召回的原始字幕片段");
+    expect(result.staticDirectoryMarkdown).toContain("视频 L1 章节目录");
+    expect(result.hybridRetrievalMarkdown).toBe("");
   });
 
   it("阶段 A 细节问题选定 1~2 章节区间与补充词 → 阶段 B 与 BM25 结果按时间顺序去重合并", async () => {
@@ -341,7 +344,8 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     for (let i = 1; i < lineNumbers.length; i += 1) {
       expect(lineNumbers[i]).toBeGreaterThan(lineNumbers[i - 1]);
     }
-    expect(result.hybridRetrievalMarkdown).toContain("视频 L1 章节目录");
+    expect(result.staticDirectoryMarkdown).toContain("视频 L1 章节目录");
+    expect(result.hybridRetrievalMarkdown).not.toContain("视频 L1 章节目录");
     expect(result.hybridRetrievalMarkdown).toContain("召回的原始字幕片段（按时间顺序去重合并）");
   });
 
@@ -380,7 +384,8 @@ describe("路由频控限流、超时与非预期格式静默降级", () => {
     expect(result.mode).toBe("degraded-bm25");
     expect(result.degraded).toBe(true);
     expect(result.degradeReason).toBe("router-rate-limited");
-    expect(result.hybridRetrievalMarkdown).toContain("视频 L1 章节目录");
+    expect(result.staticDirectoryMarkdown).toContain("视频 L1 章节目录");
+    expect(result.hybridRetrievalMarkdown).not.toContain("视频 L1 章节目录");
     expect(result.hybridRetrievalMarkdown).toContain("FlashAttention 分块矩阵计算图解");
   });
 
@@ -562,5 +567,141 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
     expect(routeSpy).not.toHaveBeenCalled();
     expect(streamChat).toHaveBeenCalledTimes(1);
     expect(streamChat.mock.calls[0][0].context?.hybridRetrievalMarkdown).toContain("关键锚点段落内容");
+  });
+});
+
+describe("KV 前缀缓存锁死与动态检索块后置（#28）", () => {
+  it("formatDynamicTurnUserContent 按标签包裹动态召回字幕与帧说明，前置拼接至 userPrompt 之前", () => {
+    expect(
+      formatDynamicTurnUserContent({
+        hybridRetrievalMarkdown: "### [2:30-3:00]\n[2:30] Softmax 稳定性",
+        frameContextNote: "[已联动视频关键帧采样：02:30]",
+        userPrompt: "这一步公式怎么推导？"
+      })
+    ).toBe(
+      "<retrieved_subtitles>\n### [2:30-3:00]\n[2:30] Softmax 稳定性\n</retrieved_subtitles>\n\n<video_frame_context>\n[已联动视频关键帧采样：02:30]\n</video_frame_context>\n\n这一步公式怎么推导？"
+    );
+
+    expect(
+      formatDynamicTurnUserContent({
+        hybridRetrievalMarkdown: "   ",
+        frameContextNote: "",
+        userPrompt: "总结全片大纲"
+      })
+    ).toBe("总结全片大纲");
+  });
+
+  it("多轮连续追问同一长视频：system 与静态 L1 目录跨轮逐字节全等，第 N-1 到第 N 轮前序纯净历史切片全等，动态块仅落末条 user 消息", async () => {
+    const { rawBody, l1Index } = buildLongVideoFixture();
+    const baseVideoContext = {
+      title: "长视频缓存压测",
+      author: "测试UP",
+      uploadDate: "2026-01-01",
+      bvid: "BV1hybridTest",
+      cid: "1001",
+      subtitleBody: rawBody,
+      videoDuration: 2700,
+      chapters: []
+    };
+    const capturedContexts: Array<Record<string, unknown>> = [];
+    const routeSpy = vi.fn(async (req: ChatCompletionInput) => {
+      const promptText = String(req.messages[req.messages.length - 1]?.content || "");
+      const currentQuestion = promptText.split("\n").find((line) => line.startsWith("当前用户问题：")) ?? promptText;
+      if (currentQuestion.includes("总结全片")) {
+        return JSON.stringify({ mode: "direct-answer", ranges: [], terms: [] });
+      }
+      if (currentQuestion.includes("SIMD")) {
+        return JSON.stringify({ mode: "expand", ranges: [{ from: "15:00", to: "30:00" }], terms: ["SIMD"] });
+      }
+      return JSON.stringify({ mode: "expand", ranges: [{ from: "0:00", to: "15:00" }], terms: ["Softmax"] });
+    });
+
+    const turns = [
+      { prompt: "Softmax 数值稳定性是怎么处理的？", reply: "通过减去最大值防止指数溢出。" },
+      { prompt: "21:00 这里展示的 SIMD 图表说明什么？", reply: "展示了本地词法检索加速倍数。" },
+      { prompt: "总结全片的核心结构", reply: "全片分为注意力、WASM 与 KV 量化三部分。" },
+      { prompt: "再展开讲一下 SIMD 和 BM25 的关系", reply: "SIMD 加速分词和倒排打分计算。" }
+    ];
+
+    const persistedHistory: ChatMessage[] = [];
+    const builtTurnMessages: ChatMessage[][] = [];
+
+    for (const turn of turns) {
+      await runLadderChat(
+        {
+          msg: {
+            context: baseVideoContext,
+            history: persistedHistory.slice(),
+            prompt: turn.prompt,
+            thinkingLevel: "off"
+          },
+          provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+          port: { postMessage: () => {} },
+          signal: new AbortController().signal,
+          captureCurrentVideoFrame: async (targetTime?: number) => [
+            { image: { mime: "image/jpeg", data: "ZnJhbWU=" }, currentTime: targetTime ?? 1260 }
+          ]
+        },
+        {
+          loadL1Index: vi.fn(async () => l1Index),
+          routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+          streamChat: vi.fn(async (args) => {
+            capturedContexts.push((args.context ?? {}) as Record<string, unknown>);
+            builtTurnMessages.push(
+              buildMessages({
+                context: args.context,
+                userPrompt: args.userPrompt,
+                history: args.history,
+                images: args.userImages
+              })
+            );
+            return { done: true as const };
+          }),
+          askCostGuard: vi.fn(async () => true)
+        }
+      );
+
+      persistedHistory.push({ role: "user", content: turn.prompt });
+      persistedHistory.push({ role: "assistant", content: turn.reply });
+    }
+
+    expect(builtTurnMessages).toHaveLength(4);
+
+    for (let i = 0; i < builtTurnMessages.length; i += 1) {
+      const sys = builtTurnMessages[i][0].content;
+      expect(sys).toContain("视频 L1 章节目录");
+      expect(sys).not.toContain("（暂无字幕）");
+      expect(sys).not.toContain("<retrieved_subtitles>");
+      expect(sys).not.toContain("<video_frame_context>");
+      expect(sys).not.toContain("## 召回的原始字幕片段");
+      expect(sys).not.toContain("Softmax 数值稳定性问题");
+    }
+
+    expect(builtTurnMessages[1][0].content).toBe(builtTurnMessages[0][0].content);
+    expect(builtTurnMessages[2][0].content).toBe(builtTurnMessages[0][0].content);
+    expect(builtTurnMessages[3][0].content).toBe(builtTurnMessages[0][0].content);
+
+    for (let turnIndex = 2; turnIndex < builtTurnMessages.length; turnIndex += 1) {
+      const turnNumber = turnIndex + 1;
+      const prevMessages = builtTurnMessages[turnIndex - 1];
+      const currMessages = builtTurnMessages[turnIndex];
+      const cleanPrefixEndExclusive = 2 * turnNumber - 3;
+      expect(JSON.stringify(currMessages.slice(0, cleanPrefixEndExclusive))).toBe(
+        JSON.stringify(prevMessages.slice(0, cleanPrefixEndExclusive))
+      );
+      for (let h = 1; h < currMessages.length - 1; h += 1) {
+        expect(currMessages[h].content).not.toContain("<retrieved_subtitles>");
+        expect(currMessages[h].content).not.toContain("<video_frame_context>");
+      }
+    }
+
+    expect(builtTurnMessages[0].at(-1)?.content).toContain("<retrieved_subtitles>");
+    expect(builtTurnMessages[0].at(-1)?.content).toContain("Softmax 数值稳定性问题");
+    expect(builtTurnMessages[1].at(-1)?.content).toContain("<retrieved_subtitles>");
+    expect(builtTurnMessages[1].at(-1)?.content).toContain("<video_frame_context>");
+    expect(builtTurnMessages[2].at(-1)?.content).toBe("总结全片的核心结构");
+    expect(builtTurnMessages[3].at(-1)?.content).toContain("<retrieved_subtitles>");
+    expect(builtTurnMessages[3].at(-1)?.content).toContain("WebAssembly SIMD 加速本地词法检索的性能对比图表");
+    expect(capturedContexts[0].staticDirectoryMarkdown).toBe(capturedContexts[1].staticDirectoryMarkdown);
   });
 });

@@ -271,8 +271,10 @@ export async function runLadderChat(
       const hybridContext: ChatContext = {
         ...args.baseContext,
         ...(resolvedContextSite !== undefined ? { site: resolvedContextSite } : {}),
+        ...(resolution.staticDirectoryMarkdown ? { staticDirectoryMarkdown: resolution.staticDirectoryMarkdown } : {}),
         hybridRetrievalMarkdown: resolution.hybridRetrievalMarkdown,
         ...(visual.frameContextNote ? { frameContextNote: visual.frameContextNote } : {}),
+        ...(resolution.hybridRetrievalMarkdown ? { compressedSummaryMarkdown: undefined } : {}),
         subtitleBody: []
       };
       const trimmedHistory = trimRecentTurns(rawHistory);
