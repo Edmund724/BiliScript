@@ -18,7 +18,7 @@
 - **多模态 AI 对话**：支持意图感知分流与语境滑窗 BM25 + RRF 混合召回长视频问答、多轮滚动摘要、多视频页并发总结、划词悬浮胶囊解释、粘贴图片与关键帧采样，内置思考强度调节、思维链状态与溯源时间戳、免 Key 联网搜索及语音朗读（Chromium 走 `chrome.tts`，Firefox 走 Web Speech API）。
 - **独立阅读窗口与页面适配**：支持将文摘面板弹出为**置顶画中画**或**普通窗口**（保留视频跳转与在途流式对话），支持拖动左边缘调整面板宽度与吸附复位；覆盖 B 站常规视频页、`/list/*` 播单页、`/festival/*` 活动专题页及 YouTube 视频页。
 - **实时音画伴看（仅 Chromium）**：接入 MOSS Live 与 Gemini Live，支持语音控制播放器（倍速 / 进度 / 音量）、浮窗播报静音与打断、底部文字提问、视频原声压低与直播间双向音画互动。
-- **本地 Agent 桥接**：通过本机 WebSocket 供编程 Agent 读取当前 B 站或 YouTube 视频的字幕、热评与关键帧。
+- **本地 Agent 桥接**：通过本机 WebSocket 同时支持编程 Agent（Skill + CLI）与 MCP 桌面客户端（Claude Desktop、Cherry Studio 等）读取 B 站或 YouTube 视频的字幕、热评与多时间点关键帧，详见 [本地 Agent 桥接指南](docs/agent-bridge.md)。
 
 | 字幕精读与检索 | 金句分享卡片 |
 | :---: | :---: |
@@ -55,7 +55,7 @@
 
 1. **总结与对话**：添加 [ModelScope](https://modelscope.cn/)（每日签到免费积分，创建 `ms-` Token）或任意 OpenAI / Anthropic / Gemini 协议平台。
 2. **无字幕转写**：填入 [硅基流动](https://siliconflow.cn/) API Key，推荐选择免费模型 `XingChenAGI/XingChenASR-V3.2`。
-3. **宿主机接入编程 Agent（可选）**：可执行一键安装（需 Node.js 22.20+）：
+3. **宿主机接入编程 Agent 或 MCP 桌面客户端（可选）**：可执行一键安装（需 Node.js 22.20+，详见 [本地 Agent 桥接指南](docs/agent-bridge.md)）：
 
 ```bash
 # macOS / Linux
@@ -82,7 +82,7 @@ pnpm build:firefox    # 构建桌面端 Firefox 153+ 产物到 dist-firefox/
 | 文档 | 内容归属 |
 | :--- | :--- |
 | [配置与排障指南](docs/guide.md) | 支持平台清单与 ASR 模型对比，联网搜索、实时伴看配置及常见问题（FAQ） |
-| [本地 Agent 桥接指南](docs/agent-bridge.md) | WebSocket 桥接机制、多实例路由与其他 Agent 目录接入及卸载清理 |
+| [本地 Agent 桥接指南](docs/agent-bridge.md) | Skill + CLI 与 MCP 桌面客户端双模接入配置、多时间点截帧、多实例路由与卸载清理 |
 | [开发与架构指南](docs/development.md) | 构建与校验命令、`extension/` 模块结构、评测基准与 [ADR 索引](docs/adr/README.md) |
 | [隐私政策](PRIVACY.md) | 扩展权限逐项说明（含 Chromium / Firefox 差异）、数据流向与本地存储隔离策略 |
 | [`AGENTS.md`](AGENTS.md) / [`GLOSSARY.md`](GLOSSARY.md) | 编程 Agent 协作规范、工具链约束与领域统一词汇表 |

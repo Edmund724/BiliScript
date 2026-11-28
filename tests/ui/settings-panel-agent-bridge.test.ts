@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
-import { buildAgentBridgeInstallPrompt } from "../../extension/ui/agent-bridge-install-dialog.js";
+import { buildAgentBridgeInstallPrompt, buildAgentBridgeMcpConfig } from "../../extension/ui/agent-bridge-install-dialog.js";
 import { renderReaderSettingsPanel } from "../../extension/ui/settings-panel.js";
 import { resetSettingsPanelState, waitForFast } from "../helpers/reset-settings-panel-state.js";
 
@@ -342,5 +342,182 @@ describe("本地 Agent 设置", () => {
     });
     expect(dialogPrompt.value).toBe(linuxCustom);
     document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+  });
+
+  it("按宿主系统生成 MCP 配置与前置安装命令（默认端口无多余 env，自定义端口自动注入）", () => {
+    const winDefault = buildAgentBridgeMcpConfig("ws://127.0.0.1:18492", "windows");
+    expect(winDefault.installCommand).toBe("irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex");
+    const winDefaultParsed = JSON.parse(winDefault.configJson);
+    expect(winDefaultParsed).toEqual({
+      mcpServers: {
+        biliscript: {
+          command: "node",
+          args: ["C:\\Users\\<你的用户名>\\.agents\\skills\\biliscript\\scripts\\biliscript.mjs", "mcp"]
+        }
+      }
+    });
+    expect("env" in winDefaultParsed.mcpServers.biliscript).toBe(false);
+
+    const winCustom = buildAgentBridgeMcpConfig("ws://127.0.0.1:19000", "windows");
+    expect(winCustom.installCommand).toBe("$env:BILISCRIPT_BRIDGE_PORT='19000'; irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex");
+    expect(JSON.parse(winCustom.configJson).mcpServers.biliscript.env).toEqual({
+      BILISCRIPT_BRIDGE_PORT: "19000"
+    });
+
+    const macDefault = buildAgentBridgeMcpConfig("ws://127.0.0.1:18492", "macos");
+    expect(macDefault.installCommand).toBe("curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | sh");
+    expect(JSON.parse(macDefault.configJson)).toEqual({
+      mcpServers: {
+        biliscript: {
+          command: "node",
+          args: ["/Users/<你的用户名>/.agents/skills/biliscript/scripts/biliscript.mjs", "mcp"]
+        }
+      }
+    });
+
+    const linuxCustom = buildAgentBridgeMcpConfig("ws://127.0.0.1:19000", "linux");
+    expect(linuxCustom.installCommand).toBe("curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | BILISCRIPT_BRIDGE_PORT=19000 sh");
+    expect(JSON.parse(linuxCustom.configJson)).toEqual({
+      mcpServers: {
+        biliscript: {
+          command: "node",
+          args: ["/home/<你的用户名>/.agents/skills/biliscript/scripts/biliscript.mjs", "mcp"],
+          env: {
+            BILISCRIPT_BRIDGE_PORT: "19000"
+          }
+        }
+      }
+    });
+  });
+
+  it("引导弹窗默认选中 Skill 标签，支持点击与键盘方向键/Home/End 切换至 MCP 并正确复制与播报", async () => {
+    await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } }),
+      "agent-bridge-connect": () => ({ ok: true, connected: false })
+    });
+    document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
+
+    await waitForFast(() => {
+      expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
+    });
+
+    const tablist = document.querySelector<HTMLElement>('.agent-bridge-install-dialog [role="tablist"]')!;
+    const skillTab = document.querySelector<HTMLButtonElement>('[data-agent-install-tab="skill"]')!;
+    const mcpTab = document.querySelector<HTMLButtonElement>('[data-agent-install-tab="mcp"]')!;
+    const skillPanel = document.querySelector<HTMLElement>('[data-agent-install-panel="skill"]')!;
+    const mcpPanel = document.querySelector<HTMLElement>('[data-agent-install-panel="mcp"]')!;
+    const note = document.querySelector<HTMLElement>(".agent-bridge-install-note")!;
+    const status = document.querySelector<HTMLElement>('.agent-bridge-install-dialog [role="status"]')!;
+
+    expect(tablist).not.toBeNull();
+    expect(skillTab.getAttribute("aria-selected")).toBe("true");
+    expect(skillTab.tabIndex).toBe(0);
+    expect(mcpTab.getAttribute("aria-selected")).toBe("false");
+    expect(mcpTab.tabIndex).toBe(-1);
+    expect(skillPanel.hidden).toBe(false);
+    expect(mcpPanel.hidden).toBe(true);
+    expect(note.textContent).toContain("仅需启用 Skill 或 MCP 其一");
+    expect(document.querySelector(".agent-bridge-install-dialog .confirm-dialog-foot")).toBeNull();
+
+    skillTab.focus();
+    tablist.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    expect(mcpTab.getAttribute("aria-selected")).toBe("true");
+    expect(mcpTab.tabIndex).toBe(0);
+    expect(skillTab.getAttribute("aria-selected")).toBe("false");
+    expect(skillTab.tabIndex).toBe(-1);
+    expect(skillPanel.hidden).toBe(true);
+    expect(mcpPanel.hidden).toBe(false);
+    expect(document.activeElement).toBe(mcpTab);
+
+    const mcpTextarea = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-mcp-config")!;
+    const parsedMcp = JSON.parse(mcpTextarea.value);
+    expect(parsedMcp.mcpServers.biliscript.command).toBe("node");
+    expect(parsedMcp.mcpServers.biliscript.args.at(-1)).toBe("mcp");
+    expect(parsedMcp.mcpServers.biliscript.env).toEqual({ BILISCRIPT_BRIDGE_PORT: "19000" });
+
+    const copyMcpBtn = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy-mcp"]')!;
+    copyMcpBtn.click();
+    await waitForFast(() => expect(clipboardWrite).toHaveBeenCalledWith(mcpTextarea.value));
+    expect(copyMcpBtn.textContent).toBe("已复制");
+    expect(status.textContent).toContain("已复制 MCP 配置");
+
+    tablist.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+    expect(skillTab.getAttribute("aria-selected")).toBe("true");
+    expect(skillPanel.hidden).toBe(false);
+    expect(mcpPanel.hidden).toBe(true);
+    expect(document.activeElement).toBe(skillTab);
+
+    tablist.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+    expect(mcpTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(mcpTab);
+
+    tablist.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    expect(skillTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(skillTab);
+
+    mcpTab.click();
+    expect(mcpTab.getAttribute("aria-selected")).toBe("true");
+    expect(mcpPanel.hidden).toBe(false);
+
+    const cmdInput = document.querySelector<HTMLInputElement>(".agent-bridge-install-cmd")!;
+    const copyCmdBtn = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy-mcp-command"]')!;
+    copyCmdBtn.click();
+    await waitForFast(() => expect(clipboardWrite).toHaveBeenLastCalledWith(cmdInput.value));
+    expect(copyCmdBtn.textContent).toBe("已复制");
+    expect(status.textContent).toContain("已复制前置安装命令");
+
+    clipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+    copyMcpBtn.click();
+    await waitForFast(() => expect(copyMcpBtn.textContent).toBe("请手动复制"));
+    expect(document.activeElement).toBe(mcpTextarea);
+    expect(mcpTextarea.selectionStart).toBe(0);
+    expect(mcpTextarea.selectionEnd).toBe(mcpTextarea.value.length);
+    expect(status.textContent).toContain("复制失败");
+
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+  });
+
+  it("切换标签或关闭弹窗时清理 copyTimer 并复位复制反馈状态", async () => {
+    vi.useFakeTimers();
+    await mountPanel({
+      "agent-bridge-connect": () => ({ ok: true, connected: false })
+    });
+    document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
+
+    await waitForFast(() => {
+      expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
+    });
+
+    const mcpTab = document.querySelector<HTMLButtonElement>('[data-agent-install-tab="mcp"]')!;
+    const copyPromptBtn = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
+    const copyMcpBtn = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy-mcp"]')!;
+    const status = document.querySelector<HTMLElement>('.agent-bridge-install-dialog [role="status"]')!;
+
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    copyPromptBtn.click();
+    await waitForFast(() => expect(copyPromptBtn.textContent).toBe("已复制"));
+    const skillCopyTimerId = setTimeoutSpy.mock.results.at(-1)?.value;
+    expect(skillCopyTimerId).toBeDefined();
+
+    mcpTab.click();
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(skillCopyTimerId);
+    expect(copyPromptBtn.textContent).toBe("复制指令");
+    expect(status.textContent).toBe("");
+
+    const mcpTextarea = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-mcp-config")!;
+    expect("env" in JSON.parse(mcpTextarea.value).mcpServers.biliscript).toBe(false);
+
+    copyMcpBtn.click();
+    await waitForFast(() => expect(copyMcpBtn.textContent).toBe("已复制"));
+    const mcpCopyTimerId = setTimeoutSpy.mock.results.at(-1)?.value;
+    expect(mcpCopyTimerId).toBeDefined();
+
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(mcpCopyTimerId);
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(document.querySelector(".agent-bridge-install-dialog")).toBeNull();
   });
 });
