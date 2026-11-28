@@ -10,18 +10,19 @@ import {
   type SiteId
 } from "../shared/site.js";
 import { sendMessageToTab } from "../shared/tab-utils.js";
-import type {
-  AgentBridgeComment,
-  AgentBridgeCommentsResult,
-  AgentBridgeContentSubtitlesResult,
-  AgentBridgeFetchResult,
-  AgentBridgeFramesResult,
-  AgentBridgeOffscreenFrameResponse,
-  AgentBridgeRequestOptions,
-  AgentBridgeSubtitlesResult,
-  AgentBridgeTabSnapshot,
-  AgentBridgeTabsResult,
-  AgentBridgeVideo
+import {
+  MAX_BRIDGE_FRAMES_PER_REQUEST,
+  type AgentBridgeComment,
+  type AgentBridgeCommentsResult,
+  type AgentBridgeContentSubtitlesResult,
+  type AgentBridgeFetchResult,
+  type AgentBridgeFramesResult,
+  type AgentBridgeOffscreenFrameResponse,
+  type AgentBridgeRequestOptions,
+  type AgentBridgeSubtitlesResult,
+  type AgentBridgeTabSnapshot,
+  type AgentBridgeTabsResult,
+  type AgentBridgeVideo
 } from "./protocol.js";
 import {
   createAgentBridgeVideoService,
@@ -51,6 +52,14 @@ export type AgentBridgeTabMessage = Extract<
 
 type AgentBridgeTabResultMessage = Exclude<AgentBridgeTabMessage, { type: "agent-bridge-snapshot" }>;
 
+export interface AgentBridgeOffscreenFrameInput {
+  bvid: string;
+  cid: string;
+  targetTime?: number;
+  times?: number[];
+  spanSeconds?: number;
+}
+
 export interface AgentBridgeHostAdapter {
   queryTabs: (queryInfo: Parameters<typeof chrome.tabs.query>[0]) => Promise<chrome.tabs.Tab[]>;
   getTab: (tabId: number) => Promise<chrome.tabs.Tab>;
@@ -58,11 +67,7 @@ export interface AgentBridgeHostAdapter {
     tabId: number,
     message: M
   ) => Promise<ResponseOf<M> | undefined>;
-  captureOffscreenFrames: (input: {
-    bvid: string;
-    cid: string;
-    targetTime: number;
-  }) => Promise<AgentBridgeFramesResult>;
+  captureOffscreenFrames: (input: AgentBridgeOffscreenFrameInput) => Promise<AgentBridgeFramesResult>;
 }
 
 export interface AgentBridgeCommandRouterDeps {
@@ -165,11 +170,83 @@ function resolveYoutubeVideo(target: ResolvedTarget, content: AgentBridgeContent
   };
 }
 
-async function defaultCaptureOffscreenFrames(input: {
-  bvid: string;
-  cid: string;
-  targetTime: number;
-}): Promise<AgentBridgeFramesResult> {
+const FRAME_DEDUP_EPSILON_SEC = 0.25;
+
+function countExpandedDedupedFrames(times: readonly number[], spanSeconds: number): number {
+  const expanded: Array<{ targetTime: number; isCenter: boolean }> = [];
+  for (const anchorTime of times) {
+    if (spanSeconds > 0) {
+      expanded.push({ targetTime: Math.max(0, anchorTime - spanSeconds), isCenter: false });
+      expanded.push({ targetTime: anchorTime, isCenter: true });
+      expanded.push({ targetTime: anchorTime + spanSeconds, isCenter: false });
+    } else {
+      expanded.push({ targetTime: anchorTime, isCenter: true });
+    }
+  }
+  expanded.sort((a, b) => {
+    if (a.targetTime !== b.targetTime) return a.targetTime - b.targetTime;
+    if (a.isCenter !== b.isCenter) return a.isCenter ? -1 : 1;
+    return 0;
+  });
+  const deduped: Array<{ targetTime: number; isCenter: boolean }> = [];
+  for (const item of expanded) {
+    const last = deduped[deduped.length - 1];
+    if (last && item.targetTime - last.targetTime < FRAME_DEDUP_EPSILON_SEC) {
+      if (!last.isCenter && item.isCenter) {
+        deduped[deduped.length - 1] = item;
+      }
+      continue;
+    }
+    deduped.push(item);
+  }
+  return deduped.length;
+}
+
+function normalizeHistoricalFrameRequest(
+  target: ResolvedTarget
+): { times: number[]; targetTime: number; spanSeconds: number } | null {
+  if (target.times === undefined && target.targetTime === undefined) {
+    return null;
+  }
+  let times: number[];
+  if (target.times !== undefined) {
+    if (!Array.isArray(target.times) || target.times.length === 0) {
+      throw new Error("--times 必须是非空的时间点数组");
+    }
+    times = target.times.map((raw) => {
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error("--times 必须包含大于或等于 0 的有限秒数");
+      }
+      return value;
+    });
+  } else {
+    const targetTime = Number(target.targetTime);
+    if (!Number.isFinite(targetTime) || targetTime < 0) {
+      throw new Error("--time 必须是大于或等于 0 的有限秒数");
+    }
+    times = [targetTime];
+  }
+  const spanSeconds = target.spanSeconds === undefined ? 0 : Number(target.spanSeconds);
+  if (!Number.isFinite(spanSeconds) || spanSeconds < 0) {
+    throw new Error("--span 必须是大于或等于 0 的有限秒数");
+  }
+  const totalFrames = countExpandedDedupedFrames(times, spanSeconds);
+  if (totalFrames > MAX_BRIDGE_FRAMES_PER_REQUEST) {
+    throw new Error(
+      `单次截帧最多支持 ${MAX_BRIDGE_FRAMES_PER_REQUEST} 帧（当前展开后为 ${totalFrames} 帧），请分批请求或减小 spanSeconds`
+    );
+  }
+  return {
+    times,
+    targetTime: times[0],
+    spanSeconds
+  };
+}
+
+async function defaultCaptureOffscreenFrames(
+  input: AgentBridgeOffscreenFrameInput
+): Promise<AgentBridgeFramesResult> {
   return withBiliMediaSessionRule("video-media", async () => {
     try {
       const response = (await chrome.runtime.sendMessage({
@@ -291,7 +368,14 @@ export function createAgentBridgeCommandRouter(
       if (!tab) throw new Error("当前活动标签页不是支持的视频页（B 站 / YouTube），请使用 --tab 或 --bvid 指定目标");
       target = await snapshotTarget(tab);
     }
-    return { ...target, from: options.from, to: options.to, targetTime: options.targetTime };
+    return {
+      ...target,
+      from: options.from,
+      to: options.to,
+      targetTime: options.targetTime,
+      times: options.times,
+      spanSeconds: options.spanSeconds
+    };
   };
 
   const requestTabResult = async <M extends AgentBridgeTabResultMessage>(
@@ -314,7 +398,8 @@ export function createAgentBridgeCommandRouter(
 
   const captureFrames = async (options: unknown): Promise<AgentBridgeFramesResult> => {
     const target = await resolveTarget(options);
-    if (target.targetTime === undefined) {
+    const historical = normalizeHistoricalFrameRequest(target);
+    if (!historical) {
       if (!target.tabId) {
         throw new Error("目标视频未在标签页中打开；未打开视频请使用 --time <sec> 截取历史帧");
       }
@@ -327,17 +412,20 @@ export function createAgentBridgeCommandRouter(
       return result;
     }
 
-    const targetTime = Number(target.targetTime);
-    if (!Number.isFinite(targetTime) || targetTime < 0) {
-      throw new Error("--time 必须是大于或等于 0 的有限秒数");
-    }
     if (target.site === "youtube") {
       if (!target.tabId) {
         throw new Error("未在浏览器标签页中找到该 YouTube 视频，请先打开视频页后重试");
       }
       const result = await requestTabResult(
         target.tabId,
-        { type: "agent-bridge-frame", bvid: target.bvid, cid: target.cid || YOUTUBE_UNIT_CID, targetTime },
+        {
+          type: "agent-bridge-frame",
+          bvid: target.bvid,
+          cid: target.cid || YOUTUBE_UNIT_CID,
+          targetTime: historical.targetTime,
+          times: historical.times,
+          spanSeconds: historical.spanSeconds
+        },
         "页内视频截帧失败"
       );
       if (!result) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试历史截帧");
@@ -345,7 +433,13 @@ export function createAgentBridgeCommandRouter(
     }
 
     const cid = target.cid || (await videoService.resolveVideoInfo(target)).cid;
-    const input = { bvid: target.bvid, cid, targetTime };
+    const input: AgentBridgeOffscreenFrameInput = {
+      bvid: target.bvid,
+      cid,
+      targetTime: historical.targetTime,
+      times: historical.times,
+      spanSeconds: historical.spanSeconds
+    };
     let contextTabId = target.tabId;
     if (!contextTabId) {
       const tabs = await host.queryTabs({ url: VIDEO_URL_PATTERNS });

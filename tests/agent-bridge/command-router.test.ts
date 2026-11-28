@@ -237,13 +237,19 @@ describe("Agent Bridge 命令路由", () => {
             };
           }
           if (msg.type === "agent-bridge-frame") {
+            const frameTimes = msg.times ?? (msg.targetTime !== undefined ? [msg.targetTime] : [18]);
             return {
               ok: true,
               result: {
                 site: "youtube",
                 bvid: ytId,
                 cid: "yt",
-                frames: [{ data: "/9j/2Q==", targetTime: msg.targetTime ?? 18, currentTime: 18 }]
+                frames: frameTimes.map((t) => ({
+                  data: "/9j/2Q==",
+                  anchorTime: t,
+                  targetTime: t,
+                  currentTime: 18
+                }))
               }
             };
           }
@@ -307,15 +313,31 @@ describe("Agent Bridge 命令路由", () => {
       site: "youtube",
       bvid: ytId,
       cid: "yt",
-      frames: [{ targetTime: 30, currentTime: 18 }]
+      frames: [{ anchorTime: 30, targetTime: 30, currentTime: 18 }]
+    });
+
+    const multiFrame = await router.execute("frame", { tabId: 12, times: [30, 120], spanSeconds: 2 });
+    expect(multiFrame).toMatchObject({
+      site: "youtube",
+      bvid: ytId,
+      cid: "yt",
+      frames: [
+        { anchorTime: 30, targetTime: 30, currentTime: 18 },
+        { anchorTime: 120, targetTime: 120, currentTime: 18 }
+      ]
     });
   });
 
-  it("B 站历史截帧在无可用 B 站标签页时回落到 captureOffscreenFrames", async () => {
+  it("B 站历史截帧在无可用 B 站标签页时回落到 captureOffscreenFrames 并透传 times / spanSeconds", async () => {
     const captureOffscreenFrames = vi.fn(async (input) => ({
       bvid: input.bvid,
       cid: input.cid,
-      frames: [{ data: "offscreen", targetTime: input.targetTime, currentTime: input.targetTime }]
+      frames: (input.times ?? [input.targetTime ?? 0]).map((t: number) => ({
+        data: "offscreen",
+        anchorTime: t,
+        targetTime: t,
+        currentTime: t
+      }))
     }));
     const resolveVideoInfo = vi.fn(async () => ({
       bvid: "BV1off000000",
@@ -345,13 +367,96 @@ describe("Agent Bridge 命令路由", () => {
     expect(captureOffscreenFrames).toHaveBeenCalledWith({
       bvid: "BV1off000000",
       cid: "999",
-      targetTime: 42
+      targetTime: 42,
+      times: [42],
+      spanSeconds: 0
     });
     expect(result).toMatchObject({
       bvid: "BV1off000000",
       cid: "999",
-      frames: [{ data: "offscreen", targetTime: 42 }]
+      frames: [{ data: "offscreen", anchorTime: 42, targetTime: 42 }]
     });
+
+    const multiOffscreen = await router.execute("frame", {
+      bvid: "BV1off000000",
+      times: [15, 45],
+      spanSeconds: 2
+    });
+    expect(captureOffscreenFrames).toHaveBeenLastCalledWith({
+      bvid: "BV1off000000",
+      cid: "999",
+      targetTime: 15,
+      times: [15, 45],
+      spanSeconds: 2
+    });
+    expect(multiOffscreen).toMatchObject({
+      bvid: "BV1off000000",
+      cid: "999",
+      frames: [
+        { data: "offscreen", anchorTime: 15, targetTime: 15 },
+        { data: "offscreen", anchorTime: 45, targetTime: 45 }
+      ]
+    });
+  });
+
+  it("B 站页内标签页与 YouTube 标签页透传 times / spanSeconds，并拦截超 12 帧与非法参数", async () => {
+    const biliTab = { id: 8, url: "https://www.bilibili.com/video/BV1tab000000/" } as chrome.tabs.Tab;
+    const ytTab = { id: 9, url: "https://www.youtube.com/watch?v=abc_def-123" } as chrome.tabs.Tab;
+    const sendTabMessage = vi.fn(async (tabId: number, msg: AgentBridgeTabMessage) => {
+      if (msg.type === "agent-bridge-snapshot") {
+        return tabId === 8
+          ? { ok: true, snapshot: { site: "bilibili", bvid: "BV1tab000000", cid: "888", title: "B站" } }
+          : { ok: true, snapshot: { site: "youtube", bvid: "abc_def-123", cid: "yt", title: "YT" } };
+      }
+      if (msg.type === "agent-bridge-frame") {
+        return {
+          ok: true,
+          result: {
+            site: tabId === 8 ? "bilibili" : "youtube",
+            bvid: msg.bvid,
+            cid: msg.cid,
+            frames: (msg.times ?? [0]).map((t) => ({ data: "ok", anchorTime: t, targetTime: t, currentTime: t }))
+          }
+        };
+      }
+      return undefined;
+    }) as AgentBridgeHostAdapter["sendTabMessage"];
+
+    const router = createAgentBridgeCommandRouter({
+      host: createHostStub({
+        getTab: vi.fn(async (tabId: number) => (tabId === 8 ? biliTab : ytTab)),
+        sendTabMessage
+      }),
+      videoService: createVideoServiceStub()
+    });
+
+    await router.execute("frame", { tabId: 8, times: [10, 50], spanSeconds: 1 });
+    expect(sendTabMessage).toHaveBeenCalledWith(8, {
+      type: "agent-bridge-frame",
+      bvid: "BV1tab000000",
+      cid: "888",
+      targetTime: 10,
+      times: [10, 50],
+      spanSeconds: 1
+    });
+
+    await router.execute("frame", { tabId: 9, times: [30, 400] });
+    expect(sendTabMessage).toHaveBeenCalledWith(9, {
+      type: "agent-bridge-frame",
+      bvid: "abc_def-123",
+      cid: "yt",
+      targetTime: 30,
+      times: [30, 400],
+      spanSeconds: 0
+    });
+
+    await expect(
+      router.execute("frame", { tabId: 8, times: [10, 30, 50, 70, 90], spanSeconds: 2 })
+    ).rejects.toThrow("最多支持 12 帧");
+    await expect(router.execute("frame", { tabId: 8, times: [] })).rejects.toThrow("--times 必须是非空的时间点数组");
+    await expect(router.execute("frame", { tabId: 8, times: [10], spanSeconds: -1 })).rejects.toThrow(
+      "--span 必须是大于或等于 0 的有限秒数"
+    );
   });
 
   it("拒绝非法命令、非法标签页 ID 与无效目标", async () => {

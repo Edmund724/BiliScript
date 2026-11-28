@@ -4,6 +4,7 @@ import type { SiteId } from "../shared/site.js";
 export const AGENT_BRIDGE_URL = DEFAULT_SETTINGS.agentBridgeUrl;
 export const AGENT_BRIDGE_PROTOCOL = "biliscript-extension-v1";
 export const AGENT_BRIDGE_ALARM = "biliscript-agent-bridge-reconnect";
+export const MAX_BRIDGE_FRAMES_PER_REQUEST = 12;
 
 export interface AgentBridgeTabSnapshot {
   site?: SiteId;
@@ -27,10 +28,13 @@ export interface AgentBridgeRequestOptions {
   from?: number;
   to?: number;
   targetTime?: number;
+  times?: number[];
+  spanSeconds?: number;
 }
 
 export interface AgentBridgeFrame {
   data: string;
+  anchorTime?: number;
   targetTime: number;
   currentTime: number;
 }
@@ -46,7 +50,9 @@ export interface AgentBridgeOffscreenFrameMessage {
   type: "agent-bridge-offscreen-frame";
   bvid: string;
   cid: string;
-  targetTime: number;
+  targetTime?: number;
+  times?: number[];
+  spanSeconds?: number;
 }
 
 export interface AgentBridgeOffscreenFrameResponse {

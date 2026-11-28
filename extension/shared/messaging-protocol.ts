@@ -100,6 +100,8 @@ export type AgentBridgeFrameMessage = {
   bvid: string;
   cid: string;
   targetTime?: number;
+  times?: number[];
+  spanSeconds?: number;
 };
 export type AgentBridgeFrameResponse = {
   ok: boolean;

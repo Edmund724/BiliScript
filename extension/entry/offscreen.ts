@@ -33,7 +33,16 @@ chrome.runtime.onMessage.addListener((rawMessage: unknown, _sender, sendResponse
     async () => {
       try {
         const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
-        sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
+        sendResponse({
+          ok: true,
+          result: await captureAgentBridgeFrames({
+            bvid: message.bvid,
+            cid: message.cid,
+            ...(message.targetTime !== undefined ? { targetTime: message.targetTime } : {}),
+            ...(message.times !== undefined ? { times: message.times } : {}),
+            ...(message.spanSeconds !== undefined ? { spanSeconds: message.spanSeconds } : {})
+          })
+        });
       } catch (error) {
         sendResponse({ ok: false, error: getErrorMessage(error) });
       }
