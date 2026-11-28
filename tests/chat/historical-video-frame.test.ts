@@ -928,6 +928,76 @@ describe("YouTube 离屏 MSE/SABR 多时间点聚类与漂移守卫", () => {
     }
   });
 
+  it("缓冲区间边界与锚点重合或在 0.25s 内时夹紧后按中心锚点优先去重，消除重复 seek 与重复帧", async () => {
+    const mediaExact = makeVideo(120);
+    mediaExact.canPlay();
+    Object.defineProperty(mediaExact.video, "buffered", {
+      configurable: true,
+      get: () => makeBufferedRanges([[40, 41]])
+    });
+    const { canvas: canvasExact, context: contextExact } = makeCanvas();
+    const fakeMsExact = makeFakeMediaSource();
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:yt-frame-dedupe");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    try {
+      const exactFrames = await captureHistoricalVideoFrame(
+        { site: "youtube", bvid: encodeVideoStorageBvid("youtube", "dQw4w9WgXcQ"), cid: "1", times: [40], spanSeconds: 2 },
+        {
+          fetchYoutubeWindow: async () => ({
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            durationMs: 120_000,
+            initSegment: new Uint8Array([1]).buffer,
+            mediaSegments: [new Uint8Array([2]).buffer]
+          }),
+          createMediaSource: () => fakeMsExact.mediaSource,
+          createVideo: () => mediaExact.video,
+          createCanvas: () => canvasExact
+        }
+      );
+
+      expect(mediaExact.seeks).toEqual([40, 41]);
+      expect(exactFrames.map((frame) => ({ anchorTime: frame.anchorTime, targetTime: frame.targetTime }))).toEqual([
+        { anchorTime: 40, targetTime: 40 },
+        { anchorTime: 40, targetTime: 41 }
+      ]);
+      expect(contextExact.drawImage).toHaveBeenCalledTimes(2);
+
+      const mediaNear = makeVideo(120);
+      mediaNear.canPlay();
+      Object.defineProperty(mediaNear.video, "buffered", {
+        configurable: true,
+        get: () => makeBufferedRanges([[40, 41]])
+      });
+      const { canvas: canvasNear } = makeCanvas();
+      const fakeMsNear = makeFakeMediaSource();
+
+      const nearFrames = await captureHistoricalVideoFrame(
+        { site: "youtube", bvid: encodeVideoStorageBvid("youtube", "dQw4w9WgXcQ"), cid: "1", times: [40.1], spanSeconds: 2 },
+        {
+          fetchYoutubeWindow: async () => ({
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            durationMs: 120_000,
+            initSegment: new Uint8Array([1]).buffer,
+            mediaSegments: [new Uint8Array([2]).buffer]
+          }),
+          createMediaSource: () => fakeMsNear.mediaSource,
+          createVideo: () => mediaNear.video,
+          createCanvas: () => canvasNear
+        }
+      );
+
+      expect(mediaNear.seeks).toEqual([40.1, 41]);
+      expect(nearFrames.map((frame) => ({ anchorTime: frame.anchorTime, targetTime: frame.targetTime }))).toEqual([
+        { anchorTime: 40.1, targetTime: 40.1 },
+        { anchorTime: 40.1, targetTime: 41 }
+      ]);
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+    }
+  });
+
   it("目标时间超出 YouTube 视频时长时立即抛出可读错误", async () => {
     await expect(
       captureHistoricalVideoFrame(

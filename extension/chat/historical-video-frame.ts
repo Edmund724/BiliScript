@@ -549,7 +549,7 @@ export function createHistoricalVideoFrameSession(
             ? current.media.duration
             : knownDuration;
         const durationClamped = clampClusterTargetsToDuration(current.targets, duration);
-        const seekTargets: ExpandedFrameTarget[] = [];
+        const rawSeekTargets: InternalExpandedTarget[] = [];
         for (const target of durationClamped) {
           const clampedTime = clampTargetToBufferedWithDriftGuard(
             current.media,
@@ -559,11 +559,13 @@ export function createHistoricalVideoFrameSession(
           if (clampedTime === null) {
             continue;
           }
-          seekTargets.push({
+          rawSeekTargets.push({
             anchorTime: target.anchorTime,
-            targetTime: clampedTime
+            targetTime: clampedTime,
+            isCenter: Math.abs(target.targetTime - target.anchorTime) < 1e-9
           });
         }
+        const seekTargets = dedupeInternalTargets(rawSeekTargets);
         const captured = await captureExpandedTargets(
           current.media,
           seekTargets,
