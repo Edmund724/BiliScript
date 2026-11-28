@@ -1,4 +1,4 @@
-import { resolveNodeDocument } from "../shared/cross-doc.js";
+import { resolveCreationDocument } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
@@ -216,7 +216,7 @@ export function createProviderRow({
   function renderVirtualRow(listNode: HTMLElement, activeId: string): void {
     if (!virtualRow) return;
     const hint = String(virtualRow.hint || "");
-    const row = resolveNodeDocument(listNode).createElement("div");
+    const row = resolveCreationDocument(listNode).createElement("div");
     row.className = rowClass;
     row.dataset.providerId = virtualRow.id;
     row.title = String(virtualRow.title || hint || "");
@@ -250,7 +250,7 @@ export function createProviderRow({
       const hasSavedKey = Boolean(item.hasSavedKey);
       const isActive = activeId === id;
 
-      const row = resolveNodeDocument(listNode).createElement("div");
+      const row = resolveCreationDocument(listNode).createElement("div");
       row.className = rowClass;
       row.dataset.providerId = id;
       row.dataset.hasSavedKey = hasSavedKey ? "1" : "0";

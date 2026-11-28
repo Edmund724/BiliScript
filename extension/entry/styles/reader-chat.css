@@ -1425,6 +1425,31 @@
   }
 }
 
+.biliscript-reading-chat .chat-msg:not(.chat-msg-streaming) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 96px;
+}
+
+.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) {
+  contain-intrinsic-size: auto none auto 160px;
+}
+
+.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) .biliscript-md-mermaid[data-biliscript-mermaid="done"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 220px;
+}
+
+.biliscript-reading-chat .chat-msg:not(.chat-msg-streaming) .chat-thinking.chat-thinking-collapsed,
+.biliscript-reading-chat .chat-msg:not(.chat-msg-streaming) .chat-thought-chain.chat-thought-chain-collapsed {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 24px;
+}
+
+.biliscript-reading-chat .chat-msg.chat-msg-streaming,
+.biliscript-reading-chat .chat-msg:has([aria-expanded="true"], .is-open, [data-popover-open="true"], :popover-open) {
+  content-visibility: visible;
+}
+
 .biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) p {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 23px;

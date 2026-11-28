@@ -25,7 +25,7 @@
 目标平台为 Chromium（≥120）与桌面端 Firefox（≥153，不适配 Android），架构边界与功能门控以 `docs/adr/0017-firefox-desktop-compatibility.md` 为准：
 
 - **清单与产物**：`extension/manifest.json` 为 Chromium 单一事实源（`dist/`）；Firefox 产物与清单通过 `pnpm build:firefox` 派生至 `dist-firefox/`。
-- **Offscreen 与门控**：Offscreen 分叉收口于 `extension/core/offscreen-host.ts`（保持 256 KB 后台体积守卫）；Firefox 门控隐藏 `tts` 朗读与 `live` 实时伴看入口。
+- **Offscreen 与门控**：Offscreen 分叉收口于 `extension/core/offscreen-host.ts`（保持 300 KB 后台体积守卫）；Firefox 门控隐藏 `tts` 朗读与 `live` 实时伴看入口。
 - **样式红线**：Firefox 滚动条样式必须包裹在 `@supports (-moz-appearance: none)` 内，严禁裸写 `scrollbar-width` / `scrollbar-color` 破坏 Chrome 121+ 的 `::-webkit-scrollbar`。
 
 ## Agent docs

@@ -74,6 +74,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 | `provider-onboarding-acceptance`（A1–A6.5，21 项检查） | 首配真机判据：概览、AI 对话（草稿恢复后由用户明确发送）、解释卡、语音转写四条「未配置 → 保存并继续 → 一次性续跑」链路；取消、保存失败、重复保存、普通编辑、换分 P 下旧任务意图不复活；全程真实指针/键盘/选区输入（点击前校验几何与 `elementFromPoint` 命中），离线 fixture 回放 B 站文档与接口、AI SSE、ASR 音轨与转写 | 全流程约 2–3 分钟（起一次隔离 Edge，离线；`--fixture-only` 不适用） |
 | `provider-projection-acceptance`（B1.1–B4.3，29 项检查） | 生效投影真机判据：AI 默认平台/模型徽标与摘要、对话另选与概览/对话两条链路的实际请求、删除后的回落与不可用投影、Live 与 ASR 激活对真实会话/转写请求、搜索智能回退与单平台摘要对真实搜索请求、付费准入与单轮上限的可见性/生效范围、排序恢复 | 全流程约 4–6 分钟（起一次隔离 Edge，离线回放 B 站接口、AI SSE、搜索平台、Live WebSocket、ASR 音轨与转写） |
 | `provider-credential-editor-acceptance`（C1–C8.1，24 项检查） | 凭据 / 编辑器 / 授权真机判据：搜索 DeepSeek 与伴看 Gemini Live 的凭据引用四态（无记录 / 缺 Key / 非官方地址 / 可用）、同层往返与草稿恢复；Key 只落 AI 族、AI 删除后两族状态同步、证据不含 Key 明文；模型子视图跨过滤选择、逐层 Esc、dirty 确认、Tab 环绕与焦点归还；浏览器权限库（mic）的拒绝 / 授权 / 重新授权 / 多 origin 与 Live 保存的 http(s)+ws(s) 双 origin 声明；搜索首次授权的付费提示、拒绝后开关同步、下一条不重复询问与同意后真实搜索；400×360 下的字段错误、确认框与动作可达；全程离线 fixture | 全流程约 2–3 分钟（两次起隔离 Edge，离线；headless 无原生授权弹窗，边界见下） |
+| `detached-window-leak`（L1–L6） | 独立窗口（Document PiP）跨文档零泄漏真机判据：打开文摘面板并切入 Document PiP，依次触发 `CustomSelect` 下拉、AI 模型选择面板宽度测量与金句分享卡片弹窗开关，对子窗口 `Window` 与 `Document` 持 `WeakRef`；关闭独立窗口回迁页内宿主、清理 `<video>`，经 CDP `HeapProfiler.enable` + 两轮 `HeapProfiler.collectGarbage` + 微任务排空后断言 `winRef.deref() === undefined && docRef.deref() === undefined` | 约 10–15s（起一次隔离 Edge，离线 fixture） |
 
 工件落 `.scratch/browser-harness/scenarios/<name>/`（`evidence.json` + 逐场景 PNG）。断言清单在 `evidence.checks`：任一 FAIL 即退出码 1（`evidence.failed` 是失败项名单）。
 

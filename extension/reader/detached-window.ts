@@ -76,6 +76,28 @@ let activeInstance: DetachedWindowInstance | null = null;
 let nextInstanceId = 0;
 let latestOpenToken = 0;
 const detachedDocCleanups = new Set<(targetDoc: Document) => void>();
+const openerRealmWrapperGuard = new Set<Element>();
+
+export function pinOpenerRealmWrappers(root: ParentNode | Iterable<Element> | null | undefined): void {
+  if (!root) {
+    return;
+  }
+  if (Symbol.iterator in Object(root)) {
+    for (const el of root as Iterable<Element>) {
+      openerRealmWrapperGuard.add(el);
+    }
+    return;
+  }
+  const node = root as ParentNode & { nodeType?: number };
+  if (node.nodeType === 1) {
+    openerRealmWrapperGuard.add(node as unknown as Element);
+  }
+  if (typeof node.querySelectorAll === "function") {
+    node.querySelectorAll("*").forEach((el) => {
+      openerRealmWrapperGuard.add(el);
+    });
+  }
+}
 
 export function registerDetachedDocumentCleanup(
   listener: (targetDoc: Document) => void
@@ -518,6 +540,7 @@ export function clearDetachedHostDocument(targetDoc: Document): void {
   } catch {
   }
   clearMirroredStyles(targetDoc);
+  openerRealmWrapperGuard.clear();
   for (const cleanup of [...detachedDocCleanups]) {
     try {
       cleanup(targetDoc);

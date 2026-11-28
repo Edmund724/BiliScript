@@ -6,10 +6,10 @@
 
 | 编号 | 标题 | 核心边界 |
 | --- | --- | --- |
-| [0001](0001-background-no-runtime-lazy.md) | background 禁运行时惰性加载与 256KB 静态图守卫 | 后台 `splitting: false`，体积靠 minify 与静态拆链；动态 `import()` 仅限页面环境 |
+| [0001](0001-background-no-runtime-lazy.md) | background 禁运行时惰性加载与 300KB 静态图守卫 | 后台 `splitting: false`，体积靠 minify 与静态拆链；`BACKGROUND_JS_MAX_KB = 300`；动态 `import()` 仅限页面环境 |
 | [0002](0002-state-bag-write-discipline.md) | 状态袋维持页面单例与 `Readonly` 写门禁 | `core/state` 与 `chat-state` 不按目录拆碎散字段、不改构造注入（DI），写门禁由 `tsc` 兜底 |
 | [0003](0003-light-dom-script-panel.md) | Light DOM 右栏文摘面板、几何降级链与宿主碰撞边界 | 不迁 Shadow DOM、不搬宿主节点；右栏锚点三级降级；防宿主 `[hidden] !important` 与控制栏 `createOverflowCheck` 塌陷；壳层/按需样式边界与浮层挂载隔离 |
-| [0004](0004-content-two-round-build-and-reader-gate.md) | Content 经典脚本粗粒度分组、ISOLATED 注册表与懒域宽类型门面 | 全经典 IIFE 交付、`g-shared` 跨宿交集与后台白名单 `executeScript`；共享可变态挂 `globalThis` 槽并承接同帧消息分发；`ReaderDomain` 维持宽类型双通道 |
+| [0004](0004-content-two-round-build-and-reader-gate.md) | Content 经典脚本粗粒度分组、ISOLATED 注册表与懒域宽类型门面 | 全经典 IIFE 交付、`g-shared` 跨宿交集与后台白名单 `executeScript`；45KB 常驻 / 300KB 后台 / 4.5MB(4.2MB) 运行时预算；共享可变态挂 `globalThis` 槽；`ReaderDomain` 维持宽类型双通道 |
 | [0005](0005-provider-http-dual-relay.md) | 跨上下文 AI 请求双代发通道与宿主权限代查 | 禁页面源直发；SW 15s 短代发 vs Offscreen 流式分块长代发（配 2s 活性确认）；权限统一经后台真门预检 |
 | [0006](0006-output-budget-wide-default-retreat-learned-cap.md) | 输出上限宽默认、平台拒收退回与会话内学习上限 | 三层单源预算；仅 `anthropic` 声明默认 `32768`；超限 400 无感退回 `8192` 并按会话内存记忆 |
 | [0007](0007-upstream-model-facts-snapshot.md) | 上游模型事实以 `models.dev` 构建期快照为源 | UI 目录与思考值集共用构建期零依赖快照；不嵌入第三方 LLM SDK 运行时；`protocol` 不参与目录查表 |
@@ -17,13 +17,13 @@
 | [0009](0009-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 `generateContent`） | 手写零依赖原生 SSE 适配器保 `thoughtSignature` 与函数配对；仅落离散 `thinkingLevel`，不做数值预算轨 |
 | [0010](0010-bilingual-secondary-subtitle-and-translation.md) | 双语副轨独立槽、并列接受事务与 AI 译文游标调度 | `clip.secondarySubtitle` 与 `secondary-subtitle-ready` 隔离副作用；原生去同族配对，AI 译文走 `boundary-v3` 与 90s 游标优先调度 |
 | [0011](0011-subtitle-prefetch-and-asr-isolation.md) | 视频页字幕预抓取、发送闸重试与 ASR 跨导航/分段流式隔离 | 进视频页即预抓原生字幕（确认真无字幕且开启自动回退时触发 ASR）；发送闸重试拦截 `error`；在途 ASR 与 `fetchRunId` 解耦；Offscreen 10-moof 分段解码防 OOM |
-| [0012](0012-long-video-state-relay-and-hybrid-retrieval.md) | 长视频阶梯预算、滑动状态接力总结、单跳混合召回与 Map-Reduce 兜底 | 200k 阶梯与三级溢出回落；零向量/分词依赖；概览超预算走状态接力，对话优先 L1+BM25 单跳召回，Map-Reduce 仅作冷兜底 |
+| [0012](0012-long-video-state-relay-and-hybrid-retrieval.md) | 长视频阶梯预算、KV 前缀缓存锁、滑动状态接力总结与单跳混合召回 | 200k 阶梯与三级溢出回落；静态前缀 + 静态工具表 + Anthropic 缓存断点；零向量/分词依赖；意图分流 + L1 + 25s Contextual BM25 + RRF 单跳召回，Map-Reduce 仅作冷兜底 |
 | [0013](0013-chat-turn-dag-and-dual-context.md) | 对话回合单向等待 DAG、延迟停止看门狗与双轨上下文隔离 | `settled <- switch`、`replay <- sendGate`、`replay` 零等待防死锁；建连延迟 `stop` + 4s 看门狗；`contextData` 与 `liveContextData` 分离 |
 | [0014](0014-web-search-privacy-gate-and-cooldown.md) | 联网搜索隐私授权闸、哈希缓存跨上下文共享与 SW 持久化冷却 | 显式授权与 `true -> false` 退订清缓存；哈希缓存开放给页面划词卡与 Offscreen 共享；冷却账本持久化防 SW 休眠清零 |
 | [0015](0015-live-websocket-offscreen-dnr.md) | 实时伴看 Offscreen WebSocket 承载与 DNR 握手头注入 | WS 固定在 `["BLOBS"]` Offscreen 发起；SW 以 DNR 规则 `9002` 覆写鉴权头与 `Origin`；权限成对覆盖 `http(s)` 与 `ws(s)` |
 | [0016](0016-live-companion-overlay-hosts.md) | 实时伴看浮窗主承载架构：视频页与直播间双宿主边界 | 双端共用跨全屏吸附浮窗；视频页会话独立于面板并保留状态条与只读记录；直播间走独立 `live-room` 懒包且禁页面工具 |
 | [0017](0017-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 清单派生 Event Page、29 常驻域（剔除 `live`）、清空 WAR 与显式 CSP（防本机连接强升 HTTPS）；隐藏 `iframe` 承载 Offscreen；禁裸写标准滚动条 |
-| [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配置、`local` 密钥与 SW 快照、扩展源 IndexedDB v2 | 配置 `sync` / 明文密钥 `local` + 官方凭据单源引用；SW 快照无写透双通道失效；大体积数据落 SW 扩展源 IDB v2 |
+| [0018](0018-layered-storage-and-extension-idb.md) | 扩展三层存储架构：`sync` 配额护栏、`local` 密钥与模型目录、扩展源 IndexedDB v4 | `sync` 5 模型摘要 + 4KB 文本截断 / `local` 密钥与全量模型目录；SW 快照双通道失效；IDB v4 全表分轨与原生 `Blob` / `note_highlights` 零淘汰 / 单写者原子 RPC + 懒水合 |
 | [0019](0019-rich-text-mathml-and-mermaid-slim.md) | 宿主富文本渲染与包体控制：KaTeX 纯 MathML 零字体与 Mermaid 构建期裁剪替身 | KaTeX 纯 MathML 零字体避宿主 CSP；Mermaid 构建区锚点裁剪 + 4 项最小替身守双端运行时总预算；换 ID 引用前缀契约与 CSSOM 选择器校验边界 |
 | [0020](0020-detached-reader-window.md) | 文摘面板独立窗口双模式承载与跨文档 DOM 搬移边界 | 同源跨文档搬移整棵面板；置顶画中画（Document PiP）与普通窗口（`window.open`）双模式；独立窗口隐藏退出键且系统 `×` 统一归位；尺寸记本机 `local`；禁跨进程扩展页与搬移宿主 `<video>` |
 | [0021](0021-multi-site-and-youtube-core.md) | 多站点抽象边界、YouTube 能力门控与跨站存储键兼容策略 | 显式 `site` + 编码安全键零迁移兼容；站点适配器归入按需经典 IIFE 守 45KB 常驻与 256KB 后台上限；YouTube 同源主世界三级采集；`SiteCapabilities` 显式门控 |
@@ -38,7 +38,7 @@
 - **ADR-0004：不得引入页面侧 ESM `import()`/`modulepreload`、动态路径或代码文本下发、`requestIdleCallback` 空闲预注入，不得移除 `__BILISCRIPT_RT__` 或拆分成多文件常驻，亦不得收窄 `ReaderDomain`、统一 reader 域双访问通道或改用字符串分发**。
 - **ADR-0007：不得把原始上游数据或第三方 LLM SDK 接进请求链或运行时，不得用 UI 目录产物回填 `thinking-profiles.ts`，也不得让 `protocol` 参与目录查表**。
 - **ADR-0008：不得为消除映射而按协议拆分模型档位事实表；不得把 `default`（不干预档）并入强度阶梯 `AI_THINKING_LEVELS`；不得以「可选条目 ≤ 1」为由隐藏零档模型的思考强度行**。
-- **ADR-0012：不得引入本地向量库、Embedding 模型或第三方分词词典依赖，也不得将长视频字幕召回构建为多轮自主检索 Agent 循环**。
+- **ADR-0012：不得引入本地或远程向量引擎、Embedding 模型或第三方分词词典依赖，也不得将长视频字幕召回构建为多轮自主检索或翻页循环**。
 - **ADR-0015：不得将实时伴看 WebSocket 客户端迁回 Service Worker 或 Content Script**（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
 - **ADR-0017：不得将 `<all_urls>` 或 `https://*/*` 移入任一端常驻 `host_permissions`；不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`；二期立项前不得在 Firefox 暴露未验收的 `live` 或 `tts` 入口**。
 - **ADR-0020：不得为文摘面板独立窗口引入跨进程扩展页（`chrome.windows.create` 独立文档 + 状态镜像同步）或将宿主 `<video>` 节点搬入独立窗口；独立窗口像素宽高记忆不得写入 `chrome.storage.sync`**。

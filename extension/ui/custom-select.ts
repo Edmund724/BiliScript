@@ -5,6 +5,7 @@ import {
   isElementNode,
   isHtmlElement,
   isTagElement,
+  resolveCreationDocument,
   resolveNodeDocument,
   resolveNodeWindow,
   safeRemoveListener,
@@ -407,7 +408,7 @@ export interface SearchableOptionListController {
 }
 
 export function createSearchableOptionList(config: SearchableOptionListConfig): SearchableOptionListController {
-  const doc = resolveNodeDocument(config.dropdown);
+  const doc = resolveCreationDocument(config.dropdown);
   const searchItem = doc.createElement("li");
   searchItem.className = config.searchItemClass;
   searchItem.setAttribute("role", "presentation");
@@ -704,7 +705,7 @@ function resolveFieldLabel(select: HTMLSelectElement): HTMLLabelElement | null {
 }
 
 function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
-  const li = resolveNodeDocument(option).createElement("li");
+  const li = resolveCreationDocument(option).createElement("li");
   li.className = "custom-select-option";
   li.dataset.value = option.value;
   if (option.dataset.triggerLabel) {
@@ -744,7 +745,7 @@ export function initCustomSelect(
     select.addEventListener("change", () => onChange(select));
   }
 
-  const doc = resolveNodeDocument(select);
+  const doc = resolveCreationDocument(select);
   const currentValue = select.value;
 
   const wrapper = doc.createElement("div");

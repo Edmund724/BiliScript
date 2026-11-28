@@ -19,6 +19,8 @@ import {
   isReaderDetached,
   requestDetachedModeSwitch,
 } from "../shared/active-host.js";
+import { pinOpenerRealmWrappers } from "../reader/detached-window.js";
+import { setInnerHtmlPreservingOpenerRealm } from "../shared/cross-doc.js";
 import { ensureReaderSettingsStyles, whenReaderSettingsStylesReady } from "../shared/style-injector.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { closeAgentBridgeInstallDialog } from "./agent-bridge-install-dialog.js";
@@ -446,7 +448,8 @@ export function renderReaderSettingsPanel(): Promise<void> {
         return;
       }
       const shouldRestoreBackFocus = getActiveReaderDocument().activeElement?.id === ids.readingSettingsBackBtn;
-      host.innerHTML = buildSettingsHtml();
+      const wrappedSettingsNodes = setInnerHtmlPreservingOpenerRealm(host, buildSettingsHtml());
+      pinOpenerRealmWrappers(wrappedSettingsNodes);
       applySectionContainment(host);
       const ctx = mountSettingsHost(host);
       if (shouldRestoreBackFocus) {

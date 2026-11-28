@@ -4,7 +4,8 @@ import { chatSessionState } from "../chat/chat-state.js";
 import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
 import { resolveInitialQuickPrompts } from "../chat/quick-prompts.js";
 import { state } from "../core/state.js";
-import { resolveNodeDocument } from "../shared/cross-doc.js";
+import { resolveCreationDocument, setInnerHtmlPreservingOpenerRealm } from "../shared/cross-doc.js";
+import { pinOpenerRealmWrappers } from "./detached-window.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateChatSuggestionsSlotDeps {
@@ -55,9 +56,10 @@ export function createChatSuggestionsSlot(deps: CreateChatSuggestionsSlotDeps): 
 
   function ensureNode(): HTMLElement {
     if (!node || !node.isConnected) {
-      node = resolveNodeDocument(deps.messages).createElement("div");
+      node = resolveCreationDocument(deps.messages).createElement("div");
       node.className = "chat-suggestions";
       node.id = deps.id;
+      pinOpenerRealmWrappers(node);
       deps.messages.appendChild(node);
     }
     return node;
@@ -68,7 +70,7 @@ export function createChatSuggestionsSlot(deps: CreateChatSuggestionsSlotDeps): 
       target.innerHTML = "";
       return;
     }
-    target.innerHTML =
+    const html =
       `<div class="chat-hero">` +
       `<span class="chat-hero-icon">${HERO_ICON_SVG}</span>` +
       `<p class="chat-hero-title">围绕这期视频，问点什么</p>` +
@@ -77,6 +79,8 @@ export function createChatSuggestionsSlot(deps: CreateChatSuggestionsSlotDeps): 
         .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
         .join("") +
       `</div></div>`;
+    const wrapped = setInnerHtmlPreservingOpenerRealm(target, html);
+    pinOpenerRealmWrappers(wrapped);
 
     target.querySelectorAll(".chat-chip").forEach((btn) => {
       btn.addEventListener("click", () => {

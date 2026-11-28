@@ -506,7 +506,6 @@ export function bindUiEvents(): void {
   const readingCloseBtn = activeById(ids.readingCloseBtn)!;
   const readingThemeSelect = activeById(ids.readingThemeSelect)!;
   const readingSettingsToggleBtn = activeById(ids.readingSettingsBtn)!;
-  const readingSettingsBackBtn = activeById(ids.readingSettingsBackBtn)!;
   const readingHeader = readingView.querySelector<HTMLElement>(".biliscript-reading-header")!;
 
   bindSubtitleTabEvents();
@@ -542,17 +541,13 @@ export function bindUiEvents(): void {
       setTimeout(() => readingThemeSelect.classList.remove("is-active"), 300);
     });
   });
-  readingSettingsBackBtn.addEventListener("click", (event) => {
-    if (consumeOverlayClick(event)) return;
-    stepBackReaderSettings();
-  });
   readingView.addEventListener("click", (event) => {
     const target = event.target as { closest?: (selector: string) => Element | null } | null;
     const backBtn =
       typeof target?.closest === "function"
         ? target.closest(`#${ids.readingSettingsBackBtn}`)
         : null;
-    if (backBtn && backBtn !== readingSettingsBackBtn) {
+    if (backBtn) {
       if (consumeOverlayClick(event)) return;
       stepBackReaderSettings();
     }

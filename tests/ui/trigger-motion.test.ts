@@ -5,7 +5,9 @@ import {
   animateTriggerExit,
   applyElementTriggerOrigin,
   cancelTriggerExit,
-  computeRelativeOrigin
+  captureTriggerRect,
+  computeRelativeOrigin,
+  getSavedTriggerRect
 } from "../../extension/ui/trigger-motion.js";
 import { closeConfirmDialog, confirmDialog } from "../../extension/ui/confirm-dialog.js";
 import { closeQuoteShareModal, openQuoteShareModal } from "../../extension/reader/quote-share-modal.js";
@@ -261,5 +263,37 @@ describe("trigger-motion", () => {
       "[BILISCRIPT] trigger-motion animation failed",
       expect.any(Error)
     );
+  });
+
+  it("clones captured trigger rects into plain objects so savedTriggerRects never pins a foreign DOMRect", () => {
+    class ForeignDomRect {
+      left = 12;
+      top = 24;
+      width = 80;
+      height = 30;
+      right = 92;
+      bottom = 54;
+      x = 12;
+      y = 24;
+      toJSON() {
+        return {};
+      }
+    }
+    const foreign = new ForeignDomRect() as unknown as DOMRect;
+    const captured = captureTriggerRect(foreign);
+    expect(captured).not.toBeNull();
+    expect(captured).not.toBe(foreign);
+    expect(captured instanceof ForeignDomRect).toBe(false);
+    expect(Object.getPrototypeOf(captured)).toBe(Object.prototype);
+    expect(captured?.left).toBe(12);
+    expect(captured?.width).toBe(80);
+
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue(rect(0, 0, 200, 100));
+    applyElementTriggerOrigin(target, foreign, "center");
+    const saved = getSavedTriggerRect(target);
+    expect(saved).not.toBe(foreign);
+    expect(saved instanceof ForeignDomRect).toBe(false);
   });
 });

@@ -2,7 +2,9 @@ import {
   activeById,
   getActiveReaderDocument,
   getActiveReaderWindow,
+  getOpenerDocument,
   getOpenerWindow,
+  isReaderDetached,
   onActiveHostChange,
 } from "./active-host.js";
 
@@ -109,6 +111,33 @@ export function resolveNodeDocument(node?: Node | null): Document {
 
 export function resolveNodeWindow(node?: Node | null): Window {
   return resolveNodeDocument(node).defaultView ?? getActiveReaderWindow();
+}
+
+export function resolveCreationDocument(node?: Node | null): Document {
+  const doc = resolveNodeDocument(node);
+  if (isReaderDetached() && doc === getActiveReaderDocument()) {
+    return getOpenerDocument();
+  }
+  return doc;
+}
+
+export function setInnerHtmlPreservingOpenerRealm(
+  container: HTMLElement,
+  html: string,
+  onBeforeMount?: (staging: HTMLElement) => void
+): Element[] {
+  const creationDoc = resolveCreationDocument(container);
+  if (creationDoc === container.ownerDocument) {
+    container.innerHTML = html;
+    onBeforeMount?.(container);
+    return [];
+  }
+  const staging = creationDoc.createElement("div");
+  staging.innerHTML = html;
+  const wrapped = Array.from(staging.querySelectorAll("*"));
+  onBeforeMount?.(staging);
+  container.replaceChildren(...Array.from(staging.childNodes));
+  return wrapped;
 }
 
 export function createActiveEvent(

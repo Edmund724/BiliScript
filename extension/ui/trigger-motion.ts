@@ -54,6 +54,39 @@ function isRectUsable(rect: { left: number; top: number; width: number; height: 
   return rect.width > 0 || rect.height > 0 || rect.left !== 0 || rect.top !== 0;
 }
 
+function cloneTriggerRect(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  right?: number;
+  bottom?: number;
+  x?: number;
+  y?: number;
+}): DOMRect {
+  const left = Number(rect.left) || 0;
+  const top = Number(rect.top) || 0;
+  const width = Number(rect.width) || 0;
+  const height = Number(rect.height) || 0;
+  const right = typeof rect.right === "number" ? rect.right : left + width;
+  const bottom = typeof rect.bottom === "number" ? rect.bottom : top + height;
+  const x = typeof rect.x === "number" ? rect.x : left;
+  const y = typeof rect.y === "number" ? rect.y : top;
+  return {
+    left,
+    top,
+    width,
+    height,
+    right,
+    bottom,
+    x,
+    y,
+    toJSON() {
+      return { left, top, width, height, right, bottom, x, y };
+    }
+  };
+}
+
 export function captureTriggerRect(trigger?: Element | DOMRect | null): DOMRect | null {
   if (!trigger) {
     return null;
@@ -63,9 +96,9 @@ export function captureTriggerRect(trigger?: Element | DOMRect | null): DOMRect 
       return null;
     }
     const rect = trigger.getBoundingClientRect();
-    return isRectUsable(rect) ? rect : null;
+    return isRectUsable(rect) ? cloneTriggerRect(rect) : null;
   }
-  return isRectUsable(trigger) ? trigger : null;
+  return isRectUsable(trigger) ? cloneTriggerRect(trigger) : null;
 }
 
 export function computeRelativeOrigin(
@@ -95,13 +128,17 @@ function cancelAnimations(animations: readonly Animation[]): void {
   }
 }
 
-function cancelActiveAnimations(el: HTMLElement | null | undefined): void {
+export function cancelTriggerAnimations(el: HTMLElement | null | undefined): void {
   if (!el) return;
   const list = activeAnimations.get(el);
   if (list) {
     cancelAnimations(list);
     activeAnimations.delete(el);
   }
+}
+
+function cancelActiveAnimations(el: HTMLElement | null | undefined): void {
+  cancelTriggerAnimations(el);
 }
 
 function trackAnimation(el: HTMLElement, anim: Animation): void {

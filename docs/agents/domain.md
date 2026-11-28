@@ -4,7 +4,8 @@ How engineering skills should consume this repo's domain documentation when expl
 
 ## Before exploring, read these
 
-- **`GLOSSARY.md`** at the repo root (or `GLOSSARY-MAP.md` if present).
+- **`GLOSSARY.md`** at the repo root (global core product terms & domain navigation index).
+- **`docs/glossary/`**: progressive domain volumes (`subtitle.md`, `ai.md`, `live.md`, `reader.md`) — read only the volume(s) matching your target area.
 - **`docs/adr/README.md`**: the ADR index and the canonical 「审查红线」 list of directions already ruled out.
 - **`docs/adr/`**: read ADRs that touch the area you are about to work in.
 
@@ -21,9 +22,15 @@ Single-context repo:
 ```
 /
 ├── GLOSSARY.md
-├── docs/adr/
-│   ├── README.md
-│   └── 0001-*.md …
+├── docs/
+│   ├── glossary/
+│   │   ├── subtitle.md
+│   │   ├── ai.md
+│   │   ├── live.md
+│   │   └── reader.md
+│   └── adr/
+│       ├── README.md
+│       └── 0001-*.md …
 └── extension/
 ```
 

@@ -52,6 +52,7 @@ import {
   formatDetachedWindowTitle,
   getDetachedWindowHost,
   openDetachedWindowHost,
+  pinOpenerRealmWrappers,
   reclaimDetachedViewToOpener,
   switchDetachedWindowHostMode,
   syncDetachedWindowHostTitle,
@@ -647,6 +648,7 @@ export function detachReaderShell(): Promise<boolean> {
     readingView.removeAttribute("data-biliscript-script-float");
     readingView.style.removeProperty("--biliscript-float-origin");
     readingView.setAttribute("data-biliscript-detached", "1");
+    pinOpenerRealmWrappers(readingView);
     const targetView = safeAdoptNode(opened.document, readingView);
     (opened.document.body ?? opened.document.documentElement).appendChild(targetView);
     activeDetachedDoc = opened.document;

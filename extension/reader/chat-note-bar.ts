@@ -3,7 +3,8 @@ import type { NotePromptPreset } from "../core/defaults.js";
 import { state } from "../core/state.js";
 import { normalizeNotePromptPreset } from "../core/validators.js";
 import { getNotePromptPresetLabel, NOTE_PROMPT_PRESET_OPTIONS } from "../notes/note-prompts.js";
-import { isElementNode, resolveNodeDocument } from "../shared/cross-doc.js";
+import { isElementNode, resolveNodeDocument, setInnerHtmlPreservingOpenerRealm } from "../shared/cross-doc.js";
+import { pinOpenerRealmWrappers } from "./detached-window.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { renderUiIcon } from "../ui/icon-registry.js";
@@ -168,7 +169,8 @@ export function createChatNoteBar(deps: CreateChatNoteBarDeps): ChatNoteBar {
       return;
     }
     const preset = currentNotePreset();
-    deps.host.innerHTML = buildSplitNotePillHtml(preset, menuId);
+    const wrapped = setInnerHtmlPreservingOpenerRealm(deps.host, buildSplitNotePillHtml(preset, menuId));
+    pinOpenerRealmWrappers(wrapped);
     rendered = true;
 
     const { mainBtn, toggle, menu, items } = getParts();

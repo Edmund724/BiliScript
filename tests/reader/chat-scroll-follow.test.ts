@@ -12,7 +12,7 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
   let scrollToBottomCalledWith: boolean | null = null;
   const buttonListeners = new Map<string, Set<(e: Event) => void>>();
   const listeners = new Map<string, Set<(e: Event) => void>>();
-  const scrollHeight = 1000;
+  let scrollHeight = 1000;
   const clientHeight = 400;
 
   const scrollBottomBtn = {
@@ -37,7 +37,9 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
     get scrollTop() {
       return Math.max(0, scrollHeight - clientHeight - bottomOffset);
     },
-    scrollHeight,
+    get scrollHeight() {
+      return scrollHeight;
+    },
     clientHeight,
     addEventListener: (type: string, listener: (e: Event) => void) => {
       if (!listeners.has(type)) {
@@ -107,6 +109,9 @@ function makeHarness(initialNearBottom = true, initialOffset?: number) {
     setBottomOffset: (offset: number) => {
       bottomOffset = offset;
     },
+    setScrollHeight: (height: number) => {
+      scrollHeight = height;
+    },
     getAutoScroll: () => autoScrollState,
     getScrollToBottomCalledWith: () => scrollToBottomCalledWith,
     button: scrollBottomBtn,
@@ -158,6 +163,28 @@ describe("chat-scroll-follow：按帧合批与自然滚动判定", () => {
     h.setBottomOffset(30);
     h.controller.notifyScrolled();
     h.flushFrames();
+    expect(h.getAutoScroll()).toBe(true);
+    expect(h.button.hidden).toBe(true);
+  });
+
+  it("离屏消息还原高度导致 scrollHeight 动态变化时，贴底距离阈值与回底闸保持稳定", () => {
+    const h = makeHarness(false, 260);
+    h.controller.scrollBottomClicked();
+    expect(h.controller.isHolding()).toBe(true);
+
+    h.setScrollHeight(2400);
+    h.setBottomOffset(180);
+    h.controller.notifyScrolled();
+    h.flushFrames();
+    expect(h.controller.isHolding()).toBe(true);
+    expect(h.getAutoScroll()).toBe(true);
+    expect(h.button.hidden).toBe(true);
+
+    h.setScrollHeight(2520);
+    h.setBottomOffset(DEFAULT_FOLLOW_THRESHOLD_PX);
+    h.controller.notifyScrolled();
+    h.flushFrames();
+    expect(h.controller.isHolding()).toBe(false);
     expect(h.getAutoScroll()).toBe(true);
     expect(h.button.hidden).toBe(true);
   });

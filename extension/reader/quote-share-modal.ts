@@ -46,6 +46,7 @@ import { createFocusScope, isolateHostSiblings, type FocusScope } from "../ui/fo
 import {
   animateTriggerEnter,
   animateTriggerExit,
+  cancelTriggerAnimations,
   cancelTriggerExit
 } from "../ui/trigger-motion.js";
 
@@ -476,12 +477,10 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
   if (closingHost) {
     try {
       const isDetachedHost = closingHost.ownerDocument !== getOpenerDocument();
-      const dialog = isDetachedHost
-        ? null
-        : closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
-      const mask = isDetachedHost
-        ? null
-        : closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
+      const rawDialog = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
+      const rawMask = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
+      const dialog = isDetachedHost ? null : rawDialog;
+      const mask = isDetachedHost ? null : rawMask;
       if (dialog) {
         animateTriggerExit({
           target: dialog,
@@ -499,6 +498,9 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
           }
         });
       } else {
+        cancelTriggerAnimations(rawDialog);
+        cancelTriggerAnimations(rawMask);
+        cancelTriggerExit(closingHost);
         closingHost.remove();
       }
     } catch {

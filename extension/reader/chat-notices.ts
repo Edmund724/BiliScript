@@ -1,4 +1,4 @@
-import { resolveNodeDocument } from "../shared/cross-doc.js";
+import { resolveCreationDocument } from "../shared/cross-doc.js";
 
 export interface ChatNoticeAction {
   label: string;
@@ -77,7 +77,7 @@ export function createReaderChatFeedback({
       }: ChatNoticeOptions = {}
     ): void {
       clear();
-      const doc = resolveNodeDocument(targetParent);
+      const doc = resolveCreationDocument(targetParent);
       const notice = doc.createElement("div");
       notice.className = "chat-context-notice";
       if (tone === "success") {
@@ -149,7 +149,7 @@ export function createReaderChatFeedback({
     }
     clearAllNotices();
     removeCenteredState();
-    const stateNode = resolveNodeDocument(messages).createElement("div");
+    const stateNode = resolveCreationDocument(messages).createElement("div");
     stateNode.className = "chat-center-error";
     stateNode.textContent = String(message);
     messages.appendChild(stateNode);

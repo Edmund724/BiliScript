@@ -12,7 +12,7 @@
 - **单文件常驻壳与显式具名注册表**：视频页与直播页静态注入单个 `entry/content-resident.iife.js`，将核心有状态单例模块的**显式具名导出**注册到 `ISOLATED` world 的 `globalThis.__BILISCRIPT_RT__`，并注入幂等重入守卫与分块加载器 `globalThis.__BILISCRIPT_LOAD_CHUNK__`。严禁使用全量 `import *` 导出或拆分为多文件常驻注入。
 - **6 按需业务分组 + `g-shared` 公共交集组**：按生命周期划分为首帧控件 `g-buttons`、首帧字幕 `g-subtitle`（导出至 `__BILISCRIPT_SUBTITLE__`，不反向依赖 `g-shared`/`g-app`）、核心应用 `g-app`、图表 `g-mermaid`、公式 `g-math`、直播间 `g-live-room`（仅 Chromium），以及收拢跨宿公共依赖的 `g-shared`（导出至 `__BILISCRIPT_SHARED__`，不反向依赖常驻壳或 `g-subtitle`）。构建期插件将共享核心导入与跨组动态 `import()` 重写为注册表读取或 `__BILISCRIPT_LOAD_CHUNK__` 调用。
 - **交互触发预注入（`extension/ui/panel-preload.ts`）**：放弃 `requestIdleCallback` 空闲预注入，仅在用户指针悬停（`pointerenter`）或聚焦（`focus`）文摘/播放器按钮时幂等预注入 `g-shared`、`g-subtitle` 与 `g-app`。
-- **双端体积与图谱守卫**：`scripts/build-content.js`、`scripts/build.js` 与 `scripts/build_release.py` 强制校验 `MAX_RESIDENT_BYTES = 46080`（45 KB 常驻）、`BACKGROUND_JS_MAX_KB = 256`、Chromium `DIST_RUNTIME_MAX_BYTES = 4350000`、Firefox `DIST_RUNTIME_MAX_BYTES = 4050000`、Release ZIP `≤ 1,200,000 B`，以及静态依赖种子守卫（`assertStaticSeedGuards`）、Mermaid 替身守卫与 Firefox `live` 死代码裁剪守卫。
+- **双端体积与图谱守卫**：`scripts/build-content.js`、`scripts/build.js` 与 `scripts/build_release.py` 强制校验 `MAX_RESIDENT_BYTES = 46080`（45 KB 常驻硬上限，严禁上调）、`BACKGROUND_JS_MAX_KB = 300`、Chromium `DIST_RUNTIME_MAX_BYTES = 4500000`、Firefox `DIST_RUNTIME_MAX_BYTES = 4200000`、Release ZIP `≤ 1,200,000 B`，以及静态依赖种子守卫（`assertStaticSeedGuards`）、Mermaid 替身守卫与 Firefox `live` 死代码裁剪守卫。
 
 ### 2. 后台静态白名单 `executeScript` 与权限边界（`extension/core/content-chunk-handlers.ts`）
 

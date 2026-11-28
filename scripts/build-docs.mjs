@@ -62,6 +62,7 @@ const ROUTE_BY_SRC = new Map(PAGES.map((p) => [p.src, p.out]));
 
 const FORBIDDEN_PATHS = [
   "docs/agents/",
+  "docs/glossary/",
   "AGENTS.md",
   ".scratch/",
   "docs/adr/",
@@ -686,7 +687,7 @@ function verifyBuiltSite(outDir) {
     const htmlPath = path.join(outDir, htmlRel);
     const content = fs.readFileSync(htmlPath, "utf8");
 
-    if (/docs\/agents\/|\.scratch\//i.test(content)) {
+    if (/docs\/agents\/|docs\/glossary\/|\.scratch\//i.test(content)) {
       errors.push(`Forbidden internal reference found in ${htmlRel}`);
     }
 

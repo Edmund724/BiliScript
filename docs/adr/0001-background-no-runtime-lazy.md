@@ -1,8 +1,8 @@
-# ADR-0001：background 禁运行时惰性加载与 256KB 静态图守卫
+# ADR-0001：background 禁运行时惰性加载与 300KB 静态图守卫
 
 > 状态：有效
 
-Chromium MV3 Service Worker 在平台层面不支持动态 `import()`（`crbug.com/40760920`），且 Chromium 与桌面端 Firefox 共用同一份 `extension/entry/background.ts` 构建入口。我们决定：**后台入口的 import 图保持全静态（`splitting: false`）**，体积与冷启动解析成本只走打包 minify（`scripts/build.js`）与源码级静态拆链（拆断小用途拖入大模块的静态边，如静音 WAV 探针与 `asr/stream-chunker.ts` 解耦、连通性测试移出后台），并由 `BACKGROUND_JS_MAX_KB = 256` 与 `assertBackgroundStaticGraphSlim` 在构建期硬拦截。动态 `import()` 惰性化只允许在页面环境（Content Script、Offscreen 文档、扩展自有页面）使用。
+Chromium MV3 Service Worker 在平台层面不支持动态 `import()`（`crbug.com/40760920`），且 Chromium 与桌面端 Firefox 共用同一份 `extension/entry/background.ts` 构建入口。我们决定：**后台入口的 import 图保持全静态（`splitting: false`）**，体积与冷启动解析成本只走打包 minify（`scripts/build.js`）与源码级静态拆链（拆断小用途拖入大模块的静态边，如静音 WAV 探针与 `asr/stream-chunker.ts` 解耦、连通性测试移出后台），并由 `BACKGROUND_JS_MAX_KB = 300`（容纳 IDB v4 拆轨账本与单写者原子 RPC 后的硬上限）与 `assertBackgroundStaticGraphSlim` 在构建期硬拦截。动态 `import()` 惰性化只允许在页面环境（Content Script、Offscreen 文档、扩展自有页面）使用。
 
 ## 考虑过的方案
 

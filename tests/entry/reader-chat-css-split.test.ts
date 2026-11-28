@@ -94,6 +94,49 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
     }
   });
 
+  it("reader-chat.css 对话消息、已渲染 Mermaid 与折叠思考块启用离屏隔离，流式态与浮层展开态显式豁免", () => {
+    const css = read(CHAT_CSS);
+    const completedMsgRule = findRule(css, ".biliscript-reading-chat .chat-msg:not(.chat-msg-streaming)");
+    expect(completedMsgRule, "缺少已完成对话消息容器 c-v:auto 规则").toBeTruthy();
+    expect(completedMsgRule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
+
+    const mermaidRule = findRule(
+      css,
+      '.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) .biliscript-md-mermaid[data-biliscript-mermaid="done"]'
+    );
+    expect(mermaidRule, "缺少已渲染 Mermaid 容器 c-v:auto 规则").toBeTruthy();
+    expect(mermaidRule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
+
+    const collapsedThinkingRule = findRule(
+      css,
+      ".biliscript-reading-chat .chat-msg:not(.chat-msg-streaming) .chat-thinking.chat-thinking-collapsed"
+    );
+    const collapsedThoughtChainRule = findRule(
+      css,
+      ".biliscript-reading-chat .chat-msg:not(.chat-msg-streaming) .chat-thought-chain.chat-thought-chain-collapsed"
+    );
+    expect(collapsedThinkingRule, "缺少折叠思考块 c-v:auto 规则").toBeTruthy();
+    expect(collapsedThoughtChainRule, "缺少折叠思维链 c-v:auto 规则").toBeTruthy();
+    expect(collapsedThinkingRule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
+
+    const visibleRules = (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+\{[^}]*\}/g) || []).filter((rule) =>
+      rule.includes("content-visibility: visible")
+    );
+    const streamingVisible = visibleRules.find((rule) =>
+      rule.includes(".biliscript-reading-chat .chat-msg.chat-msg-streaming")
+    );
+    expect(streamingVisible, "缺少流式消息显式 content-visibility: visible 豁免").toBeTruthy();
+    expect(streamingVisible).toContain(".chat-msg:has(");
+
+    const readerCss = read(READER_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    const subtitleListRules = (readerCss.match(/[^{}]+\{[^}]*\}/g) || []).filter((rule) =>
+      rule.split("{")[0].includes(".biliscript-subtitle-list")
+    );
+    for (const rule of subtitleListRules) {
+      expect(rule, "字幕列表容器不得启用 content-visibility 离屏隔离").not.toContain("content-visibility");
+    }
+  });
+
   it("reader.css 解释卡同步逐块 c-v:auto；概览条目统一为 auto 记忆 + none 宽占位", () => {
     const css = read(READER_CSS);
     for (const block of BLOCKS) {

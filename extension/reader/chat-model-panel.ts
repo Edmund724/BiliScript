@@ -12,7 +12,7 @@ import {
   getOpenerDocument,
   onActiveHostChange,
 } from "../shared/active-host.js";
-import { registerDetachedDocumentCleanup } from "./detached-window.js";
+import { pinOpenerRealmWrappers, registerDetachedDocumentCleanup } from "./detached-window.js";
 import {
   isHtmlElement,
   prefersActiveReducedMotion,
@@ -20,6 +20,7 @@ import {
   resolveNodeWindow,
   safeRemoveListener,
   scheduleMigratingFrame,
+  setInnerHtmlPreservingOpenerRealm,
   type MigratingFrameHandle,
 } from "../shared/cross-doc.js";
 import { trySetPointerCapture } from "../shared/dom-utils.js";
@@ -481,9 +482,11 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     panelList.hidden = false;
     if (!groups.length) {
       const emptyLabel = chatSessionState.providers.length > 0 ? "当前平台未配置可用模型" : "未配置平台";
-      panelList.innerHTML =
+      const emptyHtml =
         `<div class="chat-model-empty"><span>${emptyLabel}</span>` +
         '<button type="button" class="chat-model-empty-settings">前往设置</button></div>';
+      const wrappedEmpty = setInnerHtmlPreservingOpenerRealm(panelList, emptyHtml);
+      pinOpenerRealmWrappers(wrappedEmpty);
       thinkingRow.hidden = true;
       const settingsBtn = panelList.querySelector<HTMLButtonElement>(".chat-model-empty-settings");
       settingsBtn?.addEventListener("click", (event) => {
@@ -511,7 +514,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         );
       }
     }
-    panelList.innerHTML = parts.join("");
+    const wrappedOptions = setInnerHtmlPreservingOpenerRealm(panelList, parts.join(""));
+    pinOpenerRealmWrappers(wrappedOptions);
     panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option").forEach((btn) => {
       btn.addEventListener("click", () => {
         const value = btn.getAttribute("data-value") || "";
@@ -746,7 +750,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
           );
         }
 
-        thinkingToggle.innerHTML = parts.join("");
+        const wrappedThinking = setInnerHtmlPreservingOpenerRealm(thinkingToggle, parts.join(""));
+        pinOpenerRealmWrappers(wrappedThinking);
         bindThinkingControls();
       }
 

@@ -1,6 +1,7 @@
 import { onActiveHostChange } from "../shared/active-host.js";
 import {
   isElementNode,
+  resolveCreationDocument,
   resolveNodeDocument,
   resolveNodeWindow,
   safeRemoveListener,
@@ -32,7 +33,7 @@ function ensureLiveStatusNode(listNode: HTMLElement): HTMLElement | null {
   if (!parent) return null;
   const existing = parent.querySelector<HTMLElement>('[data-search-order-live="1"]');
   if (existing) return existing;
-  const node = resolveNodeDocument(listNode).createElement("p");
+  const node = resolveCreationDocument(listNode).createElement("p");
   node.className = "biliscript-sr-only search-order-live-status";
   node.setAttribute("aria-live", "polite");
   node.setAttribute("aria-atomic", "true");
