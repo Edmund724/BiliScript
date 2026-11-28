@@ -15,6 +15,16 @@ const EXTENSION_PROTOCOL = "biliscript-extension-v1";
 const CLI_PROTOCOL_PREFIX = "biliscript-cli-v1.";
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const SUBTITLE_INLINE_MAX_BYTES = 12 * 1024;
+export const MCP_SUBTITLE_INLINE_MAX_BYTES = 24 * 1024;
+export const MCP_SUBTITLE_RANGE_MAX_BYTES = 48 * 1024;
+export const MCP_SUBTITLE_PREVIEW_SECONDS = 180;
+export const MCP_SUBTITLE_PREVIEW_MAX_BYTES = 3 * 1024;
+export const MCP_SUBTITLE_BUCKET_SECONDS = 300;
+export const MAX_MCP_FRAMES = 6;
+export const MAX_FRAME_SPAN_SECONDS = 8;
+export const FRAME_DEDUPE_TOLERANCE_SECONDS = 0.25;
+export const DEFAULT_FRAME_TIMEOUT_MS = 95000;
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 const DEFAULT_EXTENSION_GRACE_MS = 35 * 1000;
 const EXTENSION_OFFLINE_ERROR = "扩展未连接，请在扩展的「设置 → 本地 Agent」开启连接或点击「去连接」";
@@ -391,7 +401,7 @@ function isNoActiveVideoTabError(error) {
 export async function startDaemon({
   port = configuredPort(),
   token = ensureToken(port),
-  frameTimeoutMs = 50000,
+  frameTimeoutMs = DEFAULT_FRAME_TIMEOUT_MS,
   extensionGraceMs = configuredGraceMs()
 } = {}) {
   const idleMs = Number(process.env.BILISCRIPT_BRIDGE_IDLE_MS || DEFAULT_IDLE_MS);
@@ -870,8 +880,7 @@ async function waitForDaemon(command, port, options) {
   throw lastError || new Error("本地 Bridge 启动失败");
 }
 
-async function runCommand(command, options) {
-  const port = configuredPort();
+async function runCommand(command, options, { port = configuredPort() } = {}) {
   ensureToken(port);
   try {
     return await requestDaemon(command, {
@@ -885,7 +894,7 @@ async function runCommand(command, options) {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
-      env: process.env
+      env: { ...process.env, BILISCRIPT_BRIDGE_PORT: String(port) }
     });
     child.unref();
     return waitForDaemon(command, port, options);
@@ -924,6 +933,887 @@ export function formatSubtitleClock(seconds, withHours = false) {
   }
   const minute = Math.floor((total % 3600) / 60);
   return `${Math.floor(total / 3600)}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
+}
+
+export function parseTimestampSeconds(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+  }
+  const mmss = trimmed.match(/^(\d+):([0-5]\d(?:\.\d+)?)$/);
+  if (mmss) {
+    const seconds = Number(mmss[1]) * 60 + Number(mmss[2]);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+  }
+  const hhmmss = trimmed.match(/^(\d+):([0-5]\d):([0-5]\d(?:\.\d+)?)$/);
+  if (hhmmss) {
+    const seconds = Number(hhmmss[1]) * 3600 + Number(hhmmss[2]) * 60 + Number(hhmmss[3]);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+  }
+  return null;
+}
+
+export function expandFrameTargets(
+  times,
+  { spanSeconds = 0, dedupeToleranceSeconds = FRAME_DEDUPE_TOLERANCE_SECONDS } = {}
+) {
+  if (!Array.isArray(times) || times.length === 0) return [];
+  const span = Number(spanSeconds);
+  if (!Number.isFinite(span) || span < 0) return [];
+  const candidates = [];
+  for (const rawTime of times) {
+    const anchor = Number(rawTime);
+    if (!Number.isFinite(anchor) || anchor < 0) continue;
+    if (span === 0) {
+      candidates.push({ anchorTime: anchor, targetTime: anchor, isAnchor: true });
+    } else {
+      const before = Math.max(0, anchor - span);
+      const after = anchor + span;
+      candidates.push({ anchorTime: anchor, targetTime: before, isAnchor: before === anchor });
+      candidates.push({ anchorTime: anchor, targetTime: anchor, isAnchor: true });
+      candidates.push({ anchorTime: anchor, targetTime: after, isAnchor: after === anchor });
+    }
+  }
+  candidates.sort((left, right) => {
+    if (left.targetTime !== right.targetTime) return left.targetTime - right.targetTime;
+    if (left.isAnchor === right.isAnchor) return left.anchorTime - right.anchorTime;
+    return left.isAnchor ? -1 : 1;
+  });
+  const deduped = [];
+  for (const item of candidates) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && Math.abs(item.targetTime - previous.targetTime) <= dedupeToleranceSeconds) {
+      if (!previous.isAnchor && item.isAnchor) {
+        deduped[deduped.length - 1] = item;
+      }
+      continue;
+    }
+    deduped.push(item);
+  }
+  return deduped.map(({ anchorTime, targetTime }) => ({ anchorTime, targetTime }));
+}
+
+function sliceUtf8ByBytes(text, maxBytes) {
+  if (maxBytes <= 0) return "";
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let result = "";
+  let used = 0;
+  for (const ch of text) {
+    const chBytes = Buffer.byteLength(ch, "utf8");
+    if (used + chBytes > maxBytes) break;
+    result += ch;
+    used += chBytes;
+  }
+  return result;
+}
+
+function summarizeOutlinePreview(items, maxChars = 80) {
+  const parts = [];
+  let length = 0;
+  for (const item of items) {
+    const content = item.content;
+    if (!content) continue;
+    const sep = parts.length ? 1 : 0;
+    if (length + sep + content.length > maxChars) {
+      const remaining = maxChars - length - sep;
+      if (remaining > 1) {
+        parts.push(`${Array.from(content).slice(0, remaining - 1).join("")}…`);
+      } else if (parts.length === 0) {
+        parts.push(`${Array.from(content).slice(0, Math.max(1, maxChars - 1)).join("")}…`);
+      }
+      break;
+    }
+    parts.push(content);
+    length += sep + content.length;
+  }
+  return parts.join(" ");
+}
+
+function normalizeSubtitleItems(items) {
+  const validItems = [];
+  let minFrom = Number.POSITIVE_INFINITY;
+  let maxTo = 0;
+  for (const item of items) {
+    const content = String(item?.content ?? "").replace(/[\r\n]+/g, " ").trim();
+    if (!content) continue;
+    const from = Number(item?.from) || 0;
+    const to = Number(item?.to) || from;
+    validItems.push({ from, to, content });
+    if (from < minFrom) minFrom = from;
+    if (to > maxTo) maxTo = to;
+    if (from > maxTo) maxTo = from;
+  }
+  return { validItems, minFrom, maxTo };
+}
+
+export function formatMcpSubtitlePayload(
+  result,
+  requestOptions = {},
+  {
+    maxInlineBytes = MCP_SUBTITLE_INLINE_MAX_BYTES,
+    maxRangeBytes = MCP_SUBTITLE_RANGE_MAX_BYTES,
+    previewSeconds = MCP_SUBTITLE_PREVIEW_SECONDS,
+    previewMaxBytes = MCP_SUBTITLE_PREVIEW_MAX_BYTES,
+    bucketSeconds = MCP_SUBTITLE_BUCKET_SECONDS
+  } = {}
+) {
+  const subtitle = result?.subtitle;
+  if (!subtitle || !Array.isArray(subtitle.items)) return result;
+
+  const { validItems, minFrom, maxTo } = normalizeSubtitleItems(subtitle.items);
+  const withHours = maxTo >= 3600;
+  const lines = validItems.map((item) => `${formatSubtitleClock(item.from, withHours)} ${item.content}`);
+  const fullText = lines.join("\n");
+  const fullBytes = Buffer.byteLength(fullText, "utf8");
+  const hasRange = requestOptions?.from !== undefined || requestOptions?.to !== undefined;
+  const { items: _items, ...subtitleMeta } = subtitle;
+
+  if ((!hasRange && fullBytes <= maxInlineBytes) || (hasRange && fullBytes <= maxRangeBytes)) {
+    return {
+      ...result,
+      subtitle: {
+        ...subtitleMeta,
+        mode: "inline",
+        text: fullText,
+        count: validItems.length,
+        from: validItems.length ? minFrom : null,
+        to: validItems.length ? maxTo : null
+      }
+    };
+  }
+
+  if (hasRange) {
+    const selectedLines = [];
+    const selectedItems = [];
+    let usedBytes = 0;
+    let nextIndex = validItems.length;
+    for (let index = 0; index < validItems.length; index += 1) {
+      const line = lines[index];
+      const sepBytes = selectedLines.length > 0 ? 1 : 0;
+      const lineBytes = Buffer.byteLength(line, "utf8");
+      if (usedBytes + sepBytes + lineBytes > maxRangeBytes) {
+        if (selectedLines.length === 0) {
+          selectedLines.push(sliceUtf8ByBytes(line, maxRangeBytes));
+          selectedItems.push(validItems[index]);
+          nextIndex = index + 1;
+        } else {
+          nextIndex = index;
+        }
+        break;
+      }
+      selectedLines.push(line);
+      selectedItems.push(validItems[index]);
+      usedBytes += sepBytes + lineBytes;
+    }
+    const sliceFrom = selectedItems.length ? selectedItems[0].from : null;
+    const sliceTo = selectedItems.length
+      ? selectedItems.reduce((acc, item) => Math.max(acc, item.from, item.to), 0)
+      : null;
+    const nextFrom = nextIndex < validItems.length ? validItems[nextIndex].from : null;
+    return {
+      ...result,
+      subtitle: {
+        ...subtitleMeta,
+        mode: "inline",
+        text: selectedLines.join("\n"),
+        count: selectedItems.length,
+        totalCount: validItems.length,
+        from: sliceFrom,
+        to: sliceTo,
+        truncated: true,
+        nextFrom,
+        hint: nextFrom !== null
+          ? `当前区间字幕超过 48 KiB，已在完整字幕行边界截断。请调用 biliscript_subtitles 并传入 from=${nextFrom} 继续读取剩余内容。`
+          : "当前区间字幕超过 48 KiB，已截断输出。"
+      }
+    };
+  }
+
+  const rawChapters = Array.isArray(result?.chapters) ? result.chapters : [];
+  let outlineSource = "buckets";
+  let outline = [];
+  if (rawChapters.length >= 2) {
+    outlineSource = "chapters";
+    const sortedChapters = rawChapters
+      .map((chapter) => ({
+        title: String(chapter?.title || "").trim(),
+        from: Math.max(0, Number(chapter?.from) || 0),
+        to: Number(chapter?.to)
+      }))
+      .sort((left, right) => left.from - right.from);
+    outline = sortedChapters.map((chapter, index) => {
+      const fallbackTo = index + 1 < sortedChapters.length ? sortedChapters[index + 1].from : maxTo;
+      const chapterTo = Number.isFinite(chapter.to) && chapter.to >= chapter.from ? chapter.to : Math.max(chapter.from, fallbackTo);
+      const isLast = index === sortedChapters.length - 1;
+      const chapterItems = validItems.filter((item) => (
+        isLast
+          ? item.from >= chapter.from && item.from <= chapterTo
+          : item.from >= chapter.from && item.from < chapterTo
+      ));
+      return {
+        title: chapter.title,
+        from: chapter.from,
+        to: chapterTo,
+        count: chapterItems.length,
+        preview: summarizeOutlinePreview(chapterItems)
+      };
+    });
+  } else {
+    const buckets = new Map();
+    const upperBound = Math.max(maxTo, Number(result?.video?.duration) || 0);
+    for (const item of validItems) {
+      const bucketIdx = Math.floor(Math.max(0, item.from) / bucketSeconds);
+      let entry = buckets.get(bucketIdx);
+      if (!entry) {
+        entry = { items: [], maxEnd: item.to };
+        buckets.set(bucketIdx, entry);
+      }
+      entry.items.push(item);
+      if (item.to > entry.maxEnd) entry.maxEnd = item.to;
+      if (item.from > entry.maxEnd) entry.maxEnd = item.from;
+    }
+    outline = Array.from(buckets.entries())
+      .sort((left, right) => left[0] - right[0])
+      .map(([bucketIdx, entry]) => {
+        const bucketFrom = bucketIdx * bucketSeconds;
+        const candidateTo = Math.min(upperBound, (bucketIdx + 1) * bucketSeconds);
+        const bucketTo = candidateTo >= bucketFrom ? candidateTo : entry.maxEnd;
+        return {
+          from: bucketFrom,
+          to: bucketTo,
+          count: entry.items.length,
+          preview: summarizeOutlinePreview(entry.items)
+        };
+      });
+  }
+
+  const previewCutoff = minFrom > previewSeconds ? minFrom + previewSeconds : previewSeconds;
+  const previewLines = [];
+  let previewBytes = 0;
+  for (let index = 0; index < validItems.length; index += 1) {
+    if (validItems[index].from > previewCutoff) break;
+    const line = lines[index];
+    const sepBytes = previewLines.length > 0 ? 1 : 0;
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (previewBytes + sepBytes + lineBytes > previewMaxBytes) {
+      if (previewLines.length === 0) {
+        previewLines.push(sliceUtf8ByBytes(line, previewMaxBytes));
+      }
+      break;
+    }
+    previewLines.push(line);
+    previewBytes += sepBytes + lineBytes;
+  }
+
+  return {
+    ...result,
+    subtitle: {
+      ...subtitleMeta,
+      mode: "windowed",
+      count: validItems.length,
+      from: validItems.length ? minFrom : null,
+      to: validItems.length ? maxTo : null,
+      totalBytes: fullBytes,
+      outlineSource,
+      outline,
+      previewText: previewLines.join("\n"),
+      hint: "字幕全文超过 24 KiB，已切换纯内存导览模式。请结合 outline 与 previewText 选定目标时间段，调用 biliscript_subtitles(from, to) 分段精读。"
+    }
+  };
+}
+
+function validateFrameData(frame, index) {
+  const data = String(frame?.data || "");
+  const bytes = Buffer.from(data, "base64");
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+    throw new Error(`第 ${index + 1} 张截图不是有效 JPEG 数据`);
+  }
+  const targetTime = Number(frame.targetTime);
+  const currentTime = Number(frame.currentTime);
+  if (!Number.isFinite(targetTime) || !Number.isFinite(currentTime) || currentTime < 0) {
+    throw new Error(`第 ${index + 1} 张截图缺少有效时间信息`);
+  }
+  const rawAnchor = frame.anchorTime;
+  const anchorTime = rawAnchor !== undefined && Number.isFinite(Number(rawAnchor))
+    ? Number(rawAnchor)
+    : targetTime;
+  return { data, anchorTime, targetTime, currentTime };
+}
+
+function selectClosestFrame(frames, target) {
+  let best = frames[0];
+  let bestDiff = Math.abs(best.currentTime - target);
+  let bestTargetDiff = Math.abs(best.targetTime - target);
+  for (let index = 1; index < frames.length; index += 1) {
+    const candidate = frames[index];
+    const diff = Math.abs(candidate.currentTime - target);
+    const targetDiff = Math.abs(candidate.targetTime - target);
+    if (diff < bestDiff || (diff === bestDiff && targetDiff < bestTargetDiff)) {
+      best = candidate;
+      bestDiff = diff;
+      bestTargetDiff = targetDiff;
+    }
+  }
+  return { ...best, anchorTime: target };
+}
+
+function isLegacyMultiPointResponse(frames, requestedTimes, spanSeconds) {
+  if (!Array.isArray(requestedTimes) || requestedTimes.length <= 1) return false;
+  if (frames.some((frame) => typeof frame?.anchorTime === "number" && Number.isFinite(frame.anchorTime))) {
+    return false;
+  }
+  const targetTolerance = Math.max(spanSeconds, 0.5);
+  const currentTolerance = Math.max(spanSeconds + 0.5, 2.5);
+  const hasUncoveredPoint = requestedTimes.slice(1).some((target) => !frames.some((frame) => (
+    Math.abs(Number(frame?.targetTime) - target) <= targetTolerance
+    || Math.abs(Number(frame?.currentTime) - target) <= currentTolerance
+  )));
+  if (hasUncoveredPoint) return true;
+  if (spanSeconds === 0 && frames.length > requestedTimes.length) {
+    const first = requestedTimes[0];
+    if (frames.every((frame) => Math.abs(Number(frame?.targetTime) - first) <= 2.5)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function formatMcpFrameContent(
+  result,
+  { requestedTimes = false ? Object.create(null) : undefined, spanSeconds = 0, maxFrames = MAX_MCP_FRAMES } = {}
+) {
+  const rawFrames = Array.isArray(result?.frames) ? result.frames : [];
+  if (!rawFrames.length) throw new Error("扩展未返回可用视频帧");
+  const validated = rawFrames.map((frame, index) => validateFrameData(frame, index));
+  let selected = validated;
+  if (Array.isArray(requestedTimes) && requestedTimes.length === 1 && spanSeconds === 0 && validated.length > 1) {
+    selected = [selectClosestFrame(validated, requestedTimes[0])];
+  } else if (Array.isArray(requestedTimes) && requestedTimes.length === 1 && spanSeconds > 0) {
+    selected = validated.map((frame) => ({
+      ...frame,
+      anchorTime: Number.isFinite(Number(frame.anchorTime)) ? frame.anchorTime : requestedTimes[0]
+    }));
+  }
+  selected = selected.slice(0, maxFrames);
+  const metadata = {
+    ...(result?.site ? { site: result.site } : {}),
+    bvid: result?.bvid,
+    cid: result?.cid,
+    frames: selected.map((frame, index) => ({
+      index: index + 1,
+      anchorTime: frame.anchorTime,
+      targetTime: frame.targetTime,
+      currentTime: frame.currentTime
+    }))
+  };
+  return [
+    { type: "text", text: JSON.stringify(metadata) },
+    ...selected.map((frame) => ({
+      type: "image",
+      data: frame.data,
+      mimeType: "image/jpeg"
+    }))
+  ];
+}
+
+class McpParamError extends Error {
+  constructor(message) {
+    super(message);
+    this.code = -32602;
+  }
+}
+
+const READ_ONLY_MCP_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  openWorldHint: false
+};
+
+export const MCP_TOOLS = [
+  {
+    name: "biliscript_status",
+    description: "检查本机 BiliScript Bridge Daemon 与浏览器扩展的连接状态。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wait: {
+          type: "boolean",
+          description: "是否在冷启动宽限期内等待扩展重连（默认 false）。"
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_MCP_ANNOTATIONS
+  },
+  {
+    name: "biliscript_tabs",
+    description: "列出当前已连接浏览器中打开的 B 站与 YouTube 视频标签页（含 tabId、bvid、标题、当前播放进度与字幕就绪状态）。",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_MCP_ANNOTATIONS
+  },
+  {
+    name: "biliscript_fetch",
+    description: "单趟获取视频元信息、分 P、章节、字幕与最多 20 条热评。未指定区间且字幕不超过 24 KiB 时直出全文；超长视频自动返回章节或 300 秒时间桶目录与开头 180 秒预览，引导调用 biliscript_subtitles 分段精读。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video: {
+          type: "string",
+          description: "B 站 BV 号、YouTube 11 位 ID 或视频链接（不可与 tabId 同时传入）。"
+        },
+        tabId: {
+          type: "integer",
+          minimum: 1,
+          description: "目标视频标签页 ID（不可与 video 同时传入）。"
+        },
+        from: {
+          type: "number",
+          minimum: 0,
+          description: "字幕起始秒数（非负）。"
+        },
+        to: {
+          type: "number",
+          minimum: 0,
+          description: "字幕结束秒数（非负且不小于 from）。"
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_MCP_ANNOTATIONS
+  },
+  {
+    name: "biliscript_subtitles",
+    description: "拉取指定视频或时间区间的字幕。未指定区间时超过 24 KiB 自动返回目录与预览；显式传入 from/to 时单次最多内联 48 KiB，超出时在完整行边界截断并返回 nextFrom 续读游标。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video: {
+          type: "string",
+          description: "B 站 BV 号、YouTube 11 位 ID 或视频链接（不可与 tabId 同时传入）。"
+        },
+        tabId: {
+          type: "integer",
+          minimum: 1,
+          description: "目标视频标签页 ID（不可与 video 同时传入）。"
+        },
+        from: {
+          type: "number",
+          minimum: 0,
+          description: "字幕起始秒数（非负）。"
+        },
+        to: {
+          type: "number",
+          minimum: 0,
+          description: "字幕结束秒数（非负且不小于 from）。"
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_MCP_ANNOTATIONS
+  },
+  {
+    name: "biliscript_frame",
+    description: "截取视频关键帧并返回原生 JPEG 图片与时间戳元数据。省略 times/time 时截取已打开标签页当前播放帧；传入 times/time 时默认 spanSeconds=0 每点精确截 1 帧，单次最多返回 6 帧。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video: {
+          type: "string",
+          description: "B 站 BV 号、YouTube 11 位 ID 或视频链接（不可与 tabId 同时传入）。"
+        },
+        tabId: {
+          type: "integer",
+          minimum: 1,
+          description: "目标视频标签页 ID（不可与 video 同时传入）。"
+        },
+        times: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_MCP_FRAMES,
+          items: {
+            oneOf: [
+              { type: "number", minimum: 0 },
+              { type: "string" }
+            ]
+          },
+          description: "1 至 6 个目标时间点（非负秒数或 mm:ss / hh:mm:ss 字符串，不可与 time 同时传入）。"
+        },
+        time: {
+          oneOf: [
+            { type: "number", minimum: 0 },
+            { type: "string" }
+          ],
+          description: "单个目标时间点的兼容别名（非负秒数或 mm:ss / hh:mm:ss 字符串，不可与 times 同时传入）。"
+        },
+        spanSeconds: {
+          type: "number",
+          minimum: 0,
+          maximum: MAX_FRAME_SPAN_SECONDS,
+          default: 0,
+          description: "可选邻域跨度（0..8 秒，默认 0 每点截 1 帧；大于 0 时展开 [t-span, t, t+span]，去重后总帧数不得超过 6）。"
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_MCP_ANNOTATIONS
+  }
+];
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertAllowedKeys(obj, allowedKeys, context) {
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      throw new McpParamError(`${context} 不支持未知参数：${key}`);
+    }
+  }
+}
+
+function parseTargetAndRangeArgs(args, { allowRange = false } = {}) {
+  const options = {};
+  if (args.video !== undefined) {
+    if (typeof args.video !== "string" || !args.video.trim()) {
+      throw new McpParamError("video 必须是非空字符串");
+    }
+    options.bvid = args.video.trim();
+  }
+  if (args.tabId !== undefined) {
+    if (typeof args.tabId !== "number" || !Number.isInteger(args.tabId) || args.tabId <= 0) {
+      throw new McpParamError("tabId 必须是正整数");
+    }
+    options.tabId = args.tabId;
+  }
+  if (options.bvid !== undefined && options.tabId !== undefined) {
+    throw new McpParamError("video 与 tabId 不能同时传入");
+  }
+  if (allowRange) {
+    if (args.from !== undefined) {
+      if (typeof args.from !== "number" || !Number.isFinite(args.from) || args.from < 0) {
+        throw new McpParamError("from 必须是非负有限数字");
+      }
+      options.from = args.from;
+    }
+    if (args.to !== undefined) {
+      if (typeof args.to !== "number" || !Number.isFinite(args.to) || args.to < 0) {
+        throw new McpParamError("to 必须是非负有限数字");
+      }
+      options.to = args.to;
+    }
+    if (options.from !== undefined && options.to !== undefined && options.to < options.from) {
+      throw new McpParamError("to 不能小于 from");
+    }
+  }
+  return options;
+}
+
+function parseMcpFrameArgs(args) {
+  assertAllowedKeys(args, new Set(["video", "tabId", "times", "time", "spanSeconds"]), "biliscript_frame");
+  const target = parseTargetAndRangeArgs(args, { allowRange: false });
+  if (args.times !== undefined && args.time !== undefined) {
+    throw new McpParamError("times 与 time 不能同时传入");
+  }
+  let spanSeconds = 0;
+  if (args.spanSeconds !== undefined) {
+    if (
+      typeof args.spanSeconds !== "number"
+      || !Number.isFinite(args.spanSeconds)
+      || args.spanSeconds < 0
+      || args.spanSeconds > MAX_FRAME_SPAN_SECONDS
+    ) {
+      throw new McpParamError(`spanSeconds 必须是 0 到 ${MAX_FRAME_SPAN_SECONDS} 之间的有限数字`);
+    }
+    spanSeconds = args.spanSeconds;
+  }
+  let requestedTimes;
+  if (args.times !== undefined) {
+    if (!Array.isArray(args.times) || args.times.length < 1 || args.times.length > MAX_MCP_FRAMES) {
+      throw new McpParamError(`times 必须是包含 1 到 ${MAX_MCP_FRAMES} 个时间点的数组`);
+    }
+    requestedTimes = args.times.map((item, index) => {
+      const parsed = parseTimestampSeconds(item);
+      if (parsed === null) {
+        throw new McpParamError(`times[${index}] 不是有效时间（支持非负秒数或 mm:ss / hh:mm:ss）`);
+      }
+      return parsed;
+    });
+  } else if (args.time !== undefined) {
+    const parsed = parseTimestampSeconds(args.time);
+    if (parsed === null) {
+      throw new McpParamError("time 不是有效时间（支持非负秒数或 mm:ss / hh:mm:ss）");
+    }
+    requestedTimes = [parsed];
+  } else if (spanSeconds > 0) {
+    throw new McpParamError("指定 spanSeconds 时必须同时提供 times 或 time");
+  }
+
+  if (requestedTimes) {
+    const expanded = expandFrameTargets(requestedTimes, { spanSeconds });
+    if (expanded.length > MAX_MCP_FRAMES) {
+      throw new McpParamError(
+        `单次 MCP 截帧上限为 ${MAX_MCP_FRAMES} 帧，当前参数展开去重后为 ${expanded.length} 帧，请减少时间点或减小 spanSeconds`
+      );
+    }
+  }
+
+  const daemonOptions = {
+    ...target,
+    ...(requestedTimes ? { times: requestedTimes, targetTime: requestedTimes[0], spanSeconds } : {})
+  };
+  return {
+    target,
+    requestedTimes,
+    spanSeconds,
+    daemonOptions: Object.keys(daemonOptions).length > 0 ? daemonOptions : undefined
+  };
+}
+
+async function executeMcpToolCall(name, rawArgs, executeDaemon) {
+  const args = rawArgs === undefined ? {} : rawArgs;
+  if (!isPlainObject(args)) {
+    throw new McpParamError("tools/call 的 arguments 必须是 JSON 对象");
+  }
+
+  if (name === "biliscript_status") {
+    assertAllowedKeys(args, new Set(["wait"]), name);
+    if (args.wait !== undefined && typeof args.wait !== "boolean") {
+      throw new McpParamError("wait 必须是布尔值");
+    }
+    const options = args.wait ? { wait: true } : undefined;
+    try {
+      const result = await executeDaemon("status", options);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error) {
+      return { isError: true, content: [{ type: "text", text: String(error?.message || "状态检查失败") }] };
+    }
+  }
+
+  if (name === "biliscript_tabs") {
+    assertAllowedKeys(args, new Set(), name);
+    try {
+      const result = await executeDaemon("tabs", undefined);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error) {
+      return { isError: true, content: [{ type: "text", text: String(error?.message || "获取标签页失败") }] };
+    }
+  }
+
+  if (name === "biliscript_fetch" || name === "biliscript_subtitles") {
+    assertAllowedKeys(args, new Set(["video", "tabId", "from", "to"]), name);
+    const options = parseTargetAndRangeArgs(args, { allowRange: true });
+    const daemonCommand = name === "biliscript_fetch" ? "fetch" : "subtitles";
+    try {
+      const result = await executeDaemon(daemonCommand, Object.keys(options).length > 0 ? options : undefined);
+      const formatted = formatMcpSubtitlePayload(result, options);
+      return { content: [{ type: "text", text: JSON.stringify(formatted) }] };
+    } catch (error) {
+      return { isError: true, content: [{ type: "text", text: String(error?.message || "获取视频内容失败") }] };
+    }
+  }
+
+  if (name === "biliscript_frame") {
+    const parsed = parseMcpFrameArgs(args);
+    try {
+      let result = await executeDaemon("frame", parsed.daemonOptions);
+      if (
+        parsed.requestedTimes
+        && parsed.requestedTimes.length > 1
+        && isLegacyMultiPointResponse(Array.isArray(result?.frames) ? result.frames : [], parsed.requestedTimes, parsed.spanSeconds)
+      ) {
+        const firstValidated = (Array.isArray(result?.frames) ? result.frames : []).map((frame, index) => validateFrameData(frame, index));
+        const collected = [];
+        if (firstValidated.length > 0) {
+          if (parsed.spanSeconds === 0) {
+            collected.push(selectClosestFrame(firstValidated, parsed.requestedTimes[0]));
+          } else {
+            collected.push(...firstValidated.map((frame) => ({ ...frame, anchorTime: parsed.requestedTimes[0] })));
+          }
+        }
+        for (const targetTime of parsed.requestedTimes.slice(1)) {
+          if (collected.length >= MAX_MCP_FRAMES) break;
+          const pointResult = await executeDaemon("frame", {
+            ...parsed.target,
+            times: [targetTime],
+            targetTime,
+            spanSeconds: parsed.spanSeconds
+          });
+          const pointFrames = (Array.isArray(pointResult?.frames) ? pointResult.frames : []).map((frame, index) => validateFrameData(frame, index));
+          if (pointFrames.length === 0) continue;
+          if (parsed.spanSeconds === 0) {
+            collected.push(selectClosestFrame(pointFrames, targetTime));
+          } else {
+            collected.push(...pointFrames.map((frame) => ({ ...frame, anchorTime: targetTime })));
+          }
+        }
+        result = { ...result, frames: collected.slice(0, MAX_MCP_FRAMES) };
+      }
+      const content = formatMcpFrameContent(result, {
+        requestedTimes: parsed.requestedTimes,
+        spanSeconds: parsed.spanSeconds
+      });
+      return { content };
+    } catch (error) {
+      return { isError: true, content: [{ type: "text", text: String(error?.message || "截帧失败") }] };
+    }
+  }
+
+  throw new McpParamError(`未知工具：${name}`);
+}
+
+export function startMcpServer({
+  input = process.stdin,
+  output = process.stdout,
+  port = configuredPort(),
+  executeDaemon = (command, options) => runCommand(command, options, { port })
+} = {}) {
+  const writeMessage = (payload) => {
+    if (output.destroyed || output.writableEnded) return;
+    output.write(`${JSON.stringify(payload)}\n`);
+  };
+
+  const handleRequest = async (message) => {
+    const hasId = Object.prototype.hasOwnProperty.call(message, "id") && message.id !== undefined;
+    if (message.jsonrpc !== "2.0" || typeof message.method !== "string" || !message.method) {
+      if (hasId) {
+        writeMessage({ jsonrpc: "2.0", id: message.id, error: { code: -32600, message: "Invalid Request" } });
+      } else {
+        writeMessage({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
+      }
+      return;
+    }
+
+    if (!hasId) {
+      return;
+    }
+
+    const { id, method, params } = message;
+    try {
+      if (method === "initialize") {
+        if (params !== undefined && !isPlainObject(params)) {
+          throw new McpParamError("initialize 参数必须是对象");
+        }
+        const requested = typeof params?.protocolVersion === "string" ? params.protocolVersion : "";
+        const protocolVersion = SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
+          ? requested
+          : SUPPORTED_MCP_PROTOCOL_VERSIONS[0];
+        writeMessage({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: { name: "biliscript", version: "1.0.0" },
+            instructions: "使用 BiliScript 读取本机浏览器已连接扩展中的 B 站与 YouTube 视频元信息、章节、字幕、热评和视频画面。建议顺序：1) 未知目标时先调用 biliscript_tabs；2) 用 biliscript_fetch 一次性获取元信息、章节、热评与字幕（超 24 KiB 自动返回目录与开头 180 秒预览，再按需调用 biliscript_subtitles(from, to) 分段精读，单区间超 48 KiB 按 nextFrom 续读）；3) 需核验画面时调用 biliscript_frame，默认 spanSeconds=0 每点截 1 帧，单次最多 6 帧。"
+          }
+        });
+        return;
+      }
+
+      if (method === "ping") {
+        writeMessage({ jsonrpc: "2.0", id, result: {} });
+        return;
+      }
+
+      if (method === "tools/list") {
+        writeMessage({ jsonrpc: "2.0", id, result: { tools: MCP_TOOLS } });
+        return;
+      }
+
+      if (method === "tools/call") {
+        if (!isPlainObject(params) || typeof params.name !== "string" || !params.name) {
+          throw new McpParamError("tools/call 必须提供字符串类型的 name");
+        }
+        const result = await executeMcpToolCall(params.name, params.arguments, executeDaemon);
+        writeMessage({ jsonrpc: "2.0", id, result });
+        return;
+      }
+
+      writeMessage({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32601, message: `Method not found: ${method}` }
+      });
+    } catch (error) {
+      const code = error instanceof McpParamError ? error.code : -32603;
+      writeMessage({
+        jsonrpc: "2.0",
+        id,
+        error: { code, message: String(error?.message || "Internal error") }
+      });
+    }
+  };
+
+  return new Promise((resolve) => {
+    let buffer = "";
+    let inputEnded = false;
+    let resolved = false;
+    const inFlight = new Set();
+
+    const maybeFinish = () => {
+      if (!resolved && inputEnded && inFlight.size === 0) {
+        resolved = true;
+        resolve();
+      }
+    };
+
+    const dispatchLine = (rawLine) => {
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (!line.trim()) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        writeMessage({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+        return;
+      }
+      if (!isPlainObject(parsed)) {
+        writeMessage({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
+        return;
+      }
+      const task = handleRequest(parsed).finally(() => {
+        inFlight.delete(task);
+        maybeFinish();
+      });
+      inFlight.add(task);
+    };
+
+    const onData = (chunk) => {
+      buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      while (true) {
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex < 0) break;
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        dispatchLine(line);
+      }
+    };
+
+    const onEnd = () => {
+      if (buffer.trim()) {
+        const remaining = buffer;
+        buffer = "";
+        dispatchLine(remaining);
+      }
+      inputEnded = true;
+      maybeFinish();
+    };
+
+    if (typeof input.setEncoding === "function") input.setEncoding("utf8");
+    input.on("data", onData);
+    input.once("end", onEnd);
+    input.once("close", onEnd);
+  });
 }
 
 export function applySubtitleSpillover(result, out, { maxInlineBytes = SUBTITLE_INLINE_MAX_BYTES } = {}) {
@@ -1009,6 +1899,17 @@ function parseCliArgs(args) {
   return { command, options, ...(out ? { out } : {}) };
 }
 
+function parseMcpArgs(args) {
+  if (args[0] !== "mcp") return null;
+  if (args.length === 1) return { port: configuredPort() };
+  if (args.length === 3 && args[1] === "--port") {
+    const port = Number(args[2]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { port };
+  }
+  return null;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === "--daemon") {
@@ -1022,9 +1923,26 @@ async function main() {
     }
     return;
   }
+  if (args[0] === "mcp") {
+    let parsedMcp;
+    try {
+      parsedMcp = parseMcpArgs(args);
+    } catch (error) {
+      console.error(JSON.stringify({ ok: false, error: error.message }));
+      process.exitCode = 1;
+      return;
+    }
+    if (!parsedMcp) {
+      console.error(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs mcp [--port <n>]" }));
+      process.exitCode = 1;
+      return;
+    }
+    await startMcpServer({ port: parsedMcp.port });
+    return;
+  }
   const parsed = parseCliArgs(args);
   if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]；frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--time <sec>] [--out <dir>]" }));
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs|mcp [--port <n>]>；fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]；frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--time <sec>] [--out <dir>]" }));
     process.exitCode = 1;
     return;
   }

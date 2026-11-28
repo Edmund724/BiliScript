@@ -81,6 +81,43 @@ function extractStatusJson(stdout: string): { ok: boolean; daemonPid: number; ex
   return JSON.parse(last) as { ok: boolean; daemonPid: number; extensionOnline: boolean };
 }
 
+function extractMcpConfigJson(stdout: string): {
+  mcpServers: {
+    biliscript: {
+      command: string;
+      args: string[];
+      env?: Record<string, string>;
+    };
+  };
+} {
+  const marker = stdout.indexOf('"mcpServers"');
+  if (marker < 0) throw new Error(`安装输出中未找到 mcpServers 配置片段：\n${stdout}`);
+  const start = stdout.lastIndexOf("{", marker);
+  let depth = 0;
+  let end = -1;
+  for (let index = start; index < stdout.length; index += 1) {
+    const ch = stdout[index];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = index + 1;
+        break;
+      }
+    }
+  }
+  if (start < 0 || end < 0) throw new Error(`安装输出中的 mcpServers JSON 片段不完整：\n${stdout}`);
+  return JSON.parse(stdout.slice(start, end)) as {
+    mcpServers: {
+      biliscript: {
+        command: string;
+        args: string[];
+        env?: Record<string, string>;
+      };
+    };
+  };
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -126,6 +163,11 @@ describe("POSIX 安装脚本 scripts/install-agent.sh", () => {
     expect(firstStatus.daemonPid).toBeGreaterThan(0);
     spawnedPids.add(firstStatus.daemonPid);
     expect(isProcessAlive(firstStatus.daemonPid)).toBe(true);
+
+    const mcpConfig = extractMcpConfigJson(first.stdout);
+    expect(mcpConfig.mcpServers.biliscript.command).toBe(resolve(process.execPath));
+    expect(mcpConfig.mcpServers.biliscript.args).toEqual([resolve(installedCli), "mcp"]);
+    expect(mcpConfig.mcpServers.biliscript.env).toEqual({ BILISCRIPT_BRIDGE_PORT: port });
 
     const staleMarker = join(skillRoot, "biliscript", "stale.txt");
     writeFileSync(staleMarker, "stale");

@@ -334,3 +334,18 @@ if [ "$EXT_ONLINE" = "true" ]; then
 else
   printf '%s\n' "Bridge 已启动。请回到 BiliScript 扩展的「设置 → 本地 Agent」，点击「去连接」。"
 fi
+
+MCP_CONFIG=$("$NODE_BIN" -e '
+  const path = require("node:path");
+  const cliPath = path.resolve(process.argv[1]);
+  const port = String(process.env.BILISCRIPT_BRIDGE_PORT || "").trim();
+  const server = {
+    command: process.execPath,
+    args: [cliPath, "mcp"]
+  };
+  if (port && port !== "18492") {
+    server.env = { BILISCRIPT_BRIDGE_PORT: port };
+  }
+  process.stdout.write(JSON.stringify({ mcpServers: { biliscript: server } }, null, 2));
+' "$CLI")
+printf '\n%s\n%s\n' "如需在纯对话桌面客户端（如 Claude Desktop、Cherry Studio、ChatWise）接入 MCP，可粘贴以下配置（已加载 Skill 的编程 Agent 无需重复配置）：" "$MCP_CONFIG"

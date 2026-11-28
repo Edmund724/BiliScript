@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$SourceDir = "",
     [string]$SkillRoot = (Join-Path $HOME ".agents/skills")
@@ -164,6 +164,25 @@ try {
     } else {
         Write-Host "Bridge 已启动。请回到 BiliScript 扩展的「设置 → 本地 Agent」，点击「去连接」。"
     }
+
+    $bridgePort = [Environment]::GetEnvironmentVariable("BILISCRIPT_BRIDGE_PORT", "Process")
+    $mcpServer = [ordered]@{
+        command = [IO.Path]::GetFullPath($node.Source)
+        args = @([IO.Path]::GetFullPath($cli), "mcp")
+    }
+    if ($bridgePort -and $bridgePort.Trim() -ne "" -and $bridgePort.Trim() -ne "18492") {
+        $mcpServer.env = [ordered]@{
+            BILISCRIPT_BRIDGE_PORT = $bridgePort.Trim()
+        }
+    }
+    $mcpConfig = [ordered]@{
+        mcpServers = [ordered]@{
+            biliscript = $mcpServer
+        }
+    } | ConvertTo-Json -Depth 5
+    Write-Host ""
+    Write-Host "如需在纯对话桌面客户端（如 Claude Desktop、Cherry Studio、ChatWise）接入 MCP，可粘贴以下配置（已加载 Skill 的编程 Agent 无需重复配置）："
+    Write-Host $mcpConfig
 } catch {
     Write-Host "BiliScript 本地 Agent 安装失败：$($_.Exception.Message)"
     throw

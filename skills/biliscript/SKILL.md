@@ -13,6 +13,7 @@ description: 通过本机 BiliScript 浏览器扩展读取 B 站与 YouTube 视�
 - 用户已在 Chrome 或 Edge 安装 BiliScript，并在「设置 → 本地 Agent」开启连接或点击「去连接」。
 - 本机可运行 Node.js。无原生字幕的视频需要自动转写时，用户需在扩展设置中开启「无字幕时自动生成字幕」并配置语音识别平台。
 - **冷启动自动等待重连**：本地 Bridge Daemon 默认监听 `127.0.0.1:18492`（可用 `BILISCRIPT_BRIDGE_PORT` 覆盖），空闲 5 分钟（300 秒）后自动退出。任意 CLI 命令均会按需拉起 Daemon；`tabs`、`fetch`、`subtitles`、`comments`、`frame` 与 `status --wait` 在冷启动时会自动进入最长 **35 秒**的宽限等待队列，扩展断开后会先按 **1s → 2s → 4s → 8s** 指数退避重连并每 **30 秒**周期唤醒，接通后立即执行已排队请求。`status`（无 `--wait`）立即返回当前状态；显式等待重连可使用 `status --wait`。
+- **无需重复配置 MCP**：已加载本 Skill 的编程 Agent 直接使用内置 CLI 即可，无需在同一客户端重复配置 BiliScript MCP Server（MCP 仅面向不支持 Skill 的纯对话桌面客户端）。
 
 ## 工作流
 
