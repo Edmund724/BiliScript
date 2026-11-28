@@ -65,6 +65,11 @@ Draft the Chinese release notes matching the structure of `gh release view $last
 - **Tag**: `v<version>`
 - **Title**: `v<version> — <一句话核心变更摘要>`
 - **Body**: Opening summary paragraph, thematic bullet sections (`## ...`) covering user-facing features and fixes grounded in `$lastTag..HEAD` commits, and `## 升级方式` referencing `BiliScript-v<version>-Chromium.zip`, `BiliScript-v<version>-Firefox.zip`, `BiliScript-v<version>-Source.zip`, Edge Add-ons store, and Firefox Add-ons (AMO).
+- **Audience & Style (User-Facing, Plain Chinese)**:
+  - Write for everyday extension users, not developers. Never copy commit messages or expose internal engineering jargon (e.g., IndexedDB schema/tables, RPC, O(1), WeakRef, offscreen DOM, BM25/RRF, Base64, Prompt Caching breakpoints, `storage.sync` 8KB, internal template/variable names).
+  - Translate every technical improvement into tangible user outcomes: what is new, where to find it, and how it feels better (e.g., cleaner single-file notes with embedded video screenshots, more accurate long-video answers, lower memory usage, smoother multi-tab sync, longer conversations without losing context).
+  - Omit pure refactors, test/doc chores, and build-budget tweaks; condense user-perceptible under-the-hood work into 1–2 concise "性能与稳定性" bullets.
+  - Keep titles and bullets short, direct, and easy to scan.
 
 Present the full draft to the user and **stop before tagging or publishing**.
 If the user requests edits (including README wording adjustments), apply the edits, commit and push to `main`, and present the updated draft for confirmation.
