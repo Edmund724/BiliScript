@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_MAX_SUBTITLE_SLOT_BYTES,
@@ -195,5 +195,19 @@ describe("createSubtitleBodySlot", () => {
 
     expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(true);
     expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(true);
+  });
+
+  it("触发 LRU 淘汰时通过 onEvict 回传被驱逐的 key，覆盖写入同 key 不触发", () => {
+    const onEvict = vi.fn();
+    const slot = createSubtitleBodySlot({ maxEntries: 2, onEvict });
+
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: [{ from: 0, to: 1, content: "A1" }] } });
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: [{ from: 0, to: 1, content: "A2" }] } });
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: [{ from: 0, to: 1, content: "B1" }] } });
+    expect(onEvict).not.toHaveBeenCalled();
+
+    slot.settle({ action: "chat", contextKey: "video:C|3", context: { subtitleBody: [{ from: 0, to: 1, content: "C1" }] } });
+    expect(onEvict).toHaveBeenCalledTimes(1);
+    expect(onEvict).toHaveBeenCalledWith("video:A|1");
   });
 });

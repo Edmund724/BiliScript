@@ -27,6 +27,7 @@ export interface SubtitleBodySlotOptions {
   maxEntries?: number;
   maxTotalChars?: number;
   maxTotalBytes?: number;
+  onEvict?: (evictedKey: string) => void;
 }
 
 export const DEFAULT_MAX_SUBTITLE_SLOTS = 8;
@@ -118,6 +119,7 @@ export function createSubtitleBodySlot(
           totalChars -= oldest.chars;
           totalBytes -= oldest.bytes;
         }
+        options.onEvict?.(oldestKey);
       }
       return { ok: true, contextKey };
     }

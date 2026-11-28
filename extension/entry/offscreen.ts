@@ -53,7 +53,19 @@ void (async () => {
   }
 })();
 
-const subtitleSlot = createSubtitleBodySlot();
+const subtitleSlot = createSubtitleBodySlot({
+  onEvict: () => {
+    if (!ladderLoader.isLoaded()) {
+      return;
+    }
+    void ladderLoader
+      .load()
+      .then((mod) => {
+        mod.clearL0Bm25Cache?.();
+      })
+      .catch(() => {});
+  }
+});
 
 const lifetime = createOffscreenLifetime({
   closeSelf: (request) => {
@@ -87,8 +99,15 @@ const geminiLiveLoader =
       });
 
 const ladderLoader = createLazyLoader(async () => {
-  const { runLadderChat } = await import("../ai/ladder.js");
-  return runLadderChat;
+  const mod = await import("../ai/ladder.js");
+  return {
+    runLadderChat: mod.runLadderChat,
+    clearL0Bm25Cache:
+      Object.prototype.hasOwnProperty.call(mod, "clearL0Bm25Cache") &&
+      typeof mod.clearL0Bm25Cache === "function"
+        ? mod.clearL0Bm25Cache
+        : undefined
+  };
 });
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -137,7 +156,7 @@ chrome.runtime.onConnect.addListener((port) => {
   lifetime.trackPort(port);
   attachOffscreenChatPort(port, {
     subtitleSlot,
-    loadLadder: () => ladderLoader.load()
+    loadLadder: async () => (await ladderLoader.load()).runLadderChat
   });
 });
 

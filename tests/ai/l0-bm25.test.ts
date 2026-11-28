@@ -1,14 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildL0SemanticChunks,
+  CHAR_BIGRAM_WEIGHT,
+  clearL0Bm25Cache,
+  computeDirectoryFingerprint,
+  computeL0SubtitleCacheKey,
   computeLocalTextSimilarity,
   createL0Bm25Index,
+  createL0ContextualBm25Index,
+  DEFAULT_SEMANTIC_CHUNK_MAX_CHARS,
   expandAndMergeHitWindows,
+  findCachedL0SubtitleLines,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
+  getL0Bm25CacheStats,
+  getOrCreateL0ContextualBm25Index,
   matchChapterByTitle,
+  MAX_CACHED_BM25_VIDEOS,
   normalizeL0SubtitleLines,
   parseL0SecondsValue,
-  tokenizeLexicalText
+  tokenizeDualGranularity,
+  tokenizeLexicalText,
+  WORD_TOKEN_WEIGHT
 } from "../../extension/ai/l0-bm25.js";
 import type { L0SubtitleLine } from "../../extension/ai/long-video-hybrid-types.js";
 
@@ -281,6 +294,145 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       const badChapters = [null, { title: "开场白" }, { from: "x", to: 600, title: "开场白" }];
       expect(matchChapterByTitle("开场白", badChapters).map((c) => c.title)).toEqual(["开场白", "开场白"]);
       expect(matchChapterByTitle(null, chapters)).toEqual([]);
+    });
+  });
+
+  describe("25s 语境滑窗 Contextual BM25、双粒度容错与 3 槽 LRU 缓存（#30）", () => {
+    afterEach(() => {
+      clearL0Bm25Cache();
+    });
+
+    it("buildL0SemanticChunks 按 25s 目标窗口、5s 重叠与 600 字上限确定性切块并附带章节语境前缀", () => {
+      const denseLines = normalizeL0SubtitleLines(
+        Array.from({ length: 14 }, (_, i) => ({
+          from: i * 5,
+          to: (i + 1) * 5,
+          content: `第${i}段硬件参数测试说明内容`
+        }))
+      );
+      const chapters = [
+        {
+          chapterIndex: 0,
+          from: 0,
+          to: 35,
+          title: "主板供电架构",
+          coreThesis: "拆解 18 相供电与电感散热设计",
+          keyEntities: ["DrMOS", "电感"]
+        },
+        {
+          chapterIndex: 1,
+          from: 35,
+          to: 70,
+          title: "PCIe 网卡实测",
+          coreThesis: "对比三款 2.5G 与万兆网卡功耗",
+          keyEntities: ["RTL8126", "万兆网卡"]
+        }
+      ];
+
+      const chunks = buildL0SemanticChunks(denseLines, chapters);
+      expect(chunks.length).toBeGreaterThanOrEqual(3);
+      expect(chunks[0]).toMatchObject({
+        startLineIdx: 0,
+        endLineIdx: 4,
+        fromSeconds: 0,
+        toSeconds: 25,
+        chapterIndex: 0
+      });
+      expect(chunks[0].contextPrefix).toContain("主板供电架构");
+      expect(chunks[0].contextPrefix).toContain("DrMOS");
+      expect(chunks[1].fromSeconds).toBe(20);
+      expect(chunks[1].toSeconds - chunks[1].fromSeconds).toBeLessThanOrEqual(25);
+      expect(chunks[0].toSeconds - chunks[1].fromSeconds).toBe(5);
+      expect(chunks.at(-1)?.endLineIdx).toBe(denseLines.length - 1);
+      expect(chunks.at(-1)?.chapterIndex).toBe(1);
+      expect(chunks.at(-1)?.contextPrefix).toContain("RTL8126");
+
+      const longLines = normalizeL0SubtitleLines(
+        Array.from({ length: 10 }, (_, i) => ({
+          from: i * 2,
+          to: i * 2 + 2,
+          content: `段${i}` + "字".repeat(198)
+        }))
+      );
+      const cappedChunks = buildL0SemanticChunks(longLines);
+      expect(cappedChunks.length).toBeGreaterThan(1);
+      for (const ch of cappedChunks) {
+        const chars = ch.lines.reduce((s, l) => s + l.content.length, 0);
+        expect(chars).toBeLessThanOrEqual(DEFAULT_SEMANTIC_CHUNK_MAX_CHARS);
+      }
+    });
+
+    it("双粒度分词（词级 1.0 + 中文二元组 0.45）支持同音错字「机器学系」命中「机器学习」", () => {
+      const dual = tokenizeDualGranularity("机器学习");
+      expect(dual.some((t) => !t.isBigram && t.weight === WORD_TOKEN_WEIGHT)).toBe(true);
+      expect(dual.some((t) => t.isBigram && t.term === "器学" && t.weight === CHAR_BIGRAM_WEIGHT)).toBe(true);
+
+      const lines = normalizeL0SubtitleLines([
+        { from: 0, to: 10, content: "开场先聊聊今天天气和生活分享" },
+        { from: 30, to: 45, content: "这一段详细讲解机器学习中的梯度下降与反向传播" },
+        { from: 60, to: 75, content: "最后演示厨房里如何制作手冲咖啡" }
+      ]);
+      const index = createL0ContextualBm25Index(lines);
+      const result = index.search("机器学系");
+      expect(result.hits.length).toBeGreaterThanOrEqual(1);
+      expect(result.hits[0].chunk.bodyText).toContain("机器学习");
+    });
+
+    it("章节标题/核心要点/关键词语境前缀可召回正文未重复该标题词的滑窗", () => {
+      const lines = normalizeL0SubtitleLines([
+        { from: 0, to: 20, content: "大家好欢迎来到频道，我们先看整体外观" },
+        { from: 300, to: 320, content: "实测温度只有四十五度，风扇转速很低且噪音几乎不可闻" },
+        { from: 600, to: 620, content: "总结一下今天所有的对比体验" }
+      ]);
+      const chapters = [
+        { chapterIndex: 0, from: 0, to: 300, title: "开箱外观", coreThesis: "展示包装与机身接口", keyEntities: ["外观"] },
+        { chapterIndex: 1, from: 300, to: 600, title: "烤机散热表现", coreThesis: "双烤功耗与噪音控制", keyEntities: ["双烤", "液金散热"] },
+        { chapterIndex: 2, from: 600, to: 900, title: "购买建议", coreThesis: "适合人群与性价比", keyEntities: ["性价比"] }
+      ];
+      const index = createL0ContextualBm25Index(lines, { chapters });
+      const res = index.search("液金散热烤机表现");
+      expect(res.hits.length).toBeGreaterThanOrEqual(1);
+      expect(res.hits[0].chunk.fromSeconds).toBe(300);
+      expect(res.hits[0].chunk.bodyText).toContain("四十五度");
+    });
+
+    it("Offscreen 内存有界 3 槽 LRU：写入第 4 支视频自动淘汰最旧缓存，clearL0Bm25Cache 彻底清空", () => {
+      expect(MAX_CACHED_BM25_VIDEOS).toBe(3);
+      clearL0Bm25Cache();
+
+      const makeVideo = (id: string) => {
+        const raw = [{ from: 0, to: 10, content: `视频 ${id} 专属内容关键词` }];
+        const lines = normalizeL0SubtitleLines(raw);
+        const subtitleKey = computeL0SubtitleCacheKey(raw, { bvid: `BV${id}`, cid: id });
+        const dirFp = computeDirectoryFingerprint([]);
+        return { lines, subtitleKey, dirFp };
+      };
+
+      const v1 = makeVideo("1");
+      const v2 = makeVideo("2");
+      const v3 = makeVideo("3");
+      const v4 = makeVideo("4");
+
+      const idx1 = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, directoryFingerprint: v1.dirFp, lines: v1.lines });
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v2.subtitleKey, directoryFingerprint: v2.dirFp, lines: v2.lines });
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v3.subtitleKey, directoryFingerprint: v3.dirFp, lines: v3.lines });
+      expect(getL0Bm25CacheStats().size).toBe(3);
+
+      const idx1Hit = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, directoryFingerprint: v1.dirFp, lines: v1.lines });
+      expect(idx1Hit).toBe(idx1);
+      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBe(v1.lines);
+
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v4.subtitleKey, directoryFingerprint: v4.dirFp, lines: v4.lines });
+      expect(getL0Bm25CacheStats().size).toBe(3);
+      expect(findCachedL0SubtitleLines(v2.subtitleKey)).toBeNull();
+      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBe(v1.lines);
+      expect(findCachedL0SubtitleLines(v3.subtitleKey)).toBe(v3.lines);
+      expect(findCachedL0SubtitleLines(v4.subtitleKey)).toBe(v4.lines);
+
+      clearL0Bm25Cache();
+      expect(getL0Bm25CacheStats().size).toBe(0);
+      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBeNull();
+      expect(findCachedL0SubtitleLines(v4.subtitleKey)).toBeNull();
     });
   });
 });

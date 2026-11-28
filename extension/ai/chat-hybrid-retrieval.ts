@@ -1,21 +1,33 @@
+import { resolveChapterSource } from "../shared/chapter-outline.js";
 import { formatClock, parseClock, parseTimestampSeconds, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError, makeAbortedError } from "../shared/error-helpers.js";
-import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
+import { findNearestTimedLineIndex, getSharedZhWordSegmenter, truncateWithEllipsis } from "../shared/text-primitives.js";
+import type { ChatTurnKind } from "../chat/protocol.js";
 import { MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
 import {
+  computeDirectoryFingerprint,
+  computeL0SubtitleCacheKey,
   computeLocalTextSimilarity,
-  createL0Bm25Index,
+  DEFAULT_QUERY_EXPANSION_WEIGHT,
   expandAndMergeHitWindows,
+  findCachedL0SubtitleLines,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
+  getOrCreateL0ContextualBm25Index,
   matchChapterByTitle,
   normalizeL0SubtitleLines,
   parseL0SecondsValue,
-  type L0Bm25Index
+  tokenizeLexicalText,
+  type L0ContextualBm25Index,
+  type L0ContextualBm25SearchResult
 } from "./l0-bm25.js";
-import { findL1ChapterForTime, serializeL1DirectoryPrompt } from "./l1-directory.js";
+import {
+  findL1ChapterForTime,
+  L1_INDEX_SCHEMA_VERSION,
+  serializeL1DirectoryPrompt
+} from "./l1-directory.js";
 import {
   LONG_VIDEO_DURATION_THRESHOLD_SECONDS,
   type ChatRetrievalDegradeReason,
@@ -25,7 +37,7 @@ import {
   type InteractionAnchorPoint,
   type InteractionAnchorRoutePlan,
   type L0ContextWindow,
-  type L0LexicalSearchResult,
+  type L0SemanticChunk,
   type L0SubtitleLine,
   type L1ChapterNode,
   type L1VideoIndexCacheRecord,
@@ -40,17 +52,28 @@ export const MAX_ROUTED_TERMS = 6;
 export const FAST_PATH_WINDOW_RADIUS_LINES = 8;
 export const FAST_PATH_WINDOW_RADIUS_SECONDS = 30;
 export const HYBRID_BM25_TOP_K = 6;
+export const HYBRID_BM25_CANDIDATE_TOP_K = 16;
 export const HYBRID_BM25_RADIUS_LINES = 4;
 export const HYBRID_BM25_RADIUS_SECONDS = 15;
 export const HYBRID_BM25_MAX_CHARS = 40_000;
 export const ROUTED_RANGE_MAX_CHARS = 40_000;
 export const STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 80_000;
+export const LOCAL_HYBRID_MIN_CHARS = 40_000;
+export const LOCAL_FALLBACK_BUCKET_SECONDS = 300;
+export const RECENT_TURN_HINT_MAX_CHARS = 280;
+export const COREF_ASSISTANT_PREFIX_CHARS = 300;
+export const COREF_EXPANSION_WEIGHT = DEFAULT_QUERY_EXPANSION_WEIGHT;
+export const HIGH_CONFIDENCE_BM25_Z_THRESHOLD = 2.8;
+export const HIGH_CONFIDENCE_BM25_COVERAGE_THRESHOLD = 0.8;
+export const RRF_K = 60;
+export const RRF_WEIGHT_L1 = 1.0;
+export const RRF_WEIGHT_BM25 = 1.1;
 
 const SIMPLE_GREETING_RE =
   /^(?:你好|您好|嗨|哈喽|早上好|中午好|晚上好|早安|晚安|谢谢|感谢|多谢|好的|好哒|行|收到|明白|了解|知道了|再见|拜拜|在吗|你是谁|你能做什么|帮我看看|hi+|hello+|hey+|thanks?|thank you|ok+|okay|bye)[!！。.~～？?、，,\s]*$/i;
 
 const MACRO_SUMMARY_INTENT_RE =
-  /(总结(?:一下)?(?:这期|整[期个部篇]|全片|视频)|全片(?:概要|大意|脉络|总结)|整体(?:内容|脉络|框架|结构)|一共(?:有)?几(?:个|部分|章)|全篇目录|视频大纲)/;
+  /(?:^(?:请|帮我|帮忙|再|重新)?(?:总结|概括|归纳)(?:一下|下)?[！!。.~～？?\s]*$|(?:总结|概括|梳理|归纳|提炼|整理)(?:一下|下)?(?:这期|这个|本|整[期个部篇]|全[片篇文])?(?:视频)?(?:核心|主要|关键)?(?:内容|要点|大纲|笔记|主旨|脉络|框架|结构|目录)|(?:全[片篇文]|视频|整[期个部篇]视频?)(?:概要|大意|脉络|总结|要点|大纲|目录|笔记|框架|结构|核心内容|主要讲了什么)|整体(?:内容|脉络|框架|结构)|一共(?:有)?几(?:个|部分|章)|(?:生成|写一份)(?:完整|全[片篇文])?(?:视频)?笔记|summarize\s+(?:the\s+|this\s+)?(?:whole\s+|full\s+)?video|full\s+summary)/i;
 
 const EXPLICIT_CHAPTER_REF_RE = /第\s*[一二三四五六七八九十百\d]+\s*[章节部分节]/;
 
@@ -71,11 +94,218 @@ export interface LongVideoChatContextInput {
   title?: unknown;
   bvid?: unknown;
   cid?: unknown;
+  signature?: unknown;
+  description?: unknown;
+  videoDescription?: unknown;
+  hotComments?: unknown[];
   videoDuration?: unknown;
   chapters?: unknown[];
   subtitleBody?: unknown[];
   l1Index?: L1VideoIndexCacheRecord | null;
   [key: string]: unknown;
+}
+
+export function isMacroSummaryPrompt(prompt: unknown): boolean {
+  const text = String(prompt ?? "").trim();
+  if (!text) {
+    return false;
+  }
+  if (
+    parseTimestampSeconds(text).length > 0 ||
+    EXPLICIT_CHAPTER_REF_RE.test(text) ||
+    PLAYBACK_DEICTIC_RE.test(text)
+  ) {
+    return false;
+  }
+  return MACRO_SUMMARY_INTENT_RE.test(text);
+}
+
+export function isMacroSummaryTurn(input: {
+  turnKind?: ChatTurnKind | string;
+  userPrompt?: unknown;
+  isFirstTurn?: boolean;
+}): boolean {
+  if (input.turnKind === "player-ai" || input.turnKind === "video-note") {
+    return true;
+  }
+  if (!input.isFirstTurn) {
+    return false;
+  }
+  return isMacroSummaryPrompt(input.userPrompt);
+}
+
+function extractTopMultiCharContentWords(texts: readonly string[], maxKeywords = 5): string[] {
+  const wordSegmenter = getSharedZhWordSegmenter();
+  const counts = new Map<string, { freq: number; firstOrder: number }>();
+  let order = 0;
+
+  for (const text of texts) {
+    const raw = String(text ?? "").trim();
+    if (!raw) {
+      continue;
+    }
+    const candidateTokens: string[] = [];
+    if (wordSegmenter) {
+      for (const seg of wordSegmenter.segment(raw)) {
+        if (!seg.isWordLike) {
+          continue;
+        }
+        const normalized = seg.segment.trim().toLowerCase();
+        if (normalized.length < 2) {
+          continue;
+        }
+        for (const clean of tokenizeLexicalText(normalized)) {
+          if (clean.length >= 2) {
+            candidateTokens.push(clean);
+          }
+        }
+      }
+    } else {
+      for (const clean of tokenizeLexicalText(raw)) {
+        if (clean.length >= 2) {
+          candidateTokens.push(clean);
+        }
+      }
+    }
+    for (const token of candidateTokens) {
+      if (/^\d+$/.test(token)) {
+        continue;
+      }
+      const existing = counts.get(token);
+      if (existing) {
+        existing.freq += 1;
+      } else {
+        counts.set(token, { freq: 1, firstOrder: order });
+        order += 1;
+      }
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1].freq - a[1].freq || a[1].firstOrder - b[1].firstOrder)
+    .slice(0, maxKeywords)
+    .map(([word]) => word);
+}
+
+export interface BuildLocalFallbackDirectoryInput {
+  context?: LongVideoChatContextInput | null;
+  lines: readonly L0SubtitleLine[];
+  bucketSeconds?: number;
+}
+
+export function buildLocalFallbackDirectory(
+  input: BuildLocalFallbackDirectoryInput
+): L1VideoIndexCacheRecord | null {
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  if (lines.length === 0) {
+    return null;
+  }
+  const ctx = input.context ?? {};
+  const lastLineTo = Math.max(0, Math.ceil(lines[lines.length - 1].to));
+  const durationNum = Number(ctx.videoDuration);
+  const endSeconds = Math.max(
+    Number.isFinite(durationNum) && durationNum > 0 ? Math.floor(durationNum) : 0,
+    lastLineTo,
+    1
+  );
+
+  const chapterSource = resolveChapterSource(
+    ctx.videoDescription ?? ctx.description,
+    ctx.hotComments,
+    ctx.chapters
+  );
+  const validGivenChapters = chapterSource.chapters.filter((ch) => ch.seconds <= endSeconds);
+
+  const builtChapters: L1ChapterNode[] = [];
+
+  if (validGivenChapters.length >= 2) {
+    for (let idx = 0; idx < validGivenChapters.length; idx += 1) {
+      const ch = validGivenChapters[idx];
+      const nextFrom = idx + 1 < validGivenChapters.length ? validGivenChapters[idx + 1].seconds : null;
+      const to =
+        ch.to !== undefined && ch.to > ch.seconds
+          ? Math.min(ch.to, endSeconds)
+          : nextFrom !== null && nextFrom > ch.seconds
+            ? nextFrom
+            : Math.max(ch.seconds, endSeconds);
+      const isLast = idx === validGivenChapters.length - 1;
+      const chapterLines = lines.filter((line) =>
+        isLast ? line.from >= ch.seconds && line.from <= to : line.from >= ch.seconds && line.from < to
+      );
+      const keyEntities = extractTopMultiCharContentWords(
+        [ch.title, ...chapterLines.map((l) => l.content)],
+        5
+      );
+      builtChapters.push({
+        chapterIndex: idx,
+        title: ch.title,
+        from: ch.seconds,
+        to: Math.max(ch.seconds + 1, to),
+        coreThesis: "",
+        keyEntities,
+        quoteLineNumbers: [],
+        ...(chapterLines.length > 0
+          ? {
+              startLineNumber: chapterLines[0].lineNumber,
+              endLineNumber: chapterLines[chapterLines.length - 1].lineNumber
+            }
+          : {})
+      });
+    }
+  } else {
+    const bucketSec =
+      Number(input.bucketSeconds) > 0 ? Math.floor(Number(input.bucketSeconds)) : LOCAL_FALLBACK_BUCKET_SECONDS;
+    const buckets = new Map<number, L0SubtitleLine[]>();
+    for (const line of lines) {
+      const bucketIdx = Math.max(0, Math.floor(line.from / bucketSec));
+      let list = buckets.get(bucketIdx);
+      if (!list) {
+        list = [];
+        buckets.set(bucketIdx, list);
+      }
+      list.push(line);
+    }
+    const sortedBucketIndices = [...buckets.keys()].sort((a, b) => a - b);
+    for (let i = 0; i < sortedBucketIndices.length; i += 1) {
+      const bucketIdx = sortedBucketIndices[i];
+      const bucketLines = buckets.get(bucketIdx)!;
+      const from = bucketIdx * bucketSec;
+      const rawTo = Math.min((bucketIdx + 1) * bucketSec, Math.max(endSeconds, Math.ceil(bucketLines[bucketLines.length - 1].to)));
+      const to = Math.max(from + 1, rawTo);
+      const keywords = extractTopMultiCharContentWords(bucketLines.map((l) => l.content), 5);
+      const title =
+        keywords.length > 0
+          ? `片段 ${i + 1}（${keywords.slice(0, 3).join(" / ")}）`
+          : `片段 ${i + 1}`;
+      builtChapters.push({
+        chapterIndex: i,
+        title,
+        from,
+        to,
+        coreThesis: "",
+        keyEntities: keywords,
+        quoteLineNumbers: [],
+        startLineNumber: bucketLines[0].lineNumber,
+        endLineNumber: bucketLines[bucketLines.length - 1].lineNumber
+      });
+    }
+  }
+
+  const title = String(ctx.title ?? "").trim();
+  return {
+    schemaVersion: L1_INDEX_SCHEMA_VERSION,
+    bvid: String(ctx.bvid ?? "").trim(),
+    cid: String(ctx.cid ?? "").trim(),
+    sourceKey: validGivenChapters.length >= 2 ? `local-${chapterSource.kind}` : "local-time-buckets",
+    subtitleSignature: String(ctx.signature ?? "").trim(),
+    videoDuration: endSeconds,
+    lineCount: lines.length,
+    globalSummary: title ? `视频标题：${title}` : "",
+    chapters: builtChapters,
+    quotes: [],
+    createdAt: 0,
+    updatedAt: 0
+  };
 }
 
 export function isSimpleGreetingPrompt(prompt: unknown): boolean {
@@ -530,17 +760,87 @@ const L1_ROUTER_SYSTEM_PROMPT = [
   "3. 时间戳沿用目录里的格式；不确定时优先选最相关的 1~2 个章节。"
 ].join("\n");
 
-function buildRecentTurnHint(history: readonly ChatMessage[]): string {
+function findLastTurnMessages(history: readonly ChatMessage[]): { lastUser: string; lastAssistant: string } {
+  let lastUser = "";
+  let lastAssistant = "";
   if (!Array.isArray(history) || history.length === 0) {
-    return "";
+    return { lastUser, lastAssistant };
   }
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const msg = history[i];
-    if (msg?.role === "user" && typeof msg.content === "string" && msg.content.trim()) {
-      return truncateWithEllipsis(msg.content, 140, { singleLine: true });
+    if (!msg || typeof msg.content !== "string") {
+      continue;
+    }
+    const content = msg.content.trim();
+    if (!content) {
+      continue;
+    }
+    if (!lastAssistant && msg.role === "assistant") {
+      lastAssistant = content;
+    } else if (!lastUser && msg.role === "user") {
+      lastUser = content;
+    }
+    if (lastUser && lastAssistant) {
+      break;
     }
   }
-  return "";
+  return { lastUser, lastAssistant };
+}
+
+export function extractPriorTurnExpansion(
+  history: readonly ChatMessage[],
+  lines?: readonly L0SubtitleLine[]
+): { expansionTerms: string[]; anchorTimestamps: number[] } {
+  const { lastUser, lastAssistant } = findLastTurnMessages(history);
+  if (!lastUser && !lastAssistant) {
+    return { expansionTerms: [], anchorTimestamps: [] };
+  }
+  const assistantPrefix = lastAssistant.slice(0, COREF_ASSISTANT_PREFIX_CHARS);
+  const combinedText = [lastUser, assistantPrefix].filter(Boolean).join("\n");
+  const termSet = new Set<string>();
+  for (const token of tokenizeLexicalText(lastUser)) {
+    termSet.add(token);
+  }
+  for (const token of tokenizeLexicalText(assistantPrefix)) {
+    termSet.add(token);
+  }
+  const anchorTimestamps = parseTimestampSeconds(combinedText).slice(0, 3);
+  if (anchorTimestamps.length > 0 && Array.isArray(lines) && lines.length > 0) {
+    for (const ts of anchorTimestamps) {
+      const idx = findNearestLineIndexBySeconds(lines, ts);
+      if (idx < 0) {
+        continue;
+      }
+      const fromMin = Math.max(0, lines[idx].from - 15);
+      const toMax = Math.max(lines[idx].to, lines[idx].from) + 15;
+      for (let j = Math.max(0, idx - 3); j <= Math.min(lines.length - 1, idx + 3); j += 1) {
+        if (lines[j].to < fromMin || lines[j].from > toMax) {
+          continue;
+        }
+        for (const token of tokenizeLexicalText(lines[j].content)) {
+          termSet.add(token);
+        }
+      }
+    }
+  }
+  return {
+    expansionTerms: [...termSet],
+    anchorTimestamps
+  };
+}
+
+function buildRecentTurnHint(history: readonly ChatMessage[]): string {
+  const { lastUser, lastAssistant } = findLastTurnMessages(history);
+  if (!lastUser && !lastAssistant) {
+    return "";
+  }
+  if (lastUser && lastAssistant) {
+    const userPart = truncateWithEllipsis(lastUser, 130, { singleLine: true });
+    const assistantPart = truncateWithEllipsis(lastAssistant.slice(0, COREF_ASSISTANT_PREFIX_CHARS), 140, { singleLine: true });
+    return truncateWithEllipsis(`问：${userPart} | 答：${assistantPart}`, RECENT_TURN_HINT_MAX_CHARS, { singleLine: true });
+  }
+  const single = lastUser || lastAssistant.slice(0, COREF_ASSISTANT_PREFIX_CHARS);
+  return truncateWithEllipsis(single, RECENT_TURN_HINT_MAX_CHARS, { singleLine: true });
 }
 
 export function buildL1RouterMessages(input: {
@@ -751,88 +1051,233 @@ export function parseL1RouterOutput(
   return { ok: false, reason: "router-invalid-output" };
 }
 
-function extractLinesWindowForRange(
-  allLines: readonly L0SubtitleLine[],
-  range: RetrievalTimeRange,
-  maxChars: number
-): L0ContextWindow | null {
-  const inRange: L0SubtitleLine[] = [];
-  let chars = 0;
-  for (const line of allLines) {
-    if (line.to >= range.from && line.from <= range.to) {
-      if (chars + line.content.length <= maxChars || inRange.length === 0) {
-        inRange.push(line);
-        chars += line.content.length;
-      } else {
-        break;
+export interface RrfRankedSource {
+  source: string;
+  weight: number;
+  chunkIndexes: readonly number[];
+}
+
+export interface FuseAndPackRrfChunksInput {
+  lines: readonly L0SubtitleLine[];
+  chunks: readonly L0SemanticChunk[];
+  rankedSources: readonly RrfRankedSource[];
+  maxInjectedChars?: number;
+  mergeGapSeconds?: number;
+  rrfK?: number;
+}
+
+export interface FuseAndPackRrfChunksResult {
+  windows: L0ContextWindow[];
+  injectedChars: number;
+  truncated: boolean;
+  selectedChunkIndexes: number[];
+  topChunkIndex?: number;
+}
+
+export function fuseAndPackRrfChunks(input: FuseAndPackRrfChunksInput): FuseAndPackRrfChunksResult {
+  const { lines, chunks, rankedSources } = input;
+  if (!Array.isArray(lines) || lines.length === 0 || !Array.isArray(chunks) || chunks.length === 0) {
+    return { windows: [], injectedChars: 0, truncated: false, selectedChunkIndexes: [] };
+  }
+  const maxInjectedChars =
+    input.maxInjectedChars !== undefined && Number(input.maxInjectedChars) > 0
+      ? Math.floor(Number(input.maxInjectedChars))
+      : STAGE_B_TOTAL_SUBTITLE_MAX_CHARS;
+  const mergeGapSeconds =
+    input.mergeGapSeconds !== undefined && Number.isFinite(Number(input.mergeGapSeconds))
+      ? Math.max(0, Number(input.mergeGapSeconds))
+      : 1;
+  const rrfK = Number(input.rrfK) > 0 ? Number(input.rrfK) : RRF_K;
+
+  const rrfScores = new Map<number, number>();
+  for (const source of rankedSources) {
+    if (!source || !Array.isArray(source.chunkIndexes) || source.chunkIndexes.length === 0) {
+      continue;
+    }
+    const weight = Number(source.weight);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      continue;
+    }
+    const seenInSource = new Set<number>();
+    let rank = 0;
+    for (const chunkIdx of source.chunkIndexes) {
+      if (chunkIdx < 0 || chunkIdx >= chunks.length || seenInSource.has(chunkIdx)) {
+        continue;
       }
+      seenInSource.add(chunkIdx);
+      rank += 1;
+      const contrib = weight / (rrfK + rank);
+      rrfScores.set(chunkIdx, (rrfScores.get(chunkIdx) ?? 0) + contrib);
     }
   }
-  if (inRange.length === 0) {
-    return null;
+
+  if (rrfScores.size === 0) {
+    return { windows: [], injectedChars: 0, truncated: false, selectedChunkIndexes: [] };
   }
+
+  const orderedCandidates = [...rrfScores.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0] - b[0]
+  );
+
+  const topChunkIndex = orderedCandidates[0][0];
+  const selectedLineIndices = new Set<number>();
+  const acceptedSpans: Array<{ startIdx: number; endIdx: number; anchorLineNumber: number }> = [];
+  const selectedChunkIndexes: number[] = [];
+  let totalSelectedChars = 0;
+  let truncated = false;
+
+  for (const [chunkIdx] of orderedCandidates) {
+    const chunk = chunks[chunkIdx];
+    const startIdx = Math.max(0, chunk.startLineIdx);
+    const endIdx = Math.min(lines.length - 1, chunk.endLineIdx);
+    if (endIdx < startIdx) {
+      continue;
+    }
+
+    let deltaChars = 0;
+    for (let i = startIdx; i <= endIdx; i += 1) {
+      if (!selectedLineIndices.has(i)) {
+        deltaChars += lines[i].content.length;
+      }
+    }
+
+    if (totalSelectedChars + deltaChars <= maxInjectedChars) {
+      for (let i = startIdx; i <= endIdx; i += 1) {
+        selectedLineIndices.add(i);
+      }
+      totalSelectedChars += deltaChars;
+      selectedChunkIndexes.push(chunkIdx);
+      acceptedSpans.push({
+        startIdx,
+        endIdx,
+        anchorLineNumber: lines[startIdx].lineNumber
+      });
+      continue;
+    }
+
+    if (acceptedSpans.length === 0) {
+      let keptEnd = startIdx;
+      let acc = 0;
+      for (let i = startIdx; i <= endIdx; i += 1) {
+        const len = lines[i].content.length;
+        if (acc + len <= maxInjectedChars || i === startIdx) {
+          selectedLineIndices.add(i);
+          acc += len;
+          keptEnd = i;
+        } else {
+          break;
+        }
+      }
+      totalSelectedChars += acc;
+      selectedChunkIndexes.push(chunkIdx);
+      acceptedSpans.push({
+        startIdx,
+        endIdx: keptEnd,
+        anchorLineNumber: lines[startIdx].lineNumber
+      });
+      truncated = true;
+      break;
+    }
+
+    truncated = true;
+    if (maxInjectedChars - totalSelectedChars < 10) {
+      break;
+    }
+  }
+
+  if (acceptedSpans.length === 0) {
+    return { windows: [], injectedChars: 0, truncated, selectedChunkIndexes: [], topChunkIndex };
+  }
+
+  acceptedSpans.sort((a, b) => a.startIdx - b.startIdx || a.endIdx - b.endIdx);
+  const mergedSpans: Array<{ startIdx: number; endIdx: number; anchorLineNumber: number }> = [
+    { ...acceptedSpans[0] }
+  ];
+  for (let i = 1; i < acceptedSpans.length; i += 1) {
+    const next = acceptedSpans[i];
+    const current = mergedSpans[mergedSpans.length - 1];
+    const adjacentOrOverlap = next.startIdx <= current.endIdx + 1;
+    const touchesByTime = lines[next.startIdx].from <= lines[current.endIdx].to + mergeGapSeconds;
+    if (adjacentOrOverlap || touchesByTime) {
+      current.endIdx = Math.max(current.endIdx, next.endIdx);
+    } else {
+      mergedSpans.push({ ...next });
+    }
+  }
+
+  const windows: L0ContextWindow[] = [];
+  let injectedChars = 0;
+  for (const span of mergedSpans) {
+    const slice = lines.slice(span.startIdx, span.endIdx + 1);
+    if (slice.length === 0) {
+      continue;
+    }
+    for (const item of slice) {
+      injectedChars += item.content.length;
+    }
+    windows.push({
+      anchorLineNumber: span.anchorLineNumber,
+      startLineNumber: slice[0].lineNumber,
+      endLineNumber: slice[slice.length - 1].lineNumber,
+      from: slice[0].from,
+      to: slice[slice.length - 1].to,
+      lines: slice
+    });
+  }
+
   return {
-    anchorLineNumber: inRange[0].lineNumber,
-    startLineNumber: inRange[0].lineNumber,
-    endLineNumber: inRange[inRange.length - 1].lineNumber,
-    from: inRange[0].from,
-    to: inRange[inRange.length - 1].to,
-    lines: inRange
+    windows,
+    injectedChars,
+    truncated,
+    selectedChunkIndexes,
+    topChunkIndex
   };
 }
 
-function collectRoutedRangeWindows(input: {
+export function shouldBypassRouterByBm25(
+  userPrompt: string,
+  bm25Result: L0ContextualBm25SearchResult
+): boolean {
+  if (isMacroSummaryPrompt(userPrompt)) {
+    return false;
+  }
+  const topHit = bm25Result.hits[0];
+  if (!topHit || topHit.score <= 0 || bm25Result.stdDevScore <= 0) {
+    return false;
+  }
+  const threshold = bm25Result.meanScore + HIGH_CONFIDENCE_BM25_Z_THRESHOLD * bm25Result.stdDevScore;
+  return (
+    topHit.score > threshold &&
+    topHit.coreTermCoverage >= HIGH_CONFIDENCE_BM25_COVERAGE_THRESHOLD
+  );
+}
+
+function collectRoutedL1ChunkRanks(input: {
   allLines: readonly L0SubtitleLine[];
-  bm25Index: L0Bm25Index;
+  bm25Index: L0ContextualBm25Index;
   l1Index: L1VideoIndexCacheRecord;
   plan: HybridSingleHopRoutePlan;
   userPrompt: string;
-}): { windows: L0ContextWindow[]; topHitTimestamp?: number } {
-  const { allLines, bm25Index, l1Index, plan, userPrompt } = input;
+  expansionTerms: readonly string[];
+}): { chunkIndexes: number[]; topHitTimestamp?: number } {
+  const { allLines, bm25Index, l1Index, plan, userPrompt, expansionTerms } = input;
+  const chunks = bm25Index.getChunks();
   const ranges = plan.chapterRanges;
+
   if (ranges.length === 0) {
     if (plan.lexicalTerms.length === 0) {
-      return { windows: [] };
+      return { chunkIndexes: [] };
     }
     const termSearch = bm25Index.search({
       query: userPrompt,
       terms: plan.lexicalTerms,
-      topK: HYBRID_BM25_TOP_K,
-      windowRadiusLines: HYBRID_BM25_RADIUS_LINES,
-      windowRadiusSeconds: HYBRID_BM25_RADIUS_SECONDS,
-      maxInjectedChars: ROUTED_RANGE_MAX_CHARS
+      expansionTerms,
+      expansionWeight: COREF_EXPANSION_WEIGHT,
+      topK: HYBRID_BM25_CANDIDATE_TOP_K
     });
     return {
-      windows: [...(termSearch.windows ?? [])],
-      topHitTimestamp: termSearch.hits[0]?.line.from
-    };
-  }
-
-  let rangeTotalChars = 0;
-  for (const line of allLines) {
-    if (ranges.some((r) => line.to >= r.from && line.from <= r.to)) {
-      rangeTotalChars += line.content.length;
-    }
-  }
-
-  if (rangeTotalChars > 0 && rangeTotalChars <= ROUTED_RANGE_MAX_CHARS) {
-    const directWindows: L0ContextWindow[] = [];
-    for (const r of ranges) {
-      const win = extractLinesWindowForRange(allLines, r, ROUTED_RANGE_MAX_CHARS);
-      if (win) {
-        directWindows.push(win);
-      }
-    }
-    const scoped = bm25Index.search({
-      query: userPrompt,
-      terms: plan.lexicalTerms,
-      timeRanges: ranges,
-      topK: 3,
-      windowRadiusLines: 0
-    });
-    return {
-      windows: directWindows,
-      topHitTimestamp: scoped.hits[0]?.line.from ?? directWindows[0]?.from
+      chunkIndexes: termSearch.hits.map((h) => h.chunk.chunkIndex),
+      topHitTimestamp: termSearch.hits[0]?.chunk.fromSeconds
     };
   }
 
@@ -850,31 +1295,54 @@ function collectRoutedRangeWindows(input: {
   const scopedSearch = bm25Index.search({
     query: userPrompt,
     terms: [...plan.lexicalTerms, ...chapterEntities],
+    expansionTerms,
+    expansionWeight: COREF_EXPANSION_WEIGHT,
     timeRanges: ranges,
-    topK: HYBRID_BM25_TOP_K,
-    windowRadiusLines: HYBRID_BM25_RADIUS_LINES,
-    windowRadiusSeconds: HYBRID_BM25_RADIUS_SECONDS,
-    maxInjectedChars: ROUTED_RANGE_MAX_CHARS
+    topK: Math.max(HYBRID_BM25_CANDIDATE_TOP_K, chunks.length)
   });
 
-  if (scopedSearch.windows && scopedSearch.windows.length > 0) {
-    return {
-      windows: [...scopedSearch.windows],
-      topHitTimestamp: scopedSearch.hits[0]?.line.from
-    };
-  }
-
-  const perRangeCap = Math.max(2000, Math.floor(ROUTED_RANGE_MAX_CHARS / ranges.length));
-  const fallbackWindows: L0ContextWindow[] = [];
-  for (const r of ranges) {
-    const win = extractLinesWindowForRange(allLines, r, perRangeCap);
-    if (win) {
-      fallbackWindows.push(win);
+  const inRangeChunks = chunks.filter((chunk) =>
+    ranges.some((r) => chunk.toSeconds >= r.from && chunk.fromSeconds <= r.to)
+  );
+  let rangeTotalChars = 0;
+  for (const line of allLines) {
+    if (ranges.some((r) => line.to >= r.from && line.from <= r.to)) {
+      rangeTotalChars += line.content.length;
     }
   }
+
+  const rankedSet = new Set<number>();
+  const chunkIndexes: number[] = [];
+  for (const hit of scopedSearch.hits) {
+    if (!rankedSet.has(hit.chunk.chunkIndex)) {
+      rankedSet.add(hit.chunk.chunkIndex);
+      chunkIndexes.push(hit.chunk.chunkIndex);
+    }
+  }
+
+  if (rangeTotalChars > 0 && rangeTotalChars <= ROUTED_RANGE_MAX_CHARS) {
+    for (const chunk of inRangeChunks) {
+      if (!rankedSet.has(chunk.chunkIndex)) {
+        rankedSet.add(chunk.chunkIndex);
+        chunkIndexes.push(chunk.chunkIndex);
+      }
+    }
+  } else if (chunkIndexes.length === 0) {
+    let fallbackChars = 0;
+    for (const chunk of inRangeChunks) {
+      const chunkLen = chunk.lines.reduce((s, l) => s + l.content.length, 0);
+      if (fallbackChars + chunkLen <= ROUTED_RANGE_MAX_CHARS || chunkIndexes.length === 0) {
+        chunkIndexes.push(chunk.chunkIndex);
+        fallbackChars += chunkLen;
+      } else {
+        break;
+      }
+    }
+  }
+
   return {
-    windows: fallbackWindows,
-    topHitTimestamp: fallbackWindows[0]?.from
+    chunkIndexes,
+    topHitTimestamp: scopedSearch.hits[0]?.chunk.fromSeconds ?? inRangeChunks[0]?.fromSeconds
   };
 }
 
@@ -885,6 +1353,8 @@ export interface ResolveLongVideoHybridContextInput {
   userPrompt: string;
   history?: readonly ChatMessage[];
   l1Index?: L1VideoIndexCacheRecord | null;
+  preNormalizedLines?: readonly L0SubtitleLine[];
+  subtitleCacheKey?: string;
   compressedSummaryMarkdown?: string;
   interactionAnchor?: InteractionAnchorHint | null;
   playbackCursorSeconds?: number;
@@ -904,6 +1374,8 @@ export interface LongVideoHybridResolution {
   degraded: boolean;
   degradeReason?: ChatRetrievalDegradeReason | "router-timeout" | "router-rate-limited" | "router-error" | "router-invalid-output";
   coreTimestamp?: number;
+  routerBypassed?: boolean;
+  usedLocalFallbackDirectory?: boolean;
 }
 
 function classifyRouterErrorReason(error: unknown): "router-timeout" | "router-rate-limited" | "router-error" {
@@ -964,13 +1436,29 @@ export async function resolveLongVideoHybridContext(
     routerTimeoutMs = DEFAULT_ROUTER_TIMEOUT_MS
   } = input;
 
-  const l0Lines = normalizeL0SubtitleLines(context.subtitleBody as Array<{ from?: unknown; to?: unknown; content?: unknown }>);
+  const rawBody = Array.isArray(context.subtitleBody)
+    ? (context.subtitleBody as Array<{ from?: unknown; to?: unknown; content?: unknown }>)
+    : [];
+  const subtitleKey =
+    input.subtitleCacheKey ||
+    computeL0SubtitleCacheKey(input.preNormalizedLines ?? rawBody, {
+      signature: context.signature ?? l1Index?.subtitleSignature,
+      bvid: context.bvid ?? l1Index?.bvid,
+      cid: context.cid ?? l1Index?.cid
+    });
+  const l0Lines =
+    input.preNormalizedLines ??
+    findCachedL0SubtitleLines(subtitleKey) ??
+    normalizeL0SubtitleLines(rawBody);
+
+  const effectiveDirectory = l1Index ?? buildLocalFallbackDirectory({ context, lines: l0Lines });
+  const usedLocalFallbackDirectory = !l1Index && effectiveDirectory !== null;
   const videoDuration = Math.max(
     Number(context.videoDuration) || 0,
-    Number(l1Index?.videoDuration) || 0,
+    Number(effectiveDirectory?.videoDuration) || 0,
     l0Lines.length > 0 ? Math.ceil(l0Lines[l0Lines.length - 1].to) : 0
   );
-  const l1DirectoryPrompt = l1Index ? serializeL1DirectoryPrompt(l1Index) : "";
+  const l1DirectoryPrompt = effectiveDirectory ? serializeL1DirectoryPrompt(effectiveDirectory) : "";
   const staticDirectoryMarkdown = buildStaticDirectoryMarkdown(l1DirectoryPrompt);
 
   const fastPathPlan = detectInteractionAnchorPlan({
@@ -978,13 +1466,13 @@ export async function resolveLongVideoHybridContext(
     interactionAnchor,
     playbackCursorSeconds,
     chapters: Array.isArray(context.chapters) ? (context.chapters as Array<{ title?: unknown; from?: unknown; to?: unknown }>) : [],
-    l1Chapters: l1Index?.chapters
+    l1Chapters: effectiveDirectory?.chapters
   });
   if (fastPathPlan) {
     const fast = buildFastPathContext({
       allLines: l0Lines,
       plan: fastPathPlan,
-      l1Index,
+      l1Index: effectiveDirectory,
       fallbackChapters: Array.isArray(context.chapters) ? (context.chapters as Array<{ title?: unknown; from?: unknown; to?: unknown }>) : [],
       videoDuration
     });
@@ -996,7 +1484,8 @@ export async function resolveLongVideoHybridContext(
       windows: fast.windows,
       injectedChars: fast.injectedChars,
       degraded: false,
-      coreTimestamp: fast.coreTimestamp
+      coreTimestamp: fast.coreTimestamp,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
     };
   }
 
@@ -1011,22 +1500,66 @@ export async function resolveLongVideoHybridContext(
       }),
       windows: [],
       injectedChars: 0,
-      degraded: false
+      degraded: false,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
     };
   }
 
-  const bm25Index = createL0Bm25Index(l0Lines, { chapters: l1Index?.chapters });
-  const bm25Result: L0LexicalSearchResult = bm25Index.search({
-    query: userPrompt,
-    topK: HYBRID_BM25_TOP_K,
-    windowRadiusLines: HYBRID_BM25_RADIUS_LINES,
-    windowRadiusSeconds: HYBRID_BM25_RADIUS_SECONDS,
-    maxInjectedChars: HYBRID_BM25_MAX_CHARS
+  const directoryFingerprint = computeDirectoryFingerprint(effectiveDirectory?.chapters);
+  const bm25Index = getOrCreateL0ContextualBm25Index({
+    subtitleKey,
+    directoryFingerprint,
+    lines: l0Lines,
+    chapters: effectiveDirectory?.chapters
   });
-  const bm25Windows = bm25Result.windows ?? [];
+  const chunks = bm25Index.getChunks();
+  const { expansionTerms } = extractPriorTurnExpansion(history, l0Lines);
 
-  if (!l1Index || !l1DirectoryPrompt || !provider?.baseUrl || !provider?.model) {
-    const degradedMerged = mergeL0ContextWindows(l0Lines, [bm25Windows], {
+  const bm25Result = bm25Index.search({
+    query: userPrompt,
+    expansionTerms,
+    expansionWeight: COREF_EXPANSION_WEIGHT,
+    topK: HYBRID_BM25_CANDIDATE_TOP_K
+  });
+  const bm25ChunkIndexes = bm25Result.hits.map((h) => h.chunk.chunkIndex);
+
+  if (shouldBypassRouterByBm25(userPrompt, bm25Result)) {
+    const bypassedPacked = fuseAndPackRrfChunks({
+      lines: l0Lines,
+      chunks,
+      rankedSources: [
+        { source: "bm25", weight: RRF_WEIGHT_BM25, chunkIndexes: bm25ChunkIndexes }
+      ],
+      maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
+    });
+    return {
+      mode: "hybrid-single-hop",
+      staticDirectoryMarkdown,
+      hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
+        compressedSummaryMarkdown,
+        windows: bypassedPacked.windows,
+        videoDuration
+      }),
+      windows: bypassedPacked.windows,
+      injectedChars: bypassedPacked.injectedChars,
+      degraded: false,
+      routerBypassed: true,
+      coreTimestamp: bm25Result.hits[0]?.chunk.fromSeconds ?? bypassedPacked.windows[0]?.from,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
+    };
+  }
+
+  const canRouteDirectory =
+    Boolean(effectiveDirectory && l1DirectoryPrompt && provider?.baseUrl && provider?.model) &&
+    (!usedLocalFallbackDirectory || (effectiveDirectory?.chapters.length ?? 0) >= 2);
+
+  if (!canRouteDirectory || !effectiveDirectory) {
+    const degradedPacked = fuseAndPackRrfChunks({
+      lines: l0Lines,
+      chunks,
+      rankedSources: [
+        { source: "bm25", weight: RRF_WEIGHT_BM25, chunkIndexes: bm25ChunkIndexes }
+      ],
       maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
     });
     return {
@@ -1034,14 +1567,15 @@ export async function resolveLongVideoHybridContext(
       staticDirectoryMarkdown,
       hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
-        windows: degradedMerged.windows,
+        windows: degradedPacked.windows,
         videoDuration
       }),
-      windows: degradedMerged.windows,
-      injectedChars: degradedMerged.injectedChars,
+      windows: degradedPacked.windows,
+      injectedChars: degradedPacked.injectedChars,
       degraded: true,
       degradeReason: "l1-index-missing",
-      coreTimestamp: bm25Result.hits[0]?.line.from
+      coreTimestamp: bm25Result.hits[0]?.chunk.fromSeconds,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
     };
   }
 
@@ -1064,7 +1598,7 @@ export async function resolveLongVideoHybridContext(
       history
     });
     const rawRouterText = await routeChatCompletion({
-      provider,
+      provider: provider!,
       messages: routerMessages,
       stream: false,
       thinkingLevel: "off",
@@ -1076,7 +1610,7 @@ export async function resolveLongVideoHybridContext(
     if (signal?.aborted) {
       throw makeAbortedError();
     }
-    const result = parseL1RouterOutput(rawRouterText, l1Index);
+    const result = parseL1RouterOutput(rawRouterText, effectiveDirectory);
     if (result.ok) {
       parsedRoute = result;
     } else {
@@ -1093,7 +1627,12 @@ export async function resolveLongVideoHybridContext(
   }
 
   if (!parsedRoute) {
-    const degradedMerged = mergeL0ContextWindows(l0Lines, [bm25Windows], {
+    const degradedPacked = fuseAndPackRrfChunks({
+      lines: l0Lines,
+      chunks,
+      rankedSources: [
+        { source: "bm25", weight: RRF_WEIGHT_BM25, chunkIndexes: bm25ChunkIndexes }
+      ],
       maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
     });
     return {
@@ -1101,14 +1640,15 @@ export async function resolveLongVideoHybridContext(
       staticDirectoryMarkdown,
       hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
         compressedSummaryMarkdown,
-        windows: degradedMerged.windows,
+        windows: degradedPacked.windows,
         videoDuration
       }),
-      windows: degradedMerged.windows,
-      injectedChars: degradedMerged.injectedChars,
+      windows: degradedPacked.windows,
+      injectedChars: degradedPacked.injectedChars,
       degraded: true,
       degradeReason: routeErrorReason ?? "router-error",
-      coreTimestamp: bm25Result.hits[0]?.line.from
+      coreTimestamp: bm25Result.hits[0]?.chunk.fromSeconds,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
     };
   }
 
@@ -1123,33 +1663,42 @@ export async function resolveLongVideoHybridContext(
       }),
       windows: [],
       injectedChars: 0,
-      degraded: false
+      degraded: false,
+      ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
     };
   }
 
-  const routed = collectRoutedRangeWindows({
+  const routed = collectRoutedL1ChunkRanks({
     allLines: l0Lines,
     bm25Index,
-    l1Index,
+    l1Index: effectiveDirectory,
     plan: parsedRoute.plan,
-    userPrompt
+    userPrompt,
+    expansionTerms
   });
-  const merged = mergeL0ContextWindows(l0Lines, [routed.windows, bm25Windows], {
+  const packed = fuseAndPackRrfChunks({
+    lines: l0Lines,
+    chunks,
+    rankedSources: [
+      { source: "l1", weight: RRF_WEIGHT_L1, chunkIndexes: routed.chunkIndexes },
+      { source: "bm25", weight: RRF_WEIGHT_BM25, chunkIndexes: bm25ChunkIndexes }
+    ],
     maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
   });
-  const coreTimestamp = routed.topHitTimestamp ?? bm25Result.hits[0]?.line.from ?? merged.windows[0]?.from;
+  const coreTimestamp = routed.topHitTimestamp ?? bm25Result.hits[0]?.chunk.fromSeconds ?? packed.windows[0]?.from;
 
   return {
     mode: "hybrid-single-hop",
     staticDirectoryMarkdown,
     hybridRetrievalMarkdown: buildDynamicHybridMarkdown({
       compressedSummaryMarkdown,
-      windows: merged.windows,
+      windows: packed.windows,
       videoDuration
     }),
-    windows: merged.windows,
-    injectedChars: merged.injectedChars,
+    windows: packed.windows,
+    injectedChars: packed.injectedChars,
     degraded: false,
-    coreTimestamp
+    coreTimestamp,
+    ...(usedLocalFallbackDirectory ? { usedLocalFallbackDirectory: true } : {})
   };
 }

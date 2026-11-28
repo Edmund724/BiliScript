@@ -7,6 +7,28 @@ export interface L0SubtitleLine {
   content: string;
 }
 
+export interface L0SemanticChunk {
+  chunkIndex: number;
+  startLineIdx: number;
+  endLineIdx: number;
+  startLineNumber: number;
+  endLineNumber: number;
+  fromSeconds: number;
+  toSeconds: number;
+  chapterIndex?: number;
+  contextPrefix: string;
+  bodyText: string;
+  lines: readonly L0SubtitleLine[];
+}
+
+export interface L0ChunkHit {
+  chunk: L0SemanticChunk;
+  score: number;
+  matchedTerms: readonly string[];
+  coreTermCoverage: number;
+  chapterIndex?: number;
+}
+
 export interface L0ContextWindow {
   anchorLineNumber: number;
   startLineNumber: number;

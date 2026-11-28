@@ -11,8 +11,13 @@ import type {
 
 export const OFFSCREEN_CHAT_PORT_NAME = "offscreen-chat" as const;
 
+export type ChatTurnKind = "user" | "player-ai" | "video-note";
+
+export type ChatTranscriptMode = "full" | "hybrid";
+
 interface ChatReceipt {
   cachedContextKey?: string;
+  transcriptMode?: ChatTranscriptMode;
 }
 
 type PortErrorEvent = StreamErrorEvent & { code?: string };

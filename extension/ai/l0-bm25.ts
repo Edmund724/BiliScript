@@ -1,11 +1,13 @@
 import { parseClock } from "../shared/clock-text.js";
-import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
+import { fnv1a32, getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { STOP_WORDS } from "./stop-words.js";
 import type {
+  L0ChunkHit,
   L0ContextWindow,
   L0LexicalHit,
   L0LexicalSearchQuery,
   L0LexicalSearchResult,
+  L0SemanticChunk,
   L0SubtitleLine,
   RetrievalTimeRange
 } from "./long-video-hybrid-types.js";
@@ -17,6 +19,17 @@ const DEFAULT_BM25_B = 0.75;
 const DEFAULT_TOP_K = 6;
 const DEFAULT_WINDOW_RADIUS_LINES = 2;
 const DEFAULT_MERGE_GAP_SECONDS = 1;
+
+export const DEFAULT_SEMANTIC_CHUNK_TARGET_SECONDS = 25;
+export const DEFAULT_SEMANTIC_CHUNK_OVERLAP_SECONDS = 5;
+export const DEFAULT_SEMANTIC_CHUNK_MAX_CHARS = 600;
+export const WORD_TOKEN_WEIGHT = 1.0;
+export const CHAR_BIGRAM_WEIGHT = 0.45;
+export const DEFAULT_QUERY_EXPANSION_WEIGHT = 0.35;
+export const MAX_CACHED_BM25_VIDEOS = 3;
+
+const CJK_RUN_RE = /[\u4e00-\u9fff]{2,}/g;
+const BIGRAM_KEY_PREFIX = "bg:";
 
 const ZH_EXTRA_STOP_WORDS: ReadonlySet<string> = new Set([
   "我们", "你们", "他们", "她们", "它们", "大家", "自己",
@@ -702,4 +715,633 @@ export function estimateCompactPromptTokens(text: string): number {
     }
   }
   return Math.ceil(cjkCount + otherCount / 3.5);
+}
+
+export interface DualGranularityToken {
+  key: string;
+  term: string;
+  weight: number;
+  isBigram: boolean;
+}
+
+export function tokenizeDualGranularity(text: unknown): DualGranularityToken[] {
+  const raw = String(text ?? "").trim();
+  if (!raw) {
+    return [];
+  }
+  const out: DualGranularityToken[] = [];
+  const words = tokenizeLexicalText(raw);
+  for (const word of words) {
+    out.push({
+      key: word,
+      term: word,
+      weight: WORD_TOKEN_WEIGHT,
+      isBigram: false
+    });
+  }
+  CJK_RUN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CJK_RUN_RE.exec(raw)) !== null) {
+    const run = match[0];
+    for (let i = 0; i < run.length - 1; i += 1) {
+      const bigram = run.slice(i, i + 2);
+      if (isStopWord(bigram)) {
+        continue;
+      }
+      out.push({
+        key: `${BIGRAM_KEY_PREFIX}${bigram}`,
+        term: bigram,
+        weight: CHAR_BIGRAM_WEIGHT,
+        isBigram: true
+      });
+    }
+  }
+  return out;
+}
+
+export interface SemanticChunkChapterInput {
+  chapterIndex?: number;
+  title?: unknown;
+  from?: unknown;
+  to?: unknown;
+  coreThesis?: unknown;
+  keyEntities?: readonly unknown[];
+}
+
+export interface BuildL0SemanticChunksOptions {
+  targetSeconds?: number;
+  overlapSeconds?: number;
+  maxChars?: number;
+}
+
+interface NormalizedChunkChapter {
+  chapterIndex: number;
+  title: string;
+  from: number;
+  to: number;
+  coreThesis: string;
+  keyEntities: string[];
+  contextPrefix: string;
+}
+
+function normalizeChunkChapters(
+  chapters: readonly SemanticChunkChapterInput[] | undefined
+): NormalizedChunkChapter[] {
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    return [];
+  }
+  const normalized: NormalizedChunkChapter[] = [];
+  for (let i = 0; i < chapters.length; i += 1) {
+    const raw = chapters[i];
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const from = Number(raw.from);
+    if (!Number.isFinite(from) || from < 0) {
+      continue;
+    }
+    const toRaw = Number(raw.to);
+    const to = Number.isFinite(toRaw) && toRaw >= from ? toRaw : from;
+    const title = String(raw.title ?? "").trim();
+    const coreThesis = String(raw.coreThesis ?? "").trim();
+    const keyEntities = Array.isArray(raw.keyEntities)
+      ? raw.keyEntities.map((item: unknown) => String(item ?? "").trim()).filter(Boolean)
+      : [];
+    const prefixParts = [title, coreThesis, keyEntities.join(" ")].filter(Boolean);
+    normalized.push({
+      chapterIndex: typeof raw.chapterIndex === "number" && Number.isInteger(raw.chapterIndex) ? raw.chapterIndex : i,
+      title,
+      from,
+      to,
+      coreThesis,
+      keyEntities,
+      contextPrefix: prefixParts.join(" ")
+    });
+  }
+  normalized.sort((a, b) => a.from - b.from || a.chapterIndex - b.chapterIndex);
+  return normalized;
+}
+
+function findOwnerChapterForSeconds(
+  chapters: readonly NormalizedChunkChapter[],
+  seconds: number
+): NormalizedChunkChapter | undefined {
+  if (chapters.length === 0) {
+    return undefined;
+  }
+  let owner: NormalizedChunkChapter | undefined;
+  for (let i = 0; i < chapters.length; i += 1) {
+    const ch = chapters[i];
+    const isLast = i === chapters.length - 1;
+    if (seconds >= ch.from && (isLast ? seconds <= Math.max(ch.to, ch.from) : seconds < ch.to)) {
+      return ch;
+    }
+    if (ch.from <= seconds) {
+      owner = ch;
+    }
+  }
+  return owner ?? chapters[0];
+}
+
+export function buildL0SemanticChunks(
+  lines: readonly L0SubtitleLine[],
+  chaptersOrBuckets?: readonly SemanticChunkChapterInput[],
+  options: BuildL0SemanticChunksOptions = {}
+): L0SemanticChunk[] {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return [];
+  }
+  const targetSeconds =
+    Number(options.targetSeconds) > 0
+      ? Number(options.targetSeconds)
+      : DEFAULT_SEMANTIC_CHUNK_TARGET_SECONDS;
+  const rawOverlap = Number(options.overlapSeconds ?? DEFAULT_SEMANTIC_CHUNK_OVERLAP_SECONDS);
+  const overlapSeconds = Number.isFinite(rawOverlap) && rawOverlap >= 0 ? Math.min(rawOverlap, targetSeconds * 0.8) : DEFAULT_SEMANTIC_CHUNK_OVERLAP_SECONDS;
+  const maxChars =
+    Number(options.maxChars) > 0
+      ? Math.floor(Number(options.maxChars))
+      : DEFAULT_SEMANTIC_CHUNK_MAX_CHARS;
+
+  const chapters = normalizeChunkChapters(chaptersOrBuckets);
+  const chunks: L0SemanticChunk[] = [];
+  let startIdx = 0;
+
+  while (startIdx < lines.length) {
+    const windowStartSec = lines[startIdx].from;
+    let endIdx = startIdx;
+    let chars = lines[startIdx].content.length;
+
+    while (endIdx + 1 < lines.length) {
+      const nextLine = lines[endIdx + 1];
+      const nextSpan = Math.max(nextLine.to, nextLine.from) - windowStartSec;
+      const nextChars = chars + nextLine.content.length;
+      if (nextSpan <= targetSeconds && nextChars <= maxChars) {
+        endIdx += 1;
+        chars = nextChars;
+      } else {
+        break;
+      }
+    }
+
+    const chunkLines = lines.slice(startIdx, endIdx + 1);
+    const first = chunkLines[0];
+    const last = chunkLines[chunkLines.length - 1];
+    const fromSeconds = first.from;
+    const toSeconds = Math.max(first.from, last.to);
+    const midpoint = (fromSeconds + toSeconds) / 2;
+    const owner = findOwnerChapterForSeconds(chapters, midpoint);
+
+    chunks.push({
+      chunkIndex: chunks.length,
+      startLineIdx: startIdx,
+      endLineIdx: endIdx,
+      startLineNumber: first.lineNumber,
+      endLineNumber: last.lineNumber,
+      fromSeconds,
+      toSeconds,
+      ...(owner !== undefined ? { chapterIndex: owner.chapterIndex } : {}),
+      contextPrefix: owner?.contextPrefix ?? "",
+      bodyText: chunkLines.map((item) => item.content).join(" "),
+      lines: chunkLines
+    });
+
+    if (endIdx >= lines.length - 1) {
+      break;
+    }
+
+    const windowSpan = toSeconds - windowStartSec;
+    if (windowSpan > overlapSeconds) {
+      const overlapCutoff = toSeconds - overlapSeconds;
+      let nextStart = endIdx + 1;
+      for (let idx = startIdx + 1; idx <= endIdx; idx += 1) {
+        if (lines[idx].from >= overlapCutoff) {
+          nextStart = idx;
+          break;
+        }
+      }
+      startIdx = Math.max(startIdx + 1, nextStart);
+    } else {
+      const lineSpan = endIdx - startIdx + 1;
+      const step = Math.max(1, Math.ceil(lineSpan * 0.8));
+      startIdx = Math.min(endIdx + 1, startIdx + step);
+    }
+  }
+
+  return chunks;
+}
+
+export interface CreateL0ContextualBm25IndexOptions {
+  k1?: number;
+  b?: number;
+  chapters?: readonly SemanticChunkChapterInput[];
+  chunkOptions?: BuildL0SemanticChunksOptions;
+}
+
+export interface L0ContextualBm25SearchOptions {
+  query?: string;
+  terms?: readonly string[];
+  expansionText?: string;
+  expansionTerms?: readonly string[];
+  expansionWeight?: number;
+  timeRanges?: readonly RetrievalTimeRange[];
+  topK?: number;
+}
+
+export interface L0ContextualBm25SearchResult {
+  hits: readonly L0ChunkHit[];
+  totalChunksScanned: number;
+  meanScore: number;
+  stdDevScore: number;
+  primaryCoreTerms: readonly string[];
+}
+
+export interface L0ContextualBm25Index {
+  readonly lineCount: number;
+  readonly chunkCount: number;
+  readonly avgDocLength: number;
+  readonly vocabularySize: number;
+  getLines(): readonly L0SubtitleLine[];
+  getChunks(): readonly L0SemanticChunk[];
+  search(queryOrOptions: string | L0ContextualBm25SearchOptions): L0ContextualBm25SearchResult;
+}
+
+function chunkMatchesTimeRanges(
+  chunk: L0SemanticChunk,
+  ranges: readonly RetrievalTimeRange[] | undefined
+): boolean {
+  if (!ranges || ranges.length === 0) {
+    return true;
+  }
+  return ranges.some((range) => {
+    const from = Number(range.from);
+    const to = Number(range.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      return false;
+    }
+    return chunk.toSeconds >= from && chunk.fromSeconds <= to;
+  });
+}
+
+function buildWeightedQueryTerms(
+  queryOrOptions: string | L0ContextualBm25SearchOptions
+): {
+  queryWeights: Map<string, { weight: number; term: string; isBigram: boolean }>;
+  primaryCoreTerms: string[];
+} {
+  const queryWeights = new Map<string, { weight: number; term: string; isBigram: boolean }>();
+  const primaryCoreSet = new Set<string>();
+
+  const addTokens = (text: unknown, multiplier: number, isPrimary: boolean) => {
+    for (const tok of tokenizeDualGranularity(text)) {
+      const effectiveWeight = tok.weight * multiplier;
+      if (effectiveWeight <= 0) {
+        continue;
+      }
+      if (isPrimary && !tok.isBigram) {
+        primaryCoreSet.add(tok.term);
+      }
+      const existing = queryWeights.get(tok.key);
+      if (!existing || effectiveWeight > existing.weight) {
+        queryWeights.set(tok.key, {
+          weight: effectiveWeight,
+          term: tok.term,
+          isBigram: tok.isBigram
+        });
+      }
+    }
+  };
+
+  if (typeof queryOrOptions === "string") {
+    addTokens(queryOrOptions, 1.0, true);
+  } else {
+    if (typeof queryOrOptions.query === "string" && queryOrOptions.query.trim()) {
+      addTokens(queryOrOptions.query, 1.0, true);
+    }
+    if (Array.isArray(queryOrOptions.terms)) {
+      for (const term of queryOrOptions.terms) {
+        addTokens(term, 1.0, true);
+      }
+    }
+    const rawExpansionWeight = Number(queryOrOptions.expansionWeight ?? DEFAULT_QUERY_EXPANSION_WEIGHT);
+    const expansionWeight =
+      Number.isFinite(rawExpansionWeight) && rawExpansionWeight > 0
+        ? rawExpansionWeight
+        : DEFAULT_QUERY_EXPANSION_WEIGHT;
+    if (typeof queryOrOptions.expansionText === "string" && queryOrOptions.expansionText.trim()) {
+      addTokens(queryOrOptions.expansionText, expansionWeight, false);
+    }
+    if (Array.isArray(queryOrOptions.expansionTerms)) {
+      for (const term of queryOrOptions.expansionTerms) {
+        addTokens(term, expansionWeight, false);
+      }
+    }
+  }
+
+  return {
+    queryWeights,
+    primaryCoreTerms: [...primaryCoreSet]
+  };
+}
+
+export function createL0ContextualBm25Index(
+  lines: readonly L0SubtitleLine[],
+  options: CreateL0ContextualBm25IndexOptions = {}
+): L0ContextualBm25Index {
+  const k1 = Number.isFinite(Number(options.k1)) && Number(options.k1) >= 0 ? Number(options.k1) : DEFAULT_BM25_K1;
+  const b = Number.isFinite(Number(options.b)) && Number(options.b) >= 0 && Number(options.b) <= 1 ? Number(options.b) : DEFAULT_BM25_B;
+  const chunks = buildL0SemanticChunks(lines, options.chapters, options.chunkOptions);
+  const docCount = chunks.length;
+  const docLengths = new Array<number>(docCount).fill(0);
+  const chunkWordSets: Array<Set<string>> = new Array(docCount);
+  const invertedIndex = new Map<string, Posting[]>();
+
+  let totalDocLength = 0;
+  for (let docIdx = 0; docIdx < docCount; docIdx += 1) {
+    const chunk = chunks[docIdx];
+    const fullText = chunk.contextPrefix ? `${chunk.contextPrefix}\n${chunk.bodyText}` : chunk.bodyText;
+    const tokens = tokenizeDualGranularity(fullText);
+    const wordSet = new Set<string>();
+    chunkWordSets[docIdx] = wordSet;
+
+    if (tokens.length === 0) {
+      continue;
+    }
+
+    let docLen = 0;
+    const termFreq = new Map<string, number>();
+    for (const token of tokens) {
+      docLen += token.weight;
+      if (!token.isBigram) {
+        wordSet.add(token.term);
+      }
+      termFreq.set(token.key, (termFreq.get(token.key) ?? 0) + token.weight);
+    }
+    docLengths[docIdx] = docLen;
+    totalDocLength += docLen;
+
+    for (const [termKey, tf] of termFreq.entries()) {
+      let postings = invertedIndex.get(termKey);
+      if (!postings) {
+        postings = [];
+        invertedIndex.set(termKey, postings);
+      }
+      postings.push({ docIdx, tf });
+    }
+  }
+
+  const avgDocLength = docCount > 0 && totalDocLength > 0 ? totalDocLength / docCount : 1;
+  const idfMap = new Map<string, number>();
+  for (const [termKey, postings] of invertedIndex.entries()) {
+    const df = postings.length;
+    const idf = Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
+    idfMap.set(termKey, idf);
+  }
+
+  return {
+    lineCount: lines.length,
+    chunkCount: docCount,
+    avgDocLength: docCount > 0 ? totalDocLength / docCount : 0,
+    vocabularySize: invertedIndex.size,
+
+    getLines(): readonly L0SubtitleLine[] {
+      return lines;
+    },
+
+    getChunks(): readonly L0SemanticChunk[] {
+      return chunks;
+    },
+
+    search(queryOrOptions: string | L0ContextualBm25SearchOptions): L0ContextualBm25SearchResult {
+      const opts: L0ContextualBm25SearchOptions =
+        typeof queryOrOptions === "string" ? { query: queryOrOptions } : (queryOrOptions || {});
+      const { queryWeights, primaryCoreTerms } = buildWeightedQueryTerms(queryOrOptions);
+
+      if (docCount === 0 || queryWeights.size === 0) {
+        return {
+          hits: [],
+          totalChunksScanned: 0,
+          meanScore: 0,
+          stdDevScore: 0,
+          primaryCoreTerms
+        };
+      }
+
+      const timeRanges = Array.isArray(opts.timeRanges) && opts.timeRanges.length > 0 ? opts.timeRanges : undefined;
+      const topK = Math.max(1, Math.floor(Number(opts.topK ?? DEFAULT_TOP_K) || DEFAULT_TOP_K));
+
+      const scores = new Map<number, number>();
+      const matchedMap = new Map<number, Set<string>>();
+
+      for (const [termKey, meta] of queryWeights.entries()) {
+        const postings = invertedIndex.get(termKey);
+        if (!postings) {
+          continue;
+        }
+        const idf = idfMap.get(termKey) ?? 0;
+        for (const { docIdx, tf } of postings) {
+          if (timeRanges && !chunkMatchesTimeRanges(chunks[docIdx], timeRanges)) {
+            continue;
+          }
+          const dl = docLengths[docIdx];
+          const norm = 1 - b + b * (dl / avgDocLength);
+          const denom = tf + k1 * norm;
+          const termScore = denom > 0 ? meta.weight * idf * ((tf * (k1 + 1)) / denom) : 0;
+          if (termScore <= 0) {
+            continue;
+          }
+          scores.set(docIdx, (scores.get(docIdx) ?? 0) + termScore);
+          let matched = matchedMap.get(docIdx);
+          if (!matched) {
+            matched = new Set<string>();
+            matchedMap.set(docIdx, matched);
+          }
+          matched.add(meta.term);
+        }
+      }
+
+      const totalChunksScanned = timeRanges
+        ? chunks.reduce((acc, chunk) => acc + (chunkMatchesTimeRanges(chunk, timeRanges) ? 1 : 0), 0)
+        : docCount;
+
+      if (scores.size === 0 || totalChunksScanned === 0) {
+        return {
+          hits: [],
+          totalChunksScanned,
+          meanScore: 0,
+          stdDevScore: 0,
+          primaryCoreTerms
+        };
+      }
+
+      let sumScores = 0;
+      for (const score of scores.values()) {
+        sumScores += score;
+      }
+      const meanScore = sumScores / totalChunksScanned;
+      let sumSq = 0;
+      for (const score of scores.values()) {
+        const diff = score - meanScore;
+        sumSq += diff * diff;
+      }
+      const zeroCount = Math.max(0, totalChunksScanned - scores.size);
+      sumSq += zeroCount * meanScore * meanScore;
+      const stdDevScore = Math.sqrt(sumSq / totalChunksScanned);
+
+      const hits: L0ChunkHit[] = [...scores.entries()]
+        .map(([docIdx, score]) => {
+          const wordSet = chunkWordSets[docIdx];
+          let matchedCore = 0;
+          if (primaryCoreTerms.length > 0 && wordSet) {
+            for (const coreTerm of primaryCoreTerms) {
+              if (wordSet.has(coreTerm)) {
+                matchedCore += 1;
+              }
+            }
+          }
+          const coreTermCoverage = primaryCoreTerms.length > 0 ? matchedCore / primaryCoreTerms.length : 0;
+          const chunk = chunks[docIdx];
+          return {
+            chunk,
+            score,
+            matchedTerms: [...(matchedMap.get(docIdx) ?? [])],
+            coreTermCoverage,
+            ...(chunk.chapterIndex !== undefined ? { chapterIndex: chunk.chapterIndex } : {})
+          };
+        })
+        .sort((a, bHit) => bHit.score - a.score || a.chunk.chunkIndex - bHit.chunk.chunkIndex)
+        .slice(0, topK);
+
+      return {
+        hits,
+        totalChunksScanned,
+        meanScore,
+        stdDevScore,
+        primaryCoreTerms
+      };
+    }
+  };
+}
+
+interface CachedContextualBm25Entry {
+  cacheKey: string;
+  subtitleKey: string;
+  lines: readonly L0SubtitleLine[];
+  index: L0ContextualBm25Index;
+}
+
+let contextualBm25Cache: Map<string, CachedContextualBm25Entry> | null = null;
+
+function getContextualBm25Cache(): Map<string, CachedContextualBm25Entry> {
+  if (!contextualBm25Cache) {
+    contextualBm25Cache = new Map();
+  }
+  return contextualBm25Cache;
+}
+
+export function computeL0SubtitleCacheKey(
+  rawLines: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown }> | null | undefined,
+  meta?: { signature?: unknown; bvid?: unknown; cid?: unknown }
+): string {
+  const sig = String(meta?.signature ?? "").trim();
+  const bvid = String(meta?.bvid ?? "").trim();
+  const cid = String(meta?.cid ?? "").trim();
+  const count = Array.isArray(rawLines) ? rawLines.length : 0;
+  let hash = fnv1a32(`${bvid}|${cid}|${sig}|${count}`);
+  if (Array.isArray(rawLines) && count > 0) {
+    for (let i = 0; i < count; i += 1) {
+      const item = rawLines[i];
+      const content = String(item?.content ?? "").trim();
+      if (!content) {
+        continue;
+      }
+      hash = fnv1a32(`${Number(item?.from) || 0}:${Number(item?.to) || 0}:${content}`, hash);
+    }
+  }
+  return `${bvid}|${cid}|${sig}|${count}:${hash.toString(16)}`;
+}
+
+export function computeDirectoryFingerprint(
+  chapters: readonly SemanticChunkChapterInput[] | undefined
+): string {
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    return "empty";
+  }
+  let hash = fnv1a32(String(chapters.length));
+  for (const ch of chapters) {
+    const title = String(ch?.title ?? "").trim();
+    const thesis = String(ch?.coreThesis ?? "").trim();
+    const entities = Array.isArray(ch?.keyEntities) ? ch.keyEntities.map((e: unknown) => String(e ?? "").trim()).join(",") : "";
+    hash = fnv1a32(`${Number(ch?.from) || 0}:${Number(ch?.to) || 0}:${title}|${thesis}|${entities}`, hash);
+  }
+  return `${chapters.length}:${hash.toString(16)}`;
+}
+
+export function findCachedL0SubtitleLines(subtitleKey: string): readonly L0SubtitleLine[] | null {
+  if (!subtitleKey || !contextualBm25Cache || contextualBm25Cache.size === 0) {
+    return null;
+  }
+  for (const entry of contextualBm25Cache.values()) {
+    if (entry.subtitleKey === subtitleKey) {
+      return entry.lines;
+    }
+  }
+  return null;
+}
+
+export interface GetOrCreateL0ContextualBm25IndexInput extends CreateL0ContextualBm25IndexOptions {
+  subtitleKey: string;
+  directoryFingerprint?: string;
+  lines: readonly L0SubtitleLine[];
+}
+
+export function getOrCreateL0ContextualBm25Index(
+  input: GetOrCreateL0ContextualBm25IndexInput
+): L0ContextualBm25Index {
+  const dirFp = input.directoryFingerprint ?? computeDirectoryFingerprint(input.chapters);
+  const cacheKey = `${input.subtitleKey}::${dirFp}`;
+  const cache = getContextualBm25Cache();
+  const hit = cache.get(cacheKey);
+  if (hit) {
+    cache.delete(cacheKey);
+    cache.set(cacheKey, hit);
+    return hit.index;
+  }
+
+  const index = createL0ContextualBm25Index(input.lines, {
+    k1: input.k1,
+    b: input.b,
+    chapters: input.chapters,
+    chunkOptions: input.chunkOptions
+  });
+
+  cache.set(cacheKey, {
+    cacheKey,
+    subtitleKey: input.subtitleKey,
+    lines: input.lines,
+    index
+  });
+
+  while (cache.size > MAX_CACHED_BM25_VIDEOS) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
+
+  return index;
+}
+
+export function clearL0Bm25Cache(): void {
+  contextualBm25Cache?.clear();
+}
+
+export function getL0Bm25CacheStats(): { size: number; keys: string[] } {
+  if (!contextualBm25Cache) {
+    return { size: 0, keys: [] };
+  }
+  return {
+    size: contextualBm25Cache.size,
+    keys: [...contextualBm25Cache.keys()]
+  };
 }

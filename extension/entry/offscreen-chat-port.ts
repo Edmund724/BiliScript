@@ -15,7 +15,7 @@ import {
 } from "../search/search-runtime.js";
 import type { ChatMsg } from "../ai/ladder.js";
 import type { CapturedVideoFrame } from "../ai/types.js";
-import type { ChatPortMessage } from "../chat/protocol.js";
+import type { ChatPortMessage, ChatTranscriptMode } from "../chat/protocol.js";
 import type {
   OffscreenChatPortMessage,
   ResolveAiProviderResponse
@@ -34,10 +34,20 @@ export interface AttachOffscreenChatPortDeps {
   streamIdleTimeoutMs?: number;
 }
 
-function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, contextKey: string) {
+function withCachedContextKey<T extends ChatPortMessage>(
+  port: PostMessagePort,
+  contextKey: string,
+  getTranscriptMode?: () => ChatTranscriptMode | undefined
+) {
   return {
     postMessage: (data: T): void => {
-      safePostMessage(port, { ...data, cachedContextKey: contextKey } as T);
+      const transcriptMode =
+        data.type === "done" || data.type === "stopped" ? getTranscriptMode?.() : undefined;
+      safePostMessage(port, {
+        ...data,
+        cachedContextKey: contextKey,
+        ...(transcriptMode ? { transcriptMode } : {})
+      } as T);
     }
   };
 }
@@ -221,7 +231,12 @@ export function attachOffscreenChatPort(
       safePostMessage(port, { type: "error", error: settled.error, code: settled.code });
       return;
     }
-    const ackedPort = withCachedContextKey<ChatPortMessage>(port, settled.contextKey!);
+    let resolvedTranscriptMode: ChatTranscriptMode | undefined;
+    const ackedPort = withCachedContextKey<ChatPortMessage>(
+      port,
+      settled.contextKey!,
+      () => resolvedTranscriptMode
+    );
 
     abortActiveRequest();
     const generation = ++currentChatGeneration;
@@ -301,6 +316,9 @@ export function attachOffscreenChatPort(
         },
         {
           askCostGuard: (costPort, message) => askCostGuard(costPort, message, generation),
+          onTranscriptMode: (mode) => {
+            resolvedTranscriptMode = mode;
+          },
           onActivity: () => {
             armIdleTimeout(generation, requestController, ackedPort);
           },

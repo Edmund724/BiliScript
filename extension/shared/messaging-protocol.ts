@@ -7,6 +7,7 @@ import type {
   SearchProviderType
 } from "../core/presets.js";
 import type { AiProvider, CapturedVideoFrame, ImagePart, SubtitleBodyItem } from "../ai/types.js";
+import type { ChatTranscriptMode, ChatTurnKind } from "../chat/protocol.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
@@ -781,6 +782,8 @@ export type OffscreenChatMessage = {
   providerId?: string;
   model?: string;
   conversationId?: string;
+  turnKind?: ChatTurnKind;
+  transcriptMode?: ChatTranscriptMode;
   webSearchEnabled?: boolean;
   videoFrameToolEnabled?: boolean;
   interactionAnchor?: {

@@ -1,5 +1,5 @@
 import { streamChat as _streamChat } from "./client.js";
-import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
+import { buildBudgetPlan as _buildBudgetPlan, MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { runCostGuard } from "./cost-guard.js";
@@ -7,21 +7,29 @@ import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } fro
 import { estimateTokensFromChars } from "./usage-stats.js";
 import { normalizeImageParts } from "./conversation.js";
 import { loadL1IndexViaProxy } from "./segment-cache-proxy.js";
-import { normalizeL0SubtitleLines } from "./l0-bm25.js";
+import {
+  clearL0Bm25Cache,
+  computeL0SubtitleCacheKey,
+  findCachedL0SubtitleLines,
+  normalizeL0SubtitleLines
+} from "./l0-bm25.js";
+export { clearL0Bm25Cache };
 import {
   detectInteractionAnchorPlan,
   doesPromptNeedVisualFrame,
   isLongVideoForHybridChat,
+  isMacroSummaryTurn,
+  LOCAL_HYBRID_MIN_CHARS,
   resolveLongVideoHybridContext,
   type InteractionAnchorHint
 } from "./chat-hybrid-retrieval.js";
 import type { chatCompletion as ChatCompletionFn } from "./completion.js";
-import type { ChatPort } from "../chat/protocol.js";
+import type { ChatPort, ChatTranscriptMode, ChatTurnKind } from "../chat/protocol.js";
 import type { WebSearchRuntime } from "../search/search-runtime.js";
 import { formatClock } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
-import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import type { L0SubtitleLine, L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type {
   AiContext,
@@ -41,12 +49,18 @@ export interface ChatMsg {
   history?: ChatMessage[];
   prompt?: string;
   thinkingLevel?: ThinkingLevelInput;
+  turnKind?: ChatTurnKind;
+  transcriptMode?: ChatTranscriptMode;
   images?: unknown;
   [key: string]: unknown;
 }
 
+export interface RunLadderChatResult {
+  transcriptMode?: ChatTranscriptMode;
+}
+
 export type ChatProvider = AiProvider;
-export type { ChatPort, BudgetPlan, WebSearchRuntime };
+export type { ChatPort, ChatTranscriptMode, ChatTurnKind, BudgetPlan, WebSearchRuntime };
 
 export type StreamChatFn = typeof _streamChat;
 export type StreamChatArgs = Parameters<typeof _streamChat>[0];
@@ -71,6 +85,7 @@ export interface RunLadderChatDeps {
   buildBudgetPlan?: typeof _buildBudgetPlan;
   trimRecentTurns?: typeof _trimRecentTurns;
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
+  onTranscriptMode?: (mode: ChatTranscriptMode) => void;
   onActivity?: () => void;
   pauseIdleTimeout?: () => void;
   acquireSwKeepalive?: () => SwKeepaliveHandle | null;
@@ -199,14 +214,19 @@ async function preCaptureVisualFramesIfNeeded(input: {
 export async function runLadderChat(
   { msg, provider, port, signal, webSearch, captureCurrentVideoFrame, fetchHotComments }: RunLadderChatArgs,
   deps: RunLadderChatDeps
-): Promise<void> {
+): Promise<RunLadderChatResult> {
   const streamChat = deps.streamChat ?? _streamChat;
   const orchestrateMapReduce = deps.orchestrateMapReduce ?? _orchestrateMapReduce;
   const resolveFollowupContext = deps.resolveFollowupContext ?? _resolveFollowupContext;
   const buildBudgetPlan = deps.buildBudgetPlan ?? _buildBudgetPlan;
   const trimRecentTurns = deps.trimRecentTurns ?? _trimRecentTurns;
   const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
-  const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
+  const { askCostGuard, onActivity, pauseIdleTimeout, onTranscriptMode } = deps;
+
+  const reportTranscriptMode = (mode: ChatTranscriptMode): ChatTranscriptMode => {
+    onTranscriptMode?.(mode);
+    return mode;
+  };
 
   const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
   try {
@@ -217,15 +237,12 @@ export async function runLadderChat(
     const effectiveCaptureFrame = capabilities.supportsCurrentFrameCapture ? captureCurrentVideoFrame : undefined;
     const effectiveFetchHotComments = capabilities.supportsHotComments ? fetchHotComments : undefined;
 
+    const rawBody = Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [];
     const plan = buildBudgetPlan({
-      body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
+      body: rawBody,
       chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
     });
     const userImages = normalizeImageParts(msg.images);
-    const l0Lines = normalizeL0SubtitleLines(
-      Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : []
-    );
-    const isLongVideo = plan.mode === "map-reduce" || isLongVideoForHybridChat(l0Lines, msg.context);
     const interactionAnchor = asInteractionAnchorHint(msg.interactionAnchor);
     const playbackCursorSeconds =
       typeof msg.playbackCursorSeconds === "number" && Number.isFinite(msg.playbackCursorSeconds) && msg.playbackCursorSeconds >= 0
@@ -234,16 +251,98 @@ export async function runLadderChat(
     const rawHistory = Array.isArray(msg.history) ? msg.history : [];
     const userPrompt = msg.prompt || "";
 
+    const isFirstTurn = rawHistory.length === 0;
+    const explicitTranscriptMode: ChatTranscriptMode | undefined =
+      msg.transcriptMode === "full" || msg.transcriptMode === "hybrid" ? msg.transcriptMode : undefined;
+    const firstUserMsg = rawHistory.find((m) => m?.role === "user");
+    const historyStartedWithMacroSummary =
+      !isFirstTurn &&
+      Boolean(firstUserMsg && isMacroSummaryTurn({ userPrompt: firstUserMsg.content, isFirstTurn: true }));
+    const currentIsMacroSummary = isMacroSummaryTurn({
+      turnKind: msg.turnKind,
+      userPrompt,
+      isFirstTurn
+    });
+    const withinFullBudget = plan.mode !== "map-reduce" && plan.totalChars <= MATERIAL_BUDGET_CHARS;
+    const isProtectedFullSession =
+      withinFullBudget &&
+      (currentIsMacroSummary ||
+        explicitTranscriptMode === "full" ||
+        (explicitTranscriptMode === undefined && historyStartedWithMacroSummary));
+
+    const runFullStreamTurn = async (): Promise<RunLadderChatResult> => {
+      const mode = reportTranscriptMode("full");
+      try {
+        await streamChat({
+          provider,
+          context: msg.context || {},
+          userPrompt,
+          history: rawHistory,
+          userImages,
+          thinkingLevel: msg.thinkingLevel,
+          port,
+          signal,
+          onActivity,
+          webSearch,
+          captureCurrentVideoFrame: effectiveCaptureFrame,
+          fetchHotComments: effectiveFetchHotComments
+        });
+      } catch (e) {
+        if (!(e as { overflow?: boolean }).overflow) {
+          throw e;
+        }
+        pauseIdleTimeout?.();
+        if (webSearch) {
+          port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
+        }
+        await orchestrateMapReduce({
+          provider,
+          context: msg.context || {},
+          plan: null,
+          port,
+          signal,
+          thinkingLevel: msg.thinkingLevel,
+          onProgress: function (notice: string) {
+            port.postMessage({ type: "notice", data: notice });
+          }
+        });
+      }
+      return { transcriptMode: mode };
+    };
+
+    if (isProtectedFullSession) {
+      return await runFullStreamTurn();
+    }
+
+    const subtitleCacheKey = computeL0SubtitleCacheKey(rawBody, {
+      signature: msg.context?.signature ?? msg.context?.l1Index?.subtitleSignature,
+      bvid: msg.context?.bvid ?? msg.context?.l1Index?.bvid,
+      cid: msg.context?.cid ?? msg.context?.l1Index?.cid
+    });
+    const l0Lines: readonly L0SubtitleLine[] =
+      rawBody.length > 0
+        ? (findCachedL0SubtitleLines(subtitleCacheKey) ?? normalizeL0SubtitleLines(rawBody))
+        : [];
+    const l0TotalChars = l0Lines.reduce((sum, line) => sum + line.content.length, 0);
+    const isLongVideo = plan.mode === "map-reduce" || isLongVideoForHybridChat(l0Lines, msg.context);
+    const isLocalHybridCandidate =
+      plan.totalChars >= LOCAL_HYBRID_MIN_CHARS ||
+      l0TotalChars >= LOCAL_HYBRID_MIN_CHARS ||
+      explicitTranscriptMode === "hybrid";
+
     const runHybridStreamTurn = async (args: {
       baseContext: ChatContext;
       l1Index: L1VideoIndexCacheRecord | null;
       compressedSummaryMarkdown?: string;
-    }) => {
+    }): Promise<RunLadderChatResult> => {
+      const mode = reportTranscriptMode("hybrid");
       const resolution = await resolveLongVideoHybridContext({
         context: args.baseContext,
         userPrompt,
         history: rawHistory,
         l1Index: args.l1Index,
+        preNormalizedLines: l0Lines,
+        subtitleCacheKey,
         compressedSummaryMarkdown: args.compressedSummaryMarkdown,
         interactionAnchor,
         playbackCursorSeconds,
@@ -299,9 +398,10 @@ export async function runLadderChat(
         }
         port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
       }
+      return { transcriptMode: mode };
     };
 
-    if (isLongVideo && l0Lines.length > 0) {
+    if ((isLongVideo || isLocalHybridCandidate) && l0Lines.length > 0) {
       const fastPathPlan = detectInteractionAnchorPlan({
         userPrompt,
         interactionAnchor,
@@ -310,11 +410,10 @@ export async function runLadderChat(
       });
       if (fastPathPlan) {
         const l1Index = await loadL1Index(msg.context || {}).catch(() => null);
-        await runHybridStreamTurn({
+        return await runHybridStreamTurn({
           baseContext: msg.context || {},
           l1Index
         });
-        return;
       }
     }
 
@@ -330,15 +429,19 @@ export async function runLadderChat(
               })
             : Promise.resolve(null)
         ]);
-        if (l1Index || followupContext) {
-          await runHybridStreamTurn({
+        if (
+          l1Index ||
+          followupContext ||
+          explicitTranscriptMode === "hybrid" ||
+          (!currentIsMacroSummary && l0TotalChars > MATERIAL_BUDGET_CHARS)
+        ) {
+          return await runHybridStreamTurn({
             baseContext: followupContext ?? (msg.context || {}),
             l1Index,
             compressedSummaryMarkdown: followupContext
               ? String(followupContext.compressedSummaryMarkdown || "")
               : ""
           });
-          return;
         }
       }
 
@@ -355,7 +458,7 @@ export async function runLadderChat(
         }
       });
       if (declined) {
-        return;
+        return {};
       }
 
       pauseIdleTimeout?.();
@@ -373,55 +476,20 @@ export async function runLadderChat(
           port.postMessage({ type: "notice", data: notice });
         }
       });
-      return;
+      return {};
     }
 
-    if (isLongVideo && l0Lines.length > 0) {
+    if ((isLongVideo || isLocalHybridCandidate) && l0Lines.length > 0) {
       const l1Index = await loadL1Index(msg.context || {}).catch(() => null);
-      if (l1Index) {
-        await runHybridStreamTurn({
+      if (l1Index || isLocalHybridCandidate) {
+        return await runHybridStreamTurn({
           baseContext: msg.context || {},
           l1Index
         });
-        return;
       }
     }
 
-    try {
-      await streamChat({
-        provider,
-        context: msg.context || {},
-        userPrompt,
-        history: rawHistory,
-        userImages,
-        thinkingLevel: msg.thinkingLevel,
-        port,
-        signal,
-        onActivity,
-        webSearch,
-        captureCurrentVideoFrame: effectiveCaptureFrame,
-        fetchHotComments: effectiveFetchHotComments
-      });
-    } catch (e) {
-      if (!(e as { overflow?: boolean }).overflow) {
-        throw e;
-      }
-      pauseIdleTimeout?.();
-      if (webSearch) {
-        port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
-      }
-      await orchestrateMapReduce({
-        provider,
-        context: msg.context || {},
-        plan: null,
-        port,
-        signal,
-        thinkingLevel: msg.thinkingLevel,
-        onProgress: function (notice: string) {
-          port.postMessage({ type: "notice", data: notice });
-        }
-      });
-    }
+    return await runFullStreamTurn();
   } finally {
     keepalive?.release();
   }

@@ -15,7 +15,7 @@ import {
   type ChatSessionMessage
 } from "./chat-state.js";
 import { consumeRuntimeLastError } from "../shared/messaging.js";
-import type { ChatPortMessage } from "./protocol.js";
+import type { ChatPortMessage, ChatTranscriptMode, ChatTurnKind } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ChatNoticeSlot } from "../reader/chat-notices.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
@@ -37,7 +37,7 @@ export const STREAM_SLOW_NOTICE_TAG = "stream-slow";
 
 export type SendVerdict = "accepted" | "blocked" | "ignored";
 
-export type ChatTurnKind = "user" | "player-ai" | "video-note";
+export type { ChatTurnKind, ChatTranscriptMode };
 
 export const TURN_SETTLE_FALLBACK_MS = 4000;
 
@@ -45,6 +45,7 @@ export interface SendTurnOptions {
   preserveInputDraft?: boolean;
   interactionAnchor?: InteractionAnchorHint;
   turnKind?: ChatTurnKind;
+  transcriptMode?: ChatTranscriptMode;
   expectedClipSignature?: string;
 }
 
@@ -87,6 +88,7 @@ export interface CommittedChatTurnInfo {
   stopped: boolean;
   capturedFrames: NoteKeyframeCandidate[];
   turnKind: ChatTurnKind;
+  transcriptMode?: ChatTranscriptMode;
   expectedClipSignature: string;
 }
 
@@ -144,6 +146,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activeUserNode: HTMLDivElement | null = null;
   let activeTurnProviderId = "";
   let activeTurnKind: ChatTurnKind = "user";
+  let activeTurnTranscriptMode: ChatTranscriptMode | undefined = undefined;
+  let lastResolvedTranscriptMode: { conversationId: string; mode: ChatTranscriptMode } | null = null;
   let activeExpectedClipSignature = "";
   let activeUserImages: ImagePart[] = [];
   let activeUserContextKey = "";
@@ -335,6 +339,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!msg) return;
     if (typeof msg.cachedContextKey === "string" && msg.cachedContextKey) {
       lastAckedContextKey = msg.cachedContextKey;
+    }
+    if (msg.transcriptMode === "full" || msg.transcriptMode === "hybrid") {
+      activeTurnTranscriptMode = msg.transcriptMode;
+      if (activeConversationId) {
+        lastResolvedTranscriptMode = {
+          conversationId: activeConversationId,
+          mode: msg.transcriptMode
+        };
+      }
     }
     if (msg.type === "video-frame-cancel") {
       const controller = pendingVideoFrames.get(msg.requestId);
@@ -792,12 +805,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         return "blocked";
       }
 
+      const requestedTranscriptMode: ChatTranscriptMode | undefined =
+        sendOptions?.transcriptMode ??
+        (lastResolvedTranscriptMode && lastResolvedTranscriptMode.conversationId === activeConversationId
+          ? lastResolvedTranscriptMode.mode
+          : undefined);
+      activeTurnTranscriptMode = requestedTranscriptMode;
+
       port.postMessage({
         action: "chat",
         providerId,
         model: deps.getSelectedModel() || "",
         conversationId: chatSessionState.currentConversationId,
         thinkingLevel: chatSessionState.aiThinkingLevel,
+        turnKind: activeTurnKind,
+        ...(requestedTranscriptMode ? { transcriptMode: requestedTranscriptMode } : {}),
         webSearchEnabled,
         ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         ...(interactionAnchor ? { interactionAnchor } : {}),
@@ -845,6 +867,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserContextKey = "";
     activeTurnProviderId = "";
     activeTurnKind = "user";
+    activeTurnTranscriptMode = undefined;
     activeExpectedClipSignature = "";
     activeToolCalls.clear();
     activeToolGeneration = 0;
@@ -903,6 +926,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         stopped: isStopped,
         capturedFrames: boundFrames,
         turnKind: activeTurnKind,
+        ...(activeTurnTranscriptMode ? { transcriptMode: activeTurnTranscriptMode } : {}),
         expectedClipSignature: activeExpectedClipSignature
       });
       return true;
@@ -1121,6 +1145,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserContextKey = "";
     activeTurnProviderId = "";
     activeTurnKind = "user";
+    activeTurnTranscriptMode = undefined;
+    lastResolvedTranscriptMode = null;
     activeExpectedClipSignature = "";
     activeToolCalls.clear();
     activeToolGeneration = 0;

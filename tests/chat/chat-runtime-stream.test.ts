@@ -149,6 +149,7 @@ describe("sendMessage 建流与协议入口", () => {
     const chatMsg = session.port.postMessage.mock.calls[0][0];
     expect(chatMsg.action).toBe("chat");
     expect(chatMsg.prompt).toBe("总结一下这个视频");
+    expect(chatMsg.turnKind).toBe("user");
 
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("总结一下这个视频");
     expect(deps.input.value).toBe("");
@@ -350,6 +351,40 @@ describe("sendMessage 建流与协议入口", () => {
     expect(deps.ensureCurrentContextForSend).not.toHaveBeenCalled();
     expect(deps.ports).toHaveLength(0);
     expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
+  });
+
+  it("透传 turnKind（player-ai / video-note）与 transcriptMode，回执中的 transcriptMode 落入 onTurnCommitted 并延续到下轮", async () => {
+    const deps = makeDeps();
+    const committed: Array<{ turnKind: string; transcriptMode?: string }> = [];
+    deps.onTurnCommitted = (info) => {
+      committed.push({ turnKind: info.turnKind, transcriptMode: info.transcriptMode });
+    };
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("生成视频笔记", { turnKind: "video-note" });
+    expect(deps.ports[0].port.postMessage.mock.calls[0][0]).toMatchObject({
+      action: "chat",
+      turnKind: "video-note"
+    });
+    feed(runtime, { type: "token", data: "笔记内容" });
+    feed(runtime, { type: "done", transcriptMode: "full" });
+    expect(committed[0]).toEqual({ turnKind: "video-note", transcriptMode: "full" });
+
+    await runtime.sendTurn("第三款网卡型号是什么？");
+    expect(deps.ports[1].port.postMessage.mock.calls[0][0]).toMatchObject({
+      action: "chat",
+      turnKind: "user",
+      transcriptMode: "full"
+    });
+    feed(runtime, { type: "token", data: "RTL8126" });
+    feed(runtime, { type: "done", transcriptMode: "full" });
+
+    await runtime.sendTurn("快捷总结", { turnKind: "player-ai", transcriptMode: "hybrid" });
+    expect(deps.ports[2].port.postMessage.mock.calls[0][0]).toMatchObject({
+      action: "chat",
+      turnKind: "player-ai",
+      transcriptMode: "hybrid"
+    });
   });
 });
 

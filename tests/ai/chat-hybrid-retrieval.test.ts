@@ -1,18 +1,28 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildFastPathContext,
+  buildL1RouterMessages,
+  buildLocalFallbackDirectory,
   detectInteractionAnchorPlan,
   doesPromptNeedVisualFrame,
+  extractPriorTurnExpansion,
+  fuseAndPackRrfChunks,
   isLongVideoForHybridChat,
+  isMacroSummaryTurn,
   isSimpleGreetingPrompt,
+  LOCAL_HYBRID_MIN_CHARS,
   mergeL0ContextWindows,
   parseL1RouterOutput,
+  RECENT_TURN_HINT_MAX_CHARS,
   resolveLongVideoHybridContext,
+  RRF_WEIGHT_BM25,
+  RRF_WEIGHT_L1,
   STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
 } from "../../extension/ai/chat-hybrid-retrieval.js";
 import { buildMessages, formatDynamicTurnUserContent } from "../../extension/ai/context.js";
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
-import { normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
+import * as l0Bm25 from "../../extension/ai/l0-bm25.js";
+import { clearL0Bm25Cache, normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
 import { runLadderChat, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { createExplainIntentController, setPendingExplainIntent } from "../../extension/reader/explain-intent.js";
 import type { L0ContextWindow, L1VideoIndexCacheRecord } from "../../extension/ai/long-video-hybrid-types.js";
@@ -421,7 +431,7 @@ describe("路由频控限流、超时与非预期格式静默降级", () => {
 
     const result = await resolveLongVideoHybridContext({
       context: { bvid: "BV1hybridTest", cid: "1001", subtitleBody: rawBody, videoDuration: 2700 },
-      userPrompt: "Softmax 稳定性问题是什么？",
+      userPrompt: "Softmax 稳定性解决方案是什么？",
       l1Index,
       provider: { baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
       routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion
@@ -703,5 +713,368 @@ describe("KV 前缀缓存锁死与动态检索块后置（#28）", () => {
     expect(builtTurnMessages[3].at(-1)?.content).toContain("<retrieved_subtitles>");
     expect(builtTurnMessages[3].at(-1)?.content).toContain("WebAssembly SIMD 加速本地词法检索的性能对比图表");
     expect(capturedContexts[0].staticDirectoryMarkdown).toBe(capturedContexts[1].staticDirectoryMarkdown);
+  });
+});
+
+describe("意图感知分流、纯本地伪目录、单次归一化、指代扩展、免路由直通与 RRF 融合（#30）", () => {
+  afterEach(() => {
+    clearL0Bm25Cache();
+    vi.restoreAllMocks();
+  });
+
+  function buildSixtyKVideoFixture(options: { withChapters?: boolean; bvid?: string } = {}) {
+    const rawBody: Array<{ from: number; to: number; content: string }> = [];
+    for (let i = 0; i < 300; i += 1) {
+      const from = i * 6;
+      const to = from + 5;
+      let content = `第${i}段常规装机测试与性能记录背景说明，` + "基础评测数据对比讲解流程介绍分析。".repeat(10);
+      if (i === 180) {
+        content = "第三款网卡型号是 Realtek RTL8126 五千兆有线网卡，实测满载功耗仅 1.8W，发热控制极佳。" + "常规补充描述。".repeat(12);
+      } else if (i === 181) {
+        content = "这款 RTL8126 的主要缺点是老版本 Linux 内核缺少原生驱动，需要手动编译安装 r8126 模块。" + "常规补充描述。".repeat(12);
+      }
+      rawBody.push({ from, to, content });
+    }
+    const chapters = options.withChapters
+      ? [
+          { from: 0, to: 600, title: "开箱与测试平台", summary: "" },
+          { from: 600, to: 1200, title: "三款高速网卡横评", summary: "" },
+          { from: 1200, to: 1800, title: "功耗散热与选购结论", summary: "" }
+        ]
+      : [];
+    const totalChars = rawBody.reduce((s, item) => s + item.content.length, 0);
+    return {
+      rawBody,
+      chapters,
+      totalChars,
+      context: {
+        title: "三款高速网卡深度横评",
+        author: "硬件实验室",
+        uploadDate: "2026-02-01",
+        bvid: options.bvid ?? "BV1sixtyK",
+        cid: "2001",
+        videoDuration: 1800,
+        subtitleBody: rawBody,
+        chapters
+      }
+    };
+  }
+
+  it("isMacroSummaryTurn 正确区分 player-ai / video-note / 首轮全片总结 与 细节追问", () => {
+    expect(LOCAL_HYBRID_MIN_CHARS).toBe(40_000);
+    expect(isMacroSummaryTurn({ turnKind: "player-ai", userPrompt: "随便问一句", isFirstTurn: false })).toBe(true);
+    expect(isMacroSummaryTurn({ turnKind: "video-note", userPrompt: "生成笔记", isFirstTurn: false })).toBe(true);
+    expect(isMacroSummaryTurn({ turnKind: "user", userPrompt: "总结全片要点", isFirstTurn: true })).toBe(true);
+    expect(isMacroSummaryTurn({ turnKind: "user", userPrompt: "第三款网卡型号是什么？", isFirstTurn: true })).toBe(false);
+    expect(isMacroSummaryTurn({ turnKind: "user", userPrompt: "总结全片要点", isFirstTurn: false })).toBe(false);
+  });
+
+  it("6 万字视频点击 player-ai、video-note 或首轮「总结全片要点」100% 保持全量字幕直塞，且第 2 轮细节追问维持全量静态 system 逐字节一致", async () => {
+    const fixture = buildSixtyKVideoFixture({ withChapters: true });
+    expect(fixture.totalChars).toBeGreaterThan(40_000);
+    expect(fixture.totalChars).toBeLessThan(200_000);
+
+    const routeSpy = vi.fn();
+    const loadL1Spy = vi.fn(async () => null);
+
+    for (const specialKind of ["player-ai", "video-note"] as const) {
+      const captured: Array<Record<string, unknown>> = [];
+      const result = await runLadderChat(
+        {
+          msg: {
+            context: fixture.context,
+            history: [],
+            prompt: "帮我整理这期视频",
+            turnKind: specialKind,
+            thinkingLevel: "off"
+          },
+          provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+          port: { postMessage: () => {} },
+          signal: new AbortController().signal
+        },
+        {
+          loadL1Index: loadL1Spy,
+          routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+          streamChat: vi.fn(async (args) => {
+            captured.push((args.context ?? {}) as Record<string, unknown>);
+            return { done: true as const };
+          }),
+          askCostGuard: vi.fn(async () => true)
+        }
+      );
+      expect(result.transcriptMode).toBe("full");
+      expect(captured[0].subtitleBody).toHaveLength(fixture.rawBody.length);
+      expect(captured[0].hybridRetrievalMarkdown).toBeUndefined();
+      expect(captured[0].staticDirectoryMarkdown).toBeUndefined();
+    }
+    expect(routeSpy).not.toHaveBeenCalled();
+
+    const turnSystems: string[] = [];
+    const runTurn = async (prompt: string, history: ChatMessage[], transcriptMode?: "full" | "hybrid") => {
+      return runLadderChat(
+        {
+          msg: {
+            context: fixture.context,
+            history,
+            prompt,
+            turnKind: "user",
+            ...(transcriptMode ? { transcriptMode } : {}),
+            thinkingLevel: "off"
+          },
+          provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+          port: { postMessage: () => {} },
+          signal: new AbortController().signal
+        },
+        {
+          loadL1Index: loadL1Spy,
+          routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+          streamChat: vi.fn(async (args) => {
+            const messages = buildMessages({
+              context: args.context,
+              userPrompt: args.userPrompt,
+              history: args.history
+            });
+            turnSystems.push(messages[0].content);
+            return { done: true as const };
+          }),
+          askCostGuard: vi.fn(async () => true)
+        }
+      );
+    };
+
+    const r1 = await runTurn("总结全片要点", []);
+    expect(r1.transcriptMode).toBe("full");
+
+    const historyAfterTurn1: ChatMessage[] = [
+      { role: "user", content: "总结全片要点" },
+      { role: "assistant", content: "全片横评了三款高速网卡。" }
+    ];
+    const r2Stateless = await runTurn("第三款网卡型号是什么？", historyAfterTurn1);
+    const r2Explicit = await runTurn("第三款网卡型号是什么？", historyAfterTurn1, "full");
+
+    expect(r2Stateless.transcriptMode).toBe("full");
+    expect(r2Explicit.transcriptMode).toBe("full");
+    expect(turnSystems[0]).toContain("Realtek RTL8126");
+    expect(turnSystems[1]).toBe(turnSystems[0]);
+    expect(turnSystems[2]).toBe(turnSystems[0]);
+    expect(routeSpy).not.toHaveBeenCalled();
+  });
+
+  it("同一 6 万字无 l1Index 视频首轮直接追问局部细节：零概览 LLM 调用，命中本地章节与 5 分钟时间桶且仅外发召回窗口", async () => {
+    const withChapters = buildSixtyKVideoFixture({ withChapters: true, bvid: "BV1localCh" });
+    const withoutChapters = buildSixtyKVideoFixture({ withChapters: false, bvid: "BV1localBucket" });
+
+    const localFromChapters = buildLocalFallbackDirectory({
+      context: withChapters.context,
+      lines: normalizeL0SubtitleLines(withChapters.rawBody)
+    });
+    expect(localFromChapters?.chapters).toHaveLength(3);
+    expect(localFromChapters?.chapters[1].title).toBe("三款高速网卡横评");
+
+    const localFromBuckets = buildLocalFallbackDirectory({
+      context: withoutChapters.context,
+      lines: normalizeL0SubtitleLines(withoutChapters.rawBody)
+    });
+    expect(localFromBuckets?.chapters.length).toBe(6);
+    expect(localFromBuckets?.chapters[0].from).toBe(0);
+    expect(localFromBuckets?.chapters[0].to).toBe(300);
+    expect(localFromBuckets?.chapters[3].keyEntities.length).toBeGreaterThan(0);
+    expect(localFromBuckets?.chapters[3].keyEntities.every((w) => w.length >= 2)).toBe(true);
+
+    const routeSpy = vi.fn();
+    const capturedContexts: Array<Record<string, unknown>> = [];
+    const result = await runLadderChat(
+      {
+        msg: {
+          context: withoutChapters.context,
+          history: [],
+          prompt: "第三款网卡型号 RTL8126 功耗多少？",
+          turnKind: "user",
+          thinkingLevel: "off"
+        },
+        provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+        port: { postMessage: () => {} },
+        signal: new AbortController().signal
+      },
+      {
+        loadL1Index: vi.fn(async () => null),
+        routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+        streamChat: vi.fn(async (args) => {
+          capturedContexts.push((args.context ?? {}) as Record<string, unknown>);
+          return { done: true as const };
+        }),
+        askCostGuard: vi.fn(async () => true)
+      }
+    );
+
+    expect(result.transcriptMode).toBe("hybrid");
+    expect(routeSpy).not.toHaveBeenCalled();
+    expect(capturedContexts[0].subtitleBody).toEqual([]);
+    expect(String(capturedContexts[0].staticDirectoryMarkdown)).toContain("视频 L1 章节目录");
+    expect(String(capturedContexts[0].hybridRetrievalMarkdown)).toContain("Realtek RTL8126");
+    expect(String(capturedContexts[0].hybridRetrievalMarkdown).length).toBeLessThan(withChapters.totalChars / 3);
+  });
+
+  it("单次归一化 spy：单轮最多调用 normalizeL0SubtitleLines 1 次，同片二次追问命中缓存为 0 次", async () => {
+    clearL0Bm25Cache();
+    const fixture = buildSixtyKVideoFixture({ withChapters: true, bvid: "BV1singleNorm" });
+    const normalizeSpy = vi.spyOn(l0Bm25, "normalizeL0SubtitleLines");
+
+    await runLadderChat(
+      {
+        msg: {
+          context: fixture.context,
+          history: [],
+          prompt: "第三款网卡型号 RTL8126 功耗多少？",
+          turnKind: "user",
+          thinkingLevel: "off"
+        },
+        provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+        port: { postMessage: () => {} },
+        signal: new AbortController().signal
+      },
+      {
+        loadL1Index: vi.fn(async () => null),
+        routeChatCompletion: vi.fn() as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+        streamChat: vi.fn(async () => ({ done: true as const })),
+        askCostGuard: vi.fn(async () => true)
+      }
+    );
+    expect(normalizeSpy).toHaveBeenCalledTimes(1);
+
+    await runLadderChat(
+      {
+        msg: {
+          context: fixture.context,
+          history: [
+            { role: "user", content: "第三款网卡型号 RTL8126 功耗多少？" },
+            { role: "assistant", content: "第三款网卡是 Realtek RTL8126，满载功耗 1.8W。" }
+          ],
+          prompt: "它有什么缺点？",
+          turnKind: "user",
+          transcriptMode: "hybrid",
+          thinkingLevel: "off"
+        },
+        provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+        port: { postMessage: () => {} },
+        signal: new AbortController().signal
+      },
+      {
+        loadL1Index: vi.fn(async () => null),
+        routeChatCompletion: vi.fn() as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+        streamChat: vi.fn(async () => ({ done: true as const })),
+        askCostGuard: vi.fn(async () => true)
+      }
+    );
+    expect(normalizeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("多轮指代扩展：从上轮 user + assistant 前 300 字提取实体与时间戳锚点并入 0.35 权重，L1 路由 recentHint 扩展至 280 字", async () => {
+    const fixture = buildSixtyKVideoFixture({ withChapters: true, bvid: "BV1coref" });
+    const longAssistantReply =
+      "第三款网卡型号是 Realtek RTL8126，位于 18:00 附近，实测满载功耗 1.8W，温度很低。" +
+      "补充说明内容。".repeat(60) +
+      "尾部三百字之外不应提取的专词ZZZTAIL999";
+    const history: ChatMessage[] = [
+      { role: "user", content: "第三款网卡型号是什么？" },
+      { role: "assistant", content: longAssistantReply }
+    ];
+
+    const expanded = extractPriorTurnExpansion(history, normalizeL0SubtitleLines(fixture.rawBody));
+    expect(expanded.expansionTerms).toContain("rtl8126");
+    expect(expanded.expansionTerms).toContain("realtek");
+    expect(expanded.expansionTerms).not.toContain("zzztail999");
+    expect(expanded.anchorTimestamps).toContain(1080);
+
+    const routerMessages = buildL1RouterMessages({
+      l1DirectoryPrompt: "[0:00-10:00] 开箱",
+      userPrompt: "它有什么缺点？",
+      history
+    });
+    const hintLine = routerMessages[1].content.split("\n").find((l) => l.startsWith("上一轮用户问题参考：")) ?? "";
+    expect(hintLine.length).toBeGreaterThan(150);
+    expect(hintLine.length - "上一轮用户问题参考：".length).toBeLessThanOrEqual(RECENT_TURN_HINT_MAX_CHARS);
+
+    const resolved = await resolveLongVideoHybridContext({
+      context: fixture.context,
+      userPrompt: "它有什么缺点？",
+      history,
+      l1Index: null,
+      provider: { baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+      routeChatCompletion: vi.fn(async () => JSON.stringify({ mode: "expand", ranges: [{ from: "10:00", to: "20:00" }], terms: ["缺点"] })) as unknown as typeof import("../../extension/ai/completion.js").chatCompletion
+    });
+
+    expect(resolved.hybridRetrievalMarkdown).toContain("老版本 Linux 内核缺少原生驱动");
+  });
+
+  it("高置信 Contextual BM25 命中（Top-1 > mean + 2.8*std 且核心词覆盖 >= 80%）免路由跳过 routeChatCompletion", async () => {
+    const { rawBody, l1Index } = buildLongVideoFixture();
+    const augmentedBody = rawBody.map((item, idx) =>
+      idx === 55
+        ? { ...item, content: "这一段独家实测 Marvell AQC113C 万兆网卡在雷电4扩展坞下的链路延迟" }
+        : item
+    );
+    const routeSpy = vi.fn();
+
+    const result = await resolveLongVideoHybridContext({
+      context: { bvid: "BV1bypassTest", cid: "1001", subtitleBody: augmentedBody, videoDuration: 2700 },
+      userPrompt: "Marvell AQC113C 链路延迟",
+      l1Index,
+      provider: { baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
+      routeChatCompletion: routeSpy as unknown as typeof import("../../extension/ai/completion.js").chatCompletion
+    });
+
+    expect(routeSpy).not.toHaveBeenCalled();
+    expect(result.mode).toBe("hybrid-single-hop");
+    expect(result.routerBypassed).toBe(true);
+    expect(result.degraded).toBe(false);
+    expect(result.hybridRetrievalMarkdown).toContain("Marvell AQC113C");
+  });
+
+  it("RRF 融合排序在候选超 80,000 字符时保留视频末尾 5 分钟高分滑窗并保持时间升序输出", async () => {
+    const rawBody: Array<{ from: number; to: number; content: string }> = [];
+    for (let i = 0; i < 200; i += 1) {
+      const from = i * 18;
+      const to = from + 17;
+      let content = `前中段第${i}句长篇基础背景铺垫与例行说明：` + "示例铺垫文字内容数据对比。".repeat(48);
+      if (i === 190) {
+        content = "视频最后五分钟重磅揭示量子纠错阈值表面码实测突破关键参数 AlphaQubit-9981 结论。" + "详情说明。".repeat(20);
+      }
+      rawBody.push({ from, to, content });
+    }
+    const lines = normalizeL0SubtitleLines(rawBody);
+    const totalChars = lines.reduce((s, l) => s + l.content.length, 0);
+    expect(totalChars).toBeGreaterThan(STAGE_B_TOTAL_SUBTITLE_MAX_CHARS);
+
+    const chunks = l0Bm25.buildL0SemanticChunks(lines);
+    const lateChunk = chunks.find((c) => c.bodyText.includes("AlphaQubit-9981"))!;
+    expect(lateChunk).toBeDefined();
+
+    const earlyFillerChunks = chunks.filter((c) => c.fromSeconds < 3200);
+    const earlyFillerChars = earlyFillerChunks.reduce(
+      (sum, ch) => sum + ch.lines.reduce((s, l) => s + l.content.length, 0),
+      0
+    );
+    expect(earlyFillerChars).toBeGreaterThan(STAGE_B_TOTAL_SUBTITLE_MAX_CHARS);
+    const earlyFillerIndexes = earlyFillerChunks.map((c) => c.chunkIndex);
+
+    const packed = fuseAndPackRrfChunks({
+      lines,
+      chunks,
+      rankedSources: [
+        { source: "l1", weight: RRF_WEIGHT_L1, chunkIndexes: earlyFillerIndexes },
+        { source: "bm25", weight: RRF_WEIGHT_BM25, chunkIndexes: [lateChunk.chunkIndex, earlyFillerIndexes[0]] }
+      ],
+      maxInjectedChars: STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
+    });
+
+    expect(packed.injectedChars).toBeLessThanOrEqual(STAGE_B_TOTAL_SUBTITLE_MAX_CHARS);
+    expect(packed.truncated).toBe(true);
+    const flattenedLines = packed.windows.flatMap((w) => w.lines);
+    expect(flattenedLines.some((l) => l.content.includes("AlphaQubit-9981"))).toBe(true);
+    for (let i = 1; i < flattenedLines.length; i += 1) {
+      expect(flattenedLines[i].lineNumber).toBeGreaterThan(flattenedLines[i - 1].lineNumber);
+    }
+    expect(packed.windows.at(-1)?.lines.some((l) => l.content.includes("AlphaQubit-9981"))).toBe(true);
   });
 });

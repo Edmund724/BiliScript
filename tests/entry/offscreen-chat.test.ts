@@ -1262,3 +1262,76 @@ describe("offscreen 对话链会话头穿线", () => {
     expect(headers[0].Authorization).toBe("Bearer test-key");
   });
 });
+
+describe("offscreen turnKind / transcriptMode 透传与字幕槽淘汰联动（#30）", () => {
+  beforeEach(() => {
+    runLadderChatMock.mockReset();
+  });
+
+  it("透传 turnKind 与 transcriptMode 给 runLadderChat，并将决议后的 transcriptMode 随 done 回传", async () => {
+    runLadderChatMock.mockImplementation(async ({ port }: RunLadderChatArgs, deps: RunLadderChatDeps) => {
+      deps.onTranscriptMode?.("full");
+      port.postMessage({ type: "token", data: "正文" });
+      port.postMessage({ type: "done" });
+      return { transcriptMode: "full" };
+    });
+
+    const host = await importMockedOffscreen();
+    const session = connectChat(host, { assertSingleListener: true });
+    session.send({
+      action: "chat",
+      providerId: "p1",
+      contextKey: "video:BV1tk|1",
+      turnKind: "video-note",
+      transcriptMode: "full",
+      context: { title: "视频", subtitleBody: [{ from: 0, to: 5, content: "句1" }] },
+      prompt: "整理笔记"
+    });
+
+    await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(1));
+    const ladderMsg = (runLadderChatMock.mock.calls[0][0] as RunLadderChatArgs).msg;
+    expect(ladderMsg.turnKind).toBe("video-note");
+    expect(ladderMsg.transcriptMode).toBe("full");
+    await vi.waitFor(() => expect(session.postedMessages).toHaveLength(2));
+    expect(session.postedMessages[1]).toMatchObject({
+      type: "done",
+      cachedContextKey: "video:BV1tk|1",
+      transcriptMode: "full"
+    });
+  });
+
+  it("字幕槽淘汰仅在 ladder 已加载后调用 clearL0Bm25Cache，未加载前不触发懒加载", async () => {
+    const clearSpy = vi.fn();
+    let ladderImportCount = 0;
+    vi.resetModules();
+    vi.doMock("../../extension/ai/ladder.js", () => {
+      ladderImportCount += 1;
+      return {
+        runLadderChat: runLadderChatMock,
+        clearL0Bm25Cache: clearSpy
+      };
+    });
+    runLadderChatMock.mockImplementation(async ({ port }: RunLadderChatArgs) => {
+      port.postMessage({ type: "done" });
+      return {};
+    });
+
+    const host = installChatHost({ "resolve-ai-provider": defaultProviderReply });
+    await import("../../extension/entry/offscreen.js");
+    expect(ladderImportCount).toBe(0);
+
+    const session = connectChat(host, { assertSingleListener: true });
+    for (let i = 0; i < 9; i += 1) {
+      session.send({
+        action: "chat",
+        providerId: "p1",
+        contextKey: `video:BVevict${i}|1`,
+        context: { title: `视频${i}`, subtitleBody: [{ from: 0, to: 5, content: `句${i}` }] },
+        prompt: `问${i}`
+      });
+    }
+
+    await vi.waitFor(() => expect(ladderImportCount).toBe(1));
+    await vi.waitFor(() => expect(clearSpy).toHaveBeenCalled());
+  });
+});
