@@ -21,6 +21,7 @@ export const MCP_SUBTITLE_PREVIEW_SECONDS = 180;
 export const MCP_SUBTITLE_PREVIEW_MAX_BYTES = 3 * 1024;
 export const MCP_SUBTITLE_BUCKET_SECONDS = 300;
 export const MAX_MCP_FRAMES = 6;
+export const MAX_CLI_FRAMES = 12;
 export const MAX_FRAME_SPAN_SECONDS = 8;
 export const FRAME_DEDUPE_TOLERANCE_SECONDS = 0.25;
 export const DEFAULT_FRAME_TIMEOUT_MS = 95000;
@@ -901,26 +902,26 @@ async function runCommand(command, options, { port = configuredPort() } = {}) {
   }
 }
 
-function writeFrameFiles(result, out) {
-  const frames = Array.isArray(result?.frames) ? result.frames : [];
-  if (!frames.length) throw new Error("扩展未返回可用视频帧");
+export function writeFrameFiles(
+  result,
+  out,
+  { requestedTimes = false ? Object.create(null) : undefined, spanSeconds = 0, maxFrames = MAX_CLI_FRAMES } = {}
+) {
+  const selected = normalizeCapturedFrames(result, { requestedTimes, spanSeconds, maxFrames });
   const outputDirectory = out ? path.resolve(out) : mkdtempSync(path.join(tmpdir(), "biliscript-frames-"));
   mkdirSync(outputDirectory, { recursive: true });
   const batchId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
   const bvid = String(result.bvid || "video").replace(/[^0-9A-Za-z_-]/g, "_");
-  const written = frames.map((frame, index) => {
-    const bytes = Buffer.from(String(frame?.data || ""), "base64");
-    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
-      throw new Error(`第 ${index + 1} 张截图不是有效 JPEG 数据`);
-    }
-    const targetTime = Number(frame.targetTime);
-    const currentTime = Number(frame.currentTime);
-    if (!Number.isFinite(targetTime) || !Number.isFinite(currentTime) || currentTime < 0) {
-      throw new Error(`第 ${index + 1} 张截图缺少有效时间信息`);
-    }
+  const written = selected.map((frame, index) => {
+    const bytes = Buffer.from(frame.data, "base64");
     const filePath = path.join(outputDirectory, `${bvid}-${batchId}-${index + 1}.jpg`);
     writeFileSync(filePath, bytes, { flag: "wx" });
-    return { path: filePath, targetTime, currentTime };
+    return {
+      path: filePath,
+      anchorTime: frame.anchorTime,
+      targetTime: frame.targetTime,
+      currentTime: frame.currentTime
+    };
   });
   return { ...result, frames: written };
 }
@@ -1284,9 +1285,9 @@ function isLegacyMultiPointResponse(frames, requestedTimes, spanSeconds) {
   return false;
 }
 
-export function formatMcpFrameContent(
+function normalizeCapturedFrames(
   result,
-  { requestedTimes = false ? Object.create(null) : undefined, spanSeconds = 0, maxFrames = MAX_MCP_FRAMES } = {}
+  { requestedTimes = false ? Object.create(null) : undefined, spanSeconds = 0, maxFrames = MAX_CLI_FRAMES } = {}
 ) {
   const rawFrames = Array.isArray(result?.frames) ? result.frames : [];
   if (!rawFrames.length) throw new Error("扩展未返回可用视频帧");
@@ -1300,7 +1301,66 @@ export function formatMcpFrameContent(
       anchorTime: Number.isFinite(Number(frame.anchorTime)) ? frame.anchorTime : requestedTimes[0]
     }));
   }
-  selected = selected.slice(0, maxFrames);
+  return selected.slice(0, maxFrames);
+}
+
+async function executeFrameRequest(
+  executeDaemon,
+  { target = {}, daemonOptions, requestedTimes, spanSeconds = 0, maxFrames }
+) {
+  let result = await executeDaemon("frame", daemonOptions);
+  if (
+    requestedTimes
+    && requestedTimes.length > 1
+    && isLegacyMultiPointResponse(Array.isArray(result?.frames) ? result.frames : [], requestedTimes, spanSeconds)
+  ) {
+    let firstValidated;
+    try {
+      firstValidated = (Array.isArray(result?.frames) ? result.frames : []).map((frame, index) => validateFrameData(frame, index));
+    } catch (error) {
+      error.remote = true;
+      throw error;
+    }
+    const collected = [];
+    if (firstValidated.length > 0) {
+      if (spanSeconds === 0) {
+        collected.push(selectClosestFrame(firstValidated, requestedTimes[0]));
+      } else {
+        collected.push(...firstValidated.map((frame) => ({ ...frame, anchorTime: requestedTimes[0] })));
+      }
+    }
+    for (const targetTime of requestedTimes.slice(1)) {
+      if (collected.length >= maxFrames) break;
+      const pointResult = await executeDaemon("frame", {
+        ...target,
+        times: [targetTime],
+        targetTime,
+        spanSeconds
+      });
+      let pointFrames;
+      try {
+        pointFrames = (Array.isArray(pointResult?.frames) ? pointResult.frames : []).map((frame, index) => validateFrameData(frame, index));
+      } catch (error) {
+        error.remote = true;
+        throw error;
+      }
+      if (pointFrames.length === 0) continue;
+      if (spanSeconds === 0) {
+        collected.push(selectClosestFrame(pointFrames, targetTime));
+      } else {
+        collected.push(...pointFrames.map((frame) => ({ ...frame, anchorTime: targetTime })));
+      }
+    }
+    result = { ...result, frames: collected.slice(0, maxFrames) };
+  }
+  return result;
+}
+
+export function formatMcpFrameContent(
+  result,
+  { requestedTimes = false ? Object.create(null) : undefined, spanSeconds = 0, maxFrames = MAX_MCP_FRAMES } = {}
+) {
+  const selected = normalizeCapturedFrames(result, { requestedTimes, spanSeconds, maxFrames });
   const metadata = {
     ...(result?.site ? { site: result.site } : {}),
     bvid: result?.bvid,
@@ -1625,39 +1685,13 @@ async function executeMcpToolCall(name, rawArgs, executeDaemon) {
   if (name === "biliscript_frame") {
     const parsed = parseMcpFrameArgs(args);
     try {
-      let result = await executeDaemon("frame", parsed.daemonOptions);
-      if (
-        parsed.requestedTimes
-        && parsed.requestedTimes.length > 1
-        && isLegacyMultiPointResponse(Array.isArray(result?.frames) ? result.frames : [], parsed.requestedTimes, parsed.spanSeconds)
-      ) {
-        const firstValidated = (Array.isArray(result?.frames) ? result.frames : []).map((frame, index) => validateFrameData(frame, index));
-        const collected = [];
-        if (firstValidated.length > 0) {
-          if (parsed.spanSeconds === 0) {
-            collected.push(selectClosestFrame(firstValidated, parsed.requestedTimes[0]));
-          } else {
-            collected.push(...firstValidated.map((frame) => ({ ...frame, anchorTime: parsed.requestedTimes[0] })));
-          }
-        }
-        for (const targetTime of parsed.requestedTimes.slice(1)) {
-          if (collected.length >= MAX_MCP_FRAMES) break;
-          const pointResult = await executeDaemon("frame", {
-            ...parsed.target,
-            times: [targetTime],
-            targetTime,
-            spanSeconds: parsed.spanSeconds
-          });
-          const pointFrames = (Array.isArray(pointResult?.frames) ? pointResult.frames : []).map((frame, index) => validateFrameData(frame, index));
-          if (pointFrames.length === 0) continue;
-          if (parsed.spanSeconds === 0) {
-            collected.push(selectClosestFrame(pointFrames, targetTime));
-          } else {
-            collected.push(...pointFrames.map((frame) => ({ ...frame, anchorTime: targetTime })));
-          }
-        }
-        result = { ...result, frames: collected.slice(0, MAX_MCP_FRAMES) };
-      }
+      const result = await executeFrameRequest(executeDaemon, {
+        target: parsed.target,
+        daemonOptions: parsed.daemonOptions,
+        requestedTimes: parsed.requestedTimes,
+        spanSeconds: parsed.spanSeconds,
+        maxFrames: MAX_MCP_FRAMES
+      });
       const content = formatMcpFrameContent(result, {
         requestedTimes: parsed.requestedTimes,
         spanSeconds: parsed.spanSeconds
@@ -1860,7 +1894,7 @@ export function applySubtitleSpillover(result, out, { maxInlineBytes = SUBTITLE_
   };
 }
 
-function parseCliArgs(args) {
+export function parseCliArgs(args) {
   const command = args[0];
   if (!["status", "tabs", "fetch", "subtitles", "comments", "frame"].includes(command)) return null;
   if (command === "tabs") return args.length === 1 ? { command } : null;
@@ -1870,6 +1904,10 @@ function parseCliArgs(args) {
     return null;
   }
   const options = {};
+  const target = {};
+  const requestedTimes = [];
+  let spanSeconds = 0;
+  let hasSpan = false;
   let out;
   const hasSubtitles = command === "subtitles" || command === "fetch";
   for (let index = 1; index < args.length; index += 1) {
@@ -1880,15 +1918,37 @@ function parseCliArgs(args) {
     if (flag === "--tab") {
       options.tabId = Number(value);
       if (!Number.isInteger(options.tabId) || options.tabId <= 0) return null;
+      target.tabId = options.tabId;
     } else if (flag === "--bvid" || flag === "--video") {
       options.bvid = value;
+      target.bvid = value;
     } else if (hasSubtitles && (flag === "--from" || flag === "--to")) {
       const number = Number(value);
       if (!Number.isFinite(number) || number < 0) return null;
       options[flag.slice(2)] = number;
     } else if (command === "frame" && flag === "--time") {
-      options.targetTime = Number(value);
-      if (!Number.isFinite(options.targetTime) || options.targetTime < 0) return null;
+      const parsedTime = parseTimestampSeconds(value);
+      if (parsedTime === null) {
+        return { command, error: `--time 参数无效：${value}（支持非负秒数或 mm:ss / hh:mm:ss）` };
+      }
+      requestedTimes.push(parsedTime);
+    } else if (command === "frame" && flag === "--times") {
+      const parts = value.split(",");
+      for (const part of parts) {
+        const parsedTime = parseTimestampSeconds(part);
+        if (parsedTime === null) {
+          return { command, error: `--times 参数无效：${value}（请使用逗号分隔的非负秒数或 mm:ss / hh:mm:ss）` };
+        }
+        requestedTimes.push(parsedTime);
+      }
+    } else if (command === "frame" && flag === "--span") {
+      const trimmedSpan = value.trim();
+      const parsedSpan = trimmedSpan ? Number(trimmedSpan) : Number.NaN;
+      if (!Number.isFinite(parsedSpan) || parsedSpan < 0 || parsedSpan > MAX_FRAME_SPAN_SECONDS) {
+        return { command, error: `--span 必须是 0 到 ${MAX_FRAME_SPAN_SECONDS} 之间的有限数字` };
+      }
+      spanSeconds = parsedSpan;
+      hasSpan = true;
     } else if ((command === "frame" || hasSubtitles) && flag === "--out") {
       out = value;
     } else {
@@ -1896,6 +1956,33 @@ function parseCliArgs(args) {
     }
   }
   if (options.from !== undefined && options.to !== undefined && options.to < options.from) return null;
+  if (command === "frame") {
+    if (hasSpan && requestedTimes.length === 0) {
+      return { command, error: "指定 --span 时必须同时提供 --times 或 --time" };
+    }
+    if (requestedTimes.length > 0) {
+      const expanded = expandFrameTargets(requestedTimes, { spanSeconds });
+      if (expanded.length > MAX_CLI_FRAMES) {
+        return {
+          command,
+          error: `单次 CLI 截帧上限为 ${MAX_CLI_FRAMES} 帧，当前参数展开去重后为 ${expanded.length} 帧，请减少时间点或减小 --span`
+        };
+      }
+      options.times = requestedTimes;
+      options.targetTime = requestedTimes[0];
+      options.spanSeconds = spanSeconds;
+    }
+    return {
+      command,
+      options,
+      frameRequest: {
+        target,
+        requestedTimes: requestedTimes.length > 0 ? requestedTimes : undefined,
+        spanSeconds
+      },
+      ...(out ? { out } : {})
+    };
+  }
   return { command, options, ...(out ? { out } : {}) };
 }
 
@@ -1941,27 +2028,48 @@ async function main() {
     return;
   }
   const parsed = parseCliArgs(args);
-  if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs|mcp [--port <n>]>；fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]；frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--time <sec>] [--out <dir>]" }));
+  if (!parsed || parsed.error) {
+    console.log(JSON.stringify({
+      ok: false,
+      ...(parsed?.command ? { command: parsed.command } : {}),
+      error: parsed?.error || "用法：node biliscript.mjs <status [--wait]|tabs|mcp [--port <n>]>；fetch [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <ID/URL>|--video <ID/URL>]；frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--times <t1,t2,...>] [--time <t>] [--span <sec>] [--out <dir>]"
+    }));
     process.exitCode = 1;
     return;
   }
   try {
-    const result = await runCommand(parsed.command, parsed.options);
-    let output = result;
+    let output;
     if (parsed.command === "frame") {
+      const result = await executeFrameRequest(
+        (command, options) => runCommand(command, options),
+        {
+          target: parsed.frameRequest.target,
+          daemonOptions: parsed.options,
+          requestedTimes: parsed.frameRequest.requestedTimes,
+          spanSeconds: parsed.frameRequest.spanSeconds,
+          maxFrames: MAX_CLI_FRAMES
+        }
+      );
       try {
-        output = writeFrameFiles(result, parsed.out);
+        output = writeFrameFiles(result, parsed.out, {
+          requestedTimes: parsed.frameRequest.requestedTimes,
+          spanSeconds: parsed.frameRequest.spanSeconds,
+          maxFrames: MAX_CLI_FRAMES
+        });
       } catch (error) {
         error.remote = true;
         throw error;
       }
-    } else if (parsed.command === "subtitles" || parsed.command === "fetch") {
-      try {
-        output = applySubtitleSpillover(result, parsed.out);
-      } catch (error) {
-        error.remote = true;
-        throw error;
+    } else {
+      const result = await runCommand(parsed.command, parsed.options);
+      output = result;
+      if (parsed.command === "subtitles" || parsed.command === "fetch") {
+        try {
+          output = applySubtitleSpillover(result, parsed.out);
+        } catch (error) {
+          error.remote = true;
+          throw error;
+        }
       }
     }
     console.log(JSON.stringify(output));

@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
+  MAX_CLI_FRAMES,
   SUBTITLE_INLINE_MAX_BYTES,
   applySubtitleSpillover,
   connectWebSocket,
+  expandFrameTargets,
   formatSubtitleClock
 } from "../../skills/biliscript/scripts/biliscript.mjs";
 import { formatClock } from "../../extension/shared/clock-text.js";
@@ -38,6 +40,30 @@ function runCli(
         return;
       }
       resolve(JSON.parse(stdout));
+    });
+  });
+}
+
+function runCliFailure(
+  command: "status" | "tabs" | "fetch" | "subtitles" | "comments" | "frame",
+  args: string[] = [],
+  customEnv = env
+): Promise<{ code: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    execFile(process.execPath, [script, command, ...args], { env: customEnv }, (error, stdout, stderr) => {
+      if (!error) {
+        reject(new Error(`预期命令非零退出但成功返回：${stdout}`));
+        return;
+      }
+      try {
+        const exitCode = (error as { code?: unknown }).code;
+        resolve({
+          code: typeof exitCode === "number" ? exitCode : 1,
+          body: JSON.parse(stdout)
+        });
+      } catch {
+        reject(new Error(`失败输出不是合法 JSON：${stdout}\n${stderr}`));
+      }
     });
   });
 }
@@ -75,8 +101,14 @@ describe("桌面 Agent CLI 端到端", () => {
     extension.onMessage = (message: { type?: string; id?: string; command?: string; options?: unknown }) => {
       if (message.type !== "request") return;
       extensionRequests.push(message);
-      const targetTime = (message.options as { targetTime?: unknown } | undefined)?.targetTime;
-      const frameTimes = typeof targetTime === "number" ? [targetTime - 2, targetTime, targetTime + 2] : [12.5];
+      const frameOptions = message.options as { times?: number[]; targetTime?: number; spanSeconds?: number } | undefined;
+      const rawTimes = Array.isArray(frameOptions?.times)
+        ? frameOptions.times
+        : typeof frameOptions?.targetTime === "number"
+          ? [frameOptions.targetTime]
+          : undefined;
+      const spanSeconds = typeof frameOptions?.spanSeconds === "number" ? frameOptions.spanSeconds : 0;
+      const frameTargets = rawTimes ? expandFrameTargets(rawTimes, { spanSeconds }) : null;
       const result = message.command === "subtitles"
         ? { video: { bvid: "BV1test000000" }, subtitle: { items: [{ from: 10, to: 12, content: "字幕" }] } }
         : message.command === "comments"
@@ -85,11 +117,18 @@ describe("桌面 Agent CLI 端到端", () => {
             ? {
                 bvid: "BV1test000000",
                 cid: "123456",
-                frames: frameTimes.map((time) => ({
-                  data: "/9j/2Q==",
-                  targetTime: time,
-                  currentTime: time + (typeof targetTime === "number" ? 0.05 : 0)
-                }))
+                frames: frameTargets
+                  ? frameTargets.map((target) => ({
+                      data: "/9j/2Q==",
+                      anchorTime: target.anchorTime,
+                      targetTime: target.targetTime,
+                      currentTime: target.targetTime + 0.05
+                    }))
+                  : [{
+                      data: "/9j/2Q==",
+                      targetTime: 12.5,
+                      currentTime: 12.5
+                    }]
               }
             : {
                 tabs: [{
@@ -338,14 +377,15 @@ describe("桌面 Agent CLI 端到端", () => {
     expect(readFileSync((emptySpilled.subtitle as { path: string }).path, "utf8")).toBe("");
   });
 
-  it("frame 写入当前帧与历史三帧 JPEG，输出绝对路径和逐帧时间", async () => {
+  it("frame 写入当前帧与 --time 默认单帧及 --span 邻域三帧 JPEG，输出 anchorTime / targetTime / currentTime", async () => {
+    extensionRequests.length = 0;
     const current = await runCli("frame", ["--tab", "42"]);
-    const currentFrames = current.frames as Array<{ path: string; targetTime: number; currentTime: number; data?: string }>;
+    const currentFrames = current.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number; data?: string }>;
     const defaultOut = dirname(currentFrames[0].path);
     try {
       expect(current).toMatchObject({ ok: true, command: "frame", extensionOnline: true, bvid: "BV1test000000" });
       expect(currentFrames).toHaveLength(1);
-      expect(currentFrames[0]).toMatchObject({ targetTime: 12.5, currentTime: 12.5 });
+      expect(currentFrames[0]).toMatchObject({ anchorTime: 12.5, targetTime: 12.5, currentTime: 12.5 });
       expect(currentFrames[0].path).toBe(resolve(currentFrames[0].path));
       expect(currentFrames[0].data).toBeUndefined();
       expect(readFileSync(currentFrames[0].path, "base64")).toBe("/9j/2Q==");
@@ -353,13 +393,23 @@ describe("桌面 Agent CLI 端到端", () => {
       rmSync(defaultOut, { recursive: true, force: true });
     }
 
-    const out = join(scratch, "frames");
-    const historical = await runCli("frame", ["--bvid", "BV1test000000", "--time", "10", "--out", out]);
-    const historicalFrames = historical.frames as Array<{ path: string; targetTime: number; currentTime: number }>;
-    expect(historicalFrames.map((frame) => frame.targetTime)).toEqual([8, 10, 12]);
-    expect(historicalFrames.map((frame) => frame.currentTime)).toEqual([8.05, 10.05, 12.05]);
-    expect(historicalFrames.every((frame) => dirname(frame.path) === resolve(out))).toBe(true);
-    expect(historicalFrames.every((frame) => readFileSync(frame.path, "base64") === "/9j/2Q==")).toBe(true);
+    const outSingle = join(scratch, "frames-single");
+    const single = await runCli("frame", ["--bvid", "BV1test000000", "--time", "10", "--out", outSingle]);
+    const singleFrames = single.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number }>;
+    expect(singleFrames).toHaveLength(1);
+    expect(singleFrames[0]).toMatchObject({ anchorTime: 10, targetTime: 10, currentTime: 10.05 });
+    expect(dirname(singleFrames[0].path)).toBe(resolve(outSingle));
+    expect(readFileSync(singleFrames[0].path, "base64")).toBe("/9j/2Q==");
+
+    const outSpan = join(scratch, "frames-span");
+    const spanned = await runCli("frame", ["--bvid", "BV1test000000", "--time", "10", "--span", "2", "--out", outSpan]);
+    const spannedFrames = spanned.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number }>;
+    expect(spannedFrames.map((frame) => frame.anchorTime)).toEqual([10, 10, 10]);
+    expect(spannedFrames.map((frame) => frame.targetTime)).toEqual([8, 10, 12]);
+    expect(spannedFrames.map((frame) => frame.currentTime)).toEqual([8.05, 10.05, 12.05]);
+    expect(spannedFrames.every((frame) => dirname(frame.path) === resolve(outSpan))).toBe(true);
+    expect(spannedFrames.every((frame) => readFileSync(frame.path, "base64") === "/9j/2Q==")).toBe(true);
+
     expect(extensionRequests).toContainEqual({
       type: "request",
       id: expect.any(String),
@@ -370,8 +420,143 @@ describe("桌面 Agent CLI 端到端", () => {
       type: "request",
       id: expect.any(String),
       command: "frame",
-      options: { bvid: "BV1test000000", targetTime: 10 }
+      options: { bvid: "BV1test000000", times: [10], targetTime: 10, spanSeconds: 0 }
     });
+    expect(extensionRequests).toContainEqual({
+      type: "request",
+      id: expect.any(String),
+      command: "frame",
+      options: { bvid: "BV1test000000", times: [10], targetTime: 10, spanSeconds: 2 }
+    });
+  });
+
+  it("frame 支持 --times 多时间点、重复 --time、--span 展开与超 12 帧参数拒绝", async () => {
+    extensionRequests.length = 0;
+
+    const multiOut = join(scratch, "frames-times");
+    const multi = await runCli("frame", ["--bvid", "BV1test000000", "--times", "0:15,2:05,10:00", "--out", multiOut]);
+    const multiFrames = multi.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number }>;
+    expect(multiFrames.map((frame) => frame.anchorTime)).toEqual([15, 125, 600]);
+    expect(multiFrames.map((frame) => frame.targetTime)).toEqual([15, 125, 600]);
+    expect(multiFrames.map((frame) => frame.currentTime)).toEqual([15.05, 125.05, 600.05]);
+    expect(multiFrames.every((frame) => dirname(frame.path) === resolve(multiOut))).toBe(true);
+
+    const repeatedOut = join(scratch, "frames-repeated-time");
+    const repeated = await runCli("frame", [
+      "--bvid", "BV1test000000",
+      "--time", "12",
+      "--time", "48",
+      "--out", repeatedOut
+    ]);
+    const repeatedFrames = repeated.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number }>;
+    expect(repeatedFrames.map((frame) => frame.anchorTime)).toEqual([12, 48]);
+    expect(repeatedFrames.map((frame) => frame.targetTime)).toEqual([12, 48]);
+
+    const spanMultiOut = join(scratch, "frames-times-span");
+    const spanMulti = await runCli("frame", [
+      "--bvid", "BV1test000000",
+      "--times", "20,60",
+      "--span", "3",
+      "--out", spanMultiOut
+    ]);
+    const spanMultiFrames = spanMulti.frames as Array<{ path: string; anchorTime: number; targetTime: number; currentTime: number }>;
+    expect(spanMultiFrames).toHaveLength(6);
+    expect(spanMultiFrames.map((frame) => frame.anchorTime)).toEqual([20, 20, 20, 60, 60, 60]);
+    expect(spanMultiFrames.map((frame) => frame.targetTime)).toEqual([17, 20, 23, 57, 60, 63]);
+    expect(spanMultiFrames.every((frame) => readFileSync(frame.path, "base64") === "/9j/2Q==")).toBe(true);
+
+    expect(extensionRequests).toEqual([
+      {
+        type: "request",
+        id: expect.any(String),
+        command: "frame",
+        options: { bvid: "BV1test000000", times: [15, 125, 600], targetTime: 15, spanSeconds: 0 }
+      },
+      {
+        type: "request",
+        id: expect.any(String),
+        command: "frame",
+        options: { bvid: "BV1test000000", times: [12, 48], targetTime: 12, spanSeconds: 0 }
+      },
+      {
+        type: "request",
+        id: expect.any(String),
+        command: "frame",
+        options: { bvid: "BV1test000000", times: [20, 60], targetTime: 20, spanSeconds: 3 }
+      }
+    ]);
+
+    expect(MAX_CLI_FRAMES).toBe(12);
+    const overLimit = await runCliFailure("frame", [
+      "--bvid", "BV1test000000",
+      "--times", "10,30,50,70,90",
+      "--span", "3"
+    ]);
+    expect(overLimit.code).not.toBe(0);
+    expect(overLimit.body).toMatchObject({ ok: false, command: "frame" });
+    expect(String(overLimit.body.error)).toContain("12");
+    expect(String(overLimit.body.error)).toContain("15");
+    expect(extensionRequests).toHaveLength(3);
+
+    const invalidSpan = await runCliFailure("frame", ["--bvid", "BV1test000000", "--time", "10", "--span", "9"]);
+    expect(invalidSpan.code).not.toBe(0);
+    expect(invalidSpan.body).toMatchObject({ ok: false, command: "frame" });
+
+    const spanWithoutTime = await runCliFailure("frame", ["--bvid", "BV1test000000", "--span", "2"]);
+    expect(spanWithoutTime.code).not.toBe(0);
+    expect(spanWithoutTime.body).toMatchObject({ ok: false, command: "frame" });
+    expect(extensionRequests).toHaveLength(3);
+  });
+
+  it("frame 兼容未升级旧扩展的三帧返回并在默认单帧模式收敛为最接近帧", async () => {
+    const previous = extension?.onMessage;
+    const legacyRequests: Array<{ targetTime?: number }> = [];
+    if (extension) {
+      extension.onMessage = (message: { type?: string; id?: string; command?: string; options?: { targetTime?: number } }) => {
+        if (message.type !== "request" || message.command !== "frame") {
+          previous?.(message as never);
+          return;
+        }
+        legacyRequests.push({ targetTime: message.options?.targetTime });
+        const center = Number(message.options?.targetTime ?? 10);
+        extension?.sendJSON({
+          type: "response",
+          id: message.id,
+          ok: true,
+          result: {
+            bvid: "BV1legacy0000",
+            cid: "999",
+            frames: [center - 2, center, center + 2].map((time) => ({
+              data: "/9j/2Q==",
+              targetTime: time,
+              currentTime: time + 0.02
+            }))
+          }
+        });
+      };
+    }
+    try {
+      const single = await runCli("frame", [
+        "--bvid", "BV1legacy0000",
+        "--time", "10",
+        "--out", join(scratch, "legacy-single")
+      ]);
+      const singleFrames = single.frames as Array<{ anchorTime: number; targetTime: number; currentTime: number }>;
+      expect(singleFrames).toHaveLength(1);
+      expect(singleFrames[0]).toMatchObject({ anchorTime: 10, targetTime: 10, currentTime: 10.02 });
+
+      const multi = await runCli("frame", [
+        "--bvid", "BV1legacy0000",
+        "--times", "20,80",
+        "--out", join(scratch, "legacy-multi")
+      ]);
+      const multiFrames = multi.frames as Array<{ anchorTime: number; targetTime: number; currentTime: number }>;
+      expect(multiFrames.map((frame) => frame.anchorTime)).toEqual([20, 80]);
+      expect(multiFrames.map((frame) => frame.targetTime)).toEqual([20, 80]);
+      expect(legacyRequests).toEqual([{ targetTime: 10 }, { targetTime: 20 }, { targetTime: 80 }]);
+    } finally {
+      if (extension) extension.onMessage = previous;
+    }
   });
 
   it("并发截帧并发转发且复用同一个 Daemon", async () => {
@@ -396,11 +581,12 @@ describe("桌面 Agent CLI 端到端", () => {
             result: {
               bvid: "BV1test000000",
               cid: "123456",
-              frames: [8, 10, 12].map((time) => ({
+              frames: [{
                 data: "/9j/2Q==",
-                targetTime: time,
-                currentTime: time
-              }))
+                anchorTime: 10,
+                targetTime: 10,
+                currentTime: 10
+              }]
             }
           });
         }, 30);

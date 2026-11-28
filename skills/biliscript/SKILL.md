@@ -55,15 +55,17 @@ node "<skill-dir>/scripts/biliscript.mjs" fetch [--tab <id>|--bvid <ID/URL>|--vi
 依据用户问题、章节和字幕确定目标时间戳后再截取关键帧：
 
 ```bash
+# 单条命令批量截取多个关键时间点（默认每点精确截 1 帧，单次上限 12 帧）
+node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] --times <t1,t2,...> [--span <sec>] [--out <dir>]
+
 # 已打开标签页的当前播放帧（B 站 / YouTube 均支持，不改变播放位置）
 node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <ID/URL>|--video <ID/URL>] [--out <dir>]
-
-# 指定时间点附近前、中、后三帧（t-2s、t、t+2s，边界处可能更少；仅 B 站支持，未打开视频必传 --time）
-node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] --time <sec> [--out <dir>]
 ```
 
-- CLI 将 JPEG 写入 `--out` 指定目录（默认写入系统临时目录），输出每张图片的绝对路径 `frames[].path`、`targetTime` 与实际 `currentTime`。
-- 同一视频的多个时间点可并发提交 `frame` 命令：扩展在队列内复用同一隐藏视频串行 seek，并在队列空闲、切换视频或出错时立即释放媒体。扩展单次截帧超时为 **45 秒**，Bridge Daemon 兜底等待超时为 **50 秒**；若单次超时，确认目标秒数或刷新页面后单次重试即可。
+- **默认精确单帧与按需邻域展开**：`--times <t1,t2,...>` 与单次或重复传入的 `--time <t>` 均支持非负秒数及 `mm:ss` / `hh:mm:ss` 时钟格式，未传 `--span` 时均默认每点精确截 **1 帧**（`spanSeconds = 0`），按 `0.25s` 去重后单次上限 **12 帧**。仅在口播与切屏时机不确定时再附加 `--span <1..8>`，对每个锚点展开前、中、后三帧（`t-s`、`t`、`t+s`）。
+- **双站历史截帧覆盖**：B 站（含未打开标签页后台直拉，未打开视频须指定 `--times` 或 `--time`）与**已打开标签页的 YouTube 视频**均支持指定时间点历史截帧。
+- **落盘输出契约**：CLI 将 JPEG 写入 `--out` 指定目录（默认写入系统临时目录），输出每张图片的绝对路径 `frames[].path`、锚点 `anchorTime`、目标 `targetTime` 与实际 `currentTime`。
+- **会话复用与超时**：优先通过单条 `--times` 命令批量采样（也支持并发提交 `frame` 命令）；扩展在队列内复用媒体会话串行采样，并在队列空闲、切换视频或出错时立即释放资源。扩展单次截帧自适应超时为 **45s–90s**（随时间窗口聚类数递增），Bridge Daemon 兜底等待超时为 **95s**；若单次超时，确认目标秒数或刷新页面后单次重试即可。
 - 调用 Agent 自身的图片读取工具逐张打开 `frames[].path` 核验真实画面，结合 `currentTime` 描述画面细节并与字幕、评论交叉印证。
 
 **完成判据**：所有目标 `frames[].path` 均已通过图片读取工具实际查看，视觉观察与 `currentTime`、字幕及章节证据交叉核验完毕后输出最终回答。
@@ -73,5 +75,5 @@ node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] --t
 - CLI 输出单行 JSON；`ok: false` 且进程非零退出表示失败，根据 `error` 与字段处理：
   - `extensionOnline: false`（超过 35 秒冷启动宽限后仍未连接）：引导用户在扩展「设置 → 本地 Agent」开启连接或点击「去连接」。
   - ASR 未启用或配置不可用：引导用户在扩展设置中开启「无字幕时自动生成字幕」并检查语音识别平台、模型与域名授权。
-  - 已打开标签页截帧失败：请用户刷新视频标签页后重试；未打开的视频改传 `--bvid <BV/URL> --time <sec>`。
+  - 已打开标签页截帧失败：请用户刷新视频标签页后重试；未打开的 B 站视频改传 `--bvid <BV/URL> --times <t1,t2,...>`（或 `--time <sec>`）。
 - Bridge 仅在 `127.0.0.1` 上连接本机扩展。后续内容由 Agent 的模型分析时，遵循该 Agent 的隐私与数据设置。
