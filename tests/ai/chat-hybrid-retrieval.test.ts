@@ -915,10 +915,11 @@ describe("意图感知分流、纯本地伪目录、单次归一化、指代扩�
     expect(String(capturedContexts[0].hybridRetrievalMarkdown).length).toBeLessThan(withChapters.totalChars / 3);
   });
 
-  it("单次归一化 spy：单轮最多调用 normalizeL0SubtitleLines 1 次，同片二次追问命中缓存为 0 次", async () => {
+  it("单次归一化与缓存复用：单轮内跨模块复用同一份归一化行引用，同片二次追问直接命中缓存与 BM25 索引", async () => {
     clearL0Bm25Cache();
     const fixture = buildSixtyKVideoFixture({ withChapters: true, bvid: "BV1singleNorm" });
-    const normalizeSpy = vi.spyOn(l0Bm25, "normalizeL0SubtitleLines");
+    const resolveSpy = vi.spyOn(l0Bm25, "resolveCachedL0SubtitleLines");
+    const indexSpy = vi.spyOn(l0Bm25, "getOrCreateL0ContextualBm25Index");
 
     await runLadderChat(
       {
@@ -940,7 +941,14 @@ describe("意图感知分流、纯本地伪目录、单次归一化、指代扩�
         askCostGuard: vi.fn(async () => true)
       }
     );
-    expect(normalizeSpy).toHaveBeenCalledTimes(1);
+
+    const turn1LadderResult = resolveSpy.mock.results[0]?.value as l0Bm25.ResolvedL0SubtitleLines;
+    const turn1HybridResult = resolveSpy.mock.results[1]?.value as l0Bm25.ResolvedL0SubtitleLines;
+    const turn1Index = indexSpy.mock.results[0]?.value as l0Bm25.L0ContextualBm25Index;
+    expect(resolveSpy).toHaveBeenCalledTimes(2);
+    expect(turn1HybridResult.lines).toBe(turn1LadderResult.lines);
+    expect(turn1HybridResult.subtitleKey).toBe(turn1LadderResult.subtitleKey);
+    expect(turn1Index.getLines()).toBe(turn1LadderResult.lines);
 
     await runLadderChat(
       {
@@ -966,7 +974,13 @@ describe("意图感知分流、纯本地伪目录、单次归一化、指代扩�
         askCostGuard: vi.fn(async () => true)
       }
     );
-    expect(normalizeSpy).toHaveBeenCalledTimes(1);
+
+    const turn2LadderResult = resolveSpy.mock.results[2]?.value as l0Bm25.ResolvedL0SubtitleLines;
+    const turn2HybridResult = resolveSpy.mock.results[3]?.value as l0Bm25.ResolvedL0SubtitleLines;
+    const turn2Index = indexSpy.mock.results[1]?.value as l0Bm25.L0ContextualBm25Index;
+    expect(turn2LadderResult.lines).toBe(turn1LadderResult.lines);
+    expect(turn2HybridResult.lines).toBe(turn1LadderResult.lines);
+    expect(turn2Index).toBe(turn1Index);
   });
 
   it("多轮指代扩展：从上轮 user + assistant 前 300 字提取实体与时间戳锚点并入 0.35 权重，L1 路由 recentHint 扩展至 280 字", async () => {

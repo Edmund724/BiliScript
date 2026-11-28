@@ -3,14 +3,10 @@ import {
   buildL0SemanticChunks,
   CHAR_BIGRAM_WEIGHT,
   clearL0Bm25Cache,
-  computeDirectoryFingerprint,
-  computeL0SubtitleCacheKey,
   computeLocalTextSimilarity,
-  createL0Bm25Index,
   createL0ContextualBm25Index,
   DEFAULT_SEMANTIC_CHUNK_MAX_CHARS,
   expandAndMergeHitWindows,
-  findCachedL0SubtitleLines,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
   getL0Bm25CacheStats,
@@ -19,6 +15,7 @@ import {
   MAX_CACHED_BM25_VIDEOS,
   normalizeL0SubtitleLines,
   parseL0SecondsValue,
+  resolveCachedL0SubtitleLines,
   tokenizeDualGranularity,
   tokenizeLexicalText,
   WORD_TOKEN_WEIGHT
@@ -54,70 +51,8 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
     it("空串、纯空白、纯标点或纯停用词返回空词元列表", () => {
       expect(tokenizeLexicalText("")).toEqual([]);
       expect(tokenizeLexicalText("   \n\t  ")).toEqual([]);
-      expect(tokensWithoutNoise("！？，。、...")).toEqual([]);
+      expect(tokenizeLexicalText("！？，。、...")).toEqual([]);
       expect(tokenizeLexicalText("这个那个怎么为什么 the is and")).toEqual([]);
-    });
-  });
-
-  describe("BM25 倒排索引与排序准确性", () => {
-    const sampleItems = [
-      { from: 0, to: 4, content: "大家好欢迎来到本期视频，今天我们来聊聊编程与工程实践" },
-      { from: 4, to: 9, content: "首先看看项目工程目录结构以及基础配置" },
-      { from: 9, to: 14, content: "这里核心使用 WebAssembly 加速音视频解码，降低内存占用" },
-      { from: 14, to: 19, content: "相比之下纯 JavaScript 解码大文件容易触发 OOM" },
-      { from: 19, to: 25, content: "WebAssembly配合 SIMD 指令集后，WebAssembly 吞吐提升三倍" },
-      { from: 25, to: 30, content: "另外我们也测试了 Service Worker 的生命周期限制" }
-    ];
-
-    it("稀有专有名词与高词频匹配排在最前，高于泛化高频词干扰", () => {
-      const index = createL0Bm25Index(sampleItems, {
-        chapters: [
-          { chapterIndex: 0, from: 0, to: 14 },
-          { chapterIndex: 1, from: 14, to: 30 }
-        ]
-      });
-
-      const result = index.search({
-        query: "WebAssembly 解码吞吐提升",
-        topK: 3,
-        windowRadiusLines: 0
-      });
-
-      expect(result.hits.length).toBe(3);
-      expect([2, 4]).toContain(result.hits[0].line.lineNumber);
-      expect(result.hits[0].score).toBeGreaterThan(result.hits[2].score);
-      expect(result.hits[0].matchedTerms).toContain("webassembly");
-      expect(result.hits[1].chapterIndex).toBeDefined();
-    });
-
-    it("支持通过 terms 关键词数组检索并按 timeRanges 限制章节时间区间", () => {
-      const index = createL0Bm25Index(sampleItems);
-
-      const scoped = index.search({
-        terms: ["WebAssembly", "SIMD"],
-        timeRanges: [{ from: 15, to: 26 }],
-        topK: 5,
-        windowRadiusLines: 0
-      });
-
-      expect(scoped.hits.length).toBe(1);
-      expect(scoped.hits[0].line.lineNumber).toBe(4);
-      expect(scoped.totalLinesScanned).toBe(3);
-    });
-
-    it("遵守 maxInjectedChars 预算上限并在超限时标记 truncated", () => {
-      const index = createL0Bm25Index(sampleItems);
-
-      const capped = index.search({
-        query: "WebAssembly 解码",
-        topK: 5,
-        windowRadiusLines: 1,
-        maxInjectedChars: 65
-      });
-
-      expect(capped.hits.length).toBeGreaterThanOrEqual(1);
-      expect(capped.injectedChars).toBeLessThanOrEqual(65);
-      expect(capped.truncated).toBe(true);
     });
   });
 
@@ -176,39 +111,6 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       expect(windows[0].endLineNumber).toBe(2);
       expect(windows[0].from).toBe(0);
       expect(windows[0].to).toBe(10);
-    });
-  });
-
-  describe("空字幕与超短字幕边界情况", () => {
-    it("空字幕与全空白字幕不崩溃且返回空检索结果", () => {
-      const emptyIndex = createL0Bm25Index([]);
-      expect(emptyIndex.lineCount).toBe(0);
-      expect(emptyIndex.avgDocLength).toBe(0);
-      expect(emptyIndex.search("任意关键词")).toEqual({
-        hits: [],
-        windows: [],
-        totalLinesScanned: 0,
-        injectedChars: 0,
-        truncated: false
-      });
-
-      const blankIndex = createL0Bm25Index([
-        { from: 0, to: 2, content: "   " },
-        { from: 2, to: 4, content: "..." }
-      ]);
-      expect(blankIndex.search("测试").hits).toEqual([]);
-    });
-
-    it("单句/两句超短字幕可正常建索引并命中返回", () => {
-      const tinyIndex = createL0Bm25Index([
-        { from: 0, to: 3, content: "Rust 所有权模型与借用检查器" }
-      ]);
-
-      const res = tinyIndex.search("借用检查器");
-      expect(res.hits).toHaveLength(1);
-      expect(res.hits[0].score).toBeGreaterThan(0);
-      expect(Number.isFinite(res.hits[0].score)).toBe(true);
-      expect(res.hits[0].window.lines).toHaveLength(1);
     });
   });
 
@@ -297,9 +199,85 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
     });
   });
 
-  describe("25s 语境滑窗 Contextual BM25、双粒度容错与 3 槽 LRU 缓存（#30）", () => {
+  describe("25s 语境滑窗 Contextual BM25、双粒度容错与 3 槽 LRU 缓存", () => {
     afterEach(() => {
       clearL0Bm25Cache();
+    });
+
+    it("稀有专有名词排序、章节归属、timeRanges 区间过滤与扩展词低权召回", () => {
+      const lines = normalizeL0SubtitleLines([
+        { from: 0, to: 10, content: "开场先聊聊日常编程工程实践与目录结构配置" },
+        { from: 30, to: 42, content: "这里使用 WebAssembly 加速音视频解码，明显降低内存占用" },
+        { from: 60, to: 72, content: "相比之下纯 JavaScript 解码大文件容易触发 OOM 崩溃" },
+        { from: 90, to: 104, content: "WebAssembly 配合 SIMD 指令集后，WebAssembly 吞吐提升三倍" },
+        { from: 120, to: 132, content: "最后补充 Service Worker 的生命周期限制说明" }
+      ]);
+      const chapters = [
+        { chapterIndex: 0, from: 0, to: 60, title: "基础与解码" },
+        { chapterIndex: 1, from: 60, to: 140, title: "SIMD 加速实测" }
+      ];
+      const index = createL0ContextualBm25Index(lines, { chapters });
+
+      const ranked = index.search({
+        query: "WebAssembly SIMD 吞吐提升",
+        topK: 3
+      });
+      expect(ranked.hits.length).toBeGreaterThanOrEqual(2);
+      expect(ranked.hits[0].chunk.fromSeconds).toBe(90);
+      expect(ranked.hits[0].chapterIndex).toBe(1);
+      expect(ranked.hits[0].matchedTerms).toContain("webassembly");
+      expect(ranked.hits[0].coreTermCoverage).toBeGreaterThan(0.5);
+      expect(ranked.hits[0].score).toBeGreaterThan(ranked.hits[1].score);
+      expect(ranked.meanScore).toBeGreaterThan(0);
+      expect(ranked.stdDevScore).toBeGreaterThan(0);
+
+      const scoped = index.search({
+        terms: ["WebAssembly", "解码"],
+        timeRanges: [{ from: 25, to: 50 }],
+        topK: 5
+      });
+      expect(scoped.hits).toHaveLength(1);
+      expect(scoped.hits[0].chunk.fromSeconds).toBe(30);
+      expect(scoped.totalChunksScanned).toBe(1);
+
+      const expanded = index.search({
+        query: "生命周期限制",
+        expansionTerms: ["WebAssembly", "SIMD"],
+        expansionWeight: 0.35
+      });
+      expect(expanded.hits.length).toBeGreaterThanOrEqual(1);
+      expect(expanded.hits[0].chunk.fromSeconds).toBe(120);
+    });
+
+    it("空字幕、全空白字幕与单句超短字幕边界下不崩溃并返回可预期结果", () => {
+      const emptyResolved = resolveCachedL0SubtitleLines([], { bvid: "BVempty", cid: "0" });
+      expect(emptyResolved.lines).toEqual([]);
+
+      const emptyIndex = createL0ContextualBm25Index(emptyResolved.lines);
+      expect(emptyIndex.lineCount).toBe(0);
+      expect(emptyIndex.chunkCount).toBe(0);
+      expect(emptyIndex.avgDocLength).toBe(0);
+      expect(emptyIndex.search("任意关键词")).toMatchObject({
+        hits: [],
+        totalChunksScanned: 0,
+        meanScore: 0,
+        stdDevScore: 0
+      });
+
+      const blankLines = normalizeL0SubtitleLines([
+        { from: 0, to: 2, content: "   " },
+        { from: 2, to: 4, content: "..." }
+      ]);
+      expect(createL0ContextualBm25Index(blankLines).search("测试").hits).toEqual([]);
+
+      const tinyLines = normalizeL0SubtitleLines([
+        { from: 0, to: 3, content: "Rust 所有权模型与借用检查器" }
+      ]);
+      const tinyRes = createL0ContextualBm25Index(tinyLines).search("借用检查器");
+      expect(tinyRes.hits).toHaveLength(1);
+      expect(tinyRes.hits[0].score).toBeGreaterThan(0);
+      expect(Number.isFinite(tinyRes.hits[0].score)).toBe(true);
+      expect(tinyRes.hits[0].chunk.lines).toHaveLength(1);
     });
 
     it("buildL0SemanticChunks 按 25s 目标窗口、5s 重叠与 600 字上限确定性切块并附带章节语境前缀", () => {
@@ -356,10 +334,11 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       );
       const cappedChunks = buildL0SemanticChunks(longLines);
       expect(cappedChunks.length).toBeGreaterThan(1);
-      for (const ch of cappedChunks) {
-        const chars = ch.lines.reduce((s, l) => s + l.content.length, 0);
-        expect(chars).toBeLessThanOrEqual(DEFAULT_SEMANTIC_CHUNK_MAX_CHARS);
-      }
+      expect(
+        cappedChunks.every(
+          (ch) => ch.lines.reduce((s, l) => s + l.content.length, 0) <= DEFAULT_SEMANTIC_CHUNK_MAX_CHARS
+        )
+      ).toBe(true);
     });
 
     it("双粒度分词（词级 1.0 + 中文二元组 0.45）支持同音错字「机器学系」命中「机器学习」", () => {
@@ -396,16 +375,15 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       expect(res.hits[0].chunk.bodyText).toContain("四十五度");
     });
 
-    it("Offscreen 内存有界 3 槽 LRU：写入第 4 支视频自动淘汰最旧缓存，clearL0Bm25Cache 彻底清空", () => {
+    it("resolveCachedL0SubtitleLines 与 3 槽 LRU 缓存：复用已归一化引用、支持透传预归一化行、第 4 支视频淘汰最旧槽并在目录变化时隔离索引", () => {
       expect(MAX_CACHED_BM25_VIDEOS).toBe(3);
       clearL0Bm25Cache();
 
       const makeVideo = (id: string) => {
         const raw = [{ from: 0, to: 10, content: `视频 ${id} 专属内容关键词` }];
-        const lines = normalizeL0SubtitleLines(raw);
-        const subtitleKey = computeL0SubtitleCacheKey(raw, { bvid: `BV${id}`, cid: id });
-        const dirFp = computeDirectoryFingerprint([]);
-        return { lines, subtitleKey, dirFp };
+        const meta = { bvid: `BV${id}`, cid: id };
+        const resolved = resolveCachedL0SubtitleLines(raw, meta);
+        return { raw, meta, ...resolved };
       };
 
       const v1 = makeVideo("1");
@@ -413,30 +391,41 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       const v3 = makeVideo("3");
       const v4 = makeVideo("4");
 
-      const idx1 = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, directoryFingerprint: v1.dirFp, lines: v1.lines });
-      getOrCreateL0ContextualBm25Index({ subtitleKey: v2.subtitleKey, directoryFingerprint: v2.dirFp, lines: v2.lines });
-      getOrCreateL0ContextualBm25Index({ subtitleKey: v3.subtitleKey, directoryFingerprint: v3.dirFp, lines: v3.lines });
+      const passthrough = resolveCachedL0SubtitleLines(v1.raw, v1.meta, {
+        preNormalizedLines: v1.lines,
+        subtitleCacheKey: v1.subtitleKey
+      });
+      expect(passthrough.lines).toBe(v1.lines);
+      expect(passthrough.subtitleKey).toBe(v1.subtitleKey);
+
+      const idx1 = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, lines: v1.lines });
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v2.subtitleKey, lines: v2.lines });
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v3.subtitleKey, lines: v3.lines });
       expect(getL0Bm25CacheStats().size).toBe(3);
 
-      const idx1Hit = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, directoryFingerprint: v1.dirFp, lines: v1.lines });
+      const idx1Hit = getOrCreateL0ContextualBm25Index({ subtitleKey: v1.subtitleKey, lines: v1.lines });
       expect(idx1Hit).toBe(idx1);
-      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBe(v1.lines);
+      expect(resolveCachedL0SubtitleLines(v1.raw, v1.meta).lines).toBe(v1.lines);
 
-      getOrCreateL0ContextualBm25Index({ subtitleKey: v4.subtitleKey, directoryFingerprint: v4.dirFp, lines: v4.lines });
+      getOrCreateL0ContextualBm25Index({ subtitleKey: v4.subtitleKey, lines: v4.lines });
       expect(getL0Bm25CacheStats().size).toBe(3);
-      expect(findCachedL0SubtitleLines(v2.subtitleKey)).toBeNull();
-      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBe(v1.lines);
-      expect(findCachedL0SubtitleLines(v3.subtitleKey)).toBe(v3.lines);
-      expect(findCachedL0SubtitleLines(v4.subtitleKey)).toBe(v4.lines);
+      expect(resolveCachedL0SubtitleLines(v2.raw, v2.meta).lines).not.toBe(v2.lines);
+      expect(resolveCachedL0SubtitleLines(v1.raw, v1.meta).lines).toBe(v1.lines);
+      expect(resolveCachedL0SubtitleLines(v3.raw, v3.meta).lines).toBe(v3.lines);
+      expect(resolveCachedL0SubtitleLines(v4.raw, v4.meta).lines).toBe(v4.lines);
+
+      const idx1WithChapters = getOrCreateL0ContextualBm25Index({
+        subtitleKey: v1.subtitleKey,
+        lines: v1.lines,
+        chapters: [{ chapterIndex: 0, from: 0, to: 10, title: "新章节目录" }]
+      });
+      expect(idx1WithChapters).not.toBe(idx1);
+      expect(getL0Bm25CacheStats().size).toBe(3);
 
       clearL0Bm25Cache();
       expect(getL0Bm25CacheStats().size).toBe(0);
-      expect(findCachedL0SubtitleLines(v1.subtitleKey)).toBeNull();
-      expect(findCachedL0SubtitleLines(v4.subtitleKey)).toBeNull();
+      expect(resolveCachedL0SubtitleLines(v1.raw, v1.meta).lines).not.toBe(v1.lines);
+      expect(resolveCachedL0SubtitleLines(v4.raw, v4.meta).lines).not.toBe(v4.lines);
     });
   });
 });
-
-function tokensWithoutNoise(text: string): string[] {
-  return tokenizeLexicalText(text);
-}

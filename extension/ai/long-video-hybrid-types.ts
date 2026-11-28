@@ -38,32 +38,6 @@ export interface L0ContextWindow {
   lines: readonly L0SubtitleLine[];
 }
 
-export interface L0LexicalSearchQuery {
-  query?: string;
-  terms?: readonly string[];
-  timeRanges?: readonly RetrievalTimeRange[];
-  topK?: number;
-  windowRadiusLines?: number;
-  windowRadiusSeconds?: number;
-  maxInjectedChars?: number;
-}
-
-export interface L0LexicalHit {
-  line: L0SubtitleLine;
-  score: number;
-  matchedTerms: readonly string[];
-  chapterIndex?: number;
-  window: L0ContextWindow;
-}
-
-export interface L0LexicalSearchResult {
-  hits: readonly L0LexicalHit[];
-  windows?: readonly L0ContextWindow[];
-  totalLinesScanned: number;
-  injectedChars: number;
-  truncated: boolean;
-}
-
 export interface L1QuoteRef {
   from: number;
   content: string;
@@ -202,12 +176,3 @@ export type ChatRetrievalDegradeReason =
   | "l0-zero-hits"
   | "subtitle-unavailable"
   | "budget-capped";
-
-export interface ChatRetrievalResolution {
-  plan: ChatRetrievalRoutePlan;
-  windows: readonly L0ContextWindow[];
-  hits: readonly L0LexicalHit[];
-  injectedChars: number;
-  degraded: boolean;
-  degradeReason?: ChatRetrievalDegradeReason;
-}

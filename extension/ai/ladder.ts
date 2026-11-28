@@ -13,12 +13,7 @@ import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } fro
 import { estimateTokensFromChars } from "./usage-stats.js";
 import { normalizeImageParts } from "./conversation.js";
 import { loadL1IndexViaProxy } from "./segment-cache-proxy.js";
-import {
-  clearL0Bm25Cache,
-  computeL0SubtitleCacheKey,
-  findCachedL0SubtitleLines,
-  normalizeL0SubtitleLines
-} from "./l0-bm25.js";
+import { clearL0Bm25Cache, resolveCachedL0SubtitleLines } from "./l0-bm25.js";
 export { clearL0Bm25Cache };
 import {
   detectInteractionAnchorPlan,
@@ -35,7 +30,7 @@ import type { WebSearchRuntime } from "../search/search-runtime.js";
 import { formatClock } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
-import type { L0SubtitleLine, L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type {
   AiContext,
@@ -334,15 +329,11 @@ export async function runLadderChat(
       return await runFullStreamTurn();
     }
 
-    const subtitleCacheKey = computeL0SubtitleCacheKey(rawBody, {
+    const { subtitleKey: subtitleCacheKey, lines: l0Lines } = resolveCachedL0SubtitleLines(rawBody, {
       signature: msg.context?.signature ?? msg.context?.l1Index?.subtitleSignature,
       bvid: msg.context?.bvid ?? msg.context?.l1Index?.bvid,
       cid: msg.context?.cid ?? msg.context?.l1Index?.cid
     });
-    const l0Lines: readonly L0SubtitleLine[] =
-      rawBody.length > 0
-        ? (findCachedL0SubtitleLines(subtitleCacheKey) ?? normalizeL0SubtitleLines(rawBody))
-        : [];
     const l0TotalChars = l0Lines.reduce((sum, line) => sum + line.content.length, 0);
     const isLongVideo = plan.mode === "map-reduce" || isLongVideoForHybridChat(l0Lines, msg.context);
     const isLocalHybridCandidate =

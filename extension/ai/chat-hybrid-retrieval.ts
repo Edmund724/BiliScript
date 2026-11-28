@@ -7,18 +7,15 @@ import { MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
 import {
-  computeDirectoryFingerprint,
-  computeL0SubtitleCacheKey,
   computeLocalTextSimilarity,
   DEFAULT_QUERY_EXPANSION_WEIGHT,
   expandAndMergeHitWindows,
-  findCachedL0SubtitleLines,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
   getOrCreateL0ContextualBm25Index,
   matchChapterByTitle,
-  normalizeL0SubtitleLines,
   parseL0SecondsValue,
+  resolveCachedL0SubtitleLines,
   tokenizeLexicalText,
   type L0ContextualBm25Index,
   type L0ContextualBm25SearchResult
@@ -1439,17 +1436,18 @@ export async function resolveLongVideoHybridContext(
   const rawBody = Array.isArray(context.subtitleBody)
     ? (context.subtitleBody as Array<{ from?: unknown; to?: unknown; content?: unknown }>)
     : [];
-  const subtitleKey =
-    input.subtitleCacheKey ||
-    computeL0SubtitleCacheKey(input.preNormalizedLines ?? rawBody, {
+  const { subtitleKey, lines: l0Lines } = resolveCachedL0SubtitleLines(
+    rawBody,
+    {
       signature: context.signature ?? l1Index?.subtitleSignature,
       bvid: context.bvid ?? l1Index?.bvid,
       cid: context.cid ?? l1Index?.cid
-    });
-  const l0Lines =
-    input.preNormalizedLines ??
-    findCachedL0SubtitleLines(subtitleKey) ??
-    normalizeL0SubtitleLines(rawBody);
+    },
+    {
+      preNormalizedLines: input.preNormalizedLines,
+      subtitleCacheKey: input.subtitleCacheKey
+    }
+  );
 
   const effectiveDirectory = l1Index ?? buildLocalFallbackDirectory({ context, lines: l0Lines });
   const usedLocalFallbackDirectory = !l1Index && effectiveDirectory !== null;
@@ -1505,10 +1503,8 @@ export async function resolveLongVideoHybridContext(
     };
   }
 
-  const directoryFingerprint = computeDirectoryFingerprint(effectiveDirectory?.chapters);
   const bm25Index = getOrCreateL0ContextualBm25Index({
     subtitleKey,
-    directoryFingerprint,
     lines: l0Lines,
     chapters: effectiveDirectory?.chapters
   });

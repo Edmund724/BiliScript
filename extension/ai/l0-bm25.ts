@@ -4,14 +4,10 @@ import { STOP_WORDS } from "./stop-words.js";
 import type {
   L0ChunkHit,
   L0ContextWindow,
-  L0LexicalHit,
-  L0LexicalSearchQuery,
-  L0LexicalSearchResult,
   L0SemanticChunk,
   L0SubtitleLine,
   RetrievalTimeRange
 } from "./long-video-hybrid-types.js";
-import type { L1ChapterNode } from "./long-video-hybrid-types.js";
 import type { ChapterItem } from "./types.js";
 
 const DEFAULT_BM25_K1 = 1.2;
@@ -389,317 +385,6 @@ export function expandAndMergeHitWindows(
   });
 }
 
-export interface CreateL0Bm25IndexOptions {
-  k1?: number;
-  b?: number;
-  chapters?: readonly Pick<L1ChapterNode, "chapterIndex" | "from" | "to">[];
-}
-
-export interface L0Bm25SearchOptions extends L0LexicalSearchQuery {
-  mergeGapSeconds?: number;
-}
-
-export interface L0Bm25Index {
-  readonly lineCount: number;
-  readonly avgDocLength: number;
-  readonly vocabularySize: number;
-  getLines(): readonly L0SubtitleLine[];
-  search(queryOrOptions: string | L0Bm25SearchOptions): L0LexicalSearchResult;
-}
-
-interface Posting {
-  docIdx: number;
-  tf: number;
-}
-
-function matchesTimeRanges(line: L0SubtitleLine, ranges: readonly RetrievalTimeRange[] | undefined): boolean {
-  if (!ranges || ranges.length === 0) {
-    return true;
-  }
-  return ranges.some((range) => {
-    const from = Number(range.from);
-    const to = Number(range.to);
-    if (!Number.isFinite(from) || !Number.isFinite(to)) {
-      return false;
-    }
-    return line.to >= from && line.from <= to;
-  });
-}
-
-function findChapterIndexForLine(
-  line: L0SubtitleLine,
-  chapters: readonly Pick<L1ChapterNode, "chapterIndex" | "from" | "to">[] | undefined
-): number | undefined {
-  if (!chapters || chapters.length === 0) {
-    return undefined;
-  }
-  let owner: number | undefined;
-  for (const chapter of chapters) {
-    if (line.from >= chapter.from && (chapter.to <= chapter.from || line.from < chapter.to)) {
-      return chapter.chapterIndex;
-    }
-    if (chapter.from <= line.from) {
-      owner = chapter.chapterIndex;
-    }
-  }
-  return owner;
-}
-
-function extractQueryTerms(queryOrOptions: string | L0Bm25SearchOptions): string[] {
-  const rawTerms: string[] = [];
-  if (typeof queryOrOptions === "string") {
-    rawTerms.push(...tokenizeLexicalText(queryOrOptions));
-  } else {
-    if (typeof queryOrOptions.query === "string" && queryOrOptions.query.trim()) {
-      rawTerms.push(...tokenizeLexicalText(queryOrOptions.query));
-    }
-    if (Array.isArray(queryOrOptions.terms)) {
-      for (const term of queryOrOptions.terms) {
-        rawTerms.push(...tokenizeLexicalText(term));
-      }
-    }
-  }
-  return [...new Set(rawTerms)];
-}
-
-function computeWindowChars(window: L0ContextWindow): number {
-  let chars = 0;
-  for (const line of window.lines) {
-    chars += line.content.length;
-  }
-  return chars;
-}
-
-export function createL0Bm25Index(
-  rawLines: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown; lineNumber?: unknown }> | null | undefined,
-  options: CreateL0Bm25IndexOptions = {}
-): L0Bm25Index {
-  const k1 = Number.isFinite(Number(options.k1)) && Number(options.k1) >= 0 ? Number(options.k1) : DEFAULT_BM25_K1;
-  const b = Number.isFinite(Number(options.b)) && Number(options.b) >= 0 && Number(options.b) <= 1 ? Number(options.b) : DEFAULT_BM25_B;
-  const chapters = options.chapters;
-
-  const lines = normalizeL0SubtitleLines(rawLines);
-  const docCount = lines.length;
-  const docLengths = new Array<number>(docCount).fill(0);
-  const invertedIndex = new Map<string, Posting[]>();
-
-  let totalDocLength = 0;
-  for (let docIdx = 0; docIdx < docCount; docIdx += 1) {
-    const tokens = tokenizeLexicalText(lines[docIdx].content);
-    docLengths[docIdx] = tokens.length;
-    totalDocLength += tokens.length;
-    if (tokens.length === 0) {
-      continue;
-    }
-
-    const termFreq = new Map<string, number>();
-    for (const token of tokens) {
-      termFreq.set(token, (termFreq.get(token) ?? 0) + 1);
-    }
-    for (const [term, tf] of termFreq.entries()) {
-      let postings = invertedIndex.get(term);
-      if (!postings) {
-        postings = [];
-        invertedIndex.set(term, postings);
-      }
-      postings.push({ docIdx, tf });
-    }
-  }
-
-  const avgDocLength = docCount > 0 && totalDocLength > 0 ? totalDocLength / docCount : 1;
-  const idfMap = new Map<string, number>();
-  for (const [term, postings] of invertedIndex.entries()) {
-    const df = postings.length;
-    const idf = Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
-    idfMap.set(term, idf);
-  }
-
-  return {
-    lineCount: docCount,
-    avgDocLength: docCount > 0 ? totalDocLength / docCount : 0,
-    vocabularySize: invertedIndex.size,
-
-    getLines(): readonly L0SubtitleLine[] {
-      return lines;
-    },
-
-    search(queryOrOptions: string | L0Bm25SearchOptions): L0LexicalSearchResult {
-      const opts: L0Bm25SearchOptions = typeof queryOrOptions === "string" ? { query: queryOrOptions } : (queryOrOptions || {});
-      const queryTerms = extractQueryTerms(queryOrOptions);
-
-      if (docCount === 0 || queryTerms.length === 0) {
-        return {
-          hits: [],
-          windows: [],
-          totalLinesScanned: 0,
-          injectedChars: 0,
-          truncated: false
-        };
-      }
-
-      const timeRanges = Array.isArray(opts.timeRanges) && opts.timeRanges.length > 0 ? opts.timeRanges : undefined;
-      const topK = Math.max(1, Math.floor(Number(opts.topK ?? DEFAULT_TOP_K) || DEFAULT_TOP_K));
-      const windowRadiusLines =
-        opts.windowRadiusLines !== undefined
-          ? Math.max(0, Math.floor(Number(opts.windowRadiusLines) || 0))
-          : DEFAULT_WINDOW_RADIUS_LINES;
-      const windowRadiusSeconds =
-        opts.windowRadiusSeconds !== undefined && Number(opts.windowRadiusSeconds) > 0
-          ? Number(opts.windowRadiusSeconds)
-          : 0;
-      const maxInjectedChars =
-        opts.maxInjectedChars !== undefined && Number(opts.maxInjectedChars) > 0
-          ? Math.floor(Number(opts.maxInjectedChars))
-          : Number.POSITIVE_INFINITY;
-
-      const scores = new Map<number, number>();
-      const matchedMap = new Map<number, string[]>();
-
-      for (const term of queryTerms) {
-        const postings = invertedIndex.get(term);
-        if (!postings) {
-          continue;
-        }
-        const idf = idfMap.get(term) ?? 0;
-        for (const { docIdx, tf } of postings) {
-          if (timeRanges && !matchesTimeRanges(lines[docIdx], timeRanges)) {
-            continue;
-          }
-          const dl = docLengths[docIdx];
-          const norm = 1 - b + b * (dl / avgDocLength);
-          const denom = tf + k1 * norm;
-          const termScore = denom > 0 ? idf * ((tf * (k1 + 1)) / denom) : 0;
-          if (termScore <= 0) {
-            continue;
-          }
-          scores.set(docIdx, (scores.get(docIdx) ?? 0) + termScore);
-          let matched = matchedMap.get(docIdx);
-          if (!matched) {
-            matched = [];
-            matchedMap.set(docIdx, matched);
-          }
-          matched.push(term);
-        }
-      }
-
-      const totalLinesScanned = timeRanges
-        ? lines.reduce((acc, line) => acc + (matchesTimeRanges(line, timeRanges) ? 1 : 0), 0)
-        : docCount;
-
-      if (scores.size === 0) {
-        return {
-          hits: [],
-          windows: [],
-          totalLinesScanned,
-          injectedChars: 0,
-          truncated: false
-        };
-      }
-
-      const ranked = [...scores.entries()]
-        .map(([docIdx, score]) => ({
-          docIdx,
-          line: lines[docIdx],
-          score,
-          matchedTerms: matchedMap.get(docIdx) ?? []
-        }))
-        .sort((a, bScore) => bScore.score - a.score || a.line.lineNumber - bScore.line.lineNumber)
-        .slice(0, topK);
-
-      let selectedRanked = ranked;
-      let mergedWindows = expandAndMergeHitWindows(
-        lines,
-        selectedRanked.map((r) => ({ lineNumber: r.line.lineNumber, score: r.score })),
-        {
-          windowRadiusLines,
-          windowRadiusSeconds,
-          mergeGapSeconds: opts.mergeGapSeconds
-        }
-      );
-
-      let truncated = false;
-      if (Number.isFinite(maxInjectedChars)) {
-        const accepted: typeof ranked = [];
-        let acceptedWindows: L0ContextWindow[] = [];
-        for (const item of ranked) {
-          const candidateRanked = [...accepted, item];
-          const candidateWindows = expandAndMergeHitWindows(
-            lines,
-            candidateRanked.map((r) => ({ lineNumber: r.line.lineNumber, score: r.score })),
-            {
-              windowRadiusLines,
-              windowRadiusSeconds,
-              mergeGapSeconds: opts.mergeGapSeconds
-            }
-          );
-          const candidateChars = candidateWindows.reduce((sum, win) => sum + computeWindowChars(win), 0);
-          if (candidateChars <= maxInjectedChars || accepted.length === 0) {
-            accepted.push(item);
-            acceptedWindows = candidateWindows;
-            if (candidateChars > maxInjectedChars) {
-              const singleWin = candidateWindows[0];
-              if (singleWin) {
-                const keptLines: L0SubtitleLine[] = [];
-                let accChars = 0;
-                for (const winLine of singleWin.lines) {
-                  if (accChars + winLine.content.length <= maxInjectedChars || keptLines.length === 0) {
-                    keptLines.push(winLine);
-                    accChars += winLine.content.length;
-                  } else {
-                    break;
-                  }
-                }
-                singleWin.lines = keptLines;
-                singleWin.startLineNumber = keptLines[0].lineNumber;
-                singleWin.endLineNumber = keptLines[keptLines.length - 1].lineNumber;
-                singleWin.from = keptLines[0].from;
-                singleWin.to = keptLines[keptLines.length - 1].to;
-              }
-              truncated = true;
-              break;
-            }
-          } else {
-            truncated = true;
-            break;
-          }
-        }
-        selectedRanked = accepted;
-        mergedWindows = acceptedWindows;
-      }
-
-      const injectedChars = mergedWindows.reduce((sum, win) => sum + computeWindowChars(win), 0);
-      const hits: L0LexicalHit[] = selectedRanked.map((item) => {
-        const ownerWindow =
-          mergedWindows.find(
-            (w) => item.line.lineNumber >= w.startLineNumber && item.line.lineNumber <= w.endLineNumber
-          ) ?? {
-            anchorLineNumber: item.line.lineNumber,
-            startLineNumber: item.line.lineNumber,
-            endLineNumber: item.line.lineNumber,
-            from: item.line.from,
-            to: item.line.to,
-            lines: [item.line]
-          };
-        return {
-          line: item.line,
-          score: item.score,
-          matchedTerms: item.matchedTerms,
-          chapterIndex: findChapterIndexForLine(item.line, chapters),
-          window: ownerWindow
-        };
-      });
-
-      return {
-        hits,
-        windows: mergedWindows,
-        totalLinesScanned,
-        injectedChars,
-        truncated
-      };
-    }
-  };
-}
-
 export function estimateCompactPromptTokens(text: string): number {
   if (!text) {
     return 0;
@@ -1043,6 +728,11 @@ function buildWeightedQueryTerms(
   };
 }
 
+interface Posting {
+  docIdx: number;
+  tf: number;
+}
+
 export function createL0ContextualBm25Index(
   lines: readonly L0SubtitleLine[],
   options: CreateL0ContextualBm25IndexOptions = {}
@@ -1238,9 +928,25 @@ function getContextualBm25Cache(): Map<string, CachedContextualBm25Entry> {
   return contextualBm25Cache;
 }
 
-export function computeL0SubtitleCacheKey(
+export interface L0SubtitleCacheKeyMeta {
+  signature?: unknown;
+  bvid?: unknown;
+  cid?: unknown;
+}
+
+export interface ResolveCachedL0SubtitleLinesOptions {
+  preNormalizedLines?: readonly L0SubtitleLine[];
+  subtitleCacheKey?: string;
+}
+
+export interface ResolvedL0SubtitleLines {
+  subtitleKey: string;
+  lines: readonly L0SubtitleLine[];
+}
+
+function computeL0SubtitleCacheKey(
   rawLines: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown }> | null | undefined,
-  meta?: { signature?: unknown; bvid?: unknown; cid?: unknown }
+  meta?: L0SubtitleCacheKeyMeta
 ): string {
   const sig = String(meta?.signature ?? "").trim();
   const bvid = String(meta?.bvid ?? "").trim();
@@ -1260,7 +966,7 @@ export function computeL0SubtitleCacheKey(
   return `${bvid}|${cid}|${sig}|${count}:${hash.toString(16)}`;
 }
 
-export function computeDirectoryFingerprint(
+function computeDirectoryFingerprint(
   chapters: readonly SemanticChunkChapterInput[] | undefined
 ): string {
   if (!Array.isArray(chapters) || chapters.length === 0) {
@@ -1276,7 +982,7 @@ export function computeDirectoryFingerprint(
   return `${chapters.length}:${hash.toString(16)}`;
 }
 
-export function findCachedL0SubtitleLines(subtitleKey: string): readonly L0SubtitleLine[] | null {
+function findCachedL0SubtitleLines(subtitleKey: string): readonly L0SubtitleLine[] | null {
   if (!subtitleKey || !contextualBm25Cache || contextualBm25Cache.size === 0) {
     return null;
   }
@@ -1288,16 +994,44 @@ export function findCachedL0SubtitleLines(subtitleKey: string): readonly L0Subti
   return null;
 }
 
+export function resolveCachedL0SubtitleLines(
+  rawLines: ReadonlyArray<{ from?: unknown; to?: unknown; content?: unknown; lineNumber?: unknown }> | null | undefined,
+  meta?: L0SubtitleCacheKeyMeta,
+  options?: ResolveCachedL0SubtitleLinesOptions
+): ResolvedL0SubtitleLines {
+  const preNormalized = options?.preNormalizedLines;
+  const subtitleKey =
+    options?.subtitleCacheKey ||
+    computeL0SubtitleCacheKey(preNormalized ?? rawLines, meta);
+
+  if (preNormalized) {
+    return { subtitleKey, lines: preNormalized };
+  }
+
+  if (!Array.isArray(rawLines) || rawLines.length === 0) {
+    return { subtitleKey, lines: [] };
+  }
+
+  const cached = findCachedL0SubtitleLines(subtitleKey);
+  if (cached) {
+    return { subtitleKey, lines: cached };
+  }
+
+  return {
+    subtitleKey,
+    lines: normalizeL0SubtitleLines(rawLines)
+  };
+}
+
 export interface GetOrCreateL0ContextualBm25IndexInput extends CreateL0ContextualBm25IndexOptions {
   subtitleKey: string;
-  directoryFingerprint?: string;
   lines: readonly L0SubtitleLine[];
 }
 
 export function getOrCreateL0ContextualBm25Index(
   input: GetOrCreateL0ContextualBm25IndexInput
 ): L0ContextualBm25Index {
-  const dirFp = input.directoryFingerprint ?? computeDirectoryFingerprint(input.chapters);
+  const dirFp = computeDirectoryFingerprint(input.chapters);
   const cacheKey = `${input.subtitleKey}::${dirFp}`;
   const cache = getContextualBm25Cache();
   const hit = cache.get(cacheKey);
