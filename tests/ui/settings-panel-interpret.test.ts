@@ -103,7 +103,7 @@ describe("设置面板字幕翻译", () => {
     });
 
     expect(textarea.closest(".biliscript-set-row-stack")).toBeTruthy();
-    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("2 条术语");
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).not.toContain("术语");
 
     textarea.value = "CUDA = CUDA\nWarp Scheduler = 线程束调度器\nTensor Core =";
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
@@ -116,7 +116,7 @@ describe("设置面板字幕翻译", () => {
     expect(saved?.settings?.subtitleTranslateGlossary).toBe(
       "CUDA = CUDA\nWarp Scheduler = 线程束调度器\nTensor Core ="
     );
-    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("3 条术语");
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).not.toContain("术语");
   });
 
   it("未配置任何 AI 平台时默认选中免 Key Index-Translate，支持切换 35B-A3B/9B/2B 与自定义来源互切", async () => {

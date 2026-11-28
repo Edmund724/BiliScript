@@ -70,7 +70,7 @@ describe("设置页快捷键子页与录制交互", () => {
     const resetAllBtn = host.querySelector<HTMLButtonElement>("#shortcutsResetAllBtn")!;
     const overviewHint = host.querySelector<HTMLElement>("#overviewShortcutHint")!;
 
-    expect(summary.textContent?.trim()).toBe("默认");
+    expect(summary.textContent?.trim()).toBe("");
     expect(resetAllBtn.hidden).toBe(true);
     expect(overviewHint.textContent).toContain("Alt+G");
 
@@ -141,7 +141,7 @@ describe("设置页快捷键子页与录制交互", () => {
     expect(savedPayloads[3]).toEqual({ shortcuts: {} });
     expect(overviewHint.hidden).toBe(false);
     expect(resetAllBtn.hidden).toBe(true);
-    expect(summary.textContent?.trim()).toBe("默认");
+    expect(summary.textContent?.trim()).toBe("");
   });
 
   it("单项恢复默认遇到冲突时拦截，全部恢复默认一键清空全部覆写", async () => {

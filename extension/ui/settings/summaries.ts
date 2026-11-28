@@ -1,4 +1,3 @@
-import { parseSubtitleGlossary } from "../../ai/subtitle-translate-config.js";
 import { MAX_INITIAL_QUICK_PROMPTS } from "../../core/default-prompts.js";
 import { DEFAULT_SETTINGS } from "../../core/defaults.js";
 import { getNotePromptPresetLabel } from "../../notes/note-prompts.js";
@@ -18,7 +17,7 @@ import {
   CHAT_DISPLAY_SLIDER_SPECS,
   isChatDisplaySliderAvailable
 } from "../../reader/chat-display-settings.js";
-import { parseModelOptionValue } from "../../shared/selected-provider.js";
+import { formatProviderModelLabel, parseModelOptionValue } from "../../shared/selected-provider.js";
 import { countCustomizedShortcuts, normalizeShortcuts, type ShortcutBindings } from "../../shared/shortcuts.js";
 import type { AgentBridgeSettingsState } from "../agent-bridge-settings.js";
 import type { ProviderRowItem } from "../provider-row.js";
@@ -49,7 +48,7 @@ export interface SettingsSummaryFormValues {
   notePromptPreset?: unknown;
   noteIncludeKeyframes?: boolean;
   subtitleTranslateModelLabel: string;
-  subtitleTranslateGlossary: string;
+  subtitleTranslateGlossary?: string;
   readerTheme: unknown;
   readerPalette: unknown;
   readerFontSizeScale: unknown;
@@ -85,9 +84,19 @@ export interface DerivedSettingsSummaries {
 function resolveSelectedModelLabel(selectEl: HTMLSelectElement): string {
   const rawValue = selectEl.value;
   if (!rawValue) return "";
-  const optionText = selectEl.options[selectEl.selectedIndex]?.textContent?.trim() || "";
-  if (optionText && optionText !== "暂无可用模型") return optionText;
-  return parseModelOptionValue(rawValue).model;
+  const selectedOption = selectEl.options[selectEl.selectedIndex];
+  const optionText = selectedOption?.textContent?.trim() || "";
+  const modelText =
+    optionText && optionText !== "暂无可用模型"
+      ? optionText
+      : parseModelOptionValue(rawValue).model;
+  if (!modelText) return "";
+  const parent = selectedOption?.parentElement;
+  const providerLabel =
+    parent && parent.tagName.toUpperCase() === "OPTGROUP"
+      ? String((parent as HTMLOptGroupElement).label || "").trim()
+      : "";
+  return formatProviderModelLabel(providerLabel, modelText);
 }
 
 function resolveProviderName(
@@ -136,9 +145,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     } else if (aiEnabled === 0) {
       aiProviders = "已全部停用";
     } else {
-      aiProviders = defaultModelLabel
-        ? `${aiEnabled} 个启用 · ${defaultModelLabel}`
-        : `${aiEnabled} 个启用`;
+      aiProviders = defaultModelLabel || "未选模型";
     }
 
     if (providerSnapshot.liveProviders.length === 0) {
@@ -150,13 +157,15 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
 
     const asrAuto = form.asrAutoFallback;
     if (providerSnapshot.asrProviders.length === 0) {
-      asrSettings = asrAuto ? "自动开启 · 未配平台" : "已关闭";
+      asrSettings = asrAuto ? "自动 · 未配平台" : "已关闭";
     } else {
       const asrName = resolveProviderName(providerSnapshot.asrProviders, providerSnapshot.activeAsrId);
-      asrSettings = `${asrName || "语音转写"} · ${asrAuto ? "自动开启" : "手动触发"}`;
+      asrSettings = `${asrAuto ? "自动" : "手动"} · ${asrName || "语音转写"}`;
     }
 
     const maxCalls = normalizeWebSearchMaxToolCalls(form.webSearchMaxToolCalls);
+    const maxCallsSuffix =
+      maxCalls !== DEFAULT_SETTINGS.webSearchMaxToolCalls ? ` · 最多 ${maxCalls} 次` : "";
     if (providerSnapshot.searchProviders.length === 0) {
       searchSettings = "未配置";
     } else if (providerSnapshot.activeSearchProviderId) {
@@ -166,9 +175,9 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
       const searchLabel = matched
         ? String(matched.name || matched.presetId || "指定平台").trim()
         : "智能回退";
-      searchSettings = `${searchLabel} · 最多 ${maxCalls} 次`;
+      searchSettings = `${searchLabel}${maxCallsSuffix}`;
     } else {
-      searchSettings = `智能回退 · 最多 ${maxCalls} 次`;
+      searchSettings = `智能回退${maxCallsSuffix}`;
     }
   }
 
@@ -180,53 +189,51 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     (form.overviewAiChapters !== false ? 1 : 0) +
     (form.overviewAiQuotes !== false ? 1 : 0);
   if (overviewAiCount === 0) {
-    promptParts.push("概览 AI 已关");
+    promptParts.push("概览已关");
   } else if (form.autoGenerateOverview === false) {
-    promptParts.push("概览手动生成");
+    promptParts.push("手动概览");
   } else if (overviewAiCount < 3) {
-    promptParts.push(`概览 ${overviewAiCount}/3 项 AI`);
+    promptParts.push(`自动概览 · ${overviewAiCount}/3 项`);
+  } else {
+    promptParts.push("自动概览");
   }
   if (playerQuickAiAvailable && form.enablePlayerAiQuickAction) {
     const actionMode = normalizePlayerAiActionMode(form.playerAiActionMode);
-    promptParts.push(
-      actionMode === "note"
-        ? "播放器快捷·笔记"
-        : actionMode === "overview"
-          ? "播放器快捷·概览"
-          : "播放器快捷开"
-    );
+    if (actionMode === "note") {
+      promptParts.push("快捷·笔记");
+    } else if (actionMode === "overview") {
+      promptParts.push("快捷·概览");
+    }
   }
   if (form.initialQuickPromptCount > 0) promptParts.push(`${form.initialQuickPromptCount} 条快捷问题`);
-  const aiPrompt = promptParts.length > 0 ? promptParts.join(" · ") : "默认";
+  const aiPrompt = promptParts.join(" · ");
 
   const normalizedFormat = normalizeDownloadFormat(form.downloadFormat);
   const formatLabel = normalizedFormat === "vtt-secondary" ? "VTT（仅副轨）" : normalizedFormat.toUpperCase();
-  const glossaryCount = parseSubtitleGlossary(form.subtitleTranslateGlossary).length;
   const subtitleParts = [
     form.subtitleTranslateModelLabel,
-    glossaryCount > 0 ? `${glossaryCount} 条术语` : "",
-    formatLabel
+    !form.subtitleTranslateModelLabel || normalizedFormat !== DEFAULT_SETTINGS.downloadFormat ? formatLabel : ""
   ].filter(Boolean);
   const subtitleSettings = subtitleParts.join(" · ");
 
   const notePresetLabel = getNotePromptPresetLabel(form.notePromptPreset);
   const noteTargetLabel = normalizeNoteExportTarget(form.noteExportTarget) === "obsidian" ? "Obsidian" : "本地 .md";
-  const notesParts = [
-    notePresetLabel,
-    noteTargetLabel,
-    form.playerAiAutoExportNote ? "自动导出" : "",
-    form.noteIncludeKeyframes ? "含截图" : ""
-  ].filter(Boolean);
-  const notesSettings = notesParts.join(" · ");
+  const notesSettings = `${notePresetLabel} · ${noteTargetLabel}`;
 
   const themeLabel = THEME_LABELS[normalizeReaderTheme(form.readerTheme)] ?? "跟随当前站点";
-  const paletteLabel = normalizeReaderPalette(form.readerPalette) === "editorial" ? "数字刊物" : "蓝雾玻璃";
+  const normalizedPalette = normalizeReaderPalette(form.readerPalette);
+  const paletteLabel =
+    normalizedPalette !== DEFAULT_SETTINGS.readerPalette
+      ? normalizedPalette === "editorial"
+        ? "数字刊物"
+        : "蓝雾玻璃"
+      : "";
   const fontScale = normalizeReaderFontSizeScale(form.readerFontSizeScale);
   const speechVolume = CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(form.speechVoiceVolume);
   const appearanceParts = [
     themeLabel,
     paletteLabel,
-    `${fontScale}%`,
+    fontScale !== DEFAULT_SETTINGS.readerFontSizeScale ? `${fontScale}%` : "",
     speechVolumeAvailable && speechVolume !== CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.defaultValue
       ? `朗读 ${speechVolume}%`
       : ""
@@ -248,16 +255,14 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     advancedParts.push(`保留 ${chatHistoryMaxCount} 条对话`);
   }
   const videoCacheMaxMb = normalizeVideoCacheMaxMb(form.videoCacheMaxMb);
-  if (videoCacheMaxMb !== DEFAULT_SETTINGS.videoCacheMaxMb) {
-    advancedParts.push(`缓存 ${formatCacheLimitMb(videoCacheMaxMb)}`);
-  }
+  advancedParts.push(`缓存 ${formatCacheLimitMb(videoCacheMaxMb)}`);
   if (form.enableDebugLogs) advancedParts.push("调试日志已开");
-  const advancedSettings = advancedParts.length > 0 ? advancedParts.join(" · ") : "默认";
+  const advancedSettings = advancedParts.join(" · ");
 
   const customizedShortcutsCount = input.shortcutsBindings
     ? countCustomizedShortcuts(normalizeShortcuts(input.shortcutsBindings))
     : 0;
-  const shortcutsSettings = customizedShortcutsCount > 0 ? `已自定义 ${customizedShortcutsCount} 项` : "默认";
+  const shortcutsSettings = customizedShortcutsCount > 0 ? `已自定义 ${customizedShortcutsCount} 项` : "";
 
   return {
     aiProviders,
@@ -286,15 +291,12 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       overviewAiQuotes: elements.overviewAiQuotes.checked,
       enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
       playerAiActionMode: elements.playerAiActionMode.value,
-      playerAiAutoExportNote: elements.playerAiAutoExportNote.checked,
       initialQuickPromptCount: collectInitialQuickPrompts(elements).length,
       speechVoiceVolume: elements.speechVoiceVolume.value,
       downloadFormat: elements.downloadFormat.value,
       noteExportTarget: elements.noteExportTarget.value,
       notePromptPreset: elements.notePromptPreset.value,
-      noteIncludeKeyframes: elements.noteIncludeKeyframes.checked,
       subtitleTranslateModelLabel: resolveSelectedModelLabel(elements.subtitleTranslateModel),
-      subtitleTranslateGlossary: elements.subtitleTranslateGlossary.value,
       readerTheme: elements.readerTheme.value,
       readerPalette: elements.readerPalette.value,
       readerFontSizeScale: elements.readerFontSizeScale.value,

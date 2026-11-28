@@ -462,7 +462,7 @@ describe("YouTube 设置抽屉 4 项站点门控与进入阻断", () => {
     expect(
       host.querySelector('#subtitleTranslateSource option[value="bilibili-index-translate"]')
     ).not.toBeNull();
-    expect(document.getElementById("aiPromptSummary")!.textContent).toContain("播放器快捷开");
+    expect(document.getElementById("aiPromptSummary")!.textContent).toBe("自动概览");
 
     expect(isSettingsViewAllowed("live")).toBe(false);
     expect(isSettingsViewAllowed("asr")).toBe(true);

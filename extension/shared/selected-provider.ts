@@ -18,6 +18,24 @@ export function parseModelOptionValue(value: unknown): { providerId: string; mod
   };
 }
 
+export function displayModelName(model: string): string {
+  const trimmed = String(model || "").trim();
+  const slash = trimmed.lastIndexOf("/");
+  if (slash < 0 || slash === trimmed.length - 1) {
+    return trimmed;
+  }
+  return trimmed.slice(slash + 1);
+}
+
+export function formatProviderModelLabel(providerLabel: string, model: string): string {
+  const platform = String(providerLabel || "").trim();
+  const modelName = displayModelName(model);
+  if (!modelName) {
+    return "";
+  }
+  return platform ? `${platform}·${modelName}` : modelName;
+}
+
 export function normalizeProviderModels(
   provider: { models?: unknown; model?: unknown } | null | undefined
 ): string[] {

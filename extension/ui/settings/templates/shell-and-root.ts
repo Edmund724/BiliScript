@@ -79,14 +79,14 @@ export function buildSettingsRootViewHtml(): string {
           <button id="${ids.openAiPromptBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">AI 概览与对话</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.aiPromptSummary}" class="biliscript-entry-summary-text"></span>
+              <span id="${ids.aiPromptSummary}" class="biliscript-entry-summary-text">自动概览</span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
           <button id="${ids.openSubtitleSettingsBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">字幕翻译与导出</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.subtitleSettingsSummary}" class="biliscript-entry-summary-text">SRT</span>
+              <span id="${ids.subtitleSettingsSummary}" class="biliscript-entry-summary-text">Index-Translate-35B-A3B</span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
@@ -100,14 +100,14 @@ export function buildSettingsRootViewHtml(): string {
           <button id="${ids.openAppearanceBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">阅读器与播放器</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.appearanceSettingsSummary}" class="biliscript-entry-summary-text">蓝雾玻璃 · 100%</span>
+              <span id="${ids.appearanceSettingsSummary}" class="biliscript-entry-summary-text">跟随当前站点</span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
           <button id="${ids.openShortcutsBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">快捷键</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.shortcutsSettingsSummary}" class="biliscript-entry-summary-text">默认</span>
+              <span id="${ids.shortcutsSettingsSummary}" class="biliscript-entry-summary-text"></span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
@@ -127,14 +127,13 @@ export function buildSettingsRootViewHtml(): string {
           <button id="${ids.openAdvancedSettingsBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
             <span class="biliscript-set-label">高级设置</span>
             <span class="biliscript-entry-summary">
-              <span id="${ids.advancedSettingsSummary}" class="biliscript-entry-summary-text">常规</span>
+              <span id="${ids.advancedSettingsSummary}" class="biliscript-entry-summary-text">缓存 150 MB</span>
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
           <button id="${ids.openOnboardingBtn}" type="button" class="biliscript-set-row biliscript-action-entry-row">
             <span class="biliscript-set-label">新手引导 / 快速上手</span>
             <span class="biliscript-entry-summary">
-              <span class="biliscript-entry-summary-text">配置向导</span>
               ${EXTERNAL_LINK_SVG}
             </span>
           </button>

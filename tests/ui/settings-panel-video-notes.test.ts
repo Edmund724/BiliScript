@@ -101,17 +101,17 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     actionMode.value = "overview";
     actionMode.dispatchEvent(new Event("change", { bubbles: true }));
     expect(quickPrompt.hidden).toBe(true);
-    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("播放器快捷·概览");
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("快捷·概览");
     expect(host.querySelector("[data-settings-section='overview'] .biliscript-set-hint")?.textContent).toContain("Alt+G");
 
     actionMode.value = "note";
     actionMode.dispatchEvent(new Event("change", { bubbles: true }));
     expect(quickPrompt.hidden).toBe(true);
-    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("播放器快捷·笔记");
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toContain("快捷·笔记");
 
     autoExport.click();
     await flushMicrotasks();
-    expect(host.querySelector("#notesSettingsSummary")?.textContent).toContain("自动导出");
+    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("通用结构化 · 本地 .md");
     expect(host.querySelector("#aiPromptSummary")?.textContent).not.toContain("自动导出");
 
     preset.value = "custom";
@@ -131,7 +131,7 @@ describe("设置抽屉：视频笔记 7 项控件读写、联动与摘要", () =
     expect(obsidianVaultRow.hidden).toBe(false);
     expect(obsidianFolder.disabled).toBe(false);
     expect(obsidianFolderRow.hidden).toBe(false);
-    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("自定义 · Obsidian · 自动导出 · 含截图");
+    expect(host.querySelector("#notesSettingsSummary")?.textContent).toBe("自定义 · Obsidian");
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).not.toContain("Obsidian");
 
     await flushMicrotasks();

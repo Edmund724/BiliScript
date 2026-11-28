@@ -208,7 +208,7 @@ describe("TTS 后台防御判空与界面门控", () => {
     });
     const panel = await import("../../extension/ui/settings-panel.js");
     await panel.renderReaderSettingsPanel();
-    expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
+    expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).toBe("自动概览");
     expect(ffSettingsHost.querySelector("#appearanceSettingsSummary")?.textContent).not.toContain("朗读");
 
     vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });

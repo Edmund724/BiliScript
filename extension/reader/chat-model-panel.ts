@@ -30,6 +30,8 @@ import {
   SELECTED_PROVIDER_KEY,
   MODEL_OPTION_SEPARATOR,
   buildModelOptionValue,
+  displayModelName,
+  formatProviderModelLabel,
   normalizeProviderModels,
   parseModelOptionValue
 } from "../shared/selected-provider.js";
@@ -110,14 +112,6 @@ function formatProviderLabel(provider: { name?: string; model?: unknown }): stri
     return name;
   }
   return String(provider.model || "").trim();
-}
-
-function displayModelName(model: string): string {
-  const slash = model.lastIndexOf("/");
-  if (slash < 0 || slash === model.length - 1) {
-    return model;
-  }
-  return model.slice(slash + 1);
 }
 
 interface ProviderGroup {
@@ -425,9 +419,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       updateChipWidth();
       return;
     }
-    const platform = matchedGroup.label;
-    const modelName = displayModelName(parsed.model);
-    chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
+    chipModel.textContent = formatProviderModelLabel(matchedGroup.label, parsed.model);
     chipLevel.textContent = chipLevelLabel ?? thinkingLevelValueLabel(chatSessionState.aiThinkingLevel);
     updateChipWidth();
   }

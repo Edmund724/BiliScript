@@ -522,13 +522,66 @@ describe("设置抽屉保存行：末行贴底 + 状态提示同排", () => {
 });
 
 describe("设置抽屉外部同步分发、占位摘要与 dispose 清理", () => {
-  it("appearanceSettingsSummary 不含遗留 540px 占位，并在加载后显示运行时摘要", async () => {
+  it("一级入口摘要精简展示核心状态，模型名与对话输入框口径一致", async () => {
     const initialHtml = buildSettingsHtml();
     expect(initialHtml).not.toContain("540px");
+    expect(initialHtml).not.toContain("配置向导");
 
-    installMessageBus();
+    installMessageBus({
+      "get-settings": () => ({
+        ok: true,
+        settings: {
+          defaultModel: "p-ms",
+          defaultAiModel: "deepseek-ai/DeepSeek-V4.1-Terminus",
+          readerTheme: "light",
+          readerThemeUserSet: true,
+          readerPalette: "flyme",
+          readerFontSizeScale: 110,
+          asrAutoFallback: true,
+          webSearchMaxToolCalls: 5
+        }
+      }),
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [
+          {
+            id: "p-ms",
+            name: "ModelScope",
+            enabled: true,
+            hasSavedKey: true,
+            models: ["deepseek-ai/DeepSeek-V4.1-Terminus"]
+          },
+          {
+            id: "p-ds",
+            name: "DeepSeek",
+            enabled: true,
+            hasSavedKey: true,
+            models: ["deepseek-chat"]
+          }
+        ]
+      }),
+      "asr-providers-list": () => ({
+        ok: true,
+        providers: [
+          { id: "asr-sf", name: "SiliconFlow 硅基流动（免费）", enabled: true, hasSavedKey: true }
+        ]
+      }),
+      "search-providers-list": () => ({
+        ok: true,
+        providers: [{ id: "s1", name: "Tavily", enabled: true, hasSavedKey: true }]
+      })
+    });
     const host = await mountPanel();
-    expect(host.querySelector("#appearanceSettingsSummary")?.textContent).toBe("跟随当前站点 · 蓝雾玻璃 · 100%");
+    await waitForFast(() => {
+      expect(host.querySelector("#aiProvidersSummary")?.textContent).toBe("ModelScope·DeepSeek-V4.1-Terminus");
+    });
+    expect(host.querySelector("#asrSettingsSummary")?.textContent).toBe("自动 · SiliconFlow 硅基流动（免费）");
+    expect(host.querySelector("#searchSettingsSummary")?.textContent).toBe("智能回退");
+    expect(host.querySelector("#aiPromptSummary")?.textContent).toBe("自动概览");
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toBe("Index-Translate-35B-A3B");
+    expect(host.querySelector("#appearanceSettingsSummary")?.textContent).toBe("浅色 · 110%");
+    expect(host.querySelector("#shortcutsSettingsSummary")?.textContent).toBe("");
+    expect(host.querySelector("#advancedSettingsSummary")?.textContent).toBe("缓存 150 MB");
   });
 
   it("单次 sync 存储事件跨标量、Agent Bridge 与 AI 模型三路分发并刷新总览摘要", async () => {
