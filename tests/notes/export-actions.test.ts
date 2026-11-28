@@ -439,7 +439,7 @@ describe("notes/export-actions dispatchNoteExport 统一导出路由器", () => 
     expect(directRes.ok).toBe(true);
     expect(directRes.method).toBe("blob-download");
     expect(directRes.usedBlobFallback).toBe(false);
-    expect(sentTypes).toEqual(["get-settings"]);
+    expect(sentTypes.filter((type) => type !== "subtitle-cache")).toEqual(["get-settings"]);
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:direct-note");
   });

@@ -439,12 +439,17 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
   }
 });
 
-const handleSegmentCache = createSegmentCacheHandler();
+const resolveVideoCacheMaxBytes = async (): Promise<number> => {
+  const settings = await getSettingsSnapshot();
+  return videoCacheMaxMbToBytes(settings.videoCacheMaxMb);
+};
+
+const handleSegmentCache = createSegmentCacheHandler({
+  store: defaultSubtitleIdbStore,
+  resolveVideoCacheMaxBytes
+});
 const handleSubtitleCache = createSubtitleCacheHandler(defaultSubtitleIdbStore, {
-  resolveVideoCacheMaxBytes: async () => {
-    const settings = await getSettingsSnapshot();
-    return videoCacheMaxMbToBytes(settings.videoCacheMaxMb);
-  }
+  resolveVideoCacheMaxBytes
 });
 
 const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
@@ -699,9 +704,17 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
+const syncVideoCacheQuotaFromSettings = (): void => {
+  void resolveVideoCacheMaxBytes()
+    .then((bytes) => defaultSubtitleIdbStore.syncVideoCacheMaxBytes(bytes))
+    .catch(() => {});
+};
+
 watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge", "agentBridgeUrl"] });
+watchStorageKeys(syncVideoCacheQuotaFromSettings, { sync: ["videoCacheMaxMb"] });
 chrome.runtime.onStartup.addListener(() => {
   void agentBridge.sync();
+  syncVideoCacheQuotaFromSettings();
   void ensureIndexTranslateSessionRule().catch((error) => {
     logWarn("[BILISCRIPT] ensureIndexTranslateSessionRule onStartup failed", error);
   });
@@ -713,6 +726,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
 });
 void agentBridge.sync();
+syncVideoCacheQuotaFromSettings();
 void migrateLegacyLocalStorageToIdb().catch((error) => {
   logWarn("[BILISCRIPT] legacy storage migration on cold start failed", error);
 });

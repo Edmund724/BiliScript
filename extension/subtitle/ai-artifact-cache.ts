@@ -11,6 +11,7 @@ import {
   type SiteId
 } from "../shared/site.js";
 import {
+  LEGACY_LOCAL_MIGRATION_DONE_META_KEY,
   parseAiArtifactKey,
   resolveVideoStorageIdentity,
   type AiArtifactFamily,
@@ -369,6 +370,12 @@ export function createAiArtifactFamily<TValue>(
 
       if (globalThis.chrome?.storage?.local) {
         try {
+          const done = await store
+            .getStoreMeta<{ version?: unknown }>(LEGACY_LOCAL_MIGRATION_DONE_META_KEY)
+            .catch(() => null);
+          if (done && Number(done.version) >= 2) {
+            return Array.from(byKey.values());
+          }
           const matchedLegacyKeys = (await listStorageKeysByPrefix(prefix)).filter((k) =>
             k.startsWith(prefix)
           );

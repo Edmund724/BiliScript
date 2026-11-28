@@ -475,84 +475,10 @@ export async function writeWithEviction({
 
 export type CacheSaveResult = EvictionResult | EvictionFailure;
 
-export interface CacheFamilyOptions<TValue> {
-  prefix: string;
-  payloadField: string;
-  toSourceKey: (subtitleId: unknown, subtitleUrl: unknown, lang: unknown) => string;
-  validate?: (value: unknown) => boolean;
-  logFailure?: (info: { key: string; error: unknown }) => void;
-}
-
 export interface CacheFamilyKeyFields {
   bvid?: unknown;
   cid?: unknown;
   subtitleId?: unknown;
   subtitleUrl?: unknown;
   lang?: unknown;
-}
-
-export interface CacheFamily<TValue> {
-  readonly prefix: string;
-  key(fields: CacheFamilyKeyFields, tail: unknown): string;
-  load(key: string): Promise<TValue | null>;
-  loadMany(keys: string[]): Promise<(TValue | null)[]>;
-  save(key: string, value: TValue): Promise<CacheSaveResult>;
-}
-
-export function createCacheFamily<TValue>(options: CacheFamilyOptions<TValue>): CacheFamily<TValue> {
-  const { prefix, payloadField, toSourceKey, validate, logFailure } = options;
-  function readPayload(all: Record<string, unknown>, key: string): TValue | null {
-    const value = (all[key] as Record<string, unknown> | undefined)?.[payloadField];
-    if (value == null) {
-      return null;
-    }
-    if (validate && !validate(value)) {
-      return null;
-    }
-    return value as TValue;
-  }
-  return {
-    prefix,
-    key(fields, tail) {
-      const sourceKey = toSourceKey(fields.subtitleId, fields.subtitleUrl, fields.lang);
-      return `${prefix}${fields.bvid}_${fields.cid}_${sourceKey}_${String(tail)}`;
-    },
-    async load(key) {
-      try {
-        return readPayload(await requireStorageLocal().get(key), key);
-      } catch {
-        return null;
-      }
-    },
-    async loadMany(keys) {
-      const list = (Array.isArray(keys) ? keys : []).filter((key) => typeof key === "string" && Boolean(key));
-      if (list.length === 0) {
-        return [];
-      }
-      try {
-        const all = await requireStorageLocal().get(list);
-        return list.map((key) => readPayload(all, key));
-      } catch {
-        return list.map(() => null);
-      }
-    },
-    async save(key, value) {
-      const result = await writeWithEviction({
-        family: prefix,
-        bvid: parseBvidFromCacheKey(key, prefix),
-        keys: [key],
-        write: () =>
-          requireStorageLocal().set({
-            [key]: {
-              [payloadField]: value,
-              timestamp: Date.now()
-            }
-          })
-      });
-      if (!result.ok) {
-        logFailure?.({ key, error: result.error?.message || result.error });
-      }
-      return result;
-    }
-  };
 }

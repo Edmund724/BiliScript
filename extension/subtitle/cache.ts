@@ -35,6 +35,7 @@ import {
   CHAT_IMAGES_IDB_STORE,
   DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
   DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES,
+  LEGACY_LOCAL_MIGRATION_DONE_META_KEY,
   SUBTITLE_IDB_BVID_INDEX,
   SUBTITLE_IDB_NAME,
   SUBTITLE_IDB_STORE,
@@ -63,7 +64,8 @@ import {
   resetSubtitleStoreClientForTests,
   resolveActiveSubtitleStore,
   runVideoCacheClearHooks,
-  setSubtitleCacheWriteInterceptorForTests
+  setSubtitleCacheWriteInterceptorForTests,
+  shouldRouteViaBackground
 } from "./store-client.js";
 import { SUBTITLE_CACHE_KEY_PREFIX, parseSubtitleCacheKey } from "./legacy-key.js";
 import type { SiteId } from "../shared/site.js";
@@ -83,6 +85,7 @@ export {
   CHAT_IMAGES_IDB_STORE,
   DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
   DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES,
+  LEGACY_LOCAL_MIGRATION_DONE_META_KEY,
   SUBTITLE_IDB_BVID_INDEX,
   SUBTITLE_IDB_NAME,
   SUBTITLE_IDB_STORE,
@@ -897,11 +900,31 @@ export async function saveSubtitleToCache(cacheKey: string, body: unknown[]): Pr
   });
 }
 
+async function isLegacyLocalStorageMigrated(): Promise<boolean> {
+  try {
+    if (shouldRouteViaBackground()) {
+      if (!globalThis.chrome?.storage?.local) return false;
+      const marker = await chrome.storage.local.get(LEGACY_LOCAL_MIGRATION_DONE_META_KEY);
+      const done = marker?.[LEGACY_LOCAL_MIGRATION_DONE_META_KEY] as { version?: unknown } | undefined;
+      return Boolean(done && Number(done.version) >= 2);
+    }
+    const done = await resolveActiveStore().getStoreMeta<{ version?: unknown }>(
+      LEGACY_LOCAL_MIGRATION_DONE_META_KEY
+    );
+    return Boolean(done && Number(done.version) >= 2);
+  } catch {
+    return false;
+  }
+}
+
 async function removeLegacyStorageByPrefix(
   keyPrefix: string,
   excludeKey?: string
 ): Promise<string[]> {
   if (!globalThis.chrome?.storage?.local) {
+    return [];
+  }
+  if (await isLegacyLocalStorageMigrated()) {
     return [];
   }
   try {
@@ -1123,7 +1146,7 @@ export async function findCachedAsrSubtitleTrack({
     });
   }
 
-  if (globalThis.chrome?.storage?.local) {
+  if (globalThis.chrome?.storage?.local && !(await isLegacyLocalStorageMigrated())) {
     try {
       const prefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
       const legacyKeys = await listStorageKeysByPrefix(prefix);
@@ -1236,7 +1259,7 @@ export async function clearVideoCache(
   }
 
   const removedLegacyKeys: string[] = [];
-  if (globalThis.chrome?.storage?.local) {
+  if (globalThis.chrome?.storage?.local && !(await isLegacyLocalStorageMigrated())) {
     try {
       const allKeys = await listStorageKeysByPrefix("");
       const dataPrefixes = CACHE_FAMILIES.map((family) =>

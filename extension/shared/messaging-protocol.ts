@@ -17,6 +17,8 @@ import type {
   AiArtifactFamily,
   AiArtifactRecord,
   ChatImageRecord,
+  ConversationMetaRecord,
+  NoteHighlightBucketRecord,
   PersistedConversationRecord,
   PutChatImageInput,
   SubtitlePageRecord,
@@ -344,13 +346,27 @@ export type SubtitleCacheOp =
   | "get-video-cache-usage"
   | "set-video-cache-limit"
   | "get-conversation"
+  | "list-conversation-metas"
   | "list-conversations"
   | "count-conversations"
   | "put-conversation"
   | "put-conversations"
   | "delete-conversations"
   | "clear-conversations"
-  | "prune-conversations";
+  | "prune-conversations"
+  | "get-note-highlights"
+  | "put-note-highlights"
+  | "put-note-highlights-many"
+  | "delete-note-highlights"
+  | "list-note-highlights"
+  | "get-store-meta"
+  | "put-store-meta"
+  | "delete-store-meta";
+
+export type WireChatImageRecord = Omit<ChatImageRecord, "blob" | "data"> & {
+  dataUrl?: string;
+  data?: string;
+};
 
 export type SubtitleCacheMessage = {
   type: "subtitle-cache";
@@ -387,6 +403,12 @@ export type SubtitleCacheMessage = {
   maxCount?: number;
   conversation?: PersistedConversationRecord;
   conversations?: PersistedConversationRecord[];
+  videoKey?: string;
+  noteHighlights?: NoteHighlightBucketRecord;
+  noteHighlightsList?: NoteHighlightBucketRecord[];
+  markMetaKey?: string;
+  markMetaValue?: unknown;
+  metaValue?: unknown;
 };
 
 export type SubtitleCacheResponse = {
@@ -396,10 +418,14 @@ export type SubtitleCacheResponse = {
   items?: SubtitleBodyItem[] | null;
   artifact?: AiArtifactRecord | null;
   artifacts?: Array<AiArtifactRecord | null>;
-  chatImage?: ChatImageRecord | null;
-  chatImages?: Array<ChatImageRecord | null>;
+  chatImage?: WireChatImageRecord | null;
+  chatImages?: Array<WireChatImageRecord | null>;
   conversation?: PersistedConversationRecord | null;
+  conversationMetas?: ConversationMetaRecord[];
   conversations?: PersistedConversationRecord[];
+  noteHighlights?: NoteHighlightBucketRecord | null;
+  noteHighlightsList?: NoteHighlightBucketRecord[];
+  metaValue?: unknown;
   count?: number;
   keptCount?: number;
   usage?: VideoCacheUsage;

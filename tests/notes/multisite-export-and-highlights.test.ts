@@ -70,7 +70,7 @@ function createGetSettingsResponder(noteExportTemplate: string) {
   });
 }
 
-describe("多站点高亮存储键隔离、UI 同步与 120 桶 LRU 淘汰", () => {
+describe("多站点高亮存储键隔离、UI 同步与无上限持久化", () => {
   beforeEach(() => {
     resetModuleState();
     resetHighlightMemoryStoreForTests();
@@ -144,24 +144,20 @@ describe("多站点高亮存储键隔离、UI 同步与 120 桶 LRU 淘汰", () 
     expect(await loadVideoHighlights(BILI_ID)).toHaveLength(1);
   });
 
-  it("混合写入 122 个 YouTube 与 B 站高亮桶触发 MAX_VIDEO_BUCKETS=120 淘汰且无键碰撞", async () => {
+  it("混合写入 150 个 YouTube 与 B 站高亮桶 100% 保留无静默淘汰且无键碰撞", async () => {
     let now = 1000;
     vi.spyOn(Date, "now").mockImplementation(() => {
       now += 10;
       return now;
     });
 
-    await seedMixedHighlightBuckets(122);
+    await seedMixedHighlightBuckets(150);
 
-    const stored = (await chrome.storage.local.get(NOTE_HIGHLIGHTS_STORAGE_KEY))[
-      NOTE_HIGHLIGHTS_STORAGE_KEY
-    ] as Record<string, unknown>;
-    const keys = Object.keys(stored);
-    expect(keys).toHaveLength(120);
-    expect(stored[encodeVideoStorageBvid("youtube", `_${String(0).padStart(9, "0")}A`)]).toBeUndefined();
-    expect(stored[`BV1mix${String(1).padStart(6, "0")}`]).toBeUndefined();
-    expect(stored[encodeVideoStorageBvid("youtube", `_${String(2).padStart(9, "0")}A`)]).toBeDefined();
-    expect(stored[`BV1mix${String(121).padStart(6, "0")}`]).toBeDefined();
+    expect(await chrome.storage.local.get(NOTE_HIGHLIGHTS_STORAGE_KEY)).toEqual({});
+    expect(await loadVideoHighlights(encodeVideoStorageBvid("youtube", `_${String(0).padStart(9, "0")}A`))).toHaveLength(1);
+    expect(await loadVideoHighlights(`BV1mix${String(1).padStart(6, "0")}`)).toHaveLength(1);
+    expect(await loadVideoHighlights(encodeVideoStorageBvid("youtube", `_${String(2).padStart(9, "0")}A`))).toHaveLength(1);
+    expect(await loadVideoHighlights(`BV1mix${String(149).padStart(6, "0")}`)).toHaveLength(1);
   });
 });
 

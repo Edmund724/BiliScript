@@ -2,21 +2,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
+import { createFakeIdbEnvironment } from "../helpers/fake-idb.js";
 import {
   AI_ARTIFACTS_IDB_STORE,
   AI_ARTIFACTS_INDEX_BVID,
   AI_ARTIFACTS_INDEX_FAMILY_BVID,
-  AI_ARTIFACTS_INDEX_FAMILY_LAST_USED,
   AI_ARTIFACTS_INDEX_LAST_USED,
   AI_ARTIFACT_FAMILY_KEEP_VIDEOS,
   CHAT_IMAGES_IDB_STORE,
   CHAT_IMAGES_INDEX_BVID,
   CHAT_IMAGES_INDEX_CONVERSATION_ID,
-  CHAT_IMAGES_INDEX_LAST_USED,
+  CONVERSATION_MESSAGES_IDB_STORE,
+  CONVERSATION_META_IDB_STORE,
+  CONVERSATION_META_INDEX_CONTEXT_KEY,
+  CONVERSATION_META_INDEX_UPDATED_AT,
+  NOTE_HIGHLIGHTS_IDB_STORE,
+  STORE_META_IDB_STORE,
   SUBTITLE_IDB_BVID_INDEX,
   SUBTITLE_IDB_LAST_USED_INDEX,
   SUBTITLE_IDB_STORE,
   SUBTITLE_IDB_VERSION,
+  SUBTITLE_TRACKS_IDB_STORE,
+  SUBTITLE_TRACKS_INDEX_PAGE_ID,
   buildSubtitlePageId,
   createSubtitleIdbStore
 } from "../../extension/subtitle/idb-store.js";
@@ -56,227 +63,8 @@ import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension
 import { trackIdentity } from "../../extension/subtitle/source-key.js";
 import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../../extension/shared/messaging-protocol.js";
 
-interface FakeStoreState {
-  keyPath: string;
-  records: Map<string, Record<string, unknown>>;
-  indexes: Map<string, string | string[]>;
-}
-
-interface FakeDbState {
-  version: number;
-  stores: Map<string, FakeStoreState>;
-}
-
-function extractKeyPathValue(record: Record<string, unknown>, keyPath: string | string[]): unknown {
-  if (Array.isArray(keyPath)) {
-    return keyPath.map((k) => record[k]);
-  }
-  return record[keyPath];
-}
-
-function matchesIdbQuery(value: unknown, query: unknown): boolean {
-  if (query === undefined || query === null) {
-    return true;
-  }
-  if (typeof query === "object" && query !== null && "lower" in query && "upper" in query) {
-    const range = query as { lower: unknown; upper: unknown };
-    if (Array.isArray(value) && Array.isArray(range.lower) && Array.isArray(range.upper)) {
-      if (value[0] !== range.lower[0] || value[0] !== range.upper[0]) {
-        return false;
-      }
-      const num = Number(value[1]);
-      return num >= Number(range.lower[1]) && num <= Number(range.upper[1]);
-    }
-    return true;
-  }
-  if (Array.isArray(query)) {
-    return Array.isArray(value) && query.length === value.length && query.every((q, i) => value[i] === q);
-  }
-  return value === query;
-}
-
 function createVersionedFakeIdbFactory() {
-  const databases = new Map<string, FakeDbState>();
-
-  function cloneVal<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T;
-  }
-
-  function makeStoreApi(
-    storeState: FakeStoreState,
-    trackOp?: (fn: () => void) => void
-  ): IDBObjectStore {
-    const runAsync = <T>(exec: () => T) => {
-      const r = {
-        result: undefined as unknown as T,
-        error: null,
-        onsuccess: null as ((ev: Event) => void) | null,
-        onerror: null as ((ev: Event) => void) | null
-      };
-      const runner = () => {
-        r.result = exec();
-        r.onsuccess?.(new Event("success"));
-      };
-      if (trackOp) {
-        trackOp(runner);
-      } else {
-        queueMicrotask(runner);
-      }
-      return r as unknown as IDBRequest<T>;
-    };
-
-    return {
-      indexNames: {
-        contains: (name: string) => storeState.indexes.has(name)
-      },
-      createIndex(name: string, keyPath: string | string[]) {
-        storeState.indexes.set(name, keyPath);
-        return {} as IDBIndex;
-      },
-      index(name: string) {
-        const keyPath = storeState.indexes.get(name);
-        if (!keyPath) {
-          throw new Error(`Missing index ${name}`);
-        }
-        return {
-          getAll(query?: unknown) {
-            return runAsync(() =>
-              Array.from(storeState.records.values())
-                .filter((rec) => matchesIdbQuery(extractKeyPathValue(rec, keyPath), query))
-                .map((rec) => cloneVal(rec))
-            );
-          }
-        } as unknown as IDBIndex;
-      },
-      get(key: IDBValidKey) {
-        return runAsync(() => {
-          const hit = storeState.records.get(String(key));
-          return hit === undefined ? undefined : cloneVal(hit);
-        });
-      },
-      getAll() {
-        return runAsync(() => Array.from(storeState.records.values()).map((rec) => cloneVal(rec)));
-      },
-      put(val: Record<string, unknown>) {
-        return runAsync(() => {
-          const pk = String(val[storeState.keyPath]);
-          storeState.records.set(pk, cloneVal(val));
-          return pk;
-        });
-      },
-      delete(key: IDBValidKey) {
-        return runAsync(() => {
-          storeState.records.delete(String(key));
-          return undefined;
-        });
-      },
-      clear() {
-        return runAsync(() => {
-          storeState.records.clear();
-          return undefined;
-        });
-      }
-    } as unknown as IDBObjectStore;
-  }
-
-  const factory: IDBFactory = {
-    open(name: string, requestedVersion = 1) {
-      let dbState = databases.get(name);
-      const oldVersion = dbState?.version ?? 0;
-      if (!dbState) {
-        dbState = { version: 0, stores: new Map() };
-        databases.set(name, dbState);
-      }
-
-      const req = {
-        result: null as unknown as IDBDatabase,
-        transaction: null as unknown as IDBTransaction | null,
-        error: null,
-        onupgradeneeded: null as ((ev: IDBVersionChangeEvent) => void) | null,
-        onsuccess: null as ((ev: Event) => void) | null,
-        onerror: null as ((ev: Event) => void) | null
-      };
-
-      const dbApi = {
-        objectStoreNames: {
-          contains: (storeName: string) => dbState!.stores.has(storeName)
-        },
-        createObjectStore(storeName: string, opts?: { keyPath?: string }) {
-          const storeState: FakeStoreState = {
-            keyPath: opts?.keyPath || "id",
-            records: new Map(),
-            indexes: new Map()
-          };
-          dbState!.stores.set(storeName, storeState);
-          return makeStoreApi(storeState);
-        },
-        deleteObjectStore(storeName: string) {
-          dbState!.stores.delete(storeName);
-        },
-        close() {},
-        onversionchange: null as ((ev: IDBVersionChangeEvent) => void) | null,
-        onclose: null as ((ev: Event) => void) | null,
-        transaction(storeNames: string | string[]) {
-          const names = Array.isArray(storeNames) ? storeNames : [storeNames];
-          let pending = 0;
-          let finished = false;
-          const scheduleComplete = () => {
-            queueMicrotask(() => {
-              queueMicrotask(() => {
-                if (pending === 0 && !finished) {
-                  finished = true;
-                  tx.oncomplete?.(new Event("complete"));
-                }
-              });
-            });
-          };
-          const tx = {
-            error: null,
-            oncomplete: null as ((ev: Event) => void) | null,
-            onerror: null as ((ev: Event) => void) | null,
-            onabort: null as ((ev: Event) => void) | null,
-            objectStore(storeName: string) {
-              const storeState = dbState!.stores.get(storeName || names[0]);
-              if (!storeState) {
-                throw new Error(`Missing object store ${storeName}`);
-              }
-              return makeStoreApi(storeState, (runner) => {
-                pending += 1;
-                queueMicrotask(() => {
-                  runner();
-                  pending -= 1;
-                  scheduleComplete();
-                });
-              });
-            }
-          };
-          return tx as unknown as IDBTransaction;
-        }
-      } as unknown as IDBDatabase;
-
-      req.result = dbApi;
-      queueMicrotask(() => {
-        if (requestedVersion > oldVersion) {
-          dbState!.version = requestedVersion;
-          req.transaction = {
-            objectStore(storeName: string) {
-              const storeState = dbState!.stores.get(storeName);
-              if (!storeState) {
-                throw new Error(`Missing object store ${storeName}`);
-              }
-              return makeStoreApi(storeState);
-            }
-          } as unknown as IDBTransaction;
-          req.onupgradeneeded?.({ oldVersion, newVersion: requestedVersion } as IDBVersionChangeEvent);
-          req.transaction = null;
-        }
-        req.onsuccess?.(new Event("success"));
-      });
-      return req as unknown as IDBOpenDBRequest;
-    }
-  } as unknown as IDBFactory;
-
-  return { factory, databases };
+  return createFakeIdbEnvironment();
 }
 
 let chromeHost: ChromeHost;
@@ -298,9 +86,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("IndexedDB v1 → v3 零损升级与新仓库结构", () => {
-  it("从 v1 升级到 v3：保留历史 subtitle_pages 与 by_lastUsed，增量补 by_bvid 并建好 ai_artifacts、chat_images 与 conversations", async () => {
-    expect(SUBTITLE_IDB_VERSION).toBe(3);
+describe("IndexedDB v1 → v4 零损升级与新仓库结构", () => {
+  it("从 v1 升级到 v4：保留历史 subtitle_pages 与 by_lastUsed，拆轨至 subtitle_tracks 并建好 v4 全域仓库", async () => {
+    expect(SUBTITLE_IDB_VERSION).toBe(4);
     const { factory, databases } = createVersionedFakeIdbFactory();
     const dbName = "biliscript-upgrade-test";
 
@@ -346,16 +134,20 @@ describe("IndexedDB v1 → v3 零损升级与新仓库结构", () => {
     expect(legacyTrack).toEqual([{ from: 0, to: 2, content: "历史字幕保留验证" }]);
 
     const dbState = databases.get(dbName)!;
-    expect(dbState.version).toBe(3);
+    expect(dbState.version).toBe(4);
 
     const subStore = dbState.stores.get(SUBTITLE_IDB_STORE)!;
     expect(subStore.indexes.get(SUBTITLE_IDB_LAST_USED_INDEX)).toBe("lastUsed");
     expect(subStore.indexes.get(SUBTITLE_IDB_BVID_INDEX)).toBe("bvid");
 
+    const tracksStore = dbState.stores.get(SUBTITLE_TRACKS_IDB_STORE)!;
+    expect(tracksStore.keyPath).toBe("trackId");
+    expect(tracksStore.indexes.get(SUBTITLE_TRACKS_INDEX_PAGE_ID)).toBe("pageId");
+    expect(tracksStore.records.size).toBe(1);
+
     const aiStore = dbState.stores.get(AI_ARTIFACTS_IDB_STORE)!;
     expect(aiStore.keyPath).toBe("key");
     expect(aiStore.indexes.get(AI_ARTIFACTS_INDEX_FAMILY_BVID)).toEqual(["family", "bvid"]);
-    expect(aiStore.indexes.get(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED)).toEqual(["family", "lastUsedAt"]);
     expect(aiStore.indexes.get(AI_ARTIFACTS_INDEX_BVID)).toBe("bvid");
     expect(aiStore.indexes.get(AI_ARTIFACTS_INDEX_LAST_USED)).toBe("lastUsedAt");
 
@@ -364,12 +156,17 @@ describe("IndexedDB v1 → v3 零损升级与新仓库结构", () => {
     expect(chatImgStore.records.size).toBe(0);
     expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_CONVERSATION_ID)).toBe("conversationId");
     expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_BVID)).toBe("bvid");
-    expect(chatImgStore.indexes.get(CHAT_IMAGES_INDEX_LAST_USED)).toBe("lastUsedAt");
 
-    const convStore = dbState.stores.get("conversations")!;
-    expect(convStore.keyPath).toBe("id");
-    expect(convStore.records.size).toBe(0);
-    expect(convStore.indexes.get("by_updatedAt")).toBe("updatedAt");
+    const convMetaStore = dbState.stores.get(CONVERSATION_META_IDB_STORE)!;
+    expect(convMetaStore.keyPath).toBe("id");
+    expect(convMetaStore.records.size).toBe(0);
+    expect(convMetaStore.indexes.get(CONVERSATION_META_INDEX_UPDATED_AT)).toBe("updatedAt");
+    expect(convMetaStore.indexes.get(CONVERSATION_META_INDEX_CONTEXT_KEY)).toBe("contextKey");
+
+    expect(dbState.stores.has(CONVERSATION_MESSAGES_IDB_STORE)).toBe(true);
+    expect(dbState.stores.has(NOTE_HIGHLIGHTS_IDB_STORE)).toBe(true);
+    expect(dbState.stores.has(STORE_META_IDB_STORE)).toBe(true);
+    expect(dbState.stores.has("conversations")).toBe(false);
   });
 
   it("ai_artifacts 按族视频数上限（默认 100 / 100 / 20 / 20）执行 LRU 淘汰且读命中刷新 lastUsedAt", async () => {

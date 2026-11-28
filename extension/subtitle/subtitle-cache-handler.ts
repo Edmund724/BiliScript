@@ -1,10 +1,16 @@
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import {
+  chatImageToDataUrl,
   defaultSubtitleIdbStore,
   isAiArtifactFamily,
+  type ChatImageRecord,
   type SubtitleIdbStore
 } from "./idb-store.js";
-import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
+import type {
+  SubtitleCacheMessage,
+  SubtitleCacheResponse,
+  WireChatImageRecord
+} from "../shared/messaging-protocol.js";
 
 export interface SubtitleCacheHandlerOptions {
   resolveVideoCacheMaxBytes?: () => Promise<number>;
@@ -18,6 +24,21 @@ const ok = (extra: Omit<SubtitleCacheResponse, "ok" | "handled"> = {}): Subtitle
   ...extra
 });
 const fail = (error: string): SubtitleCacheResponse => ({ ok: false, handled: true, error });
+
+function toWireChatImage(rec: ChatImageRecord | null): WireChatImageRecord | null {
+  if (!rec) return null;
+  return {
+    id: rec.id,
+    conversationId: rec.conversationId,
+    bvid: rec.bvid,
+    mime: rec.mime,
+    dataUrl: chatImageToDataUrl(rec.mime, rec.data),
+    byteLength: rec.byteLength,
+    estimatedBytes: rec.estimatedBytes,
+    createdAt: rec.createdAt,
+    updatedAt: rec.updatedAt
+  };
+}
 
 export function createSubtitleCacheHandler(
   store: SubtitleIdbStore = defaultSubtitleIdbStore,
@@ -128,8 +149,9 @@ export function createSubtitleCacheHandler(
         const res = await store.clearVideo(str(m.bvid), m.cid !== undefined && m.cid !== "" ? String(m.cid) : undefined);
         return ok({ removedPageIds: res.removedPageIds, removedArtifactKeys: res.removedArtifactKeys });
       },
-      "get-chat-image": async (m) => ok({ chatImage: await store.getChatImage(str(m.id)) }),
-      "get-chat-images": async (m) => ok({ chatImages: await store.getChatImagesMany(arr(m.ids)) }),
+      "get-chat-image": async (m) => ok({ chatImage: toWireChatImage(await store.getChatImage(str(m.id))) }),
+      "get-chat-images": async (m) =>
+        ok({ chatImages: (await store.getChatImagesMany(arr(m.ids))).map(toWireChatImage) }),
       "put-chat-image": async (m) => {
         const input = m.chatImage;
         if (!input || typeof input !== "object") return fail("缺少对话图片写入参数");
@@ -140,10 +162,10 @@ export function createSubtitleCacheHandler(
           ...(input.cid !== undefined ? { cid: String(input.cid) } : {}),
           ...(input.site !== undefined ? { site: input.site } : {}),
           mime: typeof input.mime === "string" ? input.mime : "",
-          data: typeof input.data === "string" ? input.data : "",
+          ...(typeof input.dataUrl === "string" ? { dataUrl: input.dataUrl } : {}),
+          ...(typeof input.data === "string" ? { data: input.data } : {}),
           ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
-          ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {}),
-          ...(input.lastUsedAt !== undefined ? { lastUsedAt: input.lastUsedAt } : {})
+          ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {})
         });
         return res.ok ? ok({ evictedIds: res.evictedIds, estimatedBytes: res.estimatedBytes }) : fail(res.error?.message || "写入对话图片缓存失败");
       },
@@ -169,6 +191,7 @@ export function createSubtitleCacheHandler(
         return ok({ evictedPageIds: res.evictedPageIds, evictedKeys: res.evictedArtifactKeys, usage: res.usage });
       },
       "get-conversation": async (m) => ok({ conversation: await store.getConversation(str(m.id)) }),
+      "list-conversation-metas": async () => ok({ conversationMetas: await store.listConversationMetas() }),
       "list-conversations": async () => ok({ conversations: await store.listConversations() }),
       "count-conversations": async () => ok({ count: await store.countConversations() }),
       "put-conversation": async (m) => {
@@ -185,6 +208,27 @@ export function createSubtitleCacheHandler(
       "prune-conversations": async (m) => {
         const res = await store.pruneConversationsToLimit(Number(m.maxCount ?? 0));
         return ok({ removedIds: res.removedIds, keptCount: res.keptCount });
+      },
+      "get-note-highlights": async (m) => ok({ noteHighlights: await store.getNoteHighlights(str(m.videoKey)) }),
+      "put-note-highlights": async (m) => {
+        if (!m.noteHighlights || typeof m.noteHighlights !== "object") return fail("缺少划词高亮写入参数");
+        await store.putNoteHighlights(m.noteHighlights);
+        return ok();
+      },
+      "put-note-highlights-many": async (m) => {
+        await store.putNoteHighlightsMany(arr(m.noteHighlightsList), m.markMetaKey, m.markMetaValue);
+        return ok();
+      },
+      "delete-note-highlights": async (m) => ok({ deleted: await store.deleteNoteHighlights(str(m.videoKey)) }),
+      "list-note-highlights": async () => ok({ noteHighlightsList: await store.listNoteHighlights() }),
+      "get-store-meta": async (m) => ok({ metaValue: await store.getStoreMeta(str(m.key)) }),
+      "put-store-meta": async (m) => {
+        await store.putStoreMeta(str(m.key), m.metaValue);
+        return ok();
+      },
+      "delete-store-meta": async (m) => {
+        await store.deleteStoreMeta(str(m.key));
+        return ok();
       }
     }
   });

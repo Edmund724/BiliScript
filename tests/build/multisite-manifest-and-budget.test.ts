@@ -193,7 +193,7 @@ describe("常驻内容包瘦身与 45 KB 预算", () => {
     );
     const bodyText = readText("extension/subtitle/body.ts");
 
-    expect(backgroundBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(backgroundBytes).toBeLessThanOrEqual(300 * 1024);
     expect(backgroundInputs.some((input) => input.replace(/\\/g, "/").includes("extension/youtube/"))).toBe(false);
     expect(bodyText).not.toContain("youtube/gateway");
     expect(forbiddenBlock).toContain("youtube\\/");

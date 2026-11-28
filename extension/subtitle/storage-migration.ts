@@ -128,9 +128,23 @@ async function runMigration(
   const now = options.now ?? (() => Date.now());
 
   if (!options.force) {
+    const metaDone = await store
+      .getStoreMeta<{ version?: unknown }>(STORAGE_TO_IDB_MIGRATION_DONE_KEY)
+      .catch(() => null);
+    if (metaDone && Number(metaDone.version) >= 2) {
+      return {
+        skipped: true,
+        completed: true,
+        migratedArtifacts: 0,
+        migratedSubtitles: 0,
+        removedLegacyKeys: 0,
+        failedKeys: []
+      };
+    }
     const marker = await storage.get(STORAGE_TO_IDB_MIGRATION_DONE_KEY);
     const done = marker?.[STORAGE_TO_IDB_MIGRATION_DONE_KEY] as { version?: unknown } | undefined;
     if (done && Number(done.version) >= 2) {
+      await store.putStoreMeta(STORAGE_TO_IDB_MIGRATION_DONE_KEY, done).catch(() => {});
       return {
         skipped: true,
         completed: true,
@@ -330,11 +344,13 @@ async function runMigration(
     }
   }
 
+  const donePayload = {
+    version: 2,
+    completedAt: now()
+  };
+  await store.putStoreMeta(STORAGE_TO_IDB_MIGRATION_DONE_KEY, donePayload).catch(() => {});
   await storage.set({
-    [STORAGE_TO_IDB_MIGRATION_DONE_KEY]: {
-      version: 2,
-      completedAt: now()
-    }
+    [STORAGE_TO_IDB_MIGRATION_DONE_KEY]: donePayload
   });
 
   return {

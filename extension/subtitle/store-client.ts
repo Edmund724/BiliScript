@@ -1,14 +1,25 @@
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import {
+  base64ToChatImageBlob,
+  chatImageBlobToBase64,
+  chatImageDataUrlToParts,
+  chatImageToDataUrl,
+  clearSharedMemoryDbsForTests,
   defaultSubtitleIdbStore,
   type AiArtifactRecord,
   type AiArtifactWriteResult,
+  type ChatImageRecord,
   type ChatImageWriteResult,
+  type PutChatImageInput,
   type SubtitleIdbStore,
   type SubtitleStoreWriteInterceptor,
   type SubtitleStoreWriteResult
 } from "./idb-store.js";
-import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
+import type {
+  SubtitleCacheMessage,
+  SubtitleCacheResponse,
+  WireChatImageRecord
+} from "../shared/messaging-protocol.js";
 
 let storeOverrideForTests: SubtitleIdbStore | null = null;
 declare const SUBTITLE_STORE_RESET_KEY: unique symbol;
@@ -43,6 +54,7 @@ export function resetSubtitleStoreClientForTests(): void {
     } catch {
     }
   }
+  clearSharedMemoryDbsForTests();
   void defaultSubtitleIdbStore.clearAll();
 }
 
@@ -50,19 +62,11 @@ export function resetSubtitleStoreClientForTests(): void {
   resetSubtitleStoreClientForTests;
 
 export function shouldRouteViaBackground(): boolean {
-  if (storeOverrideForTests) {
-    return false;
-  }
-  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
-    return false;
-  }
-  if (typeof window === "undefined") {
-    return false;
-  }
+  if (storeOverrideForTests) return false;
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") return false;
+  if (typeof window === "undefined") return false;
   const protocol = String(window.location?.protocol || "").toLowerCase();
-  if (protocol === "chrome-extension:" || protocol === "moz-extension:") {
-    return false;
-  }
+  if (protocol === "chrome-extension:" || protocol === "moz-extension:") return false;
   return protocol === "http:" || protocol === "https:";
 }
 
@@ -71,20 +75,13 @@ type SubtitleRpcOutcome =
   | { status: "unhandled" }
   | { status: "error"; error: Error };
 
-async function sendSubtitleStoreRpcDetailed(
-  message: SubtitleCacheMessage
-): Promise<SubtitleRpcOutcome> {
+async function sendSubtitleStoreRpcDetailed(message: SubtitleCacheMessage): Promise<SubtitleRpcOutcome> {
   try {
     const response = await sendRuntimeMessage(message);
-    if (response && response.handled === true) {
-      return { status: "handled", response };
-    }
+    if (response && response.handled === true) return { status: "handled", response };
     return { status: "unhandled" };
   } catch (err) {
-    return {
-      status: "error",
-      error: err instanceof Error ? err : new Error(String(err))
-    };
+    return { status: "error", error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
 
@@ -96,14 +93,10 @@ async function callSubtitleStoreRpcOrFallback<T>(
 ): Promise<T> {
   const outcome = await sendSubtitleStoreRpcDetailed(message);
   if (outcome.status === "handled") {
-    if (!outcome.response.ok) {
-      throw new Error(outcome.response.error || fallbackErrorMessage);
-    }
+    if (!outcome.response.ok) throw new Error(outcome.response.error || fallbackErrorMessage);
     return onHandled(outcome.response);
   }
-  if (outcome.status === "error") {
-    throw outcome.error;
-  }
+  if (outcome.status === "error") throw outcome.error;
   return onUnhandled();
 }
 
@@ -113,16 +106,8 @@ async function callSubtitleStoreWriteOrFallback(
   fallbackErrorMessage: string
 ): Promise<SubtitleStoreWriteResult> {
   const outcome = await sendSubtitleStoreRpcDetailed(message);
-  if (outcome.status === "handled") {
-    return toRpcWriteResult(outcome.response, fallbackErrorMessage);
-  }
-  if (outcome.status === "error") {
-    return {
-      ok: false,
-      evictedIds: [],
-      error: outcome.error
-    };
-  }
+  if (outcome.status === "handled") return toRpcWriteResult(outcome.response, fallbackErrorMessage);
+  if (outcome.status === "error") return { ok: false, evictedIds: [], error: outcome.error };
   return onUnhandled();
 }
 
@@ -131,17 +116,9 @@ function toRpcChatImageWriteResult(
   fallbackErrorMessage: string
 ): ChatImageWriteResult {
   if (response.ok) {
-    return {
-      ok: true,
-      evictedIds: response.evictedIds ?? [],
-      estimatedBytes: response.estimatedBytes
-    };
+    return { ok: true, evictedIds: response.evictedIds ?? [], estimatedBytes: response.estimatedBytes };
   }
-  return {
-    ok: false,
-    evictedIds: [],
-    error: new Error(response.error || fallbackErrorMessage)
-  };
+  return { ok: false, evictedIds: [], error: new Error(response.error || fallbackErrorMessage) };
 }
 
 function toRpcWriteResult(
@@ -149,17 +126,9 @@ function toRpcWriteResult(
   fallbackErrorMessage: string
 ): SubtitleStoreWriteResult {
   if (response.ok) {
-    return {
-      ok: true,
-      evictedIds: response.evictedIds ?? [],
-      estimatedBytes: response.estimatedBytes
-    };
+    return { ok: true, evictedIds: response.evictedIds ?? [], estimatedBytes: response.estimatedBytes };
   }
-  return {
-    ok: false,
-    evictedIds: [],
-    error: new Error(response.error || fallbackErrorMessage)
-  };
+  return { ok: false, evictedIds: [], error: new Error(response.error || fallbackErrorMessage) };
 }
 
 function toRpcAiWriteResult(
@@ -167,53 +136,88 @@ function toRpcAiWriteResult(
   fallbackErrorMessage: string
 ): AiArtifactWriteResult {
   if (response.ok) {
+    return { ok: true, evictedKeys: response.evictedKeys ?? [], estimatedBytes: response.estimatedBytes };
+  }
+  return { ok: false, evictedKeys: [], error: new Error(response.error || fallbackErrorMessage) };
+}
+
+function fromWireChatImage(wire: WireChatImageRecord | null | undefined): ChatImageRecord | null {
+  if (!wire) return null;
+  const parts =
+    typeof wire.dataUrl === "string" && wire.dataUrl
+      ? chatImageDataUrlToParts(wire.dataUrl, wire.mime)
+      : { mime: wire.mime, data: typeof wire.data === "string" ? wire.data : "" };
+  if (!parts.data) return null;
+  const mime = parts.mime || wire.mime;
+  const blob = base64ToChatImageBlob(parts.data, mime);
+  return {
+    id: wire.id,
+    conversationId: wire.conversationId,
+    bvid: wire.bvid,
+    mime,
+    data: parts.data,
+    blob,
+    byteLength: wire.byteLength || blob.size,
+    estimatedBytes: wire.estimatedBytes || blob.size,
+    createdAt: wire.createdAt,
+    updatedAt: wire.updatedAt
+  };
+}
+
+async function toWirePutChatImageInput(input: PutChatImageInput): Promise<PutChatImageInput> {
+  if (typeof Blob !== "undefined" && input.blob instanceof Blob) {
+    const b64 = await chatImageBlobToBase64(input.blob);
+    const mime = input.mime || input.blob.type || "application/octet-stream";
     return {
-      ok: true,
-      evictedKeys: response.evictedKeys ?? [],
-      estimatedBytes: response.estimatedBytes
+      id: input.id,
+      conversationId: input.conversationId,
+      ...(input.bvid !== undefined ? { bvid: input.bvid } : {}),
+      ...(input.cid !== undefined ? { cid: input.cid } : {}),
+      ...(input.site !== undefined ? { site: input.site } : {}),
+      mime,
+      dataUrl: chatImageToDataUrl(mime, b64),
+      ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
+      ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {})
     };
   }
-  return {
-    ok: false,
-    evictedKeys: [],
-    error: new Error(response.error || fallbackErrorMessage)
-  };
+  if (typeof input.dataUrl === "string" && input.dataUrl) {
+    return { ...input, blob: undefined };
+  }
+  if (typeof input.data === "string" && input.data) {
+    return {
+      id: input.id,
+      conversationId: input.conversationId,
+      ...(input.bvid !== undefined ? { bvid: input.bvid } : {}),
+      ...(input.cid !== undefined ? { cid: input.cid } : {}),
+      ...(input.site !== undefined ? { site: input.site } : {}),
+      mime: input.mime,
+      dataUrl: input.data.startsWith("data:") ? input.data : chatImageToDataUrl(input.mime, input.data),
+      ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
+      ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {})
+    };
+  }
+  return input;
 }
 
 function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): SubtitleIdbStore {
   return {
-    getPageRecord(bvid, cid) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-page",
-          bvid,
-          cid
-        },
+    getPageRecord: (bvid, cid) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-page", bvid, cid },
         (response) => response.page ?? null,
         () => fallbackStore.getPageRecord(bvid, cid),
         "读取字幕页缓存失败"
-      );
-    },
-    listPageRecords() {
-      return fallbackStore.listPageRecords();
-    },
-    getRawTrack(bvid, cid, trackKey) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-raw",
-          bvid,
-          cid,
-          trackKey
-        },
+      ),
+    listPageRecords: () => fallbackStore.listPageRecords(),
+    getRawTrack: (bvid, cid, trackKey) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-raw", bvid, cid, trackKey },
         (response) => response.items ?? null,
         () => fallbackStore.getRawTrack(bvid, cid, trackKey),
         "读取原生字幕缓存失败"
-      );
-    },
-    putRawTrack(input) {
-      return callSubtitleStoreWriteOrFallback(
+      ),
+    putRawTrack: (input) =>
+      callSubtitleStoreWriteOrFallback(
         {
           type: "subtitle-cache",
           op: "put-raw",
@@ -226,25 +230,16 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         },
         () => fallbackStore.putRawTrack(input),
         "写入原生字幕缓存失败"
-      );
-    },
-    getSegmentedTrack(bvid, cid, trackKey, segmentationSig) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-segmented",
-          bvid,
-          cid,
-          trackKey,
-          segmentationSig
-        },
+      ),
+    getSegmentedTrack: (bvid, cid, trackKey, segmentationSig) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-segmented", bvid, cid, trackKey, segmentationSig },
         (response) => response.items ?? null,
         () => fallbackStore.getSegmentedTrack(bvid, cid, trackKey, segmentationSig),
         "读取重断句缓存失败"
-      );
-    },
-    putSegmentedTrack(input) {
-      return callSubtitleStoreWriteOrFallback(
+      ),
+    putSegmentedTrack: (input) =>
+      callSubtitleStoreWriteOrFallback(
         {
           type: "subtitle-cache",
           op: "put-segmented",
@@ -256,10 +251,9 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         },
         () => fallbackStore.putSegmentedTrack(input),
         "写入重断句缓存失败"
-      );
-    },
-    getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig) {
-      return callSubtitleStoreRpcOrFallback(
+      ),
+    getTranslatedTrack: (bvid, cid, sourceTrackKey, targetLang, translationSig) =>
+      callSubtitleStoreRpcOrFallback(
         {
           type: "subtitle-cache",
           op: "get-translated",
@@ -272,10 +266,9 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         (response) => response.items ?? null,
         () => fallbackStore.getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig),
         "读取译文缓存失败"
-      );
-    },
-    upsertTranslatedTrack(input) {
-      return callSubtitleStoreWriteOrFallback(
+      ),
+    upsertTranslatedTrack: (input) =>
+      callSubtitleStoreWriteOrFallback(
         {
           type: "subtitle-cache",
           op: "upsert-translated",
@@ -290,25 +283,16 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         },
         () => fallbackStore.upsertTranslatedTrack(input),
         "写入译文缓存失败"
-      );
-    },
-    deleteTrackEntry(input) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "delete-entry",
-          bvid: input.bvid,
-          cid: input.cid,
-          tier: input.tier,
-          key: input.key
-        },
+      ),
+    deleteTrackEntry: (input) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-entry", bvid: input.bvid, cid: input.cid, tier: input.tier, key: input.key },
         (response) => Boolean(response.ok),
         () => fallbackStore.deleteTrackEntry(input),
         "删除字幕缓存条目失败"
-      );
-    },
-    pruneAsrVariants(args) {
-      return callSubtitleStoreRpcOrFallback(
+      ),
+    pruneAsrVariants: (args) =>
+      callSubtitleStoreRpcOrFallback(
         {
           type: "subtitle-cache",
           op: "prune-asr",
@@ -319,10 +303,9 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         (response) => response.removedKeys ?? [],
         () => fallbackStore.pruneAsrVariants(args),
         "清理过期 ASR 字幕缓存失败"
-      );
-    },
-    clearTranslatedTracksForPage(args) {
-      return callSubtitleStoreRpcOrFallback(
+      ),
+    clearTranslatedTracksForPage: (args) =>
+      callSubtitleStoreRpcOrFallback(
         {
           type: "subtitle-cache",
           op: "clear-translated",
@@ -333,36 +316,24 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         (response) => response.removedKeys ?? [],
         () => fallbackStore.clearTranslatedTracksForPage(args),
         "清理译文缓存失败"
-      );
-    },
+      ),
 
-    getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null> {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-ai-artifact",
-          key
-        },
+    getAiArtifact: <TPayload = unknown>(key: string) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-ai-artifact", key },
         (response) => (response.artifact ?? null) as AiArtifactRecord<TPayload> | null,
         () => fallbackStore.getAiArtifact<TPayload>(key),
         "读取 AI 产物缓存失败"
-      );
-    },
-    getAiArtifactsMany<TPayload = unknown>(
-      keys: string[]
-    ): Promise<Array<AiArtifactRecord<TPayload> | null>> {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-ai-artifacts",
-          keys
-        },
-        (response) =>
-          (response.artifacts ?? keys.map(() => null)) as Array<AiArtifactRecord<TPayload> | null>,
+      ),
+    readAiArtifactPayloadRaw: <TPayload = unknown>(key: string) =>
+      fallbackStore.readAiArtifactPayloadRaw<TPayload>(key),
+    getAiArtifactsMany: <TPayload = unknown>(keys: string[]) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-ai-artifacts", keys },
+        (response) => (response.artifacts ?? keys.map(() => null)) as Array<AiArtifactRecord<TPayload> | null>,
         () => fallbackStore.getAiArtifactsMany<TPayload>(keys),
         "批量读取 AI 产物缓存失败"
-      );
-    },
+      ),
     async putAiArtifact(input) {
       const outcome = await sendSubtitleStoreRpcDetailed({
         type: "subtitle-cache",
@@ -376,132 +347,66 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {}),
         ...(input.lastUsedAt !== undefined ? { lastUsedAt: input.lastUsedAt } : {})
       });
-      if (outcome.status === "handled") {
-        return toRpcAiWriteResult(outcome.response, "写入 AI 产物缓存失败");
-      }
-      if (outcome.status === "error") {
-        return {
-          ok: false,
-          evictedKeys: [],
-          error: outcome.error
-        };
-      }
+      if (outcome.status === "handled") return toRpcAiWriteResult(outcome.response, "写入 AI 产物缓存失败");
+      if (outcome.status === "error") return { ok: false, evictedKeys: [], error: outcome.error };
       return fallbackStore.putAiArtifact(input);
     },
-    deleteAiArtifact(key) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "delete-ai-artifact",
-          key
-        },
+    deleteAiArtifact: (key) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-ai-artifact", key },
         (response) => Boolean(response.deleted),
         () => fallbackStore.deleteAiArtifact(key),
         "删除 AI 产物缓存失败"
-      );
-    },
-    listAiArtifactsByFamilyBvid(family, bvid, keyPrefix) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "list-ai-artifacts",
-          family,
-          bvid,
-          ...(keyPrefix ? { keyPrefix } : {})
-        },
-        (response) =>
-          (response.artifacts ?? []).filter((item): item is AiArtifactRecord => item !== null),
+      ),
+    listAiArtifactsByFamilyBvid: (family, bvid, keyPrefix) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "list-ai-artifacts", family, bvid, ...(keyPrefix ? { keyPrefix } : {}) },
+        (response) => (response.artifacts ?? []).filter((item): item is AiArtifactRecord => item !== null),
         () => fallbackStore.listAiArtifactsByFamilyBvid(family, bvid, keyPrefix),
         "列举 AI 产物缓存失败"
-      );
-    },
-    listAiArtifactsByBvid(bvid) {
-      return fallbackStore.listAiArtifactsByBvid(bvid);
-    },
-    listAllAiArtifacts() {
-      return fallbackStore.listAllAiArtifacts();
-    },
-    clearVideo(bvid, cid) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "clear-video",
-          bvid,
-          ...(cid ? { cid } : {})
-        },
+      ),
+    listAiArtifactsByBvid: (bvid) => fallbackStore.listAiArtifactsByBvid(bvid),
+    listAllAiArtifacts: () => fallbackStore.listAllAiArtifacts(),
+    clearVideo: (bvid, cid) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "clear-video", bvid, ...(cid ? { cid } : {}) },
         (response) => ({
           removedPageIds: response.removedPageIds ?? [],
           removedArtifactKeys: response.removedArtifactKeys ?? []
         }),
         () => fallbackStore.clearVideo(bvid, cid),
         "清理视频缓存失败"
-      );
-    },
+      ),
 
-    async getChatImage(id) {
-      const outcome = await sendSubtitleStoreRpcDetailed({
-        type: "subtitle-cache",
-        op: "get-chat-image",
-        id
-      });
-      if (outcome.status === "handled") {
-        if (!outcome.response.ok) {
-          throw new Error(outcome.response.error || "读取对话图片缓存失败");
-        }
-        return outcome.response.chatImage ?? null;
-      }
-      if (outcome.status === "error") {
-        throw outcome.error;
-      }
-      return fallbackStore.getChatImage(id);
-    },
-    async getChatImagesMany(ids) {
-      const outcome = await sendSubtitleStoreRpcDetailed({
-        type: "subtitle-cache",
-        op: "get-chat-images",
-        ids
-      });
-      if (outcome.status === "handled") {
-        if (!outcome.response.ok) {
-          throw new Error(outcome.response.error || "批量读取对话图片缓存失败");
-        }
-        return outcome.response.chatImages ?? ids.map(() => null);
-      }
-      if (outcome.status === "error") {
-        throw outcome.error;
-      }
-      return fallbackStore.getChatImagesMany(ids);
-    },
+    getChatImage: (id) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-chat-image", id },
+        (response) => fromWireChatImage(response.chatImage),
+        () => fallbackStore.getChatImage(id),
+        "读取对话图片缓存失败"
+      ),
+    getChatImagesMany: (ids) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-chat-images", ids },
+        (response) => (response.chatImages ?? ids.map(() => null)).map(fromWireChatImage),
+        () => fallbackStore.getChatImagesMany(ids),
+        "批量读取对话图片缓存失败"
+      ),
     async putChatImage(input) {
+      const wireInput = await toWirePutChatImageInput(input);
       const outcome = await sendSubtitleStoreRpcDetailed({
         type: "subtitle-cache",
         op: "put-chat-image",
-        chatImage: input
+        chatImage: wireInput
       });
-      if (outcome.status === "handled") {
-        return toRpcChatImageWriteResult(outcome.response, "写入对话图片缓存失败");
-      }
-      if (outcome.status === "error") {
-        return {
-          ok: false,
-          evictedIds: [],
-          error: outcome.error
-        };
-      }
+      if (outcome.status === "handled") return toRpcChatImageWriteResult(outcome.response, "写入对话图片缓存失败");
+      if (outcome.status === "error") return { ok: false, evictedIds: [], error: outcome.error };
       return fallbackStore.putChatImage(input);
     },
     async deleteChatImages(ids) {
-      const outcome = await sendSubtitleStoreRpcDetailed({
-        type: "subtitle-cache",
-        op: "delete-chat-images",
-        ids
-      });
-      if (outcome.status === "handled") {
-        return outcome.response.removedIds ?? [];
-      }
-      if (outcome.status === "error") {
-        return [];
-      }
+      const outcome = await sendSubtitleStoreRpcDetailed({ type: "subtitle-cache", op: "delete-chat-images", ids });
+      if (outcome.status === "handled") return outcome.response.removedIds ?? [];
+      if (outcome.status === "error") return [];
       return fallbackStore.deleteChatImages(ids);
     },
     async deleteChatImagesByConversationIds(conversationIds) {
@@ -510,12 +415,8 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         op: "delete-chat-images-by-conversations",
         conversationIds
       });
-      if (outcome.status === "handled") {
-        return outcome.response.removedIds ?? [];
-      }
-      if (outcome.status === "error") {
-        return [];
-      }
+      if (outcome.status === "handled") return outcome.response.removedIds ?? [];
+      if (outcome.status === "error") return [];
       return fallbackStore.deleteChatImagesByConversationIds(conversationIds);
     },
     async pruneChatImages(input) {
@@ -525,40 +426,22 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         validConversationIds: [...input.validConversationIds],
         ...(input.keepImageIds ? { keepImageIds: [...input.keepImageIds] } : {})
       });
-      if (outcome.status === "handled") {
-        return outcome.response.removedIds ?? [];
-      }
-      if (outcome.status === "error") {
-        return [];
-      }
+      if (outcome.status === "handled") return outcome.response.removedIds ?? [];
+      if (outcome.status === "error") return [];
       return fallbackStore.pruneChatImages(input);
     },
     async clearAllChatImages() {
-      const outcome = await sendSubtitleStoreRpcDetailed({
-        type: "subtitle-cache",
-        op: "clear-chat-images"
-      });
-      if (outcome.status === "handled") {
-        return outcome.response.removedIds ?? [];
-      }
-      if (outcome.status === "error") {
-        return [];
-      }
+      const outcome = await sendSubtitleStoreRpcDetailed({ type: "subtitle-cache", op: "clear-chat-images" });
+      if (outcome.status === "handled") return outcome.response.removedIds ?? [];
+      if (outcome.status === "error") return [];
       return fallbackStore.clearAllChatImages();
     },
-    listChatImagesByConversationId(conversationId) {
-      return fallbackStore.listChatImagesByConversationId(conversationId);
-    },
-    listAllChatImages() {
-      return fallbackStore.listAllChatImages();
-    },
+    listChatImagesByConversationId: (conversationId) => fallbackStore.listChatImagesByConversationId(conversationId),
+    listAllChatImages: () => fallbackStore.listAllChatImages(),
 
-    getVideoCacheUsage() {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-video-cache-usage"
-        },
+    getVideoCacheUsage: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-video-cache-usage" },
         (response) =>
           response.usage ?? {
             totalBytes: 0,
@@ -570,18 +453,11 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
           },
         () => fallbackStore.getVideoCacheUsage(),
         "读取缓存占用失败"
-      );
-    },
-    syncVideoCacheMaxBytes(maxBytes) {
-      fallbackStore.syncVideoCacheMaxBytes(maxBytes);
-    },
-    setVideoCacheMaxBytes(maxBytes) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "set-video-cache-limit",
-          maxBytes
-        },
+      ),
+    syncVideoCacheMaxBytes: (maxBytes) => fallbackStore.syncVideoCacheMaxBytes(maxBytes),
+    setVideoCacheMaxBytes: (maxBytes) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "set-video-cache-limit", maxBytes },
         (response) => ({
           evictedPageIds: response.evictedPageIds ?? [],
           evictedArtifactKeys: response.evictedKeys ?? [],
@@ -596,112 +472,141 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         }),
         () => fallbackStore.setVideoCacheMaxBytes(maxBytes),
         "更新缓存上限失败"
-      );
-    },
+      ),
 
-    getConversation(id) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "get-conversation",
-          id
-        },
+    getConversation: (id) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-conversation", id },
         (response) => response.conversation ?? null,
         () => fallbackStore.getConversation(id),
         "读取历史对话失败"
-      );
-    },
-    listConversations() {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "list-conversations"
-        },
+      ),
+    listConversationMetas: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "list-conversation-metas" },
+        (response) => response.conversationMetas ?? [],
+        () => fallbackStore.listConversationMetas(),
+        "读取历史对话头列表失败"
+      ),
+    listConversations: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "list-conversations" },
         (response) => response.conversations ?? [],
         () => fallbackStore.listConversations(),
         "读取历史对话列表失败"
-      );
-    },
-    countConversations() {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "count-conversations"
-        },
+      ),
+    countConversations: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "count-conversations" },
         (response) => Number(response.count) || 0,
         () => fallbackStore.countConversations(),
         "统计历史对话数量失败"
-      );
-    },
-    putConversation(record) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "put-conversation",
-          conversation: record
-        },
+      ),
+    putConversation: (record) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "put-conversation", conversation: record },
         () => undefined,
         () => fallbackStore.putConversation(record),
         "保存历史对话失败"
-      );
-    },
-    putConversationsMany(records) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "put-conversations",
-          conversations: records
-        },
+      ),
+    putConversationsMany: (records) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "put-conversations", conversations: records },
         () => undefined,
         () => fallbackStore.putConversationsMany(records),
         "批量保存历史对话失败"
-      );
-    },
-    deleteConversations(ids) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "delete-conversations",
-          ids
-        },
+      ),
+    deleteConversations: (ids) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-conversations", ids },
         (response) => response.removedIds ?? [],
         () => fallbackStore.deleteConversations(ids),
         "删除历史对话失败"
-      );
-    },
-    clearAllConversations() {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "clear-conversations"
-        },
+      ),
+    clearAllConversations: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "clear-conversations" },
         (response) => response.removedIds ?? [],
         () => fallbackStore.clearAllConversations(),
         "清空历史对话失败"
-      );
-    },
-    pruneConversationsToLimit(maxCount) {
-      return callSubtitleStoreRpcOrFallback(
-        {
-          type: "subtitle-cache",
-          op: "prune-conversations",
-          maxCount
-        },
+      ),
+    pruneConversationsToLimit: (maxCount) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "prune-conversations", maxCount },
         (response) => ({
           removedIds: response.removedIds ?? [],
           keptCount: Number(response.keptCount) || 0
         }),
         () => fallbackStore.pruneConversationsToLimit(maxCount),
         "裁剪历史对话失败"
-      );
-    },
+      ),
 
-    clearAll() {
-      return fallbackStore.clearAll();
-    },
-    setWriteInterceptorForTests(interceptor) {
-      fallbackStore.setWriteInterceptorForTests(interceptor);
-    }
+    getNoteHighlights: (videoKey) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-note-highlights", videoKey },
+        (response) => response.noteHighlights ?? null,
+        () => fallbackStore.getNoteHighlights(videoKey),
+        "读取划词高亮失败"
+      ),
+    putNoteHighlights: (record) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "put-note-highlights", noteHighlights: record },
+        () => undefined,
+        () => fallbackStore.putNoteHighlights(record),
+        "保存划词高亮失败"
+      ),
+    putNoteHighlightsMany: (records, markMetaKey, markMetaValue) =>
+      callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "put-note-highlights-many",
+          noteHighlightsList: [...records],
+          ...(markMetaKey !== undefined ? { markMetaKey } : {}),
+          ...(markMetaValue !== undefined ? { markMetaValue } : {})
+        },
+        () => undefined,
+        () => fallbackStore.putNoteHighlightsMany(records, markMetaKey, markMetaValue),
+        "批量保存划词高亮失败"
+      ),
+    deleteNoteHighlights: (videoKey) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-note-highlights", videoKey },
+        (response) => Boolean(response.deleted),
+        () => fallbackStore.deleteNoteHighlights(videoKey),
+        "删除划词高亮失败"
+      ),
+    listNoteHighlights: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "list-note-highlights" },
+        (response) => response.noteHighlightsList ?? [],
+        () => fallbackStore.listNoteHighlights(),
+        "列举划词高亮失败"
+      ),
+
+    getStoreMeta: <T = unknown>(key: string) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "get-store-meta", key },
+        (response) => (response.metaValue ?? null) as T | null,
+        () => fallbackStore.getStoreMeta<T>(key),
+        "读取元数据失败"
+      ),
+    putStoreMeta: (key, value) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "put-store-meta", key, metaValue: value },
+        () => undefined,
+        () => fallbackStore.putStoreMeta(key, value),
+        "写入元数据失败"
+      ),
+    deleteStoreMeta: (key) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-store-meta", key },
+        () => undefined,
+        () => fallbackStore.deleteStoreMeta(key),
+        "删除元数据失败"
+      ),
+
+    clearAll: () => fallbackStore.clearAll(),
+    setWriteInterceptorForTests: (interceptor) => fallbackStore.setWriteInterceptorForTests(interceptor)
   };
 }
 
@@ -712,9 +617,7 @@ export function resolveDirectSubtitleStore(): SubtitleIdbStore {
 }
 
 export function resolveActiveSubtitleStore(): SubtitleIdbStore {
-  if (storeOverrideForTests) {
-    return storeOverrideForTests;
-  }
+  if (storeOverrideForTests) return storeOverrideForTests;
   return shouldRouteViaBackground() ? rpcSubtitleIdbStore : defaultSubtitleIdbStore;
 }
 

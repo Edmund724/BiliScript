@@ -1,4 +1,5 @@
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
+import { defaultSubtitleIdbStore, type SubtitleIdbStore } from "../subtitle/idb-store.js";
 import {
   buildSegmentSummaryCacheKey,
   loadSegmentSummary,
@@ -10,11 +11,39 @@ import {
 } from "./segment-cache.js";
 import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
 
-export function createSegmentCacheHandler(): (
+export interface SegmentCacheHandlerOptions {
+  store?: SubtitleIdbStore;
+  resolveVideoCacheMaxBytes?: () => Promise<number>;
+}
+
+export function createSegmentCacheHandler(
+  options: SegmentCacheHandlerOptions = {}
+): (
   message: SegmentCacheMessage,
   sender: unknown,
   sendResponse: (response: SegmentCacheResponse) => void
 ) => void {
+  const store = options.store ?? defaultSubtitleIdbStore;
+  let maxBytesSynced = false;
+  let syncMaxBytesPromise: Promise<void> | null = null;
+
+  async function ensureVideoCacheMaxBytesSynced(): Promise<void> {
+    if (maxBytesSynced || typeof options.resolveVideoCacheMaxBytes !== "function") return;
+    if (!syncMaxBytesPromise) {
+      syncMaxBytesPromise = (async () => {
+        try {
+          const bytes = await options.resolveVideoCacheMaxBytes!();
+          if (Number.isFinite(bytes) && bytes > 0) store.syncVideoCacheMaxBytes(bytes);
+          maxBytesSynced = true;
+        } catch {
+        } finally {
+          syncMaxBytesPromise = null;
+        }
+      })();
+    }
+    await syncMaxBytesPromise;
+  }
+
   return defineStorageMessageFamily<SegmentCacheMessage, SegmentCacheResponse>({
     type: "segment-cache",
     unknownOpText: "不支持的段缓存操作：",
@@ -24,6 +53,7 @@ export function createSegmentCacheHandler(): (
         return { ok: true, summary: await loadSegmentSummary(key) };
       },
       "save-summary": async (message) => {
+        await ensureVideoCacheMaxBytesSynced();
         const fields = segmentCacheKeyStringFields(message.context);
         const key = buildSegmentSummaryCacheKey(message.context, message.segmentIndex, message.budgetScale);
         const result = await saveSegmentSummary(key, String(message.summary ?? ""), {

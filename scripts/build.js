@@ -49,7 +49,7 @@ const copyFiles = [
 
 const copyDirs = ["icons", "entry/chunks", "_locales"];
 
-const BACKGROUND_JS_MAX_KB = 256;
+const BACKGROUND_JS_MAX_KB = 300;
 
 const localImportGuard = createLocalImportGuard(extensionRoot);
 

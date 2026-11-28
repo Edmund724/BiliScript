@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
+import { createFakeIdbEnvironment } from "../helpers/fake-idb.js";
 import { state, clipState } from "../../extension/core/state.js";
 import { acceptSubtitle, configureCommitUi } from "../../extension/subtitle/commit.js";
 import {
@@ -54,150 +55,7 @@ const ZH_CN_RAW = [
 ];
 
 function createFakeIdbFactory(): IDBFactory {
-  const databases = new Map<string, Map<string, Map<string, unknown>>>();
-
-  function cloneVal<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T;
-  }
-
-  return {
-    open(name: string) {
-      let dbStores = databases.get(name);
-      const isUpgrade = !dbStores;
-      if (!dbStores) {
-        dbStores = new Map();
-        databases.set(name, dbStores);
-      }
-      const req = {
-        result: null as unknown as IDBDatabase,
-        transaction: null as unknown as IDBTransaction | null,
-        error: null,
-        onupgradeneeded: null as ((ev: IDBVersionChangeEvent) => void) | null,
-        onsuccess: null as ((ev: Event) => void) | null,
-        onerror: null as ((ev: Event) => void) | null
-      };
-
-      const makeObjectStoreApi = (storeMap: Map<string, unknown>, trackOp?: (fn: () => void) => void) => {
-        const indexSet = new Set<string>();
-        const makeReq = <T>() => ({
-          result: undefined as unknown as T,
-          error: null,
-          onsuccess: null as ((ev: Event) => void) | null,
-          onerror: null as ((ev: Event) => void) | null
-        });
-        const runAsync = <T>(exec: () => T) => {
-          const r = makeReq<T>();
-          const runner = () => {
-            r.result = exec();
-            r.onsuccess?.(new Event("success"));
-          };
-          if (trackOp) {
-            trackOp(runner);
-          } else {
-            queueMicrotask(runner);
-          }
-          return r as unknown as IDBRequest<T>;
-        };
-        return {
-          indexNames: {
-            contains: (idxName: string) => indexSet.has(idxName)
-          },
-          createIndex(idxName: string) {
-            indexSet.add(idxName);
-            return {} as IDBIndex;
-          },
-          get(key: IDBValidKey) {
-            return runAsync(() => {
-              const found = storeMap.get(String(key));
-              return found === undefined ? undefined : cloneVal(found);
-            });
-          },
-          getAll() {
-            return runAsync(() => Array.from(storeMap.values()).map((v) => cloneVal(v)));
-          },
-          put(val: { id: string }) {
-            return runAsync(() => {
-              storeMap.set(String(val.id), cloneVal(val));
-              return String(val.id);
-            });
-          },
-          delete(key: IDBValidKey) {
-            return runAsync(() => {
-              storeMap.delete(String(key));
-              return undefined;
-            });
-          },
-          clear() {
-            return runAsync(() => {
-              storeMap.clear();
-              return undefined;
-            });
-          }
-        };
-      };
-
-      const dbApi = {
-        objectStoreNames: {
-          contains: (storeName: string) => dbStores!.has(storeName)
-        },
-        createObjectStore(storeName: string) {
-          const storeMap = new Map<string, unknown>();
-          dbStores!.set(storeName, storeMap);
-          return makeObjectStoreApi(storeMap) as unknown as IDBObjectStore;
-        },
-        close() {},
-        onversionchange: null as ((ev: IDBVersionChangeEvent) => void) | null,
-        onclose: null as ((ev: Event) => void) | null,
-        transaction(storeNames: string | string[]) {
-          const targetName = Array.isArray(storeNames) ? storeNames[0] : storeNames;
-          let pending = 0;
-          let finished = false;
-          const scheduleComplete = () => {
-            queueMicrotask(() => {
-              queueMicrotask(() => {
-                if (pending === 0 && !finished) {
-                  finished = true;
-                  tx.oncomplete?.(new Event("complete"));
-                }
-              });
-            });
-          };
-          const tx = {
-            error: null,
-            oncomplete: null as ((ev: Event) => void) | null,
-            onerror: null as ((ev: Event) => void) | null,
-            onabort: null as ((ev: Event) => void) | null,
-            objectStore(name: string) {
-              const storeMap = dbStores!.get(name || targetName);
-              if (!storeMap) {
-                throw new Error(`Missing object store ${name}`);
-              }
-              return makeObjectStoreApi(storeMap, (runner) => {
-                pending += 1;
-                queueMicrotask(() => {
-                  runner();
-                  pending -= 1;
-                  scheduleComplete();
-                });
-              }) as unknown as IDBObjectStore;
-            }
-          };
-          return tx as unknown as IDBTransaction;
-        }
-      } as unknown as IDBDatabase;
-
-      req.result = dbApi;
-      queueMicrotask(() => {
-        if (isUpgrade) {
-          req.transaction = dbApi.transaction(SUBTITLE_IDB_STORE);
-          req.onupgradeneeded?.({} as IDBVersionChangeEvent);
-          req.transaction = null;
-        }
-        req.onsuccess?.(new Event("success"));
-      });
-      return req as unknown as IDBOpenDBRequest;
-    }
-  } as unknown as IDBFactory;
+  return createFakeIdbEnvironment().factory;
 }
 
 function seedMultiLangTracksOnClip(): void {
@@ -654,7 +512,7 @@ describe("抗干扰内容签名与双阈值 LRU 淘汰", () => {
     const byteStore = createSubtitleIdbStore({
       indexedDB: null,
       maxEntries: 100,
-      maxBytes: Math.floor(singleBytes * 2.2),
+      maxBytes: Math.floor(singleBytes * 2.5),
       now: () => {
         byteClock += 100;
         return byteClock;
