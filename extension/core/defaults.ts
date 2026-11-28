@@ -5,7 +5,8 @@ import type {
   LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
 import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
-export type { SubtitleSegmentationStrategy, BilingualDisplayOrder };
+import type { ShortcutBindings } from "../shared/shortcuts.js";
+export type { SubtitleSegmentationStrategy, BilingualDisplayOrder, ShortcutBindings };
 
 export type DetachedWindowMode = "pip" | "popup";
 export type PlayerAiActionMode = "summary" | "note" | "overview";
@@ -89,6 +90,7 @@ export interface KnownSettings {
   overviewAiSummary: boolean;
   overviewAiChapters: boolean;
   overviewAiQuotes: boolean;
+  shortcuts: Partial<ShortcutBindings>;
 }
 
 export interface Settings extends KnownSettings {
@@ -169,5 +171,6 @@ export const DEFAULT_SETTINGS: Settings = {
   autoGenerateOverview: true,
   overviewAiSummary: true,
   overviewAiChapters: true,
-  overviewAiQuotes: true
+  overviewAiQuotes: true,
+  shortcuts: {}
 };

@@ -643,6 +643,19 @@ chrome.commands.onCommand.addListener(async (command, commandTab) => {
   if (!mode) {
     return;
   }
+  const actionKey = mode === "toggle" ? "toggleReader" : "generateOverview";
+  const defaultCombo = mode === "toggle" ? "Alt+B" : "Alt+G";
+  const configured = (await getSettingsSnapshot().catch(() => null))?.shortcuts?.[actionKey];
+  if (configured === "") {
+    return;
+  }
+  if (configured && configured !== defaultCombo) {
+    const cmds = await chrome.commands?.getAll?.().catch(() => []);
+    const current = (cmds?.find((item) => item.name === command)?.shortcut || "").replace(/^(?:Ctrl|Command)\+/i, "Mod+");
+    if (current.toLowerCase() !== configured.toLowerCase()) {
+      return;
+    }
+  }
   let targetTab = commandTab;
   if (!targetTab?.id || !targetTab?.url) {
     const queried = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);

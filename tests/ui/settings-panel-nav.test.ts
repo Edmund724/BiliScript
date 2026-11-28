@@ -37,12 +37,13 @@ const SUBPAGE_CASES = [
   { entryId: "openSubtitleSettingsBtn", subpageId: "biliscriptSettingsSubpageSubtitle", title: "字幕翻译与导出" },
   { entryId: "openNotesSettingsBtn", subpageId: "biliscriptSettingsSubpageNotes", title: "视频笔记" },
   { entryId: "openAppearanceBtn", subpageId: "biliscriptSettingsSubpageAppearance", title: "阅读器与播放器" },
+  { entryId: "openShortcutsBtn", subpageId: "biliscriptSettingsSubpageShortcuts", title: "快捷键" },
   { entryId: "openAgentSettingsBtn", subpageId: "biliscriptSettingsSubpageAgent", title: "本地 Agent 连接" },
   { entryId: "openAdvancedSettingsBtn", subpageId: "biliscriptSettingsSubpageAdvanced", title: "高级设置" }
 ] as const;
 
 describe("设置抽屉三级总览与子页导航", () => {
-  it("首次渲染默认停在设置总览，3 张总览卡片与 10 个子页入口完整且子页隐藏", async () => {
+  it("首次渲染默认停在设置总览，3 张总览卡片与 11 个子页入口完整且子页隐藏", async () => {
     const host = await mountPanel();
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
@@ -51,7 +52,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     expect(title.textContent?.trim()).toBe("设置");
     expect(rootView.hidden).toBe(false);
     expect(rootView.querySelectorAll("[data-settings-root-card]")).toHaveLength(3);
-    expect(rootView.querySelectorAll(".biliscript-entry-row")).toHaveLength(10);
+    expect(rootView.querySelectorAll(".biliscript-entry-row")).toHaveLength(11);
     expect(resetBtn.hidden).toBe(false);
     expect(host.querySelector("#agentBridgeAddressView")?.hasAttribute("hidden")).toBe(true);
 
@@ -62,7 +63,7 @@ describe("设置抽屉三级总览与子页导航", () => {
     }
   });
 
-  it("点击全部 10 个入口逐一进入对应子页，返回总览后恢复滚动与来源入口焦点", async () => {
+  it("点击全部 11 个入口逐一进入对应子页，返回总览后恢复滚动与来源入口焦点", async () => {
     const host = await mountPanel();
     const panelEl = document.getElementById("biliscript-reading-settings-panel")!;
     const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;

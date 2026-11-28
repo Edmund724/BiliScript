@@ -40,6 +40,19 @@ import {
   type InterpretSubtitleDisplayMode,
   type LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
+import type { ShortcutBindings } from "../shared/shortcuts.js";
+
+export function normalizeShortcuts(value: unknown): Partial<ShortcutBindings> {
+  const out: Record<string, string> = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, val] of Object.entries(value)) {
+      if (typeof val === "string" && val.length <= 32) {
+        out[key] = val;
+      }
+    }
+  }
+  return out as Partial<ShortcutBindings>;
+}
 
 export function toString(value: unknown): string {
   return typeof value === "string" ? value : "";

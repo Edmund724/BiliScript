@@ -134,7 +134,8 @@ export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.fre
   "speechVoiceVolume",
   "chatInputGlow",
   "reduceTransparency",
-  "detachedWindowMode"
+  "detachedWindowMode",
+  "shortcuts"
 ]);
 
 export type AttrFlag = "clearOnClose" | "clearOnGuard" | "watchedByGuard";

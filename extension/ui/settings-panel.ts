@@ -55,6 +55,10 @@ import {
   bindDataRetentionSettings,
   type DataRetentionSettingsController
 } from "./settings/data-retention-settings.js";
+import {
+  bindShortcutsSettings,
+  type ShortcutsSettingsController
+} from "./settings/shortcuts-settings.js";
 import { createSettingsNavigator } from "./settings/navigation.js";
 import {
   WATCHED_SCALAR_SYNC_KEYS,
@@ -92,6 +96,7 @@ interface MountedSettingsHost {
   capabilities: SettingsCapabilities;
   agentBridge: AgentBridgeSettingsController | null;
   dataRetention: DataRetentionSettingsController | null;
+  shortcuts: ShortcutsSettingsController | null;
   providerHost: ProviderSettingsHost | null;
   lastProviderSnapshot: ProviderSummarySnapshot | null;
   lastAgentBridgeState: AgentBridgeSettingsState | null;
@@ -106,7 +111,8 @@ let renderSettingsHost: HTMLElement | null = null;
 function syncSummaries(ctx: MountedSettingsHost): void {
   syncAllSummaries(ctx.elements, {
     providerSnapshot: ctx.lastProviderSnapshot,
-    agentBridgeState: ctx.lastAgentBridgeState ?? ctx.agentBridge?.getSummaryState() ?? null
+    agentBridgeState: ctx.lastAgentBridgeState ?? ctx.agentBridge?.getSummaryState() ?? null,
+    shortcutsBindings: ctx.shortcuts?.getBindings() ?? null
   });
 }
 
@@ -115,6 +121,9 @@ const navigator = createSettingsNavigator({
   ensureRendered: () => renderReaderSettingsPanel(),
   onAgentAddressClosed: (options) => mounted?.agentBridge?.onAddressViewClosed(options),
   onViewEntered: (view) => {
+    if (view !== "shortcuts") {
+      mounted?.shortcuts?.cancelRecording({ restoreFocus: false });
+    }
     if (view === "advanced") {
       void mounted?.dataRetention?.refreshUsage();
     }
@@ -228,6 +237,7 @@ async function loadPanelSettings(ctx: MountedSettingsHost): Promise<void> {
 
   hydrateScalarSettings(ctx.elements, settings);
   ctx.dataRetention?.sync(settings);
+  ctx.shortcuts?.sync(settings);
   if (ctx.capabilities.agentAvailable) {
     ctx.agentBridge?.sync(settings);
   }
@@ -252,6 +262,7 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
       if (mounted !== ctx || !ctx.host.isConnected) return;
       applyScalarStorageChanges(ctx.elements, changes);
       ctx.dataRetention?.applyStorageChanges(changes);
+      ctx.shortcuts?.applyStorageChanges(changes);
       if (changes.agentBridgeUrl && ctx.capabilities.agentAvailable) {
         ctx.agentBridge?.updateUrl(changes.agentBridgeUrl.newValue);
       }
@@ -272,6 +283,7 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
         "chatHistoryMaxCount",
         "videoCacheMaxMb",
         "agentBridgeUrl",
+        "shortcuts",
         ...AI_MODEL_EXTERNAL_SYNC_KEYS
       ]
     }
@@ -291,6 +303,8 @@ function teardownMountedHost(): void {
   prev.agentBridge = null;
   prev.dataRetention?.dispose();
   prev.dataRetention = null;
+  prev.shortcuts?.dispose();
+  prev.shortcuts = null;
   prev.providerHost?.dispose();
   prev.providerHost = null;
   prev.lastProviderSnapshot = null;
@@ -308,6 +322,7 @@ function mountSettingsHost(host: HTMLElement): MountedSettingsHost {
     capabilities,
     agentBridge: null,
     dataRetention: null,
+    shortcuts: null,
     providerHost: null,
     lastProviderSnapshot: null,
     lastAgentBridgeState: null,
@@ -317,6 +332,10 @@ function mountSettingsHost(host: HTMLElement): MountedSettingsHost {
   mounted = ctx;
 
   ctx.dataRetention = bindDataRetentionSettings(elements, {
+    syncSummaries: () => syncSummaries(ctx)
+  });
+  ctx.shortcuts = bindShortcutsSettings(host, elements, {
+    savePatch: saveSettingField,
     syncSummaries: () => syncSummaries(ctx)
   });
 
@@ -458,6 +477,7 @@ export function renderReaderSettingsPanel(): Promise<void> {
       capabilities,
       agentBridge: null,
       dataRetention: null,
+      shortcuts: null,
       providerHost: null,
       lastProviderSnapshot: null,
       lastAgentBridgeState: null,
@@ -493,6 +513,10 @@ export function openAppearanceSettings(): Promise<void> {
 
 export function openNoteExportSettings(): Promise<void> {
   return navigator.openSettingsTarget("note-export");
+}
+
+export function openShortcutsSettings(): Promise<void> {
+  return navigator.openSettingsTarget("shortcuts");
 }
 
 export { resumeAsrSubtitleFetchAfterSetup, type AiSetupSession, type AiSetupTarget };

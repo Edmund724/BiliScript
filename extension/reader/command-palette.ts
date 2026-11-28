@@ -7,6 +7,12 @@ import {
 import { resolveNodeDocument, safeRemoveListener } from "../shared/cross-doc.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import {
+  formatShortcutTokens,
+  resolveShortcuts,
+  type ShortcutActionId,
+  type ShortcutBindings
+} from "../shared/shortcuts.js";
 import { formatClock } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
@@ -56,15 +62,9 @@ const THINKING_CHOICES: ReadonlyArray<{
   { level: "max", label: "最高强度思考", keywords: "max xhigh ultra thinking 思考 强度 最高" }
 ];
 
-function isMacPlatform(): boolean {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
-}
-
-function modKeyLabel(): string {
-  return isMacPlatform() ? "⌘" : "Ctrl";
+function shortcutKbd(bindings: ShortcutBindings, actionId: ShortcutActionId): string[] | undefined {
+  const tokens = formatShortcutTokens(bindings[actionId]);
+  return tokens.length > 0 ? tokens : undefined;
 }
 
 export function parseTimestampQuery(raw: string): number | null {
@@ -167,7 +167,7 @@ async function jumpToSubtitleTime(seconds: number): Promise<void> {
 }
 
 function buildStaticCommands(): CommandPaletteItem[] {
-  const mod = modKeyLabel();
+  const shortcuts = resolveShortcuts(state.settings);
   const currentThinking = normalizeThinkingLevel(state.settings?.aiThinkingLevel);
   const currentTheme = state.reader.readingTheme === "dark" ? "dark" : "light";
 
@@ -178,7 +178,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "生成章节摘要",
       subtitle: "切换到概览并生成视频章节与金句摘要",
       keywords: "overview summary chapter 概览 章节 摘要 总结",
-      kbd: ["O"],
+      kbd: shortcutKbd(shortcuts, "generateOverview"),
       run: async () => {
         await activateScriptTab("overview", { consumeIntent: false });
         const reader = await ensureReaderDomain();
@@ -203,6 +203,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "生成视频笔记",
       subtitle: "切换至 AI 对话并按当前预设生成结构化视频笔记",
       keywords: "video note markdown ai summary 生成 视频笔记 笔记 预设",
+      kbd: shortcutKbd(shortcuts, "generateVideoNote"),
       run: async () => {
         await activateScriptTab("chat", { consumeIntent: false });
         const chat = await ensureReaderChatTab();
@@ -215,7 +216,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "搜索并跳转字幕",
       subtitle: "聚焦字幕搜索框，或直接在此输入关键词 / 时间戳",
       keywords: "subtitle search jump seek 字幕 搜索 跳转",
-      kbd: [mod, "F"],
+      kbd: shortcutKbd(shortcuts, "subtitleSearch"),
       run: async () => {
         await activateScriptTab("subtitle", { consumeIntent: false });
         const input = activeById<HTMLInputElement>(ids.readingSearchInput);
@@ -229,7 +230,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "复制模板笔记（Markdown）",
       subtitle: "按自定义模板渲染并复制当前视频笔记",
       keywords: "export note markdown copy 导出 笔记 复制 模板",
-      kbd: ["M"],
+      kbd: shortcutKbd(shortcuts, "copyNote"),
       run: async () => {
         const candidate = getLatestSessionNoteCandidate();
         const ok = await copyCurrentVideoNote(
@@ -249,6 +250,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "下载 Markdown 笔记（.md）",
       subtitle: "按自定义模板导出当前视频为 .md 文件",
       keywords: "export note markdown download file 下载 导出 笔记",
+      kbd: shortcutKbd(shortcuts, "downloadNote"),
       run: async () => {
         const candidate = getLatestSessionNoteCandidate();
         const res = await dispatchNoteExport({
@@ -269,7 +271,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "写入 Obsidian 笔记",
       subtitle: "通过 obsidian:// URI 创建笔记（超长自动走剪贴板回退）",
       keywords: "obsidian uri clipper vault 导出 写入 笔记",
-      kbd: ["Shift", "O"],
+      kbd: shortcutKbd(shortcuts, "exportObsidian"),
       run: async () => {
         const candidate = getLatestSessionNoteCandidate();
         const res = await dispatchNoteExport({
@@ -314,9 +316,19 @@ function buildStaticCommands(): CommandPaletteItem[] {
       title: "打开设置",
       subtitle: "配置模型平台、字幕翻译、导出模板与外观",
       keywords: "settings preferences options config 设置 偏好 配置",
-      kbd: [","],
+      kbd: shortcutKbd(shortcuts, "openSettings"),
       run: () => {
         requestUiCommand("open-settings");
+      }
+    },
+    {
+      id: "open-shortcuts-settings",
+      group: "界面与设置",
+      title: "自定义快捷键",
+      subtitle: "查看并修改全部快捷键绑定",
+      keywords: "shortcuts hotkeys keybindings keyboard 快捷键 按键 绑定 设置",
+      run: () => {
+        requestUiCommand("open-settings", { target: "shortcuts" });
       }
     },
     {
@@ -324,6 +336,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       group: "界面与设置",
       title: currentTheme === "dark" ? "切换为浅色主题" : "切换为深色主题",
       keywords: "theme dark light 主题 深色 浅色 外观",
+      kbd: shortcutKbd(shortcuts, "toggleTheme"),
       run: async () => {
         const next = currentTheme === "dark" ? "light" : "dark";
         const reader = await ensureReaderDomain();
@@ -335,7 +348,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       group: "界面与设置",
       title: "收起文摘侧边栏",
       keywords: "close exit hide reader sidebar 关闭 收起 退出 侧边栏",
-      kbd: ["Alt", "B"],
+      kbd: shortcutKbd(shortcuts, "toggleReader"),
       run: async () => {
         const shell = await ensureReaderShell();
         await shell.exitReaderShell();

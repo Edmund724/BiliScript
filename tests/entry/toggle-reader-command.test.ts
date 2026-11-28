@@ -45,6 +45,11 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
   const tabsQuery = vi.fn(async () => [{ id: 12, url: VIDEO_URL }]);
   const setBadgeText = vi.fn(async () => {});
   const setTitle = vi.fn(async () => {});
+  const syncStorageGet = vi.fn(async () => ({}));
+  const commandsGetAll = vi.fn(async () => [
+    { name: "toggle-reader", shortcut: "Alt+B" },
+    { name: "generate-overview", shortcut: "Alt+G" }
+  ]);
 
   beforeAll(async () => {
     setupEnvironment();
@@ -73,13 +78,14 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
       },
       commands: {
         ...globalThis.chrome.commands,
-        onCommand: { addListener: onCommandAddListener }
+        onCommand: { addListener: onCommandAddListener },
+        getAll: commandsGetAll
       },
       scripting: { executeScript: vi.fn(async () => []) },
       storage: {
         ...globalThis.chrome.storage,
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
-        sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
+        sync: { get: syncStorageGet, set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
       }
     });
@@ -91,12 +97,21 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
     vi.unstubAllGlobals();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { invalidate } = await import("../../extension/core/settings-snapshot.js");
+    invalidate(["shortcuts"]);
     vi.mocked(sendMessageToTab).mockClear();
     vi.mocked(sendMessageToTab).mockImplementation(async () => ({ ok: true }));
     tabsQuery.mockClear();
     setBadgeText.mockClear();
     setTitle.mockClear();
+    syncStorageGet.mockReset();
+    syncStorageGet.mockResolvedValue({});
+    commandsGetAll.mockReset();
+    commandsGetAll.mockResolvedValue([
+      { name: "toggle-reader", shortcut: "Alt+B" },
+      { name: "generate-overview", shortcut: "Alt+G" }
+    ]);
   });
 
   it("按下 toggle-reader 且当前页为 B 站视频页时向该标签页派发 reader-toggle", async () => {
@@ -151,6 +166,34 @@ describe("SW 端 chrome.commands.onCommand → reader-toggle", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(sendMessageToTab).not.toHaveBeenCalled();
     expect(setBadgeText).toHaveBeenCalled();
+  });
+
+  it("用户在设置中清空或改绑 toggle-reader 时忽略浏览器旧默认命令，浏览器绑定一致时仍放行", async () => {
+    const { invalidate } = await import("../../extension/core/settings-snapshot.js");
+
+    syncStorageGet.mockResolvedValue({ shortcuts: { toggleReader: "" } });
+    invalidate(["shortcuts"]);
+    onCommandListener("toggle-reader", { id: 16, url: VIDEO_URL });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sendMessageToTab).not.toHaveBeenCalled();
+
+    syncStorageGet.mockResolvedValue({ shortcuts: { toggleReader: "Alt+S" } });
+    invalidate(["shortcuts"]);
+    onCommandListener("toggle-reader", { id: 17, url: VIDEO_URL });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sendMessageToTab).not.toHaveBeenCalled();
+
+    commandsGetAll.mockResolvedValue([
+      { name: "toggle-reader", shortcut: "Alt+S" },
+      { name: "generate-overview", shortcut: "Alt+G" }
+    ]);
+    invalidate(["shortcuts"]);
+    onCommandListener("toggle-reader", { id: 18, url: VIDEO_URL });
+    await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
+    expect(sendMessageToTab).toHaveBeenCalledWith(18, {
+      type: "reader-toggle",
+      readerUrl: VIDEO_READER_URL
+    });
   });
 });
 

@@ -5,6 +5,13 @@ import {
 } from "../bilibili/video-id-shared.js";
 import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
+import { state } from "../core/state.js";
+import {
+  getShortcutBinding,
+  isEditableKeyboardTarget,
+  isShortcutRecordingActive,
+  matchShortcutEvent
+} from "../shared/shortcuts.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { isReaderShellIntact } from "../reader/shell-intact.js";
 import { bindPanelPreloadOnButton } from "./panel-preload.js";
@@ -538,5 +545,42 @@ function handleScriptButtonClick(event: MouseEvent): void {
   }
 }
 
+let pageEntryShortcutsBound = false;
+
+function bindPageEntryShortcuts(): void {
+  if (pageEntryShortcutsBound) {
+    return;
+  }
+  pageEntryShortcutsBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || isShortcutRecordingActive() || isEditableKeyboardTarget(event.target)) {
+      return;
+    }
+    if (!isSupportedVideoPage() && !isReaderViewOpen()) {
+      return;
+    }
+    const toggleCombo = getShortcutBinding(state.settings, "toggleReader");
+    if (toggleCombo && matchShortcutEvent(event, toggleCombo)) {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchContentScriptMessage(
+        { type: "reader-toggle", readerUrl: resolveActionReaderUrl() },
+        () => {}
+      );
+      return;
+    }
+    const overviewCombo = getShortcutBinding(state.settings, "generateOverview");
+    if (overviewCombo && matchShortcutEvent(event, overviewCombo)) {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchContentScriptMessage(
+        { type: "reader-enter", readerUrl: resolveActionReaderUrl(), overview: { manual: true } },
+        () => {}
+      );
+    }
+  });
+}
+
+bindPageEntryShortcuts();
 syncScriptButton();
 setTickInterval(REINJECT_INTERVAL_MS);

@@ -101,11 +101,18 @@ declare namespace chrome {
   }
 
   namespace commands {
+    interface Command {
+      name?: string;
+      description?: string;
+      shortcut?: string;
+    }
+
     interface OnCommandEvent {
       addListener(listener: (command: string, tab?: tabs.Tab) => void): void;
     }
 
     const onCommand: OnCommandEvent;
+    function getAll(): Promise<Command[]>;
   }
 
   namespace tabs {

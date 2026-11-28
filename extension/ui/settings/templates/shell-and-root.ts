@@ -104,6 +104,13 @@ export function buildSettingsRootViewHtml(): string {
               ${CHEVRON_RIGHT_SVG}
             </span>
           </button>
+          <button id="${ids.openShortcutsBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
+            <span class="biliscript-set-label">快捷键</span>
+            <span class="biliscript-entry-summary">
+              <span id="${ids.shortcutsSettingsSummary}" class="biliscript-entry-summary-text">默认</span>
+              ${CHEVRON_RIGHT_SVG}
+            </span>
+          </button>
         </div>
       </section>
 

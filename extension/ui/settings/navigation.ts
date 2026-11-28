@@ -23,12 +23,13 @@ export type SettingsSubpageId =
   | "subtitle"
   | "notes"
   | "appearance"
+  | "shortcuts"
   | "agent"
   | "advanced";
 
 export type SettingsViewId = "root" | SettingsSubpageId | "agent-address";
 
-export type SettingsOpenTarget = LiveSettingsTarget | "appearance" | "note-export";
+export type SettingsOpenTarget = LiveSettingsTarget | "appearance" | "note-export" | "shortcuts";
 
 const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
   root: "设置",
@@ -40,6 +41,7 @@ const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
   subtitle: "字幕翻译与导出",
   notes: "视频笔记",
   appearance: "阅读器与播放器",
+  shortcuts: "快捷键",
   agent: "本地 Agent 连接",
   "agent-address": "连接地址",
   advanced: "高级设置"
@@ -86,6 +88,7 @@ function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLE
     case "subtitle": return elements.subpageSubtitle;
     case "notes": return elements.subpageNotes;
     case "appearance": return elements.subpageAppearance;
+    case "shortcuts": return elements.subpageShortcuts;
     case "agent": return elements.subpageAgent;
     case "agent-address": return elements.agentBridgeAddressView;
     case "advanced": return elements.subpageAdvanced;
@@ -102,6 +105,7 @@ function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubp
     case "subtitle": return elements.openSubtitleSettingsBtn;
     case "notes": return elements.openNotesSettingsBtn;
     case "appearance": return elements.openAppearanceBtn;
+    case "shortcuts": return elements.openShortcutsBtn;
     case "agent": return elements.openAgentSettingsBtn;
     case "advanced": return elements.openAdvancedSettingsBtn;
   }
@@ -176,6 +180,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       "subtitle",
       "notes",
       "appearance",
+      "shortcuts",
       "agent",
       "agent-address",
       "advanced"
@@ -283,6 +288,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       [elements.openSubtitleSettingsBtn, "subtitle"],
       [elements.openNotesSettingsBtn, "notes"],
       [elements.openAppearanceBtn, "appearance"],
+      [elements.openShortcutsBtn, "shortcuts"],
       [elements.openAgentSettingsBtn, "agent"],
       [elements.openAdvancedSettingsBtn, "advanced"]
     ];
@@ -348,8 +354,17 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     }
     if (!current) return;
     const view: SettingsSubpageId =
-      target === "appearance" ? "appearance" : target === "note-export" ? "notes" : "live";
-    navigateView(current.host, current.elements, view, { focusOnEnter: false, animate: false });
+      target === "appearance"
+        ? "appearance"
+        : target === "note-export"
+          ? "notes"
+          : target === "shortcuts"
+            ? "shortcuts"
+            : "live";
+    navigateView(current.host, current.elements, view, { focusOnEnter: target === "shortcuts", animate: false });
+    if (target === "shortcuts") {
+      return;
+    }
     const sectionHeading = target === "appearance"
       ? current.elements.chatPreferencesHeading
       : target === "note-export"

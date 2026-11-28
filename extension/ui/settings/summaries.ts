@@ -19,6 +19,7 @@ import {
   isChatDisplaySliderAvailable
 } from "../../reader/chat-display-settings.js";
 import { parseModelOptionValue } from "../../shared/selected-provider.js";
+import { countCustomizedShortcuts, normalizeShortcuts, type ShortcutBindings } from "../../shared/shortcuts.js";
 import type { AgentBridgeSettingsState } from "../agent-bridge-settings.js";
 import type { ProviderRowItem } from "../provider-row.js";
 import type { ProviderSummarySnapshot } from "../provider-settings-host.js";
@@ -27,6 +28,7 @@ import { resolveSettingsCapabilities, type SettingsElements } from "./elements.j
 export interface SettingsSummaryContext {
   providerSnapshot: ProviderSummarySnapshot | null;
   agentBridgeState: AgentBridgeSettingsState | null;
+  shortcutsBindings?: ShortcutBindings | null;
 }
 
 export interface SettingsSummaryFormValues {
@@ -61,6 +63,7 @@ export interface SettingsSummariesInput {
   form: SettingsSummaryFormValues;
   providerSnapshot: ProviderSummarySnapshot | null;
   agentBridgeState: AgentBridgeSettingsState | null;
+  shortcutsBindings?: ShortcutBindings | null;
   speechVolumeAvailable?: boolean;
   playerQuickAiAvailable?: boolean;
 }
@@ -74,6 +77,7 @@ export interface DerivedSettingsSummaries {
   subtitleSettings: string;
   notesSettings: string;
   appearanceSettings: string;
+  shortcutsSettings: string;
   agentSettings: string;
   advancedSettings: string;
 }
@@ -250,6 +254,11 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
   if (form.enableDebugLogs) advancedParts.push("调试日志已开");
   const advancedSettings = advancedParts.length > 0 ? advancedParts.join(" · ") : "默认";
 
+  const customizedShortcutsCount = input.shortcutsBindings
+    ? countCustomizedShortcuts(normalizeShortcuts(input.shortcutsBindings))
+    : 0;
+  const shortcutsSettings = customizedShortcutsCount > 0 ? `已自定义 ${customizedShortcutsCount} 项` : "默认";
+
   return {
     aiProviders,
     liveSettings,
@@ -259,6 +268,7 @@ export function deriveSettingsSummaries(input: SettingsSummariesInput): DerivedS
     subtitleSettings,
     notesSettings,
     appearanceSettings,
+    shortcutsSettings,
     agentSettings,
     advancedSettings
   };
@@ -294,7 +304,8 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
       enableDebugLogs: elements.enableDebugLogs.checked
     },
     providerSnapshot: context.providerSnapshot,
-    agentBridgeState: context.agentBridgeState
+    agentBridgeState: context.agentBridgeState,
+    shortcutsBindings: context.shortcutsBindings
   });
 
   if (derived.aiProviders !== null) elements.aiProvidersSummary.textContent = derived.aiProviders;
@@ -306,6 +317,7 @@ export function syncAllSummaries(elements: SettingsElements, context: SettingsSu
   elements.subtitleSettingsSummary.textContent = derived.subtitleSettings;
   elements.notesSettingsSummary.textContent = derived.notesSettings;
   elements.appearanceSettingsSummary.textContent = derived.appearanceSettings;
+  elements.shortcutsSettingsSummary.textContent = derived.shortcutsSettings;
   elements.agentSettingsSummary.textContent = derived.agentSettings;
   elements.advancedSettingsSummary.textContent = derived.advancedSettings;
 }

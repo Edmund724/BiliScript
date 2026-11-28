@@ -9,6 +9,13 @@ import {
 } from "../shared/cross-doc.js";
 import { logWarn } from "../shared/logging.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import {
+  DEFAULT_SHORTCUTS,
+  getShortcutBinding,
+  isEditableKeyboardTarget,
+  isShortcutRecordingActive,
+  matchShortcutEvent
+} from "../shared/shortcuts.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { ensureBilingualSubtitleStyles } from "../shared/style-injector.js";
@@ -25,7 +32,7 @@ import {
   type SubtitleTrackOrigin
 } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-import { isReadingSubtitleBodyVisible, ids } from "./state.js";
+import { isReaderViewOpen, isReadingSubtitleBodyVisible, ids } from "./state.js";
 import {
   FOLLOW_BUTTON_LABEL,
   isElementScrollable,
@@ -814,25 +821,40 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   });
 
   const onDocumentSearchShortcut = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || isShortcutRecordingActive()) {
+      return;
+    }
+    const searchCombo = getShortcutBinding(state.settings, "subtitleSearch");
+    if (!searchCombo || !matchShortcutEvent(event, searchCombo)) {
+      return;
+    }
+    if (isReadingSubtitleBodyVisible()) {
+      const input = activeById<HTMLInputElement>(ids.readingSearchInput);
+      if (!input) {
+        return;
+      }
+      event.preventDefault();
+      input.focus({ preventScroll: true });
+      input.select();
+      return;
+    }
     if (
-      event.defaultPrevented ||
-      !(event.ctrlKey || event.metaKey) ||
-      event.shiftKey ||
-      event.altKey ||
-      event.key.toLowerCase() !== "f"
+      searchCombo !== DEFAULT_SHORTCUTS.subtitleSearch &&
+      isReaderViewOpen() &&
+      !state.reader.readingSettingsExpanded &&
+      !isEditableKeyboardTarget(event.target)
     ) {
-      return;
+      event.preventDefault();
+      event.stopPropagation();
+      void import("./script-tab-activation.js")
+        .then(({ activateScriptTab }) => activateScriptTab("subtitle", { consumeIntent: false }))
+        .then(() => {
+          const input = activeById<HTMLInputElement>(ids.readingSearchInput);
+          input?.focus({ preventScroll: true });
+          input?.select();
+        })
+        .catch((error) => logWarn("[BILISCRIPT] subtitle search shortcut failed", error));
     }
-    if (!isReadingSubtitleBodyVisible()) {
-      return;
-    }
-    const input = activeById<HTMLInputElement>(ids.readingSearchInput);
-    if (!input) {
-      return;
-    }
-    event.preventDefault();
-    input.focus({ preventScroll: true });
-    input.select();
   };
 
   let subtitleCopyInFlight = false;

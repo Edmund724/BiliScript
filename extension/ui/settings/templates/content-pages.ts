@@ -37,7 +37,7 @@ export function buildContentPagesHtml(): string {
             </label>
           </div>
         </div>
-        <p class="biliscript-set-hint">快捷键 Alt+G 可随时展开并生成当前视频概览，可在浏览器扩展快捷键页修改。</p>
+        <p id="${ids.overviewShortcutHint}" class="biliscript-set-hint">快捷键 Alt+G 可随时展开并生成当前视频概览，可在设置「快捷键」中修改。</p>
       </section>
 
       <section class="biliscript-set-group" data-settings-section="system-prompt">

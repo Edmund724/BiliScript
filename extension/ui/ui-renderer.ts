@@ -11,6 +11,12 @@ import {
 import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { detectActiveSite, getSiteCapabilities } from "../shared/site.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import {
+  isEditableKeyboardTarget,
+  isShortcutRecordingActive,
+  matchShortcutEvent,
+  resolveShortcuts
+} from "../shared/shortcuts.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
 import { renderUiIcon } from "./icon-registry.js";
@@ -249,6 +255,8 @@ function resolveSettingsTargetAction(
       return (mod) => mod.openAppearanceSettings();
     case "note-export":
       return (mod) => mod.openNoteExportSettings();
+    case "shortcuts":
+      return (mod) => mod.openShortcutsSettings();
     default:
       return null;
   }
@@ -311,6 +319,79 @@ function clearActiveHostDocListeners(): void {
   cleanup?.();
 }
 
+async function runGenerateOverviewShortcut(): Promise<void> {
+  try {
+    if (state.reader.readingSettingsExpanded) {
+      closeReaderSettingsMode({ restoreFocus: false });
+    }
+    const { activateScriptTab } = await import("../reader/script-tab-activation.js");
+    await activateScriptTab("overview", { consumeIntent: false });
+    withReader("generate overview shortcut", (reader) => {
+      void reader.triggerReaderOverviewGeneration({ forceRefresh: false });
+    });
+  } catch (error) {
+    logWarn("[BILISCRIPT] generate overview shortcut failed", error);
+  }
+}
+
+async function runGenerateVideoNoteShortcut(): Promise<void> {
+  try {
+    if (state.reader.readingSettingsExpanded) {
+      closeReaderSettingsMode({ restoreFocus: false });
+    }
+    const [{ activateScriptTab }, { ensureReaderChatTab }] = await Promise.all([
+      import("../reader/script-tab-activation.js"),
+      import("../reader/lazy-chat-tab.js")
+    ]);
+    await activateScriptTab("chat", { consumeIntent: false });
+    const chat = await ensureReaderChatTab();
+    await chat.runVideoNotePrompt();
+  } catch (error) {
+    logWarn("[BILISCRIPT] generate video note shortcut failed", error);
+  }
+}
+
+async function runCopyNoteShortcut(): Promise<void> {
+  try {
+    const [{ copyCurrentVideoNote }, { getLatestSessionNoteCandidate }] = await Promise.all([
+      import("../notes/export-actions.js"),
+      import("../notes/session-note-state.js")
+    ]);
+    const candidate = getLatestSessionNoteCandidate();
+    await copyCurrentVideoNote(
+      candidate
+        ? {
+            aiNoteMarkdown: candidate.markdown,
+            capturedFrames: candidate.capturedFrames
+          }
+        : undefined
+    );
+  } catch (error) {
+    logWarn("[BILISCRIPT] copy note shortcut failed", error);
+  }
+}
+
+async function runNoteExportShortcut(target: "download" | "obsidian"): Promise<void> {
+  try {
+    const [{ dispatchNoteExport }, { getLatestSessionNoteCandidate }] = await Promise.all([
+      import("../notes/export-actions.js"),
+      import("../notes/session-note-state.js")
+    ]);
+    const candidate = getLatestSessionNoteCandidate();
+    await dispatchNoteExport({
+      target,
+      ...(candidate
+        ? {
+            aiNoteMarkdown: candidate.markdown,
+            capturedFrames: candidate.capturedFrames
+          }
+        : {})
+    });
+  } catch (error) {
+    logWarn("[BILISCRIPT] note export shortcut failed", { target, error });
+  }
+}
+
 function rebindActiveHostDocumentListeners(doc: Document): void {
   clearActiveHostDocListeners();
   const onDocClick = (event: MouseEvent) => {
@@ -324,23 +405,90 @@ function rebindActiveHostDocumentListeners(doc: Document): void {
     }
   };
   const onDocKeydown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || isShortcutRecordingActive()) {
+      return;
+    }
+    const shortcuts = resolveShortcuts(state.settings);
     if (
-      !event.defaultPrevented &&
-      (event.metaKey || event.ctrlKey) &&
-      !event.shiftKey &&
-      !event.altKey &&
-      event.key.toLowerCase() === "k" &&
-      isReaderViewOpen()
+      shortcuts.commandPalette &&
+      isReaderViewOpen() &&
+      matchShortcutEvent(event, shortcuts.commandPalette)
     ) {
       event.preventDefault();
       event.stopPropagation();
       withReader("toggle command palette", (reader) => reader.toggleCommandPalette());
       return;
     }
-    if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
-    event.preventDefault();
-    event.stopPropagation();
-    stepBackReaderSettings();
+    if (event.key === "Escape" && state.reader.readingSettingsExpanded) {
+      event.preventDefault();
+      event.stopPropagation();
+      stepBackReaderSettings();
+      return;
+    }
+    if (!isReaderViewOpen() || isEditableKeyboardTarget(event.target) || hasReaderSettingsOverlayOpen()) {
+      return;
+    }
+    if (shortcuts.toggleReader && matchShortcutEvent(event, shortcuts.toggleReader)) {
+      event.preventDefault();
+      event.stopPropagation();
+      exitReaderShell().catch((error) => logWarn("[BILISCRIPT] toggle reader shortcut failed", error));
+      return;
+    }
+    if (shortcuts.generateOverview && matchShortcutEvent(event, shortcuts.generateOverview)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void runGenerateOverviewShortcut();
+      return;
+    }
+    if (shortcuts.openSettings && matchShortcutEvent(event, shortcuts.openSettings)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.reader.readingSettingsExpanded) {
+        closeReaderSettingsMode();
+      } else {
+        openReaderSettingsPanel();
+      }
+      return;
+    }
+    if (shortcuts.toggleTheme && matchShortcutEvent(event, shortcuts.toggleTheme)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = state.reader.readingTheme === "dark" ? "light" : "dark";
+      withReader("reader theme shortcut", (reader) => {
+        reader.updateReaderPreferences({ readerTheme: next }, { persist: true });
+      });
+      return;
+    }
+    if (shortcuts.toggleDetachedWindow && matchShortcutEvent(event, shortcuts.toggleDetachedWindow)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const run = isReaderDetached() ? redockReaderShell() : detachReaderShell();
+      void run.catch((error) => logWarn("[BILISCRIPT] detach/redock shortcut failed", error));
+      return;
+    }
+    if (shortcuts.generateVideoNote && matchShortcutEvent(event, shortcuts.generateVideoNote)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void runGenerateVideoNoteShortcut();
+      return;
+    }
+    if (shortcuts.copyNote && matchShortcutEvent(event, shortcuts.copyNote)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void runCopyNoteShortcut();
+      return;
+    }
+    if (shortcuts.downloadNote && matchShortcutEvent(event, shortcuts.downloadNote)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void runNoteExportShortcut("download");
+      return;
+    }
+    if (shortcuts.exportObsidian && matchShortcutEvent(event, shortcuts.exportObsidian)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void runNoteExportShortcut("obsidian");
+    }
   };
   doc.addEventListener("click", onDocClick);
   doc.addEventListener("keydown", onDocKeydown);

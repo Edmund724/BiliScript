@@ -74,6 +74,7 @@ import {
   normalizeReaderFontSizeScale,
   normalizeChatLineHeight,
   normalizeChatParagraphSpacing,
+  normalizeShortcuts,
   toString
 } from "./validators.js";
 
@@ -184,7 +185,8 @@ const SETTINGS_SCHEMA_SPECS: { readonly [K in KnownSettingKey]: SettingSchemaTup
   autoGenerateOverview: [booleanField(true), true],
   overviewAiSummary: [booleanField(true), true],
   overviewAiChapters: [booleanField(true), true],
-  overviewAiQuotes: [booleanField(true), true]
+  overviewAiQuotes: [booleanField(true), true],
+  shortcuts: [normalizeShortcuts, true]
 };
 
 export const SETTINGS_SCHEMA: {
@@ -261,7 +263,8 @@ export type DefaultPreferenceKey =
   | "autoGenerateOverview"
   | "overviewAiSummary"
   | "overviewAiChapters"
-  | "overviewAiQuotes";
+  | "overviewAiQuotes"
+  | "shortcuts";
 
 export type DefaultPreferencePatch = Pick<KnownSettings, DefaultPreferenceKey>;
 
@@ -311,14 +314,13 @@ export function normalizeSettingField<K extends KnownSettingKey>(
 export function buildDefaultPreferencePatch(): DefaultPreferencePatch {
   const patch: Record<string, unknown> = {};
   for (const [key, entry] of SETTINGS_SCHEMA_ENTRIES) {
-    if (entry.resetPreferenceValue !== undefined) {
-      patch[key] = Array.isArray(entry.resetPreferenceValue)
-        ? [...entry.resetPreferenceValue]
-        : entry.resetPreferenceValue;
-    } else if (entry.resetPreference) {
-      patch[key] = Array.isArray(entry.defaultValue)
-        ? [...entry.defaultValue]
-        : entry.defaultValue;
+    const val = entry.resetPreferenceValue !== undefined
+      ? entry.resetPreferenceValue
+      : entry.resetPreference
+        ? entry.defaultValue
+        : undefined;
+    if (val !== undefined) {
+      patch[key] = Array.isArray(val) ? [...val] : val && typeof val === "object" ? { ...val } : val;
     }
   }
   return patch as DefaultPreferencePatch;

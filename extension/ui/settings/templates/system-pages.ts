@@ -1,6 +1,7 @@
 import { READING_RESET_ICON } from "../../reading-icons.js";
 import { renderUiIcon } from "../../icon-registry.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../dom-ids.js";
+import { buildShortcutsSubpageHtml } from "../shortcuts-settings.js";
 import { buildSettingsChatDisplayRowHtml, CHEVRON_RIGHT_SVG } from "./shell-and-root.js";
 
 export function buildSystemPagesHtml(): string {
@@ -112,6 +113,8 @@ export function buildSystemPagesHtml(): string {
         </div>
       </section>
     </div>
+
+${buildShortcutsSubpageHtml()}
 
     <div id="${ids.subpageAgent}" class="biliscript-settings-view" hidden>
       <section class="biliscript-set-group" data-settings-section="agent">
