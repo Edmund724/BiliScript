@@ -160,8 +160,8 @@ html[data-biliscript-panel-resizing="1"] * {
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-header-copy::after {
   content: "手动浏览中";
-  display: inline-block;
-  margin-left: 8px;
+  grid-column: 1 / -1;
+  justify-self: start;
   font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;

@@ -40,6 +40,8 @@ describe("面板 header 元信息行", () => {
     shell.renderReadingView();
 
     expect(metaNode().textContent).toBe("UP主：硅谷101\nP2：第二话");
+    expect(metaNode().querySelector(".biliscript-reading-meta-author")?.textContent).toBe("UP主：硅谷101");
+    expect(metaNode().querySelector(".biliscript-reading-meta-part")?.textContent).toBe("P2：第二话");
     expect(metaNode().textContent).not.toContain("字幕：");
     expect(metaNode().textContent).not.toContain("人工上传");
     expect(metaNode().textContent).not.toContain("bilibili.com");
@@ -112,6 +114,8 @@ describe("面板 header 元信息行", () => {
     shell.renderReadingView();
 
     expect(metaNode().textContent).toBe("P3：第三话");
+    expect(metaNode().querySelector(".biliscript-reading-meta-author")).toBeNull();
+    expect(metaNode().querySelector(".biliscript-reading-meta-part")?.textContent).toBe("P3：第三话");
   });
 
   it("单P（pageCount <= 1）：不显示分P", () => {

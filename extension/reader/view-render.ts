@@ -34,28 +34,54 @@ export interface ReaderViewProjection {
   project(): void;
 }
 
+interface ReadingMetaParts {
+  authorLine: string;
+  partLine: string;
+}
+
 function projectReadingMetaLine(): void {
   const metaNode = requireActiveById(ids.readingMeta);
   if (!metaNode) {
     return;
   }
-  const metaLine = buildReadingMetaLine();
-  metaNode.textContent = metaLine;
-  metaNode.hidden = !metaLine;
+  const { authorLine, partLine } = buildReadingMetaParts();
+  if (!authorLine && !partLine) {
+    metaNode.textContent = "";
+    metaNode.hidden = true;
+    return;
+  }
+  const doc = metaNode.ownerDocument;
+  const fragment = doc.createDocumentFragment();
+  if (authorLine) {
+    const authorEl = doc.createElement("span");
+    authorEl.className = "biliscript-reading-meta-author";
+    authorEl.textContent = authorLine;
+    fragment.appendChild(authorEl);
+  }
+  if (authorLine && partLine) {
+    fragment.appendChild(doc.createTextNode("\n"));
+  }
+  if (partLine) {
+    const partEl = doc.createElement("span");
+    partEl.className = "biliscript-reading-meta-part";
+    partEl.textContent = partLine;
+    fragment.appendChild(partEl);
+  }
+  metaNode.replaceChildren(fragment);
+  metaNode.hidden = false;
 }
 
-function buildReadingMetaLine() {
-  const head = [];
-  if (state.clip.author) {
-    const authorLabel = state.clip.site === "youtube" ? "作者" : "UP主";
-    head.push(`${authorLabel}：${state.clip.author}`);
-  }
+function buildReadingMetaParts(): ReadingMetaParts {
+  const authorLine = state.clip.author
+    ? `${state.clip.site === "youtube" ? "作者" : "UP主"}：${state.clip.author}`
+    : "";
+  let partLine = "";
   if (Number(state.clip.pageCount) > 1) {
     const page = `P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`;
     const pageTitle = String(state.clip.pageTitle || "").trim();
-    head.push(pageTitle ? `${page}：${pageTitle}` : page);
+    partLine = pageTitle ? `${page}：${pageTitle}` : page;
   }
-  return head.join("\n");
+  return { authorLine, partLine };
 }
 
 function canOfferManualAsrTrigger(reason: NoSubtitleReason): boolean {
