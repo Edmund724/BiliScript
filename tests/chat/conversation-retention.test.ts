@@ -4,8 +4,8 @@ import {
   CONVERSATIONS_SYNC_SIGNAL_KEY,
   HISTORY_STORAGE_KEY,
   countConversationHistory,
+  listConversationSummaries,
   pruneConversationHistoryToLimit,
-  readConversationHistory,
   saveConversationEntry
 } from "../../extension/chat/conversation-storage.js";
 import { createConversationStore, type StorageArea } from "../../extension/chat/conversation-store.js";
@@ -82,7 +82,7 @@ describe("聊天记录 IndexedDB 持久化、迁移与条数限制", () => {
     );
     const local = makeMemoryStorage({ [HISTORY_STORAGE_KEY]: legacyList });
 
-    const loaded = await readConversationHistory(local);
+    const loaded = await listConversationSummaries(local);
     expect(loaded).toHaveLength(75);
     expect(loaded[0].id).toBe("c75");
     expect(loaded[74].id).toBe("c1");
@@ -105,7 +105,7 @@ describe("聊天记录 IndexedDB 持久化、迁移与条数限制", () => {
     const pruned = await pruneConversationHistoryToLimit(2, { storage: local });
     expect(pruned.keptCount).toBe(2);
     expect(pruned.removedIds.sort()).toEqual(["c1", "c2", "c3"]);
-    const remaining = await readConversationHistory(local);
+    const remaining = await listConversationSummaries(local);
     expect(remaining.map((c) => c.id)).toEqual(["c5", "c4"]);
     expect(local.data.get(CONVERSATIONS_SYNC_SIGNAL_KEY)).toMatchObject({
       op: "delete",
@@ -131,7 +131,7 @@ describe("聊天记录 IndexedDB 持久化、迁移与条数限制", () => {
     expect(chatSessionState.savedConversations).toHaveLength(3);
 
     await saveConversationEntry(makeConversation("new4", 999_999), { storage: local, maxCount: 2 });
-    const after = await readConversationHistory(local);
+    const after = await listConversationSummaries(local);
     expect(after.map((c) => c.id)).toEqual(["new4", "old3"]);
   });
 });

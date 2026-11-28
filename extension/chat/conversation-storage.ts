@@ -126,31 +126,6 @@ export function computeChatImageId(conversationId: string, mime: string, data: s
   return `img_${cleanConvId}_${h1}_${h2}_${data.length.toString(36)}`;
 }
 
-export function hasExternalizedChatImages(rawValue: unknown): boolean {
-  if (!Array.isArray(rawValue)) {
-    return false;
-  }
-  for (const item of rawValue) {
-    if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
-      continue;
-    }
-    const messages = (item as { messages?: unknown }).messages;
-    if (!Array.isArray(messages)) {
-      continue;
-    }
-    for (const msg of messages) {
-      const images = (msg as { images?: unknown } | null)?.images;
-      if (!Array.isArray(images)) {
-        continue;
-      }
-      if (images.some(isPersistedImageRef)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 function extractConversationStorageBvid(item: unknown): string {
   if (!item || typeof item !== "object") {
     return "";
@@ -186,44 +161,22 @@ function extractConversationStorageBvid(item: unknown): string {
   return resolveVideoStorageKey(site, videoId, rawCid).bvid;
 }
 
-interface VerifiedChatImage {
-  conversationId: string;
-  mime: string;
-  data: string;
-}
-
 interface HydrationScanResult {
   hydratedRaw: unknown[];
-  verifiedRefs: Map<string, VerifiedChatImage>;
-  preservedRefsOnRpcFailure: Map<string, PersistedImageRef[]>;
-  rawConversationIds: Set<string>;
-  rawImageRefs: Set<string>;
   hasLegacyInlineImages: boolean;
   readRpcFailed: boolean;
-}
-
-function buildMessageRefKey(conversationId: string, msgIndex: number, role: string, content: string): string {
-  return `${conversationId}\u0000${msgIndex}\u0000${role}\u0000${content}`;
 }
 
 async function hydrateRawConversations(
   rawValue: unknown,
   store: SubtitleIdbStore
 ): Promise<HydrationScanResult> {
-  const verifiedRefs = new Map<string, VerifiedChatImage>();
-  const preservedRefsOnRpcFailure = new Map<string, PersistedImageRef[]>();
-  const rawConversationIds = new Set<string>();
-  const rawImageRefs = new Set<string>();
   let hasLegacyInlineImages = false;
   let readRpcFailed = false;
 
   if (!Array.isArray(rawValue)) {
     return {
       hydratedRaw: [],
-      verifiedRefs,
-      preservedRefsOnRpcFailure,
-      rawConversationIds,
-      rawImageRefs,
       hasLegacyInlineImages,
       readRpcFailed
     };
@@ -235,10 +188,6 @@ async function hydrateRawConversations(
   for (const item of rawValue) {
     if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
       continue;
-    }
-    const convId = String((item as { id?: unknown }).id || "").trim();
-    if (convId) {
-      rawConversationIds.add(convId);
     }
     const messages = (item as { messages?: unknown }).messages;
     if (!Array.isArray(messages)) {
@@ -252,7 +201,6 @@ async function hydrateRawConversations(
       for (const entry of images) {
         if (isPersistedImageRef(entry)) {
           const refId = entry.idbRef.trim();
-          rawImageRefs.add(refId);
           if (!seenRefs.has(refId)) {
             seenRefs.add(refId);
             refsToFetch.push(refId);
@@ -306,10 +254,6 @@ async function hydrateRawConversations(
   if (refsToFetch.length === 0) {
     return {
       hydratedRaw: rawValue,
-      verifiedRefs,
-      preservedRefsOnRpcFailure,
-      rawConversationIds,
-      rawImageRefs,
       hasLegacyInlineImages,
       readRpcFailed
     };
@@ -319,28 +263,21 @@ async function hydrateRawConversations(
     if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
       return item;
     }
-    const obj = item as { id?: unknown; messages?: unknown; [key: string]: unknown };
-    const convId = String(obj.id || "").trim();
+    const obj = item as { messages?: unknown; [key: string]: unknown };
     if (!Array.isArray(obj.messages)) {
       return item;
     }
     let convChanged = false;
-    let validMsgIndex = 0;
     const nextMessages = obj.messages.map((msg) => {
       if (!msg || typeof msg !== "object") {
         return msg;
       }
-      const msgObj = msg as { role?: unknown; content?: unknown; images?: unknown; [key: string]: unknown };
-      const isNormalizedMsg =
-        (msgObj.role === "user" || msgObj.role === "assistant" || msgObj.role === "tool") &&
-        typeof msgObj.content === "string";
-      const currentMsgIndex = isNormalizedMsg ? validMsgIndex++ : -1;
+      const msgObj = msg as { images?: unknown; [key: string]: unknown };
       if (!Array.isArray(msgObj.images)) {
         return msg;
       }
       let msgHasRef = false;
       const hydratedImages: ImagePart[] = [];
-      const failedRefs: PersistedImageRef[] = [];
       for (const entry of msgObj.images) {
         if (isPersistedImageRef(entry)) {
           msgHasRef = true;
@@ -349,25 +286,12 @@ async function hydrateRawConversations(
           if (hit) {
             const mime = hit.mime.trim() || entry.mime.trim();
             hydratedImages.push({ mime, data: hit.data });
-            verifiedRefs.set(refId, {
-              conversationId: hit.conversationId,
-              mime,
-              data: hit.data
-            });
           } else if (isInlineImagePart(entry)) {
             hydratedImages.push({ mime: entry.mime, data: entry.data });
-          } else if (readRpcFailed) {
-            failedRefs.push({ mime: entry.mime.trim(), idbRef: refId });
           }
         } else if (isInlineImagePart(entry)) {
           hydratedImages.push({ mime: entry.mime, data: entry.data });
         }
-      }
-      if (readRpcFailed && convId && currentMsgIndex >= 0 && failedRefs.length > 0) {
-        preservedRefsOnRpcFailure.set(
-          buildMessageRefKey(convId, currentMsgIndex, String(msgObj.role), String(msgObj.content)),
-          failedRefs
-        );
       }
       if (!msgHasRef) {
         return msg;
@@ -386,10 +310,6 @@ async function hydrateRawConversations(
 
   return {
     hydratedRaw,
-    verifiedRefs,
-    preservedRefsOnRpcFailure,
-    rawConversationIds,
-    rawImageRefs,
     hasLegacyInlineImages,
     readRpcFailed
   };
@@ -457,151 +377,6 @@ function extractImagesForAtomicWrite(
   }
 
   return { persisted, images };
-}
-
-async function putChatImageSafe(
-  store: SubtitleIdbStore,
-  input: {
-    id: string;
-    conversationId: string;
-    bvid: string;
-    mime: string;
-    data: string;
-    createdAt?: number;
-    updatedAt?: number;
-    lastUsedAt?: number;
-  }
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const res = await store.putChatImage(input);
-    if (res.ok) {
-      return { ok: true };
-    }
-    return { ok: false, error: res.error?.message || "putChatImage returned ok=false" };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-interface ExternalizeResult {
-  persisted: PersistedConversationRecord[];
-  activeImageIds: Set<string>;
-  newlyWrittenImageIds: string[];
-  externalizedCount: number;
-}
-
-async function externalizeConversationsForStorage(
-  conversations: readonly StoredConversation[],
-  verifiedRefs: ReadonlyMap<string, VerifiedChatImage>,
-  preservedRefsOnRpcFailure: ReadonlyMap<string, PersistedImageRef[]>,
-  store: SubtitleIdbStore
-): Promise<ExternalizeResult> {
-  const activeImageIds = new Set<string>();
-  const newlyWrittenImageIds: string[] = [];
-  const writtenInBatch = new Set<string>();
-  let externalizedCount = 0;
-  const now = Date.now();
-  const persisted: PersistedConversationRecord[] = [];
-
-  for (const conv of conversations) {
-    if (isLiveTextToolHistoryEntry(conv)) {
-      persisted.push(conv as unknown as PersistedConversationRecord);
-      continue;
-    }
-
-    const bvid = extractConversationStorageBvid(conv);
-    let convChanged = false;
-    const nextMessages: unknown[] = [];
-
-    for (let msgIndex = 0; msgIndex < conv.messages.length; msgIndex += 1) {
-      const msg = conv.messages[msgIndex];
-      if (!Array.isArray(msg.images) || msg.images.length === 0) {
-        const preserved =
-          preservedRefsOnRpcFailure.size > 0
-            ? preservedRefsOnRpcFailure.get(
-                buildMessageRefKey(conv.id, msgIndex, msg.role, msg.content)
-              )
-            : undefined;
-        if (preserved && preserved.length > 0) {
-          for (const ref of preserved) {
-            activeImageIds.add(ref.idbRef);
-          }
-          nextMessages.push({ ...msg, images: preserved });
-          convChanged = true;
-        } else {
-          nextMessages.push(msg);
-        }
-        continue;
-      }
-
-      const nextImages: PersistedImageEntry[] = [];
-      for (const img of msg.images) {
-        if (!isInlineImagePart(img)) {
-          continue;
-        }
-        const mime = img.mime.trim();
-        const idbRef = computeChatImageId(conv.id, mime, img.data);
-        const verified = verifiedRefs.get(idbRef);
-
-        if (
-          (verified &&
-            verified.conversationId === conv.id &&
-            verified.mime === mime &&
-            verified.data === img.data) ||
-          writtenInBatch.has(idbRef)
-        ) {
-          nextImages.push({ mime, idbRef });
-          activeImageIds.add(idbRef);
-          convChanged = true;
-          continue;
-        }
-
-        const writeRes = await putChatImageSafe(store, {
-          id: idbRef,
-          conversationId: conv.id,
-          bvid,
-          mime,
-          data: img.data,
-          createdAt: conv.createdAt,
-          updatedAt: conv.updatedAt,
-          lastUsedAt: now
-        });
-
-        if (writeRes.ok) {
-          nextImages.push({ mime, idbRef });
-          activeImageIds.add(idbRef);
-          writtenInBatch.add(idbRef);
-          newlyWrittenImageIds.push(idbRef);
-          externalizedCount += 1;
-          convChanged = true;
-        } else {
-          logWarn(
-            "[BILISCRIPT] failed to externalize chat image to IndexedDB; falling back to inline base64",
-            { conversationId: conv.id, imageId: idbRef, error: writeRes.error }
-          );
-          nextImages.push({ mime, data: img.data });
-        }
-      }
-
-      if (nextImages.length > 0) {
-        nextMessages.push({ ...msg, images: nextImages });
-      } else {
-        const stripped = { ...msg };
-        delete stripped.images;
-        nextMessages.push(stripped);
-      }
-    }
-
-    const record = convChanged ? { ...conv, messages: nextMessages } : conv;
-    persisted.push(record as unknown as PersistedConversationRecord);
-  }
-
-  return {
-    persisted,
-    activeImageIds,
-    newlyWrittenImageIds,
-    externalizedCount
-  };
 }
 
 function sortSummariesDesc(list: ConversationSummaryItem[]): ConversationSummaryItem[] {
@@ -698,91 +473,24 @@ async function migrateLegacyLocalHistoryIfNeeded(
 }
 
 async function lazyMigrateInlineImagesInIdb(
-  conversations: readonly StoredConversation[],
-  verifiedRefs: ReadonlyMap<string, VerifiedChatImage>,
-  preservedRefsOnRpcFailure: ReadonlyMap<string, PersistedImageRef[]>,
+  conversation: StoredConversation,
   store: SubtitleIdbStore
 ): Promise<void> {
-  const externalized = await externalizeConversationsForStorage(
-    conversations,
-    verifiedRefs,
-    preservedRefsOnRpcFailure,
-    store
-  );
-  if (externalized.externalizedCount > 0) {
-    try {
-      await store.putConversationsMany(externalized.persisted);
-    } catch (error) {
-      logWarn("[BILISCRIPT] failed to persist lazily migrated chat image references to IndexedDB", {
-        migratedCount: externalized.externalizedCount,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
+  const { persisted, images } = extractImagesForAtomicWrite([conversation]);
+  const record = persisted[0];
+  if (!record || images.length === 0) {
+    return;
   }
-}
-
-async function reclaimOrphanChatImagesAfterWrite(options: {
-  store: SubtitleIdbStore;
-  next: readonly StoredConversation[];
-  rawConversationIds: ReadonlySet<string>;
-  rawImageRefs: ReadonlySet<string>;
-  activeImageIds: ReadonlySet<string>;
-  externalizedCount: number;
-  readRpcFailed: boolean;
-}): Promise<void> {
-  const {
-    store,
-    next,
-    rawConversationIds,
-    rawImageRefs,
-    activeImageIds,
-    externalizedCount,
-    readRpcFailed
-  } = options;
-
   try {
-    const nextConversationIds = new Set<string>();
-    for (const conv of next) {
-      if (!isLiveTextToolHistoryEntry(conv) && conv.id) {
-        nextConversationIds.add(conv.id);
-      }
-    }
-
-    if (nextConversationIds.size === 0) {
-      if (rawConversationIds.size > 0 || rawImageRefs.size > 0 || next.length === 0) {
-        await store.clearAllChatImages();
-      }
-      return;
-    }
-
-    const removedConversationIds: string[] = [];
-    for (const prevId of rawConversationIds) {
-      if (!nextConversationIds.has(prevId)) {
-        removedConversationIds.push(prevId);
-      }
-    }
-    if (removedConversationIds.length > 0) {
-      await store.deleteChatImagesByConversationIds(removedConversationIds);
-    }
-
-    let hasRemovedRef = false;
-    for (const oldRef of rawImageRefs) {
-      if (!activeImageIds.has(oldRef)) {
-        hasRemovedRef = true;
-        break;
-      }
-    }
-    if (
-      !readRpcFailed &&
-      (removedConversationIds.length > 0 || hasRemovedRef || externalizedCount > 0)
-    ) {
-      await store.pruneChatImages({
-        validConversationIds: Array.from(nextConversationIds),
-        keepImageIds: Array.from(activeImageIds)
-      });
-    }
+    await store.upsertConversationAtomic({
+      conversation: record,
+      images,
+      maxCount: 0
+    });
   } catch (error) {
-    logWarn("[BILISCRIPT] failed to reclaim orphan chat images after conversation save", {
+    logWarn("[BILISCRIPT] failed to persist lazily migrated chat image references to IndexedDB", {
+      conversationId: conversation.id,
+      migratedCount: images.length,
       error: error instanceof Error ? error.message : String(error)
     });
   }
@@ -804,27 +512,6 @@ export async function listConversationSummaries(
   return summaries;
 }
 
-export async function readConversationHistory(
-  storage?: StorageArea
-): Promise<StoredConversation[]> {
-  const store = resolveActiveSubtitleStore();
-  const targetStorage = resolveDefaultLocalStorage(storage);
-  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-  const rawValue = await store.listConversations();
-  const hydration = await hydrateRawConversations(rawValue, store);
-  const conversations = normalizeConversations(hydration.hydratedRaw);
-  if (hydration.hasLegacyInlineImages) {
-    await lazyMigrateInlineImagesInIdb(
-      conversations,
-      hydration.verifiedRefs,
-      hydration.preservedRefsOnRpcFailure,
-      store
-    );
-  }
-  setSavedConversations(conversations);
-  return conversations;
-}
-
 export async function readConversationById(
   id: string,
   storage?: StorageArea
@@ -839,13 +526,8 @@ export async function readConversationById(
   const hydration = await hydrateRawConversations([raw], store);
   const normalized = normalizeConversations(hydration.hydratedRaw);
   const item = normalized[0] ?? null;
-  if (item && hydration.hasLegacyInlineImages) {
-    await lazyMigrateInlineImagesInIdb(
-      [item],
-      hydration.verifiedRefs,
-      hydration.preservedRefsOnRpcFailure,
-      store
-    );
+  if (item && hydration.hasLegacyInlineImages && !hydration.readRpcFailed) {
+    await lazyMigrateInlineImagesInIdb(item, store);
   }
   return item;
 }
@@ -1005,117 +687,4 @@ export async function pruneConversationHistoryToLimit(
     });
   }
   return result;
-}
-
-export async function updateConversationHistory(
-  storage: StorageArea | undefined,
-  update: (current: StoredConversation[]) => StoredConversation[],
-  options: { maxCount?: number; clientId?: string } = {}
-): Promise<StoredConversation[]> {
-  const store = resolveActiveSubtitleStore();
-  const targetStorage = resolveDefaultLocalStorage(storage);
-  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-  const rawCurrent = await store.listConversations();
-  const hydration = await hydrateRawConversations(rawCurrent, store);
-  const current = normalizeConversations(hydration.hydratedRaw);
-  const next = normalizeConversations(update(current), {
-    ...(options.maxCount !== undefined ? { maxCount: options.maxCount } : {})
-  });
-  const externalized = await externalizeConversationsForStorage(
-    next,
-    hydration.verifiedRefs,
-    hydration.preservedRefsOnRpcFailure,
-    store
-  );
-
-  const nextIds = new Set(externalized.persisted.map((item) => item.id));
-  const removedIds: string[] = [];
-  for (const prev of rawCurrent) {
-    if (prev.id && !nextIds.has(prev.id)) {
-      removedIds.push(prev.id);
-    }
-  }
-
-  try {
-    if (externalized.persisted.length === 0) {
-      await store.clearAllConversations();
-    } else {
-      await store.putConversationsMany(externalized.persisted);
-      if (removedIds.length > 0) {
-        await store.deleteConversations(removedIds);
-      }
-    }
-  } catch (error) {
-    if (externalized.newlyWrittenImageIds.length > 0) {
-      await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
-    }
-    throw error;
-  }
-
-  await reclaimOrphanChatImagesAfterWrite({
-    store,
-    next,
-    rawConversationIds: hydration.rawConversationIds,
-    rawImageRefs: hydration.rawImageRefs,
-    activeImageIds: externalized.activeImageIds,
-    externalizedCount: externalized.externalizedCount,
-    readRpcFailed: hydration.readRpcFailed
-  });
-
-  setSavedConversations(next);
-  const originClientId = options.clientId || TAB_CLIENT_ID;
-  if (externalized.persisted.length === 0) {
-    await emitConversationSyncSignal(targetStorage, { op: "clear", originClientId });
-  } else if (next[0]) {
-    const summary = toConversationSummaryItem(next[0]);
-    if (summary) {
-      await emitConversationSyncSignal(targetStorage, {
-        op: "upsert",
-        originClientId,
-        summary,
-        ...(removedIds.length > 0 ? { prunedIds: removedIds } : {})
-      });
-    }
-  }
-  return next;
-}
-
-export async function pruneOrphanChatImages(storage?: StorageArea): Promise<string[]> {
-  const store = resolveActiveSubtitleStore();
-  const targetStorage = resolveDefaultLocalStorage(storage);
-  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-  const rawValue = await store.listConversations();
-  const validConversationIds: string[] = [];
-  const keepImageIds: string[] = [];
-
-  for (const item of rawValue) {
-    if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
-      continue;
-    }
-    const convId = String(item.id || "").trim();
-    if (!convId) {
-      continue;
-    }
-    validConversationIds.push(convId);
-    const messages = (item as { messages?: unknown }).messages;
-    if (!Array.isArray(messages)) {
-      continue;
-    }
-    for (const msg of messages) {
-      const images = (msg as { images?: unknown } | null)?.images;
-      if (!Array.isArray(images)) {
-        continue;
-      }
-      for (const entry of images) {
-        if (isPersistedImageRef(entry)) {
-          keepImageIds.push(entry.idbRef.trim());
-        }
-      }
-    }
-  }
-
-  if (validConversationIds.length === 0) {
-    return store.clearAllChatImages();
-  }
-  return store.pruneChatImages({ validConversationIds, keepImageIds });
 }

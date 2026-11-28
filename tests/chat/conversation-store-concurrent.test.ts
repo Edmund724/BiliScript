@@ -5,7 +5,7 @@ import type { CreateConversationStoreDeps, StorageArea } from "../../extension/c
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let CONVERSATIONS_STORAGE_KEY: typeof import("../../extension/chat/conversation-store.js").CONVERSATIONS_STORAGE_KEY;
 let syncSavedConversationsFromStorage: typeof import("../../extension/chat/conversation-store.js").syncSavedConversationsFromStorage;
-let updateConversationHistory: typeof import("../../extension/chat/conversation-storage.js").updateConversationHistory;
+let saveConversationEntry: typeof import("../../extension/chat/conversation-storage.js").saveConversationEntry;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
@@ -70,7 +70,7 @@ beforeEach(async () => {
     CONVERSATIONS_STORAGE_KEY,
     syncSavedConversationsFromStorage
   } = await import("../../extension/chat/conversation-store.js"));
-  ({ updateConversationHistory } = await import("../../extension/chat/conversation-storage.js"));
+  ({ saveConversationEntry } = await import("../../extension/chat/conversation-storage.js"));
   ({
     chatSessionState,
     chatSessionStateForTests,
@@ -97,7 +97,7 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-0"]);
 
     const convB = makeStoredConversation("conv-b", "BVB", "202", 2000);
-    await updateConversationHistory(storage, (current) => [convB, ...current]);
+    await saveConversationEntry(convB as any, { storage });
 
     resetChatSessionStateForTests();
     chatSessionStateForTests.savedConversations = [oldConv as any];
@@ -150,7 +150,7 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     await storeA.loadAll();
 
     const convB = makeStoredConversation("conv-b", "BVB", "202", 2000);
-    await updateConversationHistory(storage, (current) => [convB, ...current]);
+    await saveConversationEntry(convB as any, { storage });
     chatSessionStateForTests.savedConversations = [convA as any];
     chatSessionStateForTests.liveContextData = { bvid: "BVA", cid: "101", url: "https://www.bilibili.com/video/BVA/", isVideoContext: true };
     chatSessionStateForTests.liveContextKey = "video:BVA|101";
@@ -187,7 +187,7 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     });
 
     const conv = makeStoredConversation("conv-lock", "BVL", "1", 1000);
-    await updateConversationHistory(storage, () => [conv as any]);
+    await saveConversationEntry(conv as any, { storage });
 
     const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
     expect(requestLock).not.toHaveBeenCalled();

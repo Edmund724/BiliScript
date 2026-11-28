@@ -52,10 +52,8 @@ export {
   syncSavedConversationsFromStorage
 } from "./conversation-store.js";
 export {
-  hasExternalizedChatImages,
   listConversationSummaries,
-  readConversationById,
-  readConversationHistory
+  readConversationById
 } from "./conversation-storage.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
 

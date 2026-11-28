@@ -90,8 +90,8 @@ import { createInProcessContextFetch } from "../../extension/core/context-assemb
 import { state } from "../../extension/core/state.js";
 import {
   HISTORY_STORAGE_KEY,
-  readConversationHistory,
-  updateConversationHistory
+  readConversationById,
+  saveConversationEntry
 } from "../../extension/chat/conversation-storage.js";
 import {
   clearPinnedYoutubeCacheEvicted,
@@ -461,7 +461,7 @@ describe("chat_images 存储键编码隔离", () => {
       ]
     });
 
-    await updateConversationHistory(storage, () => [conv]);
+    await saveConversationEntry(conv, { storage });
     const records = await idb.listAllChatImages();
     const expectedEncodedBvid = encodeVideoStorageBvid("youtube", rawVideoId);
 
@@ -471,9 +471,8 @@ describe("chat_images 存储键编码隔离", () => {
     expect(records[0].bvid).not.toContain("_");
     expect(records[0].bvid).not.toContain(":");
 
-    const loaded = await readConversationHistory(storage);
-    expect(loaded).toHaveLength(1);
-    expect(loaded[0]).toMatchObject({
+    const loaded = await readConversationById("yt-img-1", storage);
+    expect(loaded).toMatchObject({
       messages: [
         expect.objectContaining({ images: [imgData] }),
         expect.objectContaining({ content: "收到" })
