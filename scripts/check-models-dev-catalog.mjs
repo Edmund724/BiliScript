@@ -205,13 +205,13 @@ function pickModelForCheck(providerId, modelId, model, problems) {
     meta.input = [...input];
   }
   const context = model.limit && model.limit.context;
-  if (!Number.isInteger(context) || context <= 0) {
+  if (!Number.isInteger(context) || context < 0) {
     problems.push(`${at}：缺 limit.context`);
   } else {
     meta.contextWindow = context;
   }
   const output = model.limit && model.limit.output;
-  if (!Number.isInteger(output) || output <= 0) {
+  if (!Number.isInteger(output) || output < 0) {
     problems.push(`${at}：缺 limit.output`);
   } else {
     meta.maxTokens = output;

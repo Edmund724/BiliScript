@@ -187,9 +187,9 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
 });
 
 describe("streamOnly（Q14A：流式限制规则遇非流式按无事实处理）", () => {
-  it("裁决行 qwen3-32b：off 走上游 toggle，流式与非流式同结论（不再有 streamOnly 阻断）", () => {
+  it("目录内上游 toggle 行（qwen3.7-plus）：off 走上游 toggle，流式与非流式同结论（无 streamOnly 阻断）", () => {
     for (const stream of [true, false]) {
-      const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream });
+      const r = resolve({ baseUrl: QWEN_URL, model: "qwen3.7-plus", level: "off", stream });
       expect(openaiVocabularyFields(r.vocabulary), `stream=${stream}`).toEqual({ enable_thinking: false });
       expect(r.offUnavailable, `stream=${stream}`).toBe(false);
       expect(r.offFallback, `stream=${stream}`).toBe(null);

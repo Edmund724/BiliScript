@@ -110,11 +110,11 @@ const VOCABULARY_OVERRIDES = [
 const OFF_CAPABILITY_DECLARATIONS = [];
 
 const EXPECTED_COUNTS = {
-  models: 600,
-  reasoning: 451,
-  withOptions: 384,
-  gaps: 67,
-  effortSets: 31
+  models: 591,
+  reasoning: 460,
+  withOptions: 403,
+  gaps: 57,
+  effortSets: 34
 };
 
 function fail(message) {

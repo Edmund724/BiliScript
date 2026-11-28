@@ -160,6 +160,31 @@ describe("元数据短格式（经编辑器模型行展示验证）", () => {
       }
     });
   });
+
+  it("上下文或输出上限为 0 但存在能力徽标时，title 省略空上限文案", async () => {
+    catalogGate.customLookup = () => ({
+      id: "zero-limit-reasoning",
+      name: "Zero Limit Model",
+      contextWindow: 0,
+      maxTokens: 0,
+      reasoning: true,
+      input: ["text"]
+    });
+
+    const dialog = mountEditor({
+      presetId: "custom",
+      baseUrl: "https://api.example.com/v1",
+      models: ["zero-limit-reasoning"]
+    });
+    await flushMicrotasks();
+
+    const slot = metaSlot(dialog, 0);
+    expect(slot.hidden).toBe(false);
+    expect(slot.textContent).toBe("思考");
+    expect(slot.title).toContain("Zero Limit Model");
+    expect(slot.title).not.toContain("上下文");
+    expect(slot.title).not.toContain("输出上限");
+  });
 });
 
 describe("模型行元数据", () => {
@@ -168,7 +193,7 @@ describe("模型行元数据", () => {
     const dialog = mountEditor({
       presetId: "custom",
       baseUrl: MIMO_BASE_URL,
-      models: ["mimo-v2.5"]
+      models: ["mimo-v2.6-pro"]
     });
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
@@ -179,7 +204,7 @@ describe("模型行元数据", () => {
     expect(slot.hidden).toBe(false);
     expect(slot.textContent).toBe("1M思考图片");
     expect(slot.querySelectorAll(".provider-editor-model-badge")).toHaveLength(2);
-    expect(slot.title).toContain("MiMo-V2.5");
+    expect(slot.title).toContain("MiMo-V2.6-Pro");
     expect(slot.title).toContain("输出上限 131K");
     expect(slot.title).toContain(
       `目录 ${UPSTREAM_CATALOG_SOURCE.source} ${UPSTREAM_CATALOG_SOURCE.contentHash}`
@@ -242,7 +267,7 @@ describe("模型行元数据", () => {
     const dialog = mountEditor({
       presetId: "custom",
       baseUrl: "",
-      models: ["mimo-v2.5"]
+      models: ["mimo-v2.6-pro"]
     });
     await flushMicrotasks();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
@@ -257,7 +282,7 @@ describe("模型行元数据", () => {
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    input.value = "mimo-v2.5";
+    input.value = "mimo-v2.6-pro";
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(false);
 
@@ -286,7 +311,7 @@ describe("模型行元数据", () => {
     const dialog = mountEditor({
       presetId: "custom",
       baseUrl: "",
-      models: ["mimo-v2.5"]
+      models: ["mimo-v2.6-pro"]
     });
     await flushMicrotasks();
 

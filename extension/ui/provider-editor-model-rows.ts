@@ -55,13 +55,19 @@ function modelMetaTitle(
   meta: CatalogModelMeta,
   source: { source: string; contentHash: string } | null
 ): string {
-  const parts = [
-    meta.name,
-    `上下文 ${formatContextWindow(meta.contextWindow)}`,
-    `输出上限 ${formatContextWindow(meta.maxTokens)}`,
+  const contextText = formatContextWindow(meta.contextWindow);
+  const outputText = formatContextWindow(meta.maxTokens);
+  const parts = [meta.name];
+  if (contextText) {
+    parts.push(`上下文 ${contextText}`);
+  }
+  if (outputText) {
+    parts.push(`输出上限 ${outputText}`);
+  }
+  parts.push(
     meta.reasoning ? "支持思考" : "不支持思考",
     meta.input.includes("image") ? "支持图片" : "仅文本输入"
-  ];
+  );
   if (source) {
     parts.push(`目录 ${source.source} ${source.contentHash}`);
   }

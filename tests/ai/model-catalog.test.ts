@@ -39,7 +39,7 @@ function extensionFilesReferencing(pattern: RegExp): string[] {
 }
 
 describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () => {
-  it("13 家上游 / 600 个模型，preset 登记的 provider 全在其中", () => {
+  it("13 家上游 / 591 个模型，preset 登记的 provider 全在其中", () => {
     const registered = new Set(EXPECTED_CATALOG_PROVIDERS.map(([, provider]) => provider));
     expect(Object.keys(UPSTREAM_CATALOG).filter((id) => registered.has(id)).sort()).toEqual(
       [...registered].sort()
@@ -48,7 +48,7 @@ describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () =
       (sum, models) => sum + Object.keys(models).length,
       0
     );
-    expect(total).toBe(600);
+    expect(total).toBe(591);
     expect(Object.keys(UPSTREAM_CATALOG)).toHaveLength(13);
     expect(UPSTREAM_CATALOG_SOURCE.contentHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(UPSTREAM_CATALOG_SOURCE.source).toBe("https://models.dev/api.json");
@@ -216,7 +216,7 @@ describe("09 §7.1 后果冻结（用户裁定接受的后果，不是 bug）", 
   it("zhipu 的上游 identity = zhipuai（不是 09 对账用的兄弟家 zhipuai-coding-plan）", () => {
     const preset = PRESETS.find((item) => item.id === "zhipu")!;
     expect(resolveCatalogProvider("zhipu", preset.baseUrl)).toBe("zhipuai");
-    expect(Object.keys(UPSTREAM_CATALOG["zhipuai"] ?? {})).toHaveLength(17);
+    expect(Object.keys(UPSTREAM_CATALOG["zhipuai"] ?? {})).toHaveLength(18);
     expect(UPSTREAM_CATALOG["zhipuai-coding-plan"]).toBeUndefined();
   });
 

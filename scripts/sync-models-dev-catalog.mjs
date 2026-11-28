@@ -9,7 +9,7 @@ const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];
 
-const EXPECTED_MODEL_COUNT = 600;
+const EXPECTED_MODEL_COUNT = 591;
 
 function fail(message) {
   console.error(`sync-models-dev-catalog: ${message}`);
@@ -89,7 +89,7 @@ function pickModel(upstreamId, modelId, model) {
     ["limit.context", model.limit && model.limit.context],
     ["limit.output", model.limit && model.limit.output]
   ]) {
-    if (!Number.isInteger(value) || value <= 0) {
+    if (!Number.isInteger(value) || value < 0) {
       fail(`${upstreamId}/${modelId}: 上游缺 ${field}（收到 ${JSON.stringify(value)}），产物字段口径需复核。`);
     }
   }

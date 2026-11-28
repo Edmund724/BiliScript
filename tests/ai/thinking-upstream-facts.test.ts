@@ -108,8 +108,6 @@ const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldH
   { presetId: "stepfun", model: "step-3.5-flash", key: "stepfun-step-plan/step-3.5-flash", oldHand: "step-always" },
   { presetId: "stepfun", model: "step-3.5-flash-2603", key: "stepfun-step-plan/step-3.5-flash-2603", oldHand: "step-always" },
   { presetId: "deepseek", model: "deepseek-flash", key: "deepseek/deepseek-flash", oldHand: null },
-  { presetId: "qwen", model: "qwen3-14b", key: "alibaba-cn/qwen3-14b", oldHand: null },
-  { presetId: "qwen", model: "qwen3-8b", key: "alibaba-cn/qwen3-8b", oldHand: null },
   { presetId: "qwen", model: "qwen3-omni-flash", key: "alibaba-cn/qwen3-omni-flash", oldHand: null },
   { presetId: "qwen", model: "qwen3-vl-plus", key: "alibaba-cn/qwen3-vl-plus", oldHand: null },
   { presetId: "qwen", model: "siliconflow/deepseek-v3.1-terminus", key: "alibaba-cn/siliconflow/deepseek-v3.1-terminus", oldHand: null },
@@ -122,8 +120,6 @@ const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldH
   { presetId: "qwen", model: "kimi-k2.5", key: "alibaba-cn/kimi-k2.5", oldHand: "kimi-hybrid-switch" },
   { presetId: "qwen", model: "kimi-k2.6", key: "alibaba-cn/kimi-k2.6", oldHand: "kimi-hybrid-switch" },
   { presetId: "qwen", model: "kimi/kimi-k2.5", key: "alibaba-cn/kimi/kimi-k2.5", oldHand: null },
-  { presetId: "qwen", model: "qwen3-235b-a22b", key: "alibaba-cn/qwen3-235b-a22b", oldHand: "qwen-hybrid-switch-streamonly" },
-  { presetId: "qwen", model: "qwen3-32b", key: "alibaba-cn/qwen3-32b", oldHand: "qwen-hybrid-switch-streamonly" },
   { presetId: "qwen", model: "qwen3.8-flash", key: "alibaba-cn/qwen3.8-flash", oldHand: "qwen-hybrid-switch" },
   { presetId: "qwen", model: "qwen3.8-omni-flash", key: "alibaba-cn/qwen3.8-omni-flash", oldHand: "qwen-hybrid-switch" },
   { presetId: "modelscope", model: "GLM-4.5", key: "modelscope/glm-4.5", oldHand: "glm-hybrid-switch" },
@@ -364,9 +360,9 @@ describe("上游值集 → class 规则（05 号票：每个 effort 档物化成
   });
 });
 
-describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决策 #8 后续）", () => {
-  it("31 行逐行按上游投影（7 档全锁，不允许旧手写结论抢答）", () => {
-    expect(ADJUDICATED.length).toBe(31);
+describe("残留清单裁决（27 行按上游，2026-10-04 用户裁定；决策 #8 后续）", () => {
+  it("27 行逐行按上游投影（7 档全锁，不允许旧手写结论抢答）", () => {
+    expect(ADJUDICATED.length).toBe(27);
     for (const row of ADJUDICATED) {
       const fact = lookupThinkingFact(row.key.slice(0, row.key.indexOf("/")), row.model);
       expect(fact, `${row.key} 应有上游事实`).toBeTruthy();
@@ -377,18 +373,25 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     }
   });
 
-  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 29 行 + modelscope 上游写法两行 + 点名三处 + clamp 分歧", () => {
+  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 27 行的 25 行 + modelscope 上游写法两行 + 点名三处 + clamp 分歧", () => {
     const divergent = divergentKeys(LEVELS);
     const expected = [
       ...ADJUDICATED.map((row) => row.key).filter((key) => !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
       "modelscope/zhipuai/glm-4.5",
       "modelscope/zhipuai/glm-4.6",
       ...FLIPPED,
-      "alibaba-cn/qwen3.8-max",
+      "alibaba-cn/deepseek-v3.2",
+      "alibaba-cn/deepseek-v4-flash-0731",
+      "alibaba-cn/glm-5.3-prime",
       "alibaba-cn/kimi-k3",
+      "alibaba-cn/kimi-k3.1-pro",
+      "alibaba-cn/kimi-k3.1-pro-prime",
+      "alibaba-cn/qwen3.8-max",
+      "alibaba-cn/qwen4-max",
       "kimi-code-plan-cn/k3.1-pro",
       "kimi-code-plan-cn/k3.1-pro-highspeed",
-      "minimax-cn/minimax-m3.1-flash"
+      "minimax-cn/minimax-m3.1-flash",
+      "zhipuai/glm-5.3-flashx-legal"
     ].sort();
     expect([...divergent].sort()).toEqual(expected);
   });
@@ -575,27 +578,18 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     expect(levelsOf("amd", "DeepSeek-V4.1-Flash")).not.toContain("off");
   });
 
-  it("丢 off 的行按新上游事实失去 off（16 行 openrouter + moonshot/k3；glm-5.2 已由 D1=A2 补回；gemini-3.1-flash-image-preview 上游重新带 off）", () => {
+  it("丢 off 的行按新上游事实失去 off（7 行 openrouter + moonshot/k3；claude 8 行上游补回 toggle；gemini-3.1-flash-lite-preview 上游重新带 none）", () => {
     const lost: Array<[presetId: string, upstreamId: string, model: string]> = [
-      ["openrouter", "openrouter", "anthropic/claude-opus-4.5"],
-      ["openrouter", "openrouter", "anthropic/claude-opus-4.6"],
-      ["openrouter", "openrouter", "anthropic/claude-opus-4.7"],
-      ["openrouter", "openrouter", "anthropic/claude-opus-4.8"],
-      ["openrouter", "openrouter", "anthropic/claude-haiku-4.5"],
-      ["openrouter", "openrouter", "anthropic/claude-opus-5"],
-      ["openrouter", "openrouter", "anthropic/claude-sonnet-4.5"],
-      ["openrouter", "openrouter", "anthropic/claude-sonnet-4.6"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-image"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-image"],
       ["openrouter", "openrouter", "google/gemini-3-flash-preview"],
-      ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-preview"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite"],
       ["openrouter", "openrouter", "moonshotai/kimi-k3"],
       ["openrouter", "openrouter", "openai/o3-pro"],
       ["openrouter", "openrouter", "openai/o3"],
       ["moonshot", "kimi-code-plan-cn", "k3"]
     ];
-    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(16);
+    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(7);
     for (const [presetId, upstreamId, model] of lost) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
@@ -687,7 +681,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     return [...models].sort();
   };
 
-  it("目录内 293 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
+  it("目录内 306 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
     const counts: Record<string, number> = {};
     let unknown: string[] = [];
     let total = 0;
@@ -701,8 +695,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       }
     }
     expect(unknown).toEqual([]);
-    expect(counts).toEqual({ openrouter: 241, amd: 8, sensenova: 6, opencodego: 38 });
-    expect(total).toBe(293);
+    expect(counts).toEqual({ openrouter: 253, amd: 8, sensenova: 6, opencodego: 39 });
+    expect(total).toBe(306);
   });
 
   it("上游词表更窄的行：档位被静默改写（amd/Qwen3.8-27B 的 high → medium）", () => {
@@ -757,7 +751,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("off 级联：票面「上游词表含 off」的口径 177 行（146/5/5/21），逐平台钉数", () => {
+  it("off 级联：票面「上游词表含 off」的口径 191 行（159/5/5/22），逐平台钉数", () => {
     const hasOff = (presetId: string): number =>
       modelsOf(presetId).filter((model) => {
         const fact = lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET[presetId], model);
@@ -768,11 +762,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 146, amd: 5, sensenova: 5, opencodego: 21 });
-    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(177);
+    }).toEqual({ openrouter: 159, amd: 5, sensenova: 5, opencodego: 22 });
+    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(191);
   });
 
-  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 231 行（与口径 A 的 177 差异见 18-report）", () => {
+  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 235 行（与口径 A 的 191 差异见 18-report）", () => {
     const cascade = (presetId: string): string[] =>
       modelsOf(presetId).filter((model) => {
         const adjustment = resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: true });
@@ -784,8 +778,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
-    expect(counts).toEqual({ openrouter: 185, amd: 8, sensenova: 5, opencodego: 33 });
-    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(231);
+    expect(counts).toEqual({ openrouter: 190, amd: 8, sensenova: 5, opencodego: 32 });
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(235);
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(glm.effectiveLevel).toBe("high");
     expect(glm.resolution.offFallback).toBe("low");
@@ -841,7 +835,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
-  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 109 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
+  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 104 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
     const divergent = divergentKeys(LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent.sort()).toEqual([
       "amd/deepseek-v4-flash",
@@ -858,8 +852,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "opencode-go/glm-5.3-flash",
       "opencode-go/gpt-5.6-luna",
       "opencode-go/gpt-6-luna",
-      "opencode-go/mimo-v2.5",
-      "opencode-go/mimo-v2.5-pro",
       "opencode-go/mimo-v2.6-flash",
       "opencode-go/mimo-v2.6-pro",
       "opencode-go/minimax-m3.1-flash",
@@ -926,10 +918,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/qwen/qwen3.8-max-0902",
       "openrouter/qwen/qwen3.8-max-prime",
       "openrouter/qwen/qwen3.8-omni-flash",
-      "openrouter/stepfun/step-3.5-flash",
-      "openrouter/xiaomi/mimo-v2.5",
-      "openrouter/xiaomi/mimo-v2.5-pro",
       "openrouter/xiaomi/mimo-v2.6-flash",
+      "openrouter/xiaomi/mimo-v2.6-flash-mopd",
       "openrouter/xiaomi/mimo-v2.6-pro",
       "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed",
       "openrouter/z-ai/glm-4.5",
@@ -952,7 +942,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/~deepseek/deepseek-v4-flash-latest",
       "sensenova/deepseek-v4-flash",
       "sensenova/deepseek-v4-pro",
-      "sensenova/deepseek-v4.1-flash",
       "sensenova/glm-5.2"
     ]);
     const divergent7 = divergentKeys(ALL_LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });

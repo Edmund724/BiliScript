@@ -339,7 +339,7 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
   });
 });
 
-describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：clamp 只在模型自己的词表内移动", () => {
+describe("残留清单裁决（27 行按上游，2026-10-04 用户裁定）：clamp 只在模型自己的词表内移动", () => {
   const ADJUDICATED: Array<[presetId: string, upstreamId: string, model: string]> = [
     ["qwen", "alibaba-cn", "deepseek-v4-flash"],
     ["qwen", "alibaba-cn", "deepseek-v4-pro"],
@@ -352,8 +352,6 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：cl
     ["stepfun", "stepfun-step-plan", "step-3.5-flash"],
     ["stepfun", "stepfun-step-plan", "step-3.5-flash-2603"],
     ["deepseek", "deepseek", "deepseek-flash"],
-    ["qwen", "alibaba-cn", "qwen3-14b"],
-    ["qwen", "alibaba-cn", "qwen3-8b"],
     ["qwen", "alibaba-cn", "qwen3-omni-flash"],
     ["qwen", "alibaba-cn", "qwen3-vl-plus"],
     ["qwen", "alibaba-cn", "siliconflow/deepseek-v3.1-terminus"],
@@ -366,16 +364,14 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：cl
     ["qwen", "alibaba-cn", "kimi-k2.5"],
     ["qwen", "alibaba-cn", "kimi-k2.6"],
     ["qwen", "alibaba-cn", "kimi/kimi-k2.5"],
-    ["qwen", "alibaba-cn", "qwen3-235b-a22b"],
-    ["qwen", "alibaba-cn", "qwen3-32b"],
     ["qwen", "alibaba-cn", "qwen3.8-flash"],
     ["qwen", "alibaba-cn", "qwen3.8-omni-flash"],
     ["modelscope", "modelscope", "GLM-4.5"],
     ["modelscope", "modelscope", "GLM-4.6"]
   ];
 
-  it("31 行 × 7 档：落线 = 上游投影（可用集由投影写点派生，clamp 不引入旧手写事实）", () => {
-    expect(ADJUDICATED.length).toBe(31);
+  it("27 行 × 7 档：落线 = 上游投影（可用集由投影写点派生，clamp 不引入旧手写事实）", () => {
+    expect(ADJUDICATED.length).toBe(27);
     for (const [presetId, upstreamId, model] of ADJUDICATED) {
       const projected = ruleFromUpstreamFact(lookupThinkingFact(upstreamId, model)!, presetId);
       for (const level of AI_THINKING_LEVELS) {
