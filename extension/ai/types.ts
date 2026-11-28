@@ -1,5 +1,6 @@
 import type { AiProtocol } from "./protocol-adapter.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import type { HistoricalFrameRequestSpec } from "../chat/historical-video-frame.js";
 import type { SiteId } from "../shared/site.js";
 import type {
   ChapterItem,
@@ -37,9 +38,14 @@ export interface ImagePart {
 export interface CapturedVideoFrame {
   image: ImagePart;
   currentTime: number;
+  targetTime?: number;
+  anchorTime?: number;
 }
 
-export type CaptureCurrentVideoFrame = (targetTime?: number, signal?: AbortSignal) => Promise<CapturedVideoFrame | CapturedVideoFrame[]>;
+export type CaptureCurrentVideoFrame = (
+  request?: HistoricalFrameRequestSpec | number,
+  signal?: AbortSignal
+) => Promise<CapturedVideoFrame | CapturedVideoFrame[]>;
 
 export type ThinkingBlock =
   | { type: "thinking"; thinking: string; signature: string }

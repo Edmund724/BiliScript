@@ -14,7 +14,7 @@
 ### 2. KV 前缀缓存锁与多轮会话上下文稳定（`extension/ai/context.ts`、`tool-loop.ts`、`adapters/anthropic.ts`）
 
 - **静态顶层前缀与动态块下移**：顶层 `system` 仅承载固定系统提示词、视频元数据及静态章节目录 / 压缩摘要 / 短片全量字幕；每轮动态召回字幕窗口与视频帧提示经 `formatDynamicTurnUserContent` 附于当轮 `user` 消息（`<retrieved_subtitles>` / `<video_frame_context>`），严禁改写已缓存前缀。
-- **静态工具表与无前缀破坏拦截**：工具循环全程保持 `tools` 定义静态一致；达到工具调用上限或重复调用拦截时以 `role: "tool"` 软拦截回填提示，严禁在循环中途追加 `role: "system"` 消息。Anthropic 适配器在静态前缀与倒数第二条历史消息挂载 `cache_control: { type: "ephemeral" }` 滚动断点。
+- **静态工具表与无前缀破坏拦截**：工具循环全程保持 `tools` 定义静态一致；`capture_current_video_frame` 与 `capture_video_frame_at_time`（支持多时间点 `times` 1～6 处、默认 `spanSeconds = 0` 每点精确单帧、可选邻域跨度 `0..8s`）共享单轮 `6 帧 / 2 跳` 双维预算（预截帧经 `initialFramesUsed` 扣减而不撤除工具定义），单次调用多张帧聚合为单条 `role: "user"` 多图消息，超剩余帧数软裁剪并在 `role: "tool"` 文本列出已完成与未截取时间点，配额耗尽或重复调用拦截一律以 `role: "tool"` 软拦截回填提示，严禁删改 `tools` 或在循环中途追加 `role: "system"` 消息。Anthropic 适配器将相邻的 `tool_result` 与携带 `images` 的 `role: "user"` 截帧消息归并至同一条 `user.content` 数组以保持严格 `user` / `assistant` 交替，并在静态前缀与倒数第二条历史消息挂载 `cache_control: { type: "ephemeral" }` 滚动断点（总断点数恒 `<= 2`）。
 - **长对话滚动压缩锚点**：超长多轮会话结合持久化 `summaryAnchor` 与过期轮次工具结果折叠控制上下文长度，避免反复全量重放。
 
 ### 3. 25s Contextual BM25 + L1 目录与概览滑动状态接力（`extension/ai/state-relay.ts`、`l0-bm25.ts`）
@@ -31,6 +31,7 @@
   1. **交互锚点直通（`interaction-anchor`）**：命中划词解释意图、显式时间戳或当前播放游标指代时，跳过模型路由，直接按锚点抽取 L0 前后扩窗与所属 L1 章节摘要直入流式回答（超预算视频亦跳过成本护栏与全片归并）。
   2. **L1 路由 + 25s Contextual BM25 与 RRF 单跳召回**：高置信 BM25 命中时免路由直出；否则并发执行非流式短路由（`thinkingLevel: "off"`，判定 `direct-answer` 或输出 1～2 个章节区间与补充词）与本地 BM25 检索，按 RRF（`RRF_K = 60`、`RRF_WEIGHT_L1 = 1.0`、`RRF_WEIGHT_BM25 = 1.1`）排序并按时间序去重合并窗口（单轮注入上限 `STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 80,000`）；路由超时或异常时静默降级至本地 BM25 扩窗或常驻压缩摘要。
   3. **Map-Reduce 冷兜底**：`extension/ai/map-reduce.ts` 仅在「`> 200k` 视频尚无 L1 索引、无历史上下文且无交互锚点的首次宏观总结」及「单发流上下文溢出回落」时调用。
+- **视觉预截帧协同与图片上限**：`extension/ai/ladder.ts` 在混合召回命中明确 `coreTimestamp` 且问题依赖画面时触发精确单帧预截帧（消耗 `1` 帧），通过 `initialFramesUsed` 扣减本轮 `6 帧 / 2 跳` 工具预算并继续保留截帧工具定义以维护前缀缓存，单消息图片合并上限为 `MAX_TURN_IMAGES = 8`（容纳用户附图与视频关键帧）。
 - **存储宿主与体积守卫**：L1 索引与段摘要缓存由后台扩展源 IndexedDB v4 `ai_artifacts` 表统一托管（Offscreen 经 `segment-cache` 消息代理访问，见 [ADR-0018](0018-layered-storage-and-extension-idb.md)）；纯算法叶保持零 DOM/storage 依赖，严守 [ADR-0001](0001-background-no-runtime-lazy.md) 与 [ADR-0004](0004-content-two-round-build-and-reader-gate.md) 双端体积预算。
 
 ## 考虑过的方案

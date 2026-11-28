@@ -384,7 +384,14 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           if (!deps.captureCurrentVideoFrame) {
             throw new Error("当前页面不支持视频截图");
           }
-          const captureResult = await deps.captureCurrentVideoFrame(msg.targetTime, controller.signal);
+          const captureRequest = Array.isArray(msg.times)
+            ? {
+                times: msg.times,
+                ...(msg.spanSeconds !== undefined ? { spanSeconds: msg.spanSeconds } : {}),
+                ...(msg.maxFrames !== undefined ? { maxFrames: msg.maxFrames } : {})
+              }
+            : msg.targetTime;
+          const captureResult = await deps.captureCurrentVideoFrame(captureRequest, controller.signal);
           if (controller.signal.aborted || pendingVideoFrames.get(msg.requestId) !== controller) return;
           const capturedCandidates = capturedVideoFramesToCandidates(captureResult);
           if (capturedCandidates.length > 0) {

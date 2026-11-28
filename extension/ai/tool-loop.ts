@@ -6,6 +6,7 @@ import {
 } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
+import type { HistoricalFrameRequestSpec } from "../chat/historical-video-frame.js";
 import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ProviderRequest, StreamChatEvent } from "./types.js";
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
@@ -13,12 +14,127 @@ import { formatClock } from "../shared/clock-text.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 import { formatPaidFallbackNotice, type PaidSearchFallback } from "../search/search-chain.js";
 
+export const MAX_CAPTURED_FRAMES_PER_TURN = 6;
+export const MAX_FRAME_TOOL_CALLS_PER_TURN = 2;
+export const MAX_HISTORICAL_SPAN_SECONDS = 8;
+const FRAME_DEDUP_EPSILON_SEC = 0.25;
+
+export interface ParsedHistoricalFrameArgs {
+  times: number[];
+  spanSeconds: number;
+}
+
+interface PlannedFrameTarget {
+  anchorTime: number;
+  targetTime: number;
+}
+
+export function parseHistoricalFrameArgs(rawArguments: string): ParsedHistoricalFrameArgs {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    throw new Error("历史截帧参数必须是合法 JSON 对象");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("历史截帧参数必须是合法 JSON 对象");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.times !== undefined) {
+    if (!Array.isArray(record.times) || record.times.length === 0) {
+      throw new Error("times 必须是非空的时间点数组");
+    }
+    const times: number[] = [];
+    for (const item of record.times) {
+      if (typeof item !== "number" || !Number.isFinite(item) || item < 0) {
+        throw new Error("times 中的每个时间点必须是大于或等于 0 的有限秒数");
+      }
+      times.push(item);
+    }
+    const spanSeconds = record.spanSeconds === undefined ? 0 : record.spanSeconds;
+    if (
+      typeof spanSeconds !== "number" ||
+      !Number.isFinite(spanSeconds) ||
+      spanSeconds < 0 ||
+      spanSeconds > MAX_HISTORICAL_SPAN_SECONDS
+    ) {
+      throw new Error(`spanSeconds 必须是 0 到 ${MAX_HISTORICAL_SPAN_SECONDS} 之间的有限秒数`);
+    }
+    return { times, spanSeconds };
+  }
+  if (record.targetTime !== undefined) {
+    const targetTime = record.targetTime;
+    if (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0) {
+      throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
+    }
+    return { times: [targetTime], spanSeconds: 0 };
+  }
+  throw new Error("times 必须是非空的时间点数组");
+}
+
+function planHistoricalTargets(
+  times: readonly number[],
+  spanSeconds: number,
+  maxFrames: number
+): { targets: PlannedFrameTarget[]; truncatedTargets: PlannedFrameTarget[] } {
+  const expanded: Array<PlannedFrameTarget & { isCenter: boolean }> = [];
+  for (const anchorTime of times) {
+    if (spanSeconds > 0) {
+      expanded.push({ anchorTime, targetTime: Math.max(0, anchorTime - spanSeconds), isCenter: false });
+      expanded.push({ anchorTime, targetTime: anchorTime, isCenter: true });
+      expanded.push({ anchorTime, targetTime: anchorTime + spanSeconds, isCenter: false });
+    } else {
+      expanded.push({ anchorTime, targetTime: anchorTime, isCenter: true });
+    }
+  }
+  expanded.sort((a, b) => {
+    if (a.targetTime !== b.targetTime) return a.targetTime - b.targetTime;
+    if (a.isCenter !== b.isCenter) return a.isCenter ? -1 : 1;
+    return a.anchorTime - b.anchorTime;
+  });
+  const deduped: Array<PlannedFrameTarget & { isCenter: boolean }> = [];
+  for (const item of expanded) {
+    const last = deduped[deduped.length - 1];
+    if (last && item.targetTime - last.targetTime < FRAME_DEDUP_EPSILON_SEC) {
+      if (!last.isCenter && item.isCenter) {
+        deduped[deduped.length - 1] = item;
+      }
+      continue;
+    }
+    deduped.push(item);
+  }
+  const allTargets = deduped.map(({ anchorTime, targetTime }) => ({ anchorTime, targetTime }));
+  const limit = Math.max(0, Math.floor(maxFrames));
+  if (allTargets.length > limit) {
+    return {
+      targets: allTargets.slice(0, limit),
+      truncatedTargets: allTargets.slice(limit)
+    };
+  }
+  return { targets: allTargets, truncatedTargets: [] };
+}
+
+function formatSecondsText(seconds: number): string {
+  return Number.isInteger(seconds) ? String(seconds) : Number(seconds.toFixed(2)).toString();
+}
+
+function formatHistoricalStatusQuery(times: readonly number[], spanSeconds: number): string {
+  const formatted = times.map((t) => formatClock(t, { hours: "auto" }));
+  if (times.length > 3) {
+    return `${formatted[0]}、${formatted[1]} 等 ${times.length} 处`;
+  }
+  if (times.length === 1 && spanSeconds > 0) {
+    return `${formatted[0]} (±${formatSecondsText(spanSeconds)}s)`;
+  }
+  return formatted.join("、");
+}
+
 export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME = "capture_current_video_frame";
 export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL: ChatToolDefinition = {
   type: "function",
   function: {
     name: CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME,
-    description: "截取当前视频播放位置的一帧画面。只有当回答必须依赖当前可见画面、图表、代码或操作界面时调用；不要用于回顾其他时间点。每轮最多调用一次。",
+    description: "截取当前视频播放位置的一帧画面。只有当回答必须依赖当前可见画面、图表、代码或操作界面时调用；不要用于回顾其他时间点。与历史截帧工具共享每轮最多 2 次调用、总计 6 帧预算。",
     parameters: { type: "object", properties: {} }
   }
 };
@@ -28,13 +144,25 @@ export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL: ChatToolDefinition = {
   type: "function",
   function: {
     name: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
-    description: "当字幕不足以回答某个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，自主截取该时间点前、中、后三帧（前后各间隔 2 秒，视频边界处截断）。targetTime 必须是字幕或用户问题所指的视频秒数，不要猜测。不会改变用户播放器。每次提问最多补充三帧。",
+    description: "当字幕不足以回答一个或多个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，按时间点数组 times（1 到 6 个非负秒数）自主截取对应画面。默认 spanSeconds 为 0（每个时间点精确截取 1 帧）；仅当需要查看动作变化或口播滞后区间时设置 spanSeconds（0 到 8 秒），为每个时间点补充 [t-s, t, t+s]。times 必须来自字幕或用户问题，不要猜测。不会改变用户播放器。与当前帧工具共享每轮最多 2 次调用、总计 6 帧预算。",
     parameters: {
       type: "object",
       properties: {
-        targetTime: { type: "number", description: "目标视频时间点，单位为秒" }
+        times: {
+          type: "array",
+          items: { type: "number", minimum: 0 },
+          minItems: 1,
+          maxItems: MAX_CAPTURED_FRAMES_PER_TURN,
+          description: "目标视频时间点列表，单位为秒（非负），支持 1 到 6 个时间点"
+        },
+        spanSeconds: {
+          type: "number",
+          minimum: 0,
+          maximum: MAX_HISTORICAL_SPAN_SECONDS,
+          description: "可选邻域跨度（单位：秒，范围 0 到 8，默认 0）；设为正数时额外截取前后偏移帧"
+        }
       },
-      required: ["targetTime"]
+      required: ["times"]
     }
   }
 };
@@ -95,6 +223,8 @@ export interface ToolStatusPayload {
   tool?: "web_search" | "capture_video_frame_at_time";
   callId?: string;
   targetTime?: number;
+  targetTimes?: number[];
+  spanSeconds?: number;
   resultCount?: number;
   expectedCount?: number;
   frames?: CapturedVideoFrame[];
@@ -130,6 +260,7 @@ export interface RunToolLoopInput {
   maxToolCalls: number;
   executeSearch: ExecuteSearchFn;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  initialFramesUsed?: number;
   fetchHotComments?: FetchHotCommentsFn;
   onNotice?: (text: string) => void;
   onToolStatus?: (payload: ToolStatusPayload) => void;
@@ -170,6 +301,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
     maxToolCalls,
     executeSearch,
     captureCurrentVideoFrame,
+    initialFramesUsed,
     fetchHotComments,
     onNotice,
     onToolStatus,
@@ -196,7 +328,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
 
   let toolCallCount = 0;
   let retriedWithoutTools = false;
-  let captureUsed = false;
+  let framesUsed = Math.max(
+    0,
+    Math.min(MAX_CAPTURED_FRAMES_PER_TURN, Math.floor(Number(initialFramesUsed) || 0))
+  );
+  let frameCallsUsed = 0;
   let hotCommentsUsed = false;
   let finalText = "";
 
@@ -271,82 +407,128 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string | Cha
           });
           continue;
         }
-        let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
-        if (captureCurrentVideoFrame && !captureUsed) {
-          captureUsed = true;
-          let historicalTargetTime: number | undefined;
+        const remainingFrames = MAX_CAPTURED_FRAMES_PER_TURN - framesUsed;
+        let toolContent: string;
+        if (!captureCurrentVideoFrame) {
+          toolContent = "本轮未启用视频截图工具，请基于已有内容作答。";
+        } else if (frameCallsUsed >= MAX_FRAME_TOOL_CALLS_PER_TURN) {
+          toolContent = `本轮视频截图工具调用次数已达上限（${MAX_FRAME_TOOL_CALLS_PER_TURN} 次），请基于已有画面作答。`;
+        } else if (remainingFrames <= 0) {
+          toolContent = `本轮视频截图帧数已达上限（${MAX_CAPTURED_FRAMES_PER_TURN} 帧），请基于已有画面作答。`;
+        } else {
           let historicalStatusStarted = false;
+          let parsedHistorical: ParsedHistoricalFrameArgs | undefined;
+          let historicalQuery = "";
           try {
-            const targetTime = isHistoricalFrame
-              ? Number((JSON.parse(call.function.arguments) as { targetTime?: unknown }).targetTime)
-              : undefined;
-            if (isHistoricalFrame && (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0)) {
-              throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
-            }
+            let planned: { targets: PlannedFrameTarget[]; truncatedTargets: PlannedFrameTarget[] } | undefined;
             if (isHistoricalFrame) {
-              historicalTargetTime = targetTime;
+              parsedHistorical = parseHistoricalFrameArgs(call.function.arguments);
+              planned = planHistoricalTargets(parsedHistorical.times, parsedHistorical.spanSeconds, remainingFrames);
+              historicalQuery = formatHistoricalStatusQuery(parsedHistorical.times, parsedHistorical.spanSeconds);
               historicalStatusStarted = true;
               onToolStatus?.({
                 status: "searching",
                 tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
-                query: formatClock(targetTime, { hours: "auto" }),
+                query: historicalQuery,
                 callId: call.id,
-                targetTime
+                targetTime: parsedHistorical.times[0],
+                targetTimes: [...parsedHistorical.times],
+                ...(parsedHistorical.spanSeconds > 0 ? { spanSeconds: parsedHistorical.spanSeconds } : {})
               });
             }
+            frameCallsUsed += 1;
+            const requestSpec: HistoricalFrameRequestSpec | undefined = parsedHistorical
+              ? {
+                  times: parsedHistorical.times,
+                  spanSeconds: parsedHistorical.spanSeconds,
+                  maxFrames: remainingFrames
+                }
+              : undefined;
             const captureResult = isHistoricalFrame
-              ? await captureCurrentVideoFrame(targetTime)
+              ? await captureCurrentVideoFrame(requestSpec)
               : await captureCurrentVideoFrame();
-            const frames = (Array.isArray(captureResult) ? captureResult : [captureResult]).slice(0, 3);
+            const frameLimit = isHistoricalFrame ? remainingFrames : 1;
+            const frames = (Array.isArray(captureResult) ? captureResult : [captureResult]).slice(0, frameLimit);
             if (!frames.length) {
-              throw new Error("三个时间点均未截取成功");
+              throw new Error("目标时间点均未截取成功");
             }
-            const times = frames.map((frame) => formatClock(frame.currentTime, { hours: "auto" }));
-            const target = isHistoricalFrame ? formatClock(targetTime, { hours: "auto" }) : "";
-            toolContent = isHistoricalFrame
-              ? Array.isArray(captureResult)
-                ? frames.length === 3
-                  ? `已截取目标时间点 ${target} 附近的前、中、后三帧，实际时间依次为 ${times.join("、")}。`
-                  : `目标时间点 ${target} 附近仅成功截取 ${frames.length} 张画面，实际时间依次为 ${times.join("、")}；其余 ${3 - frames.length} 张截取失败。`
-                : `已截取视频在 ${times[0]} 的画面（目标时间点 ${target}）。`
-              : `已截取视频在 ${times[0]} 的画面。`;
-            if (isHistoricalFrame) {
+            framesUsed += frames.length;
+            const actualClocks = frames.map((frame) => formatClock(frame.currentTime, { hours: "auto" }));
+            if (isHistoricalFrame && parsedHistorical && planned) {
+              const completedTargetClocks = planned.targets.map((item) =>
+                formatClock(item.targetTime, { hours: "auto" })
+              );
+              const truncatedTargetClocks = planned.truncatedTargets.map((item) =>
+                formatClock(item.targetTime, { hours: "auto" })
+              );
+              const baseSummary =
+                frames.length >= planned.targets.length
+                  ? `已截取目标时间点 ${completedTargetClocks.join("、")} 共 ${frames.length} 张画面，实际时间依次为 ${actualClocks.join("、")}。`
+                  : `目标时间点 ${completedTargetClocks.join("、")} 仅成功截取 ${frames.length} 张画面，实际时间依次为 ${actualClocks.join("、")}；其余 ${planned.targets.length - frames.length} 张截取失败。`;
+              const truncationNotice =
+                truncatedTargetClocks.length > 0
+                  ? `受本轮最多 ${MAX_CAPTURED_FRAMES_PER_TURN} 帧配额限制，未截取以下时间点：${truncatedTargetClocks.join("、")}。`
+                  : "";
+              toolContent = truncationNotice ? `${baseSummary}${truncationNotice}` : baseSummary;
               onToolStatus?.({
                 status: "done",
                 tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
-                query: target,
+                query: historicalQuery,
                 callId: call.id,
-                targetTime: historicalTargetTime,
+                targetTime: parsedHistorical.times[0],
+                targetTimes: [...parsedHistorical.times],
+                ...(parsedHistorical.spanSeconds > 0 ? { spanSeconds: parsedHistorical.spanSeconds } : {}),
                 resultCount: frames.length,
-                expectedCount: Array.isArray(captureResult) ? 3 : 1,
+                expectedCount: planned.targets.length,
                 frames
               });
-            }
-            frames.forEach((frame, index) => {
-              const time = times[index];
+              const itemLines = frames.map((frame, index) => {
+                const actualClock = actualClocks[index];
+                const fallbackTarget =
+                  planned.targets[index]?.targetTime ??
+                  parsedHistorical!.times[Math.min(index, parsedHistorical!.times.length - 1)];
+                const targetSec = frame.targetTime ?? fallbackTarget;
+                const anchorSec = frame.anchorTime ?? planned.targets[index]?.anchorTime ?? targetSec;
+                const targetClock = formatClock(targetSec, { hours: "auto" });
+                const anchorClock = formatClock(anchorSec, { hours: "auto" });
+                const targetPart =
+                  Math.abs(anchorSec - targetSec) > 1e-6
+                    ? `锚点时间 ${anchorClock}（${formatSecondsText(anchorSec)}s），目标时间点 ${targetClock}（${formatSecondsText(targetSec)}s）`
+                    : `目标时间点 ${targetClock}（${formatSecondsText(targetSec)}s）`;
+                return `${index + 1}. 第 ${index + 1} 张：${targetPart}，实际截图时间 ${actualClock}（${formatSecondsText(frame.currentTime)}s）`;
+              });
               frameMessages.push({
                 role: "user",
-                content: isHistoricalFrame
-                  ? Array.isArray(captureResult)
-                    ? `以下是 ${call.function.name} 工具截取的第 ${index + 1} 张，实际截图时间 ${time}；目标时间点 ${target}。图片按时间顺序排列，请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
-                    : `以下是 ${call.function.name} 工具截取的视频画面，实际截图时间 ${time}；目标时间点 ${target}。请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
-                  : `以下是 ${call.function.name} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
-                images: [frame.image]
+                content: [
+                  `以下是 ${call.function.name} 工具截取的 ${frames.length} 张视频画面（按时间顺序排列）：`,
+                  ...itemLines,
+                  "请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。"
+                ].join("\n"),
+                images: frames.map((frame) => frame.image)
               });
-            });
+            } else {
+              toolContent = `已截取视频在 ${actualClocks[0]} 的画面。`;
+              frameMessages.push({
+                role: "user",
+                content: `以下是 ${call.function.name} 工具在 ${actualClocks[0]} 截取的视频画面，请结合画面回答用户的问题。`,
+                images: [frames[0].image]
+              });
+            }
           } catch (e) {
             if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
               throw e;
             }
             const reason = String((e as { message?: unknown })?.message ?? e);
             toolContent = `截取视频画面失败：${reason}`;
-            if (historicalStatusStarted) {
+            if (historicalStatusStarted && parsedHistorical) {
               onToolStatus?.({
                 status: "failed",
                 tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
-                query: formatClock(historicalTargetTime, { hours: "auto" }),
+                query: historicalQuery,
                 callId: call.id,
-                targetTime: historicalTargetTime
+                targetTime: parsedHistorical.times[0],
+                targetTimes: [...parsedHistorical.times],
+                ...(parsedHistorical.spanSeconds > 0 ? { spanSeconds: parsedHistorical.spanSeconds } : {})
               });
             }
             onNotice?.(toolContent);

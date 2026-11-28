@@ -2,7 +2,7 @@
 
 > 状态：有效
 
-在 [ADR-0021](0021-multi-site-and-youtube-core.md) 底座之上，为 Chromium（120+）与桌面端 Firefox（153+）的 YouTube 桌面端 `/watch` 页提供无字幕 ASR 语音转写与历史三帧短窗截帧能力。采用**极薄静态主世界模板嗅探 + 按需加载 SABR/UMP 拉流引擎（零新增域名权限）+ Offscreen 推流解码复用 16 kHz WAV 管线 + 真无字幕自动回退与字幕不可用手动触发分离**架构。
+在 [ADR-0021](0021-multi-site-and-youtube-core.md) 底座之上，为 Chromium（120+）与桌面端 Firefox（153+）的 YouTube 桌面端 `/watch` 页提供无字幕 ASR 语音转写与多时间点历史截帧能力。采用**极薄静态主世界模板嗅探 + 按需加载 SABR/UMP 拉流引擎（零新增域名权限）+ Offscreen 推流解码复用 16 kHz WAV 管线 + 真无字幕自动回退与字幕不可用手动触发分离**架构。
 
 ## 已定决策
 
@@ -14,7 +14,7 @@
 ### 2. SABR/UMP 采集策略与广告三重门禁
 
 - **线格式最小改写（`extension/youtube/sabr-protocol.ts`）**：零依赖 wire-level Protobuf 改写（原样透传未知防伪字段），维护播放会话上下文与退避；收到鉴权拒绝信号时以 `ATTESTATION_REJECTED` 立即中止。
-- **编解码选择与三重广告门禁**：不劫持 MSE；音频转写按当前播放音轨的 `audioTrack.id` / `xtags` 严格匹配 `audio/mp4` 并**优先 `itag 140`（AAC-LC）而非 `itag 139`（HE-AAC/SBR）**（规避双端 `AudioContext.decodeAudioData` 采样率解析差异），线性流式拉取并守 `200 MB` 上限。历史三帧截帧复用同一 Worker，按需拉取 `[t-2, t+2]` 720p 优先低帧率视频短窗（最多 `24 MB`），回传内容脚本在离屏 `MediaSource + <video>` 截帧后即刻销毁，不扰动主播放器。采集全程执行三重门禁（排除广告态 DOM、核对当前 `video_id`、校验 UMP `MediaHeader.videoId`），切视频或取消时立即中止。
+- **编解码选择与三重广告门禁**：不劫持 MSE；音频转写按当前播放音轨的 `audioTrack.id` / `xtags` 严格匹配 `audio/mp4` 并**优先 `itag 140`（AAC-LC）而非 `itag 139`（HE-AAC/SBR）**（规避双端 `AudioContext.decodeAudioData` 采样率解析差异），线性流式拉取并守 `200 MB` 上限。多时间点历史截帧复用同一 Worker（默认 `spanSeconds = 0` 每点精确单帧，可选邻域跨度展开 `[t-s, t, t+s]` 并按 `0.25s` 阈值中心优先去重），将升序目标点按前后 `600 ms` 缓冲与双阈值窗口聚类（相邻间距 `<= 10 s`、合并跨度 `<= 20 s`、单次最多 `6` 个分散窗口）串行拉取 720p 优先低帧率视频短窗（单窗最多 `24 MB`），回传内容脚本后对同编解码 MIME 复用单个离屏 `MediaSource + <video>` 并执行 `2.5 s` 缓冲漂移守卫解码截帧，完成后统一清理，不扰动主播放器。采集全程执行三重门禁（排除广告态 DOM、核对当前 `video_id`、校验 UMP `MediaHeader.videoId`），切视频或取消时立即中止。
 
 ### 3. 离屏推流解码、触发门控与多音轨缓存兼容
 

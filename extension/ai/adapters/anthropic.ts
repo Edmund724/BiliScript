@@ -93,7 +93,17 @@ function toAnthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
       for (const image of message.images) {
         blocks.push({ type: "image", source: { type: "base64", media_type: image.mime, data: image.data } });
       }
-      out.push({ role: message.role, content: blocks });
+      const last = out[out.length - 1];
+      if (message.role === "user" && last?.role === "user") {
+        if (typeof last.content === "string") {
+          const prevBlocks: AnthropicContentBlock[] = last.content ? [{ type: "text", text: last.content }] : [];
+          last.content = [...prevBlocks, ...blocks];
+        } else {
+          last.content.push(...blocks);
+        }
+      } else {
+        out.push({ role: message.role, content: blocks });
+      }
     } else {
       out.push({ role: message.role, content: message.content });
     }

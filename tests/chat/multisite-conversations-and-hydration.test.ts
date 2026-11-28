@@ -38,7 +38,7 @@ const {
       })
     ),
     captureHistoricalVideoFrame: vi.fn(async () => [
-      { jpegBytes: new Uint8Array([4, 5, 6]), currentTime: 10 }
+      { jpegBytes: new Uint8Array([4, 5, 6]), currentTime: 10, targetTime: 12, anchorTime: 12 }
     ])
   },
   settingsStoreMock: {
@@ -746,10 +746,18 @@ describe("context-assembly 跨站装配与 chat-tab 运行时门控", () => {
 
     const histFrames = await typedDeps.captureCurrentVideoFrame!(12);
     expect(frameCaptureMock.captureHistoricalVideoFrame).toHaveBeenCalledWith(
-      { site: "youtube", bvid: rawVideoId, cid: "yt", targetTime: 12 },
+      { site: "youtube", bvid: rawVideoId, cid: "yt", times: [12], spanSeconds: 0 },
       { signal: undefined }
     );
-    expect(histFrames).toEqual([{ image: { mime: "image/jpeg", data: "BAUG" }, currentTime: 10 }]);
+    expect(histFrames).toEqual([
+      { image: { mime: "image/jpeg", data: "BAUG" }, currentTime: 10, targetTime: 12, anchorTime: 12 }
+    ]);
+
+    await typedDeps.captureCurrentVideoFrame!({ times: [12, 48], spanSeconds: 2, maxFrames: 4 });
+    expect(frameCaptureMock.captureHistoricalVideoFrame).toHaveBeenLastCalledWith(
+      { site: "youtube", bvid: rawVideoId, cid: "yt", times: [12, 48], spanSeconds: 2, maxFrames: 4 },
+      { signal: undefined }
+    );
   });
 
   it("chat-tab 在 YouTube 下读取主播放器播放游标并向 capturePageVideoFrame 透传站点感知 getVideo", async () => {

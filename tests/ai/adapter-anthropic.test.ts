@@ -528,7 +528,7 @@ describe("preserved thinking / signature 回放（buildBody / drainStream / pars
       expect(countCacheControlBlocks(body)).toBe(2);
     });
 
-    it("连续多条 role: tool 合并为单条 user 后，断点精准落在合并后目标数组倒数第二条的最后一个 tool_result 块", () => {
+    it("连续多条 role: tool 与紧随的多图截帧 user 消息归并为单条 user，保持严格交替且断点数 <= 2", () => {
       const body = anthropicBody({
         ...base,
         messages: [
@@ -539,25 +539,92 @@ describe("preserved thinking / signature 回放（buildBody / drainStream / pars
             content: "",
             tool_calls: [
               { id: "tu_1", type: "function", function: { name: "web_search", arguments: '{"query":"a"}' } },
-              { id: "tu_2", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }
+              { id: "tu_2", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"times":[10,20,30]}' } }
             ]
           },
           { role: "tool", tool_call_id: "tu_1", content: "search-result" },
-          { role: "tool", tool_call_id: "tu_2", content: "已截取画面" },
-          { role: "user", content: "附带截图", images: [{ mime: "image/jpeg", data: "QUJD" }] }
+          { role: "tool", tool_call_id: "tu_2", content: "已截取 3 张画面" },
+          {
+            role: "user",
+            content: "以下是 3 张视频画面",
+            images: [
+              { mime: "image/jpeg", data: "QUJD" },
+              { mime: "image/jpeg", data: "REVG" },
+              { mime: "image/jpeg", data: "R0hJ" }
+            ]
+          }
         ]
       });
 
       const msgs = body.messages as Array<{ role: string; content: unknown }>;
-      expect(msgs).toHaveLength(4);
+      expect(msgs).toHaveLength(3);
+      for (let i = 1; i < msgs.length; i += 1) {
+        expect(msgs[i].role).not.toBe(msgs[i - 1].role);
+      }
+      expect(msgs[1]).toEqual({
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "web_search", input: { query: "a" } },
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "capture_video_frame_at_time",
+            input: { times: [10, 20, 30] },
+            cache_control: { type: "ephemeral" }
+          }
+        ]
+      });
       expect(msgs[2]).toEqual({
         role: "user",
         content: [
           { type: "tool_result", tool_use_id: "tu_1", content: "search-result" },
-          { type: "tool_result", tool_use_id: "tu_2", content: "已截取画面", cache_control: { type: "ephemeral" } }
+          { type: "tool_result", tool_use_id: "tu_2", content: "已截取 3 张画面" },
+          { type: "text", text: "以下是 3 张视频画面" },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "REVG" } },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "R0hJ" } }
         ]
       });
       expect(countCacheControlBlocks(body)).toBe(2);
+
+      const nextHop = anthropicBody({
+        ...base,
+        messages: [
+          { role: "system", content: "静态系统指令" },
+          { role: "user", content: "查画面" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [{ id: "tu_1", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"times":[10,20]}' } }]
+          },
+          { role: "tool", tool_call_id: "tu_1", content: "已截取 2 张画面" },
+          {
+            role: "user",
+            content: "多图说明",
+            images: [
+              { mime: "image/jpeg", data: "QUJD" },
+              { mime: "image/jpeg", data: "REVG" }
+            ]
+          },
+          { role: "assistant", content: "第一轮回复" }
+        ]
+      });
+      const nextMsgs = nextHop.messages as Array<{ role: string; content: unknown }>;
+      expect(nextMsgs.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+      expect(nextMsgs[2]).toEqual({
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_1", content: "已截取 2 张画面" },
+          { type: "text", text: "多图说明" },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/jpeg", data: "REVG" },
+            cache_control: { type: "ephemeral" }
+          }
+        ]
+      });
+      expect(countCacheControlBlocks(nextHop)).toBe(2);
     });
 
     it("含 thinkingBlocks 的历史 assistant 消息绝不在 thinking / redacted_thinking 块上挂 cache_control", () => {

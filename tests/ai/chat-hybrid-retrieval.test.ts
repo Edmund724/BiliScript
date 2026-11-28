@@ -23,7 +23,8 @@ import { buildMessages, formatDynamicTurnUserContent } from "../../extension/ai/
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
 import * as l0Bm25 from "../../extension/ai/l0-bm25.js";
 import { clearL0Bm25Cache, normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
-import { runLadderChat, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
+import { MAX_TURN_IMAGES, runLadderChat, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
+import type { HistoricalFrameRequestSpec } from "../../extension/chat/historical-video-frame.js";
 import { createExplainIntentController, setPendingExplainIntent } from "../../extension/reader/explain-intent.js";
 import type { L0ContextWindow, L1VideoIndexCacheRecord } from "../../extension/ai/long-video-hybrid-types.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
@@ -476,7 +477,7 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
     expect(isLongVideoForHybridChat(normalizeL0SubtitleLines([{ from: 0, to: 10, content: "短视频" }]), { videoDuration: 300 })).toBe(false);
   });
 
-  it("视觉/板书类提问复用召回核心时间戳触发关键帧采样，且与 thinkingLevel / webSearch 互不冲突", async () => {
+  it("视觉/板书类提问复用召回核心时间戳触发精确单帧采样，保留截帧工具并扣减 initialFramesUsed", async () => {
     const { rawBody, l1Index } = buildLongVideoFixture();
     const portMessages: Array<Record<string, unknown>> = [];
     const port = { postMessage: (m: unknown) => { portMessages.push(m as Record<string, unknown>); } };
@@ -484,10 +485,10 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
     const routeSpy = vi.fn(async () =>
       JSON.stringify({ mode: "expand", ranges: [{ from: "0:00", to: "15:00" }], terms: ["板书", "FlashAttention"] })
     );
-    const captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => [
-      { image: { mime: "image/jpeg", data: "ZnJhbWUx" }, currentTime: (targetTime ?? 540) - 2 },
-      { image: { mime: "image/jpeg", data: "ZnJhbWUy" }, currentTime: targetTime ?? 540 }
-    ]);
+    const captureCurrentVideoFrame = vi.fn(async (req?: HistoricalFrameRequestSpec | number) => {
+      const targetTime = typeof req === "number" ? req : req?.times[0] ?? 540;
+      return [{ image: { mime: "image/jpeg", data: "ZnJhbWUx" }, currentTime: targetTime, targetTime, anchorTime: targetTime }];
+    });
     const webSearch = {
       maxToolCalls: 3,
       executeSearch: vi.fn(async () => ({ results: [], platform: "Tavily" }))
@@ -522,22 +523,72 @@ describe("runLadderChat 联动关键帧采样、思考强度与联网搜索", ()
     );
 
     expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
-    expect(captureCurrentVideoFrame.mock.calls[0][0]).toBe(540);
+    expect(captureCurrentVideoFrame.mock.calls[0][0]).toEqual({
+      times: [540],
+      spanSeconds: 0,
+      maxFrames: 1
+    });
     const frameStatuses = portMessages.filter((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time");
     expect(frameStatuses.map((m) => m.status)).toEqual(["searching", "done"]);
+    expect(frameStatuses[1].expectedCount).toBe(1);
+    expect(frameStatuses[1].targetTimes).toEqual([540]);
     expect(streamCalls).toHaveLength(1);
     expect(streamCalls[0].thinkingLevel).toBe("high");
     expect(streamCalls[0].webSearch).toBe(webSearch);
-    expect(streamCalls[0].captureCurrentVideoFrame).toBeUndefined();
+    expect(streamCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
+    expect(streamCalls[0].initialFramesUsed).toBe(1);
     expect(streamCalls[0].userImages).toEqual([
       { mime: "image/webp", data: "dXNlckltZw==" },
-      { mime: "image/jpeg", data: "ZnJhbWUx" },
-      { mime: "image/jpeg", data: "ZnJhbWUy" }
+      { mime: "image/jpeg", data: "ZnJhbWUx" }
     ]);
     const passedContext = streamCalls[0].context as Record<string, unknown>;
     expect(passedContext.subtitleBody).toEqual([]);
     expect(passedContext.hybridRetrievalMarkdown).toContain("FlashAttention 分块矩阵计算图解");
     expect(passedContext.frameContextNote).toContain("已联动视频关键帧采样");
+  });
+
+  it("预截帧合并图片上限为 MAX_TURN_IMAGES = 8，不再截断为 4 张", async () => {
+    expect(MAX_TURN_IMAGES).toBe(8);
+    const { rawBody, l1Index } = buildLongVideoFixture();
+    const streamCalls: Array<Record<string, unknown>> = [];
+    const sevenUserImages = Array.from({ length: 7 }, (_, i) => ({
+      mime: "image/webp",
+      data: `dXNlcl8=${i}`
+    }));
+    const captureCurrentVideoFrame = vi.fn(async () => [
+      { image: { mime: "image/jpeg", data: "ZnJhbWU=" }, currentTime: 540, targetTime: 540, anchorTime: 540 }
+    ]);
+
+    await runLadderChat(
+      {
+        msg: {
+          context: { bvid: "BV1hybridMaxImg", cid: "1001", subtitleBody: rawBody, videoDuration: 2700, chapters: [] },
+          history: [],
+          prompt: "板书上写的 FlashAttention 矩阵公式是什么？",
+          thinkingLevel: "off",
+          images: sevenUserImages
+        },
+        provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-vl", apiKey: "sk" },
+        port: { postMessage: () => {} },
+        signal: new AbortController().signal,
+        captureCurrentVideoFrame
+      },
+      {
+        loadL1Index: vi.fn(async () => l1Index),
+        routeChatCompletion: vi.fn(async () =>
+          JSON.stringify({ mode: "expand", ranges: [{ from: "0:00", to: "15:00" }], terms: ["板书", "FlashAttention"] })
+        ) as unknown as typeof import("../../extension/ai/completion.js").chatCompletion,
+        streamChat: vi.fn(async (args) => {
+          streamCalls.push(args as unknown as Record<string, unknown>);
+          return { done: true as const };
+        }),
+        askCostGuard: vi.fn(async () => true)
+      }
+    );
+
+    expect(streamCalls[0].userImages).toHaveLength(8);
+    expect(streamCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
+    expect(streamCalls[0].initialFramesUsed).toBe(1);
   });
 
   it("超预算视频（>200k）走 Fast Path（划词/时间戳）时跳过成本护栏与 Map-Reduce，直接流式生成", async () => {
@@ -648,9 +699,10 @@ describe("KV 前缀缓存锁死与动态检索块后置（#28）", () => {
           provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "qwen-plus", apiKey: "sk" },
           port: { postMessage: () => {} },
           signal: new AbortController().signal,
-          captureCurrentVideoFrame: async (targetTime?: number) => [
-            { image: { mime: "image/jpeg", data: "ZnJhbWU=" }, currentTime: targetTime ?? 1260 }
-          ]
+          captureCurrentVideoFrame: async (req?: HistoricalFrameRequestSpec | number) => {
+            const targetTime = typeof req === "number" ? req : req?.times[0] ?? 1260;
+            return [{ image: { mime: "image/jpeg", data: "ZnJhbWU=" }, currentTime: targetTime }];
+          }
         },
         {
           loadL1Index: vi.fn(async () => l1Index),

@@ -125,6 +125,8 @@ function asInteractionAnchorHint(raw: unknown): InteractionAnchorHint | null {
   };
 }
 
+export const MAX_TURN_IMAGES = 8;
+
 async function preCaptureVisualFramesIfNeeded(input: {
   userPrompt: string;
   coreTimestamp?: number;
@@ -137,6 +139,7 @@ async function preCaptureVisualFramesIfNeeded(input: {
   finalUserImages?: ImagePart[];
   frameContextNote?: string;
   remainingCaptureFn?: CaptureCurrentVideoFrame;
+  initialFramesUsed: number;
 }> {
   const { userPrompt, coreTimestamp, captureCurrentVideoFrame, userImages, port, signal, onActivity } = input;
   if (
@@ -146,7 +149,7 @@ async function preCaptureVisualFramesIfNeeded(input: {
     coreTimestamp < 0 ||
     !doesPromptNeedVisualFrame(userPrompt)
   ) {
-    return { finalUserImages: userImages, remainingCaptureFn: captureCurrentVideoFrame };
+    return { finalUserImages: userImages, remainingCaptureFn: captureCurrentVideoFrame, initialFramesUsed: 0 };
   }
 
   const targetTime = Math.floor(coreTimestamp);
@@ -160,12 +163,16 @@ async function preCaptureVisualFramesIfNeeded(input: {
     query,
     callId,
     targetTime,
+    targetTimes: [targetTime],
     generation: 0
   });
 
   try {
-    const rawResult = await captureCurrentVideoFrame(targetTime, signal ?? undefined);
-    const frames: CapturedVideoFrame[] = (Array.isArray(rawResult) ? rawResult : [rawResult]).slice(0, 3);
+    const rawResult = await captureCurrentVideoFrame(
+      { times: [targetTime], spanSeconds: 0, maxFrames: 1 },
+      signal ?? undefined
+    );
+    const frames: CapturedVideoFrame[] = (Array.isArray(rawResult) ? rawResult : [rawResult]).slice(0, 1);
     if (frames.length === 0) {
       throw new Error("未截取到有效画面");
     }
@@ -177,19 +184,21 @@ async function preCaptureVisualFramesIfNeeded(input: {
       query,
       callId,
       targetTime,
+      targetTimes: [targetTime],
       resultCount: frames.length,
-      expectedCount: Array.isArray(rawResult) ? 3 : 1,
+      expectedCount: 1,
       frames,
       generation: 0
     });
     const actualTimes = frames.map((f) => formatClock(f.currentTime, { hours: "auto" })).join("、");
     const frameImages = frames.map((f) => f.image);
-    const mergedImages = [...(userImages ?? []), ...frameImages].slice(0, 4);
+    const mergedImages = [...(userImages ?? []), ...frameImages].slice(0, MAX_TURN_IMAGES);
     const frameContextNote = `[已联动视频关键帧采样：目标时间点 ${query}，实际截图时间依次为 ${actualTimes}。图片已附带在当前消息中，请结合画面与字幕作答，不要将实际截图时间误述为目标时间点。]`;
     return {
       finalUserImages: mergedImages.length > 0 ? mergedImages : undefined,
       frameContextNote,
-      remainingCaptureFn: undefined
+      remainingCaptureFn: captureCurrentVideoFrame,
+      initialFramesUsed: frameImages.length
     };
   } catch (e) {
     if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
@@ -203,11 +212,13 @@ async function preCaptureVisualFramesIfNeeded(input: {
       query,
       callId,
       targetTime,
+      targetTimes: [targetTime],
       generation: 0
     });
     return {
       finalUserImages: userImages,
-      remainingCaptureFn: undefined
+      remainingCaptureFn: captureCurrentVideoFrame,
+      initialFramesUsed: 0
     };
   }
 }
@@ -375,7 +386,8 @@ export async function runLadderChat(
         : {
             finalUserImages: userImages,
             frameContextNote: undefined,
-            remainingCaptureFn: effectiveCaptureFrame
+            remainingCaptureFn: effectiveCaptureFrame,
+            initialFramesUsed: 0
           };
       const resolvedContextSite = args.baseContext.site ?? msg.context?.site;
       const hybridContext: ChatContext = {
@@ -401,6 +413,7 @@ export async function runLadderChat(
           onActivity,
           webSearch,
           captureCurrentVideoFrame: visual.remainingCaptureFn,
+          ...(visual.initialFramesUsed > 0 ? { initialFramesUsed: visual.initialFramesUsed } : {}),
           fetchHotComments: effectiveFetchHotComments
         });
       } catch (e) {

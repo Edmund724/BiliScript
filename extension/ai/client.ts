@@ -20,6 +20,7 @@ interface StreamChatInput {
   summaryAnchor?: SummaryAnchorLike | null;
   userImages?: ImagePart[];
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  initialFramesUsed?: number;
   port: ChatPort;
   signal?: AbortSignal | null;
   onActivity?: () => void;
@@ -28,7 +29,7 @@ interface StreamChatInput {
   fetchHotComments?: FetchHotCommentsFn;
 }
 
-export async function streamChat({ provider, context, userPrompt, history, summaryAnchor, userImages, captureCurrentVideoFrame, fetchHotComments, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, summaryAnchor, userImages, captureCurrentVideoFrame, initialFramesUsed, fetchHotComments, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   try {
@@ -125,6 +126,7 @@ export async function streamChat({ provider, context, userPrompt, history, summa
             throw new Error("本轮未启用联网搜索");
           }),
           captureCurrentVideoFrame: effectiveCaptureFrame,
+          ...(initialFramesUsed !== undefined ? { initialFramesUsed } : {}),
           fetchHotComments: effectiveFetchHotComments,
           onNotice: (text) => {
             onActivity?.();

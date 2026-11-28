@@ -192,7 +192,7 @@ async function attachOffscreen(browser) {
 }
 
 async function installModelChannel(cdp) {
-  await cdp.evaluate(`globalThis.__historicalFrameRequests = []; globalThis.__historicalFrameBehavior = ${JSON.stringify({ targetTime: sample.targetTime, mode: "success" })}`);
+  await cdp.evaluate(`globalThis.__historicalFrameRequests = []; globalThis.__historicalFrameBehavior = ${JSON.stringify({ times: [sample.targetTime - 2, sample.targetTime, sample.targetTime + 2], spanSeconds: 0, mode: "success" })}`);
   const urlPattern = liveGemini
     ? "*generativelanguage.googleapis.com/v1beta/models/*"
     : "*/chat/completions";
@@ -217,9 +217,12 @@ async function installModelChannel(cdp) {
         ? '["视频讲了什么？","有哪些关键结论？","如何应用这些结论？"]'
         : '{"summary":"受控回放概览","chapters":[],"keyQuotes":[]}';
     const finalContent = behavior.mode === "failure" ? "未获取画面，仅依据字幕作答" : "已结合字幕与历史画面作答";
+    const toolArgs = behavior.spanSeconds > 0
+      ? { times: behavior.times, spanSeconds: behavior.spanSeconds }
+      : { times: behavior.times };
     const chunks = !regenerationMode && isToolConversation && !hasToolResult
       ? [
-          { choices: [{ delta: { tool_calls: [{ index: 0, id: "history_e2e", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime: behavior.targetTime }) } }] }, finish_reason: null }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: "history_e2e", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify(toolArgs) } }] }, finish_reason: null }] },
           { choices: [{ delta: {}, finish_reason: "tool_calls" }] }
         ]
       : [
@@ -330,8 +333,12 @@ function findHistoricalResponse(body) {
   return null;
 }
 
-async function setStubBehavior(offscreen, targetTime, mode = "success") {
-  await offscreen.evaluate(`globalThis.__historicalFrameBehavior = ${JSON.stringify({ targetTime, mode })}`);
+async function setStubBehavior(offscreen, targetOrSpec, mode = "success") {
+  const payload =
+    typeof targetOrSpec === "number"
+      ? { times: [targetOrSpec], spanSeconds: 0, mode }
+      : { times: targetOrSpec.times, spanSeconds: targetOrSpec.spanSeconds ?? 0, mode };
+  await offscreen.evaluate(`globalThis.__historicalFrameBehavior = ${JSON.stringify(payload)}`);
 }
 
 async function openChatPage(page, pageUrl) {
@@ -653,22 +660,26 @@ if (liveGemini && !geminiApiKey) {
         const responseText = String(response?.response?.output || JSON.stringify(response?.response || ""));
         evidence.modelToolCall = call;
         check("Gemini 自主调用历史帧工具", Boolean(call), call);
-        check("模型工具参数指向用户询问的第 41 秒", call?.args?.targetTime === targetSecond, call?.args);
+        const argsMatchTarget =
+          (Array.isArray(call?.args?.times) && call.args.times.some((value) => Math.abs(Number(value) - targetSecond) <= 1)) ||
+          call?.args?.targetTime === targetSecond;
+        check("模型工具参数指向用户询问的第 41 秒", argsMatchTarget, call?.args);
         check("Gemini 工具调用模式为 AUTO", requests[0]?.toolConfig?.functionCallingConfig?.mode === "AUTO", requests[0]?.toolConfig);
-        check("后续请求包含目标时间工具结果", responseText.includes("目标时间点 0:41"), response);
-        check("后续请求按时间顺序包含三张分别标注的 JPEG", images.length === 3 && images.every((image, index) => image.caption.includes(`第 ${index + 1} 张，实际截图时间`) && /实际截图时间 \d+:\d{2}/.test(image.caption) && image.bytes.length > 1000), images.map((image) => ({ caption: image.caption, bytes: image.bytes.length })));
+        check("后续请求包含目标时间工具结果", responseText.includes("0:41"), response);
+        check("后续请求按时间顺序包含有效标注 JPEG", images.length >= 1 && images.length <= 6 && images.every((image, index) => image.caption.includes(`第 ${index + 1} 张`) && /实际截图时间 \d+:\d{2}/.test(image.caption) && image.bytes.length > 1000), images.map((image) => ({ caption: image.caption, bytes: image.bytes.length })));
         check("Gemini 结合字幕与画面正常完成回答", evidence.answer.trim().length > 0 && !evidence.answerError, { answer: evidence.answer.slice(-1000), answerError: evidence.answerError });
       } else {
         const messages = followup?.messages || [];
         const toolMessage = messages.find((message) => message.role === "tool" && message.tool_call_id === "history_e2e");
+        const frameUserMessages = messages.filter((message) => message.role === "user" && Array.isArray(message.content));
         const expectedTimes = ["0:38", "0:40", "0:42"];
-        check("后续请求包含目标时间工具结果", toolMessage?.content.includes("目标时间点 0:40"), toolMessage);
-        check("后续请求按时间顺序包含三张分别标注的 JPEG", images.length === 3 && images.every((image, index) => image.caption.includes(`第 ${index + 1} 张，实际截图时间 ${expectedTimes[index]}`)) && images.every((image) => image.bytes.length > 1000), images.map((image) => ({ caption: image.caption, bytes: image.bytes.length })));
+        check("后续请求包含多时间点工具结果", expectedTimes.every((time) => toolMessage?.content.includes(time)), toolMessage);
+        check("后续请求将多张截图聚合为单条多图 user 消息", frameUserMessages.length === 1 && images.length === 3 && expectedTimes.every((time, index) => images[index].caption.includes(`第 ${index + 1} 张`) && images[index].caption.includes(`实际截图时间 ${time}`)) && images.every((image) => image.bytes.length > 1000), images.map((image) => ({ caption: image.caption, bytes: image.bytes.length })));
         check("对话依据字幕与画面完成", evidence.answer.includes("已结合字幕与历史画面作答"), evidence.answer.slice(-500));
       }
       const frameUi = await page.cdp.evaluate(`(() => {
-        const cards = document.querySelectorAll(".chat-search-card");
-        const card = cards[cards.length - 1];
+        const chains = document.querySelectorAll(".chat-thought-chain, .chat-search-card");
+        const card = chains[chains.length - 1];
         return {
           status: card?.getAttribute("data-status"),
           text: card?.textContent || "",
@@ -676,7 +687,7 @@ if (liveGemini && !geminiApiKey) {
           buttons: card?.querySelectorAll(".chat-video-frame-item .chat-image-open").length || 0
         };
       })()`);
-      check("历史截帧卡显示实际数量与帧时间", frameUi.status === "done" && frameUi.text.includes("3 张画面") && frameUi.buttons === 3, frameUi);
+      check("历史截帧卡显示实际数量与帧时间", frameUi.status === "done" && frameUi.text.includes("3 张") && frameUi.buttons === 3, frameUi);
       await page.cdp.evaluate("document.querySelector('.chat-video-frame-item .chat-image-open')?.click()");
       await waitFor("实际帧查看弹层", () => page.cdp.evaluate("document.querySelector('.chat-image-viewer-image')?.src.startsWith('data:image/jpeg;base64,')"));
       await screenshot(page.cdp, path.join(OUT_DIR, "historical-frame-viewer.png"));
@@ -693,7 +704,7 @@ if (liveGemini && !geminiApiKey) {
         const longResult = await runStubQuestion(page, offscreen, longSample.targetTime);
         const longPlayer = await readPlayerEvidence(page);
         await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-long-playing.png"));
-        check("长视频播放中提问注入三张历史帧", extractImages(longResult.followup).length === 3, longResult.requests.map(sanitizeRequest));
+        check("长视频播放中提问注入历史单帧", extractImages(longResult.followup).length === 1, longResult.requests.map(sanitizeRequest));
         check("长视频取帧不影响播放进度、声音与可见画面", playerUnaffected(longPlayer, true), longPlayer);
         await page.cdp.evaluate("document.querySelector('video').pause()");
 
@@ -702,10 +713,10 @@ if (liveGemini && !geminiApiKey) {
         await setStubBehavior(offscreen, 2300);
         await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 18000");
         await askQuestion(page, "请说明 2300 秒附近的画面。");
-        await waitFor("截帧进行状态", () => page.cdp.evaluate("document.getElementById('biliscript-reading-chat-messages')?.textContent.includes('正在回看 38:20 附近画面…')"));
+        await waitFor("截帧进行状态", () => page.cdp.evaluate("document.getElementById('biliscript-reading-chat-messages')?.textContent.includes('采样关键帧 · 38:20…')"));
         await sleep(16000);
         const longWaitUi = await page.cdp.evaluate(`(() => ({
-          running: document.getElementById("biliscript-reading-chat-messages")?.textContent.includes("正在回看 38:20 附近画面…"),
+          running: document.getElementById("biliscript-reading-chat-messages")?.textContent.includes("采样关键帧 · 38:20…"),
           slowNotice: document.getElementById("biliscript-reading-view")?.textContent.includes("模型响应较慢")
         }))()`);
         check("长等待显示截帧进度且不误报模型响应较慢", longWaitUi.running && !longWaitUi.slowNotice, longWaitUi);
@@ -713,7 +724,7 @@ if (liveGemini && !geminiApiKey) {
         await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
         await waitFor("停止后回合与隐藏媒体收尾", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0 && !document.getElementById('biliscript-reading-chat-send-btn').classList.contains('is-stop')"), { timeoutMs: 15000, intervalMs: 100 });
         const cancelled = await page.cdp.evaluate(`(() => {
-          const cards = document.querySelectorAll(".chat-search-card");
+          const cards = document.querySelectorAll(".chat-thought-chain, .chat-search-card");
           const card = cards[cards.length - 1];
           return card?.getAttribute("data-status") === "cancelled" && card?.textContent.includes("已取消");
         })()`);
@@ -744,7 +755,7 @@ if (liveGemini && !geminiApiKey) {
         await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-part2.png"));
         check("SPA 换分P后新取帧使用新 cid", new URL(playurls.at(-1)).searchParams.get("cid") === part2Sample.cid, playurls.slice(-3));
         check("旧回合结果不进入换P后的上下文", part2ToolText.includes("目标时间点 2:00") && !switchedRequests.some((body) => body.messages?.some((message) => typeof message.content === "string" && message.content.includes("目标时间点 38:20"))), switchedRequests.map(sanitizeRequest));
-        check("分P新回合正常取三帧且播放器不受影响", extractImages(part2Result.followup).length === 3 && playerUnaffected(part2Player, false), { player: part2Player, requests: part2Result.requests.map(sanitizeRequest) });
+        check("分P新回合正常取单帧且播放器不受影响", extractImages(part2Result.followup).length === 1 && playerUnaffected(part2Player, false), { player: part2Player, requests: part2Result.requests.map(sanitizeRequest) });
 
         await observePlayer(page, false);
         await worker.evaluate("globalThis.__historicalFailPlayurl = true");
@@ -758,7 +769,7 @@ if (liveGemini && !geminiApiKey) {
         const consecutiveFirst = await runStubQuestion(page, offscreen, 120);
         const consecutiveSecond = await runStubQuestion(page, offscreen, 130);
         const consecutivePlayer = await readPlayerEvidence(page);
-        check("连续提问各自注入三帧且无残留媒体", extractImages(consecutiveFirst.followup).length === 3 && extractImages(consecutiveSecond.followup).length === 3 && playerUnaffected(consecutivePlayer, false), { player: consecutivePlayer, first: consecutiveFirst.requests.map(sanitizeRequest), second: consecutiveSecond.requests.map(sanitizeRequest) });
+        check("连续提问各自注入历史单帧且无残留媒体", extractImages(consecutiveFirst.followup).length === 1 && extractImages(consecutiveSecond.followup).length === 1 && playerUnaffected(consecutivePlayer, false), { player: consecutivePlayer, first: consecutiveFirst.requests.map(sanitizeRequest), second: consecutiveSecond.requests.map(sanitizeRequest) });
 
         await observePlayer(page, false);
         await setStubBehavior(offscreen, 140);

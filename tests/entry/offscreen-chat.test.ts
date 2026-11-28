@@ -522,6 +522,30 @@ describe("offscreen 聊天通道断连容错", () => {
     await vi.waitFor(() => expect(capturedFrames).toEqual(frames));
   });
 
+  it("历史帧调用传入多时间点规格时将 times/spanSeconds/maxFrames 透传至宿主端口", async () => {
+    let capturedFrames: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: (req?: unknown) => Promise<unknown> }) => {
+      capturedFrames = await captureCurrentVideoFrame({ times: [42, 185, 610], spanSeconds: 2, maxFrames: 4 });
+    });
+    const host = await importMockedOffscreen();
+    const session = connectChat(host, { assertSingleListener: true });
+
+    session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "video-frame-request",
+      requestId: expect.any(String),
+      targetTime: 42,
+      times: [42, 185, 610],
+      spanSeconds: 2,
+      maxFrames: 4
+    })));
+    const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
+    const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+    const frames = [{ image: { mime: "image/jpeg", data: "Rk9S" }, currentTime: 42, targetTime: 42, anchorTime: 42 }];
+    session.send({ action: "video-frame-result", requestId: request.requestId, frames });
+    await vi.waitFor(() => expect(capturedFrames).toEqual(frames));
+  });
+
   it("停止回答会取消页面侧在飞取帧并结束等待", async () => {
     let captureError: unknown;
     runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: () => Promise<unknown> }) => {

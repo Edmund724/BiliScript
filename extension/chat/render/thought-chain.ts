@@ -104,6 +104,39 @@ function formatVideoFrameTime(seconds: unknown): string {
     : formatted;
 }
 
+function formatSpanSeconds(spanSeconds: number): string {
+  return Number.isInteger(spanSeconds) ? String(spanSeconds) : Number(spanSeconds.toFixed(1)).toString();
+}
+
+function formatVideoFrameDetail(msg: ChatToolStatusEvent): string {
+  const validTimes = Array.isArray(msg.targetTimes)
+    ? msg.targetTimes.filter((t): t is number => typeof t === "number" && Number.isFinite(t) && t >= 0)
+    : [];
+  const positiveSpan =
+    typeof msg.spanSeconds === "number" && Number.isFinite(msg.spanSeconds) && msg.spanSeconds > 0
+      ? msg.spanSeconds
+      : 0;
+  if (validTimes.length > 3) {
+    const head = validTimes
+      .slice(0, 2)
+      .map((t) => formatVideoFrameTime(t))
+      .join("、");
+    return `${head} 等 ${validTimes.length} 处`;
+  }
+  if (validTimes.length >= 2) {
+    return validTimes.map((t) => formatVideoFrameTime(t)).join("、");
+  }
+  if (validTimes.length === 1) {
+    const single = formatVideoFrameTime(validTimes[0]);
+    return positiveSpan > 0 ? `${single} (±${formatSpanSeconds(positiveSpan)}s)` : single;
+  }
+  const target = formatVideoFrameTime(msg.targetTime);
+  if (positiveSpan > 0) {
+    return `${target} (±${formatSpanSeconds(positiveSpan)}s)`;
+  }
+  return `${target} 附近`;
+}
+
 function formatThinkingSeconds(elapsedMs: number): string {
   const clampedMs = Math.max(100, elapsedMs);
   return (clampedMs / 1000).toFixed(1);
@@ -266,7 +299,7 @@ function createThoughtStep(
     noteEl,
     bodyEl,
     frameCount: 0,
-    expectedFrameCount: 3,
+    expectedFrameCount: 1,
     implicit: opts.implicit
   };
 }
@@ -621,9 +654,9 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
   }
 
   function appendVideoFrameList(step: ThoughtStepState, msg: ChatToolStatusEvent): void {
-    const frames = Array.isArray(msg.frames) ? msg.frames.slice(0, 3) : [];
+    const frames = Array.isArray(msg.frames) ? msg.frames.slice(0, 6) : [];
     step.frameCount = typeof msg.resultCount === "number" ? msg.resultCount : frames.length;
-    step.expectedFrameCount = msg.expectedCount ?? 3;
+    step.expectedFrameCount = msg.expectedCount ?? (frames.length || 1);
     if (!frames.length) {
       return;
     }
@@ -654,10 +687,9 @@ export function createThoughtChainController(deps: ThoughtChainDeps): ThoughtCha
     const chain = ensureThoughtChain(node, { collapsed: false });
     ensureImplicitSubtitleStep(node, chain, kind);
 
-    const target = kind === "capture_video_frame_at_time" ? formatVideoFrameTime(msg.targetTime) : "";
     const detailText =
       kind === "capture_video_frame_at_time"
-        ? `${target} 附近`
+        ? formatVideoFrameDetail(msg)
         : String(msg.query || "");
 
     if (msg.status === "searching") {

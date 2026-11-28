@@ -49,6 +49,8 @@ export interface ChatToolStatusEvent {
   callId?: string;
   generation?: number;
   targetTime?: number;
+  targetTimes?: number[];
+  spanSeconds?: number;
   resultCount?: number;
   expectedCount?: number;
   frames?: CapturedVideoFrame[];
@@ -58,10 +60,15 @@ export interface ChatToolStatusEvent {
   paidFallbackNotice?: string;
 }
 
+export type ToolStatusMessage = ChatToolStatusEvent;
+
 export interface ChatVideoFrameRequestEvent {
   type: "video-frame-request";
   requestId: string;
   targetTime?: number;
+  times?: number[];
+  spanSeconds?: number;
+  maxFrames?: number;
 }
 export interface ChatVideoFrameCancelEvent {
   type: "video-frame-cancel";

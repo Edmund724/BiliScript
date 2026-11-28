@@ -9,7 +9,7 @@ BiliScript 支持多站点视频文摘（`bilibili | youtube`），在 Chromium�
 ### 1. 显式常驻域名、页面范围与 `SiteCapabilities` 能力门控
 
 - **显式域名与 SPA 注入兜底**：在 [extension/manifest.json](../../extension/manifest.json) 声明 `https://www.youtube.com/*`（`content_scripts` 匹配 `https://www.youtube.com/watch*`，配合后台 `tabs.onUpdated` 兜底从首页/频道页 SPA 切入 `/watch`；`host_permissions` 显式加入 `https://www.youtube.com/*`，`web_accessible_resources` 不含 YouTube，见 [ADR-0004](0004-content-two-round-build-and-reader-gate.md)）。Firefox 派生清单由 `scripts/firefox-manifest.js` 同步生成（[ADR-0017](0017-firefox-desktop-compatibility.md)）。
-- **YouTube 页面范围与能力门控（`extension/shared/site.ts`）**：仅覆盖桌面端 `https://www.youtube.com/watch*` 非直播视频（排除 `/shorts/*`、直播中、`/embed/*` 与 `m.youtube.com`）。视频文摘核心闭环（含面板双语翻译与播放器翻译叠层、热评采集、独立窗口、本地 Agent 桥接已打开标签页、无字幕 ASR 与历史三帧截帧，后两项详见 [ADR-0022](0022-youtube-sabr-asr-pipeline.md)）均已对齐；通过 `SiteCapabilities` 在 YouTube 显式隐藏**实时伴看**（暂缓排期）与**3x/4x 扩展倍速**（YouTube 原生 3x 属 Premium 会员权益，不做），且禁用原生双轨配对（统一走 `Index-Translate` 或自定义 AI 翻译，不合成 `tlang` 虚拟轨）。
+- **YouTube 页面范围与能力门控（`extension/shared/site.ts`）**：仅覆盖桌面端 `https://www.youtube.com/watch*` 非直播视频（排除 `/shorts/*`、直播中、`/embed/*` 与 `m.youtube.com`）。视频文摘核心闭环（含面板双语翻译与播放器翻译叠层、热评采集、独立窗口、本地 Agent 桥接已打开标签页、无字幕 ASR 与多时间点历史截帧，后两项详见 [ADR-0022](0022-youtube-sabr-asr-pipeline.md)）均已对齐；通过 `SiteCapabilities` 在 YouTube 显式隐藏**实时伴看**（暂缓排期）与**3x/4x 扩展倍速**（YouTube 原生 3x 属 Premium 会员权益，不做），且禁用原生双轨配对（统一走 `Index-Translate` 或自定义 AI 翻译，不合成 `tlang` 虚拟轨）。
 - **包体预算**：常驻内容包仅保留轻量站点判据与路由分派，站点适配器与网关按 [ADR-0004](0004-content-two-round-build-and-reader-gate.md) 归入按需经典 IIFE 分组（`g-buttons` / `g-subtitle` / `g-app`），守住 `45 KB` 常驻内容包与 `256 KB` 后台上限。
 
 ### 2. 多站视频身份、编码安全存储键与平台自动字幕隔离

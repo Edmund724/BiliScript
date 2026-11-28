@@ -710,4 +710,75 @@ describe("历史视频帧工具可见闭环", () => {
     expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("采样 3 张画面 · 联网检索 1 条");
     expect(chain.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
   });
+
+  it("多时间点状态文案：<=3 处列举、>3 处折叠为前两处等 N 处且渲染超过 3 张缩略图、正数 spanSeconds 单点展示 (±Ns)", async () => {
+    const { deps, runtime } = await makeRuntime("对比多个时间点画面");
+    feed(runtime, {
+      type: "tool-status",
+      status: "searching",
+      tool: TOOL,
+      query: "2:10、8:45、15:40",
+      callId: "multi-3",
+      targetTime: 130,
+      targetTimes: [130, 525, 940]
+    });
+    const chain = deps.messages.querySelector<HTMLElement>(".chat-thought-chain")!;
+    expect(chain.querySelector(".chat-thought-step-detail")!.textContent).toBe("02:10、08:45、15:40");
+    expect(chain.querySelector(".chat-thought-chain-summary")!.textContent).toBe("采样关键帧 · 02:10、08:45、15:40…");
+    feed(runtime, {
+      type: "tool-status",
+      status: "done",
+      tool: TOOL,
+      query: "2:10、8:45、15:40",
+      callId: "multi-3",
+      targetTime: 130,
+      targetTimes: [130, 525, 940],
+      resultCount: 3,
+      expectedCount: 3,
+      frames: [130, 525, 940].map((currentTime) => ({ image: { mime: "image/jpeg", data: "Rk9S" }, currentTime }))
+    });
+
+    feed(runtime, {
+      type: "tool-status",
+      status: "searching",
+      tool: TOOL,
+      query: "2:10、8:45 等 4 处",
+      callId: "multi-4",
+      targetTime: 130,
+      targetTimes: [130, 525, 940, 1200]
+    });
+    const stepsAfter4 = chain.querySelectorAll<HTMLElement>(".chat-thought-step");
+    expect(stepsAfter4[1].querySelector(".chat-thought-step-detail")!.textContent).toBe("02:10、08:45 等 4 处");
+    feed(runtime, {
+      type: "tool-status",
+      status: "done",
+      tool: TOOL,
+      query: "2:10、8:45 等 4 处",
+      callId: "multi-4",
+      targetTime: 130,
+      targetTimes: [130, 525, 940, 1200],
+      resultCount: 4,
+      expectedCount: 4,
+      frames: [130, 525, 940, 1200].map((currentTime) => ({ image: { mime: "image/jpeg", data: "Q0VO" }, currentTime }))
+    });
+    expect([...stepsAfter4[1].querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual([
+      "02:10",
+      "08:45",
+      "15:40",
+      "20:00"
+    ]);
+
+    feed(runtime, {
+      type: "tool-status",
+      status: "searching",
+      tool: TOOL,
+      query: "4:12 (±2s)",
+      callId: "span-1",
+      targetTime: 252,
+      targetTimes: [252],
+      spanSeconds: 2
+    });
+    const stepsAfterSpan = chain.querySelectorAll<HTMLElement>(".chat-thought-step");
+    expect(stepsAfterSpan[2].querySelector(".chat-thought-step-detail")!.textContent).toBe("04:12 (±2s)");
+  });
 });

@@ -69,7 +69,7 @@ import {
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { getSiteRuntimeVideoElement } from "../core/site-video-probe.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
-import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
+import { captureHistoricalVideoFrame, type HistoricalFrameRequestSpec } from "../chat/historical-video-frame.js";
 import { seekReadingTarget } from "./sync.js";
 
 export {
@@ -389,8 +389,8 @@ const chatDomain = createChatTabDomain({
       ? currentTime
       : undefined;
   },
-  captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
-    if (targetTime === undefined) {
+  captureCurrentVideoFrame: async (request?: HistoricalFrameRequestSpec | number, signal?: AbortSignal) => {
+    if (request === undefined) {
       const frame = await capturePageVideoFrame({ getVideo: getSiteRuntimeVideoElement });
       return {
         image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
@@ -400,13 +400,24 @@ const chatDomain = createChatTabDomain({
     if (!getSiteCapabilities(state.clip.site).supportsHistoricalFrameCapture) {
       throw new Error(`当前站点不支持历史时间点截帧: ${state.clip.site}`);
     }
+    const spec: HistoricalFrameRequestSpec =
+      typeof request === "number" ? { times: [request], spanSeconds: 0 } : request;
     const frames = await captureHistoricalVideoFrame(
-      { site: state.clip.site, bvid: state.clip.bvid, cid: state.clip.cid, targetTime },
+      {
+        site: state.clip.site,
+        bvid: state.clip.bvid,
+        cid: state.clip.cid,
+        times: spec.times,
+        ...(spec.spanSeconds !== undefined ? { spanSeconds: spec.spanSeconds } : {}),
+        ...(spec.maxFrames !== undefined ? { maxFrames: spec.maxFrames } : {})
+      },
       { signal }
     );
     return frames.map((frame) => ({
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
-      currentTime: frame.currentTime
+      currentTime: frame.currentTime,
+      ...(frame.targetTime !== undefined ? { targetTime: frame.targetTime } : {}),
+      ...(frame.anchorTime !== undefined ? { anchorTime: frame.anchorTime } : {})
     }));
   },
   getSpeechVolume: () => CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(state.settings?.speechVoiceVolume) / 100,

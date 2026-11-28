@@ -217,6 +217,19 @@ describe("sendMessage 建流与协议入口", () => {
     }));
     expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90, expect.any(AbortSignal));
     expect(deps.messages.querySelectorAll(".chat-msg-user img")).toHaveLength(0);
+
+    session.listeners.message[0]({
+      type: "video-frame-request",
+      requestId: "history-multi",
+      targetTime: 42,
+      times: [42, 185, 610],
+      spanSeconds: 0,
+      maxFrames: 6
+    });
+    await vi.waitFor(() => expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(
+      { times: [42, 185, 610], spanSeconds: 0, maxFrames: 6 },
+      expect.any(AbortSignal)
+    ));
     session.listeners.message[0]({ type: "done" });
     expect(chatSessionState.chatHistory).toEqual([
       expect.objectContaining({ role: "user", content: "看看 1:30 的画面" }),
@@ -229,7 +242,7 @@ describe("sendMessage 建流与协议入口", () => {
     const deps = makeDeps();
     let captureSignal: AbortSignal | undefined;
     let resolveCapture!: (frames: Array<{ image: { mime: string; data: string }; currentTime: number }>) => void;
-    deps.captureCurrentVideoFrame = vi.fn((_targetTime?: number, signal?: AbortSignal) => {
+    deps.captureCurrentVideoFrame = vi.fn((_request?: unknown, signal?: AbortSignal) => {
       captureSignal = signal;
       return new Promise<Array<{ image: { mime: string; data: string }; currentTime: number }>>((resolve) => { resolveCapture = resolve; });
     });
@@ -254,7 +267,7 @@ describe("sendMessage 建流与协议入口", () => {
   it.each(["reset", "disconnect"] as const)("会话生命周期终止（%s）会中止在飞取帧", async (termination) => {
     const deps = makeDeps();
     let captureSignal: AbortSignal | undefined;
-    deps.captureCurrentVideoFrame = vi.fn((_targetTime?: number, signal?: AbortSignal) => {
+    deps.captureCurrentVideoFrame = vi.fn((_request?: unknown, signal?: AbortSignal) => {
       captureSignal = signal;
       return new Promise<never>(() => {});
     });

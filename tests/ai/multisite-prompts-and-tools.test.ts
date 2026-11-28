@@ -721,8 +721,8 @@ describe("简介清洗与字幕上下文标签站点参数化", () => {
 describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / client / ladder）", () => {
   it("runToolLoop includeHistoricalFrameTool=false 时仅注册当前帧工具，并拒绝越权历史帧调用", async () => {
     const { requests, fetchImpl } = createYoutubeFrameGateFetch();
-    const captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => {
-      expect(targetTime).toBeUndefined();
+    const captureCurrentVideoFrame = vi.fn(async (request?: unknown) => {
+      expect(request).toBeUndefined();
       return {
         image: { mime: "image/jpeg", data: "Q1VSUkVOVA==" },
         currentTime: 15
@@ -895,10 +895,14 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       }
     );
 
-    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(120, undefined);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(
+      { times: [120], spanSeconds: 0, maxFrames: 1 },
+      undefined
+    );
     expect(ytPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(true);
     expect(streamCalls).toHaveLength(1);
-    expect(streamCalls[0].captureCurrentVideoFrame).toBeUndefined();
+    expect(streamCalls[0].captureCurrentVideoFrame).toBe(captureCurrentVideoFrame);
+    expect(streamCalls[0].initialFramesUsed).toBe(1);
     expect(streamCalls[0].userImages).toHaveLength(1);
     expect(streamCalls[0].fetchHotComments).toBe(fetchHotComments);
 
@@ -977,10 +981,15 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
       }
     );
 
-    expect(biliCapture).toHaveBeenCalledWith(120, undefined);
+    expect(biliCapture).toHaveBeenCalledWith(
+      { times: [120], spanSeconds: 0, maxFrames: 1 },
+      undefined
+    );
     expect(biliPort.messages.some((m) => m.type === "tool-status" && m.tool === "capture_video_frame_at_time")).toBe(true);
     expect(biliCalls[0].fetchHotComments).toBe(fetchHotComments);
-    expect(biliCalls[0].userImages).toHaveLength(3);
+    expect(biliCalls[0].captureCurrentVideoFrame).toBe(biliCapture);
+    expect(biliCalls[0].initialFramesUsed).toBe(1);
+    expect(biliCalls[0].userImages).toHaveLength(1);
   });
 
   it("全链路集成：context-assembly → offscreen-chat-port → runLadderChat → streamChat → runToolLoop 在 YouTube 下禁历史帧与热评且保留当前帧", async () => {
@@ -1108,6 +1117,8 @@ describe("YouTube 当前帧独占截帧门控与热评禁用（tool-loop / clien
     expect(postedMessages.some((m) => m.type === "video-frame-request")).toBe(true);
     expect(requests).toHaveLength(1);
     expect(requests[0].tools?.map((t) => t.function.name)).toEqual([
+      "capture_current_video_frame",
+      "capture_video_frame_at_time",
       "fetch_hot_comments"
     ]);
   });

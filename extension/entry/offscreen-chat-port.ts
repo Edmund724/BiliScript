@@ -15,6 +15,7 @@ import {
 } from "../search/search-runtime.js";
 import type { ChatMsg } from "../ai/ladder.js";
 import type { CapturedVideoFrame, ConversationSummaryAnchor } from "../ai/types.js";
+import type { HistoricalFrameRequestSpec } from "../chat/historical-video-frame.js";
 import type { ChatPortMessage, ChatTranscriptMode } from "../chat/protocol.js";
 import type {
   OffscreenChatPortMessage,
@@ -177,7 +178,7 @@ export function attachOffscreenChatPort(
   function requestVideoFrame(
     targetPort: PostMessagePort,
     generation: number,
-    targetTime?: number
+    request?: HistoricalFrameRequestSpec | number
   ): Promise<CapturedVideoFrame | CapturedVideoFrame[]> {
     return new Promise((resolve, reject) => {
       if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
@@ -187,10 +188,21 @@ export function attachOffscreenChatPort(
       const requestId = `video-frame-${generation}-${Date.now()}`;
       pendingVideoFrame = { requestId, generation, port: targetPort, resolve, reject };
       try {
+        const requestFields =
+          typeof request === "number"
+            ? { targetTime: request }
+            : request !== undefined
+              ? {
+                  ...(request.times.length > 0 ? { targetTime: request.times[0] } : {}),
+                  times: [...request.times],
+                  ...(request.spanSeconds !== undefined ? { spanSeconds: request.spanSeconds } : {}),
+                  ...(request.maxFrames !== undefined ? { maxFrames: request.maxFrames } : {})
+                }
+              : {};
         targetPort.postMessage({
           type: "video-frame-request",
           requestId,
-          ...(targetTime !== undefined ? { targetTime } : {})
+          ...requestFields
         });
       } catch (error) {
         pendingVideoFrame = null;
@@ -452,7 +464,7 @@ export function attachOffscreenChatPort(
           signal: requestController.signal,
           ...(searchRuntime ? { webSearch: searchRuntime } : {}),
           ...(msg.videoFrameToolEnabled === true && chatCaps.supportsCurrentFrameCapture
-            ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
+            ? { captureCurrentVideoFrame: (request?: HistoricalFrameRequestSpec | number) => requestVideoFrame(ackedPort, generation, request) }
             : {}),
           ...(chatCaps.supportsHotComments && chatSite === "bilibili" && String(chatContext?.aid || "").trim()
             ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String(chatContext?.aid), 20) }

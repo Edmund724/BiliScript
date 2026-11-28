@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL,
+  MAX_CAPTURED_FRAMES_PER_TURN,
+  MAX_FRAME_TOOL_CALLS_PER_TURN,
+  parseHistoricalFrameArgs,
   runToolLoop,
   webSearchTool,
   WEB_SEARCH_TOOL,
@@ -9,6 +13,7 @@ import {
   type ToolLoopRequestProfile,
   type ToolStatusPayload
 } from "../../extension/ai/tool-loop.js";
+import type { HistoricalFrameRequestSpec } from "../../extension/chat/historical-video-frame.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 import {
@@ -601,91 +606,163 @@ describe("当前视频截帧工具", () => {
     expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
   });
 
-  it("历史帧工具传入目标秒数，后续消息标注实际截图时间并携带图片", async () => {
+  it("历史帧工具声明 times(1..6) 与 spanSeconds(0..8) 且 parseHistoricalFrameArgs 兼容新旧参数", () => {
+    const schema = CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL.function.parameters as {
+      required?: string[];
+      properties?: {
+        times?: { type?: string; minItems?: number; maxItems?: number; items?: { type?: string; minimum?: number } };
+        spanSeconds?: { type?: string; minimum?: number; maximum?: number };
+      };
+    };
+    expect(schema.required).toEqual(["times"]);
+    expect(schema.properties?.times).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 6,
+      items: { type: "number", minimum: 0 }
+    });
+    expect(schema.properties?.spanSeconds).toMatchObject({
+      type: "number",
+      minimum: 0,
+      maximum: 8
+    });
+    expect(MAX_CAPTURED_FRAMES_PER_TURN).toBe(6);
+    expect(MAX_FRAME_TOOL_CALLS_PER_TURN).toBe(2);
+
+    expect(parseHistoricalFrameArgs('{"times":[42,185,610]}')).toEqual({
+      times: [42, 185, 610],
+      spanSeconds: 0
+    });
+    expect(parseHistoricalFrameArgs('{"times":[90],"spanSeconds":2}')).toEqual({
+      times: [90],
+      spanSeconds: 2
+    });
+    expect(parseHistoricalFrameArgs('{"targetTime":90}')).toEqual({
+      times: [90],
+      spanSeconds: 0
+    });
+    expect(() => parseHistoricalFrameArgs('{"times":[]}')).toThrow();
+    expect(() => parseHistoricalFrameArgs('{"times":[10],"spanSeconds":9}')).toThrow();
+    expect(() => parseHistoricalFrameArgs('{"targetTime":-1}')).toThrow("targetTime 必须是大于或等于 0 的有限秒数");
+  });
+
+  it("多时间点 times: [42, 185, 610]（默认 spanSeconds = 0）单跳返回 3 张图并聚合进单条多图 user 消息", async () => {
     capture = makeCapture();
     useCaptureRounds([[
-      sseData({ tool_calls: [{ index: 0, id: "history_1", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({
+        tool_calls: [{
+          index: 0,
+          id: "history_multi",
+          type: "function",
+          function: { name: "capture_video_frame_at_time", arguments: '{"times":[42,185,610]}' }
+        }]
+      }),
       sseData({}, "tool_calls")
     ]]);
-    const captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => ({
-      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
-      currentTime: targetTime === 90 ? 88.25 : 0
-    }));
+    const captureCurrentVideoFrame = vi.fn(async (req?: HistoricalFrameRequestSpec | number) => {
+      const spec = typeof req === "number" ? { times: [req] } : req!;
+      return spec.times.map((t, idx) => ({
+        image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][idx] },
+        currentTime: t + 0.5,
+        targetTime: t,
+        anchorTime: t
+      }));
+    });
 
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
       captureCurrentVideoFrame
     }));
 
-    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(90);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith({
+      times: [42, 185, 610],
+      spanSeconds: 0,
+      maxFrames: 6
+    });
+    const followup = capture.calls[1].messages;
+    expect(followup.at(-2)).toEqual(expect.objectContaining({
+      role: "tool",
+      tool_call_id: "history_multi",
+      content: "已截取目标时间点 0:42、3:05、10:10 共 3 张画面，实际时间依次为 0:42、3:05、10:10。"
+    }));
+    const frameMessages = followup.filter((m) => m.role === "user" && Array.isArray(m.content));
+    expect(frameMessages).toHaveLength(1);
+    const parts = frameMessages[0].content as unknown as Array<Record<string, unknown>>;
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("第 1 张：目标时间点 0:42（42s），实际截图时间 0:42（42.5s）")
+    });
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("第 2 张：目标时间点 3:05（185s），实际截图时间 3:05（185.5s）")
+    });
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("第 3 张：目标时间点 10:10（610s），实际截图时间 10:10（610.5s）")
+    });
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("不要将实际截图时间误述为目标时间点")
+    });
+    expect(parts.slice(1)).toEqual([
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,Q0VO" } },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
+    ]);
+    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("旧入参 { targetTime: 90 } 兼容归一化为单帧 [90]，后续消息标注目标秒数与实际截图时间", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_1", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn(async (req?: HistoricalFrameRequestSpec | number) => {
+      const targetTime = typeof req === "number" ? req : req?.times[0];
+      return {
+        image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+        currentTime: targetTime === 90 ? 88.25 : 0,
+        targetTime: 90,
+        anchorTime: 90
+      };
+    });
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith({
+      times: [90],
+      spanSeconds: 0,
+      maxFrames: 6
+    });
     expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
       "capture_current_video_frame",
       "capture_video_frame_at_time"
     ]);
     expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "tool", tool_call_id: "history_1", content: "已截取视频在 1:28 的画面（目标时间点 1:30）。" }),
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "history_1",
+        content: "已截取目标时间点 1:30 共 1 张画面，实际时间依次为 1:28。"
+      }),
       expect.objectContaining({
         role: "user",
         content: [
-          { type: "text", text: expect.stringContaining("实际截图时间 1:28；目标时间点 1:30") },
+          { type: "text", text: expect.stringContaining("目标时间点 1:30（90s），实际截图时间 1:28（88.25s）") },
           { type: "image_url", image_url: { url: "data:image/jpeg;base64,SElTVE9SWQ==" } }
         ]
       })
     ]));
   });
 
-  it("历史帧工具把前中后三帧按时间顺序写入后续请求并逐张标注", async () => {
+  it("spanSeconds 展开邻域多帧聚合进单条 user 消息并标注 anchorTime 与 targetTime，部分失败明确缺失数量", async () => {
     capture = makeCapture();
     useCaptureRounds([[
-      sseData({ tool_calls: [{ index: 0, id: "history_3", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
-      sseData({}, "tool_calls")
-    ]]);
-    const captureCurrentVideoFrame = vi.fn(async () => [88, 90, 92].map((currentTime, index) => ({
-      image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
-      currentTime
-    })));
-
-    await runToolLoop(makeInput({
-      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
-      captureCurrentVideoFrame
-    }));
-
-    const followup = capture.calls[1].messages;
-    expect(followup.at(-4)).toEqual(expect.objectContaining({
-      role: "tool",
-      tool_call_id: "history_3",
-      content: "已截取目标时间点 1:30 附近的前、中、后三帧，实际时间依次为 1:28、1:30、1:32。"
-    }));
-    expect(followup.slice(-3)).toEqual([
-      expect.objectContaining({
-        role: "user",
-        content: [
-          { type: "text", text: expect.stringContaining("第 1 张，实际截图时间 1:28") },
-          { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } }
-        ]
-      }),
-      expect.objectContaining({
-        role: "user",
-        content: [
-          { type: "text", text: expect.stringContaining("第 2 张，实际截图时间 1:30") },
-          { type: "image_url", image_url: { url: "data:image/jpeg;base64,Q0VO" } }
-        ]
-      }),
-      expect.objectContaining({
-        role: "user",
-        content: [
-          { type: "text", text: expect.stringContaining("第 3 张，实际截图时间 1:32") },
-          { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
-        ]
-      })
-    ]);
-    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
-  });
-
-  it("部分历史帧失败时只发送成功图片，并向模型说明缺失数量", async () => {
-    capture = makeCapture();
-    useCaptureRounds([[
-      sseData({ tool_calls: [{ index: 0, id: "history_partial", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({ tool_calls: [{ index: 0, id: "history_partial", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"times":[90],"spanSeconds":2}' } }] }),
       sseData({}, "tool_calls")
     ]]);
 
@@ -693,79 +770,163 @@ describe("当前视频截帧工具", () => {
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
       captureCurrentVideoFrame: async () => [88, 92].map((currentTime, index) => ({
         image: { mime: "image/jpeg", data: ["Rk9S", "QUZU"][index] },
-        currentTime
+        currentTime,
+        targetTime: currentTime,
+        anchorTime: 90
       }))
     }));
 
     const followup = capture.calls[1].messages;
-    expect(followup.at(-3)).toEqual(expect.objectContaining({
+    expect(followup.at(-2)).toEqual(expect.objectContaining({
       role: "tool",
-      content: "目标时间点 1:30 附近仅成功截取 2 张画面，实际时间依次为 1:28、1:32；其余 1 张截取失败。"
+      content: "目标时间点 1:28、1:30、1:32 仅成功截取 2 张画面，实际时间依次为 1:28、1:32；其余 1 张截取失败。"
     }));
-    expect(followup.slice(-2)).toEqual([
-      expect.objectContaining({ content: expect.arrayContaining([
-        { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } }
-      ]) }),
-      expect.objectContaining({ content: expect.arrayContaining([
-        { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
-      ]) })
+    const frameMsg = followup.at(-1)!;
+    expect(frameMsg.role).toBe("user");
+    expect(frameMsg.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining("锚点时间 1:30（90s），目标时间点 1:28（88s），实际截图时间 1:28（88s）")
+      },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
     ]);
     expect(JSON.stringify(followup)).not.toContain("undefined");
   });
 
-  it("每轮最多截图一次：后续跳保持 tools 一致，重复调用由 role: tool 软拦截", async () => {
+  it("6 帧 / 2 跳预算：第 1 跳截 4 帧后第 2 跳请求 3 帧软裁剪为前 2 帧，第 3 跳由 role: tool 软拦截且全程 tools 全等零 system 注入", async () => {
     capture = makeCapture();
-    useCaptureRounds([captureRound("frame_1"), captureRound("frame_2")]);
-    const captureCurrentVideoFrame = vi.fn(async () => ({
-      image: { mime: "image/jpeg", data: "QUJD" },
-      currentTime: 12
-    }));
+    useCaptureRounds([
+      [
+        sseData({
+          tool_calls: [{
+            index: 0,
+            id: "hop_1",
+            type: "function",
+            function: { name: "capture_video_frame_at_time", arguments: '{"times":[10,20,30,40]}' }
+          }]
+        }),
+        sseData({}, "tool_calls")
+      ],
+      [
+        sseData({
+          tool_calls: [{
+            index: 0,
+            id: "hop_2",
+            type: "function",
+            function: { name: "capture_video_frame_at_time", arguments: '{"times":[100,200,300]}' }
+          }]
+        }),
+        sseData({}, "tool_calls")
+      ],
+      [
+        sseData({
+          tool_calls: [{
+            index: 0,
+            id: "hop_3",
+            type: "function",
+            function: { name: "capture_video_frame_at_time", arguments: '{"times":[400]}' }
+          }]
+        }),
+        sseData({}, "tool_calls")
+      ]
+    ]);
+    const captureCurrentVideoFrame = vi.fn(async (req?: HistoricalFrameRequestSpec | number) => {
+      const spec = typeof req === "number" ? { times: [req], maxFrames: 6 } : req!;
+      const limit = spec.maxFrames ?? spec.times.length;
+      return spec.times.slice(0, limit).map((t) => ({
+        image: { mime: "image/jpeg", data: `RlJBTUU=${t}` },
+        currentTime: t,
+        targetTime: t,
+        anchorTime: t
+      }));
+    });
 
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
       captureCurrentVideoFrame
     }));
 
-    expect(capture.calls).toHaveLength(3);
-    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(capture.calls[1].tools)).toBe(JSON.stringify(capture.calls[0].tools));
-    expect(JSON.stringify(capture.calls[2].tools)).toBe(JSON.stringify(capture.calls[0].tools));
-    expect(capture.calls[2].messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: "tool",
-        tool_call_id: "frame_2",
-        content: "本轮已调用过视频截图工具，请基于已有画面作答。"
-      })
-    ]));
+    expect(capture.calls).toHaveLength(4);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(2);
+    expect(captureCurrentVideoFrame).toHaveBeenNthCalledWith(1, {
+      times: [10, 20, 30, 40],
+      spanSeconds: 0,
+      maxFrames: 6
+    });
+    expect(captureCurrentVideoFrame).toHaveBeenNthCalledWith(2, {
+      times: [100, 200, 300],
+      spanSeconds: 0,
+      maxFrames: 2
+    });
+    for (let i = 1; i < capture.calls.length; i += 1) {
+      expect(JSON.stringify(capture.calls[i].tools)).toBe(JSON.stringify(capture.calls[0].tools));
+      expect(capture.calls[i].messages.some((m) => m.role === "system")).toBe(false);
+    }
+    const hop2Tool = capture.calls[2].messages.find((m) => m.role === "tool" && m.tool_call_id === "hop_2");
+    expect(hop2Tool?.content).toContain("1:40、3:20");
+    expect(hop2Tool?.content).toContain("5:00");
+    expect(hop2Tool?.content).toContain("配额限制");
+    const hop2Images = JSON.stringify(capture.calls[2].messages).match(/"type":"image_url"/g);
+    expect(hop2Images).toHaveLength(6);
+
+    const hop3Tool = capture.calls[3].messages.find((m) => m.role === "tool" && m.tool_call_id === "hop_3");
+    expect(hop3Tool?.content).toContain("上限");
+    expect(JSON.stringify(capture.calls[3].messages).match(/"type":"image_url"/g)).toHaveLength(6);
   });
 
-  it("同批并发截帧调用共享三帧预算，只有首个调用实际执行", async () => {
+  it("initialFramesUsed 扣减初始帧预算且当前帧与历史帧共用 2 跳配额", async () => {
     capture = makeCapture();
-    useCaptureRounds([[
-      sseData({ tool_calls: [
-        { index: 0, id: "history_concurrent", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } },
-        { index: 1, id: "current_concurrent", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }
-      ] }),
-      sseData({}, "tool_calls")
-    ]]);
-    const captureCurrentVideoFrame = vi.fn(async () => [88, 90, 92].map((currentTime) => ({
-      image: { mime: "image/jpeg", data: "RlJBTUU=" },
-      currentTime
-    })));
+    useCaptureRounds([
+      [
+        sseData({
+          tool_calls: [
+            { index: 0, id: "curr_1", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } },
+            { index: 1, id: "hist_2", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"times":[10,20,30,40,50]}' } },
+            { index: 2, id: "curr_3", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }
+          ]
+        }),
+        sseData({}, "tool_calls")
+      ]
+    ]);
+    const captureCurrentVideoFrame = vi.fn(async (req?: HistoricalFrameRequestSpec | number) => {
+      if (req === undefined) {
+        return { image: { mime: "image/jpeg", data: "Q1VSUg==" }, currentTime: 5 };
+      }
+      const spec = typeof req === "number" ? { times: [req], maxFrames: 6 } : req;
+      return spec.times.slice(0, spec.maxFrames ?? spec.times.length).map((t) => ({
+        image: { mime: "image/jpeg", data: `SD0${t}` },
+        currentTime: t,
+        targetTime: t,
+        anchorTime: t
+      }));
+    });
 
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
-      captureCurrentVideoFrame
+      captureCurrentVideoFrame,
+      initialFramesUsed: 1
     }));
 
+    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(2);
+    expect(captureCurrentVideoFrame).toHaveBeenNthCalledWith(1);
+    expect(captureCurrentVideoFrame).toHaveBeenNthCalledWith(2, {
+      times: [10, 20, 30, 40, 50],
+      spanSeconds: 0,
+      maxFrames: 4
+    });
     const followup = capture.calls[1].messages;
-    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(followup).match(/"type":"image_url"/g)).toHaveLength(3);
+    expect(JSON.stringify(followup).match(/"type":"image_url"/g)).toHaveLength(5);
     expect(followup).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: "tool",
-        tool_call_id: "current_concurrent",
-        content: "本轮已调用过视频截图工具，请基于已有画面作答。"
+        tool_call_id: "hist_2",
+        content: expect.stringContaining("0:50")
+      }),
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "curr_3",
+        content: "本轮视频截图工具调用次数已达上限（2 次），请基于已有画面作答。"
       })
     ]));
   });
@@ -794,7 +955,7 @@ describe("当前视频截帧工具", () => {
     expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
   });
 
-  it("历史三帧全部失败时不追加图片，回填文字降级并继续回答", async () => {
+  it("历史帧全部失败时不追加图片，回填文字降级并继续回答", async () => {
     capture = makeCapture();
     useCaptureRounds([[
       sseData({ tool_calls: [{ index: 0, id: "history_empty", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
@@ -810,11 +971,11 @@ describe("当前视频截帧工具", () => {
       expect.objectContaining({
         role: "tool",
         tool_call_id: "history_empty",
-        content: "截取视频画面失败：三个时间点均未截取成功"
+        content: "截取视频画面失败：目标时间点均未截取成功"
       })
     ]));
     expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
-    expect(capture.notices).toEqual(["截取视频画面失败：三个时间点均未截取成功"]);
+    expect(capture.notices).toEqual(["截取视频画面失败：目标时间点均未截取成功"]);
   });
 
   it("截图失败降级为 tool 错误与 notice，不追加图片，回答继续", async () => {
@@ -1208,12 +1369,12 @@ describe("热门评论工具的平台降级", () => {
 
 
 describe("历史截帧 tool-status 可见闭环", () => {
-  function useHistoricalStatusRound(targetTime = 12) {
+  function useHistoricalStatusRound(args: Record<string, unknown> = { times: [12], spanSeconds: 2 }) {
     capture.fetchImpl.mockImplementation(async (_url, init) => {
       capture.calls.push(JSON.parse(init!.body as string));
       return capture.calls.length === 1
         ? sseResponse([
-            sseData({ tool_calls: [{ index: 0, id: "history_status", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime }) } }] }),
+            sseData({ tool_calls: [{ index: 0, id: "history_status", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify(args) } }] }),
             sseData({}, "tool_calls")
           ])
         : sseResponse(FINAL_ROUND_CHUNKS);
@@ -1224,9 +1385,9 @@ describe("历史截帧 tool-status 可见闭环", () => {
     return { image: { mime: "image/jpeg", data: `RlJBTUU=${currentTime}` }, currentTime };
   }
 
-  it("执行前先回报目标时间与调用身份，成功后回报实际三帧", async () => {
+  it("执行前先回报目标时间列表与调用身份，成功后回报实际帧与预期数量", async () => {
     capture = makeCapture();
-    useHistoricalStatusRound();
+    useHistoricalStatusRound({ times: [12], spanSeconds: 2 });
     let resolveCapture!: (frames: ReturnType<typeof statusFrame>[]) => void;
     const captureCurrentVideoFrame = vi.fn(() => new Promise<ReturnType<typeof statusFrame>[]>((resolve) => {
       resolveCapture = resolve;
@@ -1236,13 +1397,19 @@ describe("历史截帧 tool-status 可见闭环", () => {
       captureCurrentVideoFrame
     }));
 
-    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalledWith(12));
+    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalledWith({
+      times: [12],
+      spanSeconds: 2,
+      maxFrames: 6
+    }));
     expect(capture.statuses).toEqual([{
       status: "searching",
       tool: "capture_video_frame_at_time",
-      query: "0:12",
+      query: "0:12 (±2s)",
       callId: "history_status",
-      targetTime: 12
+      targetTime: 12,
+      targetTimes: [12],
+      spanSeconds: 2
     }]);
 
     const frames = [10, 12, 14].map(statusFrame);
@@ -1251,9 +1418,11 @@ describe("历史截帧 tool-status 可见闭环", () => {
     expect(capture.statuses[1]).toEqual({
       status: "done",
       tool: "capture_video_frame_at_time",
-      query: "0:12",
+      query: "0:12 (±2s)",
       callId: "history_status",
       targetTime: 12,
+      targetTimes: [12],
+      spanSeconds: 2,
       resultCount: 3,
       expectedCount: 3,
       frames
@@ -1263,7 +1432,7 @@ describe("历史截帧 tool-status 可见闭环", () => {
 
   it("部分成功：done 携带实际两帧与预期三帧，模型请求只含成功图片", async () => {
     capture = makeCapture();
-    useHistoricalStatusRound();
+    useHistoricalStatusRound({ times: [12], spanSeconds: 2 });
     const frames = [10, 14].map(statusFrame);
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
@@ -1274,6 +1443,8 @@ describe("历史截帧 tool-status 可见闭环", () => {
       status: "done",
       callId: "history_status",
       targetTime: 12,
+      targetTimes: [12],
+      spanSeconds: 2,
       resultCount: 2,
       expectedCount: 3,
       frames
@@ -1283,7 +1454,7 @@ describe("历史截帧 tool-status 可见闭环", () => {
 
   it("全部失败：failed 终态与既有诊断通知随行，后续文字回答不中断", async () => {
     capture = makeCapture();
-    useHistoricalStatusRound();
+    useHistoricalStatusRound({ times: [12] });
     await runToolLoop(makeInput({
       requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
       captureCurrentVideoFrame: async () => []
@@ -1293,11 +1464,12 @@ describe("历史截帧 tool-status 可见闭环", () => {
     expect(capture.statuses[1]).toMatchObject({
       tool: "capture_video_frame_at_time",
       callId: "history_status",
-      targetTime: 12
+      targetTime: 12,
+      targetTimes: [12]
     });
-    expect(capture.notices).toEqual(["截取视频画面失败：三个时间点均未截取成功"]);
+    expect(capture.notices).toEqual(["截取视频画面失败：目标时间点均未截取成功"]);
     expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "tool", content: "截取视频画面失败：三个时间点均未截取成功" })
+      expect.objectContaining({ role: "tool", content: "截取视频画面失败：目标时间点均未截取成功" })
     ]));
   });
 
