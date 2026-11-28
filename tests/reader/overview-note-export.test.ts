@@ -1,31 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createDetachedRealm } from "../helpers/detached-realm.js";
-import type { DispatchNoteExportResult } from "../../extension/notes/export-actions.js";
-
-const dispatchNoteExportMock = vi.fn<
-  (options?: { aiNoteMarkdown?: string; capturedFrames?: unknown[] }) => Promise<DispatchNoteExportResult>
->();
-
-vi.mock("../../extension/notes/export-actions.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/notes/export-actions.js")>();
-  return {
-    ...actual,
-    dispatchNoteExport: (...args: Parameters<typeof actual.dispatchNoteExport>) =>
-      dispatchNoteExportMock(...(args as [any]))
-  };
-});
-
-let buildOverviewExportButtonHtml: typeof import("../../extension/reader/overview-ui.js").buildOverviewExportButtonHtml;
-let renderReadingOverview: typeof import("../../extension/reader/overview-ui.js").renderReadingOverview;
-let onReadingOverviewClick: typeof import("../../extension/reader/overview-ui.js").onReadingOverviewClick;
-let state: typeof import("../../extension/core/state.js").state;
-let ids: typeof import("../../extension/reader/state.js").ids;
-let resetActiveReaderHost: typeof import("../../extension/shared/active-host.js").resetActiveReaderHost;
-let setActiveReaderHost: typeof import("../../extension/shared/active-host.js").setActiveReaderHost;
-let clearSessionNoteRecords: typeof import("../../extension/notes/session-note-state.js").clearSessionNoteRecords;
-let recordSessionNoteReply: typeof import("../../extension/notes/session-note-state.js").recordSessionNoteReply;
-let captureLiveClipSignature: typeof import("../../extension/notes/auto-export-controller.js").captureLiveClipSignature;
+import { DEFAULT_SETTINGS, type KnownSettings } from "../../extension/core/defaults.js";
+import { state } from "../../extension/core/state.js";
+import {
+  chatSessionStateForTests,
+  resetChatSessionStateForTests
+} from "../../extension/chat/chat-state.js";
+import {
+  captureLiveClipSignature,
+  clearSessionNoteRecords,
+  recordSessionNoteReply,
+  resolveCurrentClipContextKey
+} from "../../extension/notes/session-note-state.js";
+import {
+  bindCapturedFramesToMessage,
+  clearTurnCapturedFrameCache
+} from "../../extension/notes/turn-frame-cache.js";
+import {
+  buildOverviewExportButtonHtml,
+  onReadingOverviewClick,
+  renderReadingOverview
+} from "../../extension/reader/overview-ui.js";
+import { ids } from "../../extension/reader/state.js";
+import {
+  resetActiveReaderHost,
+  setActiveReaderHost
+} from "../../extension/shared/active-host.js";
 
 const READY_SNAPSHOT = {
   phase: "ready" as const,
@@ -43,33 +44,67 @@ const READY_SNAPSHOT = {
   generatedFor: "BV1test000000|1"
 };
 
-beforeEach(async () => {
-  resetModuleState();
-  ({ state } = await import("../../extension/core/state.js"));
-  ({ ids } = await import("../../extension/reader/state.js"));
-  ({ resetActiveReaderHost, setActiveReaderHost } = await import("../../extension/shared/active-host.js"));
-  ({ clearSessionNoteRecords, recordSessionNoteReply } = await import("../../extension/notes/session-note-state.js"));
-  ({ captureLiveClipSignature } = await import("../../extension/notes/auto-export-controller.js"));
-  ({ buildOverviewExportButtonHtml, renderReadingOverview, onReadingOverviewClick } = await import("../../extension/reader/overview-ui.js"));
-  clearSessionNoteRecords();
-  dispatchNoteExportMock.mockReset();
-  dispatchNoteExportMock.mockResolvedValue({
-    ok: true,
-    target: "download",
-    method: "blob-download",
-    fileName: "测试视频.md"
+function stubChromeRuntime(
+  settingsPatch: Partial<KnownSettings> = {},
+  onDownload?: (msg: { type: string; markdown?: string; fileName?: string; subdir?: string }) => unknown
+) {
+  const sendMessage = vi.fn(
+    (
+      msg: { type: string; markdown?: string; fileName?: string; subdir?: string },
+      callback?: (res: unknown) => void
+    ) => {
+      if (msg.type === "get-settings") {
+        callback?.({
+          ok: true,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            noteExportTarget: "download",
+            noteDownloadSubdir: "OverviewNotes",
+            noteIncludeKeyframes: false,
+            ...settingsPatch
+          }
+        });
+        return;
+      }
+      if (msg.type === "download-note-artifact") {
+        const res = onDownload ? onDownload(msg) : { ok: true, downloadId: 11 };
+        callback?.(res);
+        return;
+      }
+      callback?.({ ok: true });
+    }
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage,
+      lastError: null
+    }
   });
+  return sendMessage;
+}
+
+beforeEach(() => {
+  resetModuleState();
+  resetChatSessionStateForTests();
+  clearSessionNoteRecords();
+  clearTurnCapturedFrameCache();
   document.body.innerHTML = `${buildOverviewExportButtonHtml()}<div id="${ids.readingOverviewBody}"></div>`;
   state.clip.setBvid("BV1test000000");
   state.clip.setCid("1");
   state.clip.setTitle("测试视频");
+  state.clip.setCurrentUrl("https://www.bilibili.com/video/BV1test000000/");
   state.clip.setCurrentClipSignature("BV1test000000|1|zh-CN");
+  state.clip.setSubtitleBody([{ from: 45, to: 50, content: "核心观点字幕" }]);
 });
 
 afterEach(() => {
   resetActiveReaderHost();
+  resetChatSessionStateForTests();
   clearSessionNoteRecords();
+  clearTurnCapturedFrameCache();
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
@@ -110,14 +145,38 @@ describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
     expect(exportBtn.hidden).toBe(false);
   });
 
-  it("无活跃对话视频笔记时直接调用 dispatchNoteExport()，并展示图标回执与防重入锁", async () => {
-    let resolveExport!: (res: DispatchNoteExportResult) => void;
-    dispatchNoteExportMock.mockImplementationOnce(
-      () =>
-        new Promise<DispatchNoteExportResult>((resolve) => {
-          resolveExport = resolve;
-        })
-    );
+  it("点击导出图标展示防重入锁、导出执行与成功图标回执", async () => {
+    let finishDownload!: (res: unknown) => void;
+    const downloadPayloads: Array<{ markdown?: string; fileName?: string }> = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: vi.fn(
+          (
+            msg: { type: string; markdown?: string; fileName?: string },
+            callback?: (res: unknown) => void
+          ) => {
+            if (msg.type === "get-settings") {
+              callback?.({
+                ok: true,
+                settings: {
+                  ...DEFAULT_SETTINGS,
+                  noteExportTarget: "download",
+                  noteDownloadSubdir: "OverviewNotes"
+                }
+              });
+              return;
+            }
+            if (msg.type === "download-note-artifact") {
+              downloadPayloads.push(msg);
+              finishDownload = (res) => callback?.(res);
+              return;
+            }
+            callback?.({ ok: true });
+          }
+        ),
+        lastError: null
+      }
+    });
 
     renderReadingOverview(READY_SNAPSHOT);
     const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
@@ -125,31 +184,40 @@ describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
 
-    expect(dispatchNoteExportMock).toHaveBeenCalledTimes(1);
-    expect(dispatchNoteExportMock).toHaveBeenCalledWith(undefined);
+    await vi.waitFor(() => expect(downloadPayloads).toHaveLength(1));
     expect(exportBtn.disabled).toBe(true);
     expect(exportBtn.classList.contains("is-loading")).toBe(true);
 
-    resolveExport({ ok: true, target: "download", fileName: "测试视频.md" });
+    finishDownload({ ok: true, downloadId: 19 });
     await vi.waitFor(() => expect(exportBtn.classList.contains("is-copied")).toBe(true));
     expect(exportBtn.getAttribute("aria-label")).toBe("已导出笔记");
     expect(exportBtn.title).toBe("已导出笔记");
     expect(exportBtn.disabled).toBe(false);
+    expect(downloadPayloads[0].fileName).toMatch(/测试视频\.md$/);
   });
 
-  it("存在当前视频已生成的 AI 视频笔记时自动合并 aiNoteMarkdown 与 capturedFrames", async () => {
+  it("存在活跃视频笔记或当前视频对话历史时，经由导出边界自动合入笔记正文与关键帧", async () => {
+    const downloadPayloads: Array<{ markdown?: string }> = [];
+    stubChromeRuntime(
+      { noteExportTarget: "download", noteDownloadSubdir: "OverviewNotes", noteIncludeKeyframes: false },
+      (msg) => {
+        downloadPayloads.push(msg);
+        return { ok: true, downloadId: 21 };
+      }
+    );
+
     const frames = [{ seconds: 45, dataUrl: "data:image/webp;base64,AAAA" }];
     recordSessionNoteReply({
       clipSignature: captureLiveClipSignature(),
-      contextKey: "video:BV1test000000|1",
+      contextKey: resolveCurrentClipContextKey(),
       markdown: "## 普通对话回复",
       capturedFrames: [],
       isVideoNote: false
     });
     recordSessionNoteReply({
       clipSignature: captureLiveClipSignature(),
-      contextKey: "video:BV1test000000|1",
-      markdown: "## 结构化视频笔记\n- 要点 [00:45]",
+      contextKey: resolveCurrentClipContextKey(),
+      markdown: "## 结构化视频笔记\n- 要点 [00:45]\n\n{{frame:00:45 | 核心画面}}",
       capturedFrames: frames,
       isVideoNote: true
     });
@@ -158,23 +226,45 @@ describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
     const exportBtn = document.getElementById(ids.readingOverviewExportBtn) as HTMLButtonElement;
 
     onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
-    await vi.waitFor(() => expect(dispatchNoteExportMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(downloadPayloads).toHaveLength(1));
+    expect(downloadPayloads[0].markdown).toContain("## 结构化视频笔记");
+    expect(downloadPayloads[0].markdown).not.toContain("## 普通对话回复");
+    expect(downloadPayloads[0].markdown).toContain(
+      "[00:45](https://www.bilibili.com/video/BV1test000000/?t=45)"
+    );
+    expect(downloadPayloads[0].markdown).toContain(
+      "*▲ [00:45](https://www.bilibili.com/video/BV1test000000/?t=45) 核心画面*"
+    );
 
-    expect(dispatchNoteExportMock).toHaveBeenCalledWith({
-      aiNoteMarkdown: "## 结构化视频笔记\n- 要点 [00:45]",
-      capturedFrames: frames
-    });
+    await vi.waitFor(() => expect(exportBtn.disabled).toBe(false));
+
+    clearSessionNoteRecords();
+    const assistantMsg = { role: "assistant" as const, content: "## 对话历史笔记兜底 [00:45]" };
+    bindCapturedFramesToMessage(assistantMsg, frames);
+    chatSessionStateForTests.currentContextKey = resolveCurrentClipContextKey();
+    chatSessionStateForTests.chatHistory = [assistantMsg];
+
+    onReadingOverviewClick({ target: exportBtn } as unknown as MouseEvent);
+    await vi.waitFor(() => expect(downloadPayloads).toHaveLength(2));
+    expect(downloadPayloads[1].markdown).toContain("## 对话历史笔记兜底");
   });
 
-  it("独立窗口跨文档 Realm 下可正常渲染并触发导出笔记", async () => {
+  it("独立窗口跨文档 Realm 下可正常渲染并触发 Obsidian 导出笔记", async () => {
     const realm = createDetachedRealm();
     try {
       setActiveReaderHost(realm.doc, realm.win);
       realm.doc.body.innerHTML = `${buildOverviewExportButtonHtml()}<div id="${ids.readingOverviewBody}"></div>`;
-      dispatchNoteExportMock.mockResolvedValueOnce({
-        ok: true,
-        target: "obsidian",
-        method: "obsidian"
+      stubChromeRuntime({
+        noteExportTarget: "obsidian",
+        obsidianVaultName: "DetachedVault",
+        obsidianFolder: "Videos"
+      });
+      const clickedHrefs: string[] = [];
+      vi.spyOn(
+        (realm.win as unknown as { HTMLAnchorElement: typeof HTMLAnchorElement }).HTMLAnchorElement.prototype,
+        "click"
+      ).mockImplementation(function (this: HTMLAnchorElement) {
+        clickedHrefs.push(this.href);
       });
 
       renderReadingOverview(READY_SNAPSHOT);
@@ -187,6 +277,8 @@ describe("概览 Tab 导出笔记图标与文末重新生成入口", () => {
       await vi.waitFor(() => expect(exportBtn.classList.contains("is-copied")).toBe(true));
       expect(exportBtn.getAttribute("aria-label")).toBe("已唤起 Obsidian");
       expect(exportBtn.title).toBe("已唤起 Obsidian");
+      expect(clickedHrefs).toHaveLength(1);
+      expect(clickedHrefs[0]).toContain("obsidian://new?vault=DetachedVault");
     } finally {
       resetActiveReaderHost();
       realm.close();

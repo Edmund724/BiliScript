@@ -55,15 +55,19 @@ describe("notes/export-actions 与 subtitle/ui 独立窗口导出路由", () => 
     expect(realm.clipboardWriteText).toHaveBeenCalledTimes(1);
     expect(openerClipboard).not.toHaveBeenCalled();
 
-    expect(await exportActions.downloadCurrentVideoNote()).toBe(true);
+    const dlRes = await exportActions.dispatchNoteExport({ target: "download" });
+    expect(dlRes.ok).toBe(true);
+    expect(dlRes.target).toBe("download");
+    expect(dlRes.method).toBe("blob-download");
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:detached-note");
     expect(detachedAppendSpy).toHaveBeenCalledTimes(1);
     expect(openerAppendSpy).not.toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalledTimes(1);
 
-    const obRes = await exportActions.openCurrentVideoInObsidian();
+    const obRes = await exportActions.dispatchNoteExport({ target: "obsidian" });
     expect(obRes.ok).toBe(true);
+    expect(obRes.target).toBe("obsidian");
     expect(detachedAppendSpy).toHaveBeenCalledTimes(2);
     expect(openerAppendSpy).not.toHaveBeenCalled();
   });
@@ -559,5 +563,156 @@ describe("notes/export-actions dispatchNoteExport 统一导出路由器", () => 
       "*▲ [03:15](https://www.bilibili.com/video/BV1kfexport1/?p=3&t=195) 关闭开关降级*"
     );
     clearTurnCapturedFrameCache();
+  });
+
+  it("自动解析活跃视频的会话笔记与对话历史兜底，并支持显式覆盖与关闭自动注入", async () => {
+    realm = createDetachedRealm();
+    const activeHost = await import("../../extension/shared/active-host.js");
+    const coreState = await import("../../extension/core/state.js");
+    const { DEFAULT_SETTINGS } = await import("../../extension/core/defaults.js");
+    const {
+      chatSessionStateForTests,
+      resetChatSessionStateForTests
+    } = await import("../../extension/chat/chat-state.js");
+    const {
+      captureLiveClipSignature,
+      clearSessionNoteRecords,
+      recordSessionNoteReply,
+      resolveCurrentClipContextKey
+    } = await import("../../extension/notes/session-note-state.js");
+    const {
+      bindCapturedFramesToMessage,
+      clearTurnCapturedFrameCache
+    } = await import("../../extension/notes/turn-frame-cache.js");
+    const exportActions = await import("../../extension/notes/export-actions.js");
+    resetChatSessionStateForTests();
+    clearSessionNoteRecords();
+    clearTurnCapturedFrameCache();
+
+    const clip = coreState.state.clip as unknown as {
+      site: "bilibili" | "youtube";
+      title: string;
+      bvid: string;
+      cid: string;
+      currentUrl: string;
+      currentClipSignature: string;
+      subtitleBody: Array<{ from: number; to: number; content: string }>;
+    };
+    clip.site = "bilibili";
+    clip.title = "活跃笔记自动解析测试";
+    clip.bvid = "BV1autonote1";
+    clip.cid = "334455";
+    clip.currentUrl = "https://www.bilibili.com/video/BV1autonote1/";
+    clip.currentClipSignature = "BV1autonote1|334455";
+    clip.subtitleBody = [{ from: 30, to: 35, content: "字幕正文" }];
+
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: vi.fn((msg: { type: string }, callback?: (res: unknown) => void) => {
+          callback?.(
+            msg.type === "get-settings"
+              ? {
+                  ok: true,
+                  settings: {
+                    ...DEFAULT_SETTINGS,
+                    noteExportTarget: "download",
+                    noteDownloadSubdir: ""
+                  }
+                }
+              : { ok: true }
+          );
+        }),
+        lastError: null
+      }
+    });
+
+    (realm.win as unknown as { URL: unknown }).URL = {
+      createObjectURL: vi.fn(() => "blob:auto-note"),
+      revokeObjectURL: vi.fn()
+    };
+    vi.spyOn(
+      (realm.win as unknown as { HTMLAnchorElement: typeof HTMLAnchorElement }).HTMLAnchorElement.prototype,
+      "click"
+    ).mockImplementation(() => {});
+    activeHost.setActiveReaderHost(realm.doc, realm.win);
+
+    const sessionFrames = [{ seconds: 30, dataUrl: "data:image/webp;base64,SESS" }];
+    recordSessionNoteReply({
+      clipSignature: captureLiveClipSignature(),
+      contextKey: resolveCurrentClipContextKey(),
+      markdown: "## 普通回复",
+      capturedFrames: [],
+      isVideoNote: false
+    });
+    recordSessionNoteReply({
+      clipSignature: captureLiveClipSignature(),
+      contextKey: resolveCurrentClipContextKey(),
+      markdown: "<think>隐藏</think>\n## 会话视频笔记\n- 重点 [00:30]",
+      capturedFrames: sessionFrames,
+      isVideoNote: true
+    });
+
+    const seenFrames: unknown[] = [];
+    const resolveKeyframes = vi.fn(async (md: string, ctx: { capturedFrames?: readonly unknown[] }) => {
+      seenFrames.push(ctx.capturedFrames);
+      return md;
+    });
+
+    const autoExport = await exportActions.dispatchNoteExport({ resolveKeyframes });
+    expect(autoExport.ok).toBe(true);
+    expect(autoExport.markdown).toContain("## 会话视频笔记");
+    expect(autoExport.markdown).not.toContain("## 普通回复");
+    expect(autoExport.markdown).not.toContain("隐藏");
+    expect(seenFrames[0]).toEqual(sessionFrames);
+
+    expect(await exportActions.copyCurrentVideoNote()).toBe(true);
+    expect(realm.clipboardWriteText.mock.calls[0][0]).toContain("## 会话视频笔记");
+
+    const explicitOverride = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "## 显式覆盖内容",
+      resolveKeyframes
+    });
+    expect(explicitOverride.ok).toBe(true);
+    expect(explicitOverride.markdown).toContain("## 显式覆盖内容");
+    expect(explicitOverride.markdown).not.toContain("## 会话视频笔记");
+
+    const explicitEmpty = await exportActions.dispatchNoteExport({
+      aiNoteMarkdown: "",
+      resolveKeyframes
+    });
+    expect(explicitEmpty.ok).toBe(true);
+    expect(explicitEmpty.markdown).not.toContain("## 会话视频笔记");
+
+    const optedOut = await exportActions.dispatchNoteExport({
+      useActiveSessionNote: false,
+      resolveKeyframes
+    });
+    expect(optedOut.ok).toBe(true);
+    expect(optedOut.markdown).not.toContain("## 会话视频笔记");
+
+    expect(await exportActions.copyCurrentVideoNote({ useActiveSessionNote: false })).toBe(true);
+    expect(realm.clipboardWriteText.mock.calls[1][0]).not.toContain("## 会话视频笔记");
+
+    clearSessionNoteRecords();
+    const historyMsg = { role: "assistant" as const, content: "## 历史对话兜底笔记 [00:30]" };
+    const stoppedMsg = { role: "assistant" as const, content: "## 被中止回复", stopped: true };
+    const historyFrames = [{ seconds: 32, dataUrl: "data:image/jpeg;base64,HIST" }];
+    bindCapturedFramesToMessage(historyMsg, historyFrames);
+    chatSessionStateForTests.currentContextKey = resolveCurrentClipContextKey();
+    chatSessionStateForTests.chatHistory = [historyMsg, stoppedMsg];
+
+    const historyExport = await exportActions.dispatchNoteExport({ resolveKeyframes });
+    expect(historyExport.ok).toBe(true);
+    expect(historyExport.markdown).toContain("## 历史对话兜底笔记");
+    expect(historyExport.markdown).not.toContain("## 被中止回复");
+    expect(seenFrames.at(-1)).toEqual(historyFrames);
+
+    expect(await exportActions.copyCurrentVideoNote()).toBe(true);
+    expect(realm.clipboardWriteText.mock.calls[2][0]).toContain("## 历史对话兜底笔记");
+
+    chatSessionStateForTests.currentContextKey = "video:BV1otherClip|999";
+    const crossClipExport = await exportActions.dispatchNoteExport({ resolveKeyframes });
+    expect(crossClipExport.ok).toBe(true);
+    expect(crossClipExport.markdown).not.toContain("## 历史对话兜底笔记");
   });
 });

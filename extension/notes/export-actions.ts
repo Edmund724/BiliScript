@@ -18,6 +18,7 @@ import {
   type NoteKeyframeResolveContext,
   type ResolveNoteKeyframesFn
 } from "./keyframes.js";
+import { resolveActiveClipNoteCandidate } from "./session-note-state.js";
 import { getLatestCapturedFrames } from "./turn-frame-cache.js";
 import {
   buildNoteTemplateVariables,
@@ -34,6 +35,7 @@ export type {
 
 export interface RenderCurrentVideoNoteOptions {
   aiNoteMarkdown?: string;
+  useActiveSessionNote?: boolean;
   resolveKeyframes?: ResolveNoteKeyframesFn;
   capturedFrames?: readonly NoteKeyframeCandidate[];
   linkifyTimestamps?: boolean;
@@ -61,9 +63,41 @@ function cleanVideoPageUrl(rawUrl: string): string {
   }
 }
 
+function resolveEffectiveNoteInput(
+  options:
+    | {
+        aiNoteMarkdown?: string;
+        useActiveSessionNote?: boolean;
+        capturedFrames?: readonly NoteKeyframeCandidate[];
+      }
+    | undefined,
+  fallbackToLatestFrames: boolean
+): {
+  aiNoteMarkdown?: string;
+  capturedFrames?: readonly NoteKeyframeCandidate[];
+} {
+  const useActiveSessionNote = options?.useActiveSessionNote !== false;
+  const activeCandidate =
+    options?.aiNoteMarkdown === undefined && useActiveSessionNote
+      ? resolveActiveClipNoteCandidate()
+      : null;
+  const aiNoteMarkdown =
+    options?.aiNoteMarkdown !== undefined ? options.aiNoteMarkdown : activeCandidate?.markdown;
+  const capturedFrames =
+    options?.capturedFrames !== undefined
+      ? options.capturedFrames
+      : activeCandidate
+        ? activeCandidate.capturedFrames
+        : fallbackToLatestFrames
+          ? getLatestCapturedFrames()
+          : undefined;
+  return { aiNoteMarkdown, capturedFrames };
+}
+
 async function renderCurrentVideoNoteWithSettings(
   settings: KnownSettings,
-  options?: RenderCurrentVideoNoteOptions
+  options?: RenderCurrentVideoNoteOptions,
+  fallbackToLatestFrames = false
 ): Promise<RenderedCurrentNote> {
   const clip = state.clip;
   const pageUrl = cleanVideoPageUrl(
@@ -73,8 +107,9 @@ async function renderCurrentVideoNoteWithSettings(
   const highlights = await loadVideoHighlights(videoKey);
   const overviewSnapshot = getReaderOverviewSource();
   const analysis = overviewSnapshot?.analysis ?? null;
+  const resolvedInput = resolveEffectiveNoteInput(options, fallbackToLatestFrames);
   const cleanedAiNote =
-    options?.aiNoteMarkdown !== undefined ? stripThinkBlocks(options.aiNoteMarkdown) : "";
+    resolvedInput.aiNoteMarkdown !== undefined ? stripThinkBlocks(resolvedInput.aiNoteMarkdown) : "";
 
   const variables = buildNoteTemplateVariables({
     meta: {
@@ -111,7 +146,7 @@ async function renderCurrentVideoNoteWithSettings(
       cid: clip.cid,
       pageUrl,
       includeKeyframes: Boolean(settings.noteIncludeKeyframes),
-      capturedFrames: options.capturedFrames
+      capturedFrames: resolvedInput.capturedFrames
     });
   }
   if (markdown && options?.linkifyTimestamps) {
@@ -191,23 +226,7 @@ function triggerActiveBlobDownload(markdown: string, fileName: string): void {
   }
 }
 
-export async function downloadCurrentVideoNote(
-  options?: RenderCurrentVideoNoteOptions
-): Promise<boolean> {
-  try {
-    const rendered = await renderCurrentVideoNote(options);
-    if (!rendered.markdown) {
-      return false;
-    }
-    triggerActiveBlobDownload(rendered.markdown, rendered.fileName);
-    return true;
-  } catch (error) {
-    logWarn("[BILISCRIPT] download templated note failed", error);
-    return false;
-  }
-}
-
-export interface OpenObsidianResult {
+interface OpenObsidianResult {
   ok: boolean;
   usedClipboardFallback: boolean;
   uri?: string;
@@ -248,28 +267,10 @@ async function triggerObsidianExport(rendered: RenderedCurrentNote): Promise<Ope
   return { ok: true, usedClipboardFallback, uri };
 }
 
-export async function openCurrentVideoInObsidian(
-  options?: RenderCurrentVideoNoteOptions
-): Promise<OpenObsidianResult> {
-  try {
-    const rendered = await renderCurrentVideoNote(options);
-    if (!rendered.markdown) {
-      return { ok: false, usedClipboardFallback: false, error: "当前视频暂无可导出的笔记内容" };
-    }
-    return await triggerObsidianExport(rendered);
-  } catch (error) {
-    logWarn("[BILISCRIPT] open obsidian uri failed", error);
-    return {
-      ok: false,
-      usedClipboardFallback: false,
-      error: (error as Error)?.message || "唤起 Obsidian 失败"
-    };
-  }
-}
-
 export interface DispatchNoteExportOptions {
   target?: NoteExportTarget;
   aiNoteMarkdown?: string;
+  useActiveSessionNote?: boolean;
   autoTrigger?: boolean;
   resolveKeyframes?: ResolveNoteKeyframesFn;
   capturedFrames?: readonly NoteKeyframeCandidate[];
@@ -303,12 +304,17 @@ export async function dispatchNoteExport(
   const target: NoteExportTarget = resolvedTarget === "obsidian" ? "obsidian" : "download";
 
   try {
-    const rendered = await renderCurrentVideoNoteWithSettings(settings, {
-      aiNoteMarkdown: options?.aiNoteMarkdown,
-      resolveKeyframes: options?.resolveKeyframes ?? resolveNoteKeyframes,
-      capturedFrames: options?.capturedFrames ?? getLatestCapturedFrames(),
-      linkifyTimestamps: true
-    });
+    const rendered = await renderCurrentVideoNoteWithSettings(
+      settings,
+      {
+        aiNoteMarkdown: options?.aiNoteMarkdown,
+        useActiveSessionNote: options?.useActiveSessionNote,
+        resolveKeyframes: options?.resolveKeyframes ?? resolveNoteKeyframes,
+        capturedFrames: options?.capturedFrames,
+        linkifyTimestamps: true
+      },
+      true
+    );
     if (!rendered.markdown) {
       return {
         ok: false,

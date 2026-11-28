@@ -1,7 +1,6 @@
 import { getActiveReaderDocument } from "../shared/active-host.js";
 import { formatClock, parseClock } from "../shared/clock-text.js";
 import { isTextNode, resolveNodeDocument } from "../shared/cross-doc.js";
-import { isTimestampOnlyInlineCode } from "./markdown.js";
 import { animateTriggerEnter, animateTriggerExit, cancelTriggerExit } from "./trigger-motion.js";
 
 export interface SubtitlePreviewItem {
@@ -246,12 +245,6 @@ export function findSubtitlePreviewAtTime(
     time: formatClock(hit.from, { hours: "auto" }),
     text: excerpt
   };
-}
-
-export function unwrapTimestampInlineCode(text: unknown): string {
-  return String(text || "").replace(/`([^`\n]+)`/g, (_, content: string) =>
-    isTimestampOnlyInlineCode(content) ? content : `\`${content}\``
-  );
 }
 
 export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: TimestampNavDeps): number {

@@ -20,7 +20,6 @@ import {
   copyCurrentVideoNote,
   dispatchNoteExport
 } from "../notes/export-actions.js";
-import { getLatestSessionNoteCandidate } from "../notes/session-note-state.js";
 import {
   normalizeThinkingLevel,
   type ThinkingLevelValue
@@ -232,15 +231,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       keywords: "export note markdown copy 导出 笔记 复制 模板",
       kbd: shortcutKbd(shortcuts, "copyNote"),
       run: async () => {
-        const candidate = getLatestSessionNoteCandidate();
-        const ok = await copyCurrentVideoNote(
-          candidate
-            ? {
-                aiNoteMarkdown: candidate.markdown,
-                capturedFrames: candidate.capturedFrames
-              }
-            : undefined
-        );
+        const ok = await copyCurrentVideoNote();
         return ok ? "已复制模板笔记" : "复制失败：请检查剪贴板权限";
       }
     },
@@ -252,16 +243,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       keywords: "export note markdown download file 下载 导出 笔记",
       kbd: shortcutKbd(shortcuts, "downloadNote"),
       run: async () => {
-        const candidate = getLatestSessionNoteCandidate();
-        const res = await dispatchNoteExport({
-          target: "download",
-          ...(candidate
-            ? {
-                aiNoteMarkdown: candidate.markdown,
-                capturedFrames: candidate.capturedFrames
-              }
-            : {})
-        });
+        const res = await dispatchNoteExport({ target: "download" });
         return res.ok ? "已导出 Markdown 文件" : res.error || "导出失败：当前暂无内容";
       }
     },
@@ -273,16 +255,7 @@ function buildStaticCommands(): CommandPaletteItem[] {
       keywords: "obsidian uri clipper vault 导出 写入 笔记",
       kbd: shortcutKbd(shortcuts, "exportObsidian"),
       run: async () => {
-        const candidate = getLatestSessionNoteCandidate();
-        const res = await dispatchNoteExport({
-          target: "obsidian",
-          ...(candidate
-            ? {
-                aiNoteMarkdown: candidate.markdown,
-                capturedFrames: candidate.capturedFrames
-              }
-            : {})
-        });
+        const res = await dispatchNoteExport({ target: "obsidian" });
         if (!res.ok) {
           return res.error || "唤起 Obsidian 失败";
         }

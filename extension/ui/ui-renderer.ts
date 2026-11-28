@@ -353,19 +353,8 @@ async function runGenerateVideoNoteShortcut(): Promise<void> {
 
 async function runCopyNoteShortcut(): Promise<void> {
   try {
-    const [{ copyCurrentVideoNote }, { getLatestSessionNoteCandidate }] = await Promise.all([
-      import("../notes/export-actions.js"),
-      import("../notes/session-note-state.js")
-    ]);
-    const candidate = getLatestSessionNoteCandidate();
-    await copyCurrentVideoNote(
-      candidate
-        ? {
-            aiNoteMarkdown: candidate.markdown,
-            capturedFrames: candidate.capturedFrames
-          }
-        : undefined
-    );
+    const { copyCurrentVideoNote } = await import("../notes/export-actions.js");
+    await copyCurrentVideoNote();
   } catch (error) {
     logWarn("[BILISCRIPT] copy note shortcut failed", error);
   }
@@ -373,20 +362,8 @@ async function runCopyNoteShortcut(): Promise<void> {
 
 async function runNoteExportShortcut(target: "download" | "obsidian"): Promise<void> {
   try {
-    const [{ dispatchNoteExport }, { getLatestSessionNoteCandidate }] = await Promise.all([
-      import("../notes/export-actions.js"),
-      import("../notes/session-note-state.js")
-    ]);
-    const candidate = getLatestSessionNoteCandidate();
-    await dispatchNoteExport({
-      target,
-      ...(candidate
-        ? {
-            aiNoteMarkdown: candidate.markdown,
-            capturedFrames: candidate.capturedFrames
-          }
-        : {})
-    });
+    const { dispatchNoteExport } = await import("../notes/export-actions.js");
+    await dispatchNoteExport({ target });
   } catch (error) {
     logWarn("[BILISCRIPT] note export shortcut failed", { target, error });
   }

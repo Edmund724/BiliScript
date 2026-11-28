@@ -3,6 +3,10 @@ import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { state, clipState, transitionReaderShell } from "../../extension/core/state.js";
 import {
+  chatSessionStateForTests,
+  resetChatSessionStateForTests
+} from "../../extension/chat/chat-state.js";
+import {
   captureLiveClipSignature,
   clearSessionNoteRecords,
   recordSessionNoteReply,
@@ -77,6 +81,7 @@ describe("command-palette 纯函数：模糊匹配与时间戳解析", () => {
 describe("command-palette 交互与高频动作", () => {
   beforeEach(() => {
     resetModuleState();
+    resetChatSessionStateForTests();
     clearSessionNoteRecords();
     closeCommandPalette();
     mockJump.mockClear();
@@ -221,8 +226,20 @@ describe("command-palette 交互与高频动作", () => {
       .mockImplementation(function (this: HTMLAnchorElement) {
         clickedHrefs.push(this.href);
       });
+    const clipboardWriteText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: clipboardWriteText },
+      configurable: true
+    });
 
     try {
+      const copyItem = resolveCommandPaletteItems("复制模板笔记").find((item) => item.id === "note-copy")!;
+      const copyNotice = await copyItem.run();
+      expect(copyNotice).toBe("已复制模板笔记");
+      expect(clipboardWriteText).toHaveBeenCalledTimes(1);
+      expect(clipboardWriteText.mock.calls[0][0]).toContain("核心流程见 [02:20]。");
+      expect(clipboardWriteText.mock.calls[0][0]).not.toContain("内部思考");
+
       const downloadItem = resolveCommandPaletteItems("下载 Markdown").find((item) => item.id === "note-download")!;
       const downloadNotice = await downloadItem.run();
       expect(downloadNotice).toBe("已导出 Markdown 文件");
@@ -248,6 +265,18 @@ describe("command-palette 交互与高频动作", () => {
       );
       expect(decodedContent).toContain(
         "*▲ [02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140) 核心流程*"
+      );
+
+      clearSessionNoteRecords();
+      chatSessionStateForTests.currentContextKey = resolveCurrentClipContextKey();
+      chatSessionStateForTests.chatHistory = [
+        { role: "assistant", content: "历史对话自动兜底 [02:20]。" }
+      ];
+      const fallbackDownloadNotice = await downloadItem.run();
+      expect(fallbackDownloadNotice).toBe("已导出 Markdown 文件");
+      expect(downloadMessages).toHaveLength(2);
+      expect(downloadMessages[1].markdown).toContain(
+        "历史对话自动兜底 [02:20](https://www.bilibili.com/video/BV1cmdexp001/?p=2&t=140)。"
       );
     } finally {
       clickSpy.mockRestore();

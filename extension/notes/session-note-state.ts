@@ -1,7 +1,12 @@
 import { buildContextKey } from "../ai/conversation.js";
 import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
+import { chatSessionState } from "../chat/chat-state.js";
 import { state } from "../core/state.js";
-import type { NoteKeyframeCandidate } from "./turn-frame-cache.js";
+import { stripThinkBlocks } from "../ui/markdown.js";
+import {
+  getCapturedFramesForMessage,
+  type NoteKeyframeCandidate
+} from "./turn-frame-cache.js";
 
 export interface SessionVideoNoteRecord {
   clipSignature: string;
@@ -109,17 +114,40 @@ export function resolveCurrentClipContextKey(): string {
   });
 }
 
-export function getLatestSessionNoteCandidate(): SessionNoteCandidate | null {
+export function resolveActiveClipNoteCandidate(): SessionNoteCandidate | null {
   const clipSignature = captureLiveClipSignature();
   const contextKey = resolveCurrentClipContextKey();
   const recorded = findLatestSessionNoteForClip({ clipSignature, contextKey });
-  if (!recorded) {
+  if (recorded) {
+    return {
+      markdown: recorded.markdown,
+      capturedFrames: recorded.capturedFrames
+    };
+  }
+
+  const sessionKey = String(
+    chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
+  ).trim();
+  if (contextKey && sessionKey && sessionKey !== contextKey) {
     return null;
   }
-  return {
-    markdown: recorded.markdown,
-    capturedFrames: recorded.capturedFrames
-  };
+
+  const history = Array.isArray(chatSessionState.chatHistory) ? chatSessionState.chatHistory : [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const message = history[i];
+    if (!message || message.role !== "assistant" || message.stopped) {
+      continue;
+    }
+    const content = typeof message.content === "string" ? message.content : "";
+    if (!stripThinkBlocks(content).trim()) {
+      continue;
+    }
+    return {
+      markdown: content,
+      capturedFrames: getCapturedFramesForMessage(message)
+    };
+  }
+  return null;
 }
 
 export function clearSessionNoteRecords(): void {

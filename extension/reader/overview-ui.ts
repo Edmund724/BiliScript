@@ -1,4 +1,3 @@
-import { chatSessionState } from "../chat/chat-state.js";
 import { state } from "../core/state.js";
 import { activeById, getActiveReaderWindow } from "../shared/active-host.js";
 import {
@@ -21,13 +20,6 @@ import {
 import { getSiteCapabilities, normalizeSiteId, YOUTUBE_UNIT_CID } from "../shared/site.js";
 import { dispatchNoteExport } from "../notes/export-actions.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import {
-  getLatestSessionNoteCandidate,
-  resolveCurrentClipContextKey,
-  type SessionNoteCandidate
-} from "../notes/session-note-state.js";
-import { getCapturedFramesForMessage } from "../notes/turn-frame-cache.js";
-import { stripThinkBlocks } from "../ui/markdown.js";
 import { getNoteExportActionVisual, syncNoteExportIconButton } from "../ui/note-export-visual.js";
 import { READING_COPY_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
@@ -555,37 +547,6 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   jumpReadingTarget(seekTarget.dataset.seconds ?? 0);
 }
 
-function resolveActiveClipChatNote(): SessionNoteCandidate | null {
-  const recorded = getLatestSessionNoteCandidate();
-  if (recorded) {
-    return recorded;
-  }
-
-  const contextKey = resolveCurrentClipContextKey();
-  const sessionKey = String(
-    chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
-  ).trim();
-  if (contextKey && sessionKey && sessionKey !== contextKey) {
-    return null;
-  }
-  const history = Array.isArray(chatSessionState.chatHistory) ? chatSessionState.chatHistory : [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    const message = history[i];
-    if (!message || message.role !== "assistant" || message.stopped) {
-      continue;
-    }
-    const content = typeof message.content === "string" ? message.content : "";
-    if (!stripThinkBlocks(content).trim()) {
-      continue;
-    }
-    return {
-      markdown: content,
-      capturedFrames: getCapturedFramesForMessage(message)
-    };
-  }
-  return null;
-}
-
 async function exportOverviewNote(button: HTMLElement): Promise<void> {
   if (button.dataset.exporting === "1") {
     return;
@@ -597,15 +558,7 @@ async function exportOverviewNote(button: HTMLElement): Promise<void> {
   button.setAttribute("aria-busy", "true");
   const visual = getNoteExportActionVisual(state.settings?.noteExportTarget);
   try {
-    const activeNote = resolveActiveClipChatNote();
-    const result = await dispatchNoteExport(
-      activeNote
-        ? {
-            aiNoteMarkdown: activeNote.markdown,
-            capturedFrames: activeNote.capturedFrames
-          }
-        : undefined
-    );
+    const result = await dispatchNoteExport();
     if (result.ok) {
       const successVisual = getNoteExportActionVisual(result.target ?? visual.target);
       flashCopySuccess(button, {
