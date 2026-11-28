@@ -134,8 +134,11 @@ export function normalizeConversations(
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
+            .map((msg: { id?: unknown; role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
               const base: ChatSessionMessage = { role: String(msg.role), content: String(msg.content) };
+              if (typeof msg.id === "string" && msg.id.trim()) {
+                base.id = msg.id.trim();
+              }
               const images = normalizeImageParts(msg.images);
               if (images) {
                 base.images = images;
@@ -177,7 +180,16 @@ export function normalizeConversations(
         createdAt: Number(item?.createdAt) || Date.now(),
         updatedAt: Number(item?.updatedAt) || Date.now(),
         contextRef,
-        messages
+        messages,
+        ...(item?.transcriptMode === "full" || item?.transcriptMode === "hybrid"
+          ? { transcriptMode: item.transcriptMode }
+          : {}),
+        ...(item?.summaryAnchor &&
+        typeof item.summaryAnchor === "object" &&
+        Number.isInteger(Number(item.summaryAnchor.coveredMessageCount)) &&
+        Number(item.summaryAnchor.coveredMessageCount) > 0
+          ? { summaryAnchor: { ...item.summaryAnchor } }
+          : {})
       };
       return normalized;
     })

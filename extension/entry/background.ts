@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
-import { normalizePlayerAiQuickPrompt, videoCacheMaxMbToBytes } from "../core/validators.js";
+import { normalizeChatHistoryMaxCount, normalizePlayerAiQuickPrompt, videoCacheMaxMbToBytes } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedPage } from "../bilibili/video-id-shared.js";
 import { openOnboardingPage, runOnInstalled } from "./on-installed.js";
 import { sendMessageToTab, waitForTabComplete } from "../shared/tab-utils.js";
@@ -444,12 +444,18 @@ const resolveVideoCacheMaxBytes = async (): Promise<number> => {
   return videoCacheMaxMbToBytes(settings.videoCacheMaxMb);
 };
 
+const resolveChatHistoryMaxCount = async (): Promise<number> => {
+  const settings = await getSettingsSnapshot();
+  return normalizeChatHistoryMaxCount(settings.chatHistoryMaxCount);
+};
+
 const handleSegmentCache = createSegmentCacheHandler({
   store: defaultSubtitleIdbStore,
   resolveVideoCacheMaxBytes
 });
 const handleSubtitleCache = createSubtitleCacheHandler(defaultSubtitleIdbStore, {
-  resolveVideoCacheMaxBytes
+  resolveVideoCacheMaxBytes,
+  resolveChatHistoryMaxCount
 });
 
 const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({

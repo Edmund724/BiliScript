@@ -30,9 +30,8 @@ import {
   applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
-  hasExternalizedChatImages,
+  detachConversationIdentity,
   parseModelOptionValue,
-  readConversationHistory,
   syncSavedConversationsFromStorage,
   type ChatTurnKind
 } from "../chat/tab-domain.js";
@@ -545,7 +544,12 @@ function activateSessionTriggers(): void {
     if (CONVERSATIONS_SYNC_SIGNAL_KEY in changes) {
       const signal = changes[CONVERSATIONS_SYNC_SIGNAL_KEY]?.newValue;
       const local = typeof chrome !== "undefined" ? chrome.storage?.local : undefined;
-      void applyConversationSyncSignal(signal, local)
+      void applyConversationSyncSignal(signal, {
+        storage: local,
+        onCurrentUpdated: () => {
+          chatDomain.renderInitialState();
+        }
+      })
         .then((changed) => {
           if (changed) {
             lists.renderHistoryList();
@@ -563,13 +567,6 @@ function activateSessionTriggers(): void {
     }
     if (syncSavedConversationsFromStorage(rawNext)) {
       lists.renderHistoryList();
-      if (hasExternalizedChatImages(rawNext) && typeof chrome !== "undefined" && chrome.storage?.local) {
-        void readConversationHistory(chrome.storage.local)
-          .then(() => {
-            lists.renderHistoryList();
-          })
-          .catch(() => {});
-      }
     }
   }, {
     local: [CONVERSATIONS_SYNC_SIGNAL_KEY, CONVERSATIONS_STORAGE_KEY]
@@ -631,16 +628,27 @@ function activateSessionTriggers(): void {
   scope.track(() => setChatTabOutsideClickHandler(null));
 
   let boundWin: Window | null = getActiveReaderWindow();
+  const onWindowUnload = (): void => {
+    lists.resetLiveHistoryDetail();
+    detachConversationIdentity();
+    if (els.messages) {
+      els.messages.innerHTML = "";
+    }
+  };
   boundWin.addEventListener("keydown", onWindowEscapeKey);
+  boundWin.addEventListener("pagehide", onWindowUnload);
   const stopHostWatch = onActiveHostChange((ctx) => {
     noteBar.closeMenu();
     safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+    safeRemoveListener(boundWin, "pagehide", onWindowUnload);
     boundWin = ctx.win;
     boundWin.addEventListener("keydown", onWindowEscapeKey);
+    boundWin.addEventListener("pagehide", onWindowUnload);
   });
   scope.track(() => {
     stopHostWatch();
     safeRemoveListener(boundWin, "keydown", onWindowEscapeKey);
+    safeRemoveListener(boundWin, "pagehide", onWindowUnload);
     boundWin = null;
   });
 }
@@ -768,6 +776,7 @@ export function closeChatSession(): void {
   deactivateChatTabOverlays();
   lists.cancelPendingSwitch();
   lists.settlePendingDeletion();
+  lists.resetLiveHistoryDetail();
   clearAllNotices();
   explainIntentController.hide();
   deactivateSessionTriggers();

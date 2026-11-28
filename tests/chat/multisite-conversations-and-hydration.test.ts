@@ -647,7 +647,7 @@ describe("YouTube IDB 水合、分P守卫与缓存淘汰只读守卫", () => {
     const store = createConversationStore(storeDeps);
 
     await store.loadAll();
-    store.applyById(ytConv.id);
+    await store.applyById(ytConv.id);
     await store.hydratePinned({ silent: true });
 
     expect(chatSessionState.chatHistory).toEqual([

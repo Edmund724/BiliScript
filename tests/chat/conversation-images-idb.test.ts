@@ -200,10 +200,13 @@ describe("阶段 2B：对话图片外置与水合", () => {
     const hydrated = await readConversationHistory(storage);
     expect(rpcCalls.some((m) => m.op === "get-chat-images")).toBe(true);
     expect((hydrated[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([IMG_A, IMG_B]);
-    expect((chatSessionState.savedConversations[0] as { messages: Array<{ images?: unknown }> }).messages[0].images).toEqual([
-      IMG_A,
-      IMG_B
-    ]);
+    expect(chatSessionState.savedConversations[0]).toMatchObject({
+      id: "conv-1",
+      kind: "chat",
+      messageCount: 2,
+      hasImages: true
+    });
+    expect("messages" in chatSessionState.savedConversations[0]).toBe(false);
   });
 
   it("b) 单张 idbRef 缺失或记录损坏时仅降级受影响单图，整条对话文本与其他正常图片完整加载", async () => {

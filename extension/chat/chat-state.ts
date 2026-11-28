@@ -2,9 +2,20 @@ import type { AiContext } from "../ai/types.js";
 import { buildContextKey } from "../ai/conversation.js";
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
 import { clearTurnCapturedFrameCache } from "../notes/turn-frame-cache.js";
-import type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
+import {
+  toConversationSummaryItem,
+  type ChatSessionMessage,
+  type ChatSessionSavedConversation,
+  type ConversationSummaryInput,
+  type ConversationSummaryItem
+} from "./conversation-types.js";
+import type { ChatTranscriptMode } from "./protocol.js";
 
-export type { ChatSessionMessage, ChatSessionSavedConversation } from "./conversation-types.js";
+export type {
+  ChatSessionMessage,
+  ChatSessionSavedConversation,
+  ConversationSummaryItem
+} from "./conversation-types.js";
 
 export type ChatSessionContextSnapshot = AiContext;
 
@@ -30,6 +41,7 @@ export interface CurrentConversationMeta {
   pinnedContext?: boolean;
   contextRef?: AiContext | null;
   resolvedContext?: AiContext | null;
+  transcriptMode?: ChatTranscriptMode;
 }
 
 type ChatSessionGuardedState = {
@@ -142,8 +154,10 @@ export function appendChatHistory(...messages: ChatSessionMessage[]): void {
   chatSessionStateMutable.chatHistory.push(...messages);
 }
 
-export function setSavedConversations(next: ChatSessionSavedConversation[]): void {
-  chatSessionStateMutable.savedConversations = next;
+export function setSavedConversations(next: readonly ConversationSummaryInput[]): void {
+  chatSessionStateMutable.savedConversations = next
+    .map((item) => toConversationSummaryItem(item))
+    .filter((item): item is ConversationSummaryItem => item !== null);
 }
 
 export function setAsrTranscribingActive(active: boolean): void {

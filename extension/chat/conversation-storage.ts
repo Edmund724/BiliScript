@@ -2,6 +2,7 @@ import { normalizeConversations } from "../ai/conversation.js";
 import type { ImagePart } from "../ai/types.js";
 import { normalizeChatHistoryMaxCount } from "../core/validators.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import { logWarn } from "../shared/logging.js";
 import {
   YOUTUBE_UNIT_CID,
@@ -13,17 +14,24 @@ import {
 import { fnv1a32 } from "../shared/text-primitives.js";
 import type {
   ChatImageRecord,
+  PatchConversationSummaryAnchorInput,
+  PatchConversationSummaryAnchorResult,
   PersistedConversationRecord,
   PruneConversationsResult,
+  PutChatImageInput,
   SubtitleIdbStore
 } from "../subtitle/idb-store.js";
-import { resolveActiveSubtitleStore } from "../subtitle/store-client.js";
+import { resolveActiveSubtitleStore, shouldRouteViaBackground } from "../subtitle/store-client.js";
 import {
   applyLiveContextToMain,
   chatSessionState,
   detachConversationIdentity,
   setSavedConversations
 } from "./chat-state.js";
+import {
+  toConversationSummaryItem,
+  type ConversationSummaryItem
+} from "./conversation-types.js";
 import type { StorageArea } from "./conversation-store.js";
 
 export type StoredConversation = ReturnType<typeof normalizeConversations>[number];
@@ -31,10 +39,12 @@ export const HISTORY_STORAGE_KEY = "biliscript_ai_conversations_v1";
 export const CONVERSATIONS_SYNC_SIGNAL_KEY = "biliscript_ai_conversations_sync_v2";
 
 export interface ConversationSyncSignal {
-  rev: number;
-  op: "put" | "delete" | "clear" | "prune" | "replace";
-  id?: string;
-  ids?: string[];
+  op: "upsert" | "delete" | "clear";
+  originClientId: string;
+  seq: number;
+  summary?: ConversationSummaryItem;
+  prunedIds?: string[];
+  deletedIds?: string[];
 }
 
 export interface PersistedImageRef {
@@ -44,44 +54,25 @@ export interface PersistedImageRef {
 
 export type PersistedImageEntry = ImagePart | PersistedImageRef;
 
-const storeQueues = new WeakMap<SubtitleIdbStore, Promise<unknown>>();
+export function createTabClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `tab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const TAB_CLIENT_ID = createTabClientId();
 let syncSignalSeq = 0;
+
+export function getTabClientId(): string {
+  return TAB_CLIENT_ID;
+}
 
 function resolveDefaultLocalStorage(storage?: StorageArea): StorageArea | undefined {
   if (storage) {
     return storage;
   }
   return typeof chrome !== "undefined" ? (chrome.storage?.local as StorageArea | undefined) : undefined;
-}
-
-function isBrowserLocalStorage(storage?: StorageArea): boolean {
-  return Boolean(storage) && typeof chrome !== "undefined" && storage === chrome.storage?.local;
-}
-
-function runWithCrossTabLock<T>(storage: StorageArea | undefined, task: () => Promise<T>): Promise<T> {
-  if (
-    (!storage || isBrowserLocalStorage(storage)) &&
-    typeof navigator !== "undefined" &&
-    typeof navigator.locks?.request === "function"
-  ) {
-    return navigator.locks.request(HISTORY_STORAGE_KEY, () => task());
-  }
-  return task();
-}
-
-function enqueue<T>(
-  store: SubtitleIdbStore,
-  storage: StorageArea | undefined,
-  task: () => Promise<T>
-): Promise<T> {
-  const previous = storeQueues.get(store) || Promise.resolve();
-  const next = previous.catch(() => {}).then(() => runWithCrossTabLock(storage, task));
-  storeQueues.set(store, next);
-  return next.finally(() => {
-    if (storeQueues.get(store) === next) {
-      storeQueues.delete(store);
-    }
-  });
 }
 
 export async function resolveChatHistoryMaxCount(syncStorage?: StorageArea): Promise<number> {
@@ -404,6 +395,70 @@ async function hydrateRawConversations(
   };
 }
 
+function extractImagesForAtomicWrite(
+  conversations: readonly StoredConversation[]
+): {
+  persisted: PersistedConversationRecord[];
+  images: PutChatImageInput[];
+} {
+  const images: PutChatImageInput[] = [];
+  const seenImageIds = new Set<string>();
+  const now = Date.now();
+  const persisted: PersistedConversationRecord[] = [];
+
+  for (const conv of conversations) {
+    if (isLiveTextToolHistoryEntry(conv)) {
+      persisted.push(conv as unknown as PersistedConversationRecord);
+      continue;
+    }
+    const bvid = extractConversationStorageBvid(conv);
+    let convChanged = false;
+    const nextMessages: unknown[] = [];
+
+    for (const msg of conv.messages) {
+      if (!Array.isArray(msg.images) || msg.images.length === 0) {
+        nextMessages.push(msg);
+        continue;
+      }
+      const nextImages: PersistedImageEntry[] = [];
+      for (const img of msg.images) {
+        if (!isInlineImagePart(img)) {
+          continue;
+        }
+        const mime = img.mime.trim();
+        const idbRef = computeChatImageId(conv.id, mime, img.data);
+        nextImages.push({ mime, idbRef });
+        convChanged = true;
+        if (!seenImageIds.has(idbRef)) {
+          seenImageIds.add(idbRef);
+          images.push({
+            id: idbRef,
+            conversationId: conv.id,
+            bvid,
+            mime,
+            data: img.data,
+            createdAt: conv.createdAt,
+            updatedAt: conv.updatedAt,
+            lastUsedAt: now
+          });
+        }
+      }
+      if (nextImages.length > 0) {
+        nextMessages.push({ ...msg, images: nextImages });
+      } else {
+        const stripped = { ...msg };
+        delete stripped.images;
+        nextMessages.push(stripped);
+      }
+    }
+
+    const record = convChanged ? { ...conv, messages: nextMessages } : conv;
+    persisted.push(record as unknown as PersistedConversationRecord);
+  }
+
+  return { persisted, images };
+}
+
 async function putChatImageSafe(
   store: SubtitleIdbStore,
   input: {
@@ -549,15 +604,42 @@ async function externalizeConversationsForStorage(
   };
 }
 
+function sortSummariesDesc(list: ConversationSummaryItem[]): ConversationSummaryItem[] {
+  return list.sort((a, b) => {
+    const bUpdated = Number(b.updatedAt) || 0;
+    const aUpdated = Number(a.updatedAt) || 0;
+    if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+    const bCreated = Number(b.createdAt) || 0;
+    const aCreated = Number(a.createdAt) || 0;
+    if (bCreated !== aCreated) return bCreated - aCreated;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function patchSavedConversationSummaries(
+  summary: ConversationSummaryItem,
+  prunedIds: readonly string[] = []
+): ConversationSummaryItem[] {
+  const prunedSet = new Set(prunedIds);
+  const next = sortSummariesDesc([
+    summary,
+    ...chatSessionState.savedConversations.filter(
+      (item) => item.id !== summary.id && !prunedSet.has(item.id)
+    )
+  ]);
+  setSavedConversations(next);
+  return next;
+}
+
 async function emitConversationSyncSignal(
   storage: StorageArea | undefined,
-  signal: Omit<ConversationSyncSignal, "rev">
+  signal: Omit<ConversationSyncSignal, "seq">
 ): Promise<void> {
   if (!storage?.set) {
     return;
   }
   const payload: ConversationSyncSignal = {
-    rev: Date.now() * 1000 + (++syncSignalSeq % 1000),
+    seq: ++syncSignalSeq,
     ...signal
   };
   try {
@@ -607,26 +689,11 @@ async function migrateLegacyLocalHistoryIfNeeded(
     return;
   }
 
-  const existingList = await store.listConversations();
-  const existingById = new Map(existingList.map((item) => [item.id, item]));
-  const toImport: StoredConversation[] = [];
-  for (const conv of legacyNormalized) {
-    const existing = existingById.get(conv.id);
-    if (!existing || (Number(conv.updatedAt) || 0) > (Number(existing.updatedAt) || 0)) {
-      toImport.push(conv);
-    }
-  }
-
-  if (toImport.length > 0) {
-    const externalized = await externalizeConversationsForStorage(
-      toImport,
-      hydration.verifiedRefs,
-      hydration.preservedRefsOnRpcFailure,
-      store
-    );
-    await store.putConversationsMany(externalized.persisted);
-  }
-
+  const { persisted, images } = extractImagesForAtomicWrite(legacyNormalized);
+  await store.migrateLegacyConversationsAtomic({
+    conversations: persisted,
+    images
+  });
   await clearLegacyLocalHistoryKey(storage);
 }
 
@@ -721,319 +788,330 @@ async function reclaimOrphanChatImagesAfterWrite(options: {
   }
 }
 
-export function readConversationHistory(storage?: StorageArea): Promise<StoredConversation[]> {
+export async function listConversationSummaries(
+  storage?: StorageArea
+): Promise<ConversationSummaryItem[]> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const rawValue = await store.listConversations();
-    const hydration = await hydrateRawConversations(rawValue, store);
-    const conversations = normalizeConversations(hydration.hydratedRaw);
-    if (hydration.hasLegacyInlineImages) {
-      await lazyMigrateInlineImagesInIdb(
-        conversations,
-        hydration.verifiedRefs,
-        hydration.preservedRefsOnRpcFailure,
-        store
-      );
-    }
-    setSavedConversations(conversations);
-    return conversations;
-  });
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const metas = await store.listConversationMetas();
+  const summaries = sortSummariesDesc(
+    metas
+      .map((meta) => toConversationSummaryItem(meta))
+      .filter((item): item is ConversationSummaryItem => item !== null)
+  );
+  setSavedConversations(summaries);
+  return summaries;
 }
 
-export function readConversationById(
+export async function readConversationHistory(
+  storage?: StorageArea
+): Promise<StoredConversation[]> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(storage);
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const rawValue = await store.listConversations();
+  const hydration = await hydrateRawConversations(rawValue, store);
+  const conversations = normalizeConversations(hydration.hydratedRaw);
+  if (hydration.hasLegacyInlineImages) {
+    await lazyMigrateInlineImagesInIdb(
+      conversations,
+      hydration.verifiedRefs,
+      hydration.preservedRefsOnRpcFailure,
+      store
+    );
+  }
+  setSavedConversations(conversations);
+  return conversations;
+}
+
+export async function readConversationById(
   id: string,
   storage?: StorageArea
 ): Promise<StoredConversation | null> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const raw = await store.getConversation(id);
-    if (!raw) {
-      return null;
-    }
-    const hydration = await hydrateRawConversations([raw], store);
-    const normalized = normalizeConversations(hydration.hydratedRaw);
-    return normalized[0] ?? null;
-  });
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const raw = await store.getConversation(id);
+  if (!raw) {
+    return null;
+  }
+  const hydration = await hydrateRawConversations([raw], store);
+  const normalized = normalizeConversations(hydration.hydratedRaw);
+  const item = normalized[0] ?? null;
+  if (item && hydration.hasLegacyInlineImages) {
+    await lazyMigrateInlineImagesInIdb(
+      [item],
+      hydration.verifiedRefs,
+      hydration.preservedRefsOnRpcFailure,
+      store
+    );
+  }
+  return item;
 }
 
-export function countConversationHistory(storage?: StorageArea): Promise<number> {
+export async function countConversationHistory(storage?: StorageArea): Promise<number> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    return store.countConversations();
-  });
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  return store.countConversations();
 }
 
 export interface SaveConversationEntryOptions {
   storage?: StorageArea;
   maxCount?: number;
+  clientId?: string;
 }
 
-export function saveConversationEntry(
+export async function saveConversationEntry(
   conversation: StoredConversation,
   options: SaveConversationEntryOptions = {}
-): Promise<{ conversation: StoredConversation | null; prunedIds: string[] }> {
+): Promise<{
+  conversation: StoredConversation | null;
+  summary: ConversationSummaryItem | null;
+  prunedIds: string[];
+}> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(options.storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const normalizedList = normalizeConversations([conversation]);
-    const normalized = normalizedList[0];
-    if (!normalized) {
-      return { conversation: null, prunedIds: [] };
-    }
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const normalizedList = normalizeConversations([conversation]);
+  const normalized = normalizedList[0];
+  if (!normalized) {
+    return { conversation: null, summary: null, prunedIds: [] };
+  }
 
-    const existing = await store.getConversation(normalized.id);
-    const existingHydration = existing
-      ? await hydrateRawConversations([existing], store)
-      : {
-          hydratedRaw: [],
-          verifiedRefs: new Map<string, VerifiedChatImage>(),
-          preservedRefsOnRpcFailure: new Map<string, PersistedImageRef[]>(),
-          rawConversationIds: new Set<string>(),
-          rawImageRefs: new Set<string>(),
-          hasLegacyInlineImages: false,
-          readRpcFailed: false
-        };
+  const { persisted, images } = extractImagesForAtomicWrite([normalized]);
+  const record = persisted[0];
+  if (!record) {
+    return { conversation: null, summary: null, prunedIds: [] };
+  }
 
-    const externalized = await externalizeConversationsForStorage(
-      [normalized],
-      existingHydration.verifiedRefs,
-      existingHydration.preservedRefsOnRpcFailure,
-      store
-    );
-    const persisted = externalized.persisted[0];
-    if (!persisted) {
-      return { conversation: null, prunedIds: [] };
-    }
+  let resolvedMaxCount = options.maxCount;
+  if (resolvedMaxCount === undefined && !shouldRouteViaBackground()) {
+    resolvedMaxCount = await resolveChatHistoryMaxCount();
+  }
 
-    try {
-      await store.putConversation(persisted);
-    } catch (error) {
-      if (externalized.newlyWrittenImageIds.length > 0) {
-        await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
-      }
-      throw error;
-    }
-
-    if (!existingHydration.readRpcFailed && existingHydration.rawImageRefs.size > 0) {
-      const removedImgIds: string[] = [];
-      for (const oldRef of existingHydration.rawImageRefs) {
-        if (!externalized.activeImageIds.has(oldRef)) {
-          removedImgIds.push(oldRef);
-        }
-      }
-      if (removedImgIds.length > 0) {
-        await store.deleteChatImages(removedImgIds).catch(() => {});
-      }
-    }
-
-    const maxCount = Math.floor(Number(options.maxCount ?? 0));
-    let prunedIds: string[] = [];
-    if (Number.isFinite(maxCount) && maxCount > 0) {
-      const pruneRes = await store.pruneConversationsToLimit(maxCount);
-      prunedIds = pruneRes.removedIds;
-    }
-
-    const prunedSet = new Set(prunedIds);
-    const nextMemory = [
-      normalized,
-      ...chatSessionState.savedConversations.filter(
-        (item) => item.id !== normalized.id && !prunedSet.has(item.id)
-      )
-    ].sort((a, b) => {
-      const bUpdated = Number(b.updatedAt) || 0;
-      const aUpdated = Number(a.updatedAt) || 0;
-      if (bUpdated !== aUpdated) return bUpdated - aUpdated;
-      const bCreated = Number(b.createdAt) || 0;
-      const aCreated = Number(a.createdAt) || 0;
-      if (bCreated !== aCreated) return bCreated - aCreated;
-      return a.id.localeCompare(b.id);
-    });
-    const boundedMemory =
-      Number.isFinite(maxCount) && maxCount > 0 && nextMemory.length > maxCount
-        ? nextMemory.slice(0, maxCount)
-        : nextMemory;
-    setSavedConversations(boundedMemory);
-
+  const res = await store.upsertConversationAtomic({
+    conversation: record,
+    images,
+    ...(resolvedMaxCount !== undefined ? { maxCount: resolvedMaxCount } : {})
+  });
+  const summary = toConversationSummaryItem(res.summary) ?? toConversationSummaryItem(normalized);
+  if (summary) {
+    patchSavedConversationSummaries(summary, res.prunedIds);
     await emitConversationSyncSignal(targetStorage, {
-      op: prunedIds.length > 0 ? "prune" : "put",
-      id: normalized.id,
-      ...(prunedIds.length > 0 ? { ids: prunedIds } : {})
+      op: "upsert",
+      originClientId: options.clientId || TAB_CLIENT_ID,
+      summary,
+      ...(res.prunedIds.length > 0 ? { prunedIds: res.prunedIds } : {})
     });
+  }
 
-    return { conversation: normalized, prunedIds };
-  });
+  return { conversation: normalized, summary, prunedIds: res.prunedIds };
 }
 
-export function deleteConversationEntry(
+export async function saveLiveTextToolRecordEntry(
+  record: LiveTextToolRecord,
+  options: { storage?: StorageArea; clientId?: string } = {}
+): Promise<ConversationSummaryItem | null> {
+  const store = resolveActiveSubtitleStore();
+  const targetStorage = resolveDefaultLocalStorage(options.storage);
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const res = await store.upsertLiveTextToolItemAtomic({
+    record: record as unknown as Record<string, unknown>
+  });
+  if (!res.summary) {
+    return null;
+  }
+  const summary = toConversationSummaryItem(res.summary);
+  if (!summary) {
+    return null;
+  }
+  patchSavedConversationSummaries(summary);
+  await emitConversationSyncSignal(targetStorage, {
+    op: "upsert",
+    originClientId: options.clientId || TAB_CLIENT_ID,
+    summary
+  });
+  return summary;
+}
+
+export async function patchConversationSummaryAnchorEntry(
+  input: PatchConversationSummaryAnchorInput
+): Promise<PatchConversationSummaryAnchorResult> {
+  return resolveActiveSubtitleStore().patchConversationSummaryAnchor(input);
+}
+
+export async function deleteConversationEntry(
   id: string,
-  options: { storage?: StorageArea } = {}
+  options: { storage?: StorageArea; clientId?: string } = {}
 ): Promise<string[]> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(options.storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const cleanId = String(id || "").trim();
-    if (!cleanId) {
-      return [];
-    }
-    const removedIds = await store.deleteConversations([cleanId]);
-    await store.deleteChatImagesByConversationIds([cleanId]).catch(() => {});
-    setSavedConversations(chatSessionState.savedConversations.filter((item) => item.id !== cleanId));
-    await emitConversationSyncSignal(targetStorage, { op: "delete", ids: [cleanId] });
-    return removedIds;
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const cleanId = String(id || "").trim();
+  if (!cleanId) {
+    return [];
+  }
+  const res = await store.deleteConversationAtomic([cleanId]);
+  setSavedConversations(chatSessionState.savedConversations.filter((item) => item.id !== cleanId));
+  await emitConversationSyncSignal(targetStorage, {
+    op: "delete",
+    originClientId: options.clientId || TAB_CLIENT_ID,
+    deletedIds: [cleanId]
   });
+  return res.removedIds;
 }
 
-export function clearConversationHistory(
-  options: { storage?: StorageArea } = {}
+export async function clearConversationHistory(
+  options: { storage?: StorageArea; clientId?: string } = {}
 ): Promise<string[]> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(options.storage);
-  return enqueue(store, targetStorage, async () => {
-    await clearLegacyLocalHistoryKey(targetStorage);
-    const removedIds = await store.clearAllConversations();
-    await store.clearAllChatImages().catch(() => {});
-    setSavedConversations([]);
-    await emitConversationSyncSignal(targetStorage, { op: "clear" });
-    return removedIds;
+  await clearLegacyLocalHistoryKey(targetStorage);
+  const res = await store.clearConversationsAtomic();
+  setSavedConversations([]);
+  await emitConversationSyncSignal(targetStorage, {
+    op: "clear",
+    originClientId: options.clientId || TAB_CLIENT_ID
   });
+  return res.removedIds;
 }
 
-export function pruneConversationHistoryToLimit(
+export async function pruneConversationHistoryToLimit(
   maxCount: number,
-  options: { storage?: StorageArea } = {}
+  options: { storage?: StorageArea; clientId?: string } = {}
 ): Promise<PruneConversationsResult> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(options.storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const result = await store.pruneConversationsToLimit(maxCount);
-    if (result.removedIds.length > 0) {
-      const removedSet = new Set(result.removedIds);
-      const nextMemory = chatSessionState.savedConversations.filter((item) => !removedSet.has(item.id));
-      setSavedConversations(nextMemory);
-      if (chatSessionState.currentConversationId && removedSet.has(chatSessionState.currentConversationId)) {
-        detachConversationIdentity();
-        applyLiveContextToMain();
-      }
-      await emitConversationSyncSignal(targetStorage, {
-        op: "prune",
-        ids: result.removedIds
-      });
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const result = await store.pruneConversationsToLimit(maxCount);
+  if (result.removedIds.length > 0) {
+    const removedSet = new Set(result.removedIds);
+    const nextMemory = chatSessionState.savedConversations.filter((item) => !removedSet.has(item.id));
+    setSavedConversations(nextMemory);
+    if (chatSessionState.currentConversationId && removedSet.has(chatSessionState.currentConversationId)) {
+      detachConversationIdentity();
+      applyLiveContextToMain();
     }
-    return result;
-  });
+    await emitConversationSyncSignal(targetStorage, {
+      op: "delete",
+      originClientId: options.clientId || TAB_CLIENT_ID,
+      deletedIds: result.removedIds
+    });
+  }
+  return result;
 }
 
-export function updateConversationHistory(
+export async function updateConversationHistory(
   storage: StorageArea | undefined,
   update: (current: StoredConversation[]) => StoredConversation[],
-  options: { maxCount?: number } = {}
+  options: { maxCount?: number; clientId?: string } = {}
 ): Promise<StoredConversation[]> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const rawCurrent = await store.listConversations();
-    const hydration = await hydrateRawConversations(rawCurrent, store);
-    const current = normalizeConversations(hydration.hydratedRaw);
-    const next = normalizeConversations(update(current), {
-      ...(options.maxCount !== undefined ? { maxCount: options.maxCount } : {})
-    });
-    const externalized = await externalizeConversationsForStorage(
-      next,
-      hydration.verifiedRefs,
-      hydration.preservedRefsOnRpcFailure,
-      store
-    );
-
-    const nextIds = new Set(externalized.persisted.map((item) => item.id));
-    const removedIds: string[] = [];
-    for (const prev of rawCurrent) {
-      if (prev.id && !nextIds.has(prev.id)) {
-        removedIds.push(prev.id);
-      }
-    }
-
-    try {
-      if (externalized.persisted.length === 0) {
-        await store.clearAllConversations();
-      } else {
-        await store.putConversationsMany(externalized.persisted);
-        if (removedIds.length > 0) {
-          await store.deleteConversations(removedIds);
-        }
-      }
-    } catch (error) {
-      if (externalized.newlyWrittenImageIds.length > 0) {
-        await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
-      }
-      throw error;
-    }
-
-    await reclaimOrphanChatImagesAfterWrite({
-      store,
-      next,
-      rawConversationIds: hydration.rawConversationIds,
-      rawImageRefs: hydration.rawImageRefs,
-      activeImageIds: externalized.activeImageIds,
-      externalizedCount: externalized.externalizedCount,
-      readRpcFailed: hydration.readRpcFailed
-    });
-
-    setSavedConversations(next);
-    await emitConversationSyncSignal(targetStorage, {
-      op: externalized.persisted.length === 0 ? "clear" : "replace"
-    });
-    return next;
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const rawCurrent = await store.listConversations();
+  const hydration = await hydrateRawConversations(rawCurrent, store);
+  const current = normalizeConversations(hydration.hydratedRaw);
+  const next = normalizeConversations(update(current), {
+    ...(options.maxCount !== undefined ? { maxCount: options.maxCount } : {})
   });
+  const externalized = await externalizeConversationsForStorage(
+    next,
+    hydration.verifiedRefs,
+    hydration.preservedRefsOnRpcFailure,
+    store
+  );
+
+  const nextIds = new Set(externalized.persisted.map((item) => item.id));
+  const removedIds: string[] = [];
+  for (const prev of rawCurrent) {
+    if (prev.id && !nextIds.has(prev.id)) {
+      removedIds.push(prev.id);
+    }
+  }
+
+  try {
+    if (externalized.persisted.length === 0) {
+      await store.clearAllConversations();
+    } else {
+      await store.putConversationsMany(externalized.persisted);
+      if (removedIds.length > 0) {
+        await store.deleteConversations(removedIds);
+      }
+    }
+  } catch (error) {
+    if (externalized.newlyWrittenImageIds.length > 0) {
+      await store.deleteChatImages(externalized.newlyWrittenImageIds).catch(() => {});
+    }
+    throw error;
+  }
+
+  await reclaimOrphanChatImagesAfterWrite({
+    store,
+    next,
+    rawConversationIds: hydration.rawConversationIds,
+    rawImageRefs: hydration.rawImageRefs,
+    activeImageIds: externalized.activeImageIds,
+    externalizedCount: externalized.externalizedCount,
+    readRpcFailed: hydration.readRpcFailed
+  });
+
+  setSavedConversations(next);
+  const originClientId = options.clientId || TAB_CLIENT_ID;
+  if (externalized.persisted.length === 0) {
+    await emitConversationSyncSignal(targetStorage, { op: "clear", originClientId });
+  } else if (next[0]) {
+    const summary = toConversationSummaryItem(next[0]);
+    if (summary) {
+      await emitConversationSyncSignal(targetStorage, {
+        op: "upsert",
+        originClientId,
+        summary,
+        ...(removedIds.length > 0 ? { prunedIds: removedIds } : {})
+      });
+    }
+  }
+  return next;
 }
 
-export function pruneOrphanChatImages(storage?: StorageArea): Promise<string[]> {
+export async function pruneOrphanChatImages(storage?: StorageArea): Promise<string[]> {
   const store = resolveActiveSubtitleStore();
   const targetStorage = resolveDefaultLocalStorage(storage);
-  return enqueue(store, targetStorage, async () => {
-    await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
-    const rawValue = await store.listConversations();
-    const validConversationIds: string[] = [];
-    const keepImageIds: string[] = [];
+  await migrateLegacyLocalHistoryIfNeeded(targetStorage, store);
+  const rawValue = await store.listConversations();
+  const validConversationIds: string[] = [];
+  const keepImageIds: string[] = [];
 
-    for (const item of rawValue) {
-      if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
+  for (const item of rawValue) {
+    if (!item || typeof item !== "object" || isLiveTextToolHistoryEntry(item)) {
+      continue;
+    }
+    const convId = String(item.id || "").trim();
+    if (!convId) {
+      continue;
+    }
+    validConversationIds.push(convId);
+    const messages = (item as { messages?: unknown }).messages;
+    if (!Array.isArray(messages)) {
+      continue;
+    }
+    for (const msg of messages) {
+      const images = (msg as { images?: unknown } | null)?.images;
+      if (!Array.isArray(images)) {
         continue;
       }
-      const convId = String(item.id || "").trim();
-      if (!convId) {
-        continue;
-      }
-      validConversationIds.push(convId);
-      const messages = (item as { messages?: unknown }).messages;
-      if (!Array.isArray(messages)) {
-        continue;
-      }
-      for (const msg of messages) {
-        const images = (msg as { images?: unknown } | null)?.images;
-        if (!Array.isArray(images)) {
-          continue;
-        }
-        for (const entry of images) {
-          if (isPersistedImageRef(entry)) {
-            keepImageIds.push(entry.idbRef.trim());
-          }
+      for (const entry of images) {
+        if (isPersistedImageRef(entry)) {
+          keepImageIds.push(entry.idbRef.trim());
         }
       }
     }
+  }
 
-    if (validConversationIds.length === 0) {
-      return store.clearAllChatImages();
-    }
-    return store.pruneChatImages({ validConversationIds, keepImageIds });
-  });
+  if (validConversationIds.length === 0) {
+    return store.clearAllChatImages();
+  }
+  return store.pruneChatImages({ validConversationIds, keepImageIds });
 }

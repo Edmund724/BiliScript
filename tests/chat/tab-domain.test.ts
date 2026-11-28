@@ -431,6 +431,7 @@ describe("createChatTabDomain 任务级接口行为", () => {
     chatSessionStateForTests.savedConversations = [
       {
         id: "conv-bili",
+        kind: "chat",
         title: "视频甲",
         createdAt: 1,
         updatedAt: 1,
@@ -444,7 +445,9 @@ describe("createChatTabDomain 任务级接口行为", () => {
           cid: "101",
           url: "https://www.bilibili.com/video/BV1alpha00001/"
         },
-        messages: [{ role: "user", content: "问句" }]
+        messageCount: 1,
+        recordCount: 0,
+        hasImages: false
       }
     ];
     h.messages.innerHTML = '<div class="chat-msg">旧视频消息</div>';

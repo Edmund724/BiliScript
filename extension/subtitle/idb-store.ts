@@ -1,6 +1,12 @@
 import type { SubtitleBodyItem, SubtitleWord } from "../shared/video-dto.js";
 import { base64ToBytes, bytesToBase64 } from "../shared/bytes.js";
 import {
+  LIVE_TEXT_TOOL_HISTORY_KIND,
+  MAX_LIVE_TEXT_TOOL_RECORDS_PER_VIDEO,
+  normalizeLiveTextToolHistoryEntry,
+  normalizeLiveTextToolRecord
+} from "../live/live-text-tool-history.js";
+import {
   YOUTUBE_UNIT_CID,
   isEncodedYoutubeStorageBvid,
   normalizeSiteId,
@@ -40,6 +46,7 @@ export const NOTE_HIGHLIGHTS_INDEX_UPDATED_AT = "by_updatedAt";
 export const STORE_META_IDB_STORE = "store_meta";
 export const VIDEO_CACHE_LEDGER_META_KEY = "video_cache_ledger";
 export const LEGACY_LOCAL_MIGRATION_DONE_META_KEY = "biliscript_idb_v2_migration_done";
+export const CONVERSATIONS_V1_MIGRATED_META_KEY = "conversations_v1_migrated";
 
 const LEGACY_CONVERSATIONS_IDB_STORE = "conversations";
 const LEGACY_AI_ARTIFACTS_INDEX_FAMILY_LAST_USED = "by_family_lastUsedAt";
@@ -363,8 +370,17 @@ export interface ConversationMetaRecord {
   [key: string]: unknown;
 }
 
+export interface ConversationSummaryAnchor {
+  coveredMessageCount: number;
+  summaryText?: string;
+  updatedAt?: number;
+  coveredMessageIds?: string[];
+  boundaryHash?: string;
+  [key: string]: unknown;
+}
+
 export type ConversationMessagesRecord =
-  | { id: string; kind: "chat"; messages: unknown[]; summaryAnchor?: unknown; updatedAt: number }
+  | { id: string; kind: "chat"; messages: unknown[]; summaryAnchor?: ConversationSummaryAnchor; updatedAt: number }
   | { id: string; kind: "live-text-tool"; records: unknown[]; updatedAt: number };
 
 export interface PersistedConversationRecord {
@@ -377,6 +393,53 @@ export interface PersistedConversationRecord {
 export interface PruneConversationsResult {
   removedIds: string[];
   keptCount: number;
+}
+
+export interface UpsertConversationAtomicInput {
+  conversation: PersistedConversationRecord;
+  images?: readonly PutChatImageInput[];
+  maxCount?: number;
+}
+
+export interface UpsertConversationAtomicResult {
+  summary: ConversationMetaRecord;
+  prunedIds: string[];
+}
+
+export interface UpsertLiveTextToolItemAtomicInput {
+  record: Record<string, unknown>;
+  maxRecordsPerVideo?: number;
+}
+
+export interface UpsertLiveTextToolItemAtomicResult {
+  summary: ConversationMetaRecord | null;
+}
+
+export interface PatchConversationSummaryAnchorInput {
+  id: string;
+  summaryAnchor: ConversationSummaryAnchor;
+  expectedCoveredMessageIds?: readonly string[];
+  expectedBoundaryContent?: string;
+}
+
+export interface PatchConversationSummaryAnchorResult {
+  updated: boolean;
+  summaryAnchor?: ConversationSummaryAnchor;
+}
+
+export interface DeleteConversationAtomicResult {
+  removedIds: string[];
+  removedImageIds: string[];
+}
+
+export interface MigrateLegacyConversationsInput {
+  conversations: readonly PersistedConversationRecord[];
+  images?: readonly PutChatImageInput[];
+}
+
+export interface MigrateLegacyConversationsResult {
+  migrated: boolean;
+  importedCount: number;
 }
 
 export interface NoteHighlightRecordItem {
@@ -458,6 +521,12 @@ export interface SubtitleIdbStore {
   deleteConversations(ids: string[]): Promise<string[]>;
   clearAllConversations(): Promise<string[]>;
   pruneConversationsToLimit(maxCount: number): Promise<PruneConversationsResult>;
+  upsertConversationAtomic(input: UpsertConversationAtomicInput): Promise<UpsertConversationAtomicResult>;
+  upsertLiveTextToolItemAtomic(input: UpsertLiveTextToolItemAtomicInput): Promise<UpsertLiveTextToolItemAtomicResult>;
+  patchConversationSummaryAnchor(input: PatchConversationSummaryAnchorInput): Promise<PatchConversationSummaryAnchorResult>;
+  deleteConversationAtomic(ids: string[]): Promise<DeleteConversationAtomicResult>;
+  clearConversationsAtomic(): Promise<DeleteConversationAtomicResult>;
+  migrateLegacyConversationsAtomic(input: MigrateLegacyConversationsInput): Promise<MigrateLegacyConversationsResult>;
 
   getNoteHighlights(videoKey: string): Promise<NoteHighlightBucketRecord | null>;
   putNoteHighlights(record: NoteHighlightBucketRecord): Promise<void>;
@@ -893,7 +962,9 @@ function splitConversationRecord(
         id,
         kind: "chat",
         messages: rawMessages,
-        ...(src.summaryAnchor !== undefined ? { summaryAnchor: src.summaryAnchor } : {}),
+        ...(src.summaryAnchor && typeof src.summaryAnchor === "object"
+          ? { summaryAnchor: src.summaryAnchor as ConversationSummaryAnchor }
+          : {}),
         updatedAt
       };
   return { meta, body };
@@ -2609,13 +2680,380 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
           const metas = sortByUpdatedDesc(
             await collectCursor(metaStore, undefined, (v) => (v && typeof v === "object" ? (v as ConversationMetaRecord) : null))
           );
-          if (!Number.isFinite(limit) || limit <= 0 || metas.length <= limit) return { removedIds: [], keptCount: metas.length };
-          const removedIds = metas.slice(limit).map((m) => m.id);
+          const chatMetas = metas.filter((m) => m.kind !== LIVE_TEXT_TOOL_HISTORY_KIND);
+          if (!Number.isFinite(limit) || limit <= 0 || chatMetas.length <= limit) return { removedIds: [], keptCount: metas.length };
+          const removedIds = chatMetas.slice(limit).map((m) => m.id);
           const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
           for (const id of removedIds) { metaStore.delete(id); msgStore.delete(id); }
           await deleteChatImagesForConvIdsInTx(tx.objectStore(CHAT_IMAGES_IDB_STORE), removedIds);
           return { removedIds, keptCount: metas.length - removedIds.length };
         });
+      }),
+
+    upsertConversationAtomic: (input) =>
+      enqueue(async () => {
+        const split = splitConversationRecord(input?.conversation);
+        if (!split) throw new Error("Invalid conversation record");
+        const ts = now();
+        const preparedImages: StoredChatImageRecord[] = [];
+        for (const rawImg of Array.isArray(input?.images) ? input.images : []) {
+          const cleanId = String(rawImg?.id || "").trim();
+          const cleanConvId = String(rawImg?.conversationId || split.meta.id).trim();
+          const rawBvid = String(rawImg?.bvid ?? "").trim();
+          const cleanBvid = rawBvid ? resolveVideoStorageIdentity(rawBvid, rawImg?.cid, rawImg?.site).bvid : "";
+          let cleanMime = typeof rawImg?.mime === "string" ? rawImg.mime.trim() : "";
+          let blob: Blob | null = null;
+          const rawBlob = rawImg?.blob;
+          if (isBlobLike(rawBlob) && rawBlob.size > 0) {
+            blob = rawBlob;
+            if (!cleanMime) cleanMime = rawBlob.type || "application/octet-stream";
+          } else {
+            const rawStr = typeof rawImg?.dataUrl === "string" && rawImg.dataUrl ? rawImg.dataUrl : typeof rawImg?.data === "string" ? rawImg.data : "";
+            if (rawStr) {
+              const parts = chatImageDataUrlToParts(rawStr, cleanMime);
+              cleanMime = parts.mime || cleanMime;
+              if (parts.data) blob = base64ToChatImageBlob(parts.data, cleanMime);
+            }
+          }
+          if (!cleanId || !cleanConvId || !cleanMime || !blob || blob.size === 0) continue;
+          const resolvedBlob = blob;
+          if (writeInterceptor) {
+            await writeInterceptor({ op: "put-chat-image", pageId: "", bvid: cleanBvid, cid: "", trackKey: cleanId, key: cleanId, conversationId: cleanConvId });
+          }
+          preparedImages.push({
+            id: cleanId,
+            conversationId: cleanConvId,
+            bvid: cleanBvid,
+            mime: cleanMime,
+            blob: resolvedBlob,
+            byteLength: resolvedBlob.size,
+            createdAt: posTs(rawImg.createdAt, ts),
+            updatedAt: posTs(rawImg.updatedAt, ts)
+          });
+        }
+
+        const activeImageIds = new Set<string>();
+        if (split.body.kind === "chat") {
+          for (const msg of split.body.messages) {
+            const imgs = (msg as { images?: unknown } | null)?.images;
+            if (!Array.isArray(imgs)) continue;
+            for (const entry of imgs) {
+              const ref = (entry as { idbRef?: unknown } | null)?.idbRef;
+              if (typeof ref === "string" && ref.trim()) activeImageIds.add(ref.trim());
+            }
+          }
+        }
+
+        const limit = Math.floor(Number(input?.maxCount ?? 0));
+        return withTx(
+          [CONVERSATION_META_IDB_STORE, CONVERSATION_MESSAGES_IDB_STORE, CHAT_IMAGES_IDB_STORE],
+          "readwrite",
+          async (tx) => {
+            const metaStore = tx.objectStore(CONVERSATION_META_IDB_STORE);
+            const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
+            const imgStore = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+
+            if (split.body.kind === "chat" && split.body.summaryAnchor === undefined) {
+              const prevBody = (await idbReq(msgStore.get(split.meta.id))) as ConversationMessagesRecord | undefined;
+              if (prevBody?.kind === "chat" && prevBody.summaryAnchor) {
+                const covered = Number(prevBody.summaryAnchor.coveredMessageCount) || 0;
+                if (
+                  covered > 0 &&
+                  split.body.messages.length >= covered &&
+                  Array.isArray(prevBody.messages) &&
+                  prevBody.messages.length >= covered
+                ) {
+                  let prefixMatches = true;
+                  for (let i = 0; i < covered; i += 1) {
+                    const a = prevBody.messages[i] as { role?: unknown; content?: unknown } | null;
+                    const b = split.body.messages[i] as { role?: unknown; content?: unknown } | null;
+                    if (a?.role !== b?.role || a?.content !== b?.content) {
+                      prefixMatches = false;
+                      break;
+                    }
+                  }
+                  if (prefixMatches) split.body.summaryAnchor = cloneValue(prevBody.summaryAnchor);
+                }
+              }
+            }
+
+            for (const img of preparedImages) {
+              const existingImg = normalizeStoredChatImage(await idbReq(imgStore.get(img.id)));
+              imgStore.put({
+                ...img,
+                createdAt: posTs(existingImg?.createdAt, img.createdAt),
+                updatedAt: img.updatedAt
+              });
+            }
+
+            if (split.body.kind === "chat") {
+              const staleImgIds: string[] = [];
+              await walkKeyCursor(imgStore.index(CHAT_IMAGES_INDEX_CONVERSATION_ID), split.meta.id, (pk) => {
+                const key = String(pk);
+                if (!activeImageIds.has(key)) staleImgIds.push(key);
+              });
+              for (const imgId of staleImgIds) imgStore.delete(imgId);
+            }
+
+            await Promise.all([
+              idbReq(metaStore.put(split.meta)),
+              idbReq(msgStore.put(split.body))
+            ]);
+
+            let prunedIds: string[] = [];
+            if (split.meta.kind !== LIVE_TEXT_TOOL_HISTORY_KIND && Number.isFinite(limit) && limit > 0) {
+              const metas = sortByUpdatedDesc(
+                await collectCursor(metaStore, undefined, (v) =>
+                  v && typeof v === "object" ? (v as ConversationMetaRecord) : null
+                )
+              );
+              const chatMetas = metas.filter((m) => m.kind !== LIVE_TEXT_TOOL_HISTORY_KIND);
+              if (chatMetas.length > limit) {
+                prunedIds = chatMetas.slice(limit).map((m) => m.id);
+                for (const id of prunedIds) {
+                  metaStore.delete(id);
+                  msgStore.delete(id);
+                }
+                await deleteChatImagesForConvIdsInTx(imgStore, prunedIds);
+              }
+            }
+
+            return { summary: cloneValue(split.meta), prunedIds };
+          }
+        );
+      }),
+
+    upsertLiveTextToolItemAtomic: (input) =>
+      enqueue(async () => {
+        const record = normalizeLiveTextToolRecord(input?.record);
+        if (!record?.video) return { summary: null };
+        const id = `live:${record.video.bvid}:${record.video.cid}`;
+        const cap = Math.max(1, Math.floor(Number(input?.maxRecordsPerVideo) || MAX_LIVE_TEXT_TOOL_RECORDS_PER_VIDEO));
+        return withTx([CONVERSATION_META_IDB_STORE, CONVERSATION_MESSAGES_IDB_STORE], "readwrite", async (tx) => {
+          const metaStore = tx.objectStore(CONVERSATION_META_IDB_STORE);
+          const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
+          const [existingMetaRaw, existingBodyRaw] = await Promise.all([
+            idbReq(metaStore.get(id)),
+            idbReq(msgStore.get(id))
+          ]);
+          const current =
+            existingMetaRaw && typeof existingMetaRaw === "object"
+              ? normalizeLiveTextToolHistoryEntry(
+                  assembleConversationRecord(
+                    existingMetaRaw as ConversationMetaRecord,
+                    (existingBodyRaw as ConversationMessagesRecord | undefined) ?? null
+                  )
+                )
+              : null;
+          const nextEntry = normalizeLiveTextToolHistoryEntry({
+            ...(current || {}),
+            id,
+            kind: LIVE_TEXT_TOOL_HISTORY_KIND,
+            title: record.video!.title,
+            contextTitle: record.video!.title,
+            contextUrl: record.video!.url,
+            contextRef: record.video,
+            createdAt: current?.createdAt || record.startedAt,
+            updatedAt: Math.max(Number(current?.updatedAt) || 0, record.endedAt || record.startedAt),
+            messages: [],
+            records: [record, ...(current?.records || []).filter((item) => item.callId !== record.callId)]
+          });
+          if (!nextEntry) return { summary: null };
+          if (nextEntry.records.length > cap) {
+            nextEntry.records = nextEntry.records.slice(0, cap);
+          }
+          const split = splitConversationRecord(nextEntry);
+          if (!split) return { summary: null };
+          metaStore.put(split.meta);
+          msgStore.put(split.body);
+          return { summary: cloneValue(split.meta) };
+        });
+      }),
+
+    patchConversationSummaryAnchor: (input) =>
+      enqueue(async () => {
+        const cleanId = String(input?.id || "").trim();
+        const nextAnchor = input?.summaryAnchor;
+        const covered = Number(nextAnchor?.coveredMessageCount);
+        if (!cleanId || !nextAnchor || typeof nextAnchor !== "object" || !Number.isInteger(covered) || covered <= 0) {
+          return { updated: false };
+        }
+        return withTx(CONVERSATION_MESSAGES_IDB_STORE, "readwrite", async (tx) => {
+          const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
+          const bodyRaw = (await idbReq(msgStore.get(cleanId))) as ConversationMessagesRecord | undefined;
+          if (!bodyRaw || bodyRaw.kind !== "chat" || !Array.isArray(bodyRaw.messages)) {
+            return { updated: false };
+          }
+          const prevAnchor =
+            bodyRaw.summaryAnchor && typeof bodyRaw.summaryAnchor === "object"
+              ? bodyRaw.summaryAnchor
+              : undefined;
+          const prevCount = Number(prevAnchor?.coveredMessageCount) || 0;
+          if (covered <= prevCount || bodyRaw.messages.length < covered) {
+            return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
+          }
+          if (Array.isArray(input.expectedCoveredMessageIds) && input.expectedCoveredMessageIds.length > 0) {
+            if (input.expectedCoveredMessageIds.length !== covered) {
+              return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
+            }
+            for (let i = 0; i < covered; i += 1) {
+              const msg = bodyRaw.messages[i] as { id?: unknown } | null;
+              const actualId = typeof msg?.id === "string" ? msg.id : "";
+              if (actualId !== input.expectedCoveredMessageIds[i]) {
+                return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
+              }
+            }
+          }
+          if (typeof input.expectedBoundaryContent === "string") {
+            const boundary = bodyRaw.messages[covered - 1] as { content?: unknown } | null;
+            if (String(boundary?.content ?? "") !== input.expectedBoundaryContent) {
+              return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
+            }
+          }
+          const patched = cloneValue(nextAnchor);
+          bodyRaw.summaryAnchor = patched;
+          msgStore.put(bodyRaw);
+          return { updated: true, summaryAnchor: cloneValue(patched) };
+        });
+      }),
+
+    deleteConversationAtomic: (ids) =>
+      enqueue(async () => {
+        const cleanIds = cleanIdList(ids);
+        if (cleanIds.length === 0) return { removedIds: [], removedImageIds: [] };
+        return withTx(
+          [CONVERSATION_META_IDB_STORE, CONVERSATION_MESSAGES_IDB_STORE, CHAT_IMAGES_IDB_STORE],
+          "readwrite",
+          async (tx) => {
+            const metaStore = tx.objectStore(CONVERSATION_META_IDB_STORE);
+            const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
+            for (const id of cleanIds) {
+              metaStore.delete(id);
+              msgStore.delete(id);
+            }
+            const removedImageIds = await deleteChatImagesForConvIdsInTx(
+              tx.objectStore(CHAT_IMAGES_IDB_STORE),
+              cleanIds
+            );
+            return { removedIds: cleanIds, removedImageIds };
+          }
+        );
+      }),
+
+    clearConversationsAtomic: () =>
+      enqueue(() =>
+        withTx(
+          [CONVERSATION_META_IDB_STORE, CONVERSATION_MESSAGES_IDB_STORE, CHAT_IMAGES_IDB_STORE],
+          "readwrite",
+          async (tx) => {
+            const metaStore = tx.objectStore(CONVERSATION_META_IDB_STORE);
+            const imgStore = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+            const removedIds: string[] = [];
+            const removedImageIds: string[] = [];
+            await walkKeyCursor(metaStore, undefined, (pk) => { removedIds.push(String(pk)); });
+            await walkKeyCursor(imgStore, undefined, (pk) => { removedImageIds.push(String(pk)); });
+            metaStore.clear();
+            tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE).clear();
+            imgStore.clear();
+            return { removedIds, removedImageIds };
+          }
+        )
+      ),
+
+    migrateLegacyConversationsAtomic: (input) =>
+      enqueue(async () => {
+        const ts = now();
+        const records = Array.isArray(input?.conversations) ? input.conversations : [];
+        const preparedImages: StoredChatImageRecord[] = [];
+        const failedInlineById = new Map<string, { mime: string; data: string }>();
+        for (const rawImg of Array.isArray(input?.images) ? input.images : []) {
+          const cleanId = String(rawImg?.id || "").trim();
+          const cleanConvId = String(rawImg?.conversationId || "").trim();
+          const rawBvid = String(rawImg?.bvid ?? "").trim();
+          const cleanBvid = rawBvid ? resolveVideoStorageIdentity(rawBvid, rawImg?.cid, rawImg?.site).bvid : "";
+          let cleanMime = typeof rawImg?.mime === "string" ? rawImg.mime.trim() : "";
+          let blob: Blob | null = null;
+          let fallbackData = "";
+          const rawBlob = rawImg?.blob;
+          if (isBlobLike(rawBlob) && rawBlob.size > 0) {
+            blob = rawBlob;
+            if (!cleanMime) cleanMime = rawBlob.type || "application/octet-stream";
+          } else {
+            const rawStr = typeof rawImg?.dataUrl === "string" && rawImg.dataUrl ? rawImg.dataUrl : typeof rawImg?.data === "string" ? rawImg.data : "";
+            if (rawStr) {
+              const parts = chatImageDataUrlToParts(rawStr, cleanMime);
+              cleanMime = parts.mime || cleanMime;
+              fallbackData = parts.data;
+              if (parts.data) blob = base64ToChatImageBlob(parts.data, cleanMime);
+            }
+          }
+          if (!cleanId || !cleanConvId || !cleanMime || !blob || blob.size === 0) continue;
+          const resolvedBlob = blob;
+          if (writeInterceptor) {
+            try {
+              await writeInterceptor({ op: "put-chat-image", pageId: "", bvid: cleanBvid, cid: "", trackKey: cleanId, key: cleanId, conversationId: cleanConvId });
+            } catch {
+              if (fallbackData) failedInlineById.set(cleanId, { mime: cleanMime, data: fallbackData });
+              continue;
+            }
+          }
+          preparedImages.push({
+            id: cleanId,
+            conversationId: cleanConvId,
+            bvid: cleanBvid,
+            mime: cleanMime,
+            blob: resolvedBlob,
+            byteLength: resolvedBlob.size,
+            createdAt: posTs(rawImg.createdAt, ts),
+            updatedAt: posTs(rawImg.updatedAt, ts)
+          });
+        }
+
+        return withTx(
+          [CONVERSATION_META_IDB_STORE, CONVERSATION_MESSAGES_IDB_STORE, CHAT_IMAGES_IDB_STORE, STORE_META_IDB_STORE],
+          "readwrite",
+          async (tx) => {
+            const storeMeta = tx.objectStore(STORE_META_IDB_STORE);
+            const existingFlag = await idbReq(storeMeta.get(CONVERSATIONS_V1_MIGRATED_META_KEY));
+            if (existingFlag) {
+              return { migrated: false, importedCount: 0 };
+            }
+            const metaStore = tx.objectStore(CONVERSATION_META_IDB_STORE);
+            const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
+            const imgStore = tx.objectStore(CHAT_IMAGES_IDB_STORE);
+            for (const img of preparedImages) {
+              imgStore.put(img);
+            }
+            let importedCount = 0;
+            for (const rec of records) {
+              const split = splitConversationRecord(rec);
+              if (!split) continue;
+              if (failedInlineById.size > 0 && split.body.kind === "chat") {
+                for (const msg of split.body.messages) {
+                  const imgs = (msg as { images?: unknown } | null)?.images;
+                  if (!Array.isArray(imgs)) continue;
+                  for (let i = 0; i < imgs.length; i += 1) {
+                    const entry = imgs[i] as { idbRef?: unknown } | null;
+                    const ref = typeof entry?.idbRef === "string" ? entry.idbRef.trim() : "";
+                    const fallback = ref ? failedInlineById.get(ref) : undefined;
+                    if (fallback) imgs[i] = { mime: fallback.mime, data: fallback.data };
+                  }
+                }
+              }
+              const existingMeta = (await idbReq(metaStore.get(split.meta.id))) as ConversationMetaRecord | undefined;
+              if (!existingMeta || split.meta.updatedAt > (Number(existingMeta.updatedAt) || 0)) {
+                metaStore.put(split.meta);
+                msgStore.put(split.body);
+                importedCount += 1;
+              }
+            }
+            storeMeta.put({
+              key: CONVERSATIONS_V1_MIGRATED_META_KEY,
+              value: { version: 1, migratedAt: ts, importedCount }
+            });
+            return { migrated: true, importedCount };
+          }
+        );
       }),
 
     getNoteHighlights: (videoKey) =>

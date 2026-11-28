@@ -540,6 +540,98 @@ function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): Subtitl
         () => fallbackStore.pruneConversationsToLimit(maxCount),
         "裁剪历史对话失败"
       ),
+    async upsertConversationAtomic(input) {
+      const wireImages = Array.isArray(input.images) && input.images.length > 0
+        ? await Promise.all(input.images.map(toWirePutChatImageInput))
+        : undefined;
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "upsert-conversation-atomic",
+          conversation: input.conversation,
+          ...(wireImages ? { chatImages: wireImages } : {}),
+          ...(input.maxCount !== undefined ? { maxCount: input.maxCount } : {})
+        },
+        (response) => {
+          if (!response.summary) throw new Error("保存历史对话失败");
+          return { summary: response.summary, prunedIds: response.prunedIds ?? [] };
+        },
+        () => fallbackStore.upsertConversationAtomic(input),
+        "保存历史对话失败"
+      );
+    },
+    upsertLiveTextToolItemAtomic: (input) =>
+      callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "upsert-live-text-tool-item-atomic",
+          liveTextToolRecord: input.record,
+          ...(input.maxRecordsPerVideo !== undefined ? { maxRecordsPerVideo: input.maxRecordsPerVideo } : {})
+        },
+        (response) => ({ summary: response.summary ?? null }),
+        () => fallbackStore.upsertLiveTextToolItemAtomic(input),
+        "保存伴看记录失败"
+      ),
+    patchConversationSummaryAnchor: (input) =>
+      callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "patch-conversation-summary-anchor",
+          id: input.id,
+          summaryAnchor: input.summaryAnchor,
+          ...(input.expectedCoveredMessageIds
+            ? { expectedCoveredMessageIds: [...input.expectedCoveredMessageIds] }
+            : {}),
+          ...(input.expectedBoundaryContent !== undefined
+            ? { expectedBoundaryContent: input.expectedBoundaryContent }
+            : {})
+        },
+        (response) => ({
+          updated: Boolean(response.updated),
+          ...(response.summaryAnchor ? { summaryAnchor: response.summaryAnchor } : {})
+        }),
+        () => fallbackStore.patchConversationSummaryAnchor(input),
+        "更新会话摘要锚点失败"
+      ),
+    deleteConversationAtomic: (ids) =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "delete-conversation-atomic", ids },
+        (response) => ({
+          removedIds: response.removedIds ?? [],
+          removedImageIds: response.removedImageIds ?? []
+        }),
+        () => fallbackStore.deleteConversationAtomic(ids),
+        "删除历史对话失败"
+      ),
+    clearConversationsAtomic: () =>
+      callSubtitleStoreRpcOrFallback(
+        { type: "subtitle-cache", op: "clear-conversations-atomic" },
+        (response) => ({
+          removedIds: response.removedIds ?? [],
+          removedImageIds: response.removedImageIds ?? []
+        }),
+        () => fallbackStore.clearConversationsAtomic(),
+        "清空历史对话失败"
+      ),
+    async migrateLegacyConversationsAtomic(input) {
+      const wireImages = Array.isArray(input.images) && input.images.length > 0
+        ? await Promise.all(input.images.map(toWirePutChatImageInput))
+        : undefined;
+      return callSubtitleStoreRpcOrFallback(
+        {
+          type: "subtitle-cache",
+          op: "migrate-legacy-conversations",
+          conversations: [...input.conversations],
+          ...(wireImages ? { chatImages: wireImages } : {})
+        },
+        (response) => ({
+          migrated: Boolean(response.migrated),
+          importedCount: Number(response.importedCount) || 0
+        }),
+        () => fallbackStore.migrateLegacyConversationsAtomic(input),
+        "迁移旧版历史对话失败"
+      );
+    },
 
     getNoteHighlights: (videoKey) =>
       callSubtitleStoreRpcOrFallback(

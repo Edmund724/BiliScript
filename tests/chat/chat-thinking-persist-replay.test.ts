@@ -176,8 +176,11 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
 
       resetChatSessionStateForTests();
       await store.loadAll();
-      const loaded = chatSessionState.savedConversations.find((item) => item.id === "conv-test") as any;
-      expect(loaded?.messages[1]).toMatchObject({
+      const loadedSummary = chatSessionState.savedConversations.find((item) => item.id === "conv-test");
+      expect(loadedSummary).toMatchObject({ id: "conv-test", messageCount: 2 });
+      expect("messages" in (loadedSummary as object)).toBe(false);
+      await store.applyById("conv-test");
+      expect(chatSessionState.chatHistory[1]).toMatchObject({
         role: "assistant",
         content: "",
         thinking: "深度思考",

@@ -141,17 +141,16 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   });
 
   it("restoreLatest 命中项分页补水:仅命中项一条请求(purpose=page),change 序列 = [{}, {}]", async () => {
-    const { store, deps } = makeHarness({
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness({
       resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async (ref, purpose) => {
         expect(purpose).toBe("page");
         return { pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" };
       })
     });
+    await saveConversationEntry(makeConversation("c1"), { storage });
+    await saveConversationEntry(makeConversation("c2", { url: "https://www.bilibili.com/video/BVother" }), { storage });
     const log = makeOrderLog(deps);
-    setSavedConversations([
-      makeConversation("c1"),
-      makeConversation("c2", { url: "https://www.bilibili.com/video/BVother" })
-    ]);
     chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionStateForTests.liveContextKey = "k-1";
 
@@ -182,7 +181,8 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   });
 
   it("persistCurrent:消息的 images 字段随文本一起落盘（image-input 路线 B 的白名单透传）", async () => {
-    const { store } = makeHarness();
+    const { readConversationById } = await import("../../extension/chat/conversation-storage.js");
+    const { store, storage } = makeHarness();
     const images = [{ mime: "image/webp", data: "QUJD" }];
     chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
     chatSessionStateForTests.currentContextKey = "k-1";
@@ -193,13 +193,20 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
 
     await store.persistCurrent();
 
-    expect(chatSessionState.savedConversations[0].messages).toEqual([
+    expect(chatSessionState.savedConversations[0]).toMatchObject({
+      hasImages: true,
+      messageCount: 2
+    });
+    expect("messages" in chatSessionState.savedConversations[0]).toBe(false);
+    const hydrated = await readConversationById(chatSessionState.savedConversations[0].id, storage);
+    expect(hydrated && "messages" in hydrated ? hydrated.messages : []).toEqual([
       { role: "user", content: "这张图里是什么", images },
       { role: "assistant", content: "是截图" }
     ]);
   });
 
   it("落盘只留最近一张图；重开（loadAll + restoreLatest）后追问仍带得回那张图", async () => {
+    const { readConversationById } = await import("../../extension/chat/conversation-storage.js");
     const { store, storage } = makeHarness();
     const earlier = { mime: "image/webp", data: "QUJD" };
     const latest = { mime: "image/webp", data: "WFla" };
@@ -220,7 +227,9 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
       { role: "user", content: "这张呢", images: [latest] },
       { role: "assistant", content: "也是截图" }
     ];
-    expect(chatSessionState.savedConversations[0].messages).toEqual(persisted);
+    expect(chatSessionState.savedConversations[0]).toMatchObject({ hasImages: true, messageCount: 4 });
+    const savedHydrated = await readConversationById(chatSessionState.savedConversations[0].id, storage);
+    expect(savedHydrated && "messages" in savedHydrated ? savedHydrated.messages : []).toEqual(persisted);
 
     const { store: reopened } = makeHarness({ storage });
     chatSessionStateForTests.currentContextKey = "";
@@ -238,13 +247,13 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
 
 describe("restoreLatest / applyById 的 change 时序", () => {
   it("restoreLatest 有匹配:change 恰一次 {},无断流(命中项无需分页补水时)", async () => {
-    const { store, deps } = makeHarness();
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness();
+    const conversation = makeConversation("c1", { url: `${URL_A}?p=2`, pageIndex: 2 });
+    await saveConversationEntry(conversation, { storage });
     makeOrderLog(deps);
-    const conversation = makeConversation("c1");
-    conversation.title = "视频A-P1";
-    setSavedConversations([conversation]);
-    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
-    chatSessionStateForTests.liveContextKey = "k-1";
+    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", cid: "2", url: `${URL_A}?p=2`, isVideoContext: true };
+    chatSessionStateForTests.liveContextKey = "video:BV1abc|2";
 
     const result = await store.restoreLatest();
 
@@ -273,16 +282,17 @@ describe("restoreLatest / applyById 的 change 时序", () => {
   });
 
   it("applyById(上下文键与 live 不一致):change = {resetView} → notice pending,补水解析走 purpose=context", async () => {
-    const { store, deps } = makeHarness({
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness({
       resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async (ref, purpose) => {
         expect(purpose).toBe("context");
         return { bvid: "BV1abc", cid: "1", url: URL_A, title: "视频A", isVideoContext: true };
       })
     });
+    await saveConversationEntry(makeConversation("c1", { contextKey: "k-other" }), { storage });
     const log = makeOrderLog(deps);
-    setSavedConversations([makeConversation("c1", { contextKey: "k-other" })]);
 
-    store.applyById("c1");
+    await store.applyById("c1");
 
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({ resetView: true });
@@ -294,12 +304,13 @@ describe("restoreLatest / applyById 的 change 时序", () => {
     expect(deps.onStreamInterrupted).not.toHaveBeenCalled();
   });
 
-  it("applyById(键与 live 一致):change = {resetView},不发 pending 也不补水", () => {
-    const { store, deps } = makeHarness();
-    setSavedConversations([makeConversation("c1", { contextKey: "k-1" })]);
-    chatSessionStateForTests.liveContextKey = "k-1";
+  it("applyById(键与 live 一致):change = {resetView},不发 pending 也不补水", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness();
+    await saveConversationEntry(makeConversation("c1", { contextKey: "video:BV1abc|1" }), { storage });
+    chatSessionStateForTests.liveContextKey = "video:BV1abc|1";
 
-    store.applyById("c1");
+    await store.applyById("c1");
 
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({ resetView: true });
@@ -310,12 +321,13 @@ describe("restoreLatest / applyById 的 change 时序", () => {
 
 describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("deleteById 当前会话:onStreamInterrupted 同步先于一切 change;尾次 change = {resetView}", async () => {
-    const { store, deps } = makeHarness();
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness();
+    await saveConversationEntry(makeConversation("c1"), { storage });
     const log = makeOrderLog(deps);
-    setSavedConversations([makeConversation("c1")]);
     chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
-    chatSessionStateForTests.liveContextKey = "k-1";
-    store.applyById("c1");
+    chatSessionStateForTests.liveContextKey = "video:BV1abc|1";
+    await store.applyById("c1");
     deps.onConversationChanged.mockClear();
     log.length = 0;
 
@@ -533,7 +545,7 @@ describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
     const conversations = [makeConversation("c1"), makeConversation("c2")];
     setSavedConversations(conversations);
     await storage.set({ biliscript_ai_conversations_v1: conversations });
-    store.applyById("c1");
+    await store.applyById("c1");
 
     const deletion = await store.deleteById("c1");
     expect(chatSessionState.currentConversationId).toBe("");

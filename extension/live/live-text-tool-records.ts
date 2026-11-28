@@ -1,10 +1,6 @@
-import type { StoredConversation } from "../chat/conversation-storage.js";
 import type { StorageArea } from "../chat/conversation-store.js";
 import { formatClock } from "../shared/clock-text.js";
-import {
-  upsertLiveTextToolHistoryEntry,
-  type LiveTextToolVideo
-} from "./live-text-tool-history.js";
+import type { LiveTextToolVideo } from "./live-text-tool-history.js";
 
 export type LiveTextToolSource = "gemini" | "moss";
 export type LiveTextToolStatus = "running" | "completed" | "failed";
@@ -295,13 +291,8 @@ export async function persistLiveTextToolRecord(
 ): Promise<void> {
   const target = storage || (typeof chrome !== "undefined" ? (chrome.storage?.local as StorageArea) : undefined);
   if ((record.status !== "completed" && record.status !== "failed") || !record.video) return;
-  const { resolveChatHistoryMaxCount, updateConversationHistory } = await import("../chat/conversation-storage.js");
-  const maxCount = await resolveChatHistoryMaxCount();
-  await updateConversationHistory(
-    target,
-    (current) => upsertLiveTextToolHistoryEntry(current, record) as StoredConversation[],
-    { maxCount }
-  );
+  const { saveLiveTextToolRecordEntry } = await import("../chat/conversation-storage.js");
+  await saveLiveTextToolRecordEntry(record, { storage: target });
 }
 
 export function createLiveTextToolCoordinator(

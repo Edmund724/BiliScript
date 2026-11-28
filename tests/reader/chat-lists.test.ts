@@ -95,56 +95,64 @@ describe("renderHistoryList（历史会话）", () => {
     expect(deps.deleteById).toHaveBeenCalledWith("c1");
   });
 
-  it("伴看记录展示类别与数量，打开只读详情不恢复对话或提供伴看动作", async () => {
+  it("伴看记录展示类别与数量，打开只读详情按需水合不恢复对话或提供伴看动作", async () => {
+    const liveFull = {
+      id: "live:BV1test000000:1",
+      kind: "live-text-tool" as const,
+      title: "伴看视频",
+      contextKey: "video:BV1test000000|1",
+      contextTitle: "伴看视频",
+      contextUrl: "https://www.bilibili.com/video/BV1test000000",
+      isVideoContext: true as const,
+      createdAt: 100,
+      updatedAt: 200,
+      contextRef: { bvid: "BV1test000000", cid: "1", pageIndex: 1, title: "伴看视频", url: "https://www.bilibili.com/video/BV1test000000" },
+      messages: [] as [],
+      records: [
+        {
+          callId: "completed",
+          source: "gemini" as const,
+          status: "completed" as const,
+          objective: "梳理论点",
+          summary: "完成摘要",
+          markdown: "# 完整结果\n\n**正文**",
+          startedAt: 100,
+          endedAt: 200,
+          durationMs: 100
+        },
+        {
+          callId: "failed",
+          source: "moss" as const,
+          status: "failed" as const,
+          objective: "总结全片",
+          summary: "失败前摘要",
+          markdown: "失败前全文",
+          error: "模型限流",
+          startedAt: 50,
+          endedAt: 80,
+          durationMs: 30
+        }
+      ]
+    };
+    const loadLiveHistoryById = vi.fn(async () => liveFull);
     applyConversationIdentity({ id: "ordinary", history: [{ role: "user", content: "普通问题" }] });
-    setSavedConversations([
-      {
-        id: "live:BV1test000000:1",
-        kind: "live-text-tool",
-        title: "伴看视频",
-        contextKey: "video:BV1test000000|1",
-        contextTitle: "伴看视频",
-        contextUrl: "https://www.bilibili.com/video/BV1test000000",
-        isVideoContext: true,
-        createdAt: 100,
-        updatedAt: 200,
-        contextRef: { bvid: "BV1test000000", cid: "1" },
-        messages: [],
-        records: [
-          {
-            callId: "completed",
-            source: "gemini",
-            status: "completed",
-            objective: "梳理论点",
-            summary: "完成摘要",
-            markdown: "# 完整结果\n\n**正文**",
-            startedAt: 100,
-            endedAt: 200,
-            durationMs: 100
-          },
-          {
-            callId: "failed",
-            source: "moss",
-            status: "failed",
-            objective: "总结全片",
-            summary: "失败前摘要",
-            markdown: "失败前全文",
-            error: "模型限流",
-            startedAt: 50,
-            endedAt: 80,
-            durationMs: 30
-          }
-        ]
-      }
-    ]);
-    const { lists, deps, historyList } = makeDeps();
+    setSavedConversations([liveFull]);
+    expect("records" in chatSessionState.savedConversations[0]).toBe(false);
+    expect(chatSessionState.savedConversations[0].recordCount).toBe(2);
+
+    const { lists, deps, historyList } = makeDeps({ loadLiveHistoryById });
     lists.renderHistoryList();
 
     expect(historyList.textContent).toContain("伴看记录");
     expect(historyList.textContent).toContain("伴看视频");
     expect(historyList.textContent).toContain("2 条记录");
+    expect(loadLiveHistoryById).not.toHaveBeenCalled();
+
     historyList.scrollTop = 120;
     clickOnce(historyList.querySelector(".chat-history-open")!);
+    expect(loadLiveHistoryById).toHaveBeenCalledWith("live:BV1test000000:1");
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(historyList.scrollTop).toBe(0);
     expect(deps.applyById).not.toHaveBeenCalled();

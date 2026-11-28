@@ -24,8 +24,10 @@ import {
   HISTORY_STORAGE_KEY,
   clearConversationHistory,
   deleteConversationEntry,
+  getTabClientId,
+  listConversationSummaries,
+  patchSavedConversationSummaries,
   readConversationById,
-  readConversationHistory,
   resolveChatHistoryMaxCount,
   saveConversationEntry,
   type ConversationSyncSignal
@@ -42,11 +44,15 @@ import {
   setSavedConversations,
   type CurrentConversationMeta
 } from "./chat-state.js";
-import type {
-  ChatSessionMessage,
-  ChatSessionSavedConversation,
-  OrdinaryConversation
+import {
+  isLiveTextToolSummary,
+  toConversationSummaryItem,
+  type ChatSessionMessage,
+  type ChatSessionSavedConversation,
+  type ConversationSummaryItem,
+  type OrdinaryConversation
 } from "./conversation-types.js";
+import type { ChatTranscriptMode } from "./protocol.js";
 
 export type Conversation = ChatSessionSavedConversation;
 
@@ -84,6 +90,9 @@ export function isPinnedYoutubeCacheEvicted(meta: CurrentConversationMeta | null
 
 function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   const base: ChatSessionMessage = { role: item.role, content: String(item.content || "") };
+  if (typeof item.id === "string" && item.id.trim()) {
+    base.id = item.id.trim();
+  }
   const images = normalizeImageParts(item.images);
   if (images) {
     base.images = images;
@@ -118,6 +127,7 @@ export interface ConversationMeta {
   pinnedContext: boolean;
   contextRef: AiContext | null;
   resolvedContext?: AiContext | null;
+  transcriptMode?: ChatTranscriptMode;
 }
 
 export interface StorageArea {
@@ -164,6 +174,7 @@ export interface CreateConversationStoreDeps {
   syncStorage?: StorageArea;
   getMaxCount?: () => Promise<number> | number;
   confirmClearAll?: (message: string) => boolean | Promise<boolean>;
+  clientId?: string;
 }
 
 export interface ConversationDeletion {
@@ -171,11 +182,15 @@ export interface ConversationDeletion {
   undo: () => Promise<void>;
 }
 
+export interface PersistCurrentOptions {
+  transcriptMode?: ChatTranscriptMode;
+}
+
 export interface ConversationStore {
   loadAll: () => Promise<void>;
   isCurrent: (id: string) => boolean;
-  persistCurrent: () => Promise<void>;
-  applyById: (id: string) => void;
+  persistCurrent: (opts?: PersistCurrentOptions) => Promise<void>;
+  applyById: (id: string) => Promise<boolean>;
   deleteById: (id: string) => Promise<ConversationDeletion | null>;
   clearAll: () => Promise<void>;
   restoreLatest: (opts?: StreamInterruptOptions) => Promise<boolean>;
@@ -183,8 +198,10 @@ export interface ConversationStore {
   hydratePinned: (opts?: HydratePinnedOptions) => Promise<boolean>;
 }
 
-export function needsConversationPageHydration(conversation: Conversation | null | undefined): boolean {
-  if (!conversation?.isVideoContext || isLiveTextToolHistoryEntry(conversation)) {
+export function needsConversationPageHydration(
+  conversation: Conversation | OrdinaryConversation | null | undefined
+): boolean {
+  if (!conversation?.isVideoContext || isLiveTextToolSummary(conversation)) {
     return false;
   }
   const site = normalizeSiteId(
@@ -225,19 +242,22 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   const { loadContextState, resolveAiConversationRef, onConversationChanged, onStreamInterrupted, onContextNotice } = deps;
   const storage = deps.storage || (typeof chrome !== "undefined" && (chrome?.storage?.local as StorageArea)) || undefined;
   const confirmClearAll = deps.confirmClearAll || ((message: string) => confirmDialog({ message, confirmText: "清空", danger: true }));
+  const clientId = deps.clientId;
+  let applySeq = 0;
 
   function emitChange(change: ConversationChange = {}): void {
     onConversationChanged(change);
   }
 
-  function saved(): Conversation[] {
+  function saved(): ConversationSummaryItem[] {
     return chatSessionState.savedConversations;
   }
-  function commitSaved(next: Conversation[]): void {
+  function commitSaved(next: readonly ConversationSummaryItem[]): void {
     setSavedConversations(next);
   }
 
   function detachCurrent(opts?: StreamInterruptOptions): void {
+    applySeq += 1;
     onStreamInterrupted(opts);
     detachConversationIdentity();
   }
@@ -246,17 +266,20 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     applyLiveContextToMain();
   }
 
-  async function resolveMaxCount(): Promise<number> {
+  async function resolveExplicitMaxCount(): Promise<number | undefined> {
     if (typeof deps.getMaxCount === "function") {
       const value = Math.floor(Number(await deps.getMaxCount()));
       return Number.isFinite(value) && value > 0 ? value : 0;
     }
-    return resolveChatHistoryMaxCount(deps.syncStorage);
+    if (deps.syncStorage) {
+      return resolveChatHistoryMaxCount(deps.syncStorage);
+    }
+    return undefined;
   }
 
   async function loadAll(): Promise<void> {
-    const normalized = await readConversationHistory(storage);
-    commitSaved(normalized);
+    const summaries = await listConversationSummaries(storage);
+    commitSaved(summaries);
     emitChange({});
   }
 
@@ -318,14 +341,22 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   async function saveHydratedConversation(hydrated: OrdinaryConversation): Promise<void> {
-    const maxCount = await resolveMaxCount();
-    await saveConversationEntry(hydrated, { storage, maxCount });
+    const maxCount = await resolveExplicitMaxCount();
+    await saveConversationEntry(hydrated, {
+      storage,
+      ...(maxCount !== undefined ? { maxCount } : {}),
+      ...(clientId ? { clientId } : {})
+    });
     emitChange({});
   }
 
   async function savePersistedConversation(nextConversation: OrdinaryConversation): Promise<void> {
-    const maxCount = await resolveMaxCount();
-    await saveConversationEntry(nextConversation, { storage, maxCount });
+    const maxCount = await resolveExplicitMaxCount();
+    await saveConversationEntry(nextConversation, {
+      storage,
+      ...(maxCount !== undefined ? { maxCount } : {}),
+      ...(clientId ? { clientId } : {})
+    });
     emitChange({});
   }
 
@@ -336,14 +367,29 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const latest = conversations.find((item) =>
       doesConversationMatchCurrentContext(item, currentRef, targetContextKey)
     );
-    if (!latest || isLiveTextToolHistoryEntry(latest)) {
+    if (!latest || isLiveTextToolSummary(latest)) {
       detachCurrent(opts);
       return false;
     }
-    if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
-      await saveHydratedConversation(latest);
+    const seq = ++applySeq;
+    const full = await readConversationById(latest.id, storage);
+    if (seq !== applySeq) {
+      return false;
     }
-    apply(latest);
+    if (!full || isLiveTextToolHistoryEntry(full)) {
+      detachCurrent(opts);
+      return false;
+    }
+    if (needsConversationPageHydration(full) && (await hydrateConversationPage(full))) {
+      if (seq !== applySeq) {
+        return false;
+      }
+      await saveHydratedConversation(full);
+      if (seq !== applySeq) {
+        return false;
+      }
+    }
+    apply(full);
     return true;
   }
 
@@ -365,7 +411,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       isVideoContext: conversation.isVideoContext !== false,
       pinnedContext: true,
       contextRef: conversation.contextRef || null,
-      resolvedContext: matchesLive && liveData ? { ...liveData } : null
+      resolvedContext: matchesLive && liveData ? { ...liveData } : null,
+      ...(conversation.transcriptMode ? { transcriptMode: conversation.transcriptMode } : {})
     };
     applyConversationIdentity({
       id: conversation.id,
@@ -383,31 +430,50 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange(change);
   }
 
-  function applyById(id: string): void {
-    const conversation = saved().find((item) => item.id === id);
-    if (!conversation || isLiveTextToolHistoryEntry(conversation)) {
-      return;
+  async function applyById(id: string): Promise<boolean> {
+    const summary = saved().find((item) => item.id === id);
+    if (!summary || isLiveTextToolSummary(summary)) {
+      return false;
     }
-    apply(conversation, { resetView: true });
-    if (conversation.contextKey && conversation.contextKey !== chatSessionState.liveContextKey) {
+    const seq = ++applySeq;
+    const full = await readConversationById(id, storage);
+    if (seq !== applySeq) {
+      return false;
+    }
+    if (!full || isLiveTextToolHistoryEntry(full)) {
+      return false;
+    }
+    apply(full, { resetView: true });
+    if (full.contextKey && full.contextKey !== chatSessionState.liveContextKey) {
       onContextNotice({ kind: "pending", message: "正在加载原视频上下文..." });
       void hydratePinned({ silent: true });
     }
+    return true;
   }
 
   async function deleteById(id: string): Promise<ConversationDeletion | null> {
-    const index = saved().findIndex((item) => item.id === id);
-    if (index < 0) {
+    const initialIndex = saved().findIndex((item) => item.id === id);
+    if (initialIndex < 0) {
       return null;
     }
-    const conversation = saved()[index];
+    const fullRecord = await readConversationById(id, storage);
+    const currentIndex = saved().findIndex((item) => item.id === id);
+    if (currentIndex < 0) {
+      return null;
+    }
+    const summarySnapshot = saved()[currentIndex];
     const wasCurrent = id === chatSessionState.currentConversationId;
     if (wasCurrent) {
       detachCurrent();
+    } else {
+      applySeq += 1;
     }
     const next = saved().filter((item) => item.id !== id);
     commitSaved(next);
-    await deleteConversationEntry(id, { storage });
+    await deleteConversationEntry(id, {
+      storage,
+      ...(clientId ? { clientId } : {})
+    });
     emitChange({});
     if (wasCurrent) {
       repopulateLive();
@@ -422,15 +488,30 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
           return;
         }
         consumed = true;
-        const restored = saved().filter((item) => item.id !== id);
-        restored.splice(Math.min(index, restored.length), 0, conversation);
-        commitSaved(restored);
-        const maxCount = await resolveMaxCount();
-        await saveConversationEntry(conversation, { storage, maxCount });
-        emitChange({});
-        if (wasCurrent) {
-          applyById(id);
+        if (fullRecord) {
+          const maxCount = await resolveExplicitMaxCount();
+          const saveRes = await saveConversationEntry(fullRecord, {
+            storage,
+            ...(maxCount !== undefined ? { maxCount } : {}),
+            ...(clientId ? { clientId } : {})
+          });
+          const prunedSet = new Set(saveRes.prunedIds);
+          const restored = saved().filter((item) => item.id !== id && !prunedSet.has(item.id));
+          const restoredSummary = saveRes.summary ?? summarySnapshot;
+          if (!prunedSet.has(id)) {
+            restored.splice(Math.min(currentIndex, restored.length), 0, restoredSummary);
+          }
+          commitSaved(restored);
+          emitChange({});
+          if (wasCurrent && !isLiveTextToolHistoryEntry(fullRecord) && !prunedSet.has(id)) {
+            apply(fullRecord, { resetView: true });
+          }
+          return;
         }
+        const restored = saved().filter((item) => item.id !== id);
+        restored.splice(Math.min(currentIndex, restored.length), 0, summarySnapshot);
+        commitSaved(restored);
+        emitChange({});
       }
     };
   }
@@ -440,7 +521,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       return;
     }
     const confirmMessage =
-      supportsLiveCompanion() || saved().some(isLiveTextToolHistoryEntry)
+      supportsLiveCompanion() || saved().some(isLiveTextToolSummary)
         ? "确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"
         : "确定要清空全部历史记录吗？";
     if (!(await confirmClearAll(confirmMessage))) {
@@ -448,7 +529,10 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     commitSaved([]);
     detachCurrent();
-    await clearConversationHistory({ storage });
+    await clearConversationHistory({
+      storage,
+      ...(clientId ? { clientId } : {})
+    });
     emitChange({});
     repopulateLive();
     emitChange({ historyCleared: true, resetView: true });
@@ -462,7 +546,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return id === chatSessionState.currentConversationId;
   }
 
-  async function persistCurrent(): Promise<void> {
+  async function persistCurrent(opts?: PersistCurrentOptions): Promise<void> {
     const chat = chatSessionState.chatHistory;
     const context = chatSessionState.contextData;
     if (!chat.length || !context) {
@@ -471,6 +555,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const now = Date.now();
     let currentId = chatSessionState.currentConversationId;
     let meta = chatSessionState.currentConversationMeta;
+    const resolvedTranscriptMode = opts?.transcriptMode ?? meta?.transcriptMode;
     if (!currentId) {
       currentId = generateConversationId();
       meta = {
@@ -484,7 +569,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         isVideoContext: context.isVideoContext !== false,
         pinnedContext: true,
         contextRef: buildAiContextRef(context),
-        resolvedContext: { ...context }
+        resolvedContext: { ...context },
+        ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {})
       };
       applyConversationIdentity({ id: currentId, meta });
     }
@@ -498,10 +584,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       createdAt: Number(meta?.createdAt) || now,
       updatedAt: now,
       contextRef: meta?.contextRef || buildAiContextRef(context),
-      messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item)))
+      messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item))),
+      ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {})
     };
-    const filtered = saved().filter((item) => item.id !== currentId);
-    commitSaved([nextConversation, ...filtered]);
+    const nextSummary = toConversationSummaryItem(nextConversation);
+    if (nextSummary) {
+      const filtered = saved().filter((item) => item.id !== currentId);
+      commitSaved([nextSummary, ...filtered]);
+    }
     applyConversationIdentity({
       meta: {
         id: nextConversation.id,
@@ -514,13 +604,18 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         isVideoContext: nextConversation.isVideoContext,
         pinnedContext: true,
         contextRef: nextConversation.contextRef,
-        resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context }
+        resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context },
+        ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {})
       }
     });
     await savePersistedConversation(nextConversation);
   }
 
   async function hydratePinned({ silent = false, preserveInput = false }: HydratePinnedOptions = {}): Promise<boolean> {
+    const startSeq = applySeq;
+    const startConvId = chatSessionState.currentConversationId;
+    const isStaleHydrate = () =>
+      startSeq !== applySeq || chatSessionState.currentConversationId !== startConvId;
     let meta = chatSessionState.currentConversationMeta;
     const targetKey = String(meta?.contextKey || "").trim();
     const cachedResolvedContext = meta?.resolvedContext;
@@ -534,6 +629,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 
     if (targetKey && chatSessionState.liveContextKey && targetKey === chatSessionState.liveContextKey) {
       const ok = await loadContextState({ forceRefresh: false, silent: true, preserveInput });
+      if (isStaleHydrate()) {
+        return false;
+      }
       const liveContext = chatSessionState.liveContextData;
       const context =
         liveContext && Array.isArray(liveContext.subtitleBody) && liveContext.subtitleBody.length > 0
@@ -575,6 +673,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       error: (error as Error)?.message || String(error || ""),
       ...(isYoutubeCacheEvictedError(error) ? { code: YOUTUBE_CACHE_EVICTED } : {})
     }));
+    if (isStaleHydrate()) {
+      return false;
+    }
     if (!response?.ok || !response.payload) {
       onContextNotice({ kind: "clear" });
       const isYoutubeEvicted =
@@ -641,8 +742,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 }
 
 function areSavedConversationsEquivalent(
-  left: readonly ChatSessionSavedConversation[],
-  right: readonly ChatSessionSavedConversation[]
+  left: readonly ConversationSummaryItem[],
+  right: readonly ConversationSummaryItem[]
 ): boolean {
   if (left.length !== right.length) {
     return false;
@@ -652,16 +753,15 @@ function areSavedConversationsEquivalent(
     const b = right[i];
     if (
       a.id !== b.id ||
+      a.kind !== b.kind ||
       Number(a.updatedAt) !== Number(b.updatedAt) ||
       a.title !== b.title ||
       a.contextKey !== b.contextKey ||
-      (Array.isArray(a.messages) ? a.messages.length : 0) !== (Array.isArray(b.messages) ? b.messages.length : 0)
+      a.messageCount !== b.messageCount ||
+      a.recordCount !== b.recordCount ||
+      a.hasImages !== b.hasImages ||
+      a.transcriptMode !== b.transcriptMode
     ) {
-      return false;
-    }
-    const aRecords = isLiveTextToolHistoryEntry(a) && Array.isArray(a.records) ? a.records.length : -1;
-    const bRecords = isLiveTextToolHistoryEntry(b) && Array.isArray(b.records) ? b.records.length : -1;
-    if (aRecords !== bRecords) {
       return false;
     }
   }
@@ -669,7 +769,9 @@ function areSavedConversationsEquivalent(
 }
 
 export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
-  const next = normalizeConversations(rawValue);
+  const next = normalizeConversations(rawValue)
+    .map((item) => toConversationSummaryItem(item))
+    .filter((item): item is ConversationSummaryItem => item !== null);
   if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
     return false;
   }
@@ -677,77 +779,125 @@ export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
   return true;
 }
 
+export interface ApplyConversationSyncSignalOptions {
+  storage?: StorageArea;
+  clientId?: string;
+  onCurrentUpdated?: () => void;
+}
+
+function isStorageAreaLike(value: unknown): value is StorageArea {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as { get?: unknown }).get === "function" &&
+      typeof (value as { set?: unknown }).set === "function"
+  );
+}
+
 export async function applyConversationSyncSignal(
   rawSignal: unknown,
-  storage?: StorageArea
+  storageOrOptions?: StorageArea | ApplyConversationSyncSignalOptions
 ): Promise<boolean> {
   if (!rawSignal || typeof rawSignal !== "object") {
     return false;
   }
-  const signal = rawSignal as Partial<ConversationSyncSignal>;
+  const opts: ApplyConversationSyncSignalOptions = isStorageAreaLike(storageOrOptions)
+    ? { storage: storageOrOptions }
+    : (storageOrOptions ?? {});
+  const localClientId = opts.clientId || getTabClientId();
+  const signal = rawSignal as Partial<ConversationSyncSignal> & { ids?: string[] };
+
+  if (typeof signal.originClientId === "string" && signal.originClientId === localClientId) {
+    return false;
+  }
+
   switch (signal.op) {
     case "clear": {
-      if (chatSessionState.savedConversations.length === 0) {
+      if (chatSessionState.savedConversations.length === 0 && !chatSessionState.currentConversationId) {
         return false;
       }
       setSavedConversations([]);
       if (chatSessionState.currentConversationId) {
         detachConversationIdentity();
         applyLiveContextToMain();
+        opts.onCurrentUpdated?.();
       }
       return true;
     }
     case "delete": {
-      const ids = Array.isArray(signal.ids)
-        ? signal.ids.map((id) => String(id || "").trim()).filter(Boolean)
-        : [];
+      const rawIds = Array.isArray(signal.deletedIds)
+        ? signal.deletedIds
+        : Array.isArray(signal.ids)
+          ? signal.ids
+          : [];
+      const ids = rawIds.map((id) => String(id || "").trim()).filter(Boolean);
       if (ids.length === 0) {
         return false;
       }
       const removedSet = new Set(ids);
       const next = chatSessionState.savedConversations.filter((item) => !removedSet.has(item.id));
-      if (next.length === chatSessionState.savedConversations.length) {
-        return false;
+      const listChanged = next.length !== chatSessionState.savedConversations.length;
+      if (listChanged) {
+        setSavedConversations(next);
       }
-      setSavedConversations(next);
+      let currentChanged = false;
       if (chatSessionState.currentConversationId && removedSet.has(chatSessionState.currentConversationId)) {
         detachConversationIdentity();
         applyLiveContextToMain();
+        opts.onCurrentUpdated?.();
+        currentChanged = true;
       }
-      return true;
+      return listChanged || currentChanged;
     }
-    case "put": {
-      const id = String(signal.id || "").trim();
-      if (!id) {
-        await readConversationHistory(storage);
-        return true;
-      }
-      const updated = await readConversationById(id, storage);
-      if (!updated) {
+    case "upsert": {
+      const summary = toConversationSummaryItem(signal.summary);
+      if (!summary) {
         return false;
       }
-      const next = [
-        updated,
-        ...chatSessionState.savedConversations.filter((item) => item.id !== updated.id)
-      ].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
-        return false;
-      }
-      setSavedConversations(next);
-      return true;
-    }
-    case "prune":
-    case "replace": {
+      const prunedIds = Array.isArray(signal.prunedIds)
+        ? signal.prunedIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const prunedSet = new Set(prunedIds);
       const prev = chatSessionState.savedConversations;
-      const next = await readConversationHistory(storage);
-      if (
-        chatSessionState.currentConversationId &&
-        !next.some((item) => item.id === chatSessionState.currentConversationId)
-      ) {
+      const next = patchSavedConversationSummaries(summary, prunedIds);
+      const listChanged = !areSavedConversationsEquivalent(prev, next);
+
+      const currentId = chatSessionState.currentConversationId;
+      let currentChanged = false;
+      if (currentId && prunedSet.has(currentId)) {
         detachConversationIdentity();
         applyLiveContextToMain();
+        opts.onCurrentUpdated?.();
+        currentChanged = true;
+      } else if (currentId && currentId === summary.id && !isLiveTextToolSummary(summary)) {
+        const refreshed = await readConversationById(summary.id, opts.storage);
+        if (
+          refreshed &&
+          !isLiveTextToolHistoryEntry(refreshed) &&
+          chatSessionState.currentConversationId === summary.id
+        ) {
+          const prevMeta = chatSessionState.currentConversationMeta;
+          applyConversationIdentity({
+            meta: {
+              ...prevMeta,
+              id: refreshed.id,
+              title: refreshed.title,
+              createdAt: refreshed.createdAt,
+              updatedAt: refreshed.updatedAt,
+              contextKey: refreshed.contextKey,
+              contextTitle: refreshed.contextTitle,
+              contextUrl: refreshed.contextUrl,
+              isVideoContext: refreshed.isVideoContext !== false,
+              contextRef: refreshed.contextRef || prevMeta?.contextRef || null,
+              ...(refreshed.transcriptMode ? { transcriptMode: refreshed.transcriptMode } : {})
+            },
+            history: refreshed.messages.map((item) => normalizeHistoryMessage(item))
+          });
+          opts.onCurrentUpdated?.();
+          currentChanged = true;
+        }
       }
-      return !areSavedConversationsEquivalent(prev, next);
+      return listChanged || currentChanged;
     }
     default:
       return false;

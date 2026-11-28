@@ -176,7 +176,7 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     expect(chatSessionState.savedConversations.map((c) => c.id)).toEqual(["conv-b", "conv-0"]);
   });
 
-  it("目标为真实 chrome.storage.local 且具备 navigator.locks 时经同源 Web Lock 串行化", async () => {
+  it("已移除网页源 navigator.locks，写入由后台单写者队列串行化且不调用 Web Lock", async () => {
     const storage = makeSharedStorage();
     const requestLock = vi.fn(async (_name: string, callback: () => Promise<unknown>) => callback());
     vi.stubGlobal("chrome", {
@@ -190,8 +190,7 @@ describe("跨标签页并发会话持久化与外部同步", () => {
     await updateConversationHistory(storage, () => [conv as any]);
 
     const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
-    expect(requestLock).toHaveBeenCalledTimes(1);
-    expect(requestLock).toHaveBeenCalledWith(CONVERSATIONS_STORAGE_KEY, expect.any(Function));
+    expect(requestLock).not.toHaveBeenCalled();
     expect((await resolveActiveSubtitleStore().listConversations()).map((c) => c.id)).toEqual(["conv-lock"]);
   });
 });

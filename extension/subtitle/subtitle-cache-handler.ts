@@ -14,6 +14,7 @@ import type {
 
 export interface SubtitleCacheHandlerOptions {
   resolveVideoCacheMaxBytes?: () => Promise<number>;
+  resolveChatHistoryMaxCount?: () => Promise<number>;
 }
 
 const str = (v: unknown): string => String(v || "");
@@ -208,6 +209,67 @@ export function createSubtitleCacheHandler(
       "prune-conversations": async (m) => {
         const res = await store.pruneConversationsToLimit(Number(m.maxCount ?? 0));
         return ok({ removedIds: res.removedIds, keptCount: res.keptCount });
+      },
+      "upsert-conversation-atomic": async (m) => {
+        if (!m.conversation || typeof m.conversation !== "object") return fail("缺少对话写入参数");
+        let maxCount = 0;
+        if (m.maxCount !== undefined) {
+          const explicit = Math.floor(Number(m.maxCount));
+          maxCount = Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
+        } else if (typeof options.resolveChatHistoryMaxCount === "function") {
+          const configured = Math.floor(Number(await options.resolveChatHistoryMaxCount().catch(() => 0)));
+          maxCount = Number.isFinite(configured) && configured > 0 ? configured : 0;
+        }
+        const res = await store.upsertConversationAtomic({
+          conversation: m.conversation,
+          images: arr(m.chatImages),
+          maxCount
+        });
+        return ok({ summary: res.summary, prunedIds: res.prunedIds });
+      },
+      "upsert-live-text-tool-item-atomic": async (m) => {
+        if (!m.liveTextToolRecord || typeof m.liveTextToolRecord !== "object") {
+          return fail("缺少伴看记录写入参数");
+        }
+        const res = await store.upsertLiveTextToolItemAtomic({
+          record: m.liveTextToolRecord,
+          ...(m.maxRecordsPerVideo !== undefined ? { maxRecordsPerVideo: m.maxRecordsPerVideo } : {})
+        });
+        return ok({ summary: res.summary });
+      },
+      "patch-conversation-summary-anchor": async (m) => {
+        if (!m.id || !m.summaryAnchor || typeof m.summaryAnchor !== "object") {
+          return fail("缺少摘要锚点更新参数");
+        }
+        const res = await store.patchConversationSummaryAnchor({
+          id: str(m.id),
+          summaryAnchor: m.summaryAnchor,
+          ...(Array.isArray(m.expectedCoveredMessageIds)
+            ? { expectedCoveredMessageIds: m.expectedCoveredMessageIds }
+            : {}),
+          ...(typeof m.expectedBoundaryContent === "string"
+            ? { expectedBoundaryContent: m.expectedBoundaryContent }
+            : {})
+        });
+        return ok({
+          updated: res.updated,
+          ...(res.summaryAnchor ? { summaryAnchor: res.summaryAnchor } : {})
+        });
+      },
+      "delete-conversation-atomic": async (m) => {
+        const res = await store.deleteConversationAtomic(arr(m.ids));
+        return ok({ removedIds: res.removedIds, removedImageIds: res.removedImageIds });
+      },
+      "clear-conversations-atomic": async () => {
+        const res = await store.clearConversationsAtomic();
+        return ok({ removedIds: res.removedIds, removedImageIds: res.removedImageIds });
+      },
+      "migrate-legacy-conversations": async (m) => {
+        const res = await store.migrateLegacyConversationsAtomic({
+          conversations: arr(m.conversations),
+          images: arr(m.chatImages)
+        });
+        return ok({ migrated: res.migrated, importedCount: res.importedCount });
       },
       "get-note-highlights": async (m) => ok({ noteHighlights: await store.getNoteHighlights(str(m.videoKey)) }),
       "put-note-highlights": async (m) => {

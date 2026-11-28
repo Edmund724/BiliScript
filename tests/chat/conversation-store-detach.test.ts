@@ -341,11 +341,12 @@ describe("公开接口面", () => {
     expect(exposed.hydratePages).toBeUndefined();
   });
 
-  it("内部 apply 经 applyById 存活:身份/历史/事件面照常", () => {
-    const { store, deps } = makeHarness();
-    setSavedConversations([makeConversation("c1")]);
+  it("内部 apply 经 applyById 存活:身份/历史/事件面照常", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
+    const { store, deps, storage } = makeHarness();
+    await saveConversationEntry(makeConversation("c1"), { storage });
 
-    store.applyById("c1");
+    await store.applyById("c1");
 
     expect(chatSessionState.currentConversationId).toBe("c1");
     expect(chatSessionState.currentConversationMeta!.pinnedContext).toBe(true);

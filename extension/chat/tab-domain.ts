@@ -12,7 +12,8 @@ import {
 import { resolveAiConversationContext, resolveAiConversationPageRef } from "../ai/context-resolver.js";
 import {
   applyLiveContextToMain,
-  chatSessionState
+  chatSessionState,
+  detachConversationIdentity
 } from "./chat-state.js";
 import {
   createChatRuntime,
@@ -40,6 +41,7 @@ import { createConversationReplay } from "./replay.js";
 export {
   chatSessionState,
   applyLiveContextToMain,
+  detachConversationIdentity,
   rebuildCurrentContextKeyFromContext
 } from "./chat-state.js";
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
@@ -51,6 +53,8 @@ export {
 } from "./conversation-store.js";
 export {
   hasExternalizedChatImages,
+  listConversationSummaries,
+  readConversationById,
   readConversationHistory
 } from "./conversation-storage.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
@@ -143,7 +147,7 @@ export interface ChatTabDomain {
   scheduleLiveContextSync: (opts?: ScheduleLiveContextSyncOptions) => void;
   handleHostClipChanged: () => void;
   startNewConversation: () => Promise<boolean>;
-  openConversation: (id: string) => void;
+  openConversation: (id: string) => Promise<boolean>;
   deleteConversation: (id: string) => Promise<ConversationDeletion | null>;
   clearConversations: () => Promise<void>;
   bindStatusBus: () => () => void;
@@ -417,9 +421,9 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     clearSuggestions: deps.view.suggestions.clear
   });
 
-  function openConversation(id: string): void {
+  function openConversation(id: string): Promise<boolean> {
     runtime.stopSpeech();
-    store.applyById(id);
+    return store.applyById(id);
   }
 
   function handleHostClipChanged(): void {
@@ -444,6 +448,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): ChatTabDomai
     sendGate.cancel();
     deps.onWaitingChange?.(false);
     replay.invalidate();
+    detachConversationIdentity();
+    deps.messages.innerHTML = "";
     sendGate.refreshAsrNotice();
   }
 

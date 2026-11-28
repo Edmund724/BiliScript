@@ -18,6 +18,7 @@ import type {
   AiArtifactRecord,
   ChatImageRecord,
   ConversationMetaRecord,
+  ConversationSummaryAnchor,
   NoteHighlightBucketRecord,
   PersistedConversationRecord,
   PutChatImageInput,
@@ -354,6 +355,12 @@ export type SubtitleCacheOp =
   | "delete-conversations"
   | "clear-conversations"
   | "prune-conversations"
+  | "upsert-conversation-atomic"
+  | "upsert-live-text-tool-item-atomic"
+  | "patch-conversation-summary-anchor"
+  | "delete-conversation-atomic"
+  | "clear-conversations-atomic"
+  | "migrate-legacy-conversations"
   | "get-note-highlights"
   | "put-note-highlights"
   | "put-note-highlights-many"
@@ -391,6 +398,7 @@ export type SubtitleCacheMessage = {
   validConversationIds?: string[];
   keepImageIds?: string[];
   chatImage?: PutChatImageInput;
+  chatImages?: PutChatImageInput[];
   family?: AiArtifactFamily;
   keyPrefix?: string;
   payload?: unknown;
@@ -403,6 +411,11 @@ export type SubtitleCacheMessage = {
   maxCount?: number;
   conversation?: PersistedConversationRecord;
   conversations?: PersistedConversationRecord[];
+  liveTextToolRecord?: Record<string, unknown>;
+  maxRecordsPerVideo?: number;
+  summaryAnchor?: ConversationSummaryAnchor;
+  expectedCoveredMessageIds?: string[];
+  expectedBoundaryContent?: string;
   videoKey?: string;
   noteHighlights?: NoteHighlightBucketRecord;
   noteHighlightsList?: NoteHighlightBucketRecord[];
@@ -423,6 +436,13 @@ export type SubtitleCacheResponse = {
   conversation?: PersistedConversationRecord | null;
   conversationMetas?: ConversationMetaRecord[];
   conversations?: PersistedConversationRecord[];
+  summary?: ConversationMetaRecord | null;
+  prunedIds?: string[];
+  removedImageIds?: string[];
+  updated?: boolean;
+  summaryAnchor?: ConversationSummaryAnchor;
+  migrated?: boolean;
+  importedCount?: number;
   noteHighlights?: NoteHighlightBucketRecord | null;
   noteHighlightsList?: NoteHighlightBucketRecord[];
   metaValue?: unknown;

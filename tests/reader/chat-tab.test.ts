@@ -1774,24 +1774,20 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     firePort(ports[0], { type: "stopped", reason: "已停止生成" });
     await waitFor(() => chatSessionState.currentConversationId === "conv-b");
 
-    const saved = chatSessionState.savedConversations as unknown as Array<{
-      id: string;
-      messages: Array<{ content: string }>;
-    }>;
-    expect(saved.find((item) => item.id === "conv-a")!.messages.map((m) => m.content)).toEqual([
-      "A 的历史问题",
-      "A 的历史答案",
-      "原会话的新问题",
-      "部分正文"
-    ]);
+    const saved = chatSessionState.savedConversations;
+    expect(saved.find((item) => item.id === "conv-a")?.messageCount).toBe(4);
     const { resolveActiveSubtitleStore } = await import("../../extension/subtitle/store-client.js");
     const persisted = (await resolveActiveSubtitleStore().listConversations()) as unknown as Array<{
       id: string;
       messages: Array<{ content: string }>;
     }>;
     expect(persisted.length).toBeGreaterThan(0);
-    expect(persisted.find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
-      .toContain("部分正文");
+    expect(persisted.find((item) => item.id === "conv-a")!.messages.map((m) => m.content)).toEqual([
+      "A 的历史问题",
+      "A 的历史答案",
+      "原会话的新问题",
+      "部分正文"
+    ]);
 
     await waitFor(() => messages.textContent!.includes("B 的历史答案") && scrollTo.mock.calls.length > 0);
     expect(messages.textContent).not.toContain("部分正文");
@@ -1815,7 +1811,7 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     );
     clickHistoryOpen(historyList, "conv-b");
 
-    expect(chatSessionState.currentConversationId).toBe("conv-b");
+    await waitFor(() => chatSessionState.currentConversationId === "conv-b");
     expect(ports).toHaveLength(0);
     expect(document.activeElement).toBe(document.getElementById(ids.readingChatInput));
   });

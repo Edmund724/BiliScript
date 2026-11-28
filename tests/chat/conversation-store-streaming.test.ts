@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
-import type { Conversation, CreateConversationStoreDeps, StorageArea } from "../../extension/chat/conversation-store.js";
+import type { OrdinaryConversation } from "../../extension/chat/conversation-types.js";
+import type { CreateConversationStoreDeps, StorageArea } from "../../extension/chat/conversation-store.js";
 import type { ChatPortMessage, CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
 
@@ -35,7 +36,7 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
-type SavedConversation = Conversation & Record<string, unknown>;
+type SavedConversation = OrdinaryConversation;
 
 function makeConversation(
   id: string,
@@ -43,7 +44,7 @@ function makeConversation(
     contextKey = "",
     url = URL_A,
     messages
-  }: { contextKey?: string; url?: string; messages?: Conversation["messages"] } = {}
+  }: { contextKey?: string; url?: string; messages?: OrdinaryConversation["messages"] } = {}
 ): SavedConversation {
   return {
     id,
@@ -147,9 +148,10 @@ afterEach(() => {
 
 describe("conversation-store reset 路径在流式中的停流", () => {
   it("deleteById 当前会话（流式中）：先同步停流，状态清空，流结束不复活", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness();
-    setSavedConversations([makeConversation("c1")]);
-    h.store.applyById("c1");
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
+    await h.store.applyById("c1");
     expect(chatSessionState.currentConversationId).toBe("c1");
     h.startStream("在途问题");
 
@@ -170,9 +172,10 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 
   it("deleteById 当前会话（非流式中）：回调幂等空操作，状态照常清空", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness();
-    setSavedConversations([makeConversation("c1")]);
-    h.store.applyById("c1");
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
+    await h.store.applyById("c1");
 
     await h.store.deleteById("c1");
 
@@ -182,9 +185,11 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 
   it("deleteById 非当前会话（流式中）：不停流，原流式行为保留", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness();
-    setSavedConversations([makeConversation("c1"), makeConversation("c2")]);
-    h.store.applyById("c1");
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
+    await saveConversationEntry(makeConversation("c2"), { storage: h.storage });
+    await h.store.applyById("c1");
     h.startStream("在途问题");
 
     await h.store.deleteById("c2");
@@ -197,9 +202,10 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 
   it("clearAll（流式中）：先同步停流再清空，流结束不复活", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness({ confirmClearAll: () => true });
-    setSavedConversations([makeConversation("c1")]);
-    h.store.applyById("c1");
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
+    await h.store.applyById("c1");
     h.startStream("在途问题");
 
     await h.store.clearAll();
@@ -216,9 +222,10 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 
   it("clearAll（非流式中）：回调幂等空操作，状态照常清空", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness({ confirmClearAll: () => true });
-    setSavedConversations([makeConversation("c1")]);
-    h.store.applyById("c1");
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
+    await h.store.applyById("c1");
 
     await h.store.clearAll();
 
@@ -286,8 +293,9 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   });
 
   it("restoreLatest 有匹配：照常 apply，不停流", async () => {
+    const { saveConversationEntry } = await import("../../extension/chat/conversation-storage.js");
     const h = makeStreamHarness();
-    setSavedConversations([makeConversation("c1")]);
+    await saveConversationEntry(makeConversation("c1"), { storage: h.storage });
     chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
 
     const result = await h.store.restoreLatest();

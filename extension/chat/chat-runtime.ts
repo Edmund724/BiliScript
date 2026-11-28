@@ -65,7 +65,7 @@ export type { ChatPortMessage };
 
 export interface ChatRuntimeStore {
   isCurrent(id: string): boolean;
-  persistCurrent(): Promise<void>;
+  persistCurrent(opts?: { transcriptMode?: ChatTranscriptMode }): Promise<void>;
 }
 
 export interface ChatRuntimeUi {
@@ -347,6 +347,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           conversationId: activeConversationId,
           mode: msg.transcriptMode
         };
+        if (
+          chatSessionState.currentConversationId === activeConversationId &&
+          chatSessionState.currentConversationMeta
+        ) {
+          applyConversationIdentity({
+            meta: {
+              ...chatSessionState.currentConversationMeta,
+              transcriptMode: msg.transcriptMode
+            }
+          });
+        }
       }
     }
     if (msg.type === "video-frame-cancel") {
@@ -805,11 +816,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         return "blocked";
       }
 
+      const persistedTranscriptMode =
+        chatSessionState.currentConversationMeta?.id === activeConversationId
+          ? chatSessionState.currentConversationMeta?.transcriptMode
+          : undefined;
       const requestedTranscriptMode: ChatTranscriptMode | undefined =
         sendOptions?.transcriptMode ??
         (lastResolvedTranscriptMode && lastResolvedTranscriptMode.conversationId === activeConversationId
           ? lastResolvedTranscriptMode.mode
-          : undefined);
+          : persistedTranscriptMode);
       activeTurnTranscriptMode = requestedTranscriptMode;
 
       port.postMessage({
@@ -916,7 +931,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         activeTurnCapturedFrames,
         committedIndex
       );
-      void deps.store.persistCurrent();
+      void deps.store.persistCurrent(
+        activeTurnTranscriptMode ? { transcriptMode: activeTurnTranscriptMode } : undefined
+      );
       pendingToolMessages = [];
       activeTurnCapturedFrames = [];
       deps.onTurnCommitted?.({

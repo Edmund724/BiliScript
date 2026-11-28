@@ -7,22 +7,26 @@ import {
 import { isElementNode } from "../shared/cross-doc.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { chatSessionState } from "../chat/chat-state.js";
+import { readConversationById } from "../chat/conversation-storage.js";
+import { isLiveTextToolSummary, type ConversationSummaryItem } from "../chat/conversation-types.js";
 import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
-import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import { isLiveTextToolHistoryEntry, type LiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import { renderLiveTextToolRecordHtml } from "./chat-live-text-records.js";
 import { hydrateMarkdownContent } from "../ui/markdown.js";
-import type { Conversation, ConversationDeletion } from "../chat/conversation-store.js";
+import type { ConversationDeletion } from "../chat/conversation-store.js";
 
 export interface CreateReaderChatListsDeps {
   historyList: HTMLElement;
   historyClearBtn: HTMLButtonElement | null;
-  applyById: (id: string) => Promise<void> | void;
+  applyById: (id: string) => Promise<boolean | void> | boolean | void;
   deleteById: (id: string) => Promise<ConversationDeletion | null>;
   isTurnActive: () => boolean;
   confirmDeleteCurrent: (message: string) => boolean | Promise<boolean>;
   startNewConversation: () => Promise<boolean> | boolean;
   hideHistoryPopover: () => void;
   settleTurn?: () => Promise<void> | undefined;
+  loadLiveHistoryById?: (id: string) => Promise<LiveTextToolHistoryEntry | null>;
 }
 
 export interface ReaderChatLists {
@@ -35,9 +39,18 @@ export interface ReaderChatLists {
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
   const { historyList, historyClearBtn } = deps;
+  const loadLiveHistoryById =
+    deps.loadLiveHistoryById ??
+    (async (id: string): Promise<LiveTextToolHistoryEntry | null> => {
+      const full = await readConversationById(id);
+      return full && isLiveTextToolHistoryEntry(full) ? full : null;
+    });
 
-  function resolveConversationSite(conversation: Conversation): SiteId {
-    if (!isLiveTextToolHistoryEntry(conversation) && conversation.contextRef?.site) {
+  function resolveConversationSite(conversation: ConversationSummaryItem): SiteId {
+    if (conversation.site) {
+      return normalizeSiteId(conversation.site);
+    }
+    if (!isLiveTextToolSummary(conversation) && conversation.contextRef?.site) {
       return normalizeSiteId(conversation.contextRef.site);
     }
     const contextKey = String(conversation.contextKey || "").trim();
@@ -45,7 +58,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return "youtube";
     }
     const rawUrl =
-      (!isLiveTextToolHistoryEntry(conversation) ? conversation.contextRef?.url : "") ||
+      (!isLiveTextToolSummary(conversation) ? conversation.contextRef?.url : "") ||
       conversation.contextUrl;
     return normalizeSiteId(detectSiteFromUrl(rawUrl));
   }
@@ -55,6 +68,8 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   }
 
   let openLiveHistoryId: string | null = null;
+  let openLiveHistoryRecords: LiveTextToolRecord[] | null = null;
+  let liveDetailSeq = 0;
   let liveHistoryReturnScrollTop = 0;
   let pendingSwitchId: string | null = null;
   let switchSeq = 0;
@@ -100,12 +115,18 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     renderHistoryList();
   }
 
+  function clearOpenLiveHistoryState(): void {
+    liveDetailSeq += 1;
+    openLiveHistoryId = null;
+    openLiveHistoryRecords = null;
+  }
+
   function exitLiveHistoryDetail(): boolean {
     if (!openLiveHistoryId) {
       return false;
     }
     const returnId = openLiveHistoryId;
-    openLiveHistoryId = null;
+    clearOpenLiveHistoryState();
     renderHistoryList();
     historyList.scrollTop = liveHistoryReturnScrollTop;
     focusHistoryOpen(returnId);
@@ -113,10 +134,10 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   }
 
   function resetLiveHistoryDetail(): void {
-    if (!openLiveHistoryId) {
+    if (!openLiveHistoryId && openLiveHistoryRecords === null) {
       return;
     }
-    openLiveHistoryId = null;
+    clearOpenLiveHistoryState();
     liveHistoryReturnScrollTop = 0;
     renderHistoryList();
   }
@@ -126,18 +147,37 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return;
     }
     const conversation = chatSessionState.savedConversations.find((item) => item.id === id);
-    if (isLiveTextToolHistoryEntry(conversation)) {
+    if (isLiveTextToolSummary(conversation)) {
       liveHistoryReturnScrollTop = historyList.scrollTop;
       openLiveHistoryId = id;
+      openLiveHistoryRecords = null;
+      const seq = ++liveDetailSeq;
       renderHistoryList();
       historyList.scrollTop = 0;
       historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus({ preventScroll: true });
+      void Promise.resolve(loadLiveHistoryById(id))
+        .then((hydrated) => {
+          if (seq !== liveDetailSeq || openLiveHistoryId !== id) {
+            return;
+          }
+          openLiveHistoryRecords = hydrated && isLiveTextToolHistoryEntry(hydrated) ? hydrated.records : [];
+          renderHistoryList();
+          historyList.scrollTop = 0;
+          historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus({ preventScroll: true });
+        })
+        .catch(() => {
+          if (seq !== liveDetailSeq || openLiveHistoryId !== id) {
+            return;
+          }
+          openLiveHistoryRecords = [];
+          renderHistoryList();
+        });
       return;
     }
     if (!conversation) {
       return;
     }
-    openLiveHistoryId = null;
+    clearOpenLiveHistoryState();
     pendingSwitchId = id;
     const seq = ++switchSeq;
     if (historyClearBtn) {
@@ -165,6 +205,8 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       renderHistoryList();
       focusHistoryOpen(id);
     };
+    const isPromiseLike = (v: unknown): v is Promise<unknown> =>
+      Boolean(v && typeof (v as { then?: unknown }).then === "function");
     const settling = deps.settleTurn?.();
     if (settling) {
       renderHistoryList();
@@ -175,7 +217,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
             return;
           }
           const switching = deps.applyById(id);
-          if (!switching) {
+          if (!isPromiseLike(switching)) {
             completeSwitch();
             return;
           }
@@ -186,7 +228,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return;
     }
     const switching = deps.applyById(id);
-    if (!switching) {
+    if (!isPromiseLike(switching)) {
       pendingSwitchId = null;
       if (historyClearBtn) {
         historyClearBtn.disabled = false;
@@ -216,7 +258,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return;
     }
     const nextFocusId = ids[index + 1] ?? ids[index - 1] ?? "";
-    openLiveHistoryId = null;
+    clearOpenLiveHistoryState();
     settlePendingDeletion();
     const seq = ++deletionSeq;
     const deletion = await deps.deleteById(id);
@@ -264,7 +306,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       window.clearTimeout(record.timer);
       pendingDeletion = null;
       (event.currentTarget as HTMLButtonElement).disabled = true;
-      openLiveHistoryId = null;
+      clearOpenLiveHistoryState();
       await record.undo();
       renderHistoryList();
       focusHistoryOpen(record.id);
@@ -284,7 +326,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     const currentAppeared = Boolean(currentId) && currentId !== lastCurrentId;
     lastCurrentId = currentId;
     const selected = chatSessionState.savedConversations.find((item) => item.id === openLiveHistoryId);
-    const inLiveDetail = isLiveTextToolHistoryEntry(selected);
+    const inLiveDetail = isLiveTextToolSummary(selected);
     if (historyClearBtn) {
       historyClearBtn.hidden = chatSessionState.savedConversations.length === 0 || inLiveDetail;
       historyClearBtn.disabled = Boolean(pendingSwitchId);
@@ -295,7 +337,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       historyList.removeAttribute("aria-busy");
     }
     if (!chatSessionState.savedConversations.length) {
-      openLiveHistoryId = null;
+      clearOpenLiveHistoryState();
       historyList.innerHTML = `<div class="chat-history-empty-state">
         <span class="chat-history-empty">还没有历史记录</span>
         <button type="button" class="chat-history-start-new">开始新会话</button>
@@ -304,8 +346,14 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return;
     }
 
-    if (inLiveDetail && isLiveTextToolHistoryEntry(selected)) {
-      const metaText = `${formatConversationTimestamp(selected.updatedAt || selected.createdAt)} · ${selected.records.length} 条记录`;
+    if (inLiveDetail && isLiveTextToolSummary(selected)) {
+      const records = openLiveHistoryRecords;
+      const count = records !== null ? records.length : selected.recordCount;
+      const metaText = `${formatConversationTimestamp(selected.updatedAt || selected.createdAt)} · ${count} 条记录`;
+      const bodyHtml =
+        records === null
+          ? '<div class="chat-history-empty">正在加载伴看记录…</div>'
+          : records.map((record) => renderLiveTextToolRecordHtml(record, { readOnly: true })).join("");
       historyList.innerHTML = `
         <section class="chat-live-history-detail" aria-label="伴看记录">
           <button type="button" class="chat-live-history-back">返回历史列表</button>
@@ -314,10 +362,12 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
             <span class="chat-live-history-meta">${escapeHtml(metaText)}</span>
           </div>
           <div class="chat-live-history-records">
-            ${selected.records.map((record) => renderLiveTextToolRecordHtml(record, { readOnly: true })).join("")}
+            ${bodyHtml}
           </div>
         </section>${undoHtml()}`;
-      hydrateMarkdownContent(historyList);
+      if (records !== null) {
+        hydrateMarkdownContent(historyList);
+      }
       historyList.querySelector(".chat-live-history-back")?.addEventListener("click", (event) => {
         event.stopPropagation();
         exitLiveHistoryDetail();
@@ -325,7 +375,9 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       bindHistoryActions();
       return;
     }
-    openLiveHistoryId = null;
+    if (openLiveHistoryId !== null || openLiveHistoryRecords !== null) {
+      clearOpenLiveHistoryState();
+    }
 
     const liveVideoRef = chatSessionState.liveContextData?.isVideoContext ? chatSessionState.liveContextData : null;
     const canHighlightLiveMatches = Boolean(
@@ -337,7 +389,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
 
     historyList.innerHTML = chatSessionState.savedConversations
       .map((conversation) => {
-        const liveEntry = isLiveTextToolHistoryEntry(conversation) ? conversation : null;
+        const liveEntry = isLiveTextToolSummary(conversation) ? conversation : null;
         const isActive = !liveEntry && conversation.id === chatSessionState.currentConversationId;
         const isLiveMatch = Boolean(
           !liveEntry &&
@@ -347,7 +399,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
         );
         const isSwitching = conversation.id === pendingSwitchId;
         const timestamp = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
-        const metaText = isSwitching ? "正在保存当前回答…" : liveEntry ? `${timestamp} · ${liveEntry.records.length} 条记录` : timestamp;
+        const metaText = isSwitching ? "正在保存当前回答…" : liveEntry ? `${timestamp} · ${liveEntry.recordCount} 条记录` : timestamp;
         const site = resolveConversationSite(conversation);
         const siteLabel = formatSiteBadgeLabel(site);
         const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);

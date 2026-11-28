@@ -97,14 +97,20 @@ describe("聊天记录 IndexedDB 持久化、迁移与条数限制", () => {
     }
     expect(await countConversationHistory(local)).toBe(5);
     expect(local.data.has(HISTORY_STORAGE_KEY)).toBe(false);
-    expect(local.data.get(CONVERSATIONS_SYNC_SIGNAL_KEY)).toMatchObject({ op: "put", id: "c5" });
+    expect(local.data.get(CONVERSATIONS_SYNC_SIGNAL_KEY)).toMatchObject({
+      op: "upsert",
+      summary: expect.objectContaining({ id: "c5" })
+    });
 
     const pruned = await pruneConversationHistoryToLimit(2, { storage: local });
     expect(pruned.keptCount).toBe(2);
     expect(pruned.removedIds.sort()).toEqual(["c1", "c2", "c3"]);
     const remaining = await readConversationHistory(local);
     expect(remaining.map((c) => c.id)).toEqual(["c5", "c4"]);
-    expect(local.data.get(CONVERSATIONS_SYNC_SIGNAL_KEY)).toMatchObject({ op: "prune" });
+    expect(local.data.get(CONVERSATIONS_SYNC_SIGNAL_KEY)).toMatchObject({
+      op: "delete",
+      deletedIds: expect.arrayContaining(["c1", "c2", "c3"])
+    });
   });
 
   it("createConversationStore 写入时遵守 getMaxCount 上限", async () => {
