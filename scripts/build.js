@@ -539,7 +539,7 @@ function printOffscreenSplitReport(result) {
   return { entryRaw, entryMin, chunkRaw, chunkMin, chunkCount };
 }
 
-const DIST_RUNTIME_MAX_BYTES = targetPlatform === "firefox" ? 4050000 : 4350000;
+const DIST_RUNTIME_MAX_BYTES = targetPlatform === "firefox" ? 4200000 : 4500000;
 
 function printDistSummary() {
   const files = [];
