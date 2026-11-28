@@ -84,27 +84,29 @@ export function buildShortcutsSubpageHtml(): string {
             <div class="biliscript-shortcut-controls">
               <button
                 type="button"
-                class="biliscript-shortcut-key-btn"
-                data-shortcut-record="${item.id}"
-                aria-pressed="false"
-                aria-label="${escapeHtml(item.label)}快捷键：未设置"
-              ></button>
-              <button
-                type="button"
-                class="biliscript-shortcut-action-btn"
-                data-shortcut-clear="${item.id}"
-                title="清空快捷键"
-                aria-label="清空${escapeHtml(item.label)}快捷键"
-                hidden
-              >${CLEAR_ICON_SVG}</button>
-              <button
-                type="button"
-                class="biliscript-shortcut-action-btn"
+                class="biliscript-shortcut-action-btn biliscript-shortcut-reset-btn"
                 data-shortcut-reset="${item.id}"
                 title="恢复默认"
                 aria-label="恢复${escapeHtml(item.label)}默认快捷键"
                 hidden
               >${READING_RESET_ICON}</button>
+              <div class="biliscript-shortcut-field">
+                <button
+                  type="button"
+                  class="biliscript-shortcut-key-btn"
+                  data-shortcut-record="${item.id}"
+                  aria-pressed="false"
+                  aria-label="${escapeHtml(item.label)}快捷键：未设置"
+                ></button>
+                <button
+                  type="button"
+                  class="biliscript-shortcut-clear-btn"
+                  data-shortcut-clear="${item.id}"
+                  title="清空快捷键"
+                  aria-label="清空${escapeHtml(item.label)}快捷键"
+                  hidden
+                >${CLEAR_ICON_SVG}</button>
+              </div>
             </div>
           </div>`
       )
@@ -146,6 +148,7 @@ function renderKeyButtonContent(
   if (recording) {
     button.dataset.recording = "1";
     button.dataset.empty = "0";
+    button.dataset.hasClear = "0";
     button.textContent = "按下快捷键…";
     button.setAttribute("aria-label", `正在录制${label}快捷键，按 Esc 取消，按 Backspace 清空`);
     return;
@@ -154,14 +157,16 @@ function renderKeyButtonContent(
   const tokens = formatShortcutTokens(combo);
   if (tokens.length === 0) {
     button.dataset.empty = "1";
+    button.dataset.hasClear = "0";
     button.textContent = "未设置";
     button.setAttribute("aria-label", `${label}快捷键：未设置`);
     return;
   }
   button.dataset.empty = "0";
+  button.dataset.hasClear = "1";
   button.innerHTML = tokens
     .map((token) => `<kbd class="biliscript-shortcut-kbd">${escapeHtml(token)}</kbd>`)
-    .join("");
+    .join('<span class="biliscript-shortcut-plus" aria-hidden="true">+</span>');
   button.setAttribute("aria-label", `${label}快捷键：${formatShortcutLabel(combo)}`);
 }
 
@@ -207,7 +212,7 @@ export function bindShortcutsSettings(
       }
       const clearBtn = clearButtons.get(id);
       if (clearBtn) {
-        clearBtn.hidden = !combo;
+        clearBtn.hidden = !combo || recordingAction === id;
       }
       const resetBtn = resetButtons.get(id);
       if (resetBtn) {

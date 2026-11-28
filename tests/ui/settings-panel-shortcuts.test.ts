@@ -110,9 +110,13 @@ describe("设置页快捷键子页与录制交互", () => {
     expect(summary.textContent?.trim()).toBe("已自定义 1 项");
     expect(resetAllBtn.hidden).toBe(false);
     expect(openSettingsBtn.querySelectorAll(".biliscript-shortcut-kbd").length).toBe(3);
+    expect(openSettingsBtn.textContent).toBe("Alt+Shift+S");
 
     const overviewBtn = subpage.querySelector<HTMLButtonElement>('[data-shortcut-record="generateOverview"]')!;
+    const overviewClearBtn = subpage.querySelector<HTMLButtonElement>('[data-shortcut-clear="generateOverview"]')!;
+    expect(overviewClearBtn.hidden).toBe(false);
     overviewBtn.click();
+    expect(overviewClearBtn.hidden).toBe(true);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", code: "Backspace", bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(savedPayloads).toHaveLength(2));
     expect(savedPayloads[1]).toEqual({
