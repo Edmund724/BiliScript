@@ -101,7 +101,7 @@ export function normalizeDownloadFormat(value: unknown): string {
   return "srt";
 }
 
-function truncateUtf8ByBytes(text: string, maxBytes: number): string {
+export function truncateUtf8ByBytes(text: string, maxBytes: number): string {
   if (!text) return "";
   const encoder = new TextEncoder();
   if (encoder.encode(text).length <= maxBytes) {
@@ -254,6 +254,9 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
   return normalized;
 }
 
+export const MAX_AI_SYSTEM_PROMPT_BYTES = 4096;
+export const MAX_SUBTITLE_TRANSLATE_GLOSSARY_BYTES = 4096;
+
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
   if (
@@ -269,7 +272,7 @@ export function normalizeAiSystemPrompt(value: unknown): string {
   if (!normalized) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
-  return normalized;
+  return truncateUtf8ByBytes(normalized, MAX_AI_SYSTEM_PROMPT_BYTES) || DEFAULT_AI_SYSTEM_PROMPT;
 }
 
 export function normalizeAiInitialQuickPrompts(value: unknown): string[] {
@@ -317,7 +320,11 @@ export function normalizeSubtitleTranslateModel(value: unknown): string {
 }
 
 export function normalizeSubtitleTranslateGlossary(value: unknown): string {
-  return toString(value).replace(/\r\n?/g, "\n").trim();
+  const normalized = toString(value).replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+  return truncateUtf8ByBytes(normalized, MAX_SUBTITLE_TRANSLATE_GLOSSARY_BYTES);
 }
 
 export function normalizeLiveInterpretTargetLang(value: unknown): LiveInterpretTargetLang {

@@ -2,8 +2,10 @@ import {
   activeById,
   getActiveReaderDocument,
   getActiveReaderWindow,
+  getOpenerDocument,
   onActiveHostChange,
 } from "../shared/active-host.js";
+import { registerDetachedDocumentCleanup } from "./detached-window.js";
 import {
   isHtmlButton,
   isHtmlElement,
@@ -81,6 +83,7 @@ interface QuoteShareModalState {
   restoreSiblings: (() => void) | null;
   boundKeyDownDoc: Document | null;
   stopHostWatch: (() => void) | null;
+  stopDocCleanup: (() => void) | null;
   sessionEpoch: number;
   feedbackTimers: Set<ReturnType<typeof setTimeout>>;
 }
@@ -102,6 +105,7 @@ const state: QuoteShareModalState = {
   restoreSiblings: null,
   boundKeyDownDoc: null,
   stopHostWatch: null,
+  stopDocCleanup: null,
   sessionEpoch: 0,
   feedbackTimers: new Set()
 };
@@ -387,6 +391,15 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
 
   state.boundKeyDownDoc = hostDoc;
   hostDoc.addEventListener("keydown", onDocumentKeyDown, true);
+  state.stopDocCleanup?.();
+  state.stopDocCleanup = registerDetachedDocumentCleanup((targetDoc) => {
+    if (!state.open) {
+      return;
+    }
+    if (state.boundKeyDownDoc === targetDoc || state.host?.ownerDocument === targetDoc) {
+      closeQuoteShareModal({ restoreFocus: false });
+    }
+  });
   state.stopHostWatch?.();
   state.stopHostWatch = onActiveHostChange((ctx) => {
     if (!state.open) {
@@ -444,6 +457,8 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
 
   state.stopHostWatch?.();
   state.stopHostWatch = null;
+  state.stopDocCleanup?.();
+  state.stopDocCleanup = null;
   safeRemoveListener(state.boundKeyDownDoc, "keydown", onDocumentKeyDown, true);
   state.boundKeyDownDoc = null;
   const closingHost = state.host;
@@ -460,8 +475,13 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
 
   if (closingHost) {
     try {
-      const dialog = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
-      const mask = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
+      const isDetachedHost = closingHost.ownerDocument !== getOpenerDocument();
+      const dialog = isDetachedHost
+        ? null
+        : closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
+      const mask = isDetachedHost
+        ? null
+        : closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
       if (dialog) {
         animateTriggerExit({
           target: dialog,
@@ -493,8 +513,18 @@ function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
     return quoteTextMeasurer;
   }
   try {
-    const canvas = getActiveReaderDocument().createElement("canvas");
-    quoteTextMeasurer = createQuoteCardTextMeasurer(canvas.getContext("2d"));
+    let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+    if (typeof OffscreenCanvas !== "undefined") {
+      try {
+        ctx = new OffscreenCanvas(1, 1).getContext("2d");
+      } catch {
+        ctx = null;
+      }
+    }
+    if (!ctx) {
+      ctx = getOpenerDocument().createElement("canvas").getContext("2d");
+    }
+    quoteTextMeasurer = createQuoteCardTextMeasurer(ctx);
   } catch {
     quoteTextMeasurer = null;
   }

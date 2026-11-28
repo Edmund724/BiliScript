@@ -244,15 +244,17 @@ describe("字幕列表分批渲染", () => {
     expect(list.lastElementChild?.getAttribute("data-index")).toBe("399");
   });
 
-  it("closeReadingView 取消挂起的追加任务，关闭后不再追加", () => {
+  it("closeReadingView 取消挂起的追加任务并清空大体积字幕列表，关闭后不再追加", () => {
     state.clip.subtitleBody = makeBody(800);
     transitionReaderShell("open");
     shell.renderReadingView();
+    expect(renderedItemCount()).toBe(120);
     expect(rafPending.size).toBe(2);
     shell.closeReadingView();
     expect(rafPending.size).toBe(0);
     expect(rafCancelled.length).toBeGreaterThanOrEqual(1);
+    expect(renderedItemCount()).toBe(0);
     flushAnimationFrames();
-    expect(renderedItemCount()).toBe(120);
+    expect(renderedItemCount()).toBe(0);
   });
 });

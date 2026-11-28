@@ -2,9 +2,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { encodeVideoStorageBvid } from "../../extension/shared/site.js";
 import {
+  IDLE_VIDEO_DISPOSE_MS,
   captureHistoricalVideoFrame,
   createHistoricalVideoFrameSession
 } from "../../extension/chat/historical-video-frame.js";
+import { contentEventBus } from "../../extension/shared/content-event-bus.js";
 
 function makeVideo(duration = 120) {
   const video = document.createElement("video");
@@ -67,6 +69,7 @@ describe("隐藏视频历史帧截取", () => {
     );
     await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
     expect(media.video.crossOrigin).toBe("anonymous");
+    expect(media.video.preload).toBe("metadata");
     expect(media.video.dataset.biliscriptHistoricalFrame).toBe("");
     expect(media.video.muted).toBe(true);
     expect(media.video.src).toBe("https://upos.example.com/video.mp4");
@@ -287,6 +290,99 @@ describe("隐藏视频历史帧截取", () => {
     expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining("历史帧截取超时") }));
     expect(media.video.isConnected).toBe(false);
     expect(media.video.getAttribute("src")).toBeNull();
+  });
+
+  it("B 站会话静置 20000ms 自动卸载移除隐藏 video，连续抽帧顺延计时且销毁后可按需重建", async () => {
+    vi.useFakeTimers();
+    try {
+      const firstMedia = makeVideo();
+      const secondMedia = makeVideo();
+      const created = [firstMedia, secondMedia];
+      let createIdx = 0;
+      const { canvas } = makeCanvas();
+      const transport = vi.fn(async () => ({
+        code: 0,
+        data: { durl: [{ url: "https://upos.example.com/video.mp4" }] }
+      }));
+      const createVideo = vi.fn(() => created[createIdx++].video);
+      const session = createHistoricalVideoFrameSession(
+        { bvid: "BV1idle", cid: "202" },
+        { transport, createVideo, createCanvas: () => canvas }
+      );
+      try {
+        const firstCapture = session.capture(90);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(firstMedia.video.isConnected).toBe(true);
+        expect(firstMedia.video.preload).toBe("metadata");
+        firstMedia.metadataReady();
+        firstMedia.canPlay();
+        await firstCapture;
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(firstMedia.video.isConnected).toBe(true);
+
+        await session.capture(30);
+        expect(createVideo).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(firstMedia.video.isConnected).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(IDLE_VIDEO_DISPOSE_MS - 15_000);
+        expect(firstMedia.video.isConnected).toBe(false);
+        expect(firstMedia.video.getAttribute("src")).toBeNull();
+        expect(firstMedia.video.pause).toHaveBeenCalledTimes(1);
+        expect(firstMedia.video.load).toHaveBeenCalledTimes(1);
+
+        const rebuildCapture = session.capture(50);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(createVideo).toHaveBeenCalledTimes(2);
+        expect(secondMedia.video.isConnected).toBe(true);
+        secondMedia.metadataReady();
+        secondMedia.canPlay();
+        await rebuildCapture;
+      } finally {
+        session.close();
+      }
+      expect(secondMedia.video.isConnected).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("换片事件 clip:switch-start 立即销毁闲置隐藏 video", async () => {
+    const media = makeVideo();
+    const { canvas } = makeCanvas();
+    const session = createHistoricalVideoFrameSession(
+      { bvid: "BV1switch", cid: "303" },
+      {
+        transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+        createVideo: () => media.video,
+        createCanvas: () => canvas
+      }
+    );
+    try {
+      const first = session.capture(40);
+      await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+      media.metadataReady();
+      media.canPlay();
+      await first;
+      expect(media.video.isConnected).toBe(true);
+
+      contentEventBus.emit("clip:switch-start", {
+        url: "https://www.bilibili.com/",
+        signature: "home",
+        runId: 2
+      });
+
+      expect(media.video.isConnected).toBe(false);
+      expect(media.video.getAttribute("src")).toBeNull();
+      expect(media.video.pause).toHaveBeenCalledTimes(1);
+      expect(media.video.load).toHaveBeenCalledTimes(1);
+    } finally {
+      session.close();
+    }
   });
 });
 

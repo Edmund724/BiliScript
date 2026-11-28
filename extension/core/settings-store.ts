@@ -75,6 +75,8 @@ import {
   normalizeChatLineHeight,
   normalizeChatParagraphSpacing,
   normalizeShortcuts,
+  MAX_AI_SYSTEM_PROMPT_BYTES,
+  truncateUtf8ByBytes,
   toString
 } from "./validators.js";
 
@@ -95,7 +97,7 @@ function normalizeStoredAiSystemPrompt(value: unknown): string {
   if (LEGACY_AI_SYSTEM_PROMPTS.has(normalized)) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
-  return normalized;
+  return truncateUtf8ByBytes(normalized, MAX_AI_SYSTEM_PROMPT_BYTES);
 }
 
 export interface SettingFieldSchema<K extends KnownSettingKey = KnownSettingKey> {

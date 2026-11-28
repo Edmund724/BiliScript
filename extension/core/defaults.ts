@@ -17,6 +17,8 @@ export type VideoCacheMaxMb = 50 | 150 | 300 | 500 | 1024;
 
 export { BILISCRIPT_VERSION } from "./version.js";
 
+export const AI_PROVIDER_MODELS_LOCAL_KEY = "biliscript_ai_provider_models_v1";
+
 export interface KnownSettings {
   downloadFormat: string;
   includeDateInFilename: boolean;

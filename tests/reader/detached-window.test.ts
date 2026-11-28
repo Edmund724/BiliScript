@@ -717,3 +717,222 @@ describe("detached-window 宿主工厂与生命周期", () => {
     }
   });
 });
+
+describe("独立窗口跨文档强引用解绑（Issue #33）", () => {
+  it("clearDetachedHostDocument 断开二级 Document 的 MutationObserver、移除子窗口 resize/keydown 监听且测量画布不持有子 Document", async () => {
+    const childWin = new StubChildWindow({ width: 520, height: 700 });
+    const childDoc = childWin.document;
+    const disconnectSpy = vi.fn();
+    const observeSpy = vi.fn();
+    class ChildMutationObserver {
+      observe = observeSpy;
+      disconnect = disconnectSpy;
+      takeRecords = vi.fn(() => []);
+    }
+    Object.defineProperty(childWin, "MutationObserver", {
+      value: ChildMutationObserver,
+      configurable: true
+    });
+    Object.defineProperty(childWin, "getComputedStyle", {
+      value: () => ({
+        fontStyle: "normal",
+        fontVariant: "normal",
+        fontWeight: "400",
+        fontSize: "13px",
+        fontFamily: "sans-serif"
+      }),
+      configurable: true
+    });
+    Object.defineProperty(childDoc, "defaultView", {
+      value: childWin,
+      configurable: true
+    });
+    const childCreateElementSpy = vi.spyOn(childDoc, "createElement");
+    const childRemoveListenerSpy = vi.spyOn(childWin, "removeEventListener");
+
+    const { setActiveReaderHost, resetActiveReaderHost } = await import("../../extension/shared/active-host.js");
+    const { clearDetachedHostDocument } = await import("../../extension/reader/detached-window.js");
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    const { createModelCombobox } = await import("../../extension/ui/model-picker.js");
+    const { createReaderChatModelPanel } = await import("../../extension/reader/chat-model-panel.js");
+    const { openQuoteShareModal, isQuoteShareModalOpen, closeQuoteShareModal } = await import(
+      "../../extension/reader/quote-share-modal.js"
+    );
+    const { chatSessionStateForTests } = await import("../../extension/chat/chat-state.js");
+
+    setActiveReaderHost(childDoc, childWin as unknown as Window);
+    try {
+      const select = childDoc.createElement("select");
+      const opt = childDoc.createElement("option");
+      opt.value = "a";
+      opt.textContent = "选项A";
+      select.appendChild(opt);
+      childDoc.body.appendChild(select);
+      initCustomSelect(select);
+
+      const comboInput = childDoc.createElement("input");
+      const comboToggle = childDoc.createElement("button");
+      const comboDropdown = childDoc.createElement("ul");
+      comboDropdown.hidden = true;
+      childDoc.body.append(comboInput, comboToggle, comboDropdown);
+      const combobox = createModelCombobox({
+        input: comboInput,
+        toggle: comboToggle,
+        dropdown: comboDropdown,
+        classes: {
+          wrapperSelector: ".combo-wrap",
+          openDropdownSelector: ".combo-dd:not([hidden])",
+          triggerSelector: ".combo-toggle",
+          optionClass: "combo-opt",
+          searchItemClass: "combo-search",
+          searchInputClass: "combo-input",
+          emptyItemClass: "combo-empty",
+          messageClass: "combo-msg",
+          countClass: "combo-count"
+        }
+      });
+
+      chatSessionStateForTests.providers = [
+        { id: "p1", name: "平台一", models: ["gpt-4.1"], enabled: true }
+      ];
+      const chip = childDoc.createElement("button");
+      const chipModel = childDoc.createElement("span");
+      const chipLevel = childDoc.createElement("span");
+      chip.append(chipModel, chipLevel);
+      const panel = childDoc.createElement("div");
+      const panelList = childDoc.createElement("div");
+      const thinkingRow = childDoc.createElement("div");
+      const thinkingRowValue = childDoc.createElement("span");
+      const thinkingToggle = childDoc.createElement("div");
+      thinkingRow.append(thinkingRowValue, thinkingToggle);
+      panel.append(panelList, thinkingRow);
+      childDoc.body.append(chip, panel);
+
+      const modelPanel = createReaderChatModelPanel({
+        chip,
+        chipModel,
+        chipLevel,
+        panelList,
+        panel,
+        thinkingToggle,
+        thinkingRow,
+        thinkingRowValue,
+        hidePanel: vi.fn(),
+        openSettings: vi.fn()
+      });
+      modelPanel.renderChip();
+
+      openQuoteShareModal({ content: "跨文档引用分享防泄漏测试" });
+      expect(isQuoteShareModalOpen()).toBe(true);
+
+      const childCanvasCalls = childCreateElementSpy.mock.calls.filter(
+        ([tag]) => String(tag).toLowerCase() === "canvas"
+      );
+      expect(childCanvasCalls).toHaveLength(0);
+
+      expect(observeSpy).toHaveBeenCalledTimes(2);
+
+      clearDetachedHostDocument(childDoc);
+
+      expect(disconnectSpy).toHaveBeenCalledTimes(2);
+      expect(isQuoteShareModalOpen()).toBe(false);
+      expect(
+        childRemoveListenerSpy.mock.calls.some(
+          ([type, listener]) => type === "resize" && typeof listener === "function"
+        )
+      ).toBe(true);
+
+      combobox.dispose();
+    } finally {
+      closeQuoteShareModal({ restoreFocus: false });
+      resetActiveReaderHost();
+    }
+  });
+
+  it("存在 OffscreenCanvas 时测量画布优先使用 OffscreenCanvas，不调用子文档 createElement('canvas')", async () => {
+    const offscreenContexts: unknown[] = [];
+    class FakeOffscreenCanvas {
+      width: number;
+      height: number;
+      constructor(width: number, height: number) {
+        this.width = width;
+        this.height = height;
+      }
+      getContext(type: string) {
+        if (type !== "2d") return null;
+        const ctx = {
+          font: "",
+          measureText: (text: string) => ({ width: text.length * 7 })
+        };
+        offscreenContexts.push(ctx);
+        return ctx;
+      }
+    }
+    vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas);
+    vi.resetModules();
+
+    const childWin = new StubChildWindow({ width: 520, height: 700 });
+    const childDoc = childWin.document;
+    Object.defineProperty(childDoc, "defaultView", { value: childWin, configurable: true });
+    Object.defineProperty(childWin, "getComputedStyle", {
+      value: () => ({
+        fontStyle: "normal",
+        fontVariant: "normal",
+        fontWeight: "400",
+        fontSize: "13px",
+        fontFamily: "sans-serif"
+      }),
+      configurable: true
+    });
+    const childCreateElementSpy = vi.spyOn(childDoc, "createElement");
+
+    const { setActiveReaderHost, resetActiveReaderHost } = await import("../../extension/shared/active-host.js");
+    const { createReaderChatModelPanel } = await import("../../extension/reader/chat-model-panel.js");
+    const { openQuoteShareModal, closeQuoteShareModal } = await import("../../extension/reader/quote-share-modal.js");
+    const { chatSessionStateForTests } = await import("../../extension/chat/chat-state.js");
+
+    setActiveReaderHost(childDoc, childWin as unknown as Window);
+    try {
+      chatSessionStateForTests.providers = [
+        { id: "p1", name: "平台一", models: ["gpt-4.1"], enabled: true }
+      ];
+      const chip = childDoc.createElement("button");
+      const chipModel = childDoc.createElement("span");
+      const chipLevel = childDoc.createElement("span");
+      chip.append(chipModel, chipLevel);
+      const panel = childDoc.createElement("div");
+      const panelList = childDoc.createElement("div");
+      const thinkingRow = childDoc.createElement("div");
+      const thinkingRowValue = childDoc.createElement("span");
+      const thinkingToggle = childDoc.createElement("div");
+      thinkingRow.append(thinkingRowValue, thinkingToggle);
+      panel.append(panelList, thinkingRow);
+      childDoc.body.append(chip, panel);
+
+      const modelPanel = createReaderChatModelPanel({
+        chip,
+        chipModel,
+        chipLevel,
+        panelList,
+        panel,
+        thinkingToggle,
+        thinkingRow,
+        thinkingRowValue,
+        hidePanel: vi.fn(),
+        openSettings: vi.fn()
+      });
+      modelPanel.renderChip();
+      openQuoteShareModal({ content: "OffscreenCanvas 优先测量测试" });
+
+      expect(offscreenContexts.length).toBeGreaterThanOrEqual(2);
+      const childCanvasCalls = childCreateElementSpy.mock.calls.filter(
+        ([tag]) => String(tag).toLowerCase() === "canvas"
+      );
+      expect(childCanvasCalls).toHaveLength(0);
+    } finally {
+      closeQuoteShareModal({ restoreFocus: false });
+      resetActiveReaderHost();
+      vi.unstubAllGlobals();
+    }
+  });
+});

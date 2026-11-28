@@ -8,10 +8,11 @@ import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
 import {
-  getActiveReaderDocument,
   getActiveReaderWindow,
+  getOpenerDocument,
   onActiveHostChange,
 } from "../shared/active-host.js";
+import { registerDetachedDocumentCleanup } from "./detached-window.js";
 import {
   isHtmlElement,
   prefersActiveReducedMotion,
@@ -66,17 +67,30 @@ const MODEL_CHIP_MIN_WIDTH = 92;
 const MODEL_PANEL_MIN_WIDTH = 240;
 const MODEL_PANEL_MAX_WIDTH = 320;
 
-let chipMeasureCanvas: HTMLCanvasElement | null = null;
+let chipMeasureCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
+
+function getChipMeasureCanvas(): OffscreenCanvas | HTMLCanvasElement {
+  if (!chipMeasureCanvas) {
+    if (typeof OffscreenCanvas !== "undefined") {
+      try {
+        chipMeasureCanvas = new OffscreenCanvas(1, 1);
+      } catch {
+        chipMeasureCanvas = null;
+      }
+    }
+    if (!chipMeasureCanvas) {
+      chipMeasureCanvas = getOpenerDocument().createElement("canvas");
+    }
+  }
+  return chipMeasureCanvas;
+}
 
 function prefersReducedMotion(target?: Element | null): boolean {
   return prefersActiveReducedMotion(target);
 }
 
-function measureTextWidth(text: string, style?: CSSStyleDeclaration | null, doc?: Document): number {
-  if (!chipMeasureCanvas) {
-    chipMeasureCanvas = (doc ?? getActiveReaderDocument()).createElement("canvas");
-  }
-  const ctx = chipMeasureCanvas.getContext("2d");
+function measureTextWidth(text: string, style?: CSSStyleDeclaration | null): number {
+  const ctx = getChipMeasureCanvas().getContext("2d");
   if (!ctx) {
     return text.length * 8;
   }
@@ -319,11 +333,10 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     const model = String(chipModel?.textContent || "").trim() || "未配置平台";
     const level = String(chipLevel?.textContent || "").trim();
     const chipWin = chip ? resolveNodeWindow(chip) : getActiveReaderWindow();
-    const chipDoc = chip ? resolveNodeDocument(chip) : getActiveReaderDocument();
     const computedStyle = chip ? chipWin.getComputedStyle(chip) : null;
     const measuredTextWidth =
-      measureTextWidth(model, computedStyle, chipDoc) +
-      (level ? measureTextWidth(level, computedStyle, chipDoc) : 0);
+      measureTextWidth(model, computedStyle) +
+      (level ? measureTextWidth(level, computedStyle) : 0);
     const extraBuffer = chipMeasureCanvas?.getContext("2d") ? 48 : 44;
     return Math.ceil(measuredTextWidth + extraBuffer);
   }
@@ -1064,6 +1077,13 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   };
   let boundResizeWin: Window | null = chip ? resolveNodeWindow(chip) : getActiveReaderWindow();
   boundResizeWin?.addEventListener("resize", onChipResize);
+  registerDetachedDocumentCleanup((targetDoc) => {
+    const targetWin = targetDoc.defaultView;
+    if (boundResizeWin && targetWin && boundResizeWin === targetWin) {
+      safeRemoveListener(boundResizeWin, "resize", onChipResize);
+      boundResizeWin = null;
+    }
+  });
   onActiveHostChange((ctx) => {
     safeRemoveListener(boundResizeWin, "resize", onChipResize);
     boundResizeWin = ctx.win;

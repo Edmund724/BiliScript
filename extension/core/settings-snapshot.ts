@@ -1,7 +1,13 @@
 import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
 import { getMergedSettings } from "./settings-store.js";
 import type { ProviderBase, ProviderKeys } from "./provider-store.js";
-import { aiProviderStore, AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE, type AiProvider } from "./ai-provider-store.js";
+import {
+  aiProviderStore,
+  AI_PROVIDERS_STORAGE,
+  AI_PROVIDER_KEYS_STORAGE,
+  AI_PROVIDER_MODELS_LOCAL_KEY,
+  type AiProvider
+} from "./ai-provider-store.js";
 import { asrProviderStore, ASR_PROVIDERS_STORAGE, ASR_PROVIDER_KEYS_STORAGE, type AsrProvider } from "../asr/asr-provider-store.js";
 import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE, SEARCH_PROVIDERS_STORAGE, SEARCH_PROVIDER_KEYS_STORAGE } from "../search/search-provider-store.js";
 import { liveProviderStore, LIVE_PROVIDERS_STORAGE, LIVE_PROVIDER_KEYS_STORAGE, type LiveProvider } from "../live/live-provider-store.js";
@@ -28,17 +34,22 @@ export interface ProviderStoreSnapshot<T extends ProviderBase = ProviderBase> {
 interface ProviderFamilyKeyPair {
   list: string;
   keys: string;
+  extraLocalKeys?: readonly string[];
 }
 
 const PROVIDER_FAMILY_KEY_PAIRS: Record<ProviderFamily, ProviderFamilyKeyPair> = {
-  ai: { list: AI_PROVIDERS_STORAGE, keys: AI_PROVIDER_KEYS_STORAGE },
+  ai: {
+    list: AI_PROVIDERS_STORAGE,
+    keys: AI_PROVIDER_KEYS_STORAGE,
+    extraLocalKeys: [AI_PROVIDER_MODELS_LOCAL_KEY]
+  },
   asr: { list: ASR_PROVIDERS_STORAGE, keys: ASR_PROVIDER_KEYS_STORAGE },
   search: { list: SEARCH_PROVIDERS_STORAGE, keys: SEARCH_PROVIDER_KEYS_STORAGE },
   live: { list: LIVE_PROVIDERS_STORAGE, keys: LIVE_PROVIDER_KEYS_STORAGE }
 };
 
-function keyFace({ list, keys }: ProviderFamilyKeyPair): readonly string[] {
-  return [list, keys];
+function keyFace({ list, keys, extraLocalKeys = [] }: ProviderFamilyKeyPair): readonly string[] {
+  return [list, keys, ...extraLocalKeys];
 }
 
 export const PROVIDER_FAMILY_STORAGE_KEYS: Record<ProviderFamily, readonly string[]> = {
@@ -67,7 +78,10 @@ export const SNAPSHOT_STORAGE_KEYS: readonly SnapshotStorageKey[] = Object.freez
   ...PROVIDER_FAMILIES.flatMap(
     (family): SnapshotStorageKey[] => [
       { key: PROVIDER_FAMILY_KEY_PAIRS[family].list, area: "sync", domain: family },
-      { key: PROVIDER_FAMILY_KEY_PAIRS[family].keys, area: "local", domain: family }
+      { key: PROVIDER_FAMILY_KEY_PAIRS[family].keys, area: "local", domain: family },
+      ...(PROVIDER_FAMILY_KEY_PAIRS[family].extraLocalKeys ?? []).map(
+        (key): SnapshotStorageKey => ({ key, area: "local", domain: family })
+      )
     ]
   ),
   { key: SEARCH_PROVIDER_ORDER_STORAGE, area: "sync", domain: "searchOrder" },

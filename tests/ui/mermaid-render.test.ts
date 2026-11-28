@@ -217,4 +217,28 @@ describe("hydrateMermaidPlaceholders", () => {
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
     expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
+
+  it("渲染抛错时在 finally 中移除临时离屏宿主与 #d<id> 孤儿节点", async () => {
+    const { hydrateMermaidPlaceholders } = await loadModule();
+    let capturedId = "";
+    let capturedHost: Element | undefined;
+    mermaidMock.render.mockImplementationOnce(async (id: string, source: string, host?: Element) => {
+      capturedId = id;
+      capturedHost = host;
+      mermaidMock.calls.push({ id, source });
+      const orphan = document.createElement("div");
+      orphan.id = `d${id}`;
+      document.body.appendChild(orphan);
+      throw new Error("Syntax error in diagram");
+    });
+    const block = mountBlock("graph TD\nA --> ???");
+
+    await hydrateMermaidPlaceholders(document.body);
+
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("error");
+    expect(capturedHost).toBeTruthy();
+    expect(capturedHost?.isConnected).toBe(false);
+    expect(document.querySelector("[data-biliscript-mermaid-host]")).toBeNull();
+    expect(document.getElementById(`d${capturedId}`)).toBeNull();
+  });
 });

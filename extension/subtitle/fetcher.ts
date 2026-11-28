@@ -60,6 +60,7 @@ import {
 } from "../bilibili/video-api.js";
 import { loadTrackBody } from "./body.js";
 import { slot } from "./slot.js";
+import { clearTurnCapturedFrameCache } from "../notes/turn-frame-cache.js";
 
 export function initSummarizeChain(): void {
   subscribeSubtitleRefresh(refreshClip);
@@ -158,6 +159,7 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   clipState.setHotComments([]);
   clipState.setHotCommentsNotice("");
   invalidateDerived();
+  clearTurnCapturedFrameCache();
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
   notifyReaderPresenter({ kind: "reset" });
   state.reader.setActiveSubtitleIndex(-1);

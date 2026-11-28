@@ -1,6 +1,7 @@
 import {
   getActiveReaderDocument,
   getActiveReaderWindow,
+  getOpenerDocument,
   getOpenerWindow,
 } from "../shared/active-host.js";
 import { isBlobLike } from "../shared/cross-doc.js";
@@ -208,7 +209,7 @@ export function getQuoteShareNoiseDataUrl(customDpr?: number): string {
 }
 
 function generateNoiseDataUrl(dpr: number): string {
-  const doc = getActiveReaderDocument();
+  const doc = getOpenerDocument();
   if (!doc) {
     return createFallbackNoiseSvgDataUrl();
   }
@@ -444,7 +445,7 @@ export interface QuoteCardTextLayout {
 }
 
 export function createQuoteCardTextMeasurer(
-  ctx: CanvasRenderingContext2D | null | undefined
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined
 ): QuoteCardTextMeasurer | null {
   if (!ctx) {
     return null;

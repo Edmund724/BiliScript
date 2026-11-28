@@ -1,5 +1,6 @@
 import { contentFetchJson, type JsonTransport } from "../bilibili/gateway.js";
 import { getOpenerDocument } from "../shared/active-host.js";
+import { contentEventBus } from "../shared/content-event-bus.js";
 import { decodeVideoStorageBvid, normalizeSiteId, type SiteId } from "../shared/site.js";
 import {
   capturePageVideoFrame,
@@ -25,6 +26,7 @@ function buildHistoricalPlayurlUrl(bvid: string, cid: string): string {
 }
 
 const MEDIA_TIMEOUT_MS = 45000;
+export const IDLE_VIDEO_DISPOSE_MS = 20_000;
 const SEEK_TOLERANCE_SECONDS = 0.15;
 const HIDDEN_VIDEO_STYLE =
   "position:fixed;left:-10000px;top:0;width:640px;height:360px;pointer-events:none;visibility:hidden";
@@ -71,7 +73,7 @@ function prepareHiddenVideo(
   }
   media.muted = true;
   media.defaultMuted = true;
-  media.preload = "auto";
+  media.preload = "metadata";
   media.playsInline = true;
   media.dataset.biliscriptHistoricalFrame = "";
   media.style.cssText = HIDDEN_VIDEO_STYLE;
@@ -219,6 +221,14 @@ export function createHistoricalVideoFrameSession(
   let video: HTMLVideoElement | null = null;
   let closed = false;
   let activeController: AbortController | null = null;
+  let idleDisposeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearIdleDisposeTimer = (): void => {
+    if (idleDisposeTimer !== null) {
+      clearTimeout(idleDisposeTimer);
+      idleDisposeTimer = null;
+    }
+  };
 
   const disposeVideo = (target: HTMLVideoElement | null, objectUrl?: string): void => {
     if (target) {
@@ -235,11 +245,32 @@ export function createHistoricalVideoFrameSession(
     }
   };
 
-  const close = (): void => {
-    closed = true;
-    activeController?.abort();
+  const disposeSessionVideo = (): void => {
+    clearIdleDisposeTimer();
     disposeVideo(video);
     video = null;
+  };
+
+  const scheduleIdleDispose = (): void => {
+    clearIdleDisposeTimer();
+    if (!video || closed) {
+      return;
+    }
+    idleDisposeTimer = setTimeout(() => {
+      idleDisposeTimer = null;
+      disposeSessionVideo();
+    }, IDLE_VIDEO_DISPOSE_MS);
+  };
+
+  const stopClipSwitchWatch = contentEventBus.on("clip:switch-start", () => {
+    disposeSessionVideo();
+  });
+
+  const close = (): void => {
+    closed = true;
+    stopClipSwitchWatch();
+    activeController?.abort();
+    disposeSessionVideo();
   };
 
   const captureYoutubeFrames = async (
@@ -338,10 +369,20 @@ export function createHistoricalVideoFrameSession(
       }
 
       const openerDoc = getOpenerDocument();
-      video = prepareHiddenVideo(openerDoc, options.createVideo, "anonymous");
-      video.src = source;
-      openerDoc.body.appendChild(video);
-      await waitForVideo(video, "loadedmetadata", () => video!.readyState >= 1, timeoutMs, signal);
+      const created = prepareHiddenVideo(openerDoc, options.createVideo, "anonymous");
+      created.src = source;
+      openerDoc.body.appendChild(created);
+      video = created;
+      try {
+        await waitForVideo(created, "loadedmetadata", () => created.readyState >= 1, timeoutMs, signal);
+      } catch (error) {
+        if (video === created) {
+          disposeSessionVideo();
+        } else {
+          disposeVideo(created);
+        }
+        throw error;
+      }
     }
     const media = video;
     if (Number.isFinite(media.duration) && targetTime > media.duration) {
@@ -363,6 +404,7 @@ export function createHistoricalVideoFrameSession(
     }
     if (closed || captureOptions.signal?.aborted) throw abortError();
     if (activeController) throw new Error("历史帧会话已有截取进行中");
+    clearIdleDisposeTimer();
     const timeoutMs = captureOptions.timeoutMs ?? options.timeoutMs ?? MEDIA_TIMEOUT_MS;
     const controller = new AbortController();
     activeController = controller;
@@ -388,6 +430,9 @@ export function createHistoricalVideoFrameSession(
       if (timer) clearTimeout(timer);
       captureOptions.signal?.removeEventListener("abort", onAbort);
       if (activeController === controller) activeController = null;
+      if (!closed && video) {
+        scheduleIdleDispose();
+      }
     }
   };
 

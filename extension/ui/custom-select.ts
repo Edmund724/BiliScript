@@ -1,4 +1,5 @@
 import { getActiveReaderDocument, onActiveHostChange } from "../shared/active-host.js";
+import { registerDetachedDocumentCleanup } from "../reader/detached-window.js";
 import {
   dispatchCrossDocEvent,
   isElementNode,
@@ -160,9 +161,32 @@ export function createOutsideClickDismissal({
     }
   };
 
-  const observersByCtor = new Map<typeof MutationObserver, MutationObserver>();
+  const observersByHost = new WeakMap<Document, MutationObserver>();
+  const trackedObserverHosts = new Set<WeakRef<Document>>();
+
+  const disconnectHostObserver = (doc: Document): void => {
+    const observer = observersByHost.get(doc);
+    if (observer) {
+      try {
+        observer.disconnect();
+      } catch {
+      }
+      observersByHost.delete(doc);
+    }
+    for (const ref of [...trackedObserverHosts]) {
+      const current = ref.deref();
+      if (!current || current === doc) {
+        trackedObserverHosts.delete(ref);
+      }
+    }
+  };
 
   const getDropdownObserver = (dropdown: HTMLElement): MutationObserver | null => {
+    const doc = resolveNodeDocument(dropdown);
+    const existing = observersByHost.get(doc);
+    if (existing) {
+      return existing;
+    }
     const win = resolveNodeWindow(dropdown) as Window & {
       MutationObserver?: typeof MutationObserver;
     };
@@ -171,10 +195,6 @@ export function createOutsideClickDismissal({
       (typeof MutationObserver === "function" ? MutationObserver : undefined);
     if (typeof Ctor !== "function") {
       return null;
-    }
-    const existing = observersByCtor.get(Ctor);
-    if (existing) {
-      return existing;
     }
     const observer = new Ctor((records) => {
       if (disposed) return;
@@ -192,7 +212,10 @@ export function createOutsideClickDismissal({
       }
       sync();
     });
-    observersByCtor.set(Ctor, observer);
+    observersByHost.set(doc, observer);
+    if (typeof WeakRef === "function") {
+      trackedObserverHosts.add(new WeakRef(doc));
+    }
     return observer;
   };
 
@@ -286,17 +309,48 @@ export function createOutsideClickDismissal({
     sync();
   };
 
+  const stopDocCleanup = registerDetachedDocumentCleanup((targetDoc) => {
+    if (disposed) return;
+    if (boundDoc === targetDoc) {
+      detachListeners();
+    }
+    disconnectHostObserver(targetDoc);
+    for (const node of [...trackedDropdowns]) {
+      try {
+        if (node.ownerDocument === targetDoc || !node.isConnected) {
+          trackedDropdowns.delete(node);
+          openDropdowns.delete(node);
+          observedDropdowns.delete(node);
+        }
+      } catch {
+        trackedDropdowns.delete(node);
+        openDropdowns.delete(node);
+        observedDropdowns.delete(node);
+      }
+    }
+    for (const node of [...openDropdowns]) {
+      try {
+        if (node.ownerDocument === targetDoc || !node.isConnected) {
+          openDropdowns.delete(node);
+        }
+      } catch {
+        openDropdowns.delete(node);
+      }
+    }
+  });
+
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
     stopHostWatch();
-    for (const observer of observersByCtor.values()) {
-      try {
-        observer.disconnect();
-      } catch {
+    stopDocCleanup();
+    for (const ref of [...trackedObserverHosts]) {
+      const doc = ref.deref();
+      if (doc) {
+        disconnectHostObserver(doc);
       }
     }
-    observersByCtor.clear();
+    trackedObserverHosts.clear();
     trackedDropdowns.clear();
     openDropdowns.clear();
     detachListeners();

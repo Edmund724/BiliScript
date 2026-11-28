@@ -333,6 +333,18 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     expect(state.clip.srt).not.toBe("");
     expect(state.clip.txt).not.toBe("");
     setMarkdownSpy.mockRestore();
+
+    const retainedMd = state.clip.markdown;
+    const retainedSrt = state.clip.srt;
+    const retainedTxt = state.clip.txt;
+    invalidateDerived();
+    clipState.setMarkdown(retainedMd);
+    clipState.setSrt(retainedSrt);
+    clipState.setTxt(retainedTxt);
+    const rebuildSpy = vi.spyOn(clipState, "setMarkdown");
+    ensureDerivedContent();
+    expect(rebuildSpy).toHaveBeenCalledTimes(1);
+    rebuildSpy.mockRestore();
   });
 
   it("rebuildDerivedContent 空字幕体时经 invalidateDerived 清空三件套", () => {

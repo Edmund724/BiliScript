@@ -535,4 +535,35 @@ describe("chat-runtime 对话轮内存帧索引与生命周期隔离", () => {
     detachConversationIdentity();
     expect(getLatestFrames()).toEqual([]);
   });
+
+  it("historyIndexFrameMap 有界容量最多保留最近 12 个对话轮次", async () => {
+    const {
+      MAX_HISTORY_INDEX_FRAME_TURNS,
+      bindCapturedFramesToMessage,
+      getCapturedFramesForHistoryIndex,
+      clearTurnCapturedFrameCache: clearCache
+    } = await import("../../extension/notes/turn-frame-cache.js");
+    clearCache();
+
+    expect(MAX_HISTORY_INDEX_FRAME_TURNS).toBe(12);
+    for (let i = 0; i < 15; i += 1) {
+      bindCapturedFramesToMessage(
+        { role: "assistant", content: `turn-${i}` },
+        [{ seconds: i, dataUrl: `data:image/jpeg;base64,TURN_${i}` }],
+        i
+      );
+    }
+
+    expect(getCapturedFramesForHistoryIndex(0)).toEqual([]);
+    expect(getCapturedFramesForHistoryIndex(1)).toEqual([]);
+    expect(getCapturedFramesForHistoryIndex(2)).toEqual([]);
+    expect(getCapturedFramesForHistoryIndex(3)).toEqual([
+      { seconds: 3, dataUrl: "data:image/jpeg;base64,TURN_3" }
+    ]);
+    expect(getCapturedFramesForHistoryIndex(14)).toEqual([
+      { seconds: 14, dataUrl: "data:image/jpeg;base64,TURN_14" }
+    ]);
+    clearCache();
+    expect(getCapturedFramesForHistoryIndex(14)).toEqual([]);
+  });
 });

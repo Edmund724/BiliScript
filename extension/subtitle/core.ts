@@ -252,6 +252,7 @@ export function findActiveChapterIndex(currentTime: number): number {
 }
 
 export function invalidateDerived(): void {
+  derivedContentCache = null;
   clipState.setMarkdown("");
   clipState.setSrt("");
   clipState.setTxt("");

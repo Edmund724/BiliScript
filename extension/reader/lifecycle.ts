@@ -85,6 +85,8 @@ import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
+import { clearSubtitleItemIndex } from "./subtitle-item-dom.js";
+import { clearTurnCapturedFrameCache } from "../notes/turn-frame-cache.js";
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
 registerReaderPorts({
@@ -329,6 +331,7 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent): 
       closeQuoteShareModal({ restoreFocus: false });
       closeCommandPalette();
       clearPendingExplainIntent();
+      clearTurnCapturedFrameCache();
       invalidateReaderSetupFlows("all");
       resetReaderOverviewState();
       if (state.reader.readingViewOpen && isReaderDetached()) {
@@ -619,6 +622,24 @@ export function closeReadingView() {
   resetReaderOverviewState();
   stopReadingViewSync();
   closeScriptHost();
+  if (readingView) {
+    const subtitleList = readingView.querySelector<HTMLElement>(`#${ids.readingSubtitleList}`);
+    if (subtitleList) {
+      clearSubtitleItemIndex(subtitleList);
+      subtitleList.textContent = "";
+    }
+    const overviewBody = readingView.querySelector<HTMLElement>(`#${ids.readingOverviewBody}`);
+    if (overviewBody) {
+      overviewBody.textContent = "";
+    }
+    const chatHistoryList = readingView.querySelector<HTMLElement>(`#${ids.readingChatHistoryList}`);
+    if (chatHistoryList) {
+      chatHistoryList.textContent = "";
+    }
+    readingView
+      .querySelectorAll<HTMLElement>('[data-panel-modal-host="1"], .biliscript-quote-share-host')
+      .forEach((node) => node.remove());
+  }
   readerPanelScope?.dispose();
   readerPanelScope = null;
 }

@@ -61,10 +61,26 @@ function startRender(cacheKey: string, source: string, theme: string): Promise<R
   const task = (async () => {
     ensureConfigured(theme);
     const id = `biliscript-mermaid-${++idSeq}`;
-    const { svg } = await mermaid.render(id, source);
-    const rendered: RenderedDiagram = { svg, id };
-    rememberSvg(cacheKey, rendered);
-    return rendered;
+    const doc = typeof document !== "undefined" ? document : null;
+    const host = doc?.body ? doc.createElement("div") : null;
+    if (host && doc?.body) {
+      host.setAttribute("data-biliscript-mermaid-host", id);
+      host.style.cssText =
+        "position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;";
+      doc.body.appendChild(host);
+    }
+    try {
+      const { svg } = host
+        ? await mermaid.render(id, source, host)
+        : await mermaid.render(id, source);
+      const rendered: RenderedDiagram = { svg, id };
+      rememberSvg(cacheKey, rendered);
+      return rendered;
+    } finally {
+      host?.remove();
+      doc?.getElementById(`d${id}`)?.remove();
+      doc?.getElementById(id)?.remove();
+    }
   })().finally(() => {
     pendingRenders.delete(cacheKey);
   });

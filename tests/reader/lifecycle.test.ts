@@ -267,6 +267,9 @@ describe("reader 生命周期", () => {
 
     expect(syncRunning()).toBe(false);
     expect(video.__biliscriptReadingSyncController).toBeUndefined();
+    expect(document.getElementById(ids.readingView)).toBe(readingView);
+    expect(document.getElementById(ids.readingSubtitleList)?.children.length).toBe(0);
+    expect(document.getElementById(ids.readingOverviewBody)?.children.length).toBe(0);
 
     await new Promise((resolve) => setTimeout(resolve, 150));
   });

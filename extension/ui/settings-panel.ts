@@ -1,4 +1,4 @@
-import { AI_PROVIDERS_STORAGE } from "../core/ai-provider-store.js";
+import { AI_PROVIDERS_STORAGE, AI_PROVIDER_MODELS_LOCAL_KEY } from "../core/ai-provider-store.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { getSettings } from "../core/runtime.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
@@ -269,7 +269,10 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
       if (changes.enableAgentBridge && ctx.capabilities.agentAvailable) {
         void ctx.agentBridge?.refresh();
       }
-      if (AI_MODEL_EXTERNAL_SYNC_KEYS.some((key) => Boolean(changes[key]))) {
+      if (
+        AI_MODEL_EXTERNAL_SYNC_KEYS.some((key) => Boolean(changes[key])) ||
+        Boolean(changes[AI_PROVIDER_MODELS_LOCAL_KEY])
+      ) {
         void Promise.all([loadAiProviders(ctx.providerHost), getSettings()]).then(([providers, settings]) => {
           if (mounted !== ctx || !ctx.host.isConnected) return;
           renderAiModelSelects(ctx.elements, providers, settings, () => syncSummaries(ctx));
@@ -285,7 +288,8 @@ function bindExternalSync(ctx: MountedSettingsHost): void {
         "agentBridgeUrl",
         "shortcuts",
         ...AI_MODEL_EXTERNAL_SYNC_KEYS
-      ]
+      ],
+      local: [AI_PROVIDER_MODELS_LOCAL_KEY]
     }
   );
 }

@@ -7,6 +7,7 @@ export interface NoteKeyframeCandidate {
 }
 
 const MAX_STORED_TURN_FRAMES = 32;
+export const MAX_HISTORY_INDEX_FRAME_TURNS = 12;
 
 let messageFrameMap = new WeakMap<ChatSessionMessage, NoteKeyframeCandidate[]>();
 const historyIndexFrameMap = new Map<number, NoteKeyframeCandidate[]>();
@@ -95,7 +96,17 @@ export function bindCapturedFramesToMessage(
   }
   messageFrameMap.set(message, normalized);
   if (typeof historyIndex === "number" && Number.isInteger(historyIndex) && historyIndex >= 0) {
+    if (historyIndexFrameMap.has(historyIndex)) {
+      historyIndexFrameMap.delete(historyIndex);
+    }
     historyIndexFrameMap.set(historyIndex, normalized);
+    while (historyIndexFrameMap.size > MAX_HISTORY_INDEX_FRAME_TURNS) {
+      const oldestKey = historyIndexFrameMap.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      historyIndexFrameMap.delete(oldestKey);
+    }
   }
   latestCapturedFrames = normalized;
   return cloneCandidateList(normalized);

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
-import { AI_PROVIDER_KEYS_STORAGE, AI_PROVIDERS_STORAGE } from "../../extension/core/ai-provider-store.js";
+import {
+  AI_PROVIDER_KEYS_STORAGE,
+  AI_PROVIDERS_STORAGE,
+  AI_PROVIDER_MODELS_LOCAL_KEY
+} from "../../extension/core/ai-provider-store.js";
 import { ASR_PROVIDER_KEYS_STORAGE, ASR_PROVIDERS_STORAGE } from "../../extension/asr/asr-provider-store.js";
 import {
   SEARCH_PROVIDER_KEYS_STORAGE,
@@ -677,6 +681,7 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
       ...Object.keys(DEFAULT_SETTINGS).map((key) => ({ key, area: "sync", domain: "settings" })),
       { key: AI_PROVIDERS_STORAGE, area: "sync", domain: "ai" },
       { key: AI_PROVIDER_KEYS_STORAGE, area: "local", domain: "ai" },
+      { key: AI_PROVIDER_MODELS_LOCAL_KEY, area: "local", domain: "ai" },
       { key: ASR_PROVIDERS_STORAGE, area: "sync", domain: "asr" },
       { key: ASR_PROVIDER_KEYS_STORAGE, area: "local", domain: "asr" },
       { key: SEARCH_PROVIDERS_STORAGE, area: "sync", domain: "search" },

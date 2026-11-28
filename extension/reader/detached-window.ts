@@ -75,6 +75,16 @@ const RESIZE_DEBOUNCE_MS = 200;
 let activeInstance: DetachedWindowInstance | null = null;
 let nextInstanceId = 0;
 let latestOpenToken = 0;
+const detachedDocCleanups = new Set<(targetDoc: Document) => void>();
+
+export function registerDetachedDocumentCleanup(
+  listener: (targetDoc: Document) => void
+): () => void {
+  detachedDocCleanups.add(listener);
+  return () => {
+    detachedDocCleanups.delete(listener);
+  };
+}
 
 function isWindowClosed(win: Window): boolean {
   try {
@@ -508,6 +518,12 @@ export function clearDetachedHostDocument(targetDoc: Document): void {
   } catch {
   }
   clearMirroredStyles(targetDoc);
+  for (const cleanup of [...detachedDocCleanups]) {
+    try {
+      cleanup(targetDoc);
+    } catch {
+    }
+  }
 }
 
 export function blurActiveFocusInside(container: HTMLElement | null): boolean {
