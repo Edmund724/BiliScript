@@ -1,4 +1,5 @@
 import { buildMessages } from "./context.js";
+import type { SummaryAnchorLike } from "./compaction.js";
 import { chatCompletion, validateProviderBasics, type ChatCompletionResult } from "./completion.js";
 import { runToolLoop, type FetchHotCommentsFn, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
 import { detectSiteFromUrl, getSiteCapabilities, normalizeSiteId } from "../shared/site.js";
@@ -16,6 +17,7 @@ interface StreamChatInput {
   context?: AiContext | null;
   userPrompt?: string;
   history?: unknown[];
+  summaryAnchor?: SummaryAnchorLike | null;
   userImages?: ImagePart[];
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   port: ChatPort;
@@ -26,7 +28,7 @@ interface StreamChatInput {
   fetchHotComments?: FetchHotCommentsFn;
 }
 
-export async function streamChat({ provider, context, userPrompt, history, userImages, captureCurrentVideoFrame, fetchHotComments, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, summaryAnchor, userImages, captureCurrentVideoFrame, fetchHotComments, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   try {
@@ -45,6 +47,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     context,
     userPrompt,
     history,
+    summaryAnchor,
     images: userImages,
     systemPrompt: context?.aiSystemPrompt,
     includeToolHistory: Boolean(webSearch || effectiveFetchHotComments)

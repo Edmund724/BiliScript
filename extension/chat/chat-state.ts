@@ -6,6 +6,7 @@ import {
   toConversationSummaryItem,
   type ChatSessionMessage,
   type ChatSessionSavedConversation,
+  type ConversationSummaryAnchor,
   type ConversationSummaryInput,
   type ConversationSummaryItem
 } from "./conversation-types.js";
@@ -42,6 +43,7 @@ export interface CurrentConversationMeta {
   contextRef?: AiContext | null;
   resolvedContext?: AiContext | null;
   transcriptMode?: ChatTranscriptMode;
+  summaryAnchor?: ConversationSummaryAnchor;
 }
 
 type ChatSessionGuardedState = {

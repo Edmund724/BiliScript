@@ -102,6 +102,11 @@ const ladderLoader = createLazyLoader(async () => {
   const mod = await import("../ai/ladder.js");
   return {
     runLadderChat: mod.runLadderChat,
+    runConversationCompaction:
+      Object.prototype.hasOwnProperty.call(mod, "runConversationCompaction") &&
+      typeof mod.runConversationCompaction === "function"
+        ? mod.runConversationCompaction
+        : undefined,
     clearL0Bm25Cache:
       Object.prototype.hasOwnProperty.call(mod, "clearL0Bm25Cache") &&
       typeof mod.clearL0Bm25Cache === "function"
@@ -156,7 +161,15 @@ chrome.runtime.onConnect.addListener((port) => {
   lifetime.trackPort(port);
   attachOffscreenChatPort(port, {
     subtitleSlot,
-    loadLadder: async () => (await ladderLoader.load()).runLadderChat
+    withTask: (run) => lifetime.withTask(run),
+    loadLadder: async () => (await ladderLoader.load()).runLadderChat,
+    loadCompaction: async () => {
+      const fn = (await ladderLoader.load()).runConversationCompaction;
+      if (!fn) {
+        throw new Error("对话摘要压缩模块未加载");
+      }
+      return fn;
+    }
   });
 });
 

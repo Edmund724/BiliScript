@@ -1,8 +1,15 @@
 import type { NoteExportTarget } from "../core/defaults.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { isTagElement } from "../shared/cross-doc.js";
-import type { AiContext, CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
+import type { AiContext, CaptureCurrentVideoFrame, ConversationSummaryAnchor, ImagePart } from "../ai/types.js";
 import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
+import {
+  isCompleteUserTurnBoundary,
+  isSummaryAnchorValidForMessages,
+  planConversationCompaction,
+  shouldInvalidateSummaryAnchor,
+  type SummaryAnchorLike
+} from "../ai/compaction.js";
 import { buildContextKey, generateConversationId } from "../ai/conversation.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import { resolveWebSearchOptIn, SEARCH_OPT_IN_DECLINED_NOTICE } from "../search/opt-in-notice.js";
@@ -65,7 +72,7 @@ export type { ChatPortMessage };
 
 export interface ChatRuntimeStore {
   isCurrent(id: string): boolean;
-  persistCurrent(opts?: { transcriptMode?: ChatTranscriptMode }): Promise<void>;
+  persistCurrent(opts?: { transcriptMode?: ChatTranscriptMode; clearSummaryAnchor?: boolean }): Promise<void>;
 }
 
 export interface ChatRuntimeUi {
@@ -168,6 +175,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let lastAckedContextKey: string | null = null;
   const pendingVideoFrames = new Map<string, AbortController>();
   const activeToolCalls = new Set<string>();
+  const inFlightCompactions = new Set<string>();
   let activeToolGeneration = 0;
 
   function isTurnActive(): boolean {
@@ -827,6 +835,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           : persistedTranscriptMode);
       activeTurnTranscriptMode = requestedTranscriptMode;
 
+      const requestHistory = branch ? buildBranchRequestHistory(branch) : chatSessionState.chatHistory;
+      const rawAnchor =
+        chatSessionState.currentConversationMeta?.id === activeConversationId
+          ? chatSessionState.currentConversationMeta?.summaryAnchor
+          : undefined;
+      const branchMutationIndex = branch
+        ? (branch.kind === "continue-append" ? branch.historyIndex : branch.userIndex)
+        : Number.POSITIVE_INFINITY;
+      const effectiveSummaryAnchor =
+        rawAnchor &&
+        !shouldInvalidateSummaryAnchor(rawAnchor, branchMutationIndex, requestHistory) &&
+        isSummaryAnchorValidForMessages(requestHistory, rawAnchor)
+          ? rawAnchor
+          : undefined;
+
       port.postMessage({
         action: "chat",
         providerId,
@@ -835,6 +858,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         thinkingLevel: chatSessionState.aiThinkingLevel,
         turnKind: activeTurnKind,
         ...(requestedTranscriptMode ? { transcriptMode: requestedTranscriptMode } : {}),
+        ...(effectiveSummaryAnchor ? { summaryAnchor: effectiveSummaryAnchor } : {}),
         webSearchEnabled,
         ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         ...(interactionAnchor ? { interactionAnchor } : {}),
@@ -843,7 +867,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         contextKey,
         prompt: text,
         ...(images.length ? { images } : {}),
-        history: branch ? buildBranchRequestHistory(branch) : chatSessionState.chatHistory
+        history: requestHistory
       });
 
       flushDeferredTurnStop();
@@ -905,6 +929,97 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return baseIndex + pendingToolMessages.length;
   }
 
+  function scheduleBackgroundCompactionIfNeeded(snapshot: {
+    conversationId: string;
+    providerId: string;
+    model: string;
+    history: ChatSessionMessage[];
+    summaryAnchor?: SummaryAnchorLike;
+  }): void {
+    const conversationId = String(snapshot.conversationId || "").trim();
+    if (!conversationId || snapshot.history.length === 0) {
+      return;
+    }
+    const plan = planConversationCompaction(snapshot.history, snapshot.summaryAnchor);
+    if (!plan) {
+      return;
+    }
+    const dedupeKey = `${conversationId}:${plan.coveredMessageCount}`;
+    if (inFlightCompactions.has(dedupeKey)) {
+      return;
+    }
+    inFlightCompactions.add(dedupeKey);
+    void (async () => {
+      let compactPort: ChatPort | null = null;
+      let settled = false;
+      const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        inFlightCompactions.delete(dedupeKey);
+        if (compactPort) {
+          try {
+            compactPort.disconnect();
+          } catch {}
+          compactPort = null;
+        }
+      };
+      try {
+        compactPort = await deps.connectPort();
+        compactPort.onMessage.addListener((rawMsg) => {
+          const msg = rawMsg as ChatPortMessage | null;
+          if (!msg || msg.type !== "compact-history-result" || msg.conversationId !== conversationId) {
+            return;
+          }
+          if (msg.ok && msg.summaryAnchor) {
+            const nextAnchor = msg.summaryAnchor as ConversationSummaryAnchor;
+            const currentMeta = chatSessionState.currentConversationMeta;
+            const currentHistory = chatSessionState.chatHistory;
+            const prevCovered = Number(currentMeta?.summaryAnchor?.coveredMessageCount) || 0;
+            const boundaryMatches =
+              isCompleteUserTurnBoundary(currentHistory, nextAnchor.coveredMessageCount) &&
+              String(currentHistory[nextAnchor.coveredMessageCount - 1]?.content ?? "") ===
+                plan.expectedBoundaryContent;
+            if (
+              chatSessionState.currentConversationId === conversationId &&
+              currentMeta &&
+              nextAnchor.coveredMessageCount > prevCovered &&
+              boundaryMatches
+            ) {
+              applyConversationIdentity({
+                meta: {
+                  ...currentMeta,
+                  summaryAnchor: { ...nextAnchor }
+                }
+              });
+            }
+          }
+          cleanup();
+        });
+        compactPort.onDisconnect.addListener(() => {
+          consumeRuntimeLastError();
+          cleanup();
+        });
+        compactPort.postMessage({
+          action: "compact-history",
+          conversationId,
+          providerId: snapshot.providerId,
+          model: snapshot.model,
+          previousSummaryText: plan.previousSummaryText,
+          batchMessages: plan.batchMessages,
+          coveredMessageCount: plan.coveredMessageCount,
+          ...(plan.expectedCoveredMessageIds
+            ? { expectedCoveredMessageIds: plan.expectedCoveredMessageIds }
+            : {}),
+          expectedBoundaryContent: plan.expectedBoundaryContent
+        });
+      } catch {
+        cleanup();
+      }
+    })();
+  }
+
   function commitAssistantTurn(
     raw: string,
     opts: { thinking?: string; stopped?: boolean } = {}
@@ -925,15 +1040,39 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       assistantMsg.stopped = true;
     }
 
-    const finalizeCommittedAssistant = (committedIndex: number): true => {
+    const finalizeCommittedAssistant = (
+      committedIndex: number,
+      clearSummaryAnchor = false
+    ): true => {
       const boundFrames = bindCapturedFramesToMessage(
         assistantMsg,
         activeTurnCapturedFrames,
         committedIndex
       );
-      void deps.store.persistCurrent(
-        activeTurnTranscriptMode ? { transcriptMode: activeTurnTranscriptMode } : undefined
-      );
+      const persistOpts: { transcriptMode?: ChatTranscriptMode; clearSummaryAnchor?: boolean } = {
+        ...(activeTurnTranscriptMode ? { transcriptMode: activeTurnTranscriptMode } : {}),
+        ...(clearSummaryAnchor ? { clearSummaryAnchor: true } : {})
+      };
+      const compactionSnapshot = !isStopped
+        ? {
+            conversationId: activeConversationId,
+            providerId: activeTurnProviderId,
+            model: deps.getSelectedModel() || "",
+            history: [...chatSessionState.chatHistory],
+            summaryAnchor: clearSummaryAnchor
+              ? undefined
+              : chatSessionState.currentConversationMeta?.summaryAnchor
+          }
+        : null;
+      void Promise.resolve(
+        deps.store.persistCurrent(Object.keys(persistOpts).length > 0 ? persistOpts : undefined)
+      )
+        .then(() => {
+          if (compactionSnapshot) {
+            scheduleBackgroundCompactionIfNeeded(compactionSnapshot);
+          }
+        })
+        .catch(() => {});
       pendingToolMessages = [];
       activeTurnCapturedFrames = [];
       deps.onTurnCommitted?.({
@@ -960,8 +1099,22 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       const history = activeBranch.originalHistory.slice(0, getBranchSliceEnd(activeBranch));
       history.push(...pendingToolMessages, assistantMsg);
-      applyConversationIdentity({ history });
-      return finalizeCommittedAssistant(history.length - 1);
+      const mutationIndex =
+        activeBranch.kind === "continue-append" ? activeBranch.historyIndex : activeBranch.userIndex;
+      const currentMeta = chatSessionState.currentConversationMeta;
+      const shouldClearAnchor = shouldInvalidateSummaryAnchor(
+        currentMeta?.summaryAnchor,
+        mutationIndex,
+        history
+      );
+      if (shouldClearAnchor && currentMeta) {
+        const nextMeta = { ...currentMeta };
+        delete nextMeta.summaryAnchor;
+        applyConversationIdentity({ meta: nextMeta, history });
+      } else {
+        applyConversationIdentity({ history });
+      }
+      return finalizeCommittedAssistant(history.length - 1, shouldClearAnchor);
     }
 
     if (activeUserPrompt && deps.store.isCurrent(activeConversationId)) {

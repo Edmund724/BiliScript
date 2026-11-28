@@ -1,7 +1,13 @@
 import { streamChat as _streamChat } from "./client.js";
+import { chatCompletion as _chatCompletion } from "./completion.js";
 import { buildBudgetPlan as _buildBudgetPlan, MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
-import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
+import { resolveFollowupContext as _resolveFollowupContext } from "./followup-context.js";
+import {
+  synthesizeCompactedSummary,
+  type CompactionPlan,
+  type SummaryAnchorLike
+} from "./compaction.js";
 import { runCostGuard } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
 import { estimateTokensFromChars } from "./usage-stats.js";
@@ -38,6 +44,7 @@ import type {
   CaptureCurrentVideoFrame,
   CapturedVideoFrame,
   ChatMessage,
+  ConversationSummaryAnchor,
   ImagePart
 } from "./types.js";
 import type { FetchHotCommentsFn } from "./tool-loop.js";
@@ -47,6 +54,7 @@ export type ChatContext = AiContext;
 export interface ChatMsg {
   context?: AiContext;
   history?: ChatMessage[];
+  summaryAnchor?: SummaryAnchorLike | null;
   prompt?: string;
   thinkingLevel?: ThinkingLevelInput;
   turnKind?: ChatTurnKind;
@@ -66,7 +74,6 @@ export type StreamChatFn = typeof _streamChat;
 export type StreamChatArgs = Parameters<typeof _streamChat>[0];
 export type OrchestrateMapReduceFn = typeof _orchestrateMapReduce;
 export type ResolveFollowupContextFn = typeof _resolveFollowupContext;
-export type TrimRecentTurnsFn = typeof _trimRecentTurns;
 
 export interface RunLadderChatArgs {
   msg: ChatMsg;
@@ -83,7 +90,6 @@ export interface RunLadderChatDeps {
   orchestrateMapReduce?: typeof _orchestrateMapReduce;
   resolveFollowupContext?: typeof _resolveFollowupContext;
   buildBudgetPlan?: typeof _buildBudgetPlan;
-  trimRecentTurns?: typeof _trimRecentTurns;
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
   onTranscriptMode?: (mode: ChatTranscriptMode) => void;
   onActivity?: () => void;
@@ -211,6 +217,20 @@ async function preCaptureVisualFramesIfNeeded(input: {
   }
 }
 
+export function runConversationCompaction(input: {
+  provider: AiProvider;
+  plan: CompactionPlan;
+  signal?: AbortSignal | null;
+  complete?: typeof ChatCompletionFn;
+}): Promise<ConversationSummaryAnchor | null> {
+  return synthesizeCompactedSummary({
+    provider: input.provider,
+    plan: input.plan,
+    complete: input.complete ?? _chatCompletion,
+    signal: input.signal
+  });
+}
+
 export async function runLadderChat(
   { msg, provider, port, signal, webSearch, captureCurrentVideoFrame, fetchHotComments }: RunLadderChatArgs,
   deps: RunLadderChatDeps
@@ -219,7 +239,6 @@ export async function runLadderChat(
   const orchestrateMapReduce = deps.orchestrateMapReduce ?? _orchestrateMapReduce;
   const resolveFollowupContext = deps.resolveFollowupContext ?? _resolveFollowupContext;
   const buildBudgetPlan = deps.buildBudgetPlan ?? _buildBudgetPlan;
-  const trimRecentTurns = deps.trimRecentTurns ?? _trimRecentTurns;
   const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
   const { askCostGuard, onActivity, pauseIdleTimeout, onTranscriptMode } = deps;
 
@@ -278,6 +297,7 @@ export async function runLadderChat(
           context: msg.context || {},
           userPrompt,
           history: rawHistory,
+          summaryAnchor: msg.summaryAnchor,
           userImages,
           thinkingLevel: msg.thinkingLevel,
           port,
@@ -376,13 +396,13 @@ export async function runLadderChat(
         ...(resolution.hybridRetrievalMarkdown ? { compressedSummaryMarkdown: undefined } : {}),
         subtitleBody: []
       };
-      const trimmedHistory = trimRecentTurns(rawHistory);
       try {
         await streamChat({
           provider,
           context: hybridContext,
           userPrompt,
-          history: trimmedHistory,
+          history: rawHistory,
+          summaryAnchor: msg.summaryAnchor,
           userImages: visual.finalUserImages,
           thinkingLevel: msg.thinkingLevel,
           port,

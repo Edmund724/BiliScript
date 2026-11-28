@@ -405,6 +405,9 @@ export function buildGeminiRequestBody(request: ChatRequest): Record<string, unk
   if (typeof request.maxTokens === "number" && Number.isFinite(request.maxTokens)) {
     generationConfig[wire.tokenParam] = request.maxTokens;
   }
+  if (typeof request.temperature === "number" && Number.isFinite(request.temperature)) {
+    generationConfig.temperature = request.temperature;
+  }
 
   const { tools, toolConfig } = toGeminiToolsAndConfig(request.tools);
 

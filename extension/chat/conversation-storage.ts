@@ -861,6 +861,7 @@ export interface SaveConversationEntryOptions {
   storage?: StorageArea;
   maxCount?: number;
   clientId?: string;
+  clearSummaryAnchor?: boolean;
 }
 
 export async function saveConversationEntry(
@@ -884,6 +885,9 @@ export async function saveConversationEntry(
   const record = persisted[0];
   if (!record) {
     return { conversation: null, summary: null, prunedIds: [] };
+  }
+  if (options.clearSummaryAnchor) {
+    record.summaryAnchor = null;
   }
 
   let resolvedMaxCount = options.maxCount;

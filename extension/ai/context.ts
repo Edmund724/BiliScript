@@ -9,6 +9,12 @@ import {
   getDefaultAiSystemPrompt
 } from "../core/default-prompts.js";
 import { detectSiteFromUrl, normalizeSiteId, type SiteId } from "../shared/site.js";
+import {
+  buildSummaryAnchorTurnPair,
+  foldHistoricalToolResults,
+  sliceActiveHistoryWithFallback,
+  type SummaryAnchorLike
+} from "./compaction.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import type { AiContext, ChatMessage, ChatToolCall, ImagePart, ThinkingBlock } from "./types.js";
@@ -41,6 +47,7 @@ interface BuildMessagesInput {
   context?: AiContext | null;
   userPrompt?: unknown;
   history?: unknown[];
+  summaryAnchor?: SummaryAnchorLike | null;
   systemPrompt?: unknown;
   includeToolHistory?: boolean;
   images?: ImagePart[];
@@ -167,7 +174,7 @@ export function formatDynamicTurnUserContent(input: {
   return blocks.join("\n\n");
 }
 
-export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory, images }: BuildMessagesInput = {}): ChatMessage[] {
+export function buildMessages({ context, userPrompt, history, summaryAnchor, systemPrompt, includeToolHistory, images }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
   const site = resolveContextSite(ctx);
   const sections: string[] = [];
@@ -203,14 +210,23 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     sections.push("（暂无字幕）");
   }
 
-  let historyMessages: ChatMessage[] = Array.isArray(history)
-    ? history.flatMap((m) => {
-        const projected = projectHistoryMessage(m, Boolean(includeToolHistory));
-        return projected ? [projected] : [];
-      })
+  const rawHistory = Array.isArray(history)
+    ? history.filter((m): m is Record<string, unknown> => Boolean(m && typeof m === "object"))
     : [];
+  const { activeRawHistory, anchorText } = sliceActiveHistoryWithFallback(rawHistory, summaryAnchor);
 
+  let historyMessages: ChatMessage[] = activeRawHistory.flatMap((m) => {
+    const projected = projectHistoryMessage(m, Boolean(includeToolHistory));
+    return projected ? [projected] : [];
+  });
+
+  if (includeToolHistory) {
+    historyMessages = foldHistoricalToolResults(historyMessages);
+  }
   historyMessages = replaceEarlierImages(historyMessages, Boolean(images?.length));
+  if (anchorText) {
+    historyMessages = [...buildSummaryAnchorTurnPair(anchorText), ...historyMessages];
+  }
 
   const userMessage: ChatMessage = {
     role: "user",

@@ -13,6 +13,7 @@ interface BuildChatRequestBodyInput {
   stream?: boolean;
   thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
+  temperature?: number;
   tools?: ChatToolDefinition[];
 }
 
@@ -44,7 +45,7 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
   });
 }
 
-export function buildChatRequestBody({ model, messages, stream = false, thinkingWire, maxTokens, tools }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingWire, maxTokens, temperature, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     const clientTools = tools
@@ -58,6 +59,9 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   Object.assign(body, thinkingWire.fields);
   if (maxTokens != null) {
     body[thinkingWire.tokenParam] = maxTokens;
+  }
+  if (typeof temperature === "number" && Number.isFinite(temperature)) {
+    body.temperature = temperature;
   }
   return body;
 }
@@ -192,6 +196,7 @@ export const openaiAdapter: ProtocolAdapter = {
       stream: request.stream,
       thinkingWire: request.thinkingWire,
       maxTokens: request.maxTokens,
+      temperature: request.temperature,
       tools: request.tools
     });
   },

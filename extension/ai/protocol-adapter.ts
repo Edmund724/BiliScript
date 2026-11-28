@@ -25,6 +25,7 @@ export interface ChatRequest {
   stream: boolean;
   thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
+  temperature?: number;
   tools?: ChatToolDefinition[];
 }
 

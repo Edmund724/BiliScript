@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ConversationSummaryAnchor,
   StreamDoneEvent,
   StreamErrorEvent,
   StreamNoticeEvent,
@@ -73,6 +74,14 @@ export interface ChatToolTurnEvent {
   generation?: number;
 }
 
+export interface ChatCompactHistoryResultEvent {
+  type: "compact-history-result";
+  conversationId: string;
+  ok: boolean;
+  updated?: boolean;
+  summaryAnchor?: ConversationSummaryAnchor;
+}
+
 export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
   | (ChatTokenBatchEvent & ChatReceipt)
@@ -86,7 +95,8 @@ export type ChatPortMessage =
   | (StreamDoneEvent & ChatReceipt)
   | (StreamStoppedEvent & ChatReceipt)
   | (PortErrorEvent & ChatReceipt)
-  | (ChatCostGuardEvent & ChatReceipt);
+  | (ChatCostGuardEvent & ChatReceipt)
+  | (ChatCompactHistoryResultEvent & ChatReceipt);
 
 export interface ChatPort {
   postMessage(message: ChatPortMessage): void;

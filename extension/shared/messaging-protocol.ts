@@ -830,6 +830,7 @@ export type OffscreenChatMessage = {
   conversationId?: string;
   turnKind?: ChatTurnKind;
   transcriptMode?: ChatTranscriptMode;
+  summaryAnchor?: ConversationSummaryAnchor | null;
   webSearchEnabled?: boolean;
   videoFrameToolEnabled?: boolean;
   interactionAnchor?: {
@@ -842,6 +843,18 @@ export type OffscreenChatMessage = {
   images?: ImagePart[];
   subtitleBody?: unknown;
   [key: string]: unknown;
+};
+
+export type OffscreenCompactHistoryMessage = {
+  action: "compact-history";
+  conversationId: string;
+  providerId?: string;
+  model?: string;
+  previousSummaryText?: string;
+  batchMessages: Array<{ role: "user" | "assistant"; content: string }>;
+  coveredMessageCount: number;
+  expectedCoveredMessageIds?: string[];
+  expectedBoundaryContent?: string;
 };
 
 export type OffscreenStopMessage = { action: "stop" };
@@ -862,6 +875,7 @@ export type OffscreenVideoFrameResultMessage = {
 
 export type OffscreenChatPortMessage =
   | OffscreenChatMessage
+  | OffscreenCompactHistoryMessage
   | OffscreenStopMessage
   | OffscreenCostGuardConfirmMessage
   | OffscreenVideoFrameResultMessage;

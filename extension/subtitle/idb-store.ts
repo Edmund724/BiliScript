@@ -372,11 +372,11 @@ export interface ConversationMetaRecord {
 
 export interface ConversationSummaryAnchor {
   coveredMessageCount: number;
+  text?: string;
   summaryText?: string;
   updatedAt?: number;
   coveredMessageIds?: string[];
   boundaryHash?: string;
-  [key: string]: unknown;
 }
 
 export type ConversationMessagesRecord =
@@ -2753,21 +2753,28 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
             const msgStore = tx.objectStore(CONVERSATION_MESSAGES_IDB_STORE);
             const imgStore = tx.objectStore(CHAT_IMAGES_IDB_STORE);
 
-            if (split.body.kind === "chat" && split.body.summaryAnchor === undefined) {
+            const explicitlyClearedAnchor = input?.conversation?.summaryAnchor === null;
+            if (split.body.kind === "chat" && !explicitlyClearedAnchor) {
               const prevBody = (await idbReq(msgStore.get(split.meta.id))) as ConversationMessagesRecord | undefined;
               if (prevBody?.kind === "chat" && prevBody.summaryAnchor) {
                 const covered = Number(prevBody.summaryAnchor.coveredMessageCount) || 0;
+                const incomingCovered = Number(split.body.summaryAnchor?.coveredMessageCount) || 0;
                 if (
                   covered > 0 &&
+                  covered >= incomingCovered &&
                   split.body.messages.length >= covered &&
                   Array.isArray(prevBody.messages) &&
                   prevBody.messages.length >= covered
                 ) {
                   let prefixMatches = true;
                   for (let i = 0; i < covered; i += 1) {
-                    const a = prevBody.messages[i] as { role?: unknown; content?: unknown } | null;
-                    const b = split.body.messages[i] as { role?: unknown; content?: unknown } | null;
-                    if (a?.role !== b?.role || a?.content !== b?.content) {
+                    const a = prevBody.messages[i] as { id?: unknown; role?: unknown; content?: unknown } | null;
+                    const b = split.body.messages[i] as { id?: unknown; role?: unknown; content?: unknown } | null;
+                    if (
+                      a?.role !== b?.role ||
+                      a?.content !== b?.content ||
+                      (typeof a?.id === "string" && typeof b?.id === "string" && a.id !== b.id)
+                    ) {
                       prefixMatches = false;
                       break;
                     }
@@ -2890,6 +2897,16 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
               : undefined;
           const prevCount = Number(prevAnchor?.coveredMessageCount) || 0;
           if (covered <= prevCount || bodyRaw.messages.length < covered) {
+            return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
+          }
+          const nextAfterBoundary = covered < bodyRaw.messages.length ? (bodyRaw.messages[covered] as { role?: unknown } | null) : null;
+          const lastCoveredMsg = bodyRaw.messages[covered - 1] as { role?: unknown; tool_calls?: unknown } | null;
+          if (
+            (nextAfterBoundary && nextAfterBoundary.role !== "user") ||
+            !lastCoveredMsg ||
+            lastCoveredMsg.role !== "assistant" ||
+            (Array.isArray(lastCoveredMsg.tool_calls) && lastCoveredMsg.tool_calls.length > 0)
+          ) {
             return { updated: false, ...(prevAnchor ? { summaryAnchor: cloneValue(prevAnchor) } : {}) };
           }
           if (Array.isArray(input.expectedCoveredMessageIds) && input.expectedCoveredMessageIds.length > 0) {

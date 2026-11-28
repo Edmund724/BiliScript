@@ -14,12 +14,18 @@ import {
   type WebSearchRuntimeResolution
 } from "../search/search-runtime.js";
 import type { ChatMsg } from "../ai/ladder.js";
-import type { CapturedVideoFrame } from "../ai/types.js";
+import type { CapturedVideoFrame, ConversationSummaryAnchor } from "../ai/types.js";
 import type { ChatPortMessage, ChatTranscriptMode } from "../chat/protocol.js";
 import type {
   OffscreenChatPortMessage,
-  ResolveAiProviderResponse
+  OffscreenCompactHistoryMessage,
+  ResolveAiProviderResponse,
+  SubtitleCacheResponse
 } from "../shared/messaging-protocol.js";
+import type {
+  PatchConversationSummaryAnchorInput,
+  PatchConversationSummaryAnchorResult
+} from "../subtitle/idb-store.js";
 import type { createSubtitleBodySlot } from "./offscreen-subtitle-slot.js";
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
@@ -31,7 +37,36 @@ interface PostMessagePort {
 export interface AttachOffscreenChatPortDeps {
   subtitleSlot: ReturnType<typeof createSubtitleBodySlot>;
   loadLadder: () => Promise<typeof import("../ai/ladder.js").runLadderChat>;
+  withTask?: <T>(run: () => Promise<T>) => Promise<T>;
+  loadCompaction?: () => Promise<typeof import("../ai/ladder.js").runConversationCompaction>;
+  patchSummaryAnchor?: (
+    input: PatchConversationSummaryAnchorInput
+  ) => Promise<PatchConversationSummaryAnchorResult>;
   streamIdleTimeoutMs?: number;
+}
+
+async function defaultPatchSummaryAnchorViaBackground(
+  input: PatchConversationSummaryAnchorInput
+): Promise<PatchConversationSummaryAnchorResult> {
+  const resp = (await chrome.runtime.sendMessage({
+    type: "subtitle-cache",
+    op: "patch-conversation-summary-anchor",
+    id: input.id,
+    summaryAnchor: input.summaryAnchor,
+    ...(input.expectedCoveredMessageIds
+      ? { expectedCoveredMessageIds: [...input.expectedCoveredMessageIds] }
+      : {}),
+    ...(input.expectedBoundaryContent !== undefined
+      ? { expectedBoundaryContent: input.expectedBoundaryContent }
+      : {})
+  })) as SubtitleCacheResponse | null;
+  if (!resp?.ok) {
+    return { updated: false };
+  }
+  return {
+    updated: Boolean(resp.updated),
+    ...(resp.summaryAnchor ? { summaryAnchor: resp.summaryAnchor } : {})
+  };
 }
 
 function withCachedContextKey<T extends ChatPortMessage>(
@@ -188,9 +223,120 @@ export function attachOffscreenChatPort(
     return { provider: { ...resp.provider, apiKey }, apiKey };
   }
 
+  async function handleCompactHistory(msg: OffscreenCompactHistoryMessage): Promise<void> {
+    const conversationId = String(msg.conversationId || "").trim();
+    const coveredMessageCount = Number(msg.coveredMessageCount);
+    const batchMessages = Array.isArray(msg.batchMessages)
+      ? msg.batchMessages.filter(
+          (item): item is { role: "user" | "assistant"; content: string } =>
+            Boolean(item) &&
+            (item.role === "user" || item.role === "assistant") &&
+            typeof item.content === "string" &&
+            item.content.trim().length > 0
+        )
+      : [];
+    if (!conversationId || !Number.isInteger(coveredMessageCount) || coveredMessageCount <= 0 || batchMessages.length === 0) {
+      safePostMessage(port, {
+        type: "compact-history-result",
+        conversationId,
+        ok: false
+      });
+      return;
+    }
+
+    const runWithLease = deps.withTask ?? (<T>(run: () => Promise<T>) => run());
+    const patchAnchor = deps.patchSummaryAnchor ?? defaultPatchSummaryAnchorViaBackground;
+    const loadCompaction =
+      deps.loadCompaction ?? (async () => (await import("../ai/ladder.js")).runConversationCompaction);
+
+    await runWithLease(async () => {
+      try {
+        const resp = (await chrome.runtime.sendMessage({
+          type: "resolve-ai-provider",
+          providerId: msg.providerId
+        })) as ResolveAiProviderResponse | null;
+        if (!resp?.ok || !resp.provider) {
+          safePostMessage(port, {
+            type: "compact-history-result",
+            conversationId,
+            ok: false
+          });
+          return;
+        }
+        const apiKey = String(resp.apiKey || "").trim();
+        const permission = await checkHostPermissionFromOffscreen(resp.provider.baseUrl);
+        if (!permission.granted) {
+          safePostMessage(port, {
+            type: "compact-history-result",
+            conversationId,
+            ok: false
+          });
+          return;
+        }
+        const runConversationCompaction = await loadCompaction();
+        const anchor = await runConversationCompaction({
+          provider: {
+            ...resp.provider,
+            apiKey,
+            ...(msg.model ? { model: String(msg.model) } : {}),
+            sessionId: conversationId
+          },
+          plan: {
+            previousSummaryText: typeof msg.previousSummaryText === "string" ? msg.previousSummaryText : "",
+            batchMessages,
+            coveredMessageCount,
+            ...(Array.isArray(msg.expectedCoveredMessageIds)
+              ? { expectedCoveredMessageIds: msg.expectedCoveredMessageIds }
+              : {}),
+            expectedBoundaryContent:
+              typeof msg.expectedBoundaryContent === "string" ? msg.expectedBoundaryContent : ""
+          }
+        });
+        if (!anchor) {
+          safePostMessage(port, {
+            type: "compact-history-result",
+            conversationId,
+            ok: false
+          });
+          return;
+        }
+        const patchResult = await patchAnchor({
+          id: conversationId,
+          summaryAnchor: anchor,
+          ...(Array.isArray(msg.expectedCoveredMessageIds)
+            ? { expectedCoveredMessageIds: msg.expectedCoveredMessageIds }
+            : {}),
+          ...(typeof msg.expectedBoundaryContent === "string"
+            ? { expectedBoundaryContent: msg.expectedBoundaryContent }
+            : {})
+        });
+        const resolvedAnchor = (patchResult.summaryAnchor ?? (patchResult.updated ? anchor : undefined)) as
+          | ConversationSummaryAnchor
+          | undefined;
+        safePostMessage(port, {
+          type: "compact-history-result",
+          conversationId,
+          ok: true,
+          updated: patchResult.updated,
+          ...(resolvedAnchor ? { summaryAnchor: resolvedAnchor } : {})
+        });
+      } catch {
+        safePostMessage(port, {
+          type: "compact-history-result",
+          conversationId,
+          ok: false
+        });
+      }
+    });
+  }
+
   port.onMessage.addListener(async (rawMsg) => {
     const msg = rawMsg as OffscreenChatPortMessage;
     if (!msg) return;
+    if (msg.action === "compact-history") {
+      void handleCompactHistory(msg);
+      return;
+    }
     if (msg.action === "stop") {
       abortActiveRequest();
       return;

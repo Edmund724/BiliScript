@@ -210,6 +210,9 @@ export const anthropicAdapter: ProtocolAdapter = {
       body.tool_choice = { type: "auto", disable_parallel_tool_use: true };
     }
     Object.assign(body, wire.fields);
+    if (typeof request.temperature === "number" && Number.isFinite(request.temperature)) {
+      body.temperature = request.temperature;
+    }
     return body;
   },
 

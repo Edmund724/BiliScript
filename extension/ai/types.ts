@@ -45,6 +45,14 @@ export type ThinkingBlock =
   | { type: "thinking"; thinking: string; signature: string }
   | { type: "redacted_thinking"; data: string };
 
+export interface ConversationSummaryAnchor {
+  text: string;
+  coveredMessageCount: number;
+  updatedAt: number;
+  coveredMessageIds?: string[];
+  boundaryHash?: string;
+}
+
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;

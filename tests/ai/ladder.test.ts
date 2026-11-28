@@ -9,7 +9,6 @@ import {
   type RunLadderChatDeps,
   type StreamChatArgs,
   type StreamChatFn,
-  type TrimRecentTurnsFn,
   type WebSearchRuntime
 } from "../../extension/ai/ladder.js";
 import type { ChatPortMessage } from "../../extension/chat/protocol.js";
@@ -77,7 +76,6 @@ function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
       return null;
     }),
     buildBudgetPlan: vi.fn<NonNullable<RunLadderChatDeps["buildBudgetPlan"]>>(() => makeBudgetPlan()),
-    trimRecentTurns: vi.fn<TrimRecentTurnsFn>((history) => (Array.isArray(history) ? history.slice(-2) : [])),
     askCostGuard: vi.fn<RunLadderChatDeps["askCostGuard"]>(async () => true),
     onActivity: vi.fn(),
     pauseIdleTimeout: vi.fn(),
@@ -116,22 +114,29 @@ describe("runLadderChat 分派", () => {
     expect(port.messages).toHaveLength(0);
   });
 
-  it("② map-reduce 模式下追问命中 → trimRecentTurns 截历史 + 单次 streamChat", async () => {
+  it("② map-reduce 模式下追问命中 → 统一透传完整历史与 summaryAnchor + 单次 streamChat", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
-    const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
+    const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `h${i}`
+    }));
+    const summaryAnchor = { text: "归档摘要", coveredMessageCount: 2, updatedAt: 1000 };
     const followupFn = vi.fn(async () => ({ kind: "followup", compressedSummaryMarkdown: "压缩摘要内容" }));
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => makeBudgetPlan({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: followupFn
     });
 
-    await runLadderChat({ msg: { ...makeMsg(), history }, provider: { id: "p" }, port, signal }, deps);
+    await runLadderChat(
+      { msg: { ...makeMsg(), history, summaryAnchor }, provider: { id: "p" }, port, signal },
+      deps
+    );
 
     expect(followupFn).toHaveBeenCalledTimes(1);
-    expect(deps.trimRecentTurns).toHaveBeenCalledWith(history);
     expect(calls.streamChat).toHaveLength(1);
-    expect(calls.streamChat[0].history).toEqual(history.slice(-2));
+    expect(calls.streamChat[0].history).toEqual(history);
+    expect(calls.streamChat[0].summaryAnchor).toEqual(summaryAnchor);
     expect(calls.streamChat[0].context).toMatchObject({
       kind: "followup",
       subtitleBody: []

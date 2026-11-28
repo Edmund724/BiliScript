@@ -1,4 +1,4 @@
-import type { AiContext, ImagePart } from "../ai/types.js";
+import type { AiContext, ImagePart, ThinkingBlock } from "../ai/types.js";
 import type { LiveTextToolHistoryEntry, LiveTextToolVideo } from "../live/live-text-tool-history.js";
 import { normalizeSiteId, type SiteId } from "../shared/site.js";
 import type { ConversationSummaryAnchor } from "../subtitle/idb-store.js";
@@ -14,6 +14,8 @@ export interface ChatSessionMessage {
   contextKey?: string;
   tool_calls?: unknown[];
   tool_call_id?: string;
+  thoughtSignature?: string;
+  thinkingBlocks?: ThinkingBlock[];
   thinking?: string;
   stopped?: boolean;
 }

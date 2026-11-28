@@ -182,13 +182,11 @@ export async function chatCompletion({
       stream,
       thinkingWire,
       maxTokens: effectiveMaxTokens,
+      temperature,
       tools
     });
     if (extraBody) {
       Object.assign(built, extraBody);
-    }
-    if (temperature !== undefined) {
-      built.temperature = temperature;
     }
     return built;
   };

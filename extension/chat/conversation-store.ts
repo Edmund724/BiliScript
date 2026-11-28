@@ -32,6 +32,7 @@ import {
   saveConversationEntry,
   type ConversationSyncSignal
 } from "./conversation-storage.js";
+import { isSummaryAnchorValidForMessages } from "../ai/compaction.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import {
@@ -49,6 +50,7 @@ import {
   toConversationSummaryItem,
   type ChatSessionMessage,
   type ChatSessionSavedConversation,
+  type ConversationSummaryAnchor,
   type ConversationSummaryItem,
   type OrdinaryConversation
 } from "./conversation-types.js";
@@ -100,6 +102,12 @@ function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   if (typeof item.contextKey === "string" && item.contextKey.trim()) {
     base.contextKey = item.contextKey;
   }
+  if (typeof item.thoughtSignature === "string" && item.thoughtSignature) {
+    base.thoughtSignature = item.thoughtSignature;
+  }
+  if (Array.isArray(item.thinkingBlocks) && item.thinkingBlocks.length) {
+    base.thinkingBlocks = item.thinkingBlocks;
+  }
   if (typeof item.thinking === "string" && item.thinking.trim()) {
     base.thinking = item.thinking;
   }
@@ -128,6 +136,7 @@ export interface ConversationMeta {
   contextRef: AiContext | null;
   resolvedContext?: AiContext | null;
   transcriptMode?: ChatTranscriptMode;
+  summaryAnchor?: ConversationSummaryAnchor;
 }
 
 export interface StorageArea {
@@ -184,6 +193,7 @@ export interface ConversationDeletion {
 
 export interface PersistCurrentOptions {
   transcriptMode?: ChatTranscriptMode;
+  clearSummaryAnchor?: boolean;
 }
 
 export interface ConversationStore {
@@ -350,12 +360,16 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     emitChange({});
   }
 
-  async function savePersistedConversation(nextConversation: OrdinaryConversation): Promise<void> {
+  async function savePersistedConversation(
+    nextConversation: OrdinaryConversation,
+    opts?: { clearSummaryAnchor?: boolean }
+  ): Promise<void> {
     const maxCount = await resolveExplicitMaxCount();
     await saveConversationEntry(nextConversation, {
       storage,
       ...(maxCount !== undefined ? { maxCount } : {}),
-      ...(clientId ? { clientId } : {})
+      ...(clientId ? { clientId } : {}),
+      ...(opts?.clearSummaryAnchor ? { clearSummaryAnchor: true } : {})
     });
     emitChange({});
   }
@@ -412,7 +426,10 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       pinnedContext: true,
       contextRef: conversation.contextRef || null,
       resolvedContext: matchesLive && liveData ? { ...liveData } : null,
-      ...(conversation.transcriptMode ? { transcriptMode: conversation.transcriptMode } : {})
+      ...(conversation.transcriptMode ? { transcriptMode: conversation.transcriptMode } : {}),
+      ...(conversation.summaryAnchor && isSummaryAnchorValidForMessages(conversation.messages, conversation.summaryAnchor)
+        ? { summaryAnchor: { ...conversation.summaryAnchor } }
+        : {})
     };
     applyConversationIdentity({
       id: conversation.id,
@@ -574,6 +591,11 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       };
       applyConversationIdentity({ id: currentId, meta });
     }
+    const normalizedMessages = retainLatestImage(chat.map((item) => normalizeHistoryMessage(item)));
+    const rawAnchor = meta?.summaryAnchor;
+    const anchorValid = !opts?.clearSummaryAnchor && isSummaryAnchorValidForMessages(normalizedMessages, rawAnchor);
+    const nextSummaryAnchor = anchorValid && rawAnchor ? { ...rawAnchor } : undefined;
+    const shouldClearSummaryAnchor = Boolean(opts?.clearSummaryAnchor || (rawAnchor && !anchorValid));
     const nextConversation: OrdinaryConversation = {
       id: currentId,
       title: meta?.title || buildConversationTitle(context),
@@ -584,8 +606,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       createdAt: Number(meta?.createdAt) || now,
       updatedAt: now,
       contextRef: meta?.contextRef || buildAiContextRef(context),
-      messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item))),
-      ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {})
+      messages: normalizedMessages,
+      ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {}),
+      ...(nextSummaryAnchor ? { summaryAnchor: nextSummaryAnchor } : {})
     };
     const nextSummary = toConversationSummaryItem(nextConversation);
     if (nextSummary) {
@@ -605,10 +628,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         pinnedContext: true,
         contextRef: nextConversation.contextRef,
         resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context },
-        ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {})
+        ...(resolvedTranscriptMode ? { transcriptMode: resolvedTranscriptMode } : {}),
+        ...(nextSummaryAnchor ? { summaryAnchor: nextSummaryAnchor } : {})
       }
     });
-    await savePersistedConversation(nextConversation);
+    await savePersistedConversation(
+      nextConversation,
+      shouldClearSummaryAnchor ? { clearSummaryAnchor: true } : undefined
+    );
   }
 
   async function hydratePinned({ silent = false, preserveInput = false }: HydratePinnedOptions = {}): Promise<boolean> {
@@ -877,20 +904,26 @@ export async function applyConversationSyncSignal(
           chatSessionState.currentConversationId === summary.id
         ) {
           const prevMeta = chatSessionState.currentConversationMeta;
+          const nextMeta: CurrentConversationMeta = {
+            ...prevMeta,
+            id: refreshed.id,
+            title: refreshed.title,
+            createdAt: refreshed.createdAt,
+            updatedAt: refreshed.updatedAt,
+            contextKey: refreshed.contextKey,
+            contextTitle: refreshed.contextTitle,
+            contextUrl: refreshed.contextUrl,
+            isVideoContext: refreshed.isVideoContext !== false,
+            contextRef: refreshed.contextRef || prevMeta?.contextRef || null,
+            ...(refreshed.transcriptMode ? { transcriptMode: refreshed.transcriptMode } : {})
+          };
+          if (refreshed.summaryAnchor && isSummaryAnchorValidForMessages(refreshed.messages, refreshed.summaryAnchor)) {
+            nextMeta.summaryAnchor = { ...refreshed.summaryAnchor };
+          } else {
+            delete nextMeta.summaryAnchor;
+          }
           applyConversationIdentity({
-            meta: {
-              ...prevMeta,
-              id: refreshed.id,
-              title: refreshed.title,
-              createdAt: refreshed.createdAt,
-              updatedAt: refreshed.updatedAt,
-              contextKey: refreshed.contextKey,
-              contextTitle: refreshed.contextTitle,
-              contextUrl: refreshed.contextUrl,
-              isVideoContext: refreshed.isVideoContext !== false,
-              contextRef: refreshed.contextRef || prevMeta?.contextRef || null,
-              ...(refreshed.transcriptMode ? { transcriptMode: refreshed.transcriptMode } : {})
-            },
+            meta: nextMeta,
             history: refreshed.messages.map((item) => normalizeHistoryMessage(item))
           });
           opts.onCurrentUpdated?.();

@@ -9,7 +9,8 @@ import {
 } from "../shared/site.js";
 import type { AiContext } from "./types.js";
 export type { AiContext };
-import type { ChapterItem, HotComment, ImagePart } from "./types.js";
+import type { ChapterItem, HotComment, ImagePart, ThinkingBlock } from "./types.js";
+import { isSummaryAnchorValidForMessages } from "./compaction.js";
 import type { ChatSessionMessage, OrdinaryConversation } from "../chat/conversation-types.js";
 import {
   isLiveTextToolHistoryEntry,
@@ -134,7 +135,7 @@ export function normalizeConversations(
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { id?: unknown; role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
+            .map((msg: { id?: unknown; role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thoughtSignature?: unknown; thinkingBlocks?: unknown; thinking?: unknown; stopped?: unknown }) => {
               const base: ChatSessionMessage = { role: String(msg.role), content: String(msg.content) };
               if (typeof msg.id === "string" && msg.id.trim()) {
                 base.id = msg.id.trim();
@@ -145,6 +146,12 @@ export function normalizeConversations(
               }
               if (typeof msg.contextKey === "string" && msg.contextKey.trim()) {
                 base.contextKey = msg.contextKey;
+              }
+              if (typeof msg.thoughtSignature === "string" && msg.thoughtSignature) {
+                base.thoughtSignature = msg.thoughtSignature;
+              }
+              if (Array.isArray(msg.thinkingBlocks) && msg.thinkingBlocks.length) {
+                base.thinkingBlocks = msg.thinkingBlocks as ThinkingBlock[];
               }
               if (typeof msg.thinking === "string" && msg.thinking.trim()) {
                 base.thinking = msg.thinking;
@@ -186,8 +193,7 @@ export function normalizeConversations(
           : {}),
         ...(item?.summaryAnchor &&
         typeof item.summaryAnchor === "object" &&
-        Number.isInteger(Number(item.summaryAnchor.coveredMessageCount)) &&
-        Number(item.summaryAnchor.coveredMessageCount) > 0
+        isSummaryAnchorValidForMessages(messages, item.summaryAnchor)
           ? { summaryAnchor: { ...item.summaryAnchor } }
           : {})
       };
